@@ -772,10 +772,16 @@ Rust and the browser are implementation details, not advertised features.
   on each desktop system);
   an online room's stage played live, `battle/live.rs`
   (`docs/plans/multiplayer-online-play.md`): `Battle::with_live` over a
-  `LiveHandle` (the room client and the shell's wall clock,
-  `SessionConfig::live`), the play started at the room's instant
-  (`live_start`, a late join up to `late_join_ms`, past it a forfeit
-  watched), its moments and checkpoint reports streamed, the room's
+  `LiveHandle` (the room client and the shell's steady clock,
+  `ddi_platform::steady`, `SessionConfig::live`), the play started at
+  the room's instant (`live_start`, a late join up to `late_join_ms`,
+  past it a forfeit watched; one who missed the Ready window may enter
+  within it, `Event::EnteredLate`, the others' plays drawing a field of
+  them from then, `Live::admit_late`), a room's stage played on while its
+  page or window is hidden (`PlaySession::plays_on_unseen`,
+  `Inputs::hidden`; the shells' timers judge it on: the web's
+  `GameLoop::tick_unseen`, desktop's `Host::step_unseen`; singleplayer
+  still stops as interrupted), its moments and checkpoint reports streamed, the room's
   frames feeding people's fields (`TapTrack::full`, drawn wholly the
   device's view delay behind the song, `FieldFeed::set_delay`, a stall
   raising it, stale ones dimmed; `__DDI_DEBUG.live.delay`), its commitments into the play (refused when too
@@ -1292,7 +1298,10 @@ Rust and the browser are implementation details, not advertised features.
   returning member's administrator flag, `Event::AdminChanged`, a member
   reconnecting for a moment keeping their place, the member's
   keep-alive, DDI's combo part (`ddi-combo-v0`) and `adaptive-v5`
-  (in 12, deployed nowhere before them); 11 `adaptive-v4`, a live snapshot's `step`,
+  (in 12, deployed nowhere before them); and round P1b's: a late entry, `Event::EnteredLate`, a
+  socket closed 4429 an end, `LinkState::OpenedElsewhere`, the quiet
+  pings, `LivePolicy::quiet_ping_ms`, practice's Cancel ready stopping
+  its countdown, `ReadinessPolicy::unready_cancels_countdown`; 11 `adaptive-v4`, a live snapshot's `step`,
   `Command::CloseRoom`; 10 `adaptive-v3`; 9 since
   2026-11-14; round B1, 2 since
   `attacks-v2`, 3 adaptive charts, 4 `attacks-v3`, 5 `cpu-levels-v1`,
@@ -1339,7 +1348,9 @@ Rust and the browser are implementation details, not advertised features.
   revisions passed over, `LinkState` (joining, connected, reconnecting on
   a fresh ticket by `ReconnectPolicy::RECONNECT_BACKOFF_V0`, tried at
   once by `retry_now`, and the ends:
-  4401 sign in again, 4410 closed, 4000 left); a socket's keep-alive
+  4401 sign in again, 4410 closed, 4000 left, 4429 the room opened on
+  another device of the person's, a fifth socket, whose "Use this
+  device" joins again, `OnlineAuthority::restart`); a socket's keep-alive
   (`KEEPALIVE_V0`, PROVISIONAL: "ping" after 20 s of silence, answered
   by the server's runtime without waking the room, the socket replaced
   when 20 s more of the client's own running time bring nothing; not
@@ -1658,7 +1669,8 @@ Rust and the browser are implementation details, not advertised features.
   song select does, `shell::LIBRARY_SCREENS`; a
   stage played over the room through the play host, `play::Request::stage`
   with its room, `room::StageRoom` (a member's client or an audience
-  seat's and the wall clock, a test's fake one), never a thread-local,
+  seat's and the rooms' steady clock, `clock::now_ms`, a test's fake
+  one), never a thread-local,
   `room_screen_with` for tests, `tests/room_stage_flow.rs`). Its online
   rooms (M5c, `crates/desktop/src/online.rs`): HTTP through ureq on a
   thread a request, the room's socket through tungstenite (native-tls,
@@ -1895,7 +1907,8 @@ Rust and the browser are implementation details, not advertised features.
   `--mp-bots --api URL [--host] [--join LINK] [--guests N] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
   [--pick ID[:N],…] [--names A,B] [--level N|A-B] [--personality P]
-  [--cpus N[:LEVEL]] [--shocks N] [--audience N [--anonymous]]`
+  [--cpus N[:LEVEL]] [--shocks N] [--ready-late S] [--audience N
+  [--anonymous]]`
   (DEVELOPMENT TOOL: bots in a private online room, played by the CPU,
   no window or sound; the admin share token from `DDI_SHARE_TOKEN`;
   locally `DDI_SHARE_TOKEN=test-token … --api

@@ -11196,6 +11196,194 @@ every kept play again (`JUDGE_VERSION` 5), a song at a time in the
 background, as after versions 3 and 4: bests are pending until their
 plays are judged again.
 
+## Round P1b: the maintainer's decisions for rooms and online play (still revision 12, 2026-11-16)
+
+After playing online with 5 to 15 people the maintainer decided eight
+things, one by one. All land inside room model revision 12, which is
+deployed nowhere yet (production runs 11): no further bump; each reason
+is in `ROOM_MODEL_REVISION`'s list (`crates/room/src/protocol.rs`).
+
+### A late entry ("Yes, within a few seconds")
+
+- **The model** (`Event::EnteredLate`, `RoomState::late_entry_open`,
+  `Rejection::LateEntryClosed`, `Rejection::NotLoaded`): `SetReady(true)`
+  after a stage's start committed, from a member counted out of its
+  lineup for a reason that may change (not ready, still loading, a failed
+  load, reconnecting), connected, wanting to play, still in the match,
+  under the competitor cap, their song loaded, no later than the live
+  rules' late join after the song's time zero (`late_join_ms`, 5 s; the
+  countdown counts as before the start), enters them: in the lineup, out
+  of the sit-outs, ready. Their `ReportLoading` is heard after the commit
+  while they may still enter (it was refused `stage_started`). Only where
+  the room plays live; practice and a room that does not play live
+  refuse as before (`start_committed`).
+- **The live side** (`LiveStage::admit`, `StageBattle::seat_late`): the
+  lineup grown, the entrant is a stream from then and seated in the
+  ledger with no power (nothing against them placed before, their first
+  report credited at the next checkpoint run, earlier ones merged into
+  it as a late report is); their readiness to play live
+  (`ClientLive::Prepared`) is heard after the commit while they may
+  enter. The plan's seed and digest unchanged; existing stages' traces
+  unchanged (no pin moved).
+- **Every device**: a play under way draws a field of the entrant from
+  then on (`Live::admit_late`: the stage's people not in the lineup at
+  its start kept, a seat appended, the others' numbers kept); the
+  audience's public view follows the state. Ranked and awarded as any
+  starter.
+- **Their own device** (`RoomClient::may_enter_late`): the Ready screen
+  stays theirs for those seconds (`in_stage` and `stage_started` say so;
+  it used to turn into "sitting out"); Ready enters them and the play
+  starts late, as a late starter's does (the notes before missed). Past
+  the late join they watch, as before.
+- **Tests**: `crates/room/tests/late_entry.rs` (the countdown, 1/4/5 s in,
+  6 s refused, still loading then loaded, who may not, not live);
+  `tests/live.rs`'s `a_member_who_missed_the_start_enters_within_the_late_join_and_not_after`
+  (over `FakeServer` with latency: in at 1 s and 4 s, seated at
+  checkpoint 0 and 1, every reader with the entrant's whole field, ranked;
+  6 s refused); the session's
+  `a_late_entrant_starts_late_and_every_device_draws_her_field`; the
+  screens' `a_member_who_missed_the_window_may_still_ready_within_the_late_join`;
+  the server's `a_member_who_missed_the_start_enters_it_late_through_the_object`.
+  `away_tests`' member whose page loads after the start is now handed the
+  stage's Ready screen within the late join (renamed
+  `…_is_handed_it_within_the_late_join`). Bots: `--ready-late S`, the last
+  guest readying S s after each song's start.
+- **Not covered**: a member whose tab is hidden through the start (their
+  Ready screen draws no frame, so it never starts the play; the late
+  join then a forfeit, as before).
+
+### The loading grace counts from the end of the upload
+
+Shown, not changed: the model already counted `hosted-deadline-v2`'s 45 s
+from the song's availability (the share finished, or a share reused at
+once): `loading_grace.rs`'s `the_grace_counts_from_the_end_of_a_5_s_and_a_60_s_upload`
+and `a_pick_that_reuses_the_resting_songs_share_counts_from_the_pick`
+(also the spotlight's share finished after the pick). Followers report
+nothing before the share is there, so the lists say "Waiting for song"
+through the upload.
+
+### A hidden tab lets a stage's play run on
+
+- `Inputs::hidden` (the web's `visibilitychange`, apart from the audio
+  interruption); `PlaySession::plays_on_unseen` (a room's stage, played
+  or watched, practice's too): hidden is no interruption there.
+  Singleplayer is unchanged: hidden stops the play as interrupted (its
+  prompt offering Retry), as before.
+- The web: `game_canvas::schedule_play` adds a timer (100 ms asked; a
+  hidden page's timers come at the browser's pace, a second or more
+  apart unless it plays sound) that judges the play on while the page is
+  hidden (`GameLoop::tick_unseen`: the session ticked, its stage's
+  outcome reported, nothing drawn); its moments and reports stream as
+  ever; its sound plays on as the browser lets it.
+- Desktop: a minimized or covered window drew no frame and, shown after
+  more than 2 s, stopped the play as interrupted (a forfeit in a stage);
+  now a stage is judged on every 100 ms while occluded
+  (`Host::step_unseen`) and is never interrupted for it.
+- Judged by the audio clock, a coarse step judges as a fine one:
+  `a_hidden_stage_plays_on_and_judges_as_its_frames_would` (hidden from
+  10 s, steps of 1 s: the same tally, attack ledger and outcome as 60
+  frames a second).
+- A competitor whose reports come late (a timer once a minute, Chrome's
+  rate after five minutes hidden without sound): the room runs each
+  checkpoint at its deadline with what came, the late one's judgments
+  credited at the next checkpoint and its life as last known
+  (`a_late_report_counts_at_the_next_checkpoint_and_never_stalls_the_room`);
+  nobody waits for it. A stream that never started by the late join is a
+  no-show (a forfeit).
+
+### A fifth device stops
+
+The server closes a person's oldest socket 4429 when a fifth opens; that
+device now stops (`LinkState::OpenedElsewhere`, an end like 4401 and
+4410) with the notice "This room was opened on another device." and
+**Use this device** (`room-opened-elsewhere`, More's item too), which
+joins again and stops another device the same way. The five-devices test
+changed its expectation (`a_fifth_device_of_one_member_stops_the_first_which_comes_back_only_when_asked`:
+before, the five took turns for ever and reached the tickets' bound).
+The audience's seats are bounded by refusal at admission
+(`too_many_seats`), not by closing an older seat: nothing to change there.
+
+### A retry for a failed download (`load-retry-v0`, PROVISIONAL)
+
+A member's failed download of a stage's song from the room's share (its
+list, files or music: `LoadProblem::Download`) is tried again after 2 s
+and 5 s, the room hearing "loading" meanwhile; then the failure is
+reported and the room's song select has **Retry** beside its status line
+(More's "Retry the download") while the window is open. A song or chart
+that cannot be read, a changed chart, the CPUs' plan or a battle plan
+that differs are never retried (they fail the same again). The Ready
+card is not where it shows: a member whose song never loaded has no
+Ready screen (it opens once the song can be played), so it is their song
+select's status line.
+
+### The live clock's quiet ping (`quiet-ping-v0`, PROVISIONAL)
+
+`LivePolicy::quiet_ping_ms`, additive: a new room's devices ping its
+clock once a minute while no stage is gathering, counting down or
+playing (10 s before; each ping wakes the room's object, the runtime's
+keep-alive answer does not), with a burst of five at the pick; a room
+made before keeps its 10 s. Measured (300 seeded networks, 20 ms each
+way plus up to 150 ms and now and then 400 ms, a room clock 50 ppm
+fast): the error of the estimate at the start (mean / 95th percentile)
+2 s after a pick 17.7 / 45.1 ms before, 17.3 / 42.4 ms now; 5 s after
+17.7 / 45.3 and 17.3 / 42.3; 20 s after 18.6 / 46.0 and 17.2 / 42.0.
+The live pins keep a room made before (their pings unchanged).
+
+### One steady clock
+
+Rooms, countdowns and live play run on `ddi_platform::steady`: the wall
+clock read once, then a monotonic clock (the web's page time origin plus
+`performance.now()`; desktop's `CLOCK_MONOTONIC` on macOS,
+`CLOCK_BOOTTIME` on Linux, which count through sleep, `Instant` on
+Windows). A wall clock set back or forward never stalls nor skips a
+countdown: `a_practice_countdown_still_ends_after_the_wall_clock_steps_back`
+runs (no longer ignored), with `…_ends_on_time_after_the_wall_clock_steps_forward`
+and the online `an_online_countdown_ends_on_time_whatever_a_devices_wall_clock_does`.
+What still reads the real wall clock: the steady clock's anchor (once),
+and dates (a play's, an import's, a session's or share's expiry as the
+server says it). The room's clock estimate measures the steady clock
+against the server's at every ping, so a step of the device's wall clock
+never reaches it; a browser's monotonic clock may stand still while the
+computer sleeps, which is a step of the offset: two exchanges in a row
+that disagree with the estimate beyond what their round trips explain
+start it over (`ClockEstimator::STEP_US`, 250 ms; one alone is left out
+by the median as ever).
+
+### CPU practice: Cancel ready stops the countdown
+
+`ReadinessPolicy::unready_cancels_countdown` (practice's; additive):
+Ready taken back during the countdown cancels it
+(`CancelReason::ReadyTakenBack`) and opens the window again, the player
+not ready. An online room keeps refusing it once its start is committed,
+and its prompt now says so: the button reads "Starting…" (never "Cancel
+ready"), no hint says how to cancel, and Enter asks nothing.
+
+### Checked on a local server and in the browsers
+
+- A local server (the development provider on, the room's Ready window
+  8 s), built against this round's room crate: bots (`--mp-bots --host
+  --guests 2 --stages 1 --ready-late S`): at 2 s the late guest entered
+  ("ready for stage 1 2.0 s after its start: entering late"), streamed,
+  took and sent attacks and was placed second of three; at 7 s it did not
+  enter and was placed last with no points. The pick's song shared at
+  once and the stage started a Ready window after the last load.
+- Headless Chrome and Firefox (`hidden-tab.js`), a static build: the
+  singleplayer walk; CPU practice's countdown (the prompt's own Start
+  countdown readies the player, then the room's 3 s) canceled by Enter
+  twice, the player not ready and the window open again; a practice
+  stage hidden 6 s and shown: its song time had moved on by the time
+  hidden (4.1 s to 11.6 s), the stage not forfeited.
+- Not run in a browser: the fifth device and the download's retry (an
+  online room needs a server and sign-ins for five devices of one
+  person; the fake rooms in the page cannot fail a download): covered by
+  the tests over `FakeServer` and the server's own.
+
+### For the deploy
+
+Server and frontend together, the server first, as for all of revision
+12 (`../ddi-server` at its commit for this round, then the game); people
+in rooms are told to reload.
+
 ## Feedback round P2: small decided leftovers in the screens and CI (2026-11-16)
 
 Six things the maintainer decided one by one. Nothing judged, decided or
@@ -11271,6 +11459,9 @@ CPUs' fixture unchanged); only what the screens draw and say, and CI.
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `load-retry-v0` (2026-11-16, round P1b): a failed download of a stage's song tried again after 2 s and 5 s, the room told "loading" meanwhile, then reported failed with Retry offered | `ddi_ui::state::room::LOAD_RETRY_V0_MS`, `RoomClient::retry_load` | A brief network failure costs a few seconds, not the stage; after two more failures, "Download failed" in the lists and Retry on the member's song select | The waits; whether Retry should also show on a Ready screen (there is none without the song) |
+| `quiet-ping-v0` (2026-11-16, round P1b): a live room's clock pinged once a minute between stages, a burst of five at each pick | `ddi_room::LivePolicy::QUIET_PING_V0_MS`, `LiveLink::set_quiet` | None (the estimate at a stage's start is no worse); the room's object woken six times fewer between stages | The minute |
+| A late entry within `late_join_ms` (5 s) of a stage's song's time zero (2026-11-16, round P1b) | `ddi_room::RoomState::late_entry_open`, `Event::EnteredLate` | One who missed the Ready window keeps the Ready screen for those seconds and plays late (the notes before missed) | Whether the bound should be its own number rather than the late join's |
 | `ready-hint-v0` (2026-11-16, feedback round O): taking Ready back, and Back, while ready, by the quit's gesture (held 0.7 s or pressed twice within 0.5 s); the hint line under the buttons, its pulse (0.25 s) and fade (1.5 s); the hold's fill running back in 0.2 s; under reduced motion the fill in halves | `ddi_ui::screens::prompt` (`room_mode::Undo`, `RUN_BACK`, `PULSE`), timings in `ddi_ui::gesture` | One press while ready only brightens "Hold or press twice to cancel" (or "… to leave"); the footer says how; since feedback round P2 Back on the loading screen after the room's start takes the gesture too, and the play's quit hint says "hold or press … twice" | The timings by feel |
 | `battle-voice-v3` (2026-11-15, decisions round D4; replaces `battle-voice-v2`): as `battle-voice-v2`, but cleared and failed are not said where the voice has the outcome line the stage's results will say. The outcome is not known as the last note is judged, so the voice must have all the lines it could be: `battle stage won`, `drawn` and `not won` for a player still in at the end of a stage ranked on this device, or `battle match won`, `drawn` and `not won` on a match's last stage | `ddi_session::announcer::battle::BATTLE_VOICE_V3`, `Announcer::results_say`, `stage_play_end` | With our packs a stage ends on the full combo's line (if any) and then the outcome on the results, never "Cleared" before it; a pack with only some of the outcome lines says cleared as before; an online room's stage before the last still says cleared (its results say no outcome there) | Whether a pack with only some outcome lines should skip cleared too, and whether an online stage's results should say its outcome |
 | RETIRED 2026-11-15 (by `battle-voice-v3`): `battle-voice-v2` (2026-11-15, decisions round D2; replaces `battle-voice-v1`): the lines of the player's own play's end (the full combo's, cleared, failed) below every battle line, at most a second late (`end_window`), cleared and failed never after a line that said the stage's outcome; the rest as `battle-voice-v1` below | `ddi_session::announcer::battle` | A stage says "full combo" and "cleared" as the player's last note is judged, then the stage's outcome on its results | Whether cleared should also stay out where the stage's outcome will be said on the results (today both are heard, cleared first) |
