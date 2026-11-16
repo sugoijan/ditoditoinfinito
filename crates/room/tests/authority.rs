@@ -73,6 +73,32 @@ impl Client {
 }
 
 /// The picker's pick of song `n`.
+/// A room stored before Shocks per attack (revision 12) as a later
+/// revision writes it back: the rule written out, eight in its match's
+/// rules and their per-stage changes, four in its next match's draft
+/// (`ddi_room::rules::MatchRules::shocks`); nothing else.
+fn shocks_written(mut stored: serde_json::Value) -> serde_json::Value {
+    fn eight(v: &mut serde_json::Value) {
+        match v {
+            serde_json::Value::Object(o) => {
+                if o.contains_key("battle") && o.contains_key("difficulty") {
+                    o.entry("shocks").or_insert_with(|| "eight".into());
+                }
+                o.values_mut().for_each(eight);
+            }
+            serde_json::Value::Array(a) => a.iter_mut().for_each(eight),
+            _ => {}
+        }
+    }
+    stored["next"]["rules"]
+        .as_object_mut()
+        .unwrap()
+        .entry("shocks")
+        .or_insert_with(|| "four".into());
+    eight(&mut stored);
+    stored
+}
+
 fn pick(n: u32) -> Command {
     Command::Pick {
         content: song(n),
@@ -691,7 +717,7 @@ fn a_room_stored_by_revision_10_loads_and_plays_on() {
     let back = serde_json::to_value(&state).unwrap();
     assert_eq!(
         back,
-        serde_json::from_str::<serde_json::Value>(text).unwrap(),
+        shocks_written(serde_json::from_str::<serde_json::Value>(text).unwrap()),
         "written as it was read"
     );
     assert!(state.policy.live.is_some() && state.policy.audience.is_some());
@@ -740,13 +766,23 @@ fn a_room_stored_by_revision_11_loads_and_plays_on() {
     let back = serde_json::to_value(&state).unwrap();
     assert_eq!(
         back,
-        serde_json::from_str::<serde_json::Value>(text).unwrap(),
+        shocks_written(serde_json::from_str::<serde_json::Value>(text).unwrap()),
         "written as it was read"
     );
     assert!(state.member(ParticipantId(8)).unwrap().admin);
     assert_eq!(state.phase, Phase::Stage { stage: StageId(2) });
     let m = state.current.as_ref().unwrap();
     assert_eq!(m.rules_for(StageId(2)).at_once, ddi_room::AttacksAtOnce::Two);
+    // Stored before Shocks per attack was a rule: its match and every
+    // stage of it (the stage in play under a per-stage change of its own)
+    // are eight, as they were being played; its next match's draft takes
+    // a new room's four (nobody chose eight: it was the only count).
+    use ddi_room::ShocksPerAttack;
+    assert_eq!(m.rules.shocks, ShocksPerAttack::Eight);
+    assert_eq!(m.rules_for(StageId(2)).shocks, ShocksPerAttack::Eight);
+    assert_eq!(m.rules_for(StageId(3)).shocks, ShocksPerAttack::Eight);
+    assert_eq!(state.next.rules.shocks, ShocksPerAttack::Four);
+    assert_eq!(MatchRules::hosted_for(&state.policy).shocks, ShocksPerAttack::Four);
     let play = m.stages[1].play.as_ref().unwrap();
     assert_eq!(play.lineup.len(), 4);
     assert_eq!(

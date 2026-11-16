@@ -183,7 +183,7 @@ pub struct RulesDialog {
     /// Draws for Add random, one more each.
     draws: u64,
     /// The row whose sentence brightens, focused: `charts`,
-    /// `at_once` or `points` ([`BRIGHTENS`]).
+    /// `at_once`, `shocks` or `points` ([`BRIGHTENS`]).
     bright: Option<&'static str>,
     /// During a match whose room takes changes from a later stage on
     /// (`RoomClient::may_change_stage_rules`): where the edits go, from
@@ -203,7 +203,7 @@ pub struct RulesDialog {
 }
 
 /// The rows whose sentence under them brightens while they are focused.
-const BRIGHTENS: [&str; 3] = ["charts", "at_once", "points"];
+const BRIGHTENS: [&str; 4] = ["charts", "at_once", "shocks", "points"];
 
 /// The value of `all` one step from `at` (`up` or down), held at the
 /// ends: a choice's stepper pressed.
@@ -223,7 +223,7 @@ fn ends(len: usize, at: usize) -> (bool, bool) {
 
 /// The rows a running match may change from a later stage on
 /// (`ddi_room::PlayRules`).
-const PER_STAGE: [&str; 5] = ["difficulty", "boos", "charts", "attacks", "at_once"];
+const PER_STAGE: [&str; 6] = ["difficulty", "boos", "charts", "attacks", "at_once", "shocks"];
 
 impl RulesDialog {
     /// From its button: Cancel and Apply.
@@ -462,6 +462,7 @@ impl RulesDialog {
             charts: r.adaptive_offered(),
             attacks: r.attacks_offered(),
             at_once: r.attacks_offered(),
+            shocks: r.attacks_offered(),
             ..RuleGates::default()
         };
         if self.to_stage() {
@@ -553,6 +554,10 @@ impl RulesDialog {
         let at_once = self
             .at_once_shown()
             .then(|| super::room::at_once_id(self.edited().borrow().at_once).to_string());
+        // Shocks per attack shows wherever Attacks at once does.
+        let shocks = self
+            .at_once_shown()
+            .then(|| super::room::shocks_id(self.edited().borrow().shocks).to_string());
         drop(draft);
         let running = self.running();
         let changed: Vec<String> = self.changed().into_iter().map(String::from).collect();
@@ -565,6 +570,7 @@ impl RulesDialog {
             v.draft_points = points;
             v.draft_charts = charts;
             v.draft_at_once = at_once;
+            v.draft_shocks = shocks;
             v.rules_problem = problem;
             v.rules_running = running;
             v.rules_changed = changed;
@@ -884,8 +890,15 @@ impl Screen for RulesDialog {
         } else {
             Vec::new()
         };
+        // Shocks per attack under it, shown with it: its row and its
+        // sentence.
+        let shocks_about = if at_once_shown {
+            super::dialog::wrap_lines(&String::from(m::rules_shocks_about()), inner, 12.0)
+        } else {
+            Vec::new()
+        };
         let at_once_h = if at_once_shown {
-            ROW + at_once_about.len() as f32 * 17.0
+            2.0 * ROW + (at_once_about.len() + shocks_about.len()) as f32 * 17.0
         } else {
             0.0
         };
@@ -1245,6 +1258,21 @@ impl Screen for RulesDialog {
             let bright = self.bright == Some("at_once");
             about_lines(&mut c, "at_once", &at_once_about, bright, &mut ry);
             said_to("at_once", ry);
+            // How many shocks an attack has.
+            mark(&mut c, "shocks", ry + ROW / 2.0);
+            stepper(
+                &mut c,
+                "shocks",
+                &m::rules_shocks(),
+                m::rules_shocks_count(play.shocks.count() as usize).into(),
+                ends(ddi_room::ShocksPerAttack::ALL.len(), play.shocks.index()),
+                false,
+                ry + ROW / 2.0,
+            );
+            ry += ROW;
+            let bright = self.bright == Some("shocks");
+            about_lines(&mut c, "shocks", &shocks_about, bright, &mut ry);
+            said_to("shocks", ry);
         }
         // Points: how strongly a large field favors its top places.
         mark(&mut c, "points", ry + ROW / 2.0);
@@ -1355,6 +1383,7 @@ impl Screen for RulesDialog {
             }
             if self.at_once_shown() {
                 rows.push(pair("at_once"));
+                rows.push(pair("shocks"));
             }
             if self.row_editable("points") {
                 rows.push(pair("points"));
@@ -1436,7 +1465,7 @@ impl Screen for RulesDialog {
             .and_then(|id| BRIGHTENS.into_iter().find(|b| *b == id))
             .filter(|id| match *id {
                 "charts" => self.adaptive_offered(),
-                "at_once" => self.at_once_shown(),
+                "at_once" | "shocks" => self.at_once_shown(),
                 _ => true,
             });
         if bright != self.bright {
@@ -1558,6 +1587,15 @@ impl Screen for RulesDialog {
                         d.at_once = step(&ddi_room::AttacksAtOnce::ALL, d.at_once.index(), up);
                         drop(d);
                         self.bright = Some("at_once");
+                        rebuild(self, root, cx, name);
+                    }
+                    "Dec.shocks" | "Inc.shocks" if self.editable() && self.at_once_shown() => {
+                        let edited = self.edited();
+                        let mut d = edited.borrow_mut();
+                        let up = name == "Inc.shocks";
+                        d.shocks = step(&ddi_room::ShocksPerAttack::ALL, d.shocks.index(), up);
+                        drop(d);
+                        self.bright = Some("shocks");
                         rebuild(self, root, cx, name);
                     }
                     "AddRandom" if self.free_seats() > 0 && self.row_editable("cpus") => {

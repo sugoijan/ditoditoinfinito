@@ -216,3 +216,57 @@ fn the_attacks_at_once_row_is_drawn() {
     ddi_l10n::unforce();
     assert!(ddi_l10n::set_language("en"));
 }
+
+/// Shocks per attack (feedback round N2): the Rules pop-up's row under
+/// Attacks at once with its sentence, focused (scrolled into view), at
+/// 1280×720 and 844×390, in English and Japanese: a new room's four,
+/// stepped down to two, the row and its value whole on view.
+/// `DDI_OFFSCREEN_PPM=<dir>` keeps `shocks-<w>x<h>-<lang>.ppm`.
+#[test]
+fn the_shocks_per_attack_row_is_drawn() {
+    let mut pictures = common::gpu::Pictures::new();
+    for size in [[1280u32, 720u32], [844, 390]] {
+        for lang in ["en", "ja"] {
+            assert!(ddi_l10n::force(lang));
+            let (mut ui, env) = common::ui::theme("room", common::ui::lowercase(), size, true);
+            frames(&mut ui, 30);
+            let room = ddi_desktop::room::current();
+            room.borrow_mut().set_rules_seen(true);
+            ui.push_over(RulesDialog::new(env.clone(), room.clone()));
+            frames(&mut ui, 30);
+            assert_eq!(
+                env.state.borrow().room.clone().unwrap().draft_shocks.as_deref(),
+                Some("four"),
+                "a new room's: {size:?} {lang}"
+            );
+            for _ in 0..40 {
+                if ui.focused().is_some_and(|f| f.ends_with(".shocks")) {
+                    break;
+                }
+                ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::down("ArrowDown", "ArrowDown")));
+                ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::up("ArrowDown", "ArrowDown")));
+                frames(&mut ui, 4);
+            }
+            assert_eq!(ui.focused(), Some("Dec.shocks"), "{size:?} {lang}");
+            ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::down("Enter", "Enter")));
+            ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::up("Enter", "Enter")));
+            frames(&mut ui, 34);
+            assert_eq!(
+                env.state.borrow().room.clone().unwrap().draft_shocks.as_deref(),
+                Some("two"),
+                "{size:?} {lang}"
+            );
+            for name in ["Rule.shocks", "Rule.shocks.Value", "Rule.shocks.About0"] {
+                assert!(ui.actor(name).is_some(), "{name} at {size:?} {lang}");
+            }
+            for name in ["Dec.shocks", "Inc.shocks"] {
+                let (b, v) = (ui.bounds(name), ui.visible_bounds(name));
+                assert!(b.is_some() && b == v, "{name} whole at {size:?} {lang}: {b:?} {v:?}");
+            }
+            let name = format!("shocks-{}x{}-{lang}.ppm", size[0], size[1]);
+            pictures.shot(&mut ui, size, &name);
+        }
+    }
+    ddi_l10n::unforce();
+    assert!(ddi_l10n::set_language("en"));
+}

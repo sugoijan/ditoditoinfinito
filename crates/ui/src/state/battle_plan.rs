@@ -54,17 +54,25 @@ pub fn checkpoints(song: &Song, chart: usize, rules: &AttackRules) -> Vec<i64> {
 
 /// The sections chart `chart` of `song` has room for shocks in under
 /// `judge` (`ddi_engine::battle::schedule`, the engine's placement, drawn
-/// from `seed`), as the ledger has them: a slot every placement's beats
-/// from the chart's start, each section's shocks timed, when it clears
-/// (its last shock and its window), over for its recipient then.
-pub fn schedule(song: &Song, chart: usize, judge: &JudgeTable, seed: u64) -> Schedule {
+/// from `seed`) for attacks of `shocks` shocks (a match's Shocks per
+/// attack, `ddi_engine::battle::schedule_of`), as the ledger has them: a
+/// slot every placement's beats from the chart's start, each section's
+/// shocks timed, when it clears (its last shock and its window), over
+/// for its recipient then.
+pub fn schedule(
+    song: &Song,
+    chart: usize,
+    judge: &JudgeTable,
+    seed: u64,
+    shocks: u32,
+) -> Schedule {
     let Some(c) = song.charts.get(chart) else {
         return Schedule::default();
     };
     let timing = c.timing(song);
     let window = ddi_engine::battle::INJECTED_MINE_V0.window(judge);
     let every = i64::from(ddi_engine::battle::PLACEMENT.every_beats.max(1));
-    let slots = ddi_engine::battle::schedule(song, chart, judge, seed)
+    let slots = ddi_engine::battle::schedule_of(song, chart, judge, seed, shocks as usize)
         .into_iter()
         .enumerate()
         .map(|(j, section)| Slot {
@@ -94,8 +102,8 @@ pub fn schedule(song: &Song, chart: usize, judge: &JudgeTable, seed: u64) -> Sch
 /// Stage battle plan of chart `chart` of `song` under the match's `rules`
 /// (DDI, its difficulty and Boos), from the stage's seed (`seed_for`):
 /// what the picker's device offers and every other compares
-/// (`attacks-v3` with the stage's Attacks at once, the engine's
-/// placement, `power-classes-v0`).
+/// (`attacks-v3` with the stage's Attacks at once and Shocks per attack,
+/// the engine's placement for that count, `power-classes-v0`).
 ///
 /// Where the match's zero life steps down (`StageRules::steps_down`) the
 /// sections are placed over the stage's chart and its ladder at once
@@ -127,7 +135,7 @@ pub fn plan(song: &Song, chart: usize, rules: &StageRules, seed: u64) -> BattleP
         &rules.ruleset,
         seed,
         checkpoints(song, chart, &ATTACKS),
-        schedule(over, chart, &judge, seed),
+        schedule(over, chart, &judge, seed, rules.shocks.count()),
     )
     .with_ladder(
         ladder
@@ -137,6 +145,7 @@ pub fn plan(song: &Song, chart: usize, rules: &StageRules, seed: u64) -> BattleP
     )
     .with_stage_rules(rules.changed_tag())
     .with_at_once(rules.at_once.limit())
+    .with_shocks(rules.shocks.count())
 }
 
 /// The first and last note of chart `chart` of `song`, song seconds.

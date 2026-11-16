@@ -40,6 +40,9 @@ pub enum PlanProblem {
     TooLarge,
     /// Checkpoints or slots not rising, or a section's cells out of order.
     Order,
+    /// A shock count the rule does not offer, or a section that does not
+    /// hold exactly its plan's count (room model revision 12).
+    Shocks,
 }
 
 /// The chart's facts the room's ledger runs on (`crate::attacks`).
@@ -84,6 +87,13 @@ pub struct BattlePlan {
     /// out of the digest) while `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at_once: Option<u32>,
+    /// The match's Shocks per attack for the stage (room model revision
+    /// 12, [`crate::ShocksPerAttack::count`]): how many shocks each of its
+    /// sections holds and an attack has. `None`: eight, as every plan
+    /// before the rule. ADDITIVE: left out (and out of the digest) while
+    /// `None`, so a plan of eight is what it was, digest and all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shocks: Option<u32>,
     pub digest: PlanDigest,
 }
 
@@ -117,6 +127,7 @@ impl BattlePlan {
             ladder: Vec::new(),
             stage_rules: None,
             at_once: None,
+            shocks: None,
             digest: PlanDigest(String::new()),
         };
         plan.digest = plan.compute_digest();
@@ -147,11 +158,25 @@ impl BattlePlan {
         self
     }
 
+    /// The plan for attacks of `shocks` shocks ([`BattlePlan::shocks`]:
+    /// eight kept as none), its digest computed again.
+    pub fn with_shocks(mut self, shocks: u32) -> BattlePlan {
+        self.shocks = (shocks != crate::attacks::SHOCKS_BEFORE_THE_RULE).then_some(shocks);
+        self.digest = self.compute_digest();
+        self
+    }
+
+    /// The shocks an attack of the stage has.
+    pub fn shock_count(&self) -> u32 {
+        self.shocks.unwrap_or(crate::attacks::SHOCKS_BEFORE_THE_RULE)
+    }
+
     /// The attack rules the ledger runs the stage under: those it names,
-    /// with its Attacks at once (`None` for rules this build does not
-    /// know).
+    /// with its Attacks at once and its Shocks per attack (`None` for
+    /// rules this build does not know).
     pub fn rules(&self) -> Option<crate::attacks::AttackRules> {
-        crate::attacks::attack_rules(&self.attack_rules).map(|r| r.with_at_once(self.at_once))
+        crate::attacks::attack_rules(&self.attack_rules)
+            .map(|r| r.with_at_once(self.at_once).with_shocks(self.shock_count()))
     }
 
     /// The digest of its contents (everything but the digest).
@@ -207,6 +232,11 @@ impl BattlePlan {
             h.u64(0x4f4e_4345);
             h.u64(u64::from(n));
         }
+        // Shocks per attack only where it is not eight, as the ladder.
+        if let Some(n) = self.shocks {
+            h.u64(0x5348_4f43);
+            h.u64(u64::from(n));
+        }
         let mut text = String::from("fnv1a64:");
         let _ = write!(text, "{:016x}", h.0);
         PlanDigest(text)
@@ -238,6 +268,19 @@ impl BattlePlan {
                 .is_some_and(|c| c.cells.len() > Self::MAX_CELLS)
         }) {
             return Err(PlanProblem::TooLarge);
+        }
+        // A count the rule offers, every section holding exactly it (a
+        // plan that names none is eight's, taken as it always was).
+        if let Some(n) = self.shocks
+            && (!crate::ShocksPerAttack::ALL.iter().any(|s| s.count() == n)
+                || n == crate::attacks::SHOCKS_BEFORE_THE_RULE
+                || self.schedule.slots.iter().any(|s| {
+                    s.section
+                        .as_ref()
+                        .is_some_and(|c| c.cells.len() != n as usize)
+                }))
+        {
+            return Err(PlanProblem::Shocks);
         }
         let rising = |v: Vec<i64>| v.windows(2).all(|w| w[1] > w[0]);
         if !rising(self.checkpoints_us.clone())

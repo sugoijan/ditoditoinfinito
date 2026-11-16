@@ -231,6 +231,15 @@ room-rules-at-once-count = { $count }
 room-rules-at-once-no-limit = No limit
 room-rules-at-once-about = How many attacks can be on their way to one player at the same time. They never overlap.
 
+# The row under Attacks at once (shown while attacks are on) saying how
+# many shocks one attack puts into the attacked player's field (about 20
+# letters), its value (the number: 2, 4, 6 or 8) and a line under it.
+room-rules-shocks = Shocks per attack
+# Variables:
+#   $count (Number) - how many shocks: 2, 4, 6 or 8
+room-rules-shocks-count = { $count }
+room-rules-shocks-about = How many shocks one attack puts into a player's field.
+
 # The Attacks row's value in an online room, where the rule cannot be
 # turned on yet (about 32 letters).
 room-rules-attacks-online = Off · not in online rooms yet
@@ -273,7 +282,7 @@ room-rules-level-note = A CPU's stars show its level: the charts it keeps up wit
 # matters only with nine players or more.
 room-rules-points-bias-note = The Points choice changes nothing with eight players or fewer.
 room-rules-ruleset-note = Everyone plays the match under DDI with these rules, whatever their own options say.
-room-rules-battle-note = The battle is provisional: your stage ends when your life runs out. With attacks, good timing fills a power bar, and a full bar sends eight shocks into another player's field.
+room-rules-battle-note = The battle is provisional: your stage ends when your life runs out. With attacks, good timing fills a power bar, and a full bar sends an attack, a few shocks, into another player's field.
 room-rules-locked-note = Changes apply to the next match; this one keeps its rules.
 room-rules-clears-note = Applying clears readiness.
 
@@ -432,6 +441,14 @@ room-rules-change-at-once = { $at_once ->
     [two] Two attacks at once
     [no_limit] No limit on attacks at once
    *[three] Three attacks at once
+}
+# Variables:
+#   $shocks (String) - "two", "four", "six" or "eight": how many shocks one attack has
+room-rules-change-shocks = { $shocks ->
+    [two] Two shocks per attack
+    [six] Six shocks per attack
+    [eight] Eight shocks per attack
+   *[four] Four shocks per attack
 }
 # Variables:
 #   $charts (String) - "adaptive" or "as_picked"
@@ -675,7 +692,7 @@ room-play-cue-stay = Staying on { $chart }
 room-play-cue-stage-drawn = Stage drawn
 
 # An opponent's full power bar was spent on an attack against the
-# player: eight shocks are on their way into the player's field.
+# player: its shocks are on their way into the player's field.
 room-play-cue-attack-incoming = Attack incoming
 
 # The player's own full power bar was spent on an attack against an
@@ -809,7 +826,8 @@ room-prompt-ruleset = Rules: { $rules }
 # them turned off (they are on by default), the Points choice when it
 # is not the default Strong, adaptive charts when they are chosen, and
 # how many attacks may be on their way to one player at once when it is
-# not the default three.
+# not the default three, and how many shocks one attack has when it is
+# not the default four.
 # Variables:
 #   $ruleset (String) - the ruleset's name ("DDI")
 #   $difficulty (String) - "easy", "normal" or "hard"
@@ -818,6 +836,7 @@ room-prompt-ruleset = Rules: { $rules }
 #   $points (String) - "strong", "medium" or "mild"
 #   $charts (String) - "as_picked" when everyone plays the chart picked (the charts not adapting to each player, which is the usual), else "adaptive"
 #   $at_once (String) - "one", "two" or "no_limit" when attacks are on and that is how many may be on their way to one player at once, else "three"
+#   $shocks (String) - "two", "six" or "eight" when attacks are on and that is how many shocks one attack has, else "four"
 room-rules-words = { $ruleset }{ $difficulty ->
     [easy] {" "}· Easy timing
     [hard] {" "}· Hard timing
@@ -840,6 +859,11 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [two] {" "}· Two attacks at once
     [no_limit] {" "}· No limit on attacks at once
    *[three] {""}
+}{ $shocks ->
+    [two] {" "}· Two shocks per attack
+    [six] {" "}· Six shocks per attack
+    [eight] {" "}· Eight shocks per attack
+   *[four] {""}
 }
 
 # A note on a stage's results and under the song in the room: how the
@@ -1544,7 +1568,7 @@ room-table-sent = Sent
 # The attacks launched against this player.
 room-table-taken = Taken
 
-# The shocks (an attack's eight hazards) this player stepped on.
+# The shocks (an attack's hazards) this player stepped on.
 room-table-shocks = Shocks
 
 ## Under the standings on the local player's own results, where the

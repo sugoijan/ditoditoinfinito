@@ -285,7 +285,8 @@ pub struct StageOutcome {
 /// (`ddi_shell`'s cue by the field's receptors).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Incoming {
-    /// Its shocks (all eight, D4).
+    /// Its shocks (all of them, D4: as many as the match's Shocks per
+    /// attack).
     pub shocks: u8,
     /// When it was committed, its first shock and when it clears
     /// (judged song seconds).
@@ -827,6 +828,7 @@ impl Battle {
                 &ruleset.judge,
                 roster,
                 setup.rules.at_once.limit(),
+                setup.rules.shocks.count(),
             )
         });
         let own = feed::FieldFeed::new(&track, 1.0, feed::LOCAL_DELAY);

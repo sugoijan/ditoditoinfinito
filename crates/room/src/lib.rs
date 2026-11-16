@@ -104,7 +104,7 @@ pub use protocol::{
     UpdateRequired, Want, check_authority, check_model, check_model_against,
 };
 pub use rules::{
-    Access, Admission, AttacksAtOnce, Charts, CapExceeded, ContentSource, CpuMode, CpuRules, LivePolicy,
+    Access, Admission, AttacksAtOnce, Charts, ShocksPerAttack, CapExceeded, ContentSource, CpuMode, CpuRules, LivePolicy,
     MatchDifficulty, MatchRules, OutcomePolicy, PlayRules, RankBy, ReadinessPolicy, RoomPolicy,
     RulesProblem,
 };

@@ -18,9 +18,29 @@ pub fn song(n: u32) -> ContentId {
 }
 
 /// A plan of `n` slots of 2 s under the attack rules named `rules`, each
-/// with eight shocks a quarter second apart where `room(j)`; checkpoints
-/// every 2 s from 2 s.
+/// with four shocks (a new room's Shocks per attack: the first, third,
+/// sixth and eighth of eight a quarter second apart, so a section clears
+/// when a section of eight did) where `room(j)`; checkpoints every 2 s
+/// from 2 s.
 pub fn plan_under(rules: &str, n: usize, seed: u64, room: impl Fn(usize) -> bool) -> BattlePlan {
+    plan_of(rules, n, seed, 4, room)
+}
+
+/// [`plan_under`] for attacks of `shocks` shocks (2, 4, 6 or 8 of the
+/// eight a quarter second apart, the first and the last always).
+pub fn plan_of(
+    rules: &str,
+    n: usize,
+    seed: u64,
+    shocks: u32,
+    room: impl Fn(usize) -> bool,
+) -> BattlePlan {
+    let kept: &[i64] = match shocks {
+        2 => &[0, 7],
+        4 => &[0, 2, 5, 7],
+        6 => &[0, 1, 3, 4, 6, 7],
+        _ => &[0, 1, 2, 3, 4, 5, 6, 7],
+    };
     use ddi_room::attacks::{Cell, Schedule, Section, Slot};
     const S: i64 = 1_000_000;
     let slots = (0..n)
@@ -29,8 +49,9 @@ pub fn plan_under(rules: &str, n: usize, seed: u64, room: impl Fn(usize) -> bool
             Slot {
                 start_us,
                 section: room(j).then(|| {
-                    let cells: Vec<Cell> = (0..8)
-                        .map(|i| Cell {
+                    let cells: Vec<Cell> = kept
+                        .iter()
+                        .map(|&i| Cell {
                             tick: (j as i64 * 4 * 48) + i * 24,
                             lane: (i % 4) as u8,
                             at_us: start_us + i * S / 4,
@@ -54,6 +75,7 @@ pub fn plan_under(rules: &str, n: usize, seed: u64, room: impl Fn(usize) -> bool
         (1..=n as i64).map(|k| k * 2 * S).collect(),
         Schedule { slots },
     )
+    .with_shocks(shocks)
 }
 
 /// A competitor's play, scripted: its moments in time order.

@@ -698,6 +698,9 @@ pub struct StageRules {
     /// Attacks at once: the most attacks that may stand placed against one
     /// competitor (`attacks-v3`; read only where the stage has attacks).
     pub at_once: ddi_room::AttacksAtOnce,
+    /// Shocks per attack: how many shocks an attack of the stage has (a
+    /// new room's four; read only where the stage has attacks).
+    pub shocks: ddi_room::ShocksPerAttack,
     /// The stage is played under per-stage rules changed during the match
     /// (`ddi_room::Match::changes`): other than those the match began
     /// with (Points included: the Standings mark it).
@@ -720,6 +723,7 @@ struct PlayKey {
     attacks: bool,
     charts: ddi_room::Charts,
     at_once: ddi_room::AttacksAtOnce,
+    shocks: ddi_room::ShocksPerAttack,
 }
 
 impl PlayKey {
@@ -730,6 +734,7 @@ impl PlayKey {
             attacks: r.attacks(),
             charts: r.charts,
             at_once: r.at_once,
+            shocks: r.shocks,
         }
     }
 
@@ -740,6 +745,7 @@ impl PlayKey {
             attacks: r.attacks,
             charts: r.charts,
             at_once: r.at_once,
+            shocks: r.shocks,
         }
     }
 }
@@ -762,6 +768,7 @@ impl StageRules {
             points: rules.points,
             charts: rules.charts,
             at_once: rules.at_once,
+            shocks: rules.shocks,
             changed: false,
             play_changed: false,
         }
@@ -790,6 +797,7 @@ impl StageRules {
             points: r.points,
             charts: r.charts,
             at_once: r.at_once,
+            shocks: r.shocks,
             changed,
             play_changed: changed && PlayKey::of_public(r) != PlayKey::of_public(&v.rules),
         }
@@ -814,9 +822,12 @@ impl StageRules {
     }
 
     /// The attack rules a stage under these rules is played with: the
-    /// room's (`ddi_room::attacks::ATTACKS`) with its Attacks at once.
+    /// room's (`ddi_room::attacks::ATTACKS`) with its Attacks at once and
+    /// its Shocks per attack.
     pub fn attack_rules(&self) -> ddi_room::attacks::AttackRules {
-        ddi_room::attacks::ATTACKS.with_at_once(self.at_once.limit())
+        ddi_room::attacks::ATTACKS
+            .with_at_once(self.at_once.limit())
+            .with_shocks(self.shocks.count())
     }
 
     /// Adaptive charts: down and up the song's ladder

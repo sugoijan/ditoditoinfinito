@@ -139,6 +139,9 @@ pub struct RoomView {
     /// where its row shows (attacks offered and On, the authority honoring
     /// it).
     pub draft_at_once: Option<String>,
+    /// The draft's Shocks per attack (`two`, `four`, `six`, `eight`),
+    /// where its row shows (with Attacks at once).
+    pub draft_shocks: Option<String>,
     pub rules_problem: Option<String>,
     /// While a match runs, the pop-up says so at its top (`rules_running`),
     /// marks the rows whose draft differs from the running match's
@@ -2752,6 +2755,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         draft_points: kept.draft_points,
         draft_charts: kept.draft_charts,
         draft_at_once: kept.draft_at_once,
+        draft_shocks: kept.draft_shocks,
         rules_problem: kept.rules_problem,
         rules_running: kept.rules_running,
         rules_changed: kept.rules_changed,
@@ -3020,7 +3024,18 @@ pub fn rules_words_in(
         charts.id(),
         // Only where the stage has attacks.
         if attacks.unwrap_or(true) { at_once_id(rules.at_once) } else { "three" },
+        if attacks.unwrap_or(true) { shocks_id(rules.shocks) } else { "four" },
     )
+}
+
+/// Shocks per attack by its id in the messages.
+pub fn shocks_id(s: ddi_room::ShocksPerAttack) -> &'static str {
+    match s {
+        ddi_room::ShocksPerAttack::Two => "two",
+        ddi_room::ShocksPerAttack::Four => "four",
+        ddi_room::ShocksPerAttack::Six => "six",
+        ddi_room::ShocksPerAttack::Eight => "eight",
+    }
 }
 
 /// Attacks at once by its id in the messages.
@@ -3052,12 +3067,14 @@ pub(crate) struct RuleGates {
     pub attacks: bool,
     /// Attacks at once, compared where the rules after have attacks On.
     pub at_once: bool,
+    /// Shocks per attack, compared as Attacks at once is.
+    pub shocks: bool,
     pub points: bool,
 }
 
 /// The rows whose rules differ from `before` to `after`, among those
 /// `gates` covers, in the Rules pop-up's order (`stages`, `difficulty`,
-/// `boos`, `charts`, `cpus`, `attacks`, `at_once`, `points`).
+/// `boos`, `charts`, `cpus`, `attacks`, `at_once`, `shocks`, `points`).
 pub(crate) fn rules_diff(
     before: &ddi_room::MatchRules,
     after: &ddi_room::MatchRules,
@@ -3080,6 +3097,10 @@ pub(crate) fn rules_diff(
             "at_once",
             gates.at_once && after.attacks() && before.at_once != after.at_once,
         ),
+        (
+            "shocks",
+            gates.shocks && after.attacks() && before.shocks != after.shocks,
+        ),
         ("points", gates.points && before.points != after.points),
     ]
     .into_iter()
@@ -3100,12 +3121,13 @@ pub fn change_words(
         charts: true,
         attacks: attacks_offered,
         at_once: attacks_offered,
+        shocks: attacks_offered,
         points: true,
         ..RuleGates::default()
     };
     let diff = rules_diff(before, after, gates);
     let on = |b: bool| if b { "on" } else { "off" };
-    ["difficulty", "boos", "attacks", "charts", "at_once", "points"]
+    ["difficulty", "boos", "attacks", "charts", "at_once", "shocks", "points"]
         .into_iter()
         .filter(|id| diff.contains(id))
         .map(|id| match id {
@@ -3114,6 +3136,7 @@ pub fn change_words(
             "attacks" => m::rules_change_attacks(on(after.attacks())),
             "charts" => m::rules_change_charts(after.charts.id()),
             "at_once" => m::rules_change_at_once(at_once_id(after.at_once)),
+            "shocks" => m::rules_change_shocks(shocks_id(after.shocks)),
             _ => m::rules_change_points(after.points.id()),
         })
         .reduce(m::rules_change_join)

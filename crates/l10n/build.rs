@@ -464,6 +464,11 @@ fn write_messages(out: &mut String, areas: &BTreeMap<String, Vec<Msg>>) {
                     }
                 })
                 .collect();
+            // A sentence may well take more variables than a function
+            // usually should (the room's rules in a few words).
+            if params.len() > 7 {
+                out.push_str("        #[allow(clippy::too_many_arguments)]\n");
+            }
             let _ = writeln!(
                 out,
                 "        pub fn {}({}) -> crate::UiText {{\n            crate::format({:?}, &[{}])\n        }}",

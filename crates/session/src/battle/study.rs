@@ -116,6 +116,10 @@ struct Seat {
     stepped: u32,
     locked_missed: u32,
     knocked_out: u32,
+    /// Steps down (Charts: Adaptive) while an attack against it ran, as
+    /// `knocked_out`; and all its steps down.
+    downs_in_attack: u32,
+    downs: u32,
     out: u32,
     percent: f64,
     /// Checkpoints its full bar waited (no one to attack, no safe section).
@@ -132,6 +136,8 @@ impl Seat {
         self.stepped += o.stepped;
         self.locked_missed += o.locked_missed;
         self.knocked_out += o.knocked_out;
+        self.downs_in_attack += o.downs_in_attack;
+        self.downs += o.downs;
         self.out += o.out;
         self.percent += o.percent;
         self.waited += o.waited;
@@ -212,6 +218,21 @@ fn stage_with(
         at_once,
         ..StageRules::default()
     };
+    let (seats, facts, _) = stage_under(song, chart, levels, seed, skills, targeting, rules);
+    (seats, facts)
+}
+
+/// [`stage_with`] under the stage's `rules` as they are: also how long
+/// the stage lasted (minutes: to its decision, else to the last CPU's end).
+fn stage_under(
+    song: &Song,
+    chart: usize,
+    levels: &[u8],
+    seed: u64,
+    skills: Option<&str>,
+    targeting: Targeting,
+    rules: StageRules,
+) -> (Vec<Seat>, Facts, f64) {
     let ruleset = stage_ruleset(&rules);
     let setup = cpu_practice(seed, levels, rules, skills, targeting);
     let b = super::played_out_forfeit(setup, song, chart, &ruleset).unwrap();
@@ -260,17 +281,18 @@ fn stage_with(
             });
             // Out while an attack against it ran: from its first shock's
             // window to its last one's lock.
-            let knocked_out = u32::from(out_at.is_some_and(|out| {
+            let in_attack = |t: f64| {
                 ledger.attacks().iter().any(|a| {
                     a.recipient == id
-                        && a.cells.first().is_some_and(|c| {
-                            out >= c.at_us as f64 / 1e6 - window
-                        })
-                        && a.cells.last().is_some_and(|c| {
-                            out <= c.at_us as f64 / 1e6 + window + lock + reach
-                        })
+                        && a.cells.first().is_some_and(|c| t >= c.at_us as f64 / 1e6 - window)
+                        && a.cells
+                            .last()
+                            .is_some_and(|c| t <= c.at_us as f64 / 1e6 + window + lock + reach)
                 })
-            }));
+            };
+            let knocked_out = u32::from(out_at.is_some_and(in_attack));
+            let downs: Vec<f64> = p.steps().iter().filter(|x| !x.up).map(|x| x.at).collect();
+            let downs_in_attack = downs.iter().filter(|&&t| in_attack(t)).count() as u32;
             Seat {
                 seats: 1,
                 minutes: end / 60.0,
@@ -283,13 +305,21 @@ fn stage_with(
                 stepped,
                 locked_missed,
                 knocked_out,
+                downs_in_attack,
+                downs: downs.len() as u32,
                 out: u32::from(out_at.is_some()),
                 percent: accuracy(&s.opponent.score()),
                 waited: stats.waited(),
             }
         })
-        .collect();
-    (seats, facts)
+        .collect::<Vec<Seat>>();
+    let lasted = b.last_standing_span().1.unwrap_or_else(|| {
+        b.seats
+            .iter()
+            .map(|s| s.opponent.out_at().unwrap_or_else(|| s.opponent.player().end_time()))
+            .fold(0.0, f64::max)
+    }) / 60.0;
+    (seats, facts, lasted)
 }
 
 fn facts(b: &Battle, ledger: &ddi_room::attacks::StageBattle, targeting: Targeting) -> Facts {
@@ -454,7 +484,7 @@ fn attack_rates() {
         let (mine, miss) = costs(d);
         println!(
             "{name:<22} bars/min {:5.2} | launched/seat {:5.2} /min {:5.2} | received/seat {:5.2} | \
-             a received attack: stepped {:4.2} of 8, missed in locks {:4.2}, life {:5.1} | \
+             a received attack: stepped {:4.2} of {}, missed in locks {:4.2}, life {:5.1} | \
              knocked out by one {:5.1}% of attacks | out {:5.1}% | percent {:5.1} | \
              waited/seat {:5.2} | {stages} stages",
             s.earned / 100.0 / s.minutes.max(1e-9),
@@ -462,6 +492,7 @@ fn attack_rates() {
             f64::from(s.launched) / s.minutes.max(1e-9),
             f64::from(s.received) / n,
             f64::from(s.stepped) / received,
+            StageRules::default().shocks.count(),
             f64::from(s.locked_missed) / received,
             (f64::from(s.stepped) * mine + f64::from(s.locked_missed) * miss) / received,
             100.0 * f64::from(s.knocked_out) / received,
@@ -680,8 +711,9 @@ fn chain_pileups() {
                     .collect();
                 println!("     by level (a seat): {}", words.join(" | "));
                 // A CPU never steps on more shocks than it was sent.
+                let shocks = StageRules::default().shocks.count();
                 for s in &by_level {
-                    assert!(s.stepped <= 8 * s.received, "double counting");
+                    assert!(s.stepped <= shocks * s.received, "double counting");
                 }
             }
         }
@@ -769,6 +801,8 @@ fn attack_window() {
         if only.as_ref().is_some_and(|o| !o.contains(&ci)) {
             continue;
         }
+        // Attacks of the stages' count (a new room's).
+        let rules = rules.with_shocks(StageRules::default().shocks.count());
         attacks::RULES_OVERRIDE.with(|c| c.set(Some(rules)));
         println!("== [{ci}] {name}: {} charts, {seeds} seeds; mixed levels", songs.len());
         for &n in &sizes {
@@ -864,7 +898,7 @@ fn attack_window() {
                         .collect();
                     println!("     by level (a seat): {}", words.join(" | "));
                     for s in &by_level {
-                        assert!(s.stepped <= 8 * s.received, "double counting");
+                        assert!(s.stepped <= rules.shocks * s.received, "double counting");
                     }
                 }
             }
@@ -949,7 +983,8 @@ fn window_fit() {
             let bpm = if secs > 0.0 { beats / secs * 60.0 } else { 0.0 };
             let band = if bpm < 120.0 { 0 } else if bpm <= 160.0 { 1 } else { 2 };
             let cps = ddi_ui::state::battle_plan::checkpoints(&song, c, &rules);
-            let schedule = ddi_ui::state::battle_plan::schedule(&song, c, &judge, 1);
+            let schedule =
+                ddi_ui::state::battle_plan::schedule(&song, c, &judge, 1, rules.shocks);
             let slots = &schedule.slots;
             let entry = fits
                 .entry((local, band))
@@ -1005,4 +1040,167 @@ fn window_fit() {
             words.join(" | ")
         );
     }
+}
+
+/// Shocks per attack (feedback round N2: the maintainer, after playing
+/// with 5 to 15 people, found eight shocks an attack a lot): stages of
+/// CPUs of mixed levels (1, 2, 3, 4, 5, 6, 8, 10 in turn) under DDI
+/// Normal, every CPU on Spread, Attacks at once three, with attacks of
+/// 2, 4, 6 and 8 shocks, each fewer than eight once with the bar's cap
+/// and cost unchanged (`ShockCost::Flat`: an attack as often, of fewer
+/// shocks) and once scaled to the count (`ShockCost::Scaled`: a shock
+/// costs what it did, attacks come more often); under Charts As picked
+/// (zero life is out) and Adaptive (a new room's: zero life steps down,
+/// out only below the ladder's foot). Over the bundled study charts
+/// ([`CHARTS`], `DDI_ATTACK_SEEDS` seeds, 2) and, read in place, the
+/// Medium and Hard dance-single charts under `DDI_SHOCKS_CORPUS`
+/// (folders, `:` between; `DDI_SHOCKS_MAX` of them spread evenly over
+/// what is found, 24; one seed). Aggregates only: no song is named.
+///
+/// `DDI_SHOCKS_CORPUS=… cargo test --release -p ddi-session --lib
+/// shocks_per_attack -- --ignored --nocapture`; `DDI_CHAIN_SIZES` the
+/// fields (`5,15`).
+#[test]
+#[ignore = "a study: prints what each Shocks per attack does"]
+fn shocks_per_attack() {
+    use ddi_room::attacks::{ATTACKS, ShockCost};
+    use ddi_room::{Charts, ShocksPerAttack};
+    fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        let mut entries: Vec<_> = rd.flatten().map(|e| e.path()).collect();
+        entries.sort();
+        let simfile = |e: &str| entries.iter().find(|p| p.extension().is_some_and(|x| x == e));
+        if let Some(p) = simfile("ssc").or_else(|| simfile("sm")) {
+            out.push(p.clone());
+            return;
+        }
+        for p in entries.iter().filter(|p| p.is_dir()) {
+            walk(p, out);
+        }
+    }
+    let seeds: u64 = std::env::var("DDI_ATTACK_SEEDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2);
+    let sizes: Vec<usize> = std::env::var("DDI_CHAIN_SIZES")
+        .ok()
+        .map(|v| v.split(',').filter_map(|n| n.parse().ok()).collect())
+        .unwrap_or_else(|| vec![5, 15]);
+    let max: usize = std::env::var("DDI_SHOCKS_MAX")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(24);
+    // (song, chart, seeds, local)
+    let mut charts: Vec<(Song, usize, u64, bool)> = CHARTS
+        .iter()
+        .map(|&(id, which)| {
+            let song = bundled(id);
+            let chart = chart_of(&song, which);
+            (song, chart, seeds, false)
+        })
+        .collect();
+    if let Ok(dirs) = std::env::var("DDI_SHOCKS_CORPUS") {
+        let mut files = Vec::new();
+        for d in dirs.split(':') {
+            walk(std::path::Path::new(d), &mut files);
+        }
+        let read = |path: &std::path::Path| {
+            let text = std::fs::read(path).ok()?;
+            let ext = path.extension()?.to_string_lossy().into_owned();
+            ddi_library::scan::parse_simfile(&String::from_utf8_lossy(&text), &ext).ok()
+        };
+        let fits = |c: &ddi_chart::Chart| {
+            c.layout == "dance-single"
+                && c.derivation.is_none()
+                && matches!(c.difficulty, ddi_chart::Difficulty::Medium | ddi_chart::Difficulty::Hard)
+                && c.notes.len() >= 100
+        };
+        let mut found: Vec<(usize, usize)> = Vec::new();
+        for (f, path) in files.iter().enumerate() {
+            if let Some(song) = read(path) {
+                found.extend(song.charts.iter().enumerate().filter(|(_, c)| fits(c)).map(|(i, _)| (f, i)));
+            }
+        }
+        let step = (found.len() / max.max(1)).max(1);
+        for &(f, i) in found.iter().step_by(step).take(max) {
+            if let Some(song) = read(&files[f]) {
+                charts.push((song, i, 1, true));
+            }
+        }
+        println!("local: {} charts of {} found ({} simfiles)", charts.iter().filter(|c| c.3).count(), found.len(), files.len());
+    }
+    const MIX: [u8; 8] = [0, 1, 2, 3, 4, 5, 7, 9];
+    let mut configs = Vec::new();
+    for s in ShocksPerAttack::ALL {
+        configs.push((s, ShockCost::Flat));
+        if s != ShocksPerAttack::Eight {
+            configs.push((s, ShockCost::Scaled));
+        }
+    }
+    for charts_rule in [Charts::AsPicked, Charts::Adaptive] {
+        for &n in &sizes {
+            for local in [false, true] {
+                let some: Vec<_> = charts.iter().filter(|c| c.3 == local).collect();
+                if some.is_empty() {
+                    continue;
+                }
+                println!(
+                    "== {charts_rule:?}, {n} CPUs, DDI Normal, Spread, {} {} charts",
+                    some.len(),
+                    if local { "local" } else { "bundled" }
+                );
+                for &(shocks, cost) in &configs {
+                    let rules = ATTACKS.with_shocks_costed(shocks.count(), cost);
+                    attacks::RULES_OVERRIDE.with(|c| c.set(Some(rules)));
+                    let mut sum = Seat::default();
+                    let (mut stages, mut lasted, mut attacks_n) = (0u32, 0.0, 0u32);
+                    for (song, chart, seeds, _) in &some {
+                        for seed in 1..=*seeds {
+                            let levels: Vec<u8> =
+                                (0..n).map(|i| MIX[(i + seed as usize) % MIX.len()]).collect();
+                            let stage_rules = StageRules {
+                                charts: charts_rule,
+                                shocks,
+                                ..StageRules::default()
+                            };
+                            let (seats, x, minutes) =
+                                stage_under(song, *chart, &levels, seed, None, Targeting::Spread, stage_rules);
+                            for s in &seats {
+                                sum.add(s);
+                            }
+                            assert!(sum.stepped <= shocks.count() * sum.received, "double counting");
+                            stages += 1;
+                            lasted += minutes;
+                            attacks_n += x.attacks;
+                        }
+                    }
+                    let k = f64::from(stages.max(1));
+                    let seat_minutes = sum.minutes.max(1e-9);
+                    let received = f64::from(sum.received.max(1));
+                    println!(
+                        "{} {:<6} cap {:>3}: attacks/min {:5.2} (a seat in {:5.3}) | shocks taken/min a seat {:5.2}, \
+                         stepped {:5.2} | life ran out in an attack {:5.1}% of attacks | knockouts/stage {:5.2}, \
+                         steps down in an attack {:5.2} | out/stage {:5.2}, steps down {:5.2} | stage {:4.2} min, \
+                         a seat in {:4.2} min | {:.0} stages",
+                        shocks.count(),
+                        format!("{cost:?}"),
+                        rules.cap,
+                        f64::from(attacks_n) / lasted.max(1e-9),
+                        f64::from(sum.launched) / seat_minutes,
+                        f64::from(sum.received * shocks.count()) / seat_minutes,
+                        f64::from(sum.stepped) / seat_minutes,
+                        100.0 * f64::from(sum.knocked_out + sum.downs_in_attack) / received,
+                        f64::from(sum.knocked_out) / k,
+                        f64::from(sum.downs_in_attack) / k,
+                        f64::from(sum.out) / k,
+                        f64::from(sum.downs) / k,
+                        lasted / k,
+                        seat_minutes / f64::from(sum.seats.max(1)),
+                        k,
+                    );
+                }
+            }
+        }
+    }
+    attacks::RULES_OVERRIDE.with(|c| c.set(None));
 }

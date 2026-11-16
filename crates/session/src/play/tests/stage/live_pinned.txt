@@ -1,25 +1,25 @@
 == live, three CPUs, alice (plays)
-  digest: 0xa08b62cf3d22efae (4266 lines)
-  outcome: P1 > P6 > P5 > P4 · mine Live { life: 1.0, score: 2455269, steps: 2 } · policy Spread
-    P1: score Some(2455269) percent Some(10000) grade "Absolute Bot" life 1000000 out None combo 269 tiers [269, 0, 0, 0, 0, 0, 0] sent Some(4) taken Some(3) shocks Some(0) chart Some("Challenge") (harder)
-    P4: score Some(1430870) percent Some(7883) grade "B" life 930000 out None combo 38 tiers [27, 34, 43, 21, 2, 3, 7] sent Some(1) taken Some(2) shocks Some(7) chart Some("Easy")
-    P5: score Some(1458029) percent Some(8100) grade "A" life 1000000 out None combo 49 tiers [29, 26, 53, 16, 1, 1, 8] sent Some(1) taken Some(2) shocks Some(2) chart Some("Easy")
-    P6: score Some(1652638) percent Some(8160) grade "A" life 1000000 out None combo 31 tiers [41, 44, 56, 15, 7, 0, 9] sent Some(2) taken Some(1) shocks Some(3) chart Some("Easy")
+  digest: 0x96eecd2ba5ac103a (4266 lines)
+  outcome: P1 > P6 > P4 > P5 · mine Live { life: 1.0, score: 2455269, steps: 2 } · policy Spread
+    P1: score Some(2455269) percent Some(10000) grade "Absolute Bot" life 1000000 out None combo 269 tiers [269, 0, 0, 0, 0, 0, 0] sent Some(4) taken Some(2) shocks Some(0) chart Some("Challenge") (harder)
+    P4: score Some(1484320) percent Some(8177) grade "A" life 1000000 out None combo 34 tiers [29, 34, 45, 19, 2, 3, 5] sent Some(1) taken Some(2) shocks Some(3) chart Some("Easy")
+    P5: score Some(1454655) percent Some(8081) grade "A" life 1000000 out None combo 51 tiers [30, 26, 52, 15, 1, 1, 9] sent Some(1) taken Some(2) shocks Some(1) chart Some("Easy")
+    P6: score Some(1614928) percent Some(7763) grade "B" life 1000000 out None combo 26 tiers [40, 43, 55, 25, 9, 0, 10] sent Some(2) taken Some(2) shocks Some(3) chart Some("Easy")
   told: MatchBegin@10.16, Survivors(4)@31.16, StepUp@42.56, StepUp@54.37
 == live, three CPUs, bob (late on every note)
-  digest: 0x873aad79c81c7ae7 (4266 lines)
-  outcome: P6 > P5 > P4 > P2x · mine Out { at: 19.845742258652095 } · policy Spread
+  digest: 0xa82dd46e9935fef2 (4266 lines)
+  outcome: P6 > P4 > P5 > P2x · mine Out { at: 19.845742258652095 } · policy Spread
     P2: score Some(-51858) percent Some(-429) grade "F" life 0 out Some(19846) combo 0 tiers [0, 0, 0, 0, 0, 0, 9] sent Some(0) taken Some(0) shocks Some(0) chart Some("Beginner")
-    P4: score Some(1430870) percent Some(7883) grade "B" life 930000 out None combo 38 tiers [27, 34, 43, 21, 2, 3, 7] sent Some(1) taken Some(2) shocks Some(7) chart Some("Easy")
-    P5: score Some(1458029) percent Some(8100) grade "A" life 1000000 out None combo 49 tiers [29, 26, 53, 16, 1, 1, 8] sent Some(1) taken Some(2) shocks Some(2) chart Some("Easy")
-    P6: score Some(1652638) percent Some(8160) grade "A" life 1000000 out None combo 31 tiers [41, 44, 56, 15, 7, 0, 9] sent Some(2) taken Some(1) shocks Some(3) chart Some("Easy")
+    P4: score Some(1484320) percent Some(8177) grade "A" life 1000000 out None combo 34 tiers [29, 34, 45, 19, 2, 3, 5] sent Some(1) taken Some(2) shocks Some(3) chart Some("Easy")
+    P5: score Some(1454655) percent Some(8081) grade "A" life 1000000 out None combo 51 tiers [30, 26, 52, 15, 1, 1, 9] sent Some(1) taken Some(2) shocks Some(1) chart Some("Easy")
+    P6: score Some(1614928) percent Some(7763) grade "B" life 1000000 out None combo 26 tiers [40, 43, 55, 25, 9, 0, 10] sent Some(2) taken Some(2) shocks Some(3) chart Some("Easy")
   told: MatchBegin@10.16, LifeCritical@19.64, StepDown@22.87, StepDown@26.82, Eliminated@30.96
 == live, three CPUs, carol (watches)
-  digest: 0xccf02f30ba20ecfb (4266 lines)
-  outcome: P6 > P5 > P4 · watched · mine Forfeit · policy Spread
-    P4: score Some(1430870) percent Some(7883) grade "B" life 930000 out None combo 38 tiers [27, 34, 43, 21, 2, 3, 7] sent Some(1) taken Some(2) shocks Some(7) chart Some("Easy")
-    P5: score Some(1458029) percent Some(8100) grade "A" life 1000000 out None combo 49 tiers [29, 26, 53, 16, 1, 1, 8] sent Some(1) taken Some(2) shocks Some(2) chart Some("Easy")
-    P6: score Some(1652638) percent Some(8160) grade "A" life 1000000 out None combo 31 tiers [41, 44, 56, 15, 7, 0, 9] sent Some(2) taken Some(1) shocks Some(3) chart Some("Easy")
+  digest: 0x64087255c7ee553b (4266 lines)
+  outcome: P6 > P4 > P5 · watched · mine Forfeit · policy Spread
+    P4: score Some(1484320) percent Some(8177) grade "A" life 1000000 out None combo 34 tiers [29, 34, 45, 19, 2, 3, 5] sent Some(1) taken Some(2) shocks Some(3) chart Some("Easy")
+    P5: score Some(1454655) percent Some(8081) grade "A" life 1000000 out None combo 51 tiers [30, 26, 52, 15, 1, 1, 9] sent Some(1) taken Some(2) shocks Some(1) chart Some("Easy")
+    P6: score Some(1614928) percent Some(7763) grade "B" life 1000000 out None combo 26 tiers [40, 43, 55, 25, 9, 0, 10] sent Some(2) taken Some(2) shocks Some(3) chart Some("Easy")
   told: MatchBegin@10.16, Survivors(4)@31.14
 == live, no CPUs, alice (plays)
   digest: 0x4fddf6dc97f38296 (4250 lines)

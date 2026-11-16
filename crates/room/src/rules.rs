@@ -424,6 +424,38 @@ pub struct MatchRules {
     /// [`RoomPolicy::at_once`] says so.
     #[serde(default, skip_serializing_if = "AttacksAtOnce::is_default")]
     pub at_once: AttacksAtOnce,
+    /// How many shocks an attack has (feedback round N2, the maintainer's
+    /// of 2026-11-16 after playing with 5 to 15 people: "8 shock arrows
+    /// per attack … a lot, I think it should be a configurable rule,
+    /// maybe 4 by default"): Four for a new room
+    /// ([`MatchRules::hosted`], [`MatchRules::practice`]); an attack was
+    /// always eight before. Read only where the Attacks rule is On.
+    /// Always written; unlike the rules above what is missing is not the
+    /// new default: a match's rules stored or sent before the rule read
+    /// as Eight (a match running when its room's authority is updated
+    /// plays on with eight, every stage of it), while the next match's
+    /// draft stored before it reads as Four (`crate::state::NextMatchDraft`,
+    /// [`draft_rules`]: nobody chose eight, it was the only count, so a
+    /// room's next match takes the new default, and its host sees four
+    /// in Rules).
+    #[serde(default = "ShocksPerAttack::before_the_rule")]
+    pub shocks: ShocksPerAttack,
+}
+
+/// The next match's draft as stored or sent (`crate::state::NextMatchDraft`):
+/// [`MatchRules`], its Shocks per attack Four where it names none (stored
+/// before the rule), where a match's own rules read Eight.
+pub(crate) fn draft_rules<'de, D>(d: D) -> Result<MatchRules, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error as _;
+    let mut v = serde_json::Value::deserialize(d)?;
+    if let Some(o) = v.as_object_mut() {
+        o.entry("shocks")
+            .or_insert_with(|| serde_json::json!(ShocksPerAttack::Four));
+    }
+    serde_json::from_value(v).map_err(D::Error::custom)
 }
 
 /// The rules each stage is played under on its own (2026-11-13): those of
@@ -452,6 +484,10 @@ pub struct PlayRules {
     /// [`MatchRules::at_once`].
     #[serde(default, skip_serializing_if = "AttacksAtOnce::is_default")]
     pub at_once: AttacksAtOnce,
+    /// [`MatchRules::shocks`] (always written; a stage's rules stored
+    /// before the rule read as Eight, as the match's).
+    #[serde(default = "ShocksPerAttack::before_the_rule")]
+    pub shocks: ShocksPerAttack,
     /// The award curve's bias for these stages ([`MatchRules::points`]),
     /// `None` for the match's own: a change that names none keeps the
     /// match's. Kept `None` wherever it equals the match's
@@ -522,6 +558,63 @@ impl AttacksAtOnce {
             Some(2) => Self::Two,
             Some(3) => Self::Three,
             _ => Self::NoLimit,
+        }
+    }
+}
+
+/// The match rule Shocks per attack ([`MatchRules::shocks`]): how many
+/// shocks an attack puts into its recipient's field
+/// (`ddi_engine::battle::Placement::with_shocks`, the battle plan's
+/// `shocks`, [`crate::attacks::AttackRules::with_shocks`]).
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ShocksPerAttack {
+    Two,
+    /// A new room's (the maintainer, 2026-11-16).
+    #[default]
+    Four,
+    Six,
+    /// What every attack had before the rule, and what rules that name
+    /// none are read as ([`ShocksPerAttack::before_the_rule`]).
+    Eight,
+}
+
+impl ShocksPerAttack {
+    pub const ALL: [ShocksPerAttack; 4] = [Self::Two, Self::Four, Self::Six, Self::Eight];
+
+    /// What rules stored or sent before the rule mean: eight.
+    pub fn before_the_rule() -> ShocksPerAttack {
+        Self::Eight
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Its place in [`ShocksPerAttack::ALL`].
+    pub fn index(self) -> usize {
+        self as usize
+    }
+
+    /// The shocks an attack has.
+    pub fn count(self) -> u32 {
+        match self {
+            Self::Two => 2,
+            Self::Four => 4,
+            Self::Six => 6,
+            Self::Eight => 8,
+        }
+    }
+
+    /// The setting of a count (the nearest it offers, eight at most).
+    pub fn of_count(count: u32) -> ShocksPerAttack {
+        match count {
+            0..=2 => Self::Two,
+            3..=4 => Self::Four,
+            5..=6 => Self::Six,
+            _ => Self::Eight,
         }
     }
 }
@@ -668,6 +761,7 @@ impl MatchRules {
             battle: self.battle.clone(),
             charts: self.charts,
             at_once: self.at_once,
+            shocks: self.shocks,
             points: None,
         }
     }
@@ -681,6 +775,7 @@ impl MatchRules {
             battle: play.battle.clone(),
             charts: play.charts,
             at_once: play.at_once,
+            shocks: play.shocks,
             points: play.points.unwrap_or(self.points),
             ..self.clone()
         }
@@ -738,6 +833,7 @@ impl MatchRules {
             points: PointsBias::Strong,
             charts: Charts::AsPicked,
             at_once: AttacksAtOnce::Three,
+            shocks: ShocksPerAttack::Four,
         }
     }
 
@@ -1004,6 +1100,60 @@ mod tests {
             assert_eq!(AttacksAtOnce::ALL[a.index()], a);
         }
         assert_eq!(play.check(), Ok(()));
+    }
+
+    /// Shocks per attack (feedback round N2): four for a new room, always
+    /// written; a match's rules that name none (stored or sent before the
+    /// rule) are eight, the next match's draft four; per stage as Attacks
+    /// at once.
+    #[test]
+    fn shocks_per_attack_is_four_for_new_rooms_and_eight_where_rules_name_none() {
+        for rules in [
+            MatchRules::practice(spec()),
+            MatchRules::hosted(),
+            MatchRules::hosted_for(&RoomPolicy::default().with_live()),
+        ] {
+            assert_eq!(rules.shocks, ShocksPerAttack::Four);
+            let json = serde_json::to_value(&rules).unwrap();
+            assert_eq!(json["shocks"], "four");
+            assert_eq!(serde_json::from_value::<MatchRules>(json.clone()).unwrap(), rules);
+            // From before the rule: a match's eight, written out; the next
+            // match's draft four.
+            let mut stored = json;
+            stored.as_object_mut().unwrap().remove("shocks");
+            let read: MatchRules = serde_json::from_value(stored.clone()).unwrap();
+            assert_eq!(read.shocks, ShocksPerAttack::Eight);
+            assert_eq!(serde_json::to_value(&read).unwrap()["shocks"], "eight");
+            let draft: crate::state::NextMatchDraft = serde_json::from_value(serde_json::json!({
+                "rules": stored, "saved_at": 0, "review": null
+            }))
+            .unwrap();
+            assert_eq!(draft.rules.shocks, ShocksPerAttack::Four);
+            let mut eight = draft.clone();
+            eight.rules.shocks = ShocksPerAttack::Eight;
+            let back: crate::state::NextMatchDraft =
+                serde_json::from_value(serde_json::to_value(&eight).unwrap()).unwrap();
+            assert_eq!(back, eight, "a draft of eight chosen stays eight");
+            // Per stage: a later stage's rules carry it, and give it back.
+            let mut two = rules.clone();
+            two.shocks = ShocksPerAttack::Two;
+            let play = two.play_rules();
+            assert_eq!(play.shocks, ShocksPerAttack::Two);
+            assert_eq!(rules.with_play(&play).shocks, ShocksPerAttack::Two);
+            assert_eq!(serde_json::to_value(&play).unwrap()["shocks"], "two");
+            assert_eq!(play.check(), Ok(()));
+        }
+        // A stage's rules stored before the rule: eight.
+        let play: PlayRules =
+            serde_json::from_value(serde_json::json!({"battle": "gauge-attacks-v0"})).unwrap();
+        assert_eq!(play.shocks, ShocksPerAttack::Eight);
+        assert_eq!(serde_json::to_value(&play).unwrap()["shocks"], "eight");
+        assert_eq!(ShocksPerAttack::ALL.map(ShocksPerAttack::count), [2, 4, 6, 8]);
+        for s in ShocksPerAttack::ALL {
+            assert_eq!(ShocksPerAttack::of_count(s.count()), s);
+            assert_eq!(ShocksPerAttack::ALL[s.index()], s);
+        }
+        assert_eq!(ShocksPerAttack::default(), ShocksPerAttack::Four);
     }
 
     #[test]

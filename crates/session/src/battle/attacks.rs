@@ -62,6 +62,17 @@ pub fn rules() -> ddi_room::attacks::AttackRules {
     ATTACKS
 }
 
+/// [`rules`] for attacks of `shocks` shocks (the match's Shocks per
+/// attack, the bar's cost by `ddi_room::attacks::SHOCK_COST`); a study's
+/// variant as it set it, its own count and cost.
+fn rules_for(shocks: u32) -> ddi_room::attacks::AttackRules {
+    #[cfg(test)]
+    if let Some(r) = RULES_OVERRIDE.with(std::cell::Cell::get) {
+        return r;
+    }
+    ATTACKS.with_shocks(shocks)
+}
+
 #[cfg(test)]
 thread_local! {
     /// The rules a study runs this thread's stages under, in place of
@@ -76,8 +87,14 @@ thread_local! {
 /// the chart's start, each section's shocks timed, when it clears (its
 /// last shock and its window) (`ddi_ui::state::battle_plan`, which an
 /// online room's plan is made by too).
-pub fn schedule(song: &Song, chart: usize, judge: &JudgeTable, seed: u64) -> Schedule {
-    ddi_ui::state::battle_plan::schedule(song, chart, judge, seed)
+pub fn schedule(
+    song: &Song,
+    chart: usize,
+    judge: &JudgeTable,
+    seed: u64,
+    shocks: u32,
+) -> Schedule {
+    ddi_ui::state::battle_plan::schedule(song, chart, judge, seed, shocks)
 }
 
 /// An attack's shocks as a play takes them.
@@ -122,7 +139,8 @@ impl AttackRunner {
     /// [`ATTACKS`]'s beats from the fourth on, to four beats past the
     /// chart's last note; its sections drawn from the roster's seed; at
     /// most `at_once` attacks placed against one competitor at a time
-    /// (the match's Attacks at once, `None` without a limit).
+    /// (the match's Attacks at once, `None` without a limit), each of
+    /// `shocks` shocks (its Shocks per attack).
     pub fn new(
         song: &Song,
         chart: usize,
@@ -130,13 +148,14 @@ impl AttackRunner {
         judge: &JudgeTable,
         roster: StageRoster,
         at_once: Option<u32>,
+        shocks: u32,
     ) -> AttackRunner {
         let checkpoints = ddi_ui::state::battle_plan::checkpoints(song, chart, &rules());
         let participants: Vec<ParticipantId> = roster.seats.iter().map(|s| s.participant).collect();
-        let schedule = schedule(song, chart, judge, roster.seed);
+        let schedule = schedule(song, chart, judge, roster.seed, shocks);
         AttackRunner {
             ledger: StageBattle::new(
-                rules().with_at_once(at_once),
+                rules_for(shocks).with_at_once(at_once),
                 POWER_CLASSES_V0,
                 ruleset,
                 checkpoints,

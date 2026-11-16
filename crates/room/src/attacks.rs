@@ -76,7 +76,34 @@ pub struct AttackRules {
     /// to the first with room in the window and under the match's
     /// Attacks at once ([`AttackRules::with_at_once`]).
     pub window_us: i64,
+    /// The shocks an attack has (a match's Shocks per attack,
+    /// `crate::ShocksPerAttack`, room model revision 12;
+    /// [`AttackRules::with_shocks`]): what the stage's sections hold
+    /// (the ledger places whatever a section holds; this says what the
+    /// bar's cost was made for). Eight before the rule.
+    pub shocks: u32,
 }
+
+/// The shocks every attack had before Shocks per attack was a rule, and
+/// what rules and plans that name no count mean.
+pub const SHOCKS_BEFORE_THE_RULE: u32 = 8;
+
+/// What an attack of fewer shocks costs (PROVISIONAL, `shock-cost-v0`;
+/// measured in `docs/plans/multiplayer-prototype-progress.md`, "Feedback
+/// round N2").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShockCost {
+    /// The bar's cap and cost as they are, whatever the count: attacks
+    /// as often as ever, each of fewer shocks.
+    Flat,
+    /// The bar's cap and cost in proportion to the count (an attack of
+    /// four from a bar of 50): a shock costs what it did, attacks come
+    /// more often.
+    Scaled,
+}
+
+/// `shock-cost-v0` (PROVISIONAL): the cost stages play.
+pub const SHOCK_COST: ShockCost = ShockCost::Flat;
 
 /// `attack-window-v0` (PROVISIONAL; the maintainer, 2026-11-13: "if an
 /// attack cannot be fit into the next, say, 15 seconds, then the player is
@@ -97,6 +124,30 @@ impl AttackRules {
     pub fn with_at_once(self, at_once: Option<u32>) -> AttackRules {
         AttackRules {
             chain: at_once.map_or(CHAIN_UNLIMITED, |n| n.max(1) - 1),
+            ..self
+        }
+    }
+
+    /// These rules for attacks of `shocks` shocks (a match's Shocks per
+    /// attack), the bar's cost by [`SHOCK_COST`].
+    pub fn with_shocks(self, shocks: u32) -> AttackRules {
+        self.with_shocks_costed(shocks, SHOCK_COST)
+    }
+
+    /// [`AttackRules::with_shocks`] under a cost policy of the caller's
+    /// (the studies compare them).
+    pub fn with_shocks_costed(self, shocks: u32, cost: ShockCost) -> AttackRules {
+        let shocks = shocks.max(1);
+        let scale = |x: u32| match cost {
+            ShockCost::Flat => x,
+            ShockCost::Scaled => {
+                (u64::from(x) * u64::from(shocks) / u64::from(self.shocks.max(1))).max(1) as u32
+            }
+        };
+        AttackRules {
+            shocks,
+            cap: scale(self.cap),
+            cost: scale(self.cost),
             ..self
         }
     }
@@ -141,6 +192,7 @@ pub const ATTACKS_V3: AttackRules = AttackRules {
     chain_gap: 0,
     cooldown_checkpoints: 0,
     window_us: ATTACK_WINDOW_V0_US,
+    shocks: SHOCKS_BEFORE_THE_RULE,
 };
 
 /// The rules named `id`: a stage is run under the one its plan names.

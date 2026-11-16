@@ -390,6 +390,21 @@ impl LiveServer {
             });
             return;
         }
+        // An attack is as many shocks as the stage's rules say (a match
+        // running, or the next one's): the picker's device computed the
+        // plan from them, as every other device will.
+        let shocks = room
+            .current
+            .as_ref()
+            .filter(|m| m.stage(stage).is_some())
+            .map_or_else(|| room.next.rules.shocks, |m| m.rules_for(stage).shocks);
+        if plan.shock_count() != shocks.count() {
+            out.refuse(LiveRefusal::BadPlan {
+                stage,
+                problem: crate::live::PlanProblem::Shocks,
+            });
+            return;
+        }
         if let Some(have) = &content.battle {
             if *have != plan.digest {
                 out.refuse(LiveRefusal::PlanSet {

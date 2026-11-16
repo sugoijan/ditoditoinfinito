@@ -220,6 +220,9 @@ pub struct Counters {
 /// The next match's rules as saved by an operator.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NextMatchDraft {
+    /// Its Shocks per attack Four where stored before the rule
+    /// ([`crate::rules::draft_rules`]).
+    #[serde(deserialize_with = "crate::rules::draft_rules")]
     pub rules: MatchRules,
     /// When it was last saved, or last retargeted by a match start: an edit
     /// made against an older view is stale.

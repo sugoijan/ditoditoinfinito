@@ -609,7 +609,11 @@ fn the_rooms_attacks_go_into_the_plays_and_onto_the_fields() {
         // The other's field carries the shocks put into their play.
         let other = 1 - i;
         let shocks = b.feeds().next().unwrap().shocks().len();
-        let into_other = attacks.iter().filter(|a| a.recipient == ids[other]).count() * 8;
+        let into_other: usize = attacks
+            .iter()
+            .filter(|a| a.recipient == ids[other])
+            .map(|a| a.cells.len())
+            .sum();
         assert_eq!(shocks, into_other);
         assert!(!outcomes[i].confirmed_early);
     }
@@ -673,7 +677,11 @@ fn a_watcher_follows_the_live_stage_from_the_frames() {
     );
     let mut carried = 0;
     for (i, feed) in b.feeds().enumerate() {
-        let against = attacks.iter().filter(|a| a.recipient == ids[i]).count() * 8;
+        let against: usize = attacks
+            .iter()
+            .filter(|a| a.recipient == ids[i])
+            .map(|a| a.cells.len())
+            .sum();
         assert_eq!(feed.shocks().len(), against);
         carried += feed.shocks().len();
     }
@@ -3028,6 +3036,9 @@ fn a_live_stage_with_cpus_plays_them_alike_on_every_device() {
             targeting: None,
         })
         .collect();
+    // Attacks of eight, so that a CPU goes out and its knockout is seen
+    // to travel (of a new room's four, none does on this chart).
+    rules.shocks = ddi_room::ShocksPerAttack::Eight;
     r.rooms[0].borrow_mut().save_rules(rules).unwrap();
     r.run(1.0);
     let orders = pick_and_ready(&r, &song, true, 0);

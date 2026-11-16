@@ -1274,14 +1274,14 @@ fn attacks_are_launched_delivered_and_the_same_at_any_frame_rate_and_from_the_lo
     let attacks = ra.ledger().attacks();
     assert!(!attacks.is_empty(), "full bars launch");
     assert!(
-        attacks.iter().all(|x| x.cells.len() == 8),
-        "never fewer (D4)"
+        attacks.iter().all(|x| x.cells.len() == 4),
+        "the match's Shocks per attack, a new room's four, never fewer (D4)"
     );
     // Delivered: the player's own (autoplayed, every one avoided), and
     // each CPU's field shows those sent to it.
     let me = order.me;
     let mine = attacks.iter().filter(|x| x.recipient == me).count();
-    assert_eq!(a.player.log().hazards.len(), 8 * mine);
+    assert_eq!(a.player.log().hazards.len(), 4 * mine);
     if mine > 0 {
         assert_eq!(
             a.player.results().battle_mines.map(|m| m.hit),
@@ -1290,11 +1290,12 @@ fn attacks_are_launched_delivered_and_the_same_at_any_frame_rate_and_from_the_lo
         );
     }
     for (feed, seat) in a.battle().unwrap().feeds().zip(&order.cpus) {
-        let sent = attacks
+        let sent: usize = attacks
             .iter()
             .filter(|x| x.recipient == seat.participant)
-            .count();
-        assert_eq!(feed.shocks().len(), 8 * sent, "{seat:?}");
+            .map(|x| x.cells.len())
+            .sum();
+        assert_eq!(feed.shocks().len(), sent, "{seat:?}");
     }
     // One attack at a time against anyone, each from a full bar.
     for x in attacks {
@@ -2226,14 +2227,19 @@ fn chained_attacks_are_delivered_back_to_back_into_plays_and_cpus() {
         attacks.len()
     );
     // Every commitment is in its recipient's play, chained or not.
-    let mine = attacks.iter().filter(|x| x.recipient == order.me).count();
-    assert_eq!(a.player.log().hazards.len(), 8 * mine);
+    let mine: usize = attacks
+        .iter()
+        .filter(|x| x.recipient == order.me)
+        .map(|x| x.cells.len())
+        .sum();
+    assert_eq!(a.player.log().hazards.len(), mine);
     for (feed, seat) in a.battle().unwrap().feeds().zip(&order.cpus) {
-        let sent = attacks
+        let sent: usize = attacks
             .iter()
             .filter(|x| x.recipient == seat.participant)
-            .count();
-        assert_eq!(feed.shocks().len(), 8 * sent, "{seat:?}");
+            .map(|x| x.cells.len())
+            .sum();
+        assert_eq!(feed.shocks().len(), sent, "{seat:?}");
     }
 }
 

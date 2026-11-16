@@ -34,7 +34,9 @@ const FIXTURE: &str = include_str!("fixture.txt");
 
 /// Two stages: Hard timing, out at zero life; Hard timing, a step down
 /// at zero life (the ladder), each with CPUs of several levels and
-/// personalities, attacks among them.
+/// personalities, attacks among them; each with attacks of eight shocks
+/// (scenarios 0 and 1, as recorded before Shocks per attack was a rule)
+/// and of four (2 and 3, a new room's).
 fn scenarios() -> Vec<(StageRules, Vec<CpuSeat>)> {
     let seat = |n: u64, level: u8, skills: Option<&str>, targeting: Targeting| CpuSeat {
         participant: ParticipantId(100 + n),
@@ -45,16 +47,21 @@ fn scenarios() -> Vec<(StageRules, Vec<CpuSeat>)> {
         skills: skills.map(str::to_string),
         targeting,
     };
-    let rules = |difficulty, charts| StageRules {
+    let rules_of = |difficulty, charts, shocks| StageRules {
         ruleset: "ddi".into(),
         difficulty,
         boos: false,
         points: PointsBias::Strong,
         charts,
         at_once: Default::default(),
+        shocks,
         changed: false,
         play_changed: false,
     };
+    // The first two as they were recorded before Shocks per attack was a
+    // rule: attacks of eight.
+    let rules = |difficulty, charts| rules_of(difficulty, charts, ddi_room::ShocksPerAttack::Eight);
+    let four = |difficulty, charts| rules_of(difficulty, charts, ddi_room::ShocksPerAttack::Four);
     vec![
         (
             rules(MatchDifficulty::Hard, Charts::AsPicked),
@@ -67,6 +74,24 @@ fn scenarios() -> Vec<(StageRules, Vec<CpuSeat>)> {
         ),
         (
             rules(MatchDifficulty::Hard, Charts::Adaptive),
+            vec![
+                seat(5, 2, Some("reckless"), Targeting::Spread),
+                seat(6, 6, None, Targeting::Leader),
+                seat(7, 10, Some("technical"), Targeting::Spread),
+            ],
+        ),
+        // The same two under a new room's rules: attacks of four.
+        (
+            four(MatchDifficulty::Hard, Charts::AsPicked),
+            vec![
+                seat(1, 0, Some("reckless"), Targeting::Spread),
+                seat(2, 4, Some("stamina"), Targeting::Leader),
+                seat(3, 7, Some("evasive"), Targeting::Retaliate),
+                seat(4, 9, Some("1.4,0.7,1,1.2,0.8,1,1.3,0.6"), Targeting::Spread),
+            ],
+        ),
+        (
+            four(MatchDifficulty::Hard, Charts::Adaptive),
             vec![
                 seat(5, 2, Some("reckless"), Targeting::Spread),
                 seat(6, 6, None, Targeting::Leader),

@@ -120,6 +120,10 @@ room-rules-at-once-count = { $count }
 room-rules-at-once-no-limit = 制限なし
 room-rules-at-once-about = 一人のプレイヤーに同時に向かっていける攻撃の数です。攻撃どうしが重なることはありません。
 
+room-rules-shocks = 攻撃ごとのショック数
+room-rules-shocks-count = { $count }
+room-rules-shocks-about = 1回の攻撃で相手のフィールドに送るショックの数です。
+
 room-rules-attacks-online = オフ · オンラインルームではまだ使えません
 
 room-rules-charts = 譜面
@@ -144,7 +148,7 @@ room-rules-points-mild-about = 大人数でも下の順位まで得点が行き�
 room-rules-level-note = CPUの星はレベルを表します。ついていける譜面の目安で、腕前の評価ではありません。
 room-rules-points-bias-note = 得点の設定は8人以下では何も変えません。
 room-rules-ruleset-note = 試合では各自のオプションではなく、全員がDDIのこのルールでプレイします。
-room-rules-battle-note = バトルは暫定です。ライフが尽きるとそのステージはアウト。攻撃オンでは、タイミングが良いとパワーゲージがたまり、満タンでほかのプレイヤーのフィールドにショックを8つ送ります。
+room-rules-battle-note = バトルは暫定です。ライフが尽きるとそのステージはアウト。攻撃オンでは、タイミングが良いとパワーゲージがたまり、満タンでほかのプレイヤーのフィールドに攻撃としてショックをいくつか送ります。
 room-rules-locked-note = 変更は次の対戦から適用され、この対戦のルールは変わりません。
 room-rules-clears-note = 適用すると準備OKが解除されます。
 
@@ -215,6 +219,12 @@ room-rules-change-at-once = { $at_once ->
     [two] 同時攻撃 2
     [no_limit] 同時攻撃 制限なし
    *[three] 同時攻撃 3
+}
+room-rules-change-shocks = { $shocks ->
+    [two] 攻撃ごとのショック 2
+    [six] 攻撃ごとのショック 6
+    [eight] 攻撃ごとのショック 8
+   *[four] 攻撃ごとのショック 4
 }
 room-rules-change-charts = { $charts ->
     [adaptive] 譜面 適応
@@ -329,6 +339,11 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [two] {" "}· 同時攻撃 2
     [no_limit] {" "}· 同時攻撃 制限なし
    *[three] {""}
+}{ $shocks ->
+    [two] {" "}· 攻撃ごとのショック 2
+    [six] {" "}· 攻撃ごとのショック 6
+    [eight] {" "}· 攻撃ごとのショック 8
+   *[four] {""}
 }
 
 room-mark-survived = ステージ { $number }: { $field }人中 { $place }位 · +{ $points }点

@@ -365,6 +365,8 @@ struct Setup {
     drift_ppm: i64,
     mapped_once: bool,
     slewed: bool,
+    /// The match's Shocks per attack (a new room's: four).
+    shocks: ddi_room::ShocksPerAttack,
 }
 
 impl Setup {
@@ -376,6 +378,7 @@ impl Setup {
             drift_ppm: 0,
             mapped_once: false,
             slewed: false,
+            shocks: Default::default(),
             attacks: false,
             policy: RoomPolicy::default().with_live(),
             latency: Some(Latency {
@@ -480,6 +483,7 @@ fn room(setup: &Setup) -> Room {
     let mut rules = MatchRules::hosted();
     rules.seats = (setup.competitors + setup.cpus) as u16;
     rules.set_attacks(setup.attacks);
+    rules.shocks = setup.shocks;
     if setup.cpus > 0 {
         rules.cpu.mode = ddi_room::CpuMode::Roster;
         rules.cpu.roster = (0..setup.cpus)
@@ -766,7 +770,7 @@ fn one_attack_trace_gives_the_same_ledger_locally_and_through_the_room() {
                 .as_ref()
                 .unwrap()
                 .cells;
-            assert_eq!(cells.len(), 8, "every device places the same eight shocks");
+            assert_eq!(cells.len(), 4, "every device places the same four shocks");
         }
     }
 }
@@ -817,6 +821,90 @@ fn a_plan_naming_rules_this_build_does_not_play_is_refused() {
             r.state().stage(STAGE).unwrap().content.as_ref().unwrap().battle,
             Some(v3.digest.clone())
         );
+    }
+}
+
+/// Shocks per attack (feedback round N2): a plan's count is in its
+/// digest (eight's as it always was: a plan of eight says nothing), and
+/// the room takes only a plan whose count is its stage's rules': in a new
+/// room, four; in one whose rules say eight (or name none: stored before
+/// the rule), eight. Its ledger then runs under the rules for that count,
+/// each attack that many shocks.
+#[test]
+fn a_plans_shock_count_is_the_stages_rules_and_in_its_digest() {
+    use ddi_room::ShocksPerAttack;
+    let of = |n: u32| common::plan_of(ATTACKS.id, 30, 99, n, |j| j % 4 != 1).with_at_once(Some(3));
+    let digests: Vec<_> = [2, 4, 6, 8].into_iter().map(|n| of(n).digest).collect();
+    for (i, d) in digests.iter().enumerate() {
+        assert!(digests[i + 1..].iter().all(|o| o != d));
+    }
+    // A plan of eight is what a plan was before the rule.
+    let eight = of(8);
+    assert_eq!(eight.shocks, None);
+    assert!(serde_json::to_value(&eight).unwrap().get("shocks").is_none());
+    assert_eq!(serde_json::to_value(of(4)).unwrap()["shocks"], 4);
+    assert_eq!(eight.rules().unwrap().shocks, 8);
+    assert_eq!(of(2).rules().unwrap().shocks, 2);
+    // A count the rule does not offer, or sections that do not hold it.
+    let mut odd = of(4);
+    odd.shocks = Some(5);
+    odd.digest = odd.compute_digest();
+    assert_eq!(odd.check(), Err(ddi_room::live::PlanProblem::Shocks));
+    let mut short = of(8);
+    short.shocks = Some(4);
+    short.digest = short.compute_digest();
+    assert_eq!(short.check(), Err(ddi_room::live::PlanProblem::Shocks));
+    for (rule, right, wrong) in [
+        (ShocksPerAttack::Four, 4, 8),
+        (ShocksPerAttack::Eight, 8, 4),
+        (ShocksPerAttack::Two, 2, 6),
+    ] {
+        let mut setup = Setup::new(2);
+        setup.attacks = true;
+        setup.shocks = rule;
+        let mut r = room(&setup);
+        r.players[0].link.live_mut().send(ClientLive::OfferPlan {
+            stage: STAGE,
+            plan: Box::new(of(wrong)),
+        });
+        r.run(500);
+        assert!(
+            r.players[0].news.iter().any(|n| matches!(
+                n,
+                LiveNews::Refused(LiveRefusal::BadPlan {
+                    problem: ddi_room::live::PlanProblem::Shocks,
+                    ..
+                })
+            )),
+            "{rule:?}"
+        );
+        assert_eq!(
+            r.state().stage(STAGE).unwrap().content.as_ref().unwrap().battle,
+            None
+        );
+        let plan = of(right);
+        r.players[0].link.live_mut().send(ClientLive::OfferPlan {
+            stage: STAGE,
+            plan: Box::new(plan.clone()),
+        });
+        r.run(500);
+        assert_eq!(
+            r.state().stage(STAGE).unwrap().content.as_ref().unwrap().battle,
+            Some(plan.digest.clone())
+        );
+        // Played: every attack the room commits has that many shocks.
+        let scripts: Vec<Script> = (1..=2)
+            .map(|i| script(10 + i, 95 + i as i32 * 7, 30_000, None))
+            .collect();
+        start(&mut r, Some(plan.digest.clone()), 2);
+        started(&r);
+        give_plays(&mut r, &scripts, Some(&plan.checkpoints_us));
+        r.run(40_000);
+        let server = r.server.borrow();
+        let ledger = server.live().unwrap().stage_or_last().unwrap().ledger().unwrap();
+        assert_eq!(ledger.rules().shocks, right);
+        assert!(!ledger.attacks().is_empty());
+        assert!(ledger.attacks().iter().all(|a| a.cells.len() == right as usize));
     }
 }
 

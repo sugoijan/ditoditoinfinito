@@ -106,6 +106,10 @@ pub struct PublicRules {
     /// Attacks at once (additive, left out at three).
     #[serde(default, skip_serializing_if = "crate::rules::AttacksAtOnce::is_default")]
     pub at_once: crate::rules::AttacksAtOnce,
+    /// Shocks per attack (always written; a view that names none, from
+    /// before the rule, is eight, as `MatchRules::shocks`).
+    #[serde(default = "crate::rules::ShocksPerAttack::before_the_rule")]
+    pub shocks: crate::rules::ShocksPerAttack,
 }
 
 impl PublicRules {
@@ -120,6 +124,7 @@ impl PublicRules {
             points: r.points,
             charts: r.charts,
             at_once: r.at_once,
+            shocks: r.shocks,
         }
     }
 }
