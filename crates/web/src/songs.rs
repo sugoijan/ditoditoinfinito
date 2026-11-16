@@ -100,6 +100,57 @@ pub(crate) async fn fetch_bytes(path: &str) -> Result<Vec<u8>, String> {
     resp.binary().await.map_err(|e| format!("GET {path}: {e}"))
 }
 
+/// A file fetched to the end and let go, so that the browser has it when
+/// it is asked for again (a share's files are kept by the browser's own
+/// cache, `Cache-Control: private, max-age`): a room's stage song's music,
+/// read while the stage's song loads (`crate::room`), `progress` told
+/// the bytes so far and the whole (0 where the server did not say).
+pub(crate) async fn prefetch(url: &str, progress: &dyn Fn(f64, f64)) -> Result<(), String> {
+    let window = web_sys::window().ok_or("no window")?;
+    let resp: web_sys::Response = wasm_bindgen_futures::JsFuture::from(window.fetch_with_str(url))
+        .await
+        .map_err(|e| format!("GET {url}: {e:?}"))?
+        .dyn_into()
+        .map_err(|_| format!("GET {url}: not a response"))?;
+    if !resp.ok() {
+        return Err(format!("GET {url}: HTTP {}", resp.status()));
+    }
+    let total = resp
+        .headers()
+        .get("content-length")
+        .ok()
+        .flatten()
+        .and_then(|l| l.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    let Some(body) = resp.body() else {
+        return Ok(());
+    };
+    let reader: web_sys::ReadableStreamDefaultReader = body
+        .get_reader()
+        .dyn_into()
+        .map_err(|_| format!("GET {url}: no reader"))?;
+    let mut so_far = 0.0;
+    progress(so_far, total);
+    loop {
+        let chunk = wasm_bindgen_futures::JsFuture::from(reader.read())
+            .await
+            .map_err(|e| format!("GET {url}: {e:?}"))?;
+        let done = js_sys::Reflect::get(&chunk, &"done".into())
+            .ok()
+            .and_then(|d| d.as_bool())
+            .unwrap_or(true);
+        if done {
+            return Ok(());
+        }
+        if let Ok(value) = js_sys::Reflect::get(&chunk, &"value".into())
+            && let Ok(bytes) = value.dyn_into::<js_sys::Uint8Array>()
+        {
+            so_far += f64::from(bytes.length());
+            progress(so_far, total);
+        }
+    }
+}
+
 /// [`fetch_bytes`] of a shared song's file, its progress told to
 /// [`crate::share::note_download`] as it comes.
 async fn fetch_bytes_counted(url: &str, name: &str) -> Result<Vec<u8>, String> {

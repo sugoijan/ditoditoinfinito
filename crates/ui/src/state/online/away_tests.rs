@@ -308,3 +308,61 @@ fn a_member_who_missed_a_stages_start_is_handed_it_to_watch() {
     assert!(carol.refusal().is_none());
     assert!(carol.take_load_jobs().is_empty(), "asked for once");
 }
+
+/// A stage's song's load is told the room as it comes, in tenths: the
+/// lists say "Loading 40%" (they said "Loading" alone: no shell told how
+/// far it was).
+#[test]
+fn a_songs_load_is_told_the_room_as_it_comes() {
+    use super::tests::room::upload;
+    let clock = ManualClock::new(1_000);
+    let server = room_of(&clock, &["bob"]);
+    let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let s = song();
+    alice.pick(&s, &s.charts[0]).unwrap();
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    upload(&server, &mut alice, "abc12345");
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let stage = alice.stages()[0].id;
+    let jobs = bob.take_load_jobs();
+    let says = |alice: &RoomClient| {
+        crate::screens::room::player_rows(alice)
+            .into_iter()
+            .find(|p| p.name == "bob")
+            .unwrap()
+            .state
+    };
+    assert_eq!(says(&alice), "Loading");
+    let revision = |server: &SharedFake| server.borrow().state().revision;
+    // 4% of it: nothing said yet; 43%: said once, whatever comes within
+    // the same tenth.
+    bob.load_progress(&jobs[0], 40.0, 1_000.0);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    assert_eq!(says(&alice), "Loading");
+    let before = revision(&server);
+    for done in [430.0, 440.0, 499.0] {
+        bob.load_progress(&jobs[0], done, 1_000.0);
+    }
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    assert_eq!(says(&alice), "Loading 40%");
+    assert_eq!(revision(&server).0, before.0 + 1, "one report a tenth");
+    // The whole of it is not Loaded: its preparation says that.
+    bob.load_progress(&jobs[0], 1_000.0, 1_000.0);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    assert_eq!(says(&alice), "Loading 90%");
+    assert_eq!(
+        server.borrow().state().stage(stage).unwrap().prep(BOB).loading,
+        Loading::Loading { permille: 900 }
+    );
+    bob.finish_shared_load(&jobs[0], Ok(shared_pick(&s)));
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    assert_eq!(says(&alice), "Not ready");
+    // Nothing more is said of a song that is loaded, nor without a whole.
+    let before = revision(&server);
+    bob.load_progress(&jobs[0], 950.0, 1_000.0);
+    bob.load_progress(&jobs[0], 500.0, 0.0);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    assert_eq!(revision(&server), before);
+}

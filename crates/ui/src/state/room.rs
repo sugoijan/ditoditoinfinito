@@ -1174,6 +1174,9 @@ pub struct RoomClient {
     /// taken yet, and those asked for (by stage and readiness revision).
     jobs: Vec<LoadJob>,
     asked: BTreeSet<(StageId, u32)>,
+    /// How far each such song's load was last told the room, in tenths
+    /// ([`RoomClient::load_progress`]).
+    load_said: BTreeMap<(StageId, u32), u16>,
     /// Stages handed to the shell to play.
     launched: BTreeSet<StageId>,
     /// Stages whose prompt this player left (withdrew from or forfeited):
@@ -1810,6 +1813,7 @@ impl RoomClient {
             version: 0,
             jobs: Vec::new(),
             asked: BTreeSet::new(),
+            load_said: BTreeMap::new(),
             launched: BTreeSet::new(),
             left_prompts: BTreeSet::new(),
             stayed: BTreeSet::new(),
@@ -3048,6 +3052,35 @@ impl RoomClient {
         std::mem::take(&mut self.jobs)
     }
 
+    /// How far the shell is with `job`'s song (`done` of `total`, in
+    /// whatever it counts: a download's bytes): the room is told in steps
+    /// of a tenth, so that everyone's lists say "Loading 40%". Nothing for
+    /// the song the picker rests on, a song replaced since, a stage that
+    /// started, or a whole not known.
+    pub fn load_progress(&mut self, job: &LoadJob, done: f64, total: f64) {
+        if job.stage == SPOTLIGHT
+            || total <= 0.0
+            || self.readiness_rev(job.stage) != job.readiness_rev
+            || self.state().stage(job.stage).is_none_or(|st| st.play.is_some())
+        {
+            return;
+        }
+        // (Never 1000: Loaded says that, once the song is prepared.)
+        let tenth = ((done / total).clamp(0.0, 0.99) * 10.0) as u16;
+        let key = (job.stage, job.readiness_rev);
+        if tenth == 0 || self.load_said.get(&key).is_some_and(|said| *said >= tenth) {
+            return;
+        }
+        self.load_said.insert(key, tenth);
+        let _ = self.send(Command::ReportLoading {
+            stage: job.stage,
+            readiness_rev: job.readiness_rev,
+            loading: Loading::Loading {
+                permille: tenth * 100,
+            },
+        });
+    }
+
     /// The shell prepared `job`: the stage's song reported loaded, or
     /// failed with why. An answer for a song replaced since is dropped
     /// (the new one has its own job).
@@ -3056,6 +3089,9 @@ impl RoomClient {
             return;
         }
         self.preparing.remove(&job.stage);
+        // (Its load is over: nothing more is said of how far it is.)
+        self.load_said
+            .insert((job.stage, job.readiness_rev), u16::MAX);
         // A stage that started meanwhile takes no report (the room would
         // refuse it, and the status line say so): its song is here to
         // watch it by ([`Self::sync_watched`]).
@@ -3307,6 +3343,7 @@ impl RoomClient {
             // reports it by itself, `sync_live`.)
             if !self.preparing.contains_key(&key.0) {
                 self.asked.remove(&key);
+                self.load_said.remove(&key);
             }
         }
         let again: Vec<(StageId, i64, Option<ddi_room::live::plan::PlanDigest>)> = self

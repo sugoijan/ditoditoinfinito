@@ -613,7 +613,13 @@ pub(crate) fn prepare_for(room: SharedRoom, job: LoadJob) {
             web_sys::console::warn_1(&format!("room: stage song {}: {e}", job.song).into())
         };
         if job.share.is_some() {
-            let result = read_shared(&job).await;
+            // How far its music is, told the room as it comes.
+            let progress = |done: f64, total: f64| {
+                if let Ok(mut r) = room.try_borrow_mut() {
+                    r.load_progress(&job, done, total);
+                }
+            };
+            let result = read_shared(&job, &progress).await;
             room.borrow_mut().finish_shared_found(&job, result);
             return;
         }
@@ -629,8 +635,17 @@ pub(crate) fn prepare_for(room: SharedRoom, job: LoadJob) {
 }
 
 /// A stage's song read from the room's share `job` names, its chart found
-/// by the digest chosen, with what live play needs of it.
-async fn read_shared(job: &LoadJob) -> Result<SharedFound, LoadProblem> {
+/// by the digest chosen, with what live play needs of it, and, for a
+/// stage (not the song the picker rests on), its music fetched to the end
+/// (`progress`: its bytes so far and in all): a stage's song is loaded
+/// once it can be played. (Feedback round N1: the music was fetched only
+/// on the stage's Ready screen, after the room had been told the song was
+/// loaded; on a slow connection the stage started without it, and its
+/// player, more than the late join behind, forfeited and watched.)
+async fn read_shared(
+    job: &LoadJob,
+    progress: &dyn Fn(f64, f64),
+) -> Result<SharedFound, LoadProblem> {
     let warn =
         |e: &str| web_sys::console::warn_1(&format!("room: stage song {}: {e}", job.song).into());
     let share = job.share.as_deref().ok_or(LoadProblem::Download)?;
@@ -645,6 +660,14 @@ async fn read_shared(job: &LoadJob) -> Result<SharedFound, LoadProblem> {
     let p = prepare_stage(job, &song, &mut |e| warn(e))?;
     let record = &loaded.songs.first().ok_or(LoadProblem::Download)?.record;
     let entry = &record.entry;
+    if job.stage != ddi_ui::state::room::SPOTLIGHT
+        && let Some(url) = crate::share::file_url(&entry.id, entry.music_for(p.index).as_str())
+    {
+        crate::songs::prefetch(&url, progress).await.map_err(|e| {
+            warn(&e);
+            LoadProblem::Download
+        })?;
+    }
     Ok(SharedFound {
         banner: entry
             .banner
@@ -669,7 +692,7 @@ pub(crate) fn prepare_audience(job: LoadJob) {
         return;
     }
     wasm_bindgen_futures::spawn_local(async move {
-        let result = read_shared(&job).await;
+        let result = read_shared(&job, &|_, _| {}).await;
         if let Some(a) = crate::online::kept_audience() {
             a.borrow_mut().finish_found(&job, result);
         }
