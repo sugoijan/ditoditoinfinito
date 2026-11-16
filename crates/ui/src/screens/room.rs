@@ -427,7 +427,6 @@ pub fn loading_waits(r: &RoomClient) -> Option<usize> {
 /// trouble is said in the state's place whatever it is ([`conn_word`]).
 fn person_state(
     s: &ddi_room::RoomState,
-    id: ddi_room::ParticipantId,
     part: Option<&Participation>,
     prep: Option<&ddi_room::Prep>,
 ) -> String {
@@ -444,9 +443,9 @@ fn person_state(
         }
         Some(Participation::LoadFailed { .. }) => m::state_load_failed().into(),
         Some(Participation::Competing { .. }) => m::state_playing().into(),
-        Some(Participation::SittingOut { stage, reason }) => {
-            sat_out_word(sat_out_why(s, *stage, id, *reason)).into()
-        }
+        // The room's own reason: since room model revision 12 it says
+        // still loading for one whose song had not loaded.
+        Some(Participation::SittingOut { reason, .. }) => sat_out_word(*reason).into(),
         Some(Participation::NotReady { .. } | Participation::ReadyLoading { .. }) if gathering => {
             match prep.map(|p| &p.loading) {
                 Some(ddi_room::Loading::Loading { permille }) if *permille > 0 => {
@@ -458,30 +457,6 @@ fn person_state(
             }
         }
         _ => String::new(),
-    }
-}
-
-/// Why a person sits `stage` out, as the lists and their own status line
-/// say it: the room's reason, but for one whose song had not loaded when
-/// the stage started that (still loading, or failed), which the room
-/// records as not ready where they had not pressed Ready (the Ready
-/// screen was never theirs to press; `ddi_room`'s `sit_out_reason` asks
-/// readiness first). Read from their preparation of that stage, which
-/// stands as it was when it started.
-pub fn sat_out_why(
-    s: &ddi_room::RoomState,
-    stage: StageId,
-    id: ddi_room::ParticipantId,
-    reason: ddi_room::SitOutReason,
-) -> ddi_room::SitOutReason {
-    use ddi_room::{Loading, SitOutReason};
-    if reason != SitOutReason::NotReady {
-        return reason;
-    }
-    match s.stage(stage).map(|st| &st.prep_ref(id).loading) {
-        Some(Loading::Failed { .. }) => SitOutReason::LoadFailed,
-        Some(Loading::NotStarted | Loading::Loading { .. }) => SitOutReason::StillLoading,
-        _ => reason,
     }
 }
 
@@ -671,7 +646,7 @@ fn phase_status(r: &RoomClient) -> UiText {
             let n = number_of(r, *stage);
             match s.participation(r.me()) {
                 Some(Participation::SittingOut { reason, .. }) => {
-                    sat_out_status(n, sat_out_why(s, *stage, r.me(), reason))
+                    sat_out_status(n, reason)
                 }
                 // Joined while the match ran: told why they are not in it.
                 Some(Participation::WaitingNextMatch) => m::status_waiting_next_match(n),
@@ -1056,7 +1031,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                 // counting down (the prompt's count and rows agree).
                 let ready = prep.as_ref().is_some_and(|p| p.ready)
                     || matches!(part, Some(Participation::Committed { .. }));
-                let state = person_state(s, member.id, part.as_ref(), prep.as_ref());
+                let state = person_state(s, part.as_ref(), prep.as_ref());
                 let (status, tone) = person_status(member, part.as_ref(), upcoming, &state);
                 let (sub, state) = person_row(s, member, part.as_ref(), points(member.id), state);
                 let standing = standing(member.id);

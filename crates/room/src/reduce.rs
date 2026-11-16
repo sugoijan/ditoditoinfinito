@@ -754,12 +754,20 @@ impl RoomState {
                     // admission now says. One who had left arrives again
                     // as anyone does: refused at the member bound, and in
                     // to watch where every player's place is taken.
+                    let participant = m.id;
+                    let flag = (m.admin != *admin).then_some(*admin);
+                    if m.left && self.present_people() >= limit {
+                        return Err(Rejection::RoomFull);
+                    }
+                    // An administrator is one wherever they are, and only
+                    // while their session says so: the row follows the
+                    // join (revision 12).
+                    if let Some(admin) = flag {
+                        self.emit(out, Event::AdminChanged { participant, admin });
+                    }
+                    let m = &self.members[&participant];
                     if m.left || m.connection != Connection::Connected {
-                        let participant = m.id;
                         let to_watch = m.left && m.intent == Intent::Play && self.players_full();
-                        if m.left && self.present_people() >= limit {
-                            return Err(Rejection::RoomFull);
-                        }
                         self.emit(out, Event::MemberRestored { participant });
                         if to_watch {
                             self.emit(
@@ -1091,8 +1099,10 @@ impl RoomState {
 
     /// A readiness window ends early once everyone connected who could
     /// still join is ready and loaded (`hosted-deadline-v1`): the start
-    /// commits at once. A member whose connection is down does not hold
-    /// it; the deadline still waits for them.
+    /// commits at once. A member reconnecting for a moment holds it as a
+    /// connected one does (revision 12, `Connection::holds_place`); one
+    /// past the authority's reconnect grace (`Disconnected`) does not,
+    /// and the deadline still waits for them.
     fn maybe_commit(&mut self, now: Millis, out: &mut Vec<Event>) {
         if self.closed.is_some() {
             return;
@@ -1160,8 +1170,7 @@ impl RoomState {
     fn still_loading(&self, stage: &Stage, candidates: &[ParticipantId]) -> bool {
         candidates.iter().any(|&id| {
             self.members.get(&id).is_some_and(|m| {
-                m.wants_to_play()
-                    && m.connection == Connection::Connected
+                m.wants_to_play() && m.connection.holds_place()
             }) && matches!(
                 stage.prep_ref(id).loading,
                 Loading::NotStarted | Loading::Loading { .. }
@@ -1701,6 +1710,11 @@ impl RoomState {
             Event::RoleChanged { participant, role } => {
                 if let Some(m) = self.members.get_mut(participant) {
                     m.role = *role;
+                }
+            }
+            Event::AdminChanged { participant, admin } => {
+                if let Some(m) = self.members.get_mut(participant) {
+                    m.admin = *admin;
                 }
             }
             Event::WatchOnlyChanged { participant, on } => {

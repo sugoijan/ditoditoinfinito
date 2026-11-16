@@ -274,7 +274,7 @@ fn a_missed_stage_keeps_earlier_points_and_a_later_stage_can_be_readied() {
         r.part(cara),
         Participation::SittingOut {
             stage: s2,
-            reason: SitOutReason::NotReady
+            reason: SitOutReason::StillLoading
         }
     );
     r.end(s2, &[&[ana], &[host]]);
@@ -287,7 +287,7 @@ fn a_missed_stage_keeps_earlier_points_and_a_later_stage_can_be_readied() {
             .unwrap();
     assert_eq!(
         standing.stages[1],
-        StageStanding::SatOut(SitOutReason::NotReady)
+        StageStanding::SatOut(SitOutReason::StillLoading)
     );
     // And she readies for stage 3 with her own record.
     let s3 = r.upcoming();
@@ -1817,7 +1817,7 @@ fn a_pick_starts_the_match_and_the_stage_starts_once_everyone_is_ready() {
         r.part(bo),
         Participation::SittingOut {
             stage: s2,
-            reason: SitOutReason::NotReady
+            reason: SitOutReason::StillLoading
         }
     );
     r.end(s2, &[&[host], &[ana]]);

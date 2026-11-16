@@ -1315,6 +1315,51 @@ fn a_dropped_host_is_waited_for_then_the_room_passes_on() {
     assert_eq!(bob.room(), server.borrow().state());
 }
 
+/// Feedback round N2 (room model revision 12), over the wire: an
+/// administrator whose room passed on while they were away comes back an
+/// administrator (their socket's opening brings their row to their
+/// session's flag, as the server does), every mirror hears it, and their
+/// Take pick is accepted; one whose session lost the flag loses it at
+/// their next socket.
+#[test]
+fn an_administrator_back_in_their_room_operates_it_alike_everywhere() {
+    use ddi_room::{Capability, Role};
+    let (a, b) = (ParticipantId(1), ParticipantId(2));
+    let clock = ManualClock::new(1_000);
+    let (server, mut alice, mut bob) = two(&clock);
+    server.borrow_mut().set_grace(Some(30_000));
+    server.borrow_mut().set_admin(&Identity::new("dev:alice"), true);
+    // Away past the grace: the room is Bob's.
+    server.borrow_mut().drop_socket(a);
+    pump_all(&mut [&mut alice, &mut bob]);
+    clock.advance(30_000);
+    pump_all(&mut [&mut bob]);
+    assert_eq!(bob.room().owner().map(|m| m.id), Some(b));
+    assert!(!bob.room().member(a).unwrap().admin, "made before the flag was passed");
+    // Back: a member, and an administrator.
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(alice.link.link(), LinkState::Connected);
+    for c in [&alice, &bob] {
+        let m = c.room().member(a).unwrap();
+        assert_eq!((m.role, m.admin), (Role::Member, true));
+        assert!(ddi_room::can(m.role, m.admin, Capability::EditNextRules, c.room().phase.kind()));
+    }
+    let seq = alice.send(Command::TakePick);
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(alice.answer(seq), Some(&None));
+    assert_eq!(bob.room().picker(), Some(a));
+    // No longer an administrator: gone at the next socket.
+    server.borrow_mut().set_admin(&Identity::new("dev:alice"), false);
+    server.borrow_mut().drop_socket(a);
+    pump_all(&mut [&mut alice, &mut bob]);
+    clock.advance(2_000);
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(alice.link.link(), LinkState::Connected);
+    assert!(!bob.room().member(a).unwrap().admin);
+    assert_eq!(alice.room(), server.borrow().state());
+    assert_eq!(bob.room(), server.borrow().state());
+}
+
 /// A room that ends closes every socket with 4410 (the one who left is
 /// told they left), opens none again and gives no ticket: under "Close
 /// the room" when its host leaves or is away past the grace, and when a

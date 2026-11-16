@@ -184,6 +184,9 @@ pub struct FakeServer {
     /// Each member's tickets' times in the last minute (ms), for the
     /// tickets' bound.
     tickets_issued: BTreeMap<ParticipantId, VecDeque<u64>>,
+    /// The identities whose sessions are administrators' now
+    /// ([`FakeServer::set_admin`]).
+    admins: std::collections::BTreeSet<Identity>,
 }
 
 /// The server's bounds on one member (`../ddi-server`'s `room.rs`,
@@ -290,6 +293,7 @@ impl FakeServer {
             incoming: (0, 0, 0),
             bounds: None,
             tickets_issued: BTreeMap::new(),
+            admins: Default::default(),
             audience,
             room_name,
         }
@@ -393,6 +397,18 @@ impl FakeServer {
         self.clock.now().0
     }
 
+    /// `identity`'s session is an administrator's from now on, or no
+    /// longer (the server's `ADMIN_TWITCH_IDS`): as the server does since
+    /// room model revision 12, a join says it, and a socket opened by a
+    /// member whose row says otherwise brings the row to it.
+    pub fn set_admin(&mut self, identity: &Identity, admin: bool) {
+        if admin {
+            self.admins.insert(identity.clone());
+        } else {
+            self.admins.remove(identity);
+        }
+    }
+
     /// `POST /rooms/<id>/join`: admit (or restore) a person, Joining until
     /// their socket opens; a present member is answered as they are.
     pub fn join(
@@ -406,7 +422,8 @@ impl FakeServer {
         {
             return Ok(m.id);
         }
-        let admitted = self.authority.admit(identity, name.into(), false, intent);
+        let admin = self.admins.contains(&identity);
+        let admitted = self.authority.admit(identity, name.into(), admin, intent);
         self.route(None);
         let id = admitted?;
         let _ = self.authority(Command::SetConnection {
@@ -628,6 +645,21 @@ impl FakeServer {
                 Fault::Close(code) => c.queue.push_back((now, Frame::Close(code))),
                 f => c.faults.push_back(f),
             }
+        }
+        // A member whose session's administrator flag is not their row's:
+        // the row is brought to it (the reducer's join of someone there).
+        if let Some(m) = self.state().member(participant)
+            && let crate::MemberKind::Human { identity, name } = &m.kind
+            && m.admin != (self.admins.contains(identity) && !identity.is_bot())
+        {
+            let (identity, name, intent) = (identity.clone(), name.clone(), m.intent);
+            let admin = self.admins.contains(&identity);
+            let _ = self.authority.authority(Command::Join {
+                identity,
+                name,
+                admin,
+                intent,
+            });
         }
         // The others hear of it; the new socket gets the room as it is.
         let _ = self.authority.authority(Command::SetConnection {

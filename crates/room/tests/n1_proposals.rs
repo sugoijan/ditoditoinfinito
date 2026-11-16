@@ -1,8 +1,7 @@
-//! Feedback round N1 (2026-11-16): what a group of 5 to 15 people hit, as
-//! the room model has it today. Each test here FAILS on the model as it
-//! stands and is ignored: it states a change proposed for the next round
-//! (the round that found them changed nothing under `crates/room/src/`).
-//! Run them with `cargo test -p ddi-room --test n1_proposals -- --ignored`.
+//! Feedback round N1 (2026-11-16): what a group of 5 to 15 people hit.
+//! That round stated each as a failing, ignored test of a change proposed
+//! to the room model; round N2 made the four changes in room model
+//! revision 12, and the tests run.
 
 #![allow(dead_code)]
 
@@ -140,7 +139,6 @@ impl Room {
 /// ticket whose `admin` differs from the row's, and `RoomState::new`
 /// takes the owner's flag.
 #[test]
-#[ignore = "feedback round N1: a change proposed to the room model, for the next round"]
 fn an_administrator_who_comes_back_is_still_an_administrator() {
     let mut r = Room::of("boss");
     let boss = r.host;
@@ -179,7 +177,6 @@ fn an_administrator_who_comes_back_is_still_an_administrator() {
 /// Proposed: `sit_out_reason` asks the loading first (`StillLoading` for
 /// `NotStarted` and `Loading`), then readiness.
 #[test]
-#[ignore = "feedback round N1: a change proposed to the room model, for the next round"]
 fn one_whose_song_was_still_loading_sits_out_as_still_loading() {
     let mut r = Room::of("host");
     let ana = r.join("ana", false);
@@ -211,7 +208,6 @@ fn one_whose_song_was_still_loading_sits_out_as_still_loading() {
 /// does not come back), and a readiness window waits for a reconnecting
 /// member as it does for a connected one, up to its deadline.
 #[test]
-#[ignore = "feedback round N1: a change proposed to the room model, for the next round"]
 fn a_member_reconnecting_for_a_moment_keeps_their_place_in_the_stage() {
     let mut r = Room::of("host");
     let ana = r.join("ana", false);
@@ -246,7 +242,6 @@ fn a_member_reconnecting_for_a_moment_keeps_their_place_in_the_stage() {
 /// member as for a connected one (its deadline bounds the wait; the
 /// authority ends `Reconnecting` with `Disconnected` after its grace).
 #[test]
-#[ignore = "feedback round N1: a change proposed to the room model, for the next round"]
 fn a_readiness_window_waits_for_a_member_reconnecting_for_a_moment() {
     let mut r = Room::of("host");
     let ana = r.join("ana", false);
@@ -279,4 +274,128 @@ fn a_readiness_window_waits_for_a_member_reconnecting_for_a_moment() {
     r.pass(1_000);
     let play = r.s.stage(stage).unwrap().play.as_ref().expect("started");
     assert!(play.lineup.contains(&bea));
+}
+
+/// Round N2, with the first test above: the flag follows the join both
+/// ways (someone who is no longer an administrator loses it, as one
+/// event and nothing else for a member who is there), a bot is never
+/// one, and a room's creation takes its owner's.
+#[test]
+fn the_administrators_flag_follows_the_join_both_ways() {
+    let mut r = Room::of("boss");
+    let op = r.join("op", true);
+    assert!(r.s.member(op).unwrap().admin);
+    // Connected, the same flag: nothing changes.
+    let rev = r.s.revision;
+    r.join("op", true);
+    assert_eq!(r.s.revision, rev);
+    // No longer an administrator: one event, the row brought to it.
+    let events = r.sys(Command::Join {
+        identity: Identity::new("twitch:op"),
+        name: "op".into(),
+        admin: false,
+        intent: Intent::Play,
+    });
+    assert_eq!(
+        events,
+        vec![Event::AdminChanged {
+            participant: op,
+            admin: false
+        }]
+    );
+    assert!(!r.s.member(op).unwrap().admin);
+    assert!(!r.may(op, Capability::TakePick));
+    // A bot never, whatever its join says.
+    let identity = Identity::new("bot:rob");
+    assert!(identity.is_bot());
+    for _ in 0..2 {
+        r.sys(Command::Join {
+            identity: identity.clone(),
+            name: "rob".into(),
+            admin: true,
+            intent: Intent::Play,
+        });
+    }
+    assert!(!r.s.member_by_identity(&identity).unwrap().admin);
+    // A mirror applies the event as the authority did.
+    let mut mirror = r.s.clone();
+    let events = r.sys(Command::Join {
+        identity: Identity::new("twitch:op"),
+        name: "op".into(),
+        admin: true,
+        intent: Intent::Play,
+    });
+    mirror.commit(&events);
+    assert_eq!(mirror, r.s);
+    // The owner's flag at the room's creation.
+    let made = |admin| {
+        RoomState::new(
+            RoomId::new("room"),
+            Identity::new("twitch:boss"),
+            "boss".into(),
+            RoomPolicy::default(),
+            MatchRules::hosted(),
+            ContentSource::Shared,
+        )
+        .with_owner_admin(admin)
+    };
+    assert!(made(true).member(ParticipantId(1)).unwrap().admin);
+    assert!(!made(false).member(ParticipantId(1)).unwrap().admin);
+}
+
+/// Round N2, the bounds of waiting for a reconnecting member: the loading
+/// grace waits for one still loading as for a connected one; past the
+/// authority's reconnect grace (`Disconnected`) nothing waits, and a
+/// committed starter who goes then cancels the start, as ever.
+#[test]
+fn a_reconnecting_member_is_waited_for_only_inside_the_reconnect_grace() {
+    let mut r = Room::of("host");
+    let ana = r.join("ana", false);
+    let bea = r.join("bea", false);
+    let stage = r.picked();
+    for who in [r.host, ana] {
+        r.load(who, stage, Loading::Loaded);
+        r.ready(who, stage);
+    }
+    r.load(bea, stage, Loading::Loading { permille: 500 });
+    r.sys(Command::SetConnection {
+        participant: bea,
+        connection: Connection::Reconnecting,
+    });
+    r.pass(1_000);
+    let Phase::Preparing { window: Some(w), .. } = r.s.phase else {
+        panic!("{:?}", r.s.phase)
+    };
+    assert!(w.loading(), "the loading grace waits for her");
+    // Gone past the grace: the room goes on without her.
+    r.sys(Command::SetConnection {
+        participant: bea,
+        connection: Connection::Disconnected,
+    });
+    r.pass(1);
+    assert!(matches!(r.s.phase, Phase::Countdown { .. }), "{:?}", r.s.phase);
+    let play = r.s.stage(stage).unwrap().play.as_ref().unwrap();
+    assert_eq!(play.sat_out.get(&bea), Some(&SitOutReason::NotConnected));
+
+    // A reconnecting starter committed, then gone: the start is canceled.
+    let mut r = Room::of("host");
+    let ana = r.join("ana", false);
+    let bea = r.join("bea", false);
+    let stage = r.picked();
+    for who in [ana, bea] {
+        r.load(who, stage, Loading::Loaded);
+        r.ready(who, stage);
+    }
+    r.load(r.host, stage, Loading::Loaded);
+    r.sys(Command::SetConnection {
+        participant: bea,
+        connection: Connection::Reconnecting,
+    });
+    r.ready(r.host, stage);
+    assert!(matches!(r.s.phase, Phase::Countdown { .. }));
+    let events = r.sys(Command::SetConnection {
+        participant: bea,
+        connection: Connection::Disconnected,
+    });
+    assert!(events.iter().any(|e| matches!(e, Event::StartCanceled { .. })));
 }

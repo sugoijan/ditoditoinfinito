@@ -1558,7 +1558,7 @@ Rust and the browser are implementation details, not advertised features.
   room's screens share (`RoomCall`, the per-frame `Pump`, the status and
   rows, a person's state for a stage in the room's order, `person_state`
   (nothing before a pick, Waiting for song, Loading, Not ready, Ready,
-  then Playing or sat out with why, `sat_out_why`), the panel, More, `ThemeState::room`, a `RoomView`, for tests;
+  then Playing or sat out with the room's reason), the panel, More, `ThemeState::room`, a `RoomView`, for tests;
   `DueDialog`, the notice over a screen opened over the room (Options,
   Calibrate, the announcer studio) that the room's stage is due for the
   player, `RoomClient::stage_due`, with the room's status line and a

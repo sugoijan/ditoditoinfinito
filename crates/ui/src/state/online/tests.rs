@@ -1166,7 +1166,8 @@ pub(crate) mod room {
             .unwrap();
         assert_eq!(
             play.sat_out.get(&carol.me()),
-            Some(&ddi_room::SitOutReason::NotReady)
+            Some(&ddi_room::SitOutReason::StillLoading),
+            "room model revision 12: the loading is asked first"
         );
         // Before anyone reported: the stage's standings wait, as seated.
         let table = bob.stage_table(stage).unwrap();

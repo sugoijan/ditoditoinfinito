@@ -290,6 +290,14 @@ pub enum Event {
         participant: ParticipantId,
         role: Role,
     },
+    /// A member's administrator flag brought to what the authority's
+    /// join says of them (room model revision 12): an administrator who
+    /// comes back to a room, or whose session gained or lost the flag
+    /// since their row was made. Never a bot's.
+    AdminChanged {
+        participant: ParticipantId,
+        admin: bool,
+    },
     /// [`Command::SetWatchOnly`].
     WatchOnlyChanged {
         participant: ParticipantId,

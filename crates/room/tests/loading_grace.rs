@@ -241,12 +241,13 @@ fn one_who_never_loads_sits_out_after_the_grace_and_the_countdown() {
     assert_eq!(r.s.phase, Phase::Stage { stage: s1 });
     let play = r.s.stage(s1).unwrap().play.clone().unwrap();
     assert!(play.lineup.contains(&host) && play.lineup.contains(&bo));
-    assert_eq!(play.sat_out.get(&ana), Some(&SitOutReason::NotReady));
+    // Revision 12: the loading is asked before the readiness.
+    assert_eq!(play.sat_out.get(&ana), Some(&SitOutReason::StillLoading));
     assert_eq!(
         r.s.participation(ana),
         Some(Participation::SittingOut {
             stage: s1,
-            reason: SitOutReason::NotReady
+            reason: SitOutReason::StillLoading
         })
     );
 }

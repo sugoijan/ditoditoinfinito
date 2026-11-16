@@ -786,6 +786,16 @@ impl RoomState {
         }
     }
 
+    /// This new room with its owner an administrator or not (revision
+    /// 12): what the authority's session says of who made it, as a join
+    /// says it of everyone after (never a bot).
+    pub fn with_owner_admin(mut self, admin: bool) -> Self {
+        if let Some(m) = self.members.get_mut(&ParticipantId(1)) {
+            m.admin = admin && !m.is_bot();
+        }
+        self
+    }
+
     /// What the room does when its host goes.
     pub fn if_host_leaves(&self) -> HostLeaves {
         self.hosting.if_host_leaves
@@ -1085,7 +1095,8 @@ impl RoomState {
     }
 
     /// Why `id` would not start `stage` now, or `None` if eligible (a CPU,
-    /// or a connected person who is ready, loaded and wants to play).
+    /// or a person who is ready, loaded and wants to play, connected or
+    /// reconnecting for a moment, `Connection::holds_place`).
     pub fn sit_out_reason(&self, stage: &Stage, id: ParticipantId) -> Option<SitOutReason> {
         let Some(m) = self.members.get(&id) else {
             return Some(SitOutReason::Left);
@@ -1099,15 +1110,17 @@ impl RoomState {
         if m.intent == Intent::Watch {
             return Some(SitOutReason::Watching);
         }
-        if m.connection != Connection::Connected {
+        if !m.connection.holds_place() {
             return Some(SitOutReason::NotConnected);
         }
+        // The loading first (revision 12): one whose song was still
+        // loading could not sensibly have pressed Ready.
         let prep = stage.prep_ref(id);
         match prep.loading {
             Loading::Failed { .. } => Some(SitOutReason::LoadFailed),
-            _ if !prep.ready => Some(SitOutReason::NotReady),
+            Loading::NotStarted | Loading::Loading { .. } => Some(SitOutReason::StillLoading),
+            Loading::Loaded if !prep.ready => Some(SitOutReason::NotReady),
             Loading::Loaded => None,
-            _ => Some(SitOutReason::StillLoading),
         }
     }
 

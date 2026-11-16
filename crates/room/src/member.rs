@@ -236,6 +236,19 @@ pub enum Connection {
     Disconnected,
 }
 
+impl Connection {
+    /// Whether a member with this connection keeps their place in a stage
+    /// that is being readied (room model revision 12): connected, or
+    /// reconnecting for a moment, inside the authority's reconnect grace
+    /// (which ends with `Disconnected`). A readiness window waits for such
+    /// a member up to its deadline and a lineup counts them, ready and
+    /// loaded as they are; one who is not back when the play starts is a
+    /// starter who never started (a live stage's no-show).
+    pub fn holds_place(self) -> bool {
+        matches!(self, Self::Connected | Self::Reconnecting)
+    }
+}
+
 /// What an actor may do in the room.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
