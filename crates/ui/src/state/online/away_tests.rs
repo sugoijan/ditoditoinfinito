@@ -145,8 +145,10 @@ fn a_page_shown_again_reconnects_at_once() {
     assert_eq!(bob.link_state(), LinkState::Reconnecting { attempt: 1 });
     tick(&clock, &mut [&mut alice, &mut bob], 40);
     assert_ne!(bob.link_state(), LinkState::Connected, "the backoff waited out");
-    // Shown again: at once.
+    // Shown again: at once, still Reconnecting (the link never reads
+    // Joining for a moment) with its attempts counted on.
     assert!(bob.hurry());
+    assert_eq!(bob.link_state(), LinkState::Reconnecting { attempt: 1 });
     tick(&clock, &mut [&mut alice, &mut bob], 4);
     tick(&clock, &mut [&mut alice, &mut bob], 4);
     assert_eq!(bob.link_state(), LinkState::Connected);

@@ -411,6 +411,12 @@ impl Transport for SocketTransport {
         true
     }
 
+    /// Its own keep-alive at the WebSocket layer ([`PING_AFTER`],
+    /// [`DEAD_AFTER`]): the room's text keep-alive is not sent.
+    fn keeps_alive(&self) -> bool {
+        true
+    }
+
     fn close(&mut self) {
         if let Some(s) = self.socket.take() {
             let _ = s.out.send(Outgoing::Close);

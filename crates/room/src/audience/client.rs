@@ -245,6 +245,11 @@ pub struct Audience<T: Transport, C: Clock> {
     link: AudienceLink,
     wants_ticket: bool,
     open: bool,
+    /// Its socket's death noticed as a member's is
+    /// (`crate::online::KEEPALIVE_V0`, room model revision 12): its own
+    /// keep-alive ([`AudienceRules::keepalive_ms`]) unanswered for the
+    /// policy's running time.
+    keep: crate::online::KeepAlive,
 }
 
 impl<T: Transport, C: Clock> Audience<T, C> {
@@ -256,7 +261,13 @@ impl<T: Transport, C: Clock> Audience<T, C> {
             link: AudienceLink::default(),
             wants_ticket: true,
             open: false,
+            keep: Default::default(),
         }
+    }
+
+    /// Keep-alives sent, and sockets taken as dead for want of an answer.
+    pub fn keepalives(&self) -> (u64, u64) {
+        self.keep.counts()
     }
 
     pub fn link(&self) -> &AudienceLink {
@@ -292,7 +303,12 @@ impl<T: Transport, C: Clock> Audience<T, C> {
     /// Read what came, send what is due; what came for the game.
     pub fn poll(&mut self) -> Vec<AudienceNews> {
         let now = self.clock.now().0;
+        let policy = crate::online::KEEPALIVE_V0;
+        self.keep.ran(now, &policy);
         for e in self.transport.poll() {
+            if !matches!(e, TransportEvent::Closed { .. }) {
+                self.keep.heard(now);
+            }
             match e {
                 TransportEvent::Opened => {
                     self.open = true;
@@ -307,8 +323,18 @@ impl<T: Transport, C: Clock> Audience<T, C> {
                 }
             }
         }
+        if self.open && !self.transport.keeps_alive() && self.keep.dead(&policy) {
+            // Silently gone: replaced, as a socket that closed.
+            self.transport.close();
+            self.open = false;
+            self.link.closed(1006);
+            self.wants_ticket = true;
+        }
         if self.open {
             for s in self.link.due(now) {
+                if matches!(&s, Message::Text(t) if t == KEEPALIVE) {
+                    self.keep.sent();
+                }
                 self.transport.put(s);
             }
         }

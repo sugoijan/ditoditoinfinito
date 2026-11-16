@@ -86,6 +86,13 @@ pub trait Transport {
     /// What happened since the last poll, oldest first: the socket open
     /// now only (an earlier one's late close is not reported).
     fn poll(&mut self) -> Vec<TransportEvent>;
+    /// Whether the socket keeps itself alive and notices its own death
+    /// (desktop's: pings at the WebSocket layer after 10 s of silence,
+    /// closed after 20 s without an answer): the authority's own
+    /// keep-alive ([`KEEPALIVE_V0`]) is then not sent.
+    fn keeps_alive(&self) -> bool {
+        false
+    }
     /// Put `message` on the socket: text or binary.
     fn put(&mut self, message: Message) {
         match message {
@@ -113,6 +120,9 @@ impl<T: Transport + ?Sized> Transport for Box<T> {
     }
     fn poll(&mut self) -> Vec<TransportEvent> {
         (**self).poll()
+    }
+    fn keeps_alive(&self) -> bool {
+        (**self).keeps_alive()
     }
 }
 
@@ -207,6 +217,108 @@ impl ReconnectPolicy {
     }
 }
 
+/// A member's socket's keep-alive (room model revision 12, feedback
+/// round N2; PROVISIONAL, `keepalive-v0`): a socket that has heard
+/// nothing for `silent_ms` sends [`crate::audience::KEEPALIVE`], which
+/// the server's runtime answers itself ([`crate::audience::KEEPALIVE_ANSWER`],
+/// a hibernatable WebSocket's auto-response: the room's object is not
+/// woken and the answer is not billed as a request to it), so that an
+/// idle room's socket carries something often enough for a home router,
+/// a phone network or a proxy not to drop it; and one that hears nothing
+/// in `dead_after_ms` more of the client's own running time is taken as
+/// dead (closed and replaced by a reconnect, as a socket that closed).
+///
+/// Running time: the time between two of the client's polls counts up to
+/// `run_step_ms` at most, so a hidden tab whose timers fire once a minute
+/// sends its keep-alive when it runs (silence is the wall clock's) but
+/// never judges an answer overdue over the minutes it did not run (with
+/// any message waking it, the web's `wake_hidden`, an answer that comes
+/// is read at once).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeepAlivePolicy {
+    pub name: &'static str,
+    pub silent_ms: u64,
+    pub dead_after_ms: u64,
+    pub run_step_ms: u64,
+}
+
+/// `keepalive-v0` (PROVISIONAL).
+pub const KEEPALIVE_V0: KeepAlivePolicy = KeepAlivePolicy {
+    name: "keepalive-v0",
+    silent_ms: 20_000,
+    dead_after_ms: 20_000,
+    run_step_ms: 1_500,
+};
+
+/// What [`KeepAlivePolicy`] keeps of a socket (a member's, and an
+/// audience seat's, `crate::audience::client::Audience`).
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct KeepAlive {
+    /// When the socket last said anything (the device's ms).
+    heard_at: u64,
+    /// The client's running time (ms, [`KeepAlivePolicy::run_step_ms`]).
+    run_ms: u64,
+    last_poll: Option<u64>,
+    /// The running time a keep-alive went out at, nothing heard since.
+    sent_at_run: Option<u64>,
+    /// Keep-alives sent, and sockets taken as dead.
+    sent: u64,
+    dead: u64,
+}
+
+/// What the keep-alive asks for at a poll.
+enum KeepAliveDue {
+    Send,
+    Dead,
+}
+
+impl KeepAlive {
+    pub(crate) fn ran(&mut self, now: u64, policy: &KeepAlivePolicy) {
+        if let Some(last) = self.last_poll {
+            self.run_ms += now.saturating_sub(last).min(policy.run_step_ms);
+        }
+        self.last_poll = Some(now);
+    }
+
+    pub(crate) fn heard(&mut self, now: u64) {
+        self.heard_at = now;
+        self.sent_at_run = None;
+    }
+
+    /// A keep-alive went out (its answer awaited unless one already is).
+    pub(crate) fn sent(&mut self) {
+        self.sent += 1;
+        self.sent_at_run.get_or_insert(self.run_ms);
+    }
+
+    /// Nothing heard in the policy's running time since a keep-alive.
+    pub(crate) fn dead(&mut self, policy: &KeepAlivePolicy) -> bool {
+        let dead = self
+            .sent_at_run
+            .is_some_and(|at| self.run_ms.saturating_sub(at) >= policy.dead_after_ms);
+        if dead {
+            self.sent_at_run = None;
+            self.dead += 1;
+        }
+        dead
+    }
+
+    pub(crate) fn counts(&self) -> (u64, u64) {
+        (self.sent, self.dead)
+    }
+
+    fn due(&mut self, now: u64, policy: &KeepAlivePolicy) -> Option<KeepAliveDue> {
+        if self.dead(policy) {
+            return Some(KeepAliveDue::Dead);
+        }
+        if self.sent_at_run.is_none() && now.saturating_sub(self.heard_at) >= policy.silent_ms {
+            self.sent();
+            return Some(KeepAliveDue::Send);
+        }
+        None
+    }
+}
+
 /// How long a resync's answer may take before a later gap asks again.
 const RESYNC_AGAIN_MS: u64 = 2_000;
 
@@ -241,6 +353,8 @@ pub struct OnlineAuthority<T: Transport, C: Clock> {
     /// The highest revision handed on, so an old one is not again.
     handed: Option<Revision>,
     live: LiveLink,
+    keepalive: KeepAlivePolicy,
+    keep: KeepAlive,
 }
 
 impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
@@ -261,7 +375,21 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
             inbox: Vec::new(),
             handed: None,
             live: LiveLink::new(LIVE_V1),
+            keepalive: KEEPALIVE_V0,
+            keep: KeepAlive::default(),
         }
+    }
+
+    /// Under another keep-alive policy (tests).
+    pub fn with_keepalive(mut self, policy: KeepAlivePolicy) -> Self {
+        self.keepalive = policy;
+        self
+    }
+
+    /// Keep-alives sent so far, and sockets taken as dead for want of an
+    /// answer ([`KEEPALIVE_V0`]).
+    pub fn keepalives(&self) -> (u64, u64) {
+        self.keep.counts()
     }
 
     pub fn with_policy(mut self, policy: ReconnectPolicy) -> Self {
@@ -364,6 +492,7 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
                 }
                 self.ticket = Ticket::Used;
                 self.synced = false;
+                self.keep.heard(self.clock.now().0);
                 self.transport.open(&self.room, &ticket);
             }
             Err(TicketProblem::SignedOut) => self.end(LinkState::SignInAgain),
@@ -381,6 +510,22 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
                 };
             }
             Err(TicketProblem::Unreachable) => self.retry_later(),
+        }
+    }
+
+    /// A reconnect that waits out its backoff tried at once (a page shown
+    /// again, a hidden tab's socket that closed): its ticket wanted now,
+    /// the link still Reconnecting and its attempts counted on (never
+    /// Joining for a moment, as [`OnlineAuthority::restart`] would say).
+    /// Whether one waited.
+    pub fn retry_now(&mut self) -> bool {
+        let now = self.clock.now().0;
+        match (self.link, self.ticket) {
+            (LinkState::Reconnecting { .. }, Ticket::Wanted { at }) if at > now => {
+                self.ticket = Ticket::Wanted { at: now };
+                true
+            }
+            _ => false,
         }
     }
 
@@ -435,6 +580,10 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
     }
 
     fn received(&mut self, text: &str) {
+        if text == crate::audience::KEEPALIVE_ANSWER {
+            // The keep-alive's answer: heard, nothing to read.
+            return;
+        }
         let Ok(envelope) = serde_json::from_str::<ServerEnvelope>(text) else {
             if let Ok(live) = serde_json::from_str::<ServerLiveEnvelope>(text) {
                 let now = self.clock.now().0;
@@ -528,12 +677,16 @@ impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
     }
 
     fn poll(&mut self) -> Vec<ServerEnvelope> {
+        let now = self.clock.now().0;
+        self.keep.ran(now, &self.keepalive);
         for event in self.transport.poll() {
+            if !matches!(event, TransportEvent::Closed { .. }) {
+                self.keep.heard(now);
+            }
             match event {
                 TransportEvent::Opened => {}
                 TransportEvent::Text(text) => self.received(&text),
                 TransportEvent::Binary(bytes) => {
-                    let now = self.clock.now().0;
                     self.live.binary(&bytes, now);
                 }
                 TransportEvent::Closed { code } => {
@@ -547,6 +700,20 @@ impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
                         _ => self.retry_later(),
                     }
                 }
+            }
+        }
+        // The keep-alive, on a socket that is the room's (its first
+        // snapshot read) and keeps none of its own.
+        if self.synced && !self.transport.keeps_alive() {
+            match self.keep.due(now, &self.keepalive) {
+                Some(KeepAliveDue::Send) => self.send(crate::audience::KEEPALIVE.to_string()),
+                Some(KeepAliveDue::Dead) => {
+                    // Silently gone (no close came): replaced, as a socket
+                    // that closed.
+                    self.transport.close();
+                    self.retry_later();
+                }
+                None => {}
             }
         }
         self.pump_live();

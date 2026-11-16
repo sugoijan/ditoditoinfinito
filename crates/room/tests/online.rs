@@ -1806,3 +1806,160 @@ fn a_change_of_points_is_decided_alike_by_both_authorities_and_every_mirror() {
     assert_eq!(m.rules_for(StageId(2)).points, ddi_room::PointsBias::Mild);
     assert_eq!(m.rules_for(StageId(1)).points, ddi_room::PointsBias::Strong);
 }
+
+/// Feedback round N2 (room model revision 12): a reconnect that waits out
+/// its backoff is tried at once (`OnlineAuthority::retry_now`: a page
+/// shown again, a hidden tab's socket that closed): its ticket is wanted
+/// now, the link reads Reconnecting all along (never Joining) and its
+/// attempts count on, so a failure from there backs off further.
+#[test]
+fn a_waiting_reconnect_is_tried_at_once_and_its_backoff_counts_on() {
+    let clock = ManualClock::new(1_000);
+    let (server, mut alice, mut bob) = two(&clock);
+    assert!(!bob.link.retry_now(), "nothing waits while connected");
+    server.borrow_mut().drop_socket(ParticipantId(2));
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(bob.link.link(), LinkState::Reconnecting { attempt: 1 });
+    assert!(!bob.link.wants_ticket(), "the backoff's wait");
+    assert!(bob.link.retry_now());
+    assert!(bob.link.wants_ticket(), "at once");
+    assert_eq!(bob.link.link(), LinkState::Reconnecting { attempt: 1 });
+    assert!(!bob.link.retry_now(), "already wanted");
+    // The ticket fails: the second attempt's longer wait, which a retry
+    // brings forward again.
+    bob.link.ticket_asked();
+    bob.link.ticket(Err(TicketProblem::Unreachable));
+    assert_eq!(bob.link.link(), LinkState::Reconnecting { attempt: 2 });
+    assert_eq!(bob.link.ticket_due(), Some(clock.now().0 + 1_000));
+    assert!(bob.link.retry_now());
+    assert_eq!(bob.link.link(), LinkState::Reconnecting { attempt: 2 });
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(bob.link.link(), LinkState::Connected);
+    assert_eq!(
+        alice.room().member(ParticipantId(2)).unwrap().connection,
+        Connection::Connected
+    );
+}
+
+/// Poll `clients` every `step_ms` for `ms`.
+fn idle(clock: &ManualClock, clients: &mut [&mut Client], ms: u64, step_ms: u64) {
+    let mut t = 0;
+    while t < ms {
+        clock.advance(step_ms);
+        t += step_ms;
+        for c in clients.iter_mut() {
+            c.pump();
+        }
+    }
+}
+
+/// `keepalive-v0` (feedback round N2, room model revision 12): a room's
+/// sockets that carry nothing for two minutes (a song being chosen) send
+/// a keep-alive after 20 s of silence, which the server's runtime answers
+/// itself: the room reads none of them (as a hibernatable WebSocket's
+/// auto-response, which neither wakes nor bills the room's object), and
+/// the sockets stay, nobody Reconnecting.
+#[test]
+fn an_idle_rooms_sockets_keep_alive_without_the_room_reading_it() {
+    let clock = ManualClock::new(1_000);
+    let (server, mut alice, mut bob) = two(&clock);
+    let read = server.borrow().incoming();
+    let revision = server.borrow().state().revision;
+    idle(&clock, &mut [&mut alice, &mut bob], 120_000, 100);
+    for c in [&alice, &bob] {
+        assert_eq!(c.link.link(), LinkState::Connected);
+        let (sent, dead) = c.link.keepalives();
+        assert!((5..=6).contains(&sent), "one a 20 s of silence: {sent}");
+        assert_eq!(dead, 0);
+    }
+    assert_eq!(server.borrow().incoming(), read, "the room read nothing");
+    assert_eq!(
+        server.borrow().auto_answered(),
+        alice.link.keepalives().0 + bob.link.keepalives().0
+    );
+    assert_eq!(server.borrow().state().revision, revision);
+    assert_eq!(server.borrow().sockets(), 2);
+}
+
+/// A socket cut silently (a proxy that swallows its frames without
+/// closing it, a phone that lost its network without a word) is noticed
+/// by its keep-alive going unanswered and replaced: within about 40 s
+/// (20 s of silence, 20 s more for an answer, the reconnect's first
+/// wait), the member back in the room on a new socket.
+#[test]
+fn a_socket_cut_silently_is_noticed_and_replaced() {
+    let clock = ManualClock::new(1_000);
+    let (server, mut alice, mut bob) = two(&clock);
+    let bob_id = ParticipantId(2);
+    server.borrow_mut().fault(bob_id, Fault::Silent);
+    let cut = clock.now().0;
+    let mut noticed = None;
+    let mut back = None;
+    for _ in 0..600 {
+        clock.advance(100);
+        alice.pump();
+        bob.pump();
+        if noticed.is_none() && bob.link.link() != LinkState::Connected {
+            noticed = Some(clock.now().0 - cut);
+        }
+        if noticed.is_some() && bob.link.link() == LinkState::Connected {
+            back = Some(clock.now().0 - cut);
+            break;
+        }
+    }
+    pump_all(&mut [&mut alice, &mut bob]);
+    let noticed = noticed.expect("noticed");
+    assert!((39_000..=41_000).contains(&noticed), "{noticed} ms");
+    assert!(back.expect("replaced") <= 42_000, "{back:?}");
+    assert_eq!(bob.link.keepalives().1, 1);
+    assert_eq!(alice.link.keepalives().1, 0, "Alice's socket was never in doubt");
+    assert_eq!(
+        alice.room().member(bob_id).unwrap().connection,
+        Connection::Connected
+    );
+    assert_eq!(bob.room(), server.borrow().state());
+}
+
+/// A hidden tab whose timers fire once a minute sends its keep-alive when
+/// it runs and never takes its live socket for dead: the answer is
+/// overdue only by the tab's own running time (a minute asleep counts as
+/// a moment). Whether the answer wakes it at once (the web's
+/// `wake_hidden`) or is read only at its next run, ten minutes pass with
+/// the socket kept; cut silently, it is noticed all the same once the
+/// tab has run long enough to judge.
+#[test]
+fn a_hidden_tab_never_takes_its_live_socket_for_dead() {
+    for woken in [true, false] {
+        let clock = ManualClock::new(1_000);
+        let (server, mut alice, mut bob) = two(&clock);
+        for _ in 0..10 {
+            clock.advance(60_000);
+            alice.pump();
+            bob.pump();
+            if woken {
+                clock.advance(30);
+                bob.pump();
+            }
+            assert_eq!(bob.link.link(), LinkState::Connected, "woken {woken}");
+        }
+        // Woken by its answer: one a run; its answer read only at its
+        // next run, that run heard something and sends none.
+        let (sent, dead) = bob.link.keepalives();
+        assert!(sent >= if woken { 9 } else { 4 }, "woken {woken}: {sent}");
+        assert_eq!(dead, 0);
+        assert_eq!(server.borrow().sockets(), 2);
+        // Cut silently: only its running time judges it.
+        server.borrow_mut().fault(ParticipantId(2), Fault::Silent);
+        let mut runs = 0;
+        while bob.link.link() == LinkState::Connected && runs < 40 {
+            clock.advance(60_000);
+            bob.pump();
+            runs += 1;
+        }
+        assert!(
+            (10..=16).contains(&runs),
+            "about 20 s of its running time, a run counting at most 1.5 s: {runs} runs"
+        );
+        assert_eq!(bob.link.keepalives().1, 1);
+    }
+}

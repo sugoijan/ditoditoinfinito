@@ -63,6 +63,11 @@ pub enum Fault {
     Stale,
     /// The socket is closed with this code now.
     Close(u16),
+    /// From now on the socket carries nothing either way and is never
+    /// closed (a proxy that swallows its frames, a phone that lost its
+    /// network without a word): only the client can notice
+    /// (`crate::online::KEEPALIVE_V0`).
+    Silent,
 }
 
 /// What a socket carries down: a message, or its close.
@@ -135,6 +140,8 @@ struct Conn {
     /// What it sent, on its way, with when each arrives.
     uplink: VecDeque<(u64, Message)>,
     up_faults: VecDeque<Fault>,
+    /// [`Fault::Silent`].
+    silent: bool,
 }
 
 /// The fake room. Share it ([`FakeServer::shared`]) between the sockets.
@@ -178,6 +185,8 @@ pub struct FakeServer {
     /// Messages the room has read: binary, text, and of the binary the
     /// CPUs' news (`crate::live::cpus`): what the platform bills.
     incoming: (u64, u64, u64),
+    /// Keep-alives answered without the room reading them.
+    auto_answered: u64,
     /// The server's bounds on a member's sockets and tickets, where a
     /// test turns them on ([`FakeServer::set_bounds`]).
     bounds: Option<Bounds>,
@@ -228,6 +237,12 @@ impl FakeServer {
     /// binary the CPUs' news.
     pub fn incoming(&self) -> (u64, u64, u64) {
         self.incoming
+    }
+
+    /// The keep-alives answered by the runtime itself, never read by the
+    /// room (`crate::online::KEEPALIVE_V0`).
+    pub fn auto_answered(&self) -> u64 {
+        self.auto_answered
     }
 
     /// A hosted room (as the server makes one: `MatchRules::hosted_for`
@@ -291,6 +306,7 @@ impl FakeServer {
             links: FakeLinks::of(&room_name),
             notes: Vec::new(),
             incoming: (0, 0, 0),
+            auto_answered: 0,
             bounds: None,
             tickets_issued: BTreeMap::new(),
             admins: Default::default(),
@@ -592,6 +608,11 @@ impl FakeServer {
                 Fault::Close(code) => {
                     conn.queue.push_back((now, Frame::Close(code)));
                 }
+                Fault::Silent => {
+                    conn.silent = true;
+                    conn.queue.clear();
+                    conn.uplink.clear();
+                }
                 f => conn.faults.push_back(f),
             },
             None => self
@@ -638,11 +659,13 @@ impl FakeServer {
                 .remove(&participant)
                 .unwrap_or_default()
                 .into(),
+            silent: false,
         };
         let now = self.now();
         for f in faults {
             match f {
                 Fault::Close(code) => c.queue.push_back((now, Frame::Close(code))),
+                Fault::Silent => c.silent = true,
                 f => c.faults.push_back(f),
             }
         }
@@ -693,6 +716,21 @@ impl FakeServer {
         let Some(c) = self.conns.get_mut(&conn).filter(|c| c.open) else {
             return;
         };
+        if c.silent {
+            return;
+        }
+        // The keep-alive, answered by the server's runtime itself (a
+        // hibernatable WebSocket's auto-response, room model revision
+        // 12): the room never reads it.
+        if matches!(&up, Message::Text(t) if t == crate::audience::KEEPALIVE) {
+            self.auto_answered += 1;
+            self.push_frame(
+                conn,
+                Frame::Text(crate::audience::KEEPALIVE_ANSWER.into()),
+                false,
+            );
+            return;
+        }
         let mut at = now;
         match c.up_faults.pop_front() {
             Some(Fault::Drop) => return,
@@ -1007,7 +1045,7 @@ impl FakeServer {
 
     fn push_frame(&mut self, conn: u64, frame: Frame, events: bool) {
         let now = self.now();
-        let Some(c) = self.conns.get_mut(&conn).filter(|c| c.open) else {
+        let Some(c) = self.conns.get_mut(&conn).filter(|c| c.open && !c.silent) else {
             return;
         };
         let mut at = now;
@@ -1030,7 +1068,7 @@ impl FakeServer {
                     _ => c.faults.push_front(Fault::Reorder),
                 },
                 Some(Fault::Stale) => stale = c.last_events.clone().map(Frame::Text),
-                Some(Fault::Close(_)) | None => {}
+                Some(Fault::Close(_) | Fault::Silent) | None => {}
             }
         }
         if let Some(l) = c.latency.as_mut() {
@@ -1065,7 +1103,7 @@ impl FakeServer {
         let mut out = Vec::new();
         let mut closed = None;
         if let Some(c) = self.conns.get_mut(&conn) {
-            if !c.open {
+            if !c.open || c.silent {
                 return out;
             }
             // In order of arrival; a delayed frame holds back the rest.
