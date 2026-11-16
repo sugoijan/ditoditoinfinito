@@ -217,6 +217,40 @@ thread_local! {
     static WAKING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+thread_local! {
+    /// The page's own title, while a hidden tab's says a stage is starting
+    /// ([`tell_hidden`]).
+    static TAB_TITLE: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// A hidden tab cannot show its member the stage's Ready screen: while
+/// the room's stage gathers readiness and waits for theirs
+/// (`RoomClient::ready_wanted`), the tab's title says the stage is
+/// starting (the browser shows it on the tab); the page's own title is
+/// back once the page is shown, the wait is over or the room is gone
+/// (`room`: none).
+fn tell_hidden(room: Option<&SharedRoom>) {
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    let number = room
+        .filter(|_| page_hidden())
+        .and_then(|room| room.try_borrow().ok()?.ready_wanted());
+    TAB_TITLE.with_borrow_mut(|own| match (number, own.is_some()) {
+        (Some(number), false) => {
+            *own = Some(document.title());
+            let title: String = ddi_l10n::msg::room::due_title(number).into();
+            document.set_title(&title);
+        }
+        (None, true) => {
+            if let Some(title) = own.take() {
+                document.set_title(&title);
+            }
+        }
+        _ => {}
+    });
+}
+
 /// How often the kept online room is run from its timer (ms; a hidden
 /// page's timers come at the browser's own pace, a second or more apart).
 const KEPT_PUMP_MS: u32 = 100;
@@ -252,6 +286,9 @@ fn page_hidden() -> bool {
 fn run_kept(page: &RoomPage) {
     let wanted = matches!(page, RoomPage::Online(_) | RoomPage::Over | RoomPage::Stage)
         && crate::online::kept_room().is_some();
+    if !wanted {
+        tell_hidden(None);
+    }
     KEPT_PUMP.with_borrow_mut(|pump| {
         if !wanted {
             *pump = None;
@@ -347,6 +384,7 @@ fn pump_kept(tell: bool) {
     if tell {
         tell_due(&room);
     }
+    tell_hidden(Some(&room));
 }
 
 /// The kept online room's stage is due for its member while they are on

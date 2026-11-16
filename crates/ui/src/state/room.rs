@@ -3056,6 +3056,13 @@ impl RoomClient {
             return;
         }
         self.preparing.remove(&job.stage);
+        // A stage that started meanwhile takes no report (the room would
+        // refuse it, and the status line say so): its song is here to
+        // watch it by ([`Self::sync_watched`]).
+        if self.state().stage(job.stage).is_some_and(|st| st.play.is_some()) {
+            self.version += 1;
+            return;
+        }
         let loading = match result {
             Ok(()) => Loading::Loaded,
             Err(p) => Loading::Failed {
@@ -3728,6 +3735,25 @@ impl RoomClient {
             number: u16::try_from(index + 1).unwrap_or(u16::MAX),
             watching: !self.in_stage(stage),
         })
+    }
+
+    /// The stage (its number, from 1) that gathers readiness and waits
+    /// for this player's Ready: they are in it, have not pressed Ready and
+    /// have not left its prompt. For a shell whose page cannot show it (a
+    /// browser tab in the background says so in its title).
+    pub fn ready_wanted(&self) -> Option<u16> {
+        let Phase::Preparing {
+            stage,
+            window: Some(_),
+        } = self.state().phase
+        else {
+            return None;
+        };
+        if !self.in_stage(stage) || self.ready() || self.left_prompts.contains(&stage) {
+            return None;
+        }
+        let index = self.state().current.as_ref()?.stage_index(stage)?;
+        Some(u16::try_from(index + 1).unwrap_or(u16::MAX))
     }
 
     /// Told `stage` is due, the player stays where they are: not told
@@ -4525,6 +4551,39 @@ impl RoomClient {
             };
             self.jobs.push(job);
         }
+        self.sync_watched();
+    }
+
+    /// The stage under way, where this member is not in it and may watch
+    /// it ([`Self::watches`]) but has not its song (they were away through
+    /// its pick, or their page was loaded after it started): read from the
+    /// room's share, so that the stage is handed to them to watch
+    /// (feedback round N1: they stayed on the room's song select with
+    /// nothing to see). Nothing is reported to the room: the stage started
+    /// without them.
+    fn sync_watched(&mut self) {
+        let Phase::Stage { stage } = self.state().phase else {
+            return;
+        };
+        if !self.watches() || self.in_stage(stage) {
+            return;
+        }
+        let Some(st) = self.state().stage(stage) else {
+            return;
+        };
+        let Some((content, share)) = st
+            .content
+            .as_ref()
+            .and_then(|c| Some((c.id.clone(), c.share.clone()?)))
+        else {
+            return;
+        };
+        let readiness_rev = st.readiness_rev;
+        if self.picks.contains_key(&content) || !self.asked.insert((stage, readiness_rev)) {
+            return;
+        }
+        self.jobs
+            .push(LoadJob::from_share(stage, readiness_rev, share, &content.chart, None));
     }
 }
 

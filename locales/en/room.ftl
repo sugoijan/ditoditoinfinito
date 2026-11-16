@@ -1454,7 +1454,9 @@ room-prompt-canceled = The stage's start was canceled.
 ## with the room's status line (its countdown) under these words. The
 ## screen is never closed for them.
 
-# The notice's title (about 30 letters).
+# The notice's title (about 30 letters). On the web also the browser
+# tab's title while the tab is in the background and the stage waits for
+# the player's Ready.
 # Variables:
 #   $number (Number) - the stage, from 1
 room-due-title = Stage { $number } is starting
