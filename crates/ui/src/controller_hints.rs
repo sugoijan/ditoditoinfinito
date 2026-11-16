@@ -699,18 +699,18 @@ mod tests {
         let mut styles = BTreeMap::new();
         assert_eq!(
             quit_hint(&raw("Xbox Wireless Controller", "button:1"), &pads, &styles),
-            "hold or double-tap B to quit"
+            "hold or press B twice to quit"
         );
         // The player's style over the detected one.
         styles.insert("Xbox Wireless Controller".to_string(), Style::PlayStation);
         assert_eq!(
             quit_hint(&raw("Xbox Wireless Controller", "button:1"), &pads, &styles),
-            "hold or double-tap Circle to quit"
+            "hold or press Circle twice to quit"
         );
         // A pad not among those known: that control, unnamed.
         assert_eq!(
             quit_hint(&raw("Other", "button:1"), &pads, &styles),
-            "hold or double-tap this control to quit"
+            "hold or press this control twice to quit"
         );
     }
 
@@ -726,8 +726,8 @@ mod tests {
         let pads = [pad("Xbox Wireless Controller", true)];
         let styles = BTreeMap::new();
         ddi_l10n::set_language("en");
-        assert_eq!(quit_button_hint(), "hold or double-tap the quit button");
-        assert_eq!(restart_hint("\\"), "hold or double-tap \\ to restart");
+        assert_eq!(quit_button_hint(), "hold or press the quit button twice");
+        assert_eq!(restart_hint("\\"), "hold or press \\ twice to restart");
         let first = quit_hint(&raw, &pads, &styles);
         assert!(std::ptr::eq(first, quit_hint(&raw, &pads, &styles)));
         ddi_l10n::set_language("ja");
@@ -761,7 +761,7 @@ mod tests {
         ddi_l10n::set_language("en");
         assert_eq!(
             quit_hint(&press("Wireless Controller", 0), &generic, &styles),
-            "hold or double-tap East to quit"
+            "hold or press East twice to quit"
         );
     }
 

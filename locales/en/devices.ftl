@@ -84,7 +84,7 @@ devices-hat = { $direction ->
 # The four face buttons of a controller whose brand the game does not
 # know, by their places in the diamond (the game draws them without
 # letters). In lists of controls and in the play's quit hint (“hold or
-# double-tap South to quit”). A word or two.
+# press South twice to quit”). A word or two.
 devices-face-south = South
 devices-face-east = East
 devices-face-west = West

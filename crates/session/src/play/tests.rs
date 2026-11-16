@@ -551,7 +551,7 @@ fn r_twice_or_a_held_backslash_restarts_on_the_same_sound() {
     // One tap shows the restart's hint and restarts nothing.
     assert!(run(&mut s, &clock, 60.0, 3.5).is_none());
     assert!(s.view.cancel_progress > 0.0 && s.view.restarting);
-    assert_eq!(s.view.cancel_hint, "hold or double-tap R to restart");
+    assert_eq!(s.view.cancel_hint, "hold or press R twice to restart");
     // Escape's hint takes its place.
     let now = *clock.borrow();
     s.inputs.key(now + 0.01, "Escape", true);

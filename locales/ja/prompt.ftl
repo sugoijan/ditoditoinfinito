@@ -83,7 +83,7 @@ prompt-play-quit-hold = { $control }を長押しで終了
 
 prompt-play-quit-hold-this = このボタンを長押しで終了
 
-prompt-play-quit-button = 終了ボタンを長押し、または2回タップ
+prompt-play-quit-button = 終了ボタンを長押しまたは2回押し
 
 prompt-play-restart = { $key }を長押しまたは2回押しでリスタート
 

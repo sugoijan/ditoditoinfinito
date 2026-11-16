@@ -167,10 +167,10 @@ prompt-share-reading = { $total ->
 
 # Variables:
 #   $control (String) - the key or the controller's button, as its cap prints it (Esc, B, Circle, ↑)
-prompt-play-quit = hold or double-tap { $control } to quit
+prompt-play-quit = hold or press { $control } twice to quit
 
 # A controller's control the game has no name for.
-prompt-play-quit-this = hold or double-tap this control to quit
+prompt-play-quit-this = hold or press this control twice to quit
 
 # A multiplayer stage with attacks, a controller: pressing this control
 # briefly changes the attack policy there, so only holding it quits.
@@ -182,11 +182,11 @@ prompt-play-quit-hold = hold { $control } to quit
 prompt-play-quit-hold-this = hold this control to quit
 
 # A touch screen: the round ✕ button over the play.
-prompt-play-quit-button = hold or double-tap the quit button
+prompt-play-quit-button = hold or press the quit button twice
 
 # Variables:
 #   $key (String) - the key, as its cap prints it (R, \)
-prompt-play-restart = hold or double-tap { $key } to restart
+prompt-play-restart = hold or press { $key } twice to restart
 
 # CPU prototype controls on the start card and results footer (wraps).
 # $seed (String) is the exact reproducible random seed, without grouping.
