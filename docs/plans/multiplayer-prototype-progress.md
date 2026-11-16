@@ -11453,7 +11453,30 @@ CPUs' fixture unchanged); only what the screens draw and say, and CI.
   stayed over its loading screen until the play began (nothing built the
   screen again once the room had started the stage); it now goes once its
   fade's time is over, as a singleplayer prompt's does.
-- **CI's Linux desktop job on a software Vulkan driver**: below.
+- **CI's Linux desktop job on a software Vulkan driver: tried, left
+  out.** In the Linux container (`rust:1`, Debian 13, arm64, 4 CPUs,
+  12 GB; Mesa's lavapipe, `llvmpipe (LLVM 19.1.7)`, 17 s to install) the
+  desktop suite found the adapter and drew everything, but took 3,547 s
+  against 120 s with `DDI_NO_GPU` (single tests 100 to 430 s: a stage's
+  frames drawn on the CPU), past the job's 45-minute bound, and 7 tests
+  failed: the three that fail on the maintainer's Mac too
+  (`options_show_the_field_preview`,
+  `an_announcer_speaks_over_a_play_and_its_results`,
+  `a_play_from_its_prompt_to_its_results_and_back`), two that measure
+  text by the system's faces (`the_developer_screen_draws_as_the_web_does`,
+  "title 497 px wide"; `a_followed_field_behind_the_song_is_drawn_once_at_its_own_time`,
+  the name plate's end), and two that time a play on the host clock
+  while frames take seconds (`a_press_on_the_policy_label_cycles_the_policy_once`,
+  `the_studio_on_desktop`: the staged play failed before its scene
+  ended). `opponent_fields_offscreen`, `chained_attacks_offscreen` and
+  `step_down_offscreen` passed (`attack_lines_offscreen`'s are ignored
+  measurements everywhere). One full run only (a second and a
+  third would have taken two hours more), so flakiness was not measured.
+  The workflow stays as it was (`DDI_NO_GPU` on every system); the
+  change tried (lavapipe through `.github/actions/apt` with
+  `continue-on-error`, `DDI_NO_GPU` set only where it did not install)
+  would need those tests made independent of the machine's faces and
+  speed, and a faster runner or a subset of the GPU tests, first.
 
 ## Provisional choices
 
