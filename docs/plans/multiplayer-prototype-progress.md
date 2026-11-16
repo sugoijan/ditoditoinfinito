@@ -11196,11 +11196,82 @@ every kept play again (`JUDGE_VERSION` 5), a song at a time in the
 background, as after versions 3 and 4: bests are pending until their
 plays are judged again.
 
+## Feedback round P2: small decided leftovers in the screens and CI (2026-11-16)
+
+Six things the maintainer decided one by one. Nothing judged, decided or
+stored moves (no room model change, the pinned stage traces and the
+CPUs' fixture unchanged); only what the screens draw and say, and CI.
+
+- **An attack's line once a way frees up** (`attack-lines-apart-v2`,
+  `SPACING_V2`, PROVISIONAL; `crates/shell/src/attack_links.rs`). A link
+  that found no free way at first (every place its ends offer taken, no
+  way clear of the lines showing, or 64 lines at once) has its outline
+  alone, as in v1, but is tried again on the frame after a line with a
+  curve went (`Routes::gone`), the first two of a frame in the links'
+  order (`Spacing::retries`), and gets its line there as any line is
+  laid: among the lines showing, which never move. A retry that finds
+  nothing waits for the next line to go; nothing is tried while no line
+  goes. The ways and the keep-outs are v1's, so a phone held upright
+  still keeps the outgoing lines that have no room off the screen's edge.
+  `Tally::later` counts the lines laid on a retry. Test:
+  `a_link_without_a_way_gets_its_line_when_one_goes` (twenty attacks into
+  one miniature: those without a place get one the frame after a line
+  goes; the lines laid stay; at most one or two a frame; v1 never
+  retries). Cost (the `cost` study, release, 72 opponents at 1280×720,
+  a busy machine): laying 24 at once 2.5 ms and a grid's 48 3.4 ms, the
+  frames after 18 and 35 µs, as before; the frame after a line goes with
+  18 attacks waiting on one miniature 60 µs; a retry's worst is a new
+  line's (both passes over its 96 ways), two a frame at most.
+- **Back on the loading screen after the room starts the stage** takes
+  the deliberate gesture (`ddi_ui::gesture::HoldOrTwice`), held 0.7 s or
+  pressed twice within 0.5 s, by Esc, Backspace, a controller's Back and
+  the browser's Back, with the same hint ("Hold or press twice to
+  leave", right-aligned over "Loading", after one press or while held;
+  `PromptScreen::room_loading_armed`, `room_loading_input`). Leaving
+  there is a forfeit of a stage that has begun. A singleplayer play's
+  loading screen, and a room's before its start, keep one Back. Test:
+  `back_on_the_loading_screen_of_a_started_stage_takes_the_gesture`.
+- **One phrase.** The play's quit and restart hints say "hold or press
+  [Esc] twice to quit", "hold or press the quit button twice", "hold or
+  press R twice to restart" (were "hold or double-tap …"), as the Ready
+  card's "Hold or press twice to …"; Japanese already said 長押しまたは2回押し
+  but for the touch button's (2回タップ, now 2回押し).
+- **The sit-out sentence says what comes next.** On the room's status
+  line and on the stage's prompt: why, then what comes next
+  (`room::sat_out_status`, `SatOutThen`): "You weren't ready when stage 2
+  started. You're watching this stage and play the next one." Each
+  reason (not ready, still loading, couldn't be loaded, connection lost;
+  chose Watch or none of these: "You're sitting out stage N; the others
+  are playing it.") with one of: watching and playing the next stage;
+  watching the match's last stage; watching, a missed stage ending the
+  match (the match's "everyone returns each stage" rule off, which no
+  screen offers yet); watching, Choose Play to play the next one (for one
+  who chose Watch); and the same without "watching" where this device
+  does not show the stage (an online room that does not play live). The
+  rows' short "Sat out: …" words are unchanged. Japanese drafted (欠場 cut
+  into the faces). Test: `sitting_out_says_what_comes_next`, and the two
+  room tests that read the line.
+- **A touch hint for following.** On a touch screen, while a stage is
+  watched and not over, the status line says "Tap a field to follow it":
+  quietly after "Watching [name]" while one player is followed, alone
+  otherwise, in place of the keys' "Tab or tap a field to follow one
+  player" (which keyboards keep for the first seconds); left out where
+  the line has no room for it (`play_view::watch_label`,
+  `opponents::Shown::label_note`; the web's `__DDI_DEBUG` watch state's
+  `note`). Desktop is never a touch screen. Tests:
+  `a_touch_screen_says_a_tap_follows_a_field_while_a_stage_is_watched`,
+  `the_status_line_says_quietly_that_a_tap_follows_a_field`.
+- **The loading screen's card** (found on the way): a room's Ready card
+  stayed over its loading screen until the play began (nothing built the
+  screen again once the room had started the stage); it now goes once its
+  fade's time is over, as a singleplayer prompt's does.
+- **CI's Linux desktop job on a software Vulkan driver**: below.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
-| `ready-hint-v0` (2026-11-16, feedback round O): taking Ready back, and Back, while ready, by the quit's gesture (held 0.7 s or pressed twice within 0.5 s); the hint line under the buttons, its pulse (0.25 s) and fade (1.5 s); the hold's fill running back in 0.2 s; under reduced motion the fill in halves | `ddi_ui::screens::prompt` (`room_mode::Undo`, `RUN_BACK`, `PULSE`), timings in `ddi_ui::gesture` | One press while ready only brightens "Hold or press twice to cancel" (or "… to leave"); the footer says how | Whether the loading screen after the room's start (one Back forfeits there) should take the gesture too; whether "press twice" or the quit's "double-tap" is the wording |
+| `ready-hint-v0` (2026-11-16, feedback round O): taking Ready back, and Back, while ready, by the quit's gesture (held 0.7 s or pressed twice within 0.5 s); the hint line under the buttons, its pulse (0.25 s) and fade (1.5 s); the hold's fill running back in 0.2 s; under reduced motion the fill in halves | `ddi_ui::screens::prompt` (`room_mode::Undo`, `RUN_BACK`, `PULSE`), timings in `ddi_ui::gesture` | One press while ready only brightens "Hold or press twice to cancel" (or "… to leave"); the footer says how; since feedback round P2 Back on the loading screen after the room's start takes the gesture too, and the play's quit hint says "hold or press … twice" | The timings by feel |
 | `battle-voice-v3` (2026-11-15, decisions round D4; replaces `battle-voice-v2`): as `battle-voice-v2`, but cleared and failed are not said where the voice has the outcome line the stage's results will say. The outcome is not known as the last note is judged, so the voice must have all the lines it could be: `battle stage won`, `drawn` and `not won` for a player still in at the end of a stage ranked on this device, or `battle match won`, `drawn` and `not won` on a match's last stage | `ddi_session::announcer::battle::BATTLE_VOICE_V3`, `Announcer::results_say`, `stage_play_end` | With our packs a stage ends on the full combo's line (if any) and then the outcome on the results, never "Cleared" before it; a pack with only some of the outcome lines says cleared as before; an online room's stage before the last still says cleared (its results say no outcome there) | Whether a pack with only some outcome lines should skip cleared too, and whether an online stage's results should say its outcome |
 | RETIRED 2026-11-15 (by `battle-voice-v3`): `battle-voice-v2` (2026-11-15, decisions round D2; replaces `battle-voice-v1`): the lines of the player's own play's end (the full combo's, cleared, failed) below every battle line, at most a second late (`end_window`), cleared and failed never after a line that said the stage's outcome; the rest as `battle-voice-v1` below | `ddi_session::announcer::battle` | A stage says "full combo" and "cleared" as the player's last note is judged, then the stage's outcome on its results | Whether cleared should also stay out where the stage's outcome will be said on the results (today both are heard, cleared first) |
 | `battle-voice-v1` (2026-11-15, feedback round J; replaces `battle-voice-v0`): a step's line (priority 12) waits at most a second for the line being said (`step_window`); the combo lines below every battle line, at most a second late (`combo_window`), never over a battle line nor one due; a battle line due during a combo line starts at its end | `ddi_session::announcer::battle::BATTLE_VOICE_V1` | Stages say the combo lines again and the player's steps; an attack line may come up to a combo line's length late | The two windows; whether the comments or other routine lines belong in a stage |
@@ -11352,7 +11423,7 @@ plays are judged again.
 | A miniature's locked lane: the lane darkened (0.42) to its end and its receptor's place tinted violet (0.5) for the lock's second, from the feed's moment | `ddi_shell::opponents::LOCK_LANE`, `LOCK_TINT`, `FieldFeed::locks` | A CPU that stepped on a shock shows a dead lane for a second | The look; a shock's own art |
 | Personal targeting: a member's own policy (Spread until chosen), set outside a stage's play, clearing nobody's readiness; in play Tab, a tap on the label, or a short press of a pad's View (`policy-pad-v0`: held it quits, pressed twice it does not where the policy cycles) | `ddi_room::Member::targeting`, `Command::SetTargeting`, `ddi_session::play` (`POLICY_KEY`, `policy_pad`) | A controller player in a stage with attacks quits by holding View, not by pressing it twice | The controller's control for it (View is the quit); whether the policy should be remembered across rooms |
 | Eight of the roster's CPUs name a policy (five Retaliate, three Leader), the rest Spread | `crates/ui/src/state/cpu_roster.json` | Some CPUs strike back or go for the leader | Which CPUs, if any; whether a CPU's policy should follow its level |
-| `attack-links-v1` (2026-11-15, feedback round L; replaces `attack-links-v0`): in time as v0 (a pulse of 0.6 s, the line gone after 1.5 s, the outline in over 0.2 s, a chained attack's parts at 0.45); a line a curve under the miniatures; `attack-lines-apart-v1`: two lines never nearer than two strokes for longer than sixteen (a crossing), ends four strokes apart, at most 96 ways tried a line and 64 lines at once, a link beyond them or with no free way its outline alone | `ddi_shell::attack_links::ATTACK_LINKS_V1`, `SPACING_V1`, `Routes` | How who attacks whom reads; each line can be followed from its source to its target; with very many at once some attacks show the outline alone | The look by eye (the curves' shapes, the glow now blended normally), the numbers, whether a thinned link should be retried when a line goes, a shock motif for the pulse, whether the warning should mirror to the attacker's side |
+| `attack-links-v1` (2026-11-15, feedback round L; replaces `attack-links-v0`): in time as v0 (a pulse of 0.6 s, the line gone after 1.5 s, the outline in over 0.2 s, a chained attack's parts at 0.45); a line a curve under the miniatures; `attack-lines-apart-v1`: two lines never nearer than two strokes for longer than sixteen (a crossing), ends four strokes apart, at most 96 ways tried a line and 64 lines at once, a link beyond them or with no free way its outline alone; `attack-lines-apart-v2` (2026-11-16, feedback round P2): such a link tried again on the frame after a line went, two a frame at most | `ddi_shell::attack_links::ATTACK_LINKS_V1`, `SPACING_V1`, `SPACING_V2`, `Routes` | How who attacks whom reads; each line can be followed from its source to its target; with very many at once some attacks show the outline alone until a line goes | The look by eye (the curves' shapes, the glow now blended normally), the numbers, a shock motif for the pulse, whether the warning should mirror to the attacker's side |
 | Beyond the cap, the attackers and the latest target are kept in view while their attacks last and one turn (8 s) after, in the first slots | `ddi_session::battle::Battle::kept_seats`, `opponents::priority_seats` | Development-only practice | The large-party policy |
 | An attack against the player is told at most once in six seconds; attack moments rank 30 (incoming) and 8 (launched) in `battle-voice-v0`; shown 2.5 s in the status line | `ddi_session::announcer::battle::BATTLE_VOICE_V0` (`incoming_again`, `attack_priority`) | "Attack launched" shows several times a minute for a strong player | Whether the launched moment should show at all once it has a line; the six seconds |
 | The standings' attack columns take the combo's place; the summary flows under the lines | `screens::results_stage` (`columns`, `summary_lines`) | With attacks the stage's standings have no max combo | Which column should give way (the combo, the place in the match, the judgments' strip) |
@@ -11368,10 +11439,8 @@ plays are judged again.
   (3) the loading grace (45 s) is one length for every song and link:
   should it go on while a loader still makes progress (the room now
   hears how far each one is)? (4) a follower's failed download has no
-  retry until the next pick: worth a Retry beside the reason? (5) the
-  sentences that say why someone sits out do not say what they can do
-  next (they are handed the stage to watch where the room plays live,
-  and are asked again for the next stage): add it?
+  retry until the next pick: worth a Retry beside the reason? (5)
+  answered in feedback round P2: the sentences say what comes next.
 
 - Round D1 (2026-11-15): (1) five rooms a person counts dormant rooms
   (a host who closed the tab without leaving keeps the room for its idle

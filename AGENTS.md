@@ -847,10 +847,11 @@ Rust and the browser are implementation details, not advertised features.
   the sprites' `Shape::Link` and `Shape::Glow`; the outline and where it
   lands over them, `draw`), never over the band, the HUD, the judgment,
   the quit button, the status line or the ladder; no two lines sharing
-  a stretch (`SPACING_V1`, `Routes`: a line laid once among those
+  a stretch (`SPACING_V2`, `Routes`: a line laid once among those
   showing and kept while it shows, each on places of its own, never
   nearer than two strokes to another for longer than a crossing; with no
-  free way, or past 64 lines, the outline alone); no pulse and no fade
+  free way, or past 64 lines, the outline alone until a line goes, then
+  tried again, two a frame); no pulse and no fade
   under reduced motion; the theme's `Attack.Line` and `Attack.Glow`
   (`ddi_theme::attack_colors`); `PlayView::links_drawn`, and for tests'
   pictures `PlayView::stage_links`;
