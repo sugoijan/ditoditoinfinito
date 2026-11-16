@@ -1266,7 +1266,23 @@ pub struct RoomClient {
     /// The notice that the room was opened on another device was shown
     /// (`take_opened_elsewhere`): once each time it happens.
     elsewhere_told: std::cell::Cell<bool>,
+    /// Round P1b: each stage's song's downloads tried again so far (by
+    /// stage and readiness), the jobs waiting to be tried again (when),
+    /// and the job whose retries were spent, kept for Retry.
+    load_tries: BTreeMap<(StageId, u32), u32>,
+    retrying: Vec<(u64, LoadJob)>,
+    failed_jobs: BTreeMap<StageId, LoadJob>,
 }
+
+/// PROVISIONAL (`load-retry-v0`, round P1b): a member's failed download
+/// of a stage's song from the room's share (the share's list, the song's
+/// files, its music) is tried again by itself after these waits, the room
+/// still told "loading" meanwhile; once they are spent the failure is
+/// reported and the member offered Retry while the stage's window is
+/// open. Only a download is worth trying again: a song or chart that
+/// cannot be read, a chart that changed, a plan the CPUs cannot make or a
+/// battle plan that differs would fail the same way again.
+pub const LOAD_RETRY_V0_MS: [u64; 2] = [2_000, 5_000];
 
 /// How far behind the room's song time a member who watches a live stage
 /// hears its music, so that it matches the others' fields, which are
@@ -1848,6 +1864,9 @@ impl RoomClient {
             summaries: BTreeMap::new(),
             asking: Rc::default(),
             elsewhere_told: std::cell::Cell::new(false),
+            load_tries: BTreeMap::new(),
+            retrying: Vec::new(),
+            failed_jobs: BTreeMap::new(),
             live_news: LiveNewsTap::default(),
             preparing: BTreeMap::new(),
             offered: BTreeSet::new(),
@@ -2498,6 +2517,7 @@ impl RoomClient {
         }
         self.take_grants();
         self.read_inbox();
+        self.retry_due();
         self.pump();
         if before != LinkState::Connected && self.link_state() == LinkState::Connected {
             self.connected_again();
@@ -3140,6 +3160,11 @@ impl RoomClient {
         if self.readiness_rev(job.stage) != job.readiness_rev {
             return;
         }
+        // A download worth trying again (round P1b): later, the room
+        // still told "loading".
+        if result == Err(LoadProblem::Download) && self.retry_later(job) {
+            return;
+        }
         self.preparing.remove(&job.stage);
         // (Its load is over: nothing more is said of how far it is.)
         self.load_said
@@ -3162,6 +3187,92 @@ impl RoomClient {
             readiness_rev: job.readiness_rev,
             loading,
         });
+    }
+
+    /// A failed download of `job`'s song: tried again after
+    /// [`LOAD_RETRY_V0_MS`]'s next wait, where some are left (whether it
+    /// will be); spent, the job is kept for Retry
+    /// ([`Self::retry_load`]).
+    fn retry_later(&mut self, job: &LoadJob) -> bool {
+        if job.share.is_none()
+            || job.stage == SPOTLIGHT
+            || self.state().stage(job.stage).is_none_or(|st| st.play.is_some())
+        {
+            return false;
+        }
+        let tries = self.load_tries.entry((job.stage, job.readiness_rev)).or_default();
+        match LOAD_RETRY_V0_MS.get(*tries as usize) {
+            Some(wait) => {
+                *tries += 1;
+                let due = self.now_ms() + wait;
+                self.preparing.remove(&job.stage);
+                self.retrying.push((due, job.clone()));
+                self.version += 1;
+                true
+            }
+            None => {
+                self.failed_jobs.insert(job.stage, job.clone());
+                false
+            }
+        }
+    }
+
+    /// The downloads due to be tried again by now, handed to the shell
+    /// again (a stage started or a song replaced since: dropped).
+    fn retry_due(&mut self) {
+        if self.retrying.is_empty() {
+            return;
+        }
+        let now = self.now_ms();
+        let (due, wait): (Vec<_>, Vec<_>) = std::mem::take(&mut self.retrying)
+            .into_iter()
+            .partition(|(at, _)| *at <= now);
+        self.retrying = wait;
+        for (_, job) in due {
+            let current = self.readiness_rev(job.stage) == job.readiness_rev
+                && self.state().stage(job.stage).is_some_and(|st| st.play.is_none());
+            if current {
+                self.jobs.push(job);
+                self.version += 1;
+            }
+        }
+    }
+
+    /// Whether the local player may try `stage`'s download again by hand
+    /// (round P1b): its retries spent and the failure reported, while the
+    /// stage's window is open.
+    pub fn may_retry_load(&self, stage: StageId) -> bool {
+        self.load_problem(stage) == Some(LoadProblem::Download)
+            && self.failed_jobs.contains_key(&stage)
+            && matches!(
+                self.state().phase,
+                Phase::Preparing { stage: p, window: Some(_) } if p == stage
+            )
+            && self.state().stage(stage).is_some_and(|st| st.play.is_none())
+    }
+
+    /// Retry (round P1b): `stage`'s song downloaded again, the room told
+    /// "loading" again, its retries counted afresh.
+    pub fn retry_load(&mut self, stage: StageId) {
+        if !self.may_retry_load(stage) {
+            return;
+        }
+        let Some(job) = self.failed_jobs.remove(&stage) else {
+            return;
+        };
+        self.load_tries.remove(&(stage, job.readiness_rev));
+        self.load_said.remove(&(stage, job.readiness_rev));
+        if self
+            .send(Command::ReportLoading {
+                stage,
+                readiness_rev: job.readiness_rev,
+                loading: Loading::Loading { permille: 0 },
+            })
+            .is_ok()
+        {
+            self.jobs.push(job);
+        }
+        self.version += 1;
     }
 
     /// The shell prepared a shared song's `job` (an online member's): the

@@ -77,6 +77,8 @@ room-load-changed = 選んだ後で譜面が変わりました。もう一度選
 room-load-cpu = CPUはこの譜面をプレイできません。別の譜面を選んでください。
 
 room-load-download = ルームの曲をダウンロードできませんでした。
+room-retry-load = 再試行
+room-retry-download = ダウンロードを再試行
 
 room-load-plan = この端末で出したステージの攻撃がルームのものと合わないため、このステージは見学になります。
 

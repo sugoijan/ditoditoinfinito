@@ -223,6 +223,14 @@ impl SelectScreen {
 
     /// The room has not said who this player is yet: the screen shows
     /// nothing of a view.
+    /// Whether the room's status line has Retry beside it (a failed
+    /// download, round P1b).
+    pub(super) fn room_retry_shown(&self) -> bool {
+        self.room
+            .as_ref()
+            .is_some_and(|rm| rm.side != Side::Joining && room::retry_shown(&rm.room.borrow()))
+    }
+
     pub(super) fn room_joining(&self) -> bool {
         self.room
             .as_ref()
@@ -373,8 +381,25 @@ impl SelectScreen {
         let (sx, sw) = (wx + inset + 8.0, (ww - inset - 24.0).max(80.0));
         let text: String = room::status(&r).into();
         let mut status = env.text("Room.Status", &text, 14.0, 600, "Secondary");
-        look::ellipsized(&mut status, sw);
         let strip = self.strip_height(&l);
+        // A download that failed after its own retries (round P1b):
+        // Retry at the line's right while the stage's window is open.
+        let retry = room::retry_shown(&r);
+        let sw_text = if retry {
+            let label = ddi_l10n::msg::room::retry_load();
+            let w = (look::mono_width(&label, 14.0) + 24.0).max(64.0);
+            children.push(env.component(
+                "Button",
+                "Button",
+                &Spec::new([w, 28.0], label.as_str()),
+                room::RETRY_LOAD,
+                [sx + sw - w / 2.0, wy - strip - STATUS_H / 2.0],
+            ));
+            (sw - w - 8.0).max(40.0)
+        } else {
+            sw
+        };
+        look::ellipsized(&mut status, sw_text);
         children.push(left(status, sx, wy - strip - STATUS_H / 2.0));
         let following = self.following();
         // The players are beside the song where the layout has room for
@@ -991,6 +1016,11 @@ impl SelectScreen {
                 self.open_players(cx)
             }
             room::TAKE_PICK => self.take_pick(cx),
+            room::RETRY_LOAD => {
+                if let Some(rm) = &self.room {
+                    room::retry_load(&rm.room);
+                }
+            }
             "Panel.Up" => self.scroll_panel(-3, root, cx),
             "Panel.Down" => self.scroll_panel(3, root, cx),
             _ => return None,

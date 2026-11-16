@@ -153,6 +153,14 @@ room-load-cpu = The CPUs cannot play this chart. Choose another.
 # An online room's song could not be downloaded from the room's share.
 room-load-download = The room's song could not be downloaded.
 
+# Round P1b: the button at the right of that status line, once the
+# game's own tries again are spent, while the stage can still be readied
+# for (about 10 letters).
+room-retry-load = Retry
+
+# More's item doing the same (about 24 letters).
+room-retry-download = Retry the download
+
 # An online room that plays its stages live: this device worked out a
 # different attack plan from the stage's chart than the room has (another
 # version of the game, or another copy of the chart), so it sits the stage

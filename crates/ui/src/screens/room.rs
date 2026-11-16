@@ -1486,6 +1486,9 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
         {
             items.push(("retry".to_string(), m::retry_sharing().into()));
         }
+        if retry_shown(r) {
+            items.push((RETRY_LOAD.to_string(), m::retry_download().into()));
+        }
     }
     items.push(("leave".to_string(), m::leave().into()));
     items
@@ -1498,6 +1501,27 @@ const MORE_COPY_WATCH: &str = "copywatch";
 /// More's Reload (the web, where the room's authority is newer than the
 /// page: `ddi_room::UPDATE_REQUIRED`).
 pub const MORE_RELOAD: &str = "reload";
+
+/// Retry the stage's song's download (round P1b): More's item and the
+/// button beside the status line of the room's song select, once the
+/// download's own retries are spent, while the stage's window is open.
+pub const RETRY_LOAD: &str = "Room.RetryLoad";
+
+/// Whether [`RETRY_LOAD`] is offered: the upcoming stage's download
+/// failed after its own retries, its window open.
+pub fn retry_shown(r: &RoomClient) -> bool {
+    r.state()
+        .upcoming_stage()
+        .is_some_and(|up| r.may_retry_load(up))
+}
+
+/// [`RETRY_LOAD`] pressed.
+pub fn retry_load(room: &SharedRoom) {
+    let up = room.borrow().state().upcoming_stage();
+    if let Some(up) = up {
+        room.borrow_mut().retry_load(up);
+    }
+}
 
 /// More's Use this device (round P1b): the room was opened on another of
 /// the person's devices and this one stopped; it joins again.
@@ -2055,6 +2079,7 @@ pub fn more_picked(id: &str, room: &SharedRoom, cx: &mut Cx) -> MoreAction {
         MORE_REPLACE_INVITE => return MoreAction::ReplaceInvite,
         "signin" => room.borrow_mut().sign_in_again(),
         MORE_USE_HERE => room.borrow_mut().use_this_device(),
+        RETRY_LOAD => retry_load(room),
         MORE_RELOAD => cx.request(crate::UiRequest::Reload),
         "retry" => {
             let up = room.borrow().state().upcoming_stage();

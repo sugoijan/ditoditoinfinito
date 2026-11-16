@@ -3700,6 +3700,10 @@ impl Screen for SelectScreen {
             v.push(along("Volume"));
             v.push(along("More"));
         }
+        // A failed download's Retry beside the room's status line.
+        if self.room_retry_shown() {
+            v.push(Focusable::new(super::room::RETRY_LOAD));
+        }
         if self.following() {
             v.push(Focusable::new("Panel.Up"));
             v.push(Focusable::new("Panel.Down"));

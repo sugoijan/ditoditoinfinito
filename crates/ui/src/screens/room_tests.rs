@@ -1341,6 +1341,121 @@ fn not_ready_in_time_sits_out_and_the_prompt_goes_back() {
     assert!(!seen.borrow().contains(&PromptChoice::Start));
 }
 
+/// Round P1b (the maintainer's of 2026-11-16): a follower's failed
+/// download of the stage's song is tried again by itself twice, after 2 s
+/// and 5 s (`LOAD_RETRY_V0_MS`), the room hearing "loading" all along;
+/// once the tries are spent the failure is reported (everyone's lists say
+/// "Download failed") and the follower's song select has Retry beside its
+/// status line (and More's item) while the window is open, which loads
+/// again and, this time, readies the song.
+#[test]
+fn a_followers_failed_download_is_tried_again_then_offers_retry() {
+    use crate::state::online::tests::room::{client, person, prepare, song, tick};
+    use super::room;
+    use crate::state::room::{LOAD_RETRY_V0_MS, LoadProblem};
+    use ddi_room::fake::FakeServer;
+    use ddi_room::{Identity, Intent, Loading, ManualClock, ParticipantId, RoomPolicy};
+    let clock = ManualClock::new(1_000);
+    let server = FakeServer::hosted(
+        "Room000001",
+        Identity::new("dev:alice"),
+        "alice",
+        RoomPolicy::default(),
+        clock.clone(),
+    )
+    .shared();
+    server
+        .borrow_mut()
+        .join(Identity::new("dev:bob"), "bob", Intent::Play)
+        .unwrap();
+    let alice = Rc::new(RefCell::new(client(
+        &server,
+        person(&server, "alice"),
+        "alice",
+        1_000,
+    )));
+    let bob = Rc::new(RefCell::new(client(
+        &server,
+        person(&server, "bob"),
+        "bob",
+        1_000,
+    )));
+    let step = |ms: u64| {
+        tick(
+            &clock,
+            &mut [&mut alice.borrow_mut(), &mut bob.borrow_mut()],
+            ms,
+        )
+    };
+    step(400);
+    let s = song();
+    alice.borrow_mut().pick(&s, &s.charts[0]).unwrap();
+    step(400);
+    crate::state::online::tests::room::upload(&server, &mut alice.borrow_mut(), "abc12345");
+    step(400);
+    prepare(&mut alice.borrow_mut());
+    step(400);
+    let stage = bob.borrow().state().upcoming_stage().unwrap();
+    let bobs = || {
+        server
+            .borrow()
+            .state()
+            .stage(stage)
+            .unwrap()
+            .prep(ParticipantId(2))
+            .loading
+            .clone()
+    };
+    // Every download fails: each failure but the last is tried again.
+    let fail = |bob: &Rc<RefCell<crate::state::room::RoomClient>>| {
+        let jobs = bob.borrow_mut().take_load_jobs();
+        assert_eq!(jobs.len(), 1, "one job");
+        bob.borrow_mut()
+            .finish_shared_load(&jobs[0], Err(LoadProblem::Download));
+    };
+    fail(&bob);
+    step(400);
+    assert!(matches!(bobs(), Loading::Loading { .. }), "{:?}", bobs());
+    assert!(bob.borrow_mut().take_load_jobs().is_empty(), "not before its wait");
+    step(LOAD_RETRY_V0_MS[0]);
+    fail(&bob);
+    step(LOAD_RETRY_V0_MS[1]);
+    assert!(matches!(bobs(), Loading::Loading { .. }), "{:?}", bobs());
+    assert!(!bob.borrow().may_retry_load(stage));
+    fail(&bob);
+    step(400);
+    assert_eq!(
+        bobs(),
+        Loading::Failed {
+            code: LoadProblem::Download.code().into()
+        }
+    );
+    assert!(bob.borrow().may_retry_load(stage));
+    // Bob's song select: the failure and Retry.
+    let orders = Orders::default();
+    let eb = env();
+    let mut hb = harness();
+    hb.push(
+        sample::room_screen(&eb, bob.clone())
+            .with_room(bob.clone(), shell(&bob, &orders)),
+    );
+    hb.run(0.5);
+    assert!(has(&hb, "The room's song could not be downloaded."), "{:?}", hb.texts());
+    assert!(has(&hb, "Retry"), "{:?}", hb.texts());
+    let items: Vec<String> = room::more_items(&bob.borrow(), false)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    assert!(items.contains(&room::RETRY_LOAD.to_string()), "{items:?}");
+    // (This shell prepares what it is handed at once, from the share.)
+    press(&mut hb, room::RETRY_LOAD);
+    assert!(!bob.borrow().may_retry_load(stage));
+    step(400);
+    assert_eq!(bobs(), Loading::Loaded);
+    hb.run(0.5);
+    assert!(!has(&hb, "Retry"), "{:?}", hb.texts());
+}
+
 /// Round P1b: an online room's committed start is past taking Ready
 /// back, and its prompt says so: during the countdown the button says
 /// "Starting…" (never "Cancel ready"), no hint says how to cancel, and
@@ -2349,9 +2464,21 @@ fn the_panels_lines_say_what_each_player_is_doing() {
     // Bob is ready and still loading; Carol's download failed.
     let b = bob.borrow_mut().take_load_jobs();
     bob.borrow_mut().set_ready(true).unwrap();
-    let c = carol.take_load_jobs();
-    carol.finish_shared_load(&c[0], Err(LoadProblem::Download));
-    step(&mut carol, 400);
+    // (Round P1b: a failed download is tried again twice by itself, the
+    // room hearing "loading" meanwhile; the third failure is reported.)
+    for (i, wait) in crate::state::room::LOAD_RETRY_V0_MS
+        .into_iter()
+        .chain([400])
+        .enumerate()
+    {
+        let c = carol.take_load_jobs();
+        carol.finish_shared_load(&c[0], Err(LoadProblem::Download));
+        if i < 2 {
+            step(&mut carol, 400);
+            assert_eq!(says(&alice, "carol"), ("Loading".into(), Tone::Plain));
+        }
+        step(&mut carol, wait);
+    }
     assert_eq!(says(&bob, "alice"), ("Ready".into(), Tone::Good));
     assert_eq!(says(&alice, "bob"), ("Loading".into(), Tone::Plain));
     assert_eq!(
