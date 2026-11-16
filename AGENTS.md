@@ -1890,7 +1890,7 @@ Rust and the browser are implementation details, not advertised features.
   `--mp-bots --api URL [--host] [--join LINK] [--guests N] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
   [--pick ID[:N],…] [--names A,B] [--level N|A-B] [--personality P]
-  [--cpus N[:LEVEL]] [--audience N [--anonymous]]`
+  [--cpus N[:LEVEL]] [--shocks N] [--audience N [--anonymous]]`
   (DEVELOPMENT TOOL: bots in a private online room, played by the CPU,
   no window or sound; the admin share token from `DDI_SHARE_TOKEN`;
   locally `DDI_SHARE_TOKEN=test-token … --api
