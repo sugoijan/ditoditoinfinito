@@ -385,7 +385,7 @@ impl Http for WebHttp {
             let response = send(&request).await;
             answers.borrow_mut().push((id, response));
             // A hidden page draws no frame to take it (a ticket, a grant).
-            crate::room::wake_hidden();
+            crate::room::wake_hidden(false);
         });
     }
 
@@ -484,7 +484,7 @@ impl Transport for WebSocketTransport {
         let open = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
             if now() {
                 events.borrow_mut().push_back(TransportEvent::Opened);
-                crate::room::wake_hidden();
+                crate::room::wake_hidden(false);
             }
         });
         let (events, now) = (self.events.clone(), current.clone());
@@ -502,7 +502,7 @@ impl Transport for WebSocketTransport {
                     events.borrow_mut().push_back(TransportEvent::Binary(bytes));
                 }
                 // A hidden page draws no frame to read it.
-                crate::room::wake_hidden();
+                crate::room::wake_hidden(false);
             });
         let (events, now) = (self.events.clone(), current);
         let close =
@@ -511,7 +511,7 @@ impl Transport for WebSocketTransport {
                     events
                         .borrow_mut()
                         .push_back(TransportEvent::Closed { code: e.code() });
-                    crate::room::wake_hidden();
+                    crate::room::wake_hidden(true);
                 }
             });
         // Binary messages as `ArrayBuffer`s, read at once (not `Blob`s).

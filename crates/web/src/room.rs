@@ -215,7 +215,16 @@ thread_local! {
     /// A run of the kept room asked for from an event while the page is
     /// hidden ([`wake_hidden`]), not yet made.
     static WAKING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Such a run was asked for by the socket's close: its reconnect is
+    /// tried at once ([`wake_hidden`]); and when one last was (ms).
+    static CLOSED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static HURRIED_AT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
+
+/// A hidden page's reconnect is tried at once no more often than this
+/// (ms): a socket that closes again and again (a server that is down)
+/// backs off as ever in between.
+const HURRY_EVERY_MS: u64 = 5_000;
 
 thread_local! {
     /// The page's own title, while a hidden tab's says a stage is starting
@@ -316,20 +325,36 @@ fn run_kept(page: &RoomPage) {
 /// Something came for the kept online room (a message on its socket, its
 /// socket's close, a request's answer) while the page is hidden: the room
 /// is run now, not at the hidden page's next timer, which may be a minute
-/// away (Chrome, after five minutes hidden). A socket that closed is
+/// away (Chrome, after five minutes hidden). A socket that `closed` is
 /// opened again at once ([`RoomClient::hurry`]: the reconnect's first wait
-/// would be a timer's).
-pub(crate) fn wake_hidden() {
-    if !page_hidden() || crate::online::kept_room().is_none() || WAKING.replace(true) {
+/// would be a timer's), at most once in [`HURRY_EVERY_MS`].
+pub(crate) fn wake_hidden(closed: bool) {
+    if !page_hidden() || crate::online::kept_room().is_none() {
+        return;
+    }
+    if closed {
+        CLOSED.set(true);
+    }
+    if WAKING.replace(true) {
         return;
     }
     wasm_bindgen_futures::spawn_local(async {
         WAKING.set(false);
-        if !page_hidden() || !matches!(room_page(), RoomPage::Online(_) | RoomPage::Over | RoomPage::Stage) {
+        let closed = CLOSED.replace(false);
+        if !page_hidden()
+            || !matches!(
+                room_page(),
+                RoomPage::Online(_) | RoomPage::Over | RoomPage::Stage
+            )
+        {
             return;
         }
         pump_kept(false);
-        hurry_kept();
+        let now = now_ms();
+        if closed && now.saturating_sub(HURRIED_AT.get()) >= HURRY_EVERY_MS {
+            HURRIED_AT.set(now);
+            hurry_kept();
+        }
     });
 }
 
