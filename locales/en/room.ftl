@@ -1727,6 +1727,11 @@ room-watch-cue-last-standing = { $name } is last standing
 #   $to (String) - who is attacked
 room-watch-cue-attack = { $from } attacks { $to }
 
+# On a touch screen, in the line under the fields while a stage is
+# watched, quietly (after "Watching [name]" while one player is followed,
+# else alone): a tap on a field follows that player.
+room-watch-tap-hint = Tap a field to follow it
+
 ## The player's own field after they are out of a stage, which they go
 ## on watching to its end.
 

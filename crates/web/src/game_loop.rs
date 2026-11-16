@@ -1537,6 +1537,8 @@ fn watch_debug(watch: Option<&ddi_shell::play_view::WatchDrawn>) -> Value {
         "lane": w.lane,
         "fields": seats(&w.fields),
         "label": w.label,
+        // After it, quietly: a touch screen's "Tap a field to follow it".
+        "note": w.note,
         "cue": w.cue,
         "warned": w.warned,
         // A paged grid's page (from 1) and pages (`GRID_PAGE` a page).

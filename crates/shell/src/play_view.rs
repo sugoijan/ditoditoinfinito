@@ -288,6 +288,33 @@ pub struct Drawn {
     pub skip_at: Option<[f32; 4]>,
 }
 
+/// The status line's quiet words while a stage is watched (`w`): who is
+/// followed (`name`), or, for a stage's first seconds, how to follow
+/// someone (`paged`: the fields come in pages); and on a touch screen,
+/// throughout (feedback round P2), how to follow one by a tap, in place of
+/// the keys' hint ("Tap a field to follow it"). The first, then the tap's.
+pub(crate) fn watch_label(
+    w: &ddi_session::play::WatchView,
+    name: Option<&str>,
+    touch: bool,
+    paged: bool,
+) -> (Option<String>, Option<String>) {
+    use ddi_l10n::msg::room as m;
+    let tap = (touch && !w.over && !w.ended).then(|| m::watch_tap_hint().into());
+    let said = match w.focus {
+        Some(_) => name.map(|n| m::watch_following(n).into()),
+        None if w.why == ddi_session::play::Watching::Spectator
+            && !touch
+            && w.age < ddi_session::play::WATCH_HINT_SECONDS
+            && !w.over =>
+        {
+            Some(if paged { m::watch_hint_pages() } else { m::watch_hint() }.into())
+        }
+        None => None,
+    };
+    (said, tap)
+}
+
 /// A watched stage as the last frame drew it
 /// ([`PlayView::watch_drawn`]): for the shells' debug state and tests,
 /// so that they need no pixels.
@@ -307,6 +334,9 @@ pub struct WatchDrawn {
     pub fields: Vec<(usize, [f32; 4])>,
     /// The status line's label and moment as worded.
     pub label: Option<String>,
+    /// The quiet words after the label (a touch screen's "Tap a field to
+    /// follow it" while one is followed).
+    pub note: Option<String>,
     /// The cap after the label while one is followed (what follows the
     /// next player: "tab", a pad's shoulder's name), where it was asked
     /// for (none on a touch screen).
@@ -1756,22 +1786,13 @@ impl<H: PlayHost> PlayView<H> {
             })
             .or(cue);
         // The status line's quiet word: who is followed, or, for a
-        // stage's first seconds, how to follow someone.
-        let label: Option<String> = watch
-            .filter(|w| w.why == ddi_session::play::Watching::Spectator || w.focus.is_some())
-            .and_then(|w| match w.focus {
-                Some(seat) => names
-                    .get(seat)
-                    .map(|&n| ddi_l10n::msg::room::watch_following(n).into()),
-                None if w.age < ddi_session::play::WATCH_HINT_SECONDS && !w.over => {
-                    Some(if self.ladder_page.is_some() {
-                        ddi_l10n::msg::room::watch_hint_pages().into()
-                    } else {
-                        ddi_l10n::msg::room::watch_hint().into()
-                    })
-                }
-                None => None,
-            })
+        // stage's first seconds, how to follow someone; on a touch screen
+        // how to follow one by a tap, quietly after it or alone.
+        let (said, tap) = watch.map_or((None, None), |w| {
+            let name = w.focus.and_then(|seat| names.get(seat).copied());
+            watch_label(&w, name, screen.touch, self.ladder_page.is_some())
+        });
+        let said = said
             // A live stage the room lost (it restarted): the play goes on,
             // reported at its end.
             .or_else(|| {
@@ -1779,6 +1800,10 @@ impl<H: PlayHost> PlayView<H> {
                     .filter(|b| b.live_lost())
                     .map(|_| ddi_l10n::msg::room::live_lost().into())
             });
+        let (label, label_note) = match said {
+            Some(said) => (Some(said), tap),
+            None => (tap, None),
+        };
         // While one is followed: how to follow another, after the label
         // (a key's cap or the pad's shoulder; a field is tapped on a
         // touch screen).
@@ -1942,6 +1967,7 @@ impl<H: PlayHost> PlayView<H> {
                     },
                     label,
                     label_key,
+                    label_note,
                     large: large_at,
                     stale: b.stale_seats(),
                     own: own_seat.zip(own_word),
@@ -2078,6 +2104,7 @@ impl<H: PlayHost> PlayView<H> {
                     .collect()
             }),
             label: shown.as_ref().and_then(|o| o.shown.label.clone()),
+            note: shown.as_ref().and_then(|o| o.shown.label_note.clone()),
             follow_key: shown
                 .as_ref()
                 .and_then(|o| o.shown.label_key.as_ref().map(|k| k.0.clone())),
@@ -2540,6 +2567,44 @@ mod standings_tests {
             score: f64::from(life) * 1000.0,
             ..Standing::default()
         }
+    }
+
+    /// Feedback round P2: on a touch screen a watched stage says, quietly
+    /// and throughout, how to follow someone by a tap ("Tap a field to
+    /// follow it"): after "Watching [name]" while one is followed, alone
+    /// otherwise, in place of the keys' hint ("Tab or tap…"); never once
+    /// the stage is over. Elsewhere the keys' hint for the first seconds.
+    #[test]
+    fn a_touch_screen_says_a_tap_follows_a_field_while_a_stage_is_watched() {
+        use ddi_session::play::{WATCH_HINT_SECONDS, WatchView, Watching};
+        let view = |focus: Option<usize>, age: f64, over: bool| WatchView {
+            why: Watching::Spectator,
+            focus,
+            age,
+            cue: None,
+            over,
+            page: 0,
+            ended: false,
+        };
+        let tap = Some("Tap a field to follow it".to_string());
+        let words = |w: WatchView, touch: bool| watch_label(&w, w.focus.map(|_| "Rio"), touch, false);
+        // Touch: the tap's words, after who is followed or alone.
+        assert_eq!(words(view(None, 1.0, false), true), (None, tap.clone()));
+        assert_eq!(words(view(None, WATCH_HINT_SECONDS + 30.0, false), true), (None, tap.clone()));
+        assert_eq!(words(view(Some(2), 40.0, false), true), (Some("Watching Rio".into()), tap.clone()));
+        assert_eq!(words(view(Some(2), 40.0, true), true), (Some("Watching Rio".into()), None), "over");
+        // A player out of the stage watching on: the same.
+        let out = WatchView {
+            why: Watching::Out,
+            ..view(None, 1.0, false)
+        };
+        assert_eq!(words(out, true), (None, tap.clone()));
+        // Not a touch screen: the keys' hint for the first seconds, then
+        // nothing; who is followed.
+        assert_eq!(words(view(None, 1.0, false), false), (Some("Tab or tap a field to follow one player".into()), None));
+        assert_eq!(words(view(None, WATCH_HINT_SECONDS + 1.0, false), false), (None, None));
+        assert_eq!(words(view(Some(2), 40.0, false), false), (Some("Watching Rio".into()), None));
+        assert_eq!(words(out, false), (None, None));
     }
 
     /// A player out of a large stage counts as out on the ladder and has

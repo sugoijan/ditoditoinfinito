@@ -78,6 +78,10 @@ pub struct Shown {
     /// what it does, worded ("next player"); drawn quietly where both
     /// fit on the status line.
     pub label_key: Option<(String, String)>,
+    /// After the label, quieter: a touch screen's way to follow someone
+    /// in a watched stage ("Tap a field to follow it", feedback round P2),
+    /// drawn where it fits on the status line.
+    pub label_note: Option<String>,
     /// The slot of `fields` that is the field shown large (a watched
     /// stage's focus: the play's own field's place): no name line, no
     /// stars and no small score there (the HUD's places say them).
@@ -1728,6 +1732,16 @@ pub fn draw_fields(
                 x = end + 5.0 * ratio + word_w;
             }
         }
+        // A touch screen's way to follow someone, as quiet, where it fits.
+        if let Some(note) = &shown.label_note {
+            let st = style(12.0, 500);
+            let at = x + 10.0 * ratio;
+            if at + measure.measure(note, &st).advance <= sx + sw {
+                let quiet = [MUTED[0], MUTED[1], MUTED[2], MUTED[3] * 0.6];
+                list.text(note.as_str(), &st, at, sy + ratio, quiet);
+                x = at + measure.measure(note, &st).advance;
+            }
+        }
         x += 12.0 * ratio;
     }
     if let Some(won) = &shown.won {
@@ -2118,6 +2132,7 @@ pub(crate) mod tests {
             score: ScoreShown::Sum,
             label: None,
             label_key: None,
+            label_note: None,
             large: None,
             stale: Vec::new(),
             ladder: None,
@@ -2508,6 +2523,42 @@ pub(crate) mod tests {
         assert_eq!(words.iter().filter(|t| **t == "Out").count(), 2, "{words:?}");
         // Three small scores (the others'), none for the large field.
         assert_eq!(words.iter().filter(|t| **t == "5900000").count(), 3);
+    }
+
+    /// Feedback round P2: a touch screen's way to follow someone, after
+    /// the status line's label, quieter than it; alone in the label's
+    /// place where nothing else is said (the play's view puts it there).
+    #[test]
+    fn the_status_line_says_quietly_that_a_tap_follows_a_field() {
+        let g = geo(1280.0, 720.0);
+        let f = arrange(3, &g, 4.0, false, 1.0, &keep(&g, 1.0, true)).unwrap();
+        let mut shown = shown(3);
+        shown.label = Some("Watching CPU 1".into());
+        let draw = |shown: &Shown| {
+            let mut list = DrawList::new();
+            draw_fields(&mut list, shown, &f, &Flashes::new(), &Locks::new(), 1.0, &mut FixedMeasure, &mut Memo::default());
+            list.commands
+                .iter()
+                .filter_map(|c| match c {
+                    Command::Text(t) => Some((t.text.to_string(), t.transform.apply([0.0, 0.0])[0], t.color[3])),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let tap = "Tap a field to follow it";
+        assert!(!draw(&shown).iter().any(|(t, ..)| t == tap));
+        shown.label_note = Some(tap.into());
+        let drawn = draw(&shown);
+        let find = |w: &str| drawn.iter().find(|(t, ..)| t == w).cloned().unwrap_or_else(|| panic!("{w}: {drawn:?}"));
+        let (label, note) = (find("Watching CPU 1"), find(tap));
+        assert!(label.1 < note.1, "after the label: {drawn:?}");
+        assert!(note.2 < label.2, "quieter than the label");
+        // A status line too narrow for it: left out, never cut.
+        let mut narrow = f.clone();
+        narrow.status[2] = 150.0;
+        let mut list = DrawList::new();
+        draw_fields(&mut list, &shown, &narrow, &Flashes::new(), &Locks::new(), 1.0, &mut FixedMeasure, &mut Memo::default());
+        assert!(!texts(&list).iter().any(|(t, _)| t == tap));
     }
 
     /// Round D1: a competitor who left the stage (their stream's
@@ -3632,6 +3683,7 @@ pub(crate) mod tests {
                 },
                 label: grid.then(|| "Watching Ri\u{301}os".into()),
                 label_key: None,
+                label_note: None,
                 large: None,
                 stale: vec![4],
                 ladder: Some((

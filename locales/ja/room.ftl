@@ -762,6 +762,8 @@ room-watch-cue-last-standing = { $name }が最後の一人
 
 room-watch-cue-attack = { $from }が{ $to }を攻撃
 
+room-watch-tap-hint = フィールドをタップでそのプレイヤーを観戦
+
 room-play-forfeit = 退出
 
 room-play-skip = { $key }: 結果へ
