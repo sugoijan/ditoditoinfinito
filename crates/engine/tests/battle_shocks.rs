@@ -830,3 +830,133 @@ fn bundled_schedules_are_pinned() {
         (27508, "9ead6c195d8505f3".to_string())
     );
 }
+
+/// A match's "Shocks per attack" (feedback round N2): the placement with
+/// the count as its argument (`Placement::with_shocks`,
+/// `schedule_of`). For eight it is `placement-v2` itself, every section
+/// equal (so `bundled_schedules_are_pinned`'s hash holds for it); for 2,
+/// 4 and 6 every section has exactly that many shocks, each inside the
+/// section, one a row, at most two a beat and clear of the lane's notes
+/// by the same margins; a smaller attack fits wherever a larger one does
+/// (and in more places); and each count's schedules are pinned as eight's
+/// are (every bundled chart under DDI Normal and ITG, two seeds).
+#[test]
+fn schedules_for_each_shock_count_keep_the_margins_and_are_pinned() {
+    use ddi_engine::battle::{SHOCK_COUNTS, schedule_of};
+    assert_eq!(SHOCK_COUNTS, [2, 4, 6, 8]);
+    assert_eq!(PLACEMENT.with_shocks(8), PLACEMENT);
+    let aims: Vec<usize> = SHOCK_COUNTS
+        .iter()
+        .map(|&n| PLACEMENT.with_shocks(n).near.unwrap().aim)
+        .collect();
+    assert_eq!(aims, [2, 3, 5, 6]);
+    for n in SHOCK_COUNTS {
+        let p = PLACEMENT.with_shocks(n);
+        assert_eq!((p.id, p.mines, p.clear, p.section_beats, p.every_beats), (
+            PLACEMENT.id,
+            n,
+            PLACEMENT.clear,
+            PLACEMENT.section_beats,
+            PLACEMENT.every_beats
+        ));
+    }
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs");
+    let mut ids: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .collect();
+    ids.sort_by_key(|e| e.file_name());
+    let mut pins = Vec::new();
+    let mut found = [0usize; 4];
+    let mut slots = 0;
+    let mut hashes = [0xcbf2_9ce4_8422_2325u64; 4];
+    let mut counts = [0usize; 4];
+    for e in ids {
+        let Some(path) = std::fs::read_dir(e.path())
+            .unwrap()
+            .flatten()
+            .map(|f| f.path())
+            .find(|p| p.extension().is_some_and(|x| x == "ssc" || x == "sm"))
+        else {
+            continue;
+        };
+        let ext = path.extension().unwrap().to_string_lossy().into_owned();
+        let Ok(song) =
+            ddi_library::scan::parse_simfile(&std::fs::read_to_string(&path).unwrap(), &ext)
+        else {
+            continue;
+        };
+        for i in 0..song.charts.len() {
+            let tables = [
+                ddi_rules(ddi_engine::rules::ddi::Difficulty::Normal).judge,
+                rules("itg", &song).judge,
+            ];
+            for (t, table) in tables.iter().enumerate() {
+                for seed in [7, 0x5eed_1234_abcd] {
+                    let eight = schedule(&song, i, table, seed);
+                    assert_eq!(eight, schedule_of(&song, i, table, seed, 8), "eight is v2 itself");
+                    let mut larger = eight.clone();
+                    for (k, &n) in SHOCK_COUNTS.iter().enumerate().rev() {
+                        let s = schedule_of(&song, i, table, seed, n);
+                        assert_eq!(s.len(), eight.len());
+                        for (slot, sec) in s.iter().enumerate() {
+                            assert!(
+                                sec.is_some() || larger[slot].is_none(),
+                                "{n} shocks fit wherever more do"
+                            );
+                            let mut eat = |x: i64| {
+                                for b in x.to_le_bytes() {
+                                    hashes[k] = (hashes[k] ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+                                }
+                            };
+                            eat(-1);
+                            let Some(sec) = sec else { continue };
+                            counts[k] += 1;
+                            assert_eq!(sec.cells.len(), n);
+                            let first = i64::from(sec.start_beat) * TICKS_PER_BEAT;
+                            let mut per_beat = [0; 8];
+                            eat(i64::from(sec.start_beat));
+                            for (j, h) in sec.cells.iter().enumerate() {
+                                assert!(h.tick.0 >= first && h.tick.0 < first + 8 * TICKS_PER_BEAT);
+                                per_beat[((h.tick.0 - first) / TICKS_PER_BEAT) as usize] += 1;
+                                assert!(sec.cells[j + 1..].iter().all(|o| o.tick != h.tick), "one a row");
+                                eat(h.tick.0);
+                                eat(i64::from(h.lane));
+                            }
+                            assert!(per_beat.iter().all(|&b| b <= 2), "{per_beat:?}");
+                            assert_margins(&song, i, table, &sec.cells);
+                        }
+                        if t == 0 && seed == 7 {
+                            found[k] += s.iter().flatten().count();
+                            if n == 8 {
+                                slots += s.len();
+                            }
+                        }
+                        larger = s;
+                    }
+                }
+            }
+        }
+    }
+    for (k, n) in SHOCK_COUNTS.iter().enumerate() {
+        println!(
+            "SHOCKS {n}: {} sections, hash {:016x}; DDI Normal, seed 7: {} of {slots} slots ({:.1}%)",
+            counts[k],
+            hashes[k],
+            found[k],
+            100.0 * found[k] as f64 / slots.max(1) as f64
+        );
+        pins.push((*n, counts[k], format!("{:016x}", hashes[k])));
+    }
+    assert!(found[0] >= found[1] && found[1] >= found[2] && found[2] >= found[3]);
+    assert_eq!(
+        pins,
+        [
+            (2, 27508, "6e99d70c1527f255".to_string()),
+            (4, 27508, "d912f024a2988c23".to_string()),
+            (6, 27508, "f9b6179d496d139c".to_string()),
+            (8, 27508, "9ead6c195d8505f3".to_string()),
+        ]
+    );
+}

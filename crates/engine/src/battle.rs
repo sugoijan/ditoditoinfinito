@@ -147,6 +147,36 @@ pub const PLACEMENT_V2: Placement = Placement {
 /// The placement attacks use ([`schedule`]).
 pub const PLACEMENT: Placement = PLACEMENT_V2;
 
+/// The shock counts an attack may have (a match's "Shocks per attack",
+/// `ddi_room::ShocksPerAttack`): [`Placement::with_shocks`] takes these.
+pub const SHOCK_COUNTS: [usize; 4] = [2, 4, 6, 8];
+
+impl Placement {
+    /// This placement for attacks of `shocks` shocks (a match's "Shocks
+    /// per attack", feedback round N2): the same margins, grid and
+    /// section, the count its argument, three quarters of them (rounded
+    /// up: 2 of 2, 3 of 4, 5 of 6, 6 of 8) aimed next to a note of their
+    /// lane where it aims ([`Near`]). For this placement's own count it
+    /// is this placement exactly, so `placement-v2`'s sections of eight
+    /// are what they were, bit for bit; a smaller attack fits wherever a
+    /// larger one does and in more places. (One a beat from the section's
+    /// first beat with room, as ever: a smaller attack is as dense and
+    /// over sooner.)
+    pub fn with_shocks(self, shocks: usize) -> Placement {
+        if shocks == self.mines {
+            return self;
+        }
+        Placement {
+            mines: shocks,
+            near: self.near.map(|n| Near {
+                aim: (shocks * 3).div_ceil(4),
+                ..n
+            }),
+            ..self
+        }
+    }
+}
+
 /// A battle shock: its row and lane (the lanes as played).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Hazard {
@@ -443,7 +473,19 @@ fn section(
 /// with unsafe ones): pure in the chart, the table and `seed`, so everyone
 /// gets the same.
 pub fn schedule(song: &Song, chart: usize, table: &JudgeTable, seed: u64) -> Vec<Option<Section>> {
-    let p = PLACEMENT;
+    schedule_of(song, chart, table, seed, PLACEMENT.mines)
+}
+
+/// [`schedule`] for attacks of `shocks` shocks
+/// ([`Placement::with_shocks`]; eight is [`schedule`] itself).
+pub fn schedule_of(
+    song: &Song,
+    chart: usize,
+    table: &JudgeTable,
+    seed: u64,
+    shocks: usize,
+) -> Vec<Option<Section>> {
+    let p = PLACEMENT.with_shocks(shocks);
     let Some(c) = song.charts.get(chart) else {
         return Vec::new();
     };
