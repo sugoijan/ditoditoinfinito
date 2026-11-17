@@ -252,7 +252,7 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// no fail, no personal history. Its artifact selects the chart.
 /// `--play SONG --chart N --cpu=1` prepares an analytical CPU directly from
 /// the library chart, on the multiplayer CPUs' absolute scale
-/// (`cpu-levels-v1`): `--cpu-level N` (1 to 10; level 5 where none is
+/// (`CPU_LEVELS`, `cpu-levels-v2`): `--cpu-level N` (1 to 10; level 5 where none is
 /// named), or `--cpu-strength relaxed|easy|normal|strong|expert`, levels 6
 /// to 10 of it.
 ///

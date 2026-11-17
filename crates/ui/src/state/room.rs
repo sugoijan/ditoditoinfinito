@@ -63,7 +63,8 @@ use crate::state::online::link::{LinkNotice, OnlineLink};
 use crate::screens::data::{ChartEntry, SongEntry};
 
 /// The engine's CPU levels (`ddi_engine::cpu::CPU_LEVELS`, ten, since
-/// `cpu-levels-v1` abilities the same on every chart), shown as five
+/// `cpu-levels-v1` abilities the same on every chart, with a person's shape
+/// since `cpu-levels-v2`), shown as five
 /// stars (`crate::stars`): what a level keeps up with, never a skill
 /// claim (`docs/plans/cpu-player.md`).
 pub fn cpu_levels() -> u8 {

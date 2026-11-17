@@ -472,7 +472,7 @@ fn a_practice_stage_steps_up_the_player_and_a_cpu_climbs_two_rungs() {
     );
 }
 
-/// `cpu-levels-v1` (absolute levels): under Adaptive charts from Some
+/// Absolute levels (`cpu-levels-v1`, and `cpu-levels-v2` since round V): under Adaptive charts from Some
 /// Things Must's Medium, CPUs of levels 1, 5 and 9 end on different charts
 /// (the weak one below the pick, the strong one above), where under
 /// `cpu-levels-v0` every level from about 4 climbed alike. The

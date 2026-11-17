@@ -169,7 +169,7 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
   --site URL           the game's page for invite links
   --names A,B,…        the bots' names (else the CPU roster's)
   --level N | A-B      every bot's CPU level N (1 to 10 of the absolute scale,
-                       cpu-levels-v1: the same abilities on every chart), or
+                       cpu-levels-v2: the same abilities on every chart), or
                        levels spread over A to B inclusive in an order drawn
                        from --seed (else the roster's)
   --personality P      every bot's personality: a preset or seven multipliers
@@ -1914,8 +1914,9 @@ mod tests {
         ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), "ssc").unwrap()
     }
 
-    /// A bot's own play is on the absolute levels (`cpu-levels-v1`,
-    /// `Opponent::with_skills`): the same presses as an opponent on that
+    /// A bot's own play is on the absolute levels (`CPU_LEVELS`,
+    /// `cpu-levels-v2` since round V, `Opponent::with_skills`): the same
+    /// presses as an opponent on that
     /// scale, not the chart-relative one's (round D, item 7). The CPUs a
     /// host bot seats (`--cpus N[:LEVEL]`) are the room's, computed by
     /// `ddi_session::battle::cpus` on `Opponent::new`, the same scale.
@@ -1942,9 +1943,10 @@ mod tests {
                 .presses()
                 .to_vec()
         };
-        assert_eq!(bot.presses(), on(ddi_engine::cpu::LevelScale::AbsoluteV1).as_slice());
+        assert_eq!(bot.presses(), on(ddi_engine::cpu::LevelScale::AbsoluteV2).as_slice());
         assert_ne!(bot.presses(), on(ddi_engine::cpu::LevelScale::RelativeV0).as_slice());
-        assert_eq!(ddi_engine::cpu::CPU_LEVELS, ddi_engine::cpu::LevelScale::AbsoluteV1);
+        assert_ne!(bot.presses(), on(ddi_engine::cpu::LevelScale::AbsoluteV1).as_slice());
+        assert_eq!(ddi_engine::cpu::CPU_LEVELS, ddi_engine::cpu::LevelScale::AbsoluteV2);
     }
 
     fn order(rules: ddi_session::battle::StageRules) -> StageOrder {
