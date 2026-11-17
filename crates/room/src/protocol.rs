@@ -120,8 +120,17 @@ pub fn supported(version: u32) -> bool {
 ///     lineup at its commit who readies within the live rules' late join
 ///     enters it; `Rejection::LateEntryClosed`, `NotLoaded`; their load
 ///     and readiness to play live heard after the commit; the live side
-///     streams and seats them from then, `StageBattle::seat_late`).
-pub const ROOM_MODEL_REVISION: u32 = 12;
+///     streams and seats them from then, `StageBattle::seat_late`);
+/// 13. round U (2026-11-17): DDI's points, percent and letters
+///     (`ddi_engine::rules::ddi::PERCENT_RULE`, `ddi-percent-v1`): a miss
+///     costs −120 points and a mine or a battle's shock stepped on −50,
+///     so the scores every device computes for the room's CPUs, reports
+///     and ranks a stage by move; the percent a starter reports
+///     (`RunDetail::percent`) is the new Percent (nine tenths accuracy,
+///     one tenth the combo part over a full combo's), no longer the
+///     accuracy alone, and the grade beside it reads it (SSS 99, SS 96,
+///     S 89, A 75, B 60, C 42).
+pub const ROOM_MODEL_REVISION: u32 = 13;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being

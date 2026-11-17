@@ -679,9 +679,9 @@ fn an_older_room_model_is_refused_except_during_a_stage() {
     use ddi_room::{ROOM_MODEL_REVISION, UPDATE_REQUIRED, UpdateRequired, check_model_against};
     let rev = ROOM_MODEL_REVISION;
     assert_eq!(
-        rev, 12,
-        "12: Shocks per attack, a returning administrator, a moment's reconnect, the keep-alive, \
-         DDI's combo part and adaptive-v5 (11: adaptive-v4, a snapshot's step, the close command)"
+        rev, 13,
+        "13: DDI's points, percent and letters (12: Shocks per attack, a returning administrator, \
+         a moment's reconnect, the keep-alive, DDI's combo part and adaptive-v5)"
     );
     assert_eq!(UPDATE_REQUIRED, "update_required");
     // The other way (round R2): a client refuses an authority older than
@@ -881,4 +881,50 @@ fn a_room_stored_by_revision_11_loads_and_plays_on() {
     }
     let play = state.current.as_ref().unwrap().stages[1].play.as_ref().unwrap();
     assert_eq!(play.reports.len(), 2);
+}
+
+/// A room stored by revision 12 loads under every later one (round U,
+/// revision 13): the JSON revision 12's own reducer wrote
+/// (`room-revision-12.json`: the revision-11 fixture's room gone on,
+/// stage 2 reported by its two people and, for its two CPUs, by the
+/// authority, each with how they performed, the percent as revision 12
+/// meant it (DDI's accuracy alone), settled, the room between stages)
+/// reads, writes back what it reads, and plays on. Revision 13 changes
+/// what a reported percent means (`RunDetail::percent`), not its form:
+/// a stored one reads as it was written.
+#[test]
+fn a_room_stored_by_revision_12_loads_and_plays_on() {
+    let text = include_str!("room-revision-12.json");
+    let mut state: RoomState = serde_json::from_str(text).unwrap();
+    let back = serde_json::to_value(&state).unwrap();
+    assert_eq!(
+        back,
+        serde_json::from_str::<serde_json::Value>(text).unwrap(),
+        "written as it was read"
+    );
+    assert_eq!(state.phase, Phase::Intermission { next: StageId(3) });
+    let m = state.current.as_ref().unwrap();
+    let play = m.stages[1].play.as_ref().unwrap();
+    assert_eq!(play.reports.len(), 4);
+    assert_eq!(play.details.len(), 4);
+    assert_eq!(play.details.get(&ParticipantId(7)).unwrap().percent, Some(9_903));
+    assert!(play.result.is_some());
+    let before = state.standings().unwrap();
+    let revision = state.revision;
+    state
+        .apply(
+            ddi_room::Actor::Member(ParticipantId(2)),
+            Some(revision),
+            &Command::Pick {
+                content: ContentId {
+                    song: SongKey::new("song-3"),
+                    chart: ChartKey::new("digest-3"),
+                },
+                card: None,
+            },
+            Millis(1_500_000),
+        )
+        .unwrap();
+    assert!(matches!(state.phase, Phase::Preparing { stage: StageId(3), .. }));
+    assert_eq!(state.standings().unwrap(), before, "stages 1 and 2's points kept");
 }
