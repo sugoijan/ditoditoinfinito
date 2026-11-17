@@ -136,8 +136,14 @@ pub fn supported(version: u32) -> bool {
 ///     Options' Usage statistics is on; the server takes or drops it by
 ///     its prefix (`{"v":2,"stats":`), never answers it and never closes a
 ///     socket over it (an authority before it closed the socket on a
-///     frame it could not read).
-pub const ROOM_MODEL_REVISION: u32 = 13;
+///     frame it could not read);
+/// 14. round V (2026-11-17): the CPUs' ten levels measured again and
+///     made more like a person (`ddi_engine::cpu::CPU_LEVELS`,
+///     `cpu-levels-v2`: a steady lean of their own and a spread that
+///     loosens under load before notes are left out), so every device
+///     computes the room's CPUs' presses, judgments, life, attacks and
+///     scores anew; a stored roster's level numbers mean the new levels.
+pub const ROOM_MODEL_REVISION: u32 = 14;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being
