@@ -488,13 +488,14 @@ fn bundled_songs() -> Vec<Song> {
         .collect()
 }
 
-/// The mean percent under DDI Normal of an opponent at `level` of the
-/// opponents' ten (`cpu-levels-v1`) over `seeds`, the fail off.
+/// The mean accuracy under DDI Normal of an opponent at `level` of the
+/// opponents' ten (`CPU_LEVELS`, `cpu-levels-v2`) over `seeds`, the fail
+/// off.
 fn absolute_percent(song: &Song, chart: usize, level: usize, seeds: u64) -> f64 {
     let plan = Plan::automatic(song, chart).unwrap();
     let mut rules = crate::rules::ddi::ruleset(&crate::rules::ddi::DdiOptions::default());
     rules.fail = crate::rules::FailPolicy::Off;
-    let strength = LevelScale::AbsoluteV1.strength(level).unwrap();
+    let strength = CPU_LEVELS.strength(level).unwrap();
     (1..=seeds)
         .map(|seed| {
             let mut o = Opponent::planned(
@@ -515,12 +516,13 @@ fn absolute_percent(song: &Song, chart: usize, level: usize, seeds: u64) -> f64 
         / seeds as f64
 }
 
-/// `cpu-levels-v1`: on every bundled single chart a stronger level scores
-/// no worse (within half a point: four seeds), and a level scores no
-/// better on a harder chart of the same song (within two points: the
-/// slots of a song can be close, as Beatucada's Hard and Challenge are).
-/// An easy chart is played nearly perfectly by a middling level and the
-/// weakest are lost on the hardest.
+/// The absolute levels (`cpu-levels-v2` since round V): on every bundled
+/// single chart a stronger level scores no worse (within half a point:
+/// four seeds), and a level scores no better on a harder chart of the
+/// same song (within two points: the slots of a song can be close, as
+/// Beatucada's Hard and Challenge are). An easy chart is played as an
+/// ordinary player plays it by a middling level and nearly perfectly by
+/// the strongest, and the weakest are lost on the hardest.
 #[test]
 fn absolute_levels_are_monotone_in_level_and_in_the_chart() {
     let mut charts = 0;
@@ -557,7 +559,10 @@ fn absolute_levels_are_monotone_in_level_and_in_the_chart() {
             // harder chart with more holds: kept, they are easy points
             // (DDI's hold units), a tap-only copy has none
             // (`cpu-play-v1`: Beatucada's Easy, 34 holds, plays a little
-            // above its Beginner, none, at the weakest levels).
+            // above its Beginner, none, at the weakest levels; under
+            // `cpu-levels-v2`, whose looser taps earn less a note than a
+            // kept hold's units, by up to seven points at every level
+            // but the strongest).
             let (a, b) = (&song.charts[singles[k]], &song.charts[singles[k + 1]]);
             let holds = |i: usize| {
                 Plan::automatic(&song, i)
@@ -565,7 +570,9 @@ fn absolute_levels_are_monotone_in_level_and_in_the_chart() {
                     .and_then(|p| p.full().map(|f| f.counts().0 + f.counts().1))
                     .unwrap_or(0)
             };
-            let tolerance = if a.meter == b.meter || holds(singles[k + 1]) > holds(singles[k]) {
+            let tolerance = if holds(singles[k + 1]) > holds(singles[k]) {
+                8.0
+            } else if a.meter == b.meter {
                 6.0
             } else {
                 2.0
@@ -585,10 +592,12 @@ fn absolute_levels_are_monotone_in_level_and_in_the_chart() {
                 );
             }
         }
-        // The song's easiest and hardest: level 5 at home on the easiest,
-        // level 1 far below level 10 on the hardest.
+        // The song's easiest and hardest: level 5 an ordinary player's
+        // accuracy on the easiest (an A's, as a person's: about 80) and
+        // level 10 nearly perfect there, level 1 far below level 10 on
+        // the hardest.
         let (easy, hard) = (&table[0], &table[table.len() - 1]);
-        assert!(easy[4] > 95.0, "{}: {easy:?}", song.title);
+        assert!(easy[4] > 75.0 && easy[9] > 93.0, "{}: {easy:?}", song.title);
         assert!(hard[9] - hard[0] > 40.0, "{}: {hard:?}", song.title);
     }
     assert!(charts >= 12, "{charts}");
@@ -764,9 +773,11 @@ fn planning_cost() {
     let v0_weak = script(LevelScale::RelativeV0.strength(2).unwrap());
     let v1_strong = script(LevelScale::AbsoluteV1.strength(7).unwrap());
     let v1_weak = script(LevelScale::AbsoluteV1.strength(2).unwrap());
+    let v2_strong = script(LevelScale::AbsoluteV2.strength(7).unwrap());
+    let v2_weak = script(LevelScale::AbsoluteV2.strength(2).unwrap());
     // The chart itself (`cpu-play-v1`): its holds, rolls, lifts and mines.
     let full = |level: usize| {
-        let strength = LevelScale::AbsoluteV1.strength(level).unwrap();
+        let strength = CPU_LEVELS.strength(level).unwrap();
         let avoidance = MINE_RESPONSE_V0.avoidance(level);
         time(&mut || {
             for p in &plans {
@@ -779,7 +790,7 @@ fn planning_cost() {
     };
     let (full_strong, full_weak) = (full(7), full(2));
     println!(
-        "{} charts, {rows} rows on average: a plan {plan:.0} us; presses v0 level 8 {v0_frozen:.0} us, v0 level 3 {v0_weak:.0} us, v1 level 8 {v1_strong:.0} us, v1 level 3 {v1_weak:.0} us; the full chart (cpu-play-v1) level 8 {full_strong:.0} us, level 3 {full_weak:.0} us (a chart)",
+        "{} charts, {rows} rows on average: a plan {plan:.0} us; presses v0 level 8 {v0_frozen:.0} us, v0 level 3 {v0_weak:.0} us, v1 level 8 {v1_strong:.0} us, v1 level 3 {v1_weak:.0} us, v2 level 8 {v2_strong:.0} us, v2 level 3 {v2_weak:.0} us; the full chart (cpu-play-v1, v2) level 8 {full_strong:.0} us, level 3 {full_weak:.0} us (a chart)",
         charts.len()
     );
 }
