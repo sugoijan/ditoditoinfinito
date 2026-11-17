@@ -311,7 +311,8 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   targeting choice, online attacks; a study of putting combos into the
   score (2026-11-16), then combos counted in it (2026-11-16,
   `ddi-combo-v0`: a combo part, a Combo line on the results, kept plays
-  judged again). Our own
+  judged again); a study of counting the combo toward the percent and
+  the grades, beside other rulesets (2026-11-17, measured only). Our own
   ruleset, the only one in multiplayer and the default for normal play:
   W0–W5 on a 1/120 s grid (1/144 Hard, 1/90 Easy) with early and late
   words, FFR-style life and Boos (off by default), a 1,000,000 score or

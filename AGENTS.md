@@ -749,7 +749,10 @@ Rust and the browser are implementation details, not advertised features.
   and, with `DDI_COMBO_PLAYS`, the maintainer's kept plays in
   aggregate, the engine's `ddi-combo-v0` asserted equal to its
   candidate; `docs/plans/ddi-ruleset.md`, "DDI's score and combos: a
-  study" and "Combos count");
+  study" and "Combos count"), and its part 6, `combo_study/percent.rs`
+  (`DDI_COMBO_ONLY=percent`: percents and grades counting the combo
+  beside today's and beside other rulesets' readings of the same
+  presses; "Should the combo score count toward the percent?");
   the local player's attack policy changed in play (D8,
   `Battle::policy`, `retarget`): either Shift and Tab, each unless the
   player's bindings give it to a lane (`play::POLICY_KEYS`, the shared

@@ -6,7 +6,10 @@ round 2 (the screens: DDI selectable, the default, shown everywhere) and
 round 3 (multiplayer: rooms play DDI alone, a shock is a mine) built
 2026-11-12 ("Round 1 (built)", "Round 2 (built)", "Round 3 (built)" and
 "Round 3b (built)" at the end). Combos count in the score since
-2026-11-16 (`ddi-combo-v0`, "Combos count" at the end).
+2026-11-16 (`ddi-combo-v0`, "Combos count" at the end). Whether the
+combo should count toward the percent and the grades too: measured
+2026-11-17, nothing changed ("Should the combo score count toward the
+percent?" at the end).
 Values marked *tune* are starting
 points the maintainer will play and adjust; everything else is decided.
 
@@ -1523,3 +1526,469 @@ one.
   them (breaks rise toward the end) but not in the CPUs.
 - DDI Easy and Hard, Boos on, charts heavy in holds (a dropped hold
   breaks no combo, so its part is untouched).
+
+## Should the combo score count toward the percent? A study (2026-11-17)
+
+**Measured only: nothing a player sees or a play scores changed.** The
+maintainer, after playing with the combo part: "I've been thinking
+whether the combo score should count towards the percentage, can you
+make some estimates of how that would affect grades?"; then, after more
+testing: "people value combos a lot, so in some cases a 'sloppy full
+combo' feels like it should be a bigger achievement than a very precise
+hits with a few breaks"; and, told that W0 already scores as W1 (50
+points; it counts only in the absolute score's tie-break, Absolute Dito
+and the lamps) so the lever would be the lower tiers' points:
+"flattening those seems too much. Let's keep a comparison to a few other
+rulesets just to have as a base so we don't stray too far from what
+could be expected."
+
+The study is part 6 of `combo_score_study`
+(`crates/session/src/battle/combo_study/percent.rs`;
+`DDI_COMBO_ONLY=percent DDI_COMBO_CORPUS=<dirs> DDI_COMBO_PLAYS=<the
+desktop's plays/> cargo test --release -p ddi-session --lib
+combo_score_study -- --ignored --nocapture`; `DDI_PCT_PACKAGES` adds
+candidates with thresholds of their own). Today's percent and grade
+worked out there are asserted equal to the engine's on every CPU play,
+and agree with the kept grade on every kept play.
+
+### The candidates
+
+In hundredths of a percent, floored; `points` and `most` the play's and
+the chart's DDI points, `combo` its combo part, `max` a full combo's of
+the chart's tap-like notes (`ddi::full_combo_points`); grades read as
+today (thresholds, then the floors, Absolute Dito by the counts):
+
+- **today**: `10,000 × points ÷ most`, pure accuracy;
+- **P1, the score's own weights**: `10,000 × (100 × points + combo) ÷
+  (100 × most + max)`. The combo weighs what it weighs in the Score:
+  5.71% of the percent at 100 notes, 11.80% at 300, 18.44% at 1,200
+  (the brief's figures, checked);
+- **P2 at w%**, a fixed share: `(100 − w)% × accuracy + w% × combo ÷
+  max`, the same on every chart; w = 5, 10, 15;
+- **P1 ≤2, P1 ≤3, P2 10% ≤2**, a cap on the loss: `max(candidate,
+  accuracy − 2 or 3 points)`. Simply expressed; a cap of 3 or less moves
+  any play at most one letter down, as the closest thresholds (SSS 99,
+  SS 96) are 3 apart. A full combo can only gain, so the cap only stops
+  breaks from costing more than it;
+- **P1 ≤acc**: P1 with the combo counted only up to the play's own
+  accuracy (`min(combo, max × points ÷ most)`): a full combo is then
+  exactly its accuracy and only breaks cost: the "floor" against sloppy
+  full combos asked about, which also takes away what the maintainer
+  wants (a clean run reading as the bigger achievement);
+- **T42/32**, one reference row of flatter tiers (W2 42, W3 32, the rest
+  as now; an all-W3 full combo 64% instead of 50%), pure accuracy, not a
+  proposal: it lifts every letter (no play goes down; 20% of the CPUs'
+  clears and 40% of the kept ones go up one) and does nothing for
+  combos (it never ranks the cleaner play above the more accurate one in
+  the pairs below). It would also halve or nearly halve a slip's cost in
+  the Score, so a break would cost more slips; life is untouched (life
+  never reads points); rooms rank by the Score and would follow it.
+
+### The baselines
+
+The rulesets the game plays, as a player coming from them would read
+the same presses (each tier's worth as a share of its best; a miss
+against a slip from the best tier to the next):
+
+| Ruleset | Tiers, best first | A miss costs | Combo in the score | In the grade | Letters |
+| --- | --- | --- | --- | --- | --- |
+| DDI today | 100, 80, 50, 20, 0, −20% | 1.2 notes, 6 slips | yes, `ddi-combo-v0` | no | SSS 99, SS 96, S 89, A 80, B 68, C 55 |
+| ITG (Simply Love) | 100, 80, 40, 0, −120, −240% (DP 5, 4, 2, 0, −6, −12) | 3.4 notes, 17 slips | no | no | ★★★★ 100 … ★ 96, S 92 (S− 89), A 83 (A− 80), B 72, C 60 (C− 55) |
+| StepMania 5 (grade weights) | 100, 100, 50, 0, −200, −400% | 5 notes (a slip costs nothing) | no | no | AAAA all W1, AAA all W2, AA 93, A 80, B 65, C 45 |
+| DDR A | Marvelous 100, Perfect 100 less 10 points, Great 60, Good 20, Miss 0 | 1 note (a slip about nothing) | no | no | AAA 990k, AA 900k (AA+ 950k), A 800k, B 700k, C 600k |
+| DDR EXTREME (MAX dance points) | Perfect 100, Great 50, Good 0, Boo −200, Miss −400% | 5 notes | no (its score weighs later steps more, not the combo) | no | AAA 100, AA 93, A 80, B 65, C 45 |
+| Dancing☆Onigiri | Ii 80, Shakin 40, Matari 20, worse 0, plus 20% a note for the max combo | 0.8 notes and the run | **yes**: the max combo is 20% | **yes**, its ranks read the score | SS 97, S 90, SA 85, AAA 80, AA 75, A 70 |
+| FFR (R^3) | raw: 50, 50, 25, 5, Miss −10 | 1.2 notes | the end total adds 1,000 a note of max combo (two thirds of a full combo's total) | no letters, only flags | — |
+
+(DDR's 4th and 5th mixes added a combo bonus to the score too, and
+graded by dance points: `docs/research/rules-ddr-itg-dwi.md` 2.) So no
+ruleset the game plays puts combos into its letters but
+Dancing☆Onigiri; and DDI today weighs a miss lightest of all against
+its near-best tier, which is why a slightly more accurate broken play
+beats a clean one in DDI's percent where it would not elsewhere.
+
+The baselines are worked over a play's taps alone (holds and rolls left
+out, mines where a ruleset scores them). The CPUs' and the kept plays'
+presses are judged by each ruleset's own windows from their offsets
+(the offsets the original judge recorded: an estimate of how that
+ruleset would have matched them); the worked examples' made-up player
+is judged the same way.
+
+### Worked examples
+
+A made-up player, n tap notes, no holds, no W0s (so the floors do not
+come in), a break a miss; the other taps' offsets the quantiles of a
+normal spread cut at W3 (so every tap keeps the combo), pushed late
+below about 90% accuracy (a sloppy full combo is a player off the beat:
+a wider spread alone stays above about 67%). The accuracy is the least
+at or above the one named (today's column). 300 notes; percent and
+letter (the packages' letters by their own thresholds, "Two packages"
+below):
+
+| 300 notes | today | P1 | P2 5% | P2 10% | P2 15% | P1 ≤2 | mild | strong | ITG | SM5 | DDR A | EXTREME | DanOni |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| FC 50% | 50.00 D | 55.89 C | 52.50 D | 55.00 C | 57.50 C | 55.89 C | 52.50 D | 55.00 C | 40.00 D | 49.00 C | 59.70 C− | 29.66 D | 57.00 D |
+| FC 60% | 60.00 C | 64.71 C | 62.00 C | 64.00 C | 66.00 C | 64.71 C | 62.00 C | 64.00 B | 56.80 C− | 70.83 B | 65.43 C+ | 53.83 C | 82.46 AAA |
+| FC 70% | 70.06 B | 73.59 B | 71.56 B | 73.06 B | 74.55 B | 73.59 B | 71.56 B | 73.06 B | 70.73 B− | 84.66 A | 75.45 B+ | 65.33 B | 92.00 S |
+| FC 80% | 80.00 A | 82.35 A | 81.00 A | 82.00 A | 83.00 A | 82.35 A | 81.00 A | 82.00 A | 82.66 A− | 93.33 AA | 86.04 A+ | 79.00 B | 96.93 S |
+| FC 85% | 85.00 A | 86.76 A | 85.75 A | 86.50 A | 87.25 A | 86.76 A | 85.75 A | 86.50 S | 88.06 A+ | 96.33 AA | 91.02 AA | 85.83 A | 98.40 SS |
+| FC 90% | 90.00 S | 91.17 S | 90.50 S | 91.00 S | 91.50 S | 91.17 S | 90.50 S | 91.00 S | 93.13 S | 98.33 AA | 95.47 AA+ | 92.33 A | 98.93 SS |
+| FC 95% | 95.00 S | 95.58 S | 95.25 S | 95.50 S | 95.75 S | 95.58 S | 95.25 SS | 95.50 SS | 97.86 ★ | 100 AAA | 99.12 AAA | 98.33 AA | 99.60 SS |
+| 95%, 1 in the middle | 95.06 S | 91.60 S | 93.60 S | 92.13 S | 90.67 S | 93.06 S | 93.60 S | 92.13 S | 96.86 ★ | 98.33 AA | 99.06 AAA | 96.66 AA | 89.46 SA |
+| 95%, 1 near the end | 95.06 S | 95.19 S | 95.12 S | 95.17 S | 95.23 S | 95.19 S | 95.12 SS | 95.17 SS | 96.86 ★ | 98.33 AA | 99.06 AAA | 96.66 AA | 98.93 SS |
+| 95%, 3 even | 95.06 S | 87.79 A | 91.98 S | 88.90 A | 85.81 A | 93.06 S | 91.98 S | 88.90 S | 95.13 S+ | 95.00 AA | 98.67 AA+ | 94.00 AA | 84.06 AAA |
+| 95%, 5 even | 95.06 S | 86.45 A | 91.41 S | 87.77 A | 84.12 A | 93.06 S | 91.41 S | 87.77 S | 93.40 S | 91.66 A | 98.02 AA+ | 91.33 A | 81.86 AAA |
+| 95%, 10 even | 95.06 S | 85.24 A | 90.90 S | 86.74 A | 82.58 A | 93.06 S | 90.90 S | 86.74 S | 88.53 A+ | 83.33 A | 96.65 AA+ | 83.33 A | 79.13 AA |
+| 98%, 1 in the middle | 98.00 SS | 94.19 S | 96.38 SS | 94.77 S | 93.16 S | 96.00 SS | 96.38 SS | 94.77 SS | 98.46 ★★ | 98.33 AA | 99.64 AAA | 98.33 AA | 89.73 SA |
+| 98%, 3 even | 98.00 SS | 90.37 S | 94.77 S | 91.54 S | 88.31 A | 96.00 SS | 94.77 S | 91.54 S | 96.46 ★ | 95.00 AA | 98.98 AA+ | 95.00 AA | 84.20 AAA |
+| 98%, 5 even | 98.00 SS | 89.04 S | 94.20 S | 90.41 S | 86.61 A | 96.00 SS | 94.20 S | 90.41 S | 94.33 S+ | 91.66 A | 98.33 AA+ | 91.66 A | 82.00 AAA |
+
+At 100 and 1,200 notes the fixed shares (P2) read the same; P1 is
+weaker at 100 notes (95%, 3 breaks: 91.14 S) and stronger at 1,200
+(95%, 3 breaks: 88.34 A; 98%, 5 breaks: 88.65 A; FC 70%: 75.54). The
+study prints all three lengths, with 20 breaks and the flatter row.
+
+**The exchange**: the full combo's accuracy whose percent equals a
+95% play with 1, 3, 5 or 10 breaks spread evenly (misses), by each
+ruleset's own percent:
+
+| | 100 notes: 1 / 3 | 300: 1 / 3 / 5 / 10 | 1,200: 1 / 3 / 5 / 10 |
+| --- | --- | --- | --- |
+| today | 95.2 / 95.2 | 95.2 / 95.2 / 95.2 / 95.2 | 95.0 / 95.0 / 95.0 / 95.0 |
+| P1 | 92.2 / 90.8 | 90.5 / 86.2 / 84.7 / 83.3 | 90.1 / 85.7 / 83.1 / 78.9 |
+| P2 5% | 92.6 / 91.8 | 93.3 / 91.6 / 91.0 / 90.5 | 93.9 / 92.8 / 92.2 / 91.3 |
+| P2 10% | 89.7 / 86.8 | 91.3 / 87.7 / 86.5 / 85.3 | 92.6 / 90.4 / 89.2 / 87.1 |
+| P2 15% | 86.3 / 81.9 | 89.0 / 83.4 / 81.4 / 79.5 | 91.2 / 87.8 / 85.7 / 82.5 |
+| P1 ≤2 | 93.0 / 93.0 | 92.2 / 92.2 / 92.2 / 92.2 | 91.4 / 91.4 / 91.4 / 91.4 |
+| ITG | 92.6 / 86.6 | 94.2 / 92.1 / 90.3 / 85.4 | 94.8 / 94.2 / 93.7 / 92.5 |
+| SM5 | 82.2 / 70.1 | 89.4 / 82.5 / 77.4 / 68.9 | 92.6 / 90.4 / 88.4 / 84.1 |
+| DDR A | 94.8 / 92.6 | 94.7 / 94.3 / 93.2 / 91.5 | 95.0 / 94.8 / 94.7 / 94.3 |
+| EXTREME | 91.2 / 84.2 | 93.5 / 91.3 / 89.2 / 83.1 | 94.6 / 94.0 / 93.4 / 92.0 |
+| DanOni | 66.3 / 60.4 | 66.7 / 61.3 / 59.6 / 57.7 | 66.9 / 61.6 / 60.2 / 58.9 |
+
+**DDI today sits outside every baseline**: no full combo less accurate
+than the broken play ever equals it, where the baselines trade a 95%
+play with five breaks for a full combo of 89 to 93% (ITG, DDR A,
+EXTREME), 77 to 88% (StepMania 5) or about 60% (Dancing☆Onigiri). P2 5%
+lands inside the ITG–DDR A–EXTREME band at every length; P2 10% and P1
+between that band and StepMania 5; P2 15% at StepMania 5's; none near
+Dancing☆Onigiri. The caps (P1 ≤2 and the like) make the exchange the
+same for any number of breaks, which no baseline does.
+
+**The lowest full combo accuracy that reaches each letter**, 300 notes
+(SSS / SS / S / A / B / C): today 99.07, 96.00, 89.03, 80.00, 68.00,
+55.07; P1 98.93, 95.47, 87.53, 77.33, 63.73, 50.00 (the brief's "S from
+about 87.5%, A from about 77.3%, every full combo at least C": checked;
+at 1,200 notes P1 gives S from 86.5, A from 75.5); P2 5% 99.07, 95.87,
+88.43, 78.97, 66.33, 52.70; P2 10% 98.93, 95.60, 87.83, 77.83, 64.47,
+50.00; P2 15% 98.93, 95.33, 87.07, 76.50, 62.40, 50.00. With the
+packages' lowered thresholds: mild S from 86.4, A from 75.8; strong S
+from 83.9, A from 71.7, B from 57.8 (the same at every length within
+0.1).
+
+### The floors, SSS and the lamps
+
+Every other tap W0 and in combo (so the floors are what is said):
+
+| | today | P1 | P2 5% | P2 10% | P1 ≤2 |
+| --- | --- | --- | --- | --- | --- |
+| 100 notes, one W1 | 100 SSS | 100 SSS | 100 SSS | 100 SSS | 100 SSS |
+| 100, one W2 | 99.80 SSS | 99.81 SSS | 99.81 SSS | 99.82 SSS | 99.81 SSS |
+| 100, one Miss in the middle | 98.80 SS | 95.98 S | 96.33 SS | 93.87 S | 96.80 SS |
+| 100, one Miss first or last | 98.80 SS | 98.75 SS | 98.76 SS | 98.72 SS | 98.75 SS |
+| 300, one Miss in the middle | 99.60 SSS | 95.60 S | 97.90 SS | 96.21 SS | 97.60 SS |
+| 1,200, one Miss in the middle | 99.90 SSS | 95.93 S | 98.82 SS | 97.75 SS | 97.90 SS |
+| 100, a mine in the middle | 99.80 SSS | 96.98 SS | 97.33 SS | 94.86 S | 97.80 SS |
+| 300, a mine in the middle | 99.93 SSS | 95.94 S | 98.24 SS | 96.55 SS | 97.93 SS |
+| 300, full combo at 98.9%, no W0 | 98.93 SS | 99.05 SSS | 98.98 SS | 99.04 SSS | 99.05 SSS |
+
+- **"One W1 is still SSS", "one W2 at least SS"**: unchanged (no break,
+  so the combo is whole). **"One Miss at least C"** still holds as a
+  floor, but it is no longer what decides: a single Miss now costs more
+  than a letter on its own wherever it falls mid-song (the floors are a
+  minimum, not a measure).
+- **SSS comes to mean a full combo, near enough**: under every candidate
+  a play with a break in the middle cannot reach 99 (it needs the break
+  near an end), and a full combo reaches it from 98.9 to 99.1%.
+- **Every tap W1 or better but a mine stepped on**: possible (a Break
+  flag lamp); today SSS on 99.8%; on 100 notes one letter down under P1,
+  two under P2 10%. Consistent with "combo counts", and with the lamp
+  saying Break flag.
+- **Absolute Dito and the full-combo lamps** need no break, so their
+  percent is the accuracy's or higher: consistent (Absolute Dito is 100
+  under every candidate). The lamps are counted from the judgments and
+  do not move.
+
+### Plays of known skill (CPUs)
+
+The ten absolute levels (`cpu-levels-v1`, `cpu-play-v1`), eight seeds a
+level, DDI Normal, the fail off, every dance-single chart as written of
+the local arcade mixes (996 simfiles, 4,144 charts; read in place,
+aggregates only): 266,713 clears, 228 notes and 5.85 breaks a clear on
+average. MEASUREMENTS OF CPUS, not of people. Share of the clears at
+each letter, and how many move:
+
+| | SSS | SS | S | A | B | C | D | up one | same | down one | down two | mean Δ (points) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| today | 11.9 | 47.9 | 22.1 | 11.0 | 5.9 | 1.1 | 0.0 | — | 100 | — | — | 0 |
+| P1 | 14.3 | 35.7 | 21.3 | 14.7 | 9.7 | 4.1 | 0.1 | 3.3 | 65.8 | 30.4 | 0.5 | −2.40 |
+| P2 5% | 13.0 | 40.0 | 23.1 | 14.1 | 7.8 | 2.2 | 0.0 | 1.9 | 80.6 | 17.5 | 0 | −1.17 |
+| P2 10% | 14.8 | 36.2 | 20.2 | 15.3 | 9.8 | 3.6 | 0.1 | 4.2 | 65.7 | 30.1 | 0.0 | −2.34 |
+| P2 15% | 16.9 | 33.7 | 15.8 | 15.6 | 12.2 | 5.4 | 0.4 | 6.9 | 52.4 | 38.7 | 2.0 | −3.52 |
+| P1 ≤2 | 14.3 | 37.5 | 25.7 | 13.9 | 6.9 | 1.7 | 0.0 | 3.3 | 81.1 | 15.6 | 0 | −0.87 |
+| P1 ≤3 | 14.3 | 35.8 | 25.7 | 14.6 | 7.5 | 2.1 | 0.0 | 3.3 | 76.6 | 20.1 | 0 | −1.27 |
+| P2 10% ≤2 | 14.8 | 37.4 | 25.2 | 14.0 | 6.9 | 1.7 | 0.0 | 4.2 | 80.2 | 15.7 | 0 | −0.85 |
+| P1 ≤acc | 11.3 | 38.2 | 21.8 | 14.7 | 9.7 | 4.1 | 0.1 | 0 | 69.0 | 30.6 | 0.5 | −2.47 |
+| T42/32 (reference) | 20.1 | 45.7 | 19.5 | 9.5 | 4.8 | 0.4 | 0 | 20.3 | 79.7 | 0 | 0 | +0.89 |
+| **mild** (P2 5%, thresholds below) | 13.0 | 45.2 | 22.0 | 12.5 | 6.2 | 1.2 | 0 | 3.9 | 89.6 | 6.6 | 0 | −1.17 |
+| **strong** (P2 10%, thresholds below) | 14.8 | 44.1 | 18.8 | 14.2 | 6.9 | 1.2 | 0 | 7.0 | 82.7 | 10.3 | 0 | −2.34 |
+| P1 with thresholds 99/94/85/74/62/51 | 14.3 | 43.4 | 21.7 | 12.2 | 6.9 | 1.4 | 0 | 7.2 | 81.8 | 11.0 | 0 | −2.40 |
+
+- **By level**: unshifted, the weak levels lose most (level 1: P2 10%
+  half its clears down a letter, P1 38%, P2 5% 28%; levels 8 to 10: 10
+  to 18% down and 4 to 13% up, the full combos rising to SSS). With the
+  strong package's thresholds levels 1 to 6 keep 75 to 85% of their
+  letters (9 to 19% down, 1 to 16% up), levels 7 to 10 82 to 92%.
+- **By kind of play**: full combos only gain (P2 10% +0.18 points on
+  average, at most +1.21; 8% of them up a letter, to SSS); one break
+  loses 2.9 points under P2 10% (57% down a letter), 2.2 under P1, 1.4
+  under P2 5%; two to five breaks 4.5, 3.9 and 2.2; six to twenty 6.2,
+  6.6 and 3.1; more than twenty 6.7, 8.1 and 3.4. The caps stop each at
+  2 or 3.
+- **By length**: P1 hardly moves charts under 150 notes (−0.7 on
+  average, 12% down) and moves those over 400 hardest (−6.1, 73% down);
+  P2 10% −1.2, −2.6 and −4.5 on short, middling and long charts.
+- **Sloppy full combos do not occur among the CPUs**: every one of their
+  135,563 full combos is above 80% accuracy and all but levels 1 and 2's
+  (0.6% and 2.9% between 80 and 90%) above 90%. A CPU that loses its
+  timing breaks the combo rather than drifting (its model), so the
+  "sloppy full combo" is measured on the kept plays and the made-up
+  player alone.
+
+Thresholds that would keep today's share of the CPUs' clears at each
+letter (by the percent alone): P1 99.07 / 93.55 / 83.34 / 72.28 / 61.07
+/ 49.87; P2 5% 99.03 / 94.65 / 86.08 / 76.59 / 64.87 / 52.32; P2 10%
+99.08 / 93.19 / 83.10 / 73.17 / 61.76 / 49.75; P2 15% 99.13 / 91.74 /
+80.07 / 69.76 / 58.64 / 47.17; P1 ≤2 99.07 / 94.50 / 87.06 / 77.99 /
+66.00 / 52.90; the reference row 99.19 / 96.68 / 90.64 / 82.51 / 71.63 /
+60.23 (SSS barely moves: it is the full combos'). Over the kept plays
+(none at SS or above): S / A / B at 88.42 / 74.49 / 60.03 (P1), 88.68 /
+77.83 / 65.30 (P2 5%), 88.48 / 75.61 / 62.20 (P2 10%), 88.63 / 73.01 /
+59.14 (P2 15%). The maintainer's S plays are mostly full combos, so
+their S threshold barely moves while the CPUs' (more broken plays near
+S) would move six points.
+
+**The cleaner play against the more accurate one** (pairs of clears of
+one chart, one with fewer breaks, the other more accurate, by the
+latter's lead in points: up to 0.5, 0.5 to 1, 1 to 2, 2 to 4, over 4;
+76,901, 39,259, 36,286, 21,380 and 3,363 pairs): how often each ranks
+the cleaner higher by its percent, and how often a DDI candidate ranks
+the more accurate higher where **every** baseline ranks the cleaner one
+higher (a departure from all of them):
+
+| | cleaner higher: ≤0.5 / 0.5–1 / 1–2 / 2–4 / >4 | against every baseline |
+| --- | --- | --- |
+| today | 0 / 0 / 0 / 0 / 0 | 50.2 / 27.1 / 8.7 / 5.1 / 0.4 |
+| P1 | 80.8 / 71.3 / 62.8 / 18.5 / 0.5 | 3.5 / 5.4 / 4.1 / 4.9 / 0.4 |
+| P2 5% | 75.3 / 61.9 / 51.6 / 12.0 / 0 | 6.1 / 8.7 / 5.1 / 4.5 / 0.4 |
+| P2 10% | 80.6 / 72.3 / 66.4 / 57.0 / 24.9 | 3.7 / 4.6 / 3.3 / 2.0 / 0.4 |
+| P2 15% | 82.9 / 76.1 / 72.0 / 64.0 / 45.4 | 2.8 / 3.4 / 2.4 / 1.4 / 0.4 |
+| P1 ≤2 | 59.2 / 57.3 / 54.0 / 11.7 / 0 | 13.8 / 9.5 / 5.2 / 5.0 / 0.4 |
+| ITG | 88.1 / 77.2 / 49.8 / 39.5 / 26.5 | |
+| SM5 | 92.6 / 91.4 / 93.0 / 90.7 / 77.3 | |
+| DDR A | 60.8 / 36.8 / 14.2 / 6.5 / 0.7 | |
+| EXTREME | 91.1 / 89.1 / 83.7 / 68.4 / 39.0 | |
+| DanOni | 82.3 / 81.0 / 79.7 / 73.1 / 59.0 | |
+
+The other way round (a candidate ranks the cleaner higher where no
+baseline does) stays at 1.4% or less of the closest pairs for every
+candidate. So today's DDI is the one that surprises: in half the close
+pairs it ranks the more accurate broken play first where all five
+baselines rank the clean one first. Every combo candidate brings that
+down to a few percent; the caps less so. By letter, the cleaner play is
+graded higher in 36% of the closest pairs under P2 10% and 35% under P1
+(21% under P2 5%; ITG 56%, StepMania 5 27%, DDR A 10%, EXTREME 12%,
+Dancing☆Onigiri 58%); today never.
+
+Of all pairs of different accuracy, the less accurate play is graded
+higher in 2.9% of those within half a point under P1 or P2 10% (1.7%
+P2 5%), 0.4 to 0.5% of those one to two points apart and essentially
+never beyond: an S is still mostly precision.
+
+### The maintainer's kept plays (aggregates only)
+
+Read in place, read-only; only aggregates recorded. 474 clears (191
+charts, 356 notes and 10.5 breaks a clear on average); 13.5% full
+combos. Their combo parts are the judge's own (every kept play has been
+judged again with `ddi-combo-v0`); their breaks are counted from the
+taps put on DDI's grid by their offsets (most were played under other
+rules: an estimate, as in the combo study); the baselines judge their
+recorded offsets.
+
+**Sloppy full combos are this person's usual ones**: of their full
+combos 4.7% are between 70 and 80% accuracy, 57.8% between 80 and 90%,
+37.5% at 90% or more (none below 70). Today those full combos are S
+51.6%, A 43.8%, B 4.7%.
+
+| | S | A | B | C | D | up one | same | down one | mean Δ | median Δ |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| today | 11.6 | 60.1 | 26.2 | 1.9 | 0.2 | — | 100 | — | 0 | 0 |
+| P1 | 10.1 | 37.8 | 43.7 | 8.0 | 0.4 | 3.0 | 62.2 | 34.8 | −3.75 | −4.35 |
+| P2 5% | 10.1 | 51.1 | 34.4 | 4.2 | 0.2 | 1.9 | 81.9 | 16.2 | −1.52 | −1.85 |
+| P2 10% | 9.9 | 40.1 | 43.7 | 5.9 | 0.4 | 2.7 | 66.7 | 30.6 | −3.05 | −3.70 |
+| P2 15% | 10.8 | 32.3 | 45.8 | 10.8 | 0.4 | 3.8 | 53.6 | 42.6 | −4.57 | −5.55 |
+| P1 ≤2 | 10.1 | 52.1 | 34.2 | 3.4 | 0.2 | 3.0 | 81.6 | 15.4 | −1.32 | −2.00 |
+| T42/32 (reference) | 30.6 | 60.1 | 8.9 | 0.2 | 0.2 | 39.7 | 60.3 | 0 | +3.60 | +3.45 |
+| **mild** | 20.3 | 55.7 | 22.2 | 1.7 | 0.2 | 13.3 | 86.5 | 0.2 | −1.52 | −1.85 |
+| **strong** | 22.8 (SS 0.8) | 53.6 | 20.9 | 1.7 | 0.2 | 19.4 | 79.7 | 0.8 | −3.05 | −3.70 |
+| P1, thresholds 99/94/85/74/62/51 | 23.6 (SS 0.4) | 49.8 | 23.2 | 2.5 | 0.4 | 18.4 | 77.2 | 4.4 | −3.75 | −4.35 |
+
+- Their full combos under the strong package: SS 6.2%, S 84.4%, A 9.4%
+  (half go up a letter); under the mild one S 75%, A 23%, B 1.6%.
+- One break: today S 21%, A 67%; strong S 60%, A 37% (49% up);
+  two to five breaks: strong S 19%, A 77% (16% up, 1.4% down); six to
+  twenty: A 72%, B 28% (8% up, 0.6% down); more than twenty: B 78%.
+- Over 400 notes (106 clears): P1 unshifted −6.6 points, 56% down;
+  P2 10% −4.8, 43% down; strong package 94% the same.
+- Of this person's close pairs (one cleaner, one more accurate, within
+  half a point), today ranks the more accurate first against every
+  baseline in 31% of them, P1 and P2 10% in 4%.
+
+**A typical clear of the maintainer's** (an A, about 356 notes and ten
+breaks) loses 3.7 points of percent under P2 10% (1.9 under P2 5%, 4.4
+under P1). With today's thresholds that is a letter down for a third of
+their clears; with the packages' thresholds it keeps its A (the strong
+package's A starts at 74.5): 80% of their clears keep their letter, 19%
+go up one, mostly full combos and one-break plays, and under 1% go down.
+
+### Two packages
+
+Thresholds rounded between what keeps the CPUs' shares and what keeps
+the kept plays':
+
+- **Mild: P2 at 5%**, `95% × accuracy + 5% × combo ÷ max`, thresholds
+  SSS 99, SS 95, S 87, A 77, B 65, C 53. The exchange sits inside the
+  ITG, DDR A and EXTREME band at every length (a 95% play with five
+  breaks equals a full combo of 91 to 92%); CPUs' clears 89.6% the
+  same, 3.9% up, 6.6% down; the maintainer's 86.5% the same, 13.3% up,
+  0.2% down; a full combo gains at most 0.6 points, one break in the
+  middle of 300 notes costs about 1.5. It does not reach the stated
+  aim: a full combo at 85% (85.75, A) still grades below a 95% play with
+  three or five breaks (91.98 and 91.41, S).
+- **Strong: P2 at 10%**, `90% × accuracy + 10% × combo ÷ max`,
+  thresholds SSS 99, SS 93.5, S 85.5, A 74.5, B 62, C 51.5. A full
+  combo at 85% is an S, as are 95% plays with three to five breaks
+  (equal letters at 100, 300 and 1,200 notes); a full combo at 80% is an
+  A; 60% a B, 70% a B (S from 83.9% accuracy, A from 71.7%, B from 57.8%,
+  the same at every length). The exchange (a 95% play with five breaks
+  equals a full combo of 86.5% at 300 notes, 89.2% at 1,200) sits
+  between EXTREME and StepMania 5, nearest StepMania 5 on long charts and
+  nowhere near Dancing☆Onigiri; against every baseline in under 5% of
+  the close pairs (today 50%). CPUs' clears 82.7% the same, 7.0% up,
+  10.3% down; the maintainer's 79.7%, 19.4% and 0.8%.
+
+P1 (the score's own weights) with thresholds 99/94/85/74/62/51 does
+about what the strong package does on 300 notes and has a real argument
+(the percent would be the Score's own proportion, so a best by score
+and by percent agree), but its weight grows with the chart: little on
+100 notes (a 95% play with three breaks stays S), and on 1,200 a 98%
+play with five breaks falls to 88.65 and a 70% full combo becomes an A;
+it departs most from the baselines on long charts. A full combo at 80%
+equal to a 95% play with three to five breaks in letters needs about
+15% (P2 15% with thresholds 99/92/84/72/60/49), where a 67% full
+combo becomes an A.
+
+**Recommendation.** If combos should count toward the letters, the
+strong package: P2 at 10% with lowered thresholds. It is the smallest
+change that makes a clean run the bigger achievement in the cases the
+maintainer named (an 85% full combo level with a 95% play of three to
+five breaks, at every length), keeps an S a good play (no full combo
+below 84% is an S; of plays of different accuracy, the less accurate is
+graded higher in under 3% of those within half a point and essentially
+never beyond two points), does not push clears down a letter (the
+maintainer's: under 1% down; the CPUs': 10%, mostly broken plays just
+over a threshold), the same weight on every chart (easy to say: "nine
+tenths precision, one tenth combo"), and it moves DDI from outside every
+baseline on "clean against precise" to inside their range. The mild
+package if the letters should move as little as possible: it brings DDI
+into the precision-heavy baselines' band (ITG, DDR A) but leaves the
+named case as it is. Not recommended: the caps (they keep the exchange
+flat however many the breaks, which no baseline does, and stop the
+departure from the baselines least), P1 ≤acc (it only takes away), the
+flatter tiers (they lift every letter and do nothing for combos), and P1
+as is (heavier than wanted on long charts).
+
+### What adopting it would touch (not done)
+
+- **The percent shown** (the HUD under Score display Percent, Options'
+  preview, the lists, the ghost's lead under Percent, the results): the
+  new percent. Accuracy would want a line of its own on the results
+  (the pure `points ÷ most`), since the percent and the grade would no
+  longer be precision alone; the CPU levels' calibration and their
+  documented percents (`cpu-levels-v1`'s 61 to 96) are accuracy and
+  should keep reading `ratio`.
+- **Live in play**: the combo's share counts up with the combo (its
+  `max` is the chart's), as the percent already counts up from zero.
+- **Grades**: `ddi::GRADES` new thresholds and a percent of their own
+  (`DdiScoreView::percent`, `ScoreView::percent`, `fraction`); the
+  floors unchanged; Absolute Dito, Absolute Bot and the lamps unchanged.
+- **Kept plays**: `JUDGE_VERSION` rises; every kept play is judged again
+  by the reworker and its letter changes as the tables above say (the
+  maintainer's: about one in five up a letter under the strong
+  package); bests go by the Score and do not change hands; song select's
+  grades follow, its lamps do not.
+- **The announcer's grade lines** follow the letters.
+- **Multiplayer**: the miniatures and the Standings can show the
+  percent; a remote player's would be worked out from their stream as
+  today (`battle::live::ddi_of_sum` gives the points and the combo part
+  exactly from the start of a stream; `max` from the chart the device
+  has, the rung's notes under Adaptive), with the same caveat from
+  part-way. Stages rank by the Score, not the percent. `RunDetail`
+  reports a percent (`room.rs`), whose meaning would change: peers must
+  agree, so `ROOM_MODEL_REVISION` rises.
+- **The Adaptive ladder**: unaffected. Its step rule reads judgments
+  (the share of a stretch's taps in the three best, full life, no miss
+  or shock: `ladder.rs`, `AdaptiveRule::accuracy`, `early_best`), never
+  the percent.
+- **Docs**: the Grades section and its floors' words ("one Miss at least
+  C" stays true and says less).
+
+### Not measured
+
+- People beyond one: how often other players make sloppy full combos,
+  and how a letter feels.
+- The CPUs never make sloppy full combos (their model breaks rather than
+  drifts), so the corpus measures broken plays; sloppy full combos are
+  the kept plays' and the made-up player's.
+- The baselines over taps alone (holds, rolls and their scores left
+  out), judged from offsets the original judge recorded (for the kept
+  plays) or a made-up player's; DDR A's and DDR EXTREME's windows are
+  the community's approximations, as the presets say.
+- DDI Easy and Hard, Boos on, holds' weight in the percent (a hold's
+  units count in `points` and `most` but not in `max`).
+
+### The percent over every kept play (2026-11-17)
+
+Measured only. Part 7 of `combo_score_study`
+(`crates/session/src/battle/combo_study/percent/distributions.rs`)
+reads the kept plays as part 6 does and writes, as aggregates alone
+(half-point histograms of the percent from 0 to 100, counts, means,
+percentiles, the share of clears at each letter and the rank agreement
+between series over plays of one chart; never a play's own values),
+how the percent is spread over every judged play, clears apart from
+fails and quits, under each baseline above, DDI today, DDI with a
+heavier miss (2, 3, 3.4 and 5 notes, a mine or shock as today or priced
+as the miss), DDI with its low tiers priced otherwise (W4 0, W5 −25,
+both with a 2-note miss, and W4, W5 and the miss as ITG's and StepMania
+5's are as shares of their best tier: 0, −60, −120 and 0, −100, −200),
+DDI with W1 as wide as ITG's Fantastic (±23 ms: the taps DDI judged W2
+inside it judged W1 again from their offsets) or W2 worth 45, DDI with
+the combo's fixed 5% and 10% share, and some together; where three
+groups of clears fixed by DDI today (S or better with breaks, S or
+better full combos, full combos below S) land under each;
+each ruleset's letters with their floors, and for the DDI variants the
+thresholds that keep today's shares too: `DDI_COMBO_ONLY=distributions
+DDI_COMBO_PLAYS=<the desktop's plays/> DDI_PCT_DIST_OUT=<a JSON file
+outside the repository> cargo test --release -p ddi-session --lib
+combo_score_study -- --ignored --nocapture`. A play that ended early
+counts what it judged over the whole chart under every series.

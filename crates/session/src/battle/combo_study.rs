@@ -44,7 +44,22 @@
 //!    are put on DDI's grid by their taps' offsets (the charts are not
 //!    read): an estimate, said as such.
 //!
-//! `DDI_COMBO_ONLY=made-up|plays|stages|ladder|kept` runs one part.
+//! 6. `percent` (2026-11-17, [`percent`]): what the grades would do if
+//!    the percent counted the combo part, or the tiers' points were
+//!    flatter: worked examples, then the CPUs over the same charts as
+//!    part 2 and the kept plays (where `DDI_COMBO_PLAYS` names them), the
+//!    grades' shares and moves by level, by kind of play and by length.
+//!    `DDI_COMBO_THREADS` (4) threads.
+//!
+//! 7. `distributions` (2026-11-17, [`percent::distributions`]): the
+//!    percent each baseline ruleset and DDI (as it is, with a heavier
+//!    miss, with the combo in it, both) gives every kept play, written as
+//!    aggregates to the JSON file `DDI_PCT_DIST_OUT` names, from the plays
+//!    `DDI_COMBO_PLAYS` names.
+//!
+//! `DDI_COMBO_ONLY=made-up|plays|stages|ladder|kept|percent|distributions`
+//! runs one part; every part but `percent` and `distributions` runs when it
+//! is not set.
 //!
 //! The candidates: the score without a combo part ("today"), the first
 //! study's pick at 20% of the million ("A100+B": half a ramp to 100, half
@@ -62,6 +77,8 @@ use ddi_engine::rules::FailPolicy;
 use ddi_engine::rules::ddi::{self, DdiOptions};
 use ddi_room::{Charts, MatchDifficulty};
 use std::path::{Path, PathBuf};
+
+mod percent;
 
 /// A play's judgments in order: a tap's tier (`Judgement::index`, W1 0 to
 /// Miss 5), or [`BROKE`], a mine or a shock stepped on.
@@ -409,6 +426,8 @@ struct Played {
     f: Feat,
     /// Its gauge emptied: not a clear.
     out: bool,
+    /// What part 6 reads of it.
+    pp: percent::Pp,
 }
 
 /// `p`'s judgments in order and its features.
@@ -463,12 +482,42 @@ fn solo(plan: &Plan, song: &Song, chart: usize, level: usize, seed: u64) -> Opti
         "the study's score is the engine's"
     );
     assert_eq!(f.per[ENGINE] / PER[ENGINE].d, d.combo, "the engine's combo part is the candidate's");
-    Some(Played {
-        level,
-        seq,
-        f,
-        out: o.out_at().is_some(),
-    })
+    let tally = o.player().tally();
+    let moments: Vec<percent::Moment> = o
+        .player()
+        .results()
+        .timeline
+        .iter()
+        .filter_map(|j| match j.kind {
+            JudgeEventKind::Tap(t, _) if t.index() as u8 == MISS => Some((MISS, None)),
+            JudgeEventKind::Tap(t, delta) => Some((t.index() as u8, Some(delta))),
+            JudgeEventKind::HitMine | JudgeEventKind::HitShock => Some((BROKE, None)),
+            _ => None,
+        })
+        .collect();
+    let (base, base_grade) = percent::baselines(&moments);
+    let pp = percent::Pp {
+        n: f.n,
+        points: d.points,
+        most: d.most,
+        combo: d.combo,
+        max: ddi::full_combo_points(f.n),
+        tiers: percent::Pp::tiers_of(tally),
+        dist: ddi::distance(tally),
+        ad: ddi::absolute(tally),
+        breaks: f.breaks,
+        base,
+        base_grade,
+    };
+    let out = o.out_at().is_some();
+    if !out {
+        assert_eq!(
+            percent::grade_index(&o.player().results_brief().grade),
+            Some(percent::today_grade(&pp)),
+            "the study's grade is the engine's"
+        );
+    }
+    Some(Played { level, seq, f, out, pp })
 }
 
 /// Bins of the broken play's lead in percent points over a full combo.
@@ -738,14 +787,31 @@ fn env_number(name: &str, default: u64) -> u64 {
 
 /// Every dance-single chart as written of `files`, each level and seed.
 fn play_files(files: &[PathBuf], seeds: u64, cands: &[Cand]) -> Sum {
-    let workers = 4;
+    let parts = per_chart(files, seeds, || Sum::new(cands.len()), |sum, plays| sum.chart(plays, cands));
+    let mut sum = Sum::new(cands.len());
+    for p in &parts {
+        sum.add(p);
+    }
+    sum
+}
+
+/// Each dance-single chart as written of `files` played by the CPUs at
+/// each level and seed, handed to `each` with a sum of its thread's.
+fn per_chart<S: Send>(
+    files: &[PathBuf],
+    seeds: u64,
+    new: impl Fn() -> S + Sync,
+    each: impl Fn(&mut S, &[Played]) + Sync,
+) -> Vec<S> {
+    let workers = env_number("DDI_COMBO_THREADS", 4).max(1) as usize;
     let chunk = files.len().div_ceil(workers).max(1);
-    let parts: Vec<Sum> = std::thread::scope(|scope| {
+    let (new, each) = (&new, &each);
+    std::thread::scope(|scope| {
         let handles: Vec<_> = files
             .chunks(chunk)
             .map(|files| {
                 scope.spawn(move || {
-                    let mut sum = Sum::new(cands.len());
+                    let mut sum = new();
                     for path in files {
                         let Some(ext) = path.extension() else { continue };
                         let ext = ext.to_string_lossy().to_ascii_lowercase();
@@ -771,7 +837,7 @@ fn play_files(files: &[PathBuf], seeds: u64, cands: &[Cand]) -> Sum {
                                 }
                             }
                             if !plays.is_empty() {
-                                sum.chart(&plays, cands);
+                                each(&mut sum, &plays);
                             }
                         }
                     }
@@ -780,12 +846,7 @@ fn play_files(files: &[PathBuf], seeds: u64, cands: &[Cand]) -> Sum {
             })
             .collect();
         handles.into_iter().map(|h| h.join().unwrap()).collect()
-    });
-    let mut sum = Sum::new(cands.len());
-    for p in &parts {
-        sum.add(p);
-    }
-    sum
+    })
 }
 
 fn share(part: u64, of: u64) -> f64 {
@@ -1260,6 +1321,26 @@ struct Kept {
     f: Feat,
     clear: bool,
     counts: bool,
+    /// What part 6 reads of it: the combo part the judge kept where it
+    /// kept one (`JUDGE_VERSION` 5), else worked out from `seq`.
+    pp: percent::Pp,
+    /// Its grade as kept, by part 6's index.
+    grade: Option<usize>,
+    combo_kept: bool,
+    /// What part 7 ([`percent::distributions`]) reads too: who played it,
+    /// how it ended, DDI's counts, every judged tap and mine in order for
+    /// the baselines, the chart's notes as one key, and the percent its
+    /// own ruleset kept where that was not DDI.
+    autoplay: bool,
+    ending: ddi_ui::state::history::Ending,
+    tally: ddi_engine::rules::Tally,
+    moments: Vec<percent::Moment>,
+    notes_key: String,
+    /// The ruleset it was played under, and what that one kept where it
+    /// was not DDI.
+    played: (String, Option<ddi_engine::rules::ScoreView>),
+    /// The DDI difficulty it was judged on.
+    difficulty: ddi::Difficulty,
 }
 
 #[derive(Default)]
@@ -1365,12 +1446,53 @@ fn read_kept(dir: &Path) -> (Vec<Kept>, KeptRead) {
         // Kept before the combo part, or judged again with it.
         debug_assert_eq!(cands()[0].score(&f), d.score - d.combo);
         let best = key.best_key();
+        let combo_kept = worked.judge_version >= 5;
+        let moments: Vec<percent::Moment> = timing
+            .timeline
+            .iter()
+            .filter_map(|j| match j.kind {
+                JudgeEventKind::Tap(Judgement::Miss, _) => Some((MISS, None)),
+                JudgeEventKind::Tap(t, delta) => {
+                    Some((t.index() as u8, Some(delta / rate.max(1e-6))))
+                }
+                JudgeEventKind::HitMine | JudgeEventKind::HitShock => Some((BROKE, None)),
+                _ => None,
+            })
+            .collect();
+        let (base, base_grade) = percent::baselines(&moments);
+        let original = (
+            record.ruleset.id.clone(),
+            (!played).then(|| summary.worked.as_ref().map(|w| w.score)).flatten(),
+        );
+        let pp = percent::Pp {
+            n,
+            points: d.points,
+            most: d.most,
+            combo: if combo_kept { d.combo } else { f.per[ENGINE] / PER[ENGINE].d },
+            max: ddi::full_combo_points(n),
+            tiers: percent::Pp::tiers_of(&worked.tally),
+            dist: ddi::distance(&worked.tally),
+            ad: ddi::absolute(&worked.tally),
+            breaks: f.breaks,
+            base,
+            base_grade,
+        };
         out.push(Kept {
             group: format!("{:?}/{:?}", summary.chart, best.ddi),
             seq,
             f,
             clear: record.ended == Ending::Finished && !worked.failed,
             counts: summary.counts(),
+            pp,
+            grade: percent::grade_index(&worked.grade),
+            combo_kept,
+            autoplay: summary.autoplay,
+            ending: record.ended,
+            tally: worked.tally,
+            moments,
+            notes_key: format!("{:?}/{}", summary.chart.digest, d.most),
+            played: original,
+            difficulty,
         });
     }
     (out, r)
@@ -1550,5 +1672,76 @@ fn combo_score_study() {
         && let Some(dir) = std::env::var_os("DDI_COMBO_PLAYS")
     {
         kept(&cands, Path::new(&dir));
+    }
+    if only.as_deref() == Some("percent") {
+        percent_part();
+    }
+    if only.as_deref() == Some("distributions") {
+        match (std::env::var_os("DDI_COMBO_PLAYS"), std::env::var_os("DDI_PCT_DIST_OUT")) {
+            (Some(dir), Some(out)) => percent::distributions::run(Path::new(&dir), Path::new(&out)),
+            _ => println!("distributions: DDI_COMBO_PLAYS and DDI_PCT_DIST_OUT name the plays and the output"),
+        }
+    }
+}
+
+/// Part 6: the percent and the grades with the combo in them
+/// ([`percent`]).
+fn percent_part() {
+    percent::worked();
+    let seeds = env_number("DDI_COMBO_SEEDS", 4);
+    let study = |files: &[PathBuf]| {
+        let parts = per_chart(files, seeds, percent::Study::new, |s, plays| {
+            let clears: Vec<(Option<usize>, percent::Pp)> = plays
+                .iter()
+                .filter(|p| !p.out && p.pp.most > 0 && p.pp.n > 0)
+                .map(|p| (Some(p.level), p.pp))
+                .collect();
+            if !clears.is_empty() {
+                s.chart(&clears);
+            }
+        });
+        let mut all = percent::Study::new();
+        for p in &parts {
+            all.add(p);
+        }
+        all
+    };
+    let mut bundled = Vec::new();
+    simfiles(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs"), &mut bundled);
+    percent::print_study(&format!("the bundled songs, {seeds} seeds a level"), &study(&bundled), true);
+    if let Some(dirs) = std::env::var_os("DDI_COMBO_CORPUS") {
+        let mut files = Vec::new();
+        for dir in std::env::split_paths(&dirs) {
+            simfiles(&dir, &mut files);
+        }
+        let every = env_number("DDI_COMBO_SAMPLE", 1).max(1) as usize;
+        let files: Vec<PathBuf> = files.into_iter().step_by(every).collect();
+        percent::print_study(
+            &format!("the local folders ({} simfiles), {seeds} seeds a level", files.len()),
+            &study(&files),
+            true,
+        );
+    }
+    if let Some(dir) = std::env::var_os("DDI_COMBO_PLAYS") {
+        let (plays, _) = read_kept(Path::new(&dir));
+        let clears: Vec<&Kept> = plays.iter().filter(|p| p.clear && p.counts && p.f.n >= 20).collect();
+        let agree = clears.iter().filter(|p| p.grade == Some(percent::today_grade(&p.pp))).count();
+        let kept_combo = clears.iter().filter(|p| p.combo_kept).count();
+        println!(
+            "== the kept plays: {} clears; today's grade worked out here agrees with the kept one on {:.1}%; \
+             the combo part as the judge kept it on {:.1}% (the rest worked out from the taps put on DDI's grid)",
+            clears.len(),
+            share(agree as u64, clears.len() as u64),
+            share(kept_combo as u64, clears.len() as u64),
+        );
+        let mut groups: std::collections::BTreeMap<&str, Vec<(Option<usize>, percent::Pp)>> = Default::default();
+        for p in &clears {
+            groups.entry(p.group.as_str()).or_default().push((None, p.pp));
+        }
+        let mut s = percent::Study::new();
+        for g in groups.values() {
+            s.chart(g);
+        }
+        percent::print_study("the kept plays (aggregates only)", &s, false);
     }
 }
