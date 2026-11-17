@@ -574,7 +574,10 @@ start unfocused. This opt-in policy leaves other screens' navigation unchanged.
 
 ### Infinito cursor
 
-Options → Display offers **Infinito arrow** (default), **Pointer tip** and
+Options → Display offers **Infinito cursor** (the default since 2026-11-17,
+when it was renamed from Pointer tip; stored as `PointerTip`), **Infinito
+arrow** (the default before; settings stored before then were put back to
+the Infinito cursor once, `Settings::defaults_reset_2026_11_17`) and
 **System**, plus a 16–64 logical-pixel size (28 by default). Approved vector
 masks in `assets/ui/cursors.svg` use the existing Vivid painter. The pointer tip
 uses the study's 58° angle, full-width tail and 11.5-unit extension; the arrow

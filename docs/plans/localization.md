@@ -9,7 +9,10 @@ message or data, in English and a Japanese draft. Step 4 done
 shells report is values the screens word. Step 5 done (2026-11-07): the
 web's loader and plain pages, desktop's app menu, window and file
 dialogs, the packages' entries and the release's gate (1,607 messages a
-language, none reviewed yet).
+language, none reviewed yet). Japanese shipped (2026-11-17, at the
+maintainer's word, its drafts as they are): a Japanese system gets it,
+on the web and on desktop; stored settings' language put back to the
+system's once ("Choosing the language").
 
 The maintainer asked for the UI in Japanese as well as English, with the
 approach settled first so that more languages are easy to add later, no
@@ -142,7 +145,8 @@ text builders, the models' strings) waits for the maintainer's word.
 `locales/languages.toml` lists each language: its BCP 47 tag, its name
 written in itself, its status (`preview`: in the picker for everyone,
 or chosen with `--lang`/`?lang=`, but never for the system, since
-2026-11-08; `shipped`: the system's choice too),
+2026-11-08; `shipped`: the system's choice too; English, and Japanese
+since 2026-11-17, its review states unchanged by it),
 its fallback (`en-GB` → `en`), how its numbers are written (decimal
 mark, group separator, CLDR's minimum grouping digits) and the faces its
 script needs (below, "Text and fonts").
@@ -199,10 +203,31 @@ draft release's notes.
 ## Choosing the language
 
 - `Settings::language`: a tag, or none for the system's (the web's
-  `navigator.languages`, desktop's through the `sys-locale` crate),
-  matched against the shipped languages (the same tag, else the language
-  without its region, else any of that language; aliases such as `tl`
-  for `fil`), else English.
+  `navigator.languages`, desktop's through the `sys-locale` crate:
+  macOS's preferred languages, Windows' UI languages, Linux's
+  `LANGUAGE`/`LC_*`/`LANG`; TESTING, `DDI_SYSTEM_LANGUAGES` stands for
+  them), matched against the shipped languages: the first of the
+  system's languages, best first, that one speaks wins (the same tag,
+  else the language without its region or script, `ja-JP` and
+  `ja-Jpan-JP` as `ja`, else any of that language; aliases such as `tl`
+  for `fil`; case set aside), else English. So `ja, ja-JP, en-US` and
+  `fr-FR, ja-JP` speak Japanese, `en-US, ja-JP` English.
+  `locales/system-language-cases.txt` holds the cases, with stored
+  settings and `?lang=`; the game's choice (`ddi-ui`'s
+  `the_game_chooses_each_case_s_language`) and the loader's
+  (`site/boot.js`'s `chooseLanguage`, run under Node by `xtask`'s
+  `the_loader_chooses_each_case_s_language`, failing on CI without
+  Node) are both held to it; the shipped tags the loader matches are
+  put in at build time from `languages.toml` (`xtask minify-boot`).
+- The defaults put back once (2026-11-17): settings stored before then
+  have their language set back to the system's, their judgment words to
+  English and their cursor to the Infinito cursor as they load
+  (`Settings::defaults_reset_2026_11_17`, a mark of their own, as
+  `rules_moved` was; the cursor's size and the rest untouched); a choice
+  made after it stays, and a forced language is never stored. The
+  loader takes the stored language only from marked settings, so on a
+  returning player's first load after the change it speaks the system's
+  language as the game will.
 - Options → Display → Menus, Language lists the system's ("As the system
   (English)") then each language in itself ("English", "日本語"), the
   previews too; pseudo-languages with the debug overlay on, and the one
@@ -215,9 +240,9 @@ draft release's notes.
   chosen in Options (`ddi_l10n::force`); `?lang=` alone gives the choice
   back.
 - `site/boot.js`, which runs before the game, chooses as the game will
-  (the address's `?lang=`, the settings' `language` in `localStorage`,
-  else `navigator.languages` among the shipped languages, the same
-  negotiation), sets `<html lang>` at once and says its few lines in it:
+  (the address's `?lang=`, the settings' `language` in `localStorage`
+  where marked as above, else `navigator.languages` among the shipped
+  languages, the same negotiation), sets `<html lang>` at once and says its few lines in it:
   `locales/<tag>/boot.ftl`, formatted by `ddi_l10n` when the page is
   built (`xtask minify-boot`; each key the script names must be a
   message, each message named; no variables). The page's first bytes
@@ -450,7 +475,9 @@ As built in step 2:
    After a change of language mid-session, a page's document and the
    shells' notices still speak the old one until made again (step 3).
 6. **Review**: agents' passes over the Japanese drafts, then the
-   maintainer's; Japanese `shipped` at the maintainer's word.
+   maintainer's; Japanese `shipped` at the maintainer's word (given
+   2026-11-17, before the reviews: the release notes list its review
+   states as before).
 
 Each language after that is an entry in `languages.toml`, its messages
 (drafted, then reviewed), its glossary, and a face where its script needs

@@ -496,7 +496,7 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   what the rest of the game reports values the screens word; the edges:
   the web's loader and plain pages, desktop's app menu and dialogs, the
   packages' entries, the release's gate; a Japanese draft awaiting
-  review). The UI in
+  review, shipped since 2026-11-17: a Japanese system gets it). The UI in
   Japanese as well as English, more languages later: Fluent messages
   with typed functions, every text a message or marked data (a
   pseudo-language test over every screen), every maintained language

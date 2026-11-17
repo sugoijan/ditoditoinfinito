@@ -138,8 +138,9 @@ are made from it):
 ### Names in other languages (later phase)
 
 Built in round 4 (below): Options → Rules → Judgment words, "In your
-language" (the default) or English. Choosing a specific language for
-them stays for later. The notes it was built from:
+language" (the default) or English. Since 2026-11-17 (the maintainer):
+English by default, Japanese, or "Same as game language", each other
+language offered by itself; stored settings put back to English once. The notes it was built from:
 
 - Japanese can keep the hint: katakana writes a G sound with a voicing
   mark (゛). アメージング, グロリアス, グレート and グッド have one;
@@ -420,7 +421,7 @@ DDI's own, beside the StepMania and Dancing☆Onigiri ones
 | Boos | Off, On | yes | yes |
 | Practice | Off, On | fail only | no (a failure either way) |
 | Score display | Score, Percent | no | no |
-| Judgment words | in your language (default), English; a language later | no | no |
+| Judgment words | English (default since 2026-11-17), Japanese, the game's language | no | no |
 
 In multiplayer, Timing difficulty and Boos are match rules (one value for
 everyone, in the Rules dialog); Practice is never offered; the displays
@@ -908,7 +909,9 @@ every other ruleset looks, judges and saves as before.
   each tier on Infinito and on the built-in arrows, the results, a
   stage's Standings and miniatures).
 - **Judgment words in the player's language.** `Settings::judgment_words`
-  (`JudgmentWords::Localized`, the default, or `English`), the row
+  (`JudgmentWords::Localized`, the default, or `English`; since
+  2026-11-17 `English`, the default, `Language(tag)` or `Game`, stored
+  as "English", the tag or "Localized"), the row
   `ddi.words` among DDI's in Options → Rules; not a match rule, not in a
   best's key, never judging. The words are messages
   (`locales/<tag>/judgments.ftl`, `ddi_l10n::judgments`: W0, each tier's

@@ -150,4 +150,6 @@ a base for the script), named in the language's `faces`, cut with
 `xtask l10n fonts`, credited in `assets/fonts/PROVENANCE.toml` and
 `REUSE.toml`, and copied by `site/index.html` (`l10n check` says what is
 missing). Both shells then draw it in that face. It becomes `shipped` (offered to everyone, and chosen for
-systems set to it) at the maintainer's word.
+systems set to it) at the maintainer's word (Japanese on 2026-11-17);
+add a case of its system's choice to `system-language-cases.txt` then,
+which the game and the web page's loader are both held to.

@@ -485,8 +485,12 @@ Rust and the browser are implementation details, not advertised features.
   function made at build time (`ddi_l10n::msg::start::quit()`, its
   comment's declared variables its arguments) returning a `UiText` in
   the thread's language (`choose`: the settings' `language`, else the
-  system's, `set_system_languages`; `force` for `--lang` and the web's
-  `?lang=`), missing messages from the fallback then English, numbers in
+  first of the system's languages a shipped language speaks, its region
+  or script set aside (`ja-JP` is `ja`), else English,
+  `set_system_languages`; English and Japanese shipped, Japanese since
+  2026-11-17; `force` for `--lang` and the web's `?lang=`; the web
+  page's loader chooses alike, both held to
+  `locales/system-language-cases.txt`), missing messages from the fallback then English, numbers in
   the language's marks; `UiText::data` for what is not ours to translate;
   the pseudo-languages `qps-ploc` (accented, 40% longer, « », data ‹ ›)
   and `qps-wide`. A change of language rebuilds every screen in place
@@ -552,8 +556,9 @@ Rust and the browser are implementation details, not advertised features.
   excludes visual adornments from bounds and hit-testing. The field stays
   viewport-anchored, and `Vivid::clock` keeps palette/evolution independent. The
   menu pointer is a shared UI overlay (`ui::cursor`, `theme::cursor`,
-  `assets/ui/cursors.svg`): Options → Display chooses Infinito arrow (default),
-  Pointer tip or System and a logical-pixel size. Enabled targets charge at
+  `assets/ui/cursors.svg`): Options → Display chooses Infinito cursor
+  (the default since 2026-11-17, stored as `PointerTip`, once named
+  Pointer tip), Infinito arrow or System and a logical-pixel size. Enabled targets charge at
   120 BPM; mouse-down shines at the hotspot without changing activation.
   Text/drag cursors stay native; touch, keyboard/controller input and focus loss
   hide the overlay. Reduced motion freezes paint/charge and burst growth. The
@@ -1924,7 +1929,9 @@ Rust and the browser are implementation details, not advertised features.
   from `--seed`; `--help` lists the flags; Ctrl-C leaves),
   `--fake-pad "1.0:13+,1.1:13-"`, `--silent` (no sound device: plays run
   on the host clock), `--lang TAG` (the UI's language for the run: `ja`,
-  `qps-ploc`, `qps-wide`), `--volume V`, `--seconds N` (quits, printing the
+  `qps-ploc`, `qps-wide`; TESTING, `DDI_SYSTEM_LANGUAGES=ja-JP,en-US`
+  stands for the system's languages, `shell::system_languages`),
+  `--volume V`, `--seconds N` (quits, printing the
   library, the clock's latency and jitter, the devices, the plays),
   `--lose-device-after S`, `--video-check FILE [--reference REF.yuv]
   [--frames] [--decoder auto|software|videotoolbox|mediafoundation|mediafoundation-auto|both]`, `--pacing block|late` (a play's frame pacing),
@@ -2316,7 +2323,11 @@ and for comparing across charts). `JUDGE_VERSION` 5 judged every kept
 play again for it, from its log. Stored settings naming ITG moved
 to DDI once (`Settings::rules_moved`; never move a ruleset again without
 such a mark) and their ITG plays were asked to be judged again
-(`Settings::rejudge_from`, `Plays::rejudge_asked`). A test about a
+(`Settings::rejudge_from`, `Plays::rejudge_asked`). Stored settings had
+their language put back to the system's, their judgment words to
+English and their cursor to the Infinito cursor once on 2026-11-17
+(`Settings::defaults_reset_2026_11_17`, which `site/boot.js` reads too:
+a stored language counts for the loader only once marked). A test about a
 StepMania preset's own behavior (ticked pump holds, fail types, the
 battery) names `itg` in its settings; `Settings::default()` plays DDI.
 The multiplayer prototype's rooms play DDI alone (round 3,
@@ -2329,10 +2340,13 @@ given (`cpu-play-v1`), so its sum is its own and compares directly
 (`cpu-score-v0`, which put a tap-only copy's sum on the chart's scale,
 is retired); a stage ranks those still in by life, then that score.
 Judgment and grade words are English data (`UiText::data`), the labels
-around them messages, except DDI's judgment words, shown in the player's
-language by default (`Settings::judgment_words`, `ddi_l10n::judgments`,
+around them messages, except DDI's judgment words, English by default
+since 2026-11-17, else in Japanese (each language but English offered
+by itself) or in the menus' language as the player chooses
+(`Settings::judgment_words`, `ddi_l10n::judgments::Words`,
 `JudgeNames::shown`; the HUD's text loads the language's bold face for
-them; round 4); under DDI the results say Early and Late, never
+them, the web fetching it where the menus speak another,
+`RunRasterizer::words_language`; round 4); under DDI the results say Early and Late, never
 Fast and Slow. With Boos on, a stray press that counts shows "Boo"
 where the tap judgments show, a judgment of its own
 (`JudgementFlash::boo`, set where the event is scored so a replay and
@@ -2515,7 +2529,7 @@ dependency's licence before adding it.
   (with the loader's lines in each language put in, the rest of each
   language's beside them in `target/boot/lines/`, served as `boot/`;
   `docs/plans/localization.md`), so
-  that the page fits the first round trip compressed (about 11.7 KB
+  that the page fits the first round trip compressed (about 12.0 KB
   gzipped of the 12.5 the rule allows), and nothing the first paint
   waits for is fetched (no stylesheet links, classic scripts with a
   source, `@import` or `url()`). `xtask check-boot`, the last step of
