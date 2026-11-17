@@ -11597,6 +11597,23 @@ what feeds each; its `src/stats.rs` the vocabulary and the logic.
   tests look for the results or the voice's lines; the field preview's
   receptors are found at the panel's bottom with reverse off.
 
+## Options' field preview test: stale, not the product (2026-11-17)
+
+- **Cause, the test's:** since the dancing hand (879946bd, 2026-11-05;
+  it passed at 1024293b just before, failed from it on) Options shows
+  the whole play at the screen's shape where the hand plays the layout,
+  so the panel went from 344×434 to 344×194 and the receptors to 24 px;
+  the light the test counted in the panel's top fifth under Reverse on
+  (157) was the HUD's score readout beside the field, as many as a
+  quarter of the small receptors (608). The pictures show the receptors
+  at the top with Reverse off and at the bottom with it on, as play.
+- **Fix (test only):** `options_show_the_field_preview` hands the
+  preview settings as Options does (the default skin, Infinito, readied
+  for each direction) and counts lit pixels in the field's columns at
+  each setting's receptor row from the renderer's own geometry
+  (`FieldGeometry::placed`), Reverse off against on; 10 runs in a row
+  pass, skipped with `DDI_NO_GPU=1`.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
