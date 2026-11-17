@@ -100,6 +100,7 @@ use ddi_engine::rules::ddi::{self, DdiOptions};
 use ddi_room::{Charts, MatchDifficulty};
 use std::path::{Path, PathBuf};
 
+mod levels;
 mod percent;
 
 /// A play's judgments in order: a tap's tier (`Judgement::index`, W1 0 to
@@ -1393,6 +1394,15 @@ struct Kept {
     played: (String, Option<ddi_engine::rules::ScoreView>),
     /// The DDI difficulty it was judged on.
     difficulty: ddi::Difficulty,
+    /// What the levels' study ([`levels`]) reads too: each moment's
+    /// note's second (a tap's press less its offset, in real seconds at
+    /// the play's rate), when it was
+    /// played (ms since the epoch), the audio device it was heard on (a
+    /// key to group by, never shown) and the audio offset in effect.
+    times: Vec<f64>,
+    when: f64,
+    audio: String,
+    audio_offset: f64,
 }
 
 #[derive(Default)]
@@ -1515,6 +1525,17 @@ fn read_kept(dir: &Path) -> (Vec<Kept>, KeptRead) {
                 _ => None,
             })
             .collect();
+        let times: Vec<f64> = timing
+            .timeline
+            .iter()
+            .filter_map(|j| match j.kind {
+                JudgeEventKind::Tap(_, delta) => Some((f64::from(j.time) - delta) / rate.max(1e-6)),
+                JudgeEventKind::HitMine | JudgeEventKind::HitShock => {
+                    Some(f64::from(j.time) / rate.max(1e-6))
+                }
+                _ => None,
+            })
+            .collect();
         let (base, base_grade) = percent::baselines(&moments);
         let original = (
             record.ruleset.id.clone(),
@@ -1549,6 +1570,10 @@ fn read_kept(dir: &Path) -> (Vec<Kept>, KeptRead) {
             notes_key: format!("{:?}/{}", summary.chart.digest, d.most),
             played: original,
             difficulty,
+            times,
+            when: record.time,
+            audio: record.setup.clock.audio.as_ref().map_or(String::new(), |d| d.id.clone()),
+            audio_offset: record.setup.clock.audio_offset,
         });
     }
     (out, r)
