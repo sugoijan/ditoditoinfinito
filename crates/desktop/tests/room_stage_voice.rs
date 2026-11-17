@@ -63,16 +63,24 @@ struct Heard {
 
 /// A one-stage practice match under the attacks' battle on Beatucada's
 /// Medium chart, autoplayed against the CPUs with announcer `key` chosen
-/// (`folder`: a song folder it is found in; ours need none): what the
-/// play said.
-fn stage_with(key_of: &str, folder: Option<PathBuf>) -> Option<Heard> {
+/// (`folder`: a song folder it is found in; ours need none) in `language`
+/// where given: what the play said.
+fn stage_with(key_of: &str, language: Option<&str>, folder: Option<PathBuf>) -> Option<Heard> {
     common::indexes();
     storage::install(Rc::new(MemoryStore::default()));
-    Settings {
+    let mut settings = Settings {
         announcer: Some(key_of.into()),
         ..Settings::default()
+    };
+    if let Some(lang) = language {
+        settings.set_announcer_param(
+            key_of,
+            ddi_library::announcer::pool::LANGUAGE,
+            Some(ddi_ui::state::settings::ParamValue::Text(lang.into())),
+            None,
+        );
     }
-    .save();
+    settings.save();
     if let Some(folder) = &folder {
         ddi_desktop::library::set_extra_folders(std::slice::from_ref(folder));
     }
@@ -269,7 +277,7 @@ fn a_scratch_pack_s_attack_lines_are_said_in_a_practice_stage() {
             std::fs::write(dir.join(take), &tone).unwrap();
         }
     }
-    let Some(heard) = stage_with("tones", Some(root.clone())) else {
+    let Some(heard) = stage_with("tones", None, Some(root.clone())) else {
         eprintln!("no GPU adapter: skipped");
         return;
     };
@@ -304,7 +312,7 @@ fn a_scratch_pack_s_attack_lines_are_said_in_a_practice_stage() {
     assert!(heard.moments.iter().all(|t| !t.said), "{:?}", heard.moments);
 }
 
-/// Ours, which come with the game, chosen by their keys: each says a
+/// Ours, which comes with the game, in each of its languages: each says a
 /// practice stage's battle lines from the assets, the two attack lines
 /// among them, each by its own line (never a play's routine line but the
 /// combo lines, `battle-voice-v1`, and of the play's end the autoplay's
@@ -318,8 +326,8 @@ fn a_scratch_pack_s_attack_lines_are_said_in_a_practice_stage() {
 /// win.
 #[test]
 fn our_announcers_say_the_battle_lines_in_a_practice_stage() {
-    for key in ["bundled:mr. clank", "bundled:ガキンさん"] {
-        let Some(heard) = stage_with(key, None) else {
+    for key in ["en", "ja"] {
+        let Some(heard) = stage_with(ddi_library::announcer::BUILT_IN, Some(key), None) else {
             eprintln!("no GPU adapter: skipped");
             return;
         };
