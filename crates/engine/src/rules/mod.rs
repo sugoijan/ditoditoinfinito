@@ -993,6 +993,16 @@ pub struct ScoreView {
     pub ddi: Option<ddi::DdiScoreView>,
 }
 
+impl ScoreView {
+    /// The accuracy as a fraction where the ruleset counts one apart from
+    /// its percent (DDI's, [`ddi::DdiScoreView::accuracy`], since
+    /// `ddi-percent-v1`), else the percent: what CPUs are tuned and
+    /// measured by.
+    pub fn accuracy(&self) -> Option<f64> {
+        self.ddi.map(|d| d.accuracy_fraction()).or(self.percent)
+    }
+}
+
 /// A scoring system: consumes judge events and produces a [`ScoreView`].
 pub trait ScoreRules {
     /// Called once before the first event with the chart totals.

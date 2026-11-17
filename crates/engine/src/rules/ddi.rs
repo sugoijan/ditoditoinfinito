@@ -62,10 +62,15 @@ pub const LIFE_DROPPED: f64 = 5.0;
 /// `LifeMeterBar` `DangerThreshold`, 0.2). *Tune.*
 pub const LIFE_DANGER: f64 = 20.0;
 
-/// Points of a tap-like note by tier, W1 (W0 too) to Miss.
-pub const TAP_POINTS: [i64; 6] = [50, 40, 25, 10, 0, -10];
+/// Points of a tap-like note by tier, W1 (W0 too) to Miss. A Miss is
+/// −120 since round U (2026-11-17, room model revision 13; −10 before):
+/// it costs 3.4 notes, the note's 50 and 170 more, as ITG's Miss does
+/// against its best tier.
+pub const TAP_POINTS: [i64; 6] = [50, 40, 25, 10, 0, -120];
 pub const BOO_POINTS: i64 = -5;
-pub const MINE_POINTS: i64 = -10;
+/// A mine or a battle's shock stepped on: −50 since round U (−10 before),
+/// "a middle value" between a Boo and a Miss.
+pub const MINE_POINTS: i64 = -50;
 /// Points of a hold's or roll's unit earned.
 pub const UNIT_POINTS: i64 = 50;
 /// The most a tap-like note gives.
@@ -106,6 +111,55 @@ pub fn full_combo_points(notes: u32) -> i64 {
     (1..=notes).map(combo_points).sum()
 }
 
+/// The percent's rule (`docs/plans/ddi-ruleset.md`, "Score" and
+/// "Grades"; round U, 2026-11-17, room model revision 13): nine tenths
+/// the accuracy, one tenth the combo part over a full combo's of the
+/// notes the play was shown ([`percent_of`]). The maintainer: "people
+/// value combos a lot, so in some cases a 'sloppy full combo' feels like
+/// it should be a bigger achievement than a very precise hits with a few
+/// breaks." The letters read it ([`GRADES`]).
+pub const PERCENT_RULE: &str = "ddi-percent-v1";
+/// The accuracy's share of the percent and the combo part's, in percent
+/// ([`PERCENT_RULE`]): they add up to 100.
+pub const PERCENT_SHARES: (i64, i64) = (90, 10);
+
+/// The accuracy in hundredths of a percent, floored: `10,000 × points ÷
+/// most` (0 where the chart gives nothing).
+pub fn accuracy_of(points: i64, most: i64) -> i64 {
+    if most > 0 {
+        (i128::from(points) * 10_000).div_euclid(i128::from(most)) as i64
+    } else {
+        0
+    }
+}
+
+/// The percent in hundredths of a percent ([`PERCENT_RULE`]): with `a`
+/// and `c` the shares ([`PERCENT_SHARES`]), in whole numbers and one
+/// floor,
+///
+/// `floor(100 × (a × points × max + c × combo × most) ÷ (most × max))`,
+///
+/// that is `a`% of the accuracy (`points ÷ most`) and `c`% of the combo
+/// part over `max`, a full combo's of the notes the play was shown
+/// ([`full_combo_points`] of its tap-like notes). The combo part counts
+/// up to `max` at most (a combo given to a staged play could pass it).
+/// Where the chart has no tap-like note (`max` 0) the percent is the
+/// accuracy alone ([`accuracy_of`]); where it gives nothing (`most` 0),
+/// 0.
+pub fn percent_of(points: i64, most: i64, combo: i64, max: i64) -> i64 {
+    if most <= 0 {
+        return 0;
+    }
+    if max <= 0 {
+        return accuracy_of(points, most);
+    }
+    let (a, c) = PERCENT_SHARES;
+    let (points, most, max) = (i128::from(points), i128::from(most), i128::from(max));
+    let combo = i128::from(combo).clamp(0, max);
+    (100 * (i128::from(a) * points * max + i128::from(c) * combo * most)).div_euclid(most * max)
+        as i64
+}
+
 /// The grade every tap and lift W0, no mine stepped on and every hold
 /// and roll held.
 pub const ABSOLUTE_DITO: &str = "Absolute Dito";
@@ -114,19 +168,24 @@ pub const ABSOLUTE_BOT: &str = "Absolute Bot";
 /// The failed grade.
 pub const FAILED: &str = "F";
 /// The grades below Absolute Dito, best first, and the percent each
-/// needs in hundredths of a percent (D: below C, cleared).
+/// needs in hundredths of a percent (D: below C, cleared), read from the
+/// percent ([`PERCENT_RULE`]).
 ///
 /// Softened on 2026-11-12 from 99.5, 98, 95, 90, 80, 70: over the
 /// maintainer's kept plays the percent barely moved from ITG's while the
 /// letters fell a whole grade, ITG's letters asking less of the same
-/// percent (its S- from 89, A- from 80, B- from 68).
+/// percent (its S- from 89, A- from 80, B- from 68). SS, A, B and C
+/// lowered on 2026-11-17 from 96, 80, 68 and 55 (round U), with the
+/// heavier miss and the combo in the percent: "matched" to keep that
+/// history's shares and rounded by the maintainer ("Maybe we can make SS
+/// 95").
 pub const GRADES: [(&str, i64); 7] = [
     ("SSS", 9900),
-    ("SS", 9600),
+    ("SS", 9500),
     ("S", 8900),
-    ("A", 8000),
-    ("B", 6800),
-    ("C", 5500),
+    ("A", 7500),
+    ("B", 6000),
+    ("C", 4200),
     ("D", i64::MIN),
 ];
 
@@ -229,12 +288,14 @@ pub fn units_earned(head: f64, end: f64, dropped_at: Option<f64>) -> u32 {
 /// DDI's point count and its views ([`ScoreView::ddi`]). All may be
 /// negative.
 ///
-/// Kept with a play as `points`, `most`, `absolute` and `combo` alone say
-/// it: the rest is worked out again when it is read ([`Stored`]), so a
-/// play kept before the score became the sum (its `score` was the
-/// proportional part) shows the sum at once. A play kept before the
-/// combo part (`ddi-combo-v0`) reads with none, its judge's version
-/// older (`crate::JUDGE_VERSION` 5), and is judged again from its log.
+/// Kept with a play as `points`, `most`, `absolute`, `combo` and `max`
+/// alone say it: the rest is worked out again when it is read
+/// ([`Stored`]), so a play kept before the score became the sum (its
+/// `score` was the proportional part) shows the sum at once. A play kept
+/// before the combo part (`ddi-combo-v0`) reads with none, and one kept
+/// before the percent counted it (`ddi-percent-v1`) with no `max`, its
+/// percent then its accuracy; their judge's version is older
+/// (`crate::JUDGE_VERSION` 6), and they are judged again from their logs.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(from = "Stored")]
 pub struct DdiScoreView {
@@ -246,14 +307,27 @@ pub struct DdiScoreView {
     /// same for every chart played as well. What compares across charts,
     /// and across competitors whose copies of a chart differ.
     pub ratio: i64,
-    /// The percent in hundredths, floored (`9950` is 99.50 %).
+    /// The percent in hundredths, floored (`9950` is 99.50 %): nine tenths
+    /// the accuracy, one tenth the combo part over `max` ([`percent_of`],
+    /// `ddi-percent-v1`). What the grades read and the Percent display
+    /// shows.
     pub percent: i64,
+    /// The accuracy in hundredths, floored: `10,000 × points ÷ most`, what
+    /// the percent was before `ddi-percent-v1` ([`accuracy_of`]). The
+    /// results' Accuracy line; what CPUs are tuned and measured by.
+    pub accuracy: i64,
     /// `100 × points + W0s`: not divided by the chart's size.
     pub absolute: i64,
     /// The combo part (`ddi-combo-v0`, [`combo_points`]): what the notes
     /// judged in combo added, never falling; not divided by the chart's
     /// size either. 0 under no combo.
     pub combo: i64,
+    /// The combo part of a full combo of the notes the play was shown
+    /// ([`full_combo_points`] of its tap-like notes; under a ladder's
+    /// steps, of those judged before a step and the new chart's): what the
+    /// percent's combo share is over. 0 where unknown (a view kept before
+    /// `ddi-percent-v1`), the percent then the accuracy.
+    pub max: i64,
     /// The score as shown: `ratio + absolute + combo`, so a longer chart
     /// gives more (a perfect 1,000-note chart about 7,060,000).
     pub score: i64,
@@ -268,43 +342,60 @@ struct Stored {
     most: i64,
     absolute: i64,
     combo: i64,
+    max: i64,
 }
 
 impl From<Stored> for DdiScoreView {
     fn from(s: Stored) -> DdiScoreView {
         let w0 = s.absolute.saturating_sub(s.points.saturating_mul(100));
-        DdiScoreView::of(s.points, s.most, w0.clamp(0, i64::from(u32::MAX)) as u32).with_combo(s.combo)
+        DdiScoreView::of(s.points, s.most, w0.clamp(0, i64::from(u32::MAX)) as u32)
+            .with_max(s.max)
+            .with_combo(s.combo)
     }
 }
 
 impl DdiScoreView {
+    /// The view of `points` of a chart's `most` with `w0` W0s, no combo
+    /// part and no `max` (so its percent is its accuracy until
+    /// [`DdiScoreView::with_max`]).
     pub fn of(points: i64, most: i64, w0: u32) -> DdiScoreView {
-        let ratio = |scale: i64| {
-            if most > 0 {
-                (i128::from(points) * i128::from(scale)).div_euclid(i128::from(most)) as i64
-            } else {
-                0
-            }
+        let proportional = if most > 0 {
+            (i128::from(points) * 1_000_000).div_euclid(i128::from(most)) as i64
+        } else {
+            0
         };
         let absolute = 100 * points + i64::from(w0);
-        let proportional = ratio(1_000_000);
+        let accuracy = accuracy_of(points, most);
         DdiScoreView {
             points,
             most,
             ratio: proportional,
-            percent: ratio(10_000),
+            percent: accuracy,
+            accuracy,
             absolute,
             combo: 0,
+            max: 0,
             score: proportional + absolute,
         }
     }
 
     /// The view with `combo` as its combo part ([`DdiScoreView::combo`]),
-    /// the score the three parts together.
+    /// the score the three parts together and the percent counting it.
     pub fn with_combo(self, combo: i64) -> DdiScoreView {
         DdiScoreView {
             combo,
             score: self.ratio + self.absolute + combo,
+            percent: percent_of(self.points, self.most, combo, self.max),
+            ..self
+        }
+    }
+
+    /// The view with `max` as a full combo's part ([`DdiScoreView::max`]),
+    /// the percent over it.
+    pub fn with_max(self, max: i64) -> DdiScoreView {
+        DdiScoreView {
+            max,
+            percent: percent_of(self.points, self.most, self.combo, max),
             ..self
         }
     }
@@ -324,10 +415,25 @@ impl DdiScoreView {
 
     /// The percent as shown, two decimals ("99.50").
     pub fn percent_text(&self) -> String {
-        let sign = if self.percent < 0 { "-" } else { "" };
-        let p = self.percent.unsigned_abs();
-        format!("{sign}{}.{:02}", p / 100, p % 100)
+        hundredths_text(self.percent)
     }
+
+    /// The accuracy as a fraction (`0.995`): what CPUs are measured by.
+    pub fn accuracy_fraction(&self) -> f64 {
+        self.accuracy as f64 / 10_000.0
+    }
+
+    /// The accuracy as shown, two decimals ("99.50").
+    pub fn accuracy_text(&self) -> String {
+        hundredths_text(self.accuracy)
+    }
+}
+
+/// Hundredths of a percent as shown, two decimals ("99.50", "-10.00").
+pub fn hundredths_text(hundredths: i64) -> String {
+    let sign = if hundredths < 0 { "-" } else { "" };
+    let p = hundredths.unsigned_abs();
+    format!("{sign}{}.{:02}", p / 100, p % 100)
 }
 
 /// DDI's point count ([`DdiScoreView`]) and its combo part.
@@ -335,6 +441,8 @@ impl DdiScoreView {
 pub struct DdiScore {
     points: i64,
     most: i64,
+    /// A full combo's part of the notes the play was shown.
+    max: i64,
     w0: u32,
     /// The combo part so far ([`combo_points`]).
     combo_part: i64,
@@ -372,6 +480,7 @@ impl ScoreRules for DdiScore {
         self.combo_part = 0;
         self.counted = ctx.combo;
         self.most = most_of(ctx);
+        self.max = full_combo_points(ctx.steps);
     }
 
     fn on_event(&mut self, ev: &JudgeEvent, ctx: &ScoreCtx) {
@@ -394,11 +503,14 @@ impl ScoreRules for DdiScore {
     /// `crate::player::Player::start_staged`): from there.
     fn restep(&mut self, ctx: &ScoreCtx) {
         self.most = most_of(ctx);
+        self.max = full_combo_points(ctx.steps);
         self.counted = ctx.combo;
     }
 
     fn view(&self) -> ScoreView {
-        let ddi = DdiScoreView::of(self.points, self.most, self.w0).with_combo(self.combo_part);
+        let ddi = DdiScoreView::of(self.points, self.most, self.w0)
+            .with_max(self.max)
+            .with_combo(self.combo_part);
         ScoreView {
             percent: Some(ddi.fraction()),
             ddi: Some(ddi),
@@ -543,6 +655,76 @@ pub fn grade(view: &ScoreView, tally: &Tally, failed: bool) -> &'static str {
     // Absolute Dito is step 0, SSS step 1, … D step 7.
     let floor = distance(tally).clamp(1, GRADES.len() as u64) as usize - 1;
     GRADES[by_percent.min(floor)].0
+}
+
+/// What the next letter up would have taken of a play, as its results
+/// say it under the grade ([`next_grade`]).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum NextGrade {
+    /// `grade` with at least `needed` hits W1 or better (W0 included), the
+    /// play having had `had`: its W2s made W1 one at a time, then its W3s,
+    /// everything else as played.
+    Hits {
+        grade: &'static str,
+        needed: u32,
+        had: u32,
+    },
+    /// Precision alone cannot reach `grade`, but the same judgments in
+    /// one full combo would.
+    FullCombo { grade: &'static str },
+}
+
+/// The next letter up from a cleared play's (`view`, `tally`) and what it
+/// would have taken: its W2s made W1 one at a time, then its W3s, until
+/// the grade (the percent and the floors, [`grade`]) reaches it. A W2 or a
+/// W3 made W1 keeps the combo, so the combo part stays; the points rise by
+/// 10 and 25. Where that is not enough, a full combo with the same
+/// judgments (the combo part a full combo's) that reaches it says so;
+/// else nothing. Nothing for Absolute Dito and SSS (the next is Absolute
+/// Dito: every tap W0) nor without the view's `max` (a view kept before
+/// `ddi-percent-v1`). The caller leaves out failed, quit and autoplayed
+/// plays.
+pub fn next_grade(view: &DdiScoreView, tally: &Tally) -> Option<NextGrade> {
+    if view.max <= 0 || view.most <= 0 {
+        return None;
+    }
+    let graded = |points: i64, combo: i64, t: &Tally| {
+        let v = DdiScoreView::of(points, view.most, t.w0)
+            .with_max(view.max)
+            .with_combo(combo);
+        let sv = ScoreView {
+            ddi: Some(v),
+            percent: Some(v.fraction()),
+            ..ScoreView::default()
+        };
+        grade(&sv, t, false)
+    };
+    let place = |g: &str| GRADES.iter().position(|&(name, _)| name == g);
+    let now = place(graded(view.points, view.combo, tally))?;
+    if now == 0 {
+        return None;
+    }
+    let next = GRADES[now - 1].0;
+    let reached = |g: &str| place(g).is_some_and(|p| p < now) || g == ABSOLUTE_DITO;
+    let had = tally.count(Judgement::W1);
+    let mut t = *tally;
+    let mut points = view.points;
+    for (from, gain) in [(Judgement::W2, 50 - TAP_POINTS[1]), (Judgement::W3, 50 - TAP_POINTS[2])] {
+        for _ in 0..tally.count(from) {
+            t.taps[from.index()] -= 1;
+            t.taps[Judgement::W1.index()] += 1;
+            points += gain;
+            if reached(graded(points, view.combo, &t)) {
+                return Some(NextGrade::Hits {
+                    grade: next,
+                    needed: t.count(Judgement::W1),
+                    had,
+                });
+            }
+        }
+    }
+    (view.combo < view.max && reached(graded(view.points, view.max, tally)))
+        .then_some(NextGrade::FullCombo { grade: next })
 }
 
 /// [`ABSOLUTE_BOT`] for an autoplay's or a CPU's Absolute Dito, any other
@@ -867,6 +1049,161 @@ mod tests {
         let before = r#"{"points":199,"most":200,"ratio":995000,"percent":9950,"absolute":19903,"score":1014903}"#;
         let v: DdiScoreView = serde_json::from_str(before).unwrap();
         assert_eq!((v.combo, v.score), (0, 1_014_903));
+    }
+
+    /// `ddi-percent-v1`: nine tenths accuracy, one tenth the combo part
+    /// over a full combo's, one floor; the letters read it.
+    #[test]
+    fn the_percent_is_nine_tenths_accuracy_and_a_tenth_combo() {
+        assert_eq!(PERCENT_RULE, "ddi-percent-v1");
+        assert_eq!(PERCENT_SHARES.0 + PERCENT_SHARES.1, 100);
+        let max = full_combo_points(100);
+        // A full combo at 80 % accuracy: 72 + 10.
+        assert_eq!(percent_of(4_000, 5_000, max, max), 8_200);
+        // The same accuracy broken in two: 72 + 10 × 15,300 ÷ 30,300.
+        let halves = full_combo_points(50) + full_combo_points(50);
+        assert_eq!(percent_of(4_000, 5_000, halves, max), 7_704);
+        // No tap-like note: the accuracy; nothing to give: 0.
+        assert_eq!(percent_of(40, 50, 0, 0), 8_000);
+        assert_eq!(percent_of(40, 0, 10, 10), 0);
+        // A combo given past a full combo's counts as a full combo.
+        assert_eq!(percent_of(5_000, 5_000, 2 * max, max), 10_000);
+        // Negative accuracy floors down.
+        assert_eq!(percent_of(-1, 3, 0, 6), -3_000);
+        // The view: the accuracy kept apart, the percent over `max`.
+        let v = DdiScoreView::of(4_000, 5_000, 0).with_max(max).with_combo(halves);
+        assert_eq!((v.accuracy, v.percent, v.ratio), (8_000, 7_704, 800_000));
+        assert_eq!(v.accuracy_text(), "80.00");
+        assert_eq!(v.percent_text(), "77.04");
+        // Without a max (kept before), the percent is the accuracy.
+        assert_eq!(DdiScoreView::of(4_000, 5_000, 0).with_combo(halves).percent, 8_000);
+    }
+
+    /// Round U's points (a Miss −120, a mine or shock −50) and letters
+    /// (SSS 99, SS 95, S 89, A 75, B 60, C 42), and what a single Miss
+    /// reads on 100 notes now: S in the middle, SS at either end; the
+    /// floors (one W1 SSS, one W2 at least SS, one Miss at least C) as
+    /// before.
+    #[test]
+    fn a_miss_costs_more_and_the_letters_read_the_new_percent() {
+        assert_eq!(TAP_POINTS, [50, 40, 25, 10, 0, -120]);
+        assert_eq!(MINE_POINTS, -50);
+        assert_eq!(
+            GRADES.map(|g| g.1)[..6],
+            [9_900, 9_500, 8_900, 7_500, 6_000, 4_200]
+        );
+        let tally = |w0: u32, w1: u32, w2: u32, miss: u32| {
+            let mut t = Tally {
+                w0,
+                ..Tally::default()
+            };
+            t.taps[0] = w0 + w1;
+            t.taps[1] = w2;
+            t.taps[5] = miss;
+            t
+        };
+        let graded = |v: DdiScoreView, t: &Tally| {
+            let view = ScoreView {
+                ddi: Some(v),
+                percent: Some(v.fraction()),
+                ..ScoreView::default()
+            };
+            grade(&view, t, false)
+        };
+        let max = full_combo_points(100);
+        let points = 99 * 50 + TAP_POINTS[5];
+        // In the middle: runs of 49 and 50.
+        let mid = DdiScoreView::of(points, 5_000, 99)
+            .with_max(max)
+            .with_combo(full_combo_points(49) + full_combo_points(50));
+        assert_eq!((mid.accuracy, mid.percent), (9_660, 9_189));
+        assert_eq!(graded(mid, &tally(99, 0, 0, 1)), "S");
+        // The first or the last note: one run of 99.
+        let end = DdiScoreView::of(points, 5_000, 99)
+            .with_max(max)
+            .with_combo(full_combo_points(99));
+        assert_eq!(end.percent, 9_674);
+        assert_eq!(graded(end, &tally(99, 0, 0, 1)), "SS");
+        // The floors: one Miss is at least C whatever the percent.
+        let low = DdiScoreView::of(-70, 100, 1).with_max(18).with_combo(6);
+        assert_eq!(graded(low, &tally(1, 0, 0, 1)), "C");
+        // One W1, one W2 of four, a full combo: SSS and SS.
+        let w1 = DdiScoreView::of(200, 200, 3).with_max(60).with_combo(60);
+        assert_eq!(graded(w1, &tally(3, 1, 0, 0)), "SSS");
+        let w2 = DdiScoreView::of(190, 200, 3).with_max(60).with_combo(60);
+        assert_eq!(w2.percent, 9_550);
+        assert_eq!(graded(w2, &tally(3, 0, 1, 0)), "SS");
+    }
+
+    /// The next letter: hits W1 or better from W2s then W3s, a full combo
+    /// where precision alone cannot, nothing at SSS or with nothing simple.
+    #[test]
+    fn the_next_letter_counts_hits_then_a_full_combo() {
+        let max = full_combo_points(300);
+        let tally = |w1: u32, w2: u32, w3: u32, miss: u32| {
+            let mut t = Tally::default();
+            t.taps[0] = w1;
+            t.taps[1] = w2;
+            t.taps[2] = w3;
+            t.taps[5] = miss;
+            t
+        };
+        let view = |t: &Tally, combo: i64| {
+            let points: i64 = t.taps.iter().zip(TAP_POINTS).map(|(&n, p)| i64::from(n) * p).sum();
+            DdiScoreView::of(points, 300 * 50, 0).with_max(max).with_combo(combo)
+        };
+        // A full combo of 300: 180 W1, 100 W2, 20 W3, 90 % accurate,
+        // 91.00 %: an S. SS (95) asks 67 of the W2s made W1: 247 W1.
+        let t = tally(180, 100, 20, 0);
+        let v = view(&t, max);
+        assert_eq!(v.percent, 9100);
+        assert_eq!(
+            next_grade(&v, &t),
+            Some(NextGrade::Hits {
+                grade: "SS",
+                needed: 247,
+                had: 180
+            })
+        );
+        // The W2s first, then the W3s: 270 W1, 10 W2, 20 W3 is an SS
+        // (96.40 %); SSS takes the ten W2s and fourteen of the W3s.
+        let t = tally(270, 10, 20, 0);
+        assert_eq!(view(&t, max).percent, 9640);
+        assert_eq!(
+            next_grade(&view(&t, max), &t),
+            Some(NextGrade::Hits {
+                grade: "SSS",
+                needed: 294,
+                had: 270
+            })
+        );
+        // Five misses, six runs: 86.51 %, an A; every hit W1 is still an A
+        // (87.11 %), the same judgments in one run an S (94.30 %).
+        let t = tally(285, 10, 0, 5);
+        let v = view(&t, 5 * full_combo_points(49) + full_combo_points(50));
+        assert_eq!(v.percent, 8651);
+        assert_eq!(next_grade(&v, &t), Some(NextGrade::FullCombo { grade: "S" }));
+        // SSS: nothing (the next is Absolute Dito).
+        let t = tally(300, 0, 0, 0);
+        assert_eq!(next_grade(&view(&t, max), &t), None);
+        // Without a max (kept before): nothing.
+        let t = tally(180, 100, 20, 0);
+        assert_eq!(next_grade(&DdiScoreView::of(13_000, 15_000, 0), &t), None);
+    }
+
+    /// Life reads none of the points: a Miss still takes 10 on Normal and
+    /// a mine 5, as before round U.
+    #[test]
+    fn life_is_untouched_by_the_points() {
+        let ctx = ScoreCtx::default();
+        let mut g = DdiLife::new(Difficulty::Normal);
+        g.begin(&ctx);
+        g.on_event(&tap(Judgement::Miss), &ctx);
+        assert_eq!(g.points(), 40.0);
+        g.on_event(&ev(JudgeEventKind::HitMine), &ctx);
+        assert_eq!(g.points(), 35.0);
+        g.on_event(&ev(JudgeEventKind::HitShock), &ctx);
+        assert_eq!(g.points(), 30.0);
     }
 
     #[test]

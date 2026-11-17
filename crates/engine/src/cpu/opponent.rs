@@ -846,7 +846,7 @@ mod tests {
                     let mut o = Opponent::new(&song, 1, rules(), level, seed).unwrap();
                     o.start(0.0);
                     o.finish();
-                    o.score().percent.unwrap_or(0.0)
+                    o.score().accuracy().unwrap_or(0.0)
                 })
                 .sum::<f64>()
                 / 4.0

@@ -603,23 +603,29 @@ fn life_starts_at_half_and_steps_by_difficulty() {
 #[test]
 fn scores_three_ways_and_below_zero() {
     let s = song(steady(4));
-    // W0, W2 early, a Miss, W3 late: 50 + 40 − 10 + 25 = 105 of 200.
+    // W0, W2 early, a Miss, W3 late: 50 + 40 − 120 + 25 = −5 of 200.
     let (r, _) = run(
         &s,
         normal(),
         edges(&[hit(1.0, 1), hit(1.97, 1), hit(4.06, 1)]),
     );
     let v = r.score.ddi.unwrap();
-    assert_eq!((v.points, v.most), (105, 200));
-    assert_eq!(v.ratio, 525_000);
-    assert_eq!(v.percent, 5250);
-    assert_eq!(v.absolute, 105 * 100 + 1);
-    // The combo part: combo 1 and 2, broken by the Miss, 1 again.
+    assert_eq!((v.points, v.most), (-5, 200));
+    assert_eq!(v.ratio, -25_000);
+    assert_eq!(v.accuracy, -250);
+    assert_eq!(v.absolute, -5 * 100 + 1);
+    // The combo part: combo 1 and 2, broken by the Miss, 1 again; a full
+    // combo's of the four notes 6 + 12 + 18 + 24.
     assert_eq!(v.combo, 6 + 12 + 6);
+    assert_eq!(v.max, 60);
+    // The percent (`ddi-percent-v1`): nine tenths of −2.50 % and a tenth
+    // of 24 ÷ 60, `floor(100 × (90 × −5 × 60 + 10 × 24 × 200) ÷ (200 ×
+    // 60))`.
+    assert_eq!(v.percent, 175);
+    assert_eq!(r.score.percent, Some(0.0175));
     // The score: the proportional part, the absolute score and the combo
     // part together.
-    assert_eq!(v.score, 525_000 + 10_501 + 24);
-    assert_eq!(r.score.percent, Some(0.525));
+    assert_eq!(v.score, -25_000 - 499 + 24);
     // Nothing hit but stray presses and a mine: negative.
     let mut notes = steady(4);
     notes.push(mine(2.5, 0));
@@ -633,12 +639,14 @@ fn scores_three_ways_and_below_zero() {
         edges(&[hit(2.5, 0), hit(1.5, 2)]),
     );
     let v = r.score.ddi.unwrap();
-    assert_eq!(v.points, -4 * 10 - 10 - 5);
-    assert_eq!(v.ratio, -275_000);
-    assert_eq!(v.percent, -2750);
-    assert_eq!(v.absolute, -5500);
+    assert_eq!(v.points, -4 * 120 - 50 - 5);
+    assert_eq!(v.ratio, -2_675_000);
+    assert_eq!(v.accuracy, -26_750);
+    // No combo: nine tenths of the accuracy.
+    assert_eq!(v.percent, -24_075);
+    assert_eq!(v.absolute, -53_500);
     assert_eq!(v.combo, 0);
-    assert_eq!(v.score, -280_500);
+    assert_eq!(v.score, -2_728_500);
     // A best: the higher score, which the W0s break ties in.
     let a = ddi::DdiScoreView::of(100, 200, 1);
     let b = ddi::DdiScoreView::of(100, 200, 0);
@@ -697,17 +705,21 @@ fn grades_have_floors_on_short_charts() {
     let mut e = on_time(4);
     e[1] = hit(2.01, 1);
     assert_eq!(grade(4, e).grade, "SSS");
-    // One W2 of four is 95 %, an S by the percent: SS by the floor.
+    // One W2 of four is 95 % accurate, a full combo: 95.50 %, SS (by the
+    // floor too).
     let mut e = on_time(4);
     e[1] = hit(2.03, 1);
     let r = grade(4, e);
-    assert_eq!(r.score.ddi.unwrap().percent, 9500);
+    assert_eq!(r.score.ddi.unwrap().accuracy, 9500);
+    assert_eq!(r.score.ddi.unwrap().percent, 9550);
     assert_eq!(r.grade, "SS");
-    // One Miss of two is 40 %, a D by the percent: C by the floor.
+    // One Miss of two is −70 % accurate, a D by the percent: C by the
+    // floor.
     let mut e = on_time(2);
     e.remove(1);
     let r = grade(2, e);
-    assert_eq!(r.score.ddi.unwrap().percent, 4000);
+    assert_eq!(r.score.ddi.unwrap().accuracy, -7000);
+    assert!(r.score.ddi.unwrap().percent < 0);
     assert_eq!(r.grade, "C");
     // Two Misses of three: the floor is D.
     let mut e = on_time(3);
@@ -723,7 +735,8 @@ fn grades_have_floors_on_short_charts() {
     let mut e = on_time(100);
     e[50] = hit(51.03, 1);
     let r = grade(100, e);
-    assert_eq!(r.score.ddi.unwrap().percent, 9980);
+    assert_eq!(r.score.ddi.unwrap().accuracy, 9980);
+    assert_eq!(r.score.ddi.unwrap().percent, 9982);
     assert_eq!(r.grade, "SSS");
 }
 

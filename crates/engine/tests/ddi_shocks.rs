@@ -192,12 +192,12 @@ fn a_shock_stepped_on_counts_costs_and_locks_its_lane() {
     assert_eq!(r.tally.count(Judgement::Miss), 1);
     assert_eq!(r.tally.let_go, 1);
     assert_eq!(r.tally.count(Judgement::W1), 5, "{:?}", r.tally);
-    // The points: five taps at 50, a Miss −10, two mines −10 each, and
+    // The points: five taps at 50, a Miss −120, two mines −50 each, and
     // the hold's units earned before it dropped at 5.3167 s (the lock's
     // release at 5.0 and its grace): two of its four.
     assert_eq!(r.tally.hold_units, 2);
     let view = r.score.ddi.expect("DDI's view");
-    assert_eq!(view.points, 5 * 50 - 10 - 2 * 10 + 2 * 50);
+    assert_eq!(view.points, 5 * 50 - 120 - 2 * 50 + 2 * 50);
     assert_eq!(view.most, 6 * 50 + 4 * 50);
     // The floors: two mines and a Miss and a dropped hold are four notes
     // six tiers down each; the lamp: more than one break.
@@ -320,7 +320,7 @@ fn one_shock_stepped_on_is_a_break_and_no_absolute_dito() {
     assert_eq!(r.ddi.unwrap().lamp, Lamp::BreakFlag, "its one break");
     assert_ne!(r.grade, ddi::ABSOLUTE_DITO);
     let (a, b) = (clean.score.ddi.unwrap(), r.score.ddi.unwrap());
-    assert_eq!(a.points - b.points, 10, "a mine's points");
+    assert_eq!(a.points - b.points, 50, "a mine's points");
     assert_eq!(a.most, b.most, "the most is the chart's");
     // The same again as the chart's own mine.
     let mine = play_on(

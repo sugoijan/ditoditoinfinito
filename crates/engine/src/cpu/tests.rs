@@ -509,7 +509,7 @@ fn absolute_percent(song: &Song, chart: usize, level: usize, seeds: u64) -> f64 
             .unwrap();
             o.start(0.0);
             o.finish();
-            o.score().percent.unwrap_or(0.0) * 100.0
+            o.score().accuracy().unwrap_or(0.0) * 100.0
         })
         .sum::<f64>()
         / seeds as f64
@@ -824,7 +824,7 @@ fn a_level_watched() {
                 "level {level} {:?} (meter {}) seed {seed}: {:.1}% W0 {} tiers {:?} out {:?} of {:.0} s",
                 chart.difficulty,
                 chart.meter,
-                o.score().percent.unwrap_or(0.0) * 100.0,
+                o.score().accuracy().unwrap_or(0.0) * 100.0,
                 t.w0,
                 t.taps,
                 o.out_at().map(|s| (s * 10.0).round() / 10.0),

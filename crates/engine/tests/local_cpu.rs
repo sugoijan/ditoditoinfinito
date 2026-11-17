@@ -165,8 +165,10 @@ fn play(
     o.start(0.0);
     o.finish();
     let view = o.score();
+    // DDI's accuracy, not its percent (`ddi-percent-v1` counts the
+    // combo): what the levels are tuned by.
     let percent = view
-        .percent
+        .accuracy()
         .or(view.money.map(|m| m as f64 / 1_000_000.0))
         .or(view.ex_percent)
         .unwrap_or(0.0);

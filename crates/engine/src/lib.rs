@@ -60,8 +60,10 @@ pub use ddi_platform;
 /// DDI's score is its proportional part plus its absolute score
 /// (`rules::ddi::DdiScoreView::score`, "Score"). 5: DDI's score counts
 /// its combos (`rules::ddi::COMBO_SCORE`, `ddi-combo-v0`, "Combos
-/// count").
-pub const JUDGE_VERSION: u32 = 5;
+/// count"). 6: DDI's miss costs −120 and a mine −50, its percent counts
+/// the combo and its letters move (`rules::ddi::PERCENT_RULE`,
+/// `ddi-percent-v1`, "Score" and "Grades").
+pub const JUDGE_VERSION: u32 = 6;
 
 pub use appearance::Appearance;
 pub use bindings::{ConnectedPad, ControlBindings, LaneTable, MenuInput, PadBindings, PadUse};
