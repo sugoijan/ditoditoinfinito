@@ -768,6 +768,7 @@ fn local_cpu_shocks() {
                             for level in 0..CPU_LEVELS_V0.levels.len() {
                                 for (k, &e) in EVASIONS.iter().enumerate() {
                                     for seed in 1..=seeds {
+                                        let seed = chart_seed(&song, index, seed);
                                         sums[level * EVASIONS.len() + k].add(&shocked(
                                             &plan, &song, index, &sections, level, e, seed,
                                         ));
