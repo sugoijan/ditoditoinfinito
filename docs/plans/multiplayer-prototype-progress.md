@@ -11549,6 +11549,54 @@ what feeds each; its `src/stats.rs` the vocabulary and the logic.
   times in the whole desktop suite (5 without `DDI_NO_GPU=1`, 5 with):
   all passed.
 
+## Every desktop practice-room test seeded (2026-11-17)
+
+- **What changed (tests only):** desktop's tests make their practice
+  rooms and voices from a fixed seed, `common::practice::SEED` (7), never
+  from the time: `common::practice::open` and `room()` seed the thread
+  first (`seeded()`), `common::ui::theme` does too (a UI opening on the
+  room screen makes the room at once), and a test seeds another stage
+  with `common::practice::seed(n)` (the stage voice test does, anew for
+  each pack). `DDI_PRACTICE_SEED=n` gives the default seed another value,
+  for trying assertions on other stages. The TESTING ONLY hook
+  `room::seed_for_tests` now also seeds the development switch's rooms
+  beyond the cap (`room::develop`), which it had left to the time. No
+  test wants a time-seeded room.
+- **Luck:** no assertion failed on the fixed stage, nor on 20 other
+  seeds (1 to 21 without 7) for every test whose CPUs are the room's own
+  roster (`room_stage_flow`, `room_watch_offscreen`,
+  `policy_key_offscreen`, `play_pointer`, `room_clock_offscreen`,
+  `you_badge_offscreen`, `room_due`, `room_rules_offscreen`,
+  `room_offscreen`). The tests that arrange their CPUs (a fixed count
+  or a roster with seeds of their own) were already the same stage every
+  run; `room_watch_offscreen` and `play_pointer` set
+  `rules.cpu.opponent.seed`, which a roster ignores, so their stages had
+  been the time's until now. Nothing judged, pinned or drawn moved.
+- **The system's language:** the helpers make every test binary's
+  system English (`DDI_SYSTEM_LANGUAGES=en-US`, set before `main` by
+  `tests/common/mod.rs` where the run names none), Japanese being
+  shipped: a machine or a CI image in Japanese no longer changes what
+  the tests read. `tests/system_language.rs` sets its own.
+- **Proof:** each stage-playing test file 20 times in a row under three
+  busy threads, drawn (16 files) and without `DDI_NO_GPU=1`'s GPU (12
+  files): every run passed, and the logs (timings dropped) were the same
+  in all 20 but for two files whose differences are not the stage:
+  `opponent_fields_offscreen`'s printed picture digests of the scenarios
+  with the dancing hand (its preparation keeps to a share of the frame by
+  the real clock, so its pose is the load's), and `live_offscreen`'s
+  sampled positions (its prompt's wait steps the fake clock once per
+  10 ms of real time while the song is read on a thread, so which frames
+  are sampled moves; what it asserts are windows, met every run). The
+  whole desktop suite 5 times drawn (369 passed each time; only
+  `options_show_the_field_preview`, `an_announcer_speaks_over_a_play_and_its_results`
+  and `a_play_from_its_prompt_to_its_results_and_back` failed, every
+  time, alone too) and 5 times with `DDI_NO_GPU=1` (372 passed each
+  time). Those three are broken, not seeded: the two plays restart with
+  R, which with the dancing hand on (a solo play's default) now goes
+  through the prompt's loading step, so the play is not playing when the
+  tests look for the results or the voice's lines; the field preview's
+  receptors are found at the panel's bottom with reverse off.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
