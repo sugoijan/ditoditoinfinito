@@ -184,7 +184,7 @@ fn a_whole_match_of_judged_stages_reaches_its_results_and_the_next_lobby() {
             alone.finish();
             assert_eq!(view.life, alone.life());
             assert_eq!(view.out, alone.out_at().is_some());
-            assert_eq!(view.score, crate::battle::accuracy(&alone.score()));
+            assert_eq!(view.score, crate::battle::percent_shown(&alone.score()));
             assert!(view.name.starts_with("CPU"));
         }
         // Everyone ranked; the autoplayed player's full life comes first
@@ -834,8 +834,9 @@ fn a_cpu_s_score_is_its_own_and_the_stage_ranks_by_life_then_the_score() {
         );
         let sum = own.score;
         assert_eq!(view.sum, Some(sum));
-        // Its percent is its own play's.
-        assert_eq!(view.score, own.ratio as f64 / 1_000_000.0);
+        // Its percent is its own play's (`ddi-percent-v1`: the combo in
+        // it).
+        assert_eq!(view.score, own.fraction());
         let d = detail(view.participant);
         assert_eq!(d.score, Some(sum));
         assert_eq!(d.percent, i32::try_from(own.percent).ok());

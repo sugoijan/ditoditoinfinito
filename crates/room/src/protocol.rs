@@ -128,7 +128,7 @@ pub fn supported(version: u32) -> bool {
 ///     and ranks a stage by move; the percent a starter reports
 ///     (`RunDetail::percent`) is the new Percent (nine tenths accuracy,
 ///     one tenth the combo part over a full combo's), no longer the
-///     accuracy alone, and the grade beside it reads it (SSS 99, SS 96,
+///     accuracy alone, and the grade beside it reads it (SSS 99, SS 95,
 ///     S 89, A 75, B 60, C 42).
 pub const ROOM_MODEL_REVISION: u32 = 13;
 

@@ -462,6 +462,9 @@ pub(crate) struct Live {
     /// The most the chart gives under the stage's rules (DDI): what a
     /// remote competitor's percent is worked out against.
     most: Option<i64>,
+    /// A full combo's part of the chart (DDI's, `ddi-percent-v1`): what a
+    /// remote competitor's combo part counts over in their percent.
+    max: i64,
     /// This play's song clock kept in step with the room's for its stream
     /// and its views (never its judging): [`Live::sync`].
     slew: SongSlew,
@@ -560,12 +563,16 @@ fn score_of(p: &Player) -> i64 {
 /// the combo part of runs that ended before, which leaves the points a
 /// little high (a few of a long chart's). None without a most. What a
 /// remote person's percent is shown from: the stream carries the sum
-/// alone, and nothing is added to it.
+/// alone, and nothing is added to it. Their percent (`ddi-percent-v1`)
+/// follows from the points, the combo part and `max`, a full combo's part
+/// of the chart, which this device has: so it is exact wherever the
+/// points and the combo part are.
 pub fn ddi_of_sum(
     sum: i64,
     w0s: u32,
     combo: i64,
     most: Option<i64>,
+    max: i64,
 ) -> Option<ddi_engine::rules::ddi::DdiScoreView> {
     let most = most.filter(|m| *m > 0)?;
     let target = i128::from(sum) - i128::from(w0s) - i128::from(combo);
@@ -580,7 +587,7 @@ pub fn ddi_of_sum(
         p += 1;
     }
     let points = i64::try_from(p).ok()?;
-    let view = ddi_engine::rules::ddi::DdiScoreView::of(points, most, w0s);
+    let view = ddi_engine::rules::ddi::DdiScoreView::of(points, most, w0s).with_max(max);
     // The sum as told: what the points leave is the combo part.
     Some(view.with_combo(sum - view.ratio - view.absolute))
 }
@@ -618,10 +625,11 @@ fn feed_moment(m: &Moment, out: bool, score: ScoreView) -> feed::Moment {
 }
 
 /// A remote competitor's score view from its stream's `sum`, its W0s,
-/// its combo part and the chart's `most`: worked out from the sum where
-/// it can be ([`ddi_of_sum`]), else the sum alone ([`sum_view`]).
-fn seat_view(sum: i64, w0s: u32, combo: i64, most: Option<i64>) -> ScoreView {
-    match ddi_of_sum(sum, w0s, combo, most) {
+/// its combo part and the chart's `most` and `max`: worked out from the
+/// sum where it can be ([`ddi_of_sum`]), else the sum alone
+/// ([`sum_view`]).
+fn seat_view(sum: i64, w0s: u32, combo: i64, most: Option<i64>, max: i64) -> ScoreView {
+    match ddi_of_sum(sum, w0s, combo, most, max) {
         Some(d) => ScoreView {
             ddi: Some(d),
             ..ScoreView::default()
@@ -755,6 +763,7 @@ impl Live {
             delay: view_delay,
             stalled: BTreeSet::new(),
             most: None,
+            max: 0,
             slew: SongSlew::new(SLEW_V0),
             room_us: i64::MIN,
             said_off: false,
@@ -888,10 +897,12 @@ impl Live {
         self.room_now_us(t) - (self.delay.delay_ms() * 1_000.0).round() as i64 >= end_us
     }
 
-    /// The most the chart gives under the stage's rules (DDI's): the
-    /// others' percents are worked out from their sums against it.
-    pub(crate) fn set_most(&mut self, most: Option<i64>) {
+    /// The most the chart gives under the stage's rules (DDI's) and a
+    /// full combo's part of it: the others' percents are worked out from
+    /// their sums against them.
+    pub(crate) fn set_most(&mut self, most: Option<i64>, max: i64) {
         self.most = most;
+        self.max = max;
     }
 
     /// The view at song second `t` (after this frame's news): the delay
@@ -1141,7 +1152,7 @@ impl Live {
                                         out: false,
                                         offset: 0.0,
                                         w0: None,
-                                        score: seat_view(c.score, seat.w0s, seat.combo_part, self.most),
+                                        score: seat_view(c.score, seat.w0s, seat.combo_part, self.most, self.max),
                                     },
                                 );
                             }
@@ -1151,7 +1162,7 @@ impl Live {
                                 seat.step_status(track, &self.rungs, step);
                             }
                             if let Some(end) = c.end {
-                                Self::ended(seat, track, end, self.most, &mut got);
+                                Self::ended(seat, track, end, (self.most, self.max), &mut got);
                             }
                         }
                     }
@@ -1265,7 +1276,7 @@ impl Live {
                 let mut fm = feed_moment(
                     m,
                     false,
-                    seat_view(m.score, seat.w0s, seat.combo_part, self.most),
+                    seat_view(m.score, seat.w0s, seat.combo_part, self.most, self.max),
                 );
                 // Back on its own song clock, where its notes are.
                 fm.at -= seat.shift_us as f64 / 1e6;
@@ -1277,7 +1288,7 @@ impl Live {
                 seat.feed.push(track, fm);
             }
             if let Some(end) = e.end {
-                Self::ended(seat, track, end, self.most, got);
+                Self::ended(seat, track, end, (self.most, self.max), got);
             }
         }
         for c in &f.commitments {
@@ -1301,7 +1312,7 @@ impl Live {
         seat: &mut RemoteSeat,
         track: &feed::TapTrack,
         end: StreamEnd,
-        most: Option<i64>,
+        (most, max): (Option<i64>, i64),
         got: &mut Received,
     ) {
         if seat.end.is_some() {
@@ -1330,7 +1341,7 @@ impl Live {
                     out: true,
                     offset: 0.0,
                     w0: None,
-                    score: seat_view(seat.score, seat.w0s, seat.combo_part, most),
+                    score: seat_view(seat.score, seat.w0s, seat.combo_part, most, max),
                 },
             );
             got.outs.push(seat.participant);
@@ -1664,26 +1675,32 @@ mod tests {
 
     /// A remote person's percent from the stream's sum: exactly the
     /// view their own play shows, for every count of points (negative
-    /// ones too), W0s, combo part and chart size; nothing without a most.
+    /// ones too), W0s, combo part and chart size, its percent counting
+    /// the combo part over a full combo's (`ddi-percent-v1`); nothing
+    /// without a most.
     #[test]
     fn the_percent_is_worked_out_from_the_sum_exactly() {
         for most in [50, 350, 5_000, 50_000, 123_450] {
             for points in [-500, -1, 0, 1, 7, most / 3, most - 1, most] {
                 for w0s in [0u32, 1, 99, 100, 101, 900] {
                     for combo in [0i64, 6, 200_672, 1_062_400] {
-                        let own = DdiScoreView::of(points, most, w0s).with_combo(combo);
-                        let seen = ddi_of_sum(own.score, w0s, combo, Some(most)).unwrap();
+                        let max = 1_062_400;
+                        let own = DdiScoreView::of(points, most, w0s)
+                            .with_max(max)
+                            .with_combo(combo);
+                        let seen = ddi_of_sum(own.score, w0s, combo, Some(most), max).unwrap();
                         assert_eq!(seen, own, "{most} {points} {w0s} {combo}");
+                        assert_eq!(seen.percent, own.percent);
                     }
                 }
             }
         }
-        assert_eq!(ddi_of_sum(5_000, 0, 0, None), None);
-        assert_eq!(ddi_of_sum(5_000, 0, 0, Some(0)), None);
+        assert_eq!(ddi_of_sum(5_000, 0, 0, None, 30_300), None);
+        assert_eq!(ddi_of_sum(5_000, 0, 0, Some(0), 30_300), None);
         // W0s not all told: the nearest count below, never above, the
         // score as told.
         let own = DdiScoreView::of(400, 5_000, 30).with_combo(1_000);
-        let seen = ddi_of_sum(own.score, 0, 1_000, Some(5_000)).unwrap();
+        let seen = ddi_of_sum(own.score, 0, 1_000, Some(5_000), 0).unwrap();
         assert_eq!((seen.points, seen.score), (400, own.score));
     }
 }

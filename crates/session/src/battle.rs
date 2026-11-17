@@ -501,6 +501,9 @@ pub struct Battle {
     /// The most the whole chart gives (DDI): what a person's stream's
     /// score is read against.
     most: Option<i64>,
+    /// A full combo's part of the whole chart (DDI's, `ddi-percent-v1`):
+    /// what a person's percent counts their combo part over.
+    max: i64,
     /// The attack ledger, where the battle has attacks (a practice's
     /// only: an online stage's would be the room's).
     attacks: Option<attacks::AttackRunner>,
@@ -673,6 +676,28 @@ pub fn chart_most(song: &Song, chart: usize, ruleset: &Ruleset) -> Option<i64> {
     whole.ruleset().score.view().ddi.map(|d| d.most)
 }
 
+/// A full combo's part of chart `chart` of `song`, whole, under `ruleset`
+/// (DDI's `ddi::full_combo_points` of its tap-like notes, what its
+/// percent counts the combo part over, `ddi-percent-v1`; 0 under another
+/// ruleset).
+pub fn chart_max(song: &Song, chart: usize, ruleset: &Ruleset) -> i64 {
+    if song.charts.get(chart).is_none() {
+        return 0;
+    }
+    let whole = ddi_engine::Player::new(song, chart, ruleset.fresh(), Default::default());
+    whole.ruleset().score.view().ddi.map_or(0, |d| d.max)
+}
+
+/// A score as its percent is shown, a fraction: DDI's percent
+/// (`ddi-percent-v1`, the combo in it), else what [`accuracy`] reads.
+/// What a miniature and the ladder show of a competitor.
+pub fn percent_shown(view: &ScoreView) -> f64 {
+    match &view.ddi {
+        Some(d) => d.fraction(),
+        None => accuracy(view),
+    }
+}
+
 /// Chart `chart` of `song` as the CPUs play it and their fields draw it:
 /// the chart itself where they play it whole (`cpu-play-v1`,
 /// [`ddi_engine::cpu::CPU_PLAY`]), its tap-only copy else.
@@ -683,9 +708,11 @@ pub fn cpu_track(song: &Song, chart: usize) -> Result<feed::TapTrack, String> {
     }
 }
 
-/// A score as a fraction of the chart's best: DDI's proportional part
-/// (points over the most the notes played give, the percent), else the
-/// ruleset's percent, else its money or EX over their most.
+/// A score as a fraction of the chart's best: DDI's accuracy (its
+/// proportional part, points over the most the notes played give; not
+/// its percent since `ddi-percent-v1`, [`percent_shown`]), else the
+/// ruleset's percent, else its money or EX over their most. What CPUs
+/// are measured by.
 pub fn accuracy(view: &ScoreView) -> f64 {
     if let Some(d) = &view.ddi {
         return d.ratio as f64 / 1_000_000.0;
@@ -859,6 +886,7 @@ impl Battle {
                 .unwrap_or_default(),
             stage_shown: chart_shown(song, chart),
             most: chart_most(song, chart, ruleset),
+            max: chart_max(song, chart, ruleset),
             attacks,
             decided: None,
             drawn: false,
@@ -1021,7 +1049,7 @@ impl Battle {
             return self;
         };
         let prep = live::prep_now(&handle, self.setup.stage, &order);
-        let most = self.most;
+        let (most, max) = (self.most, self.max);
         let attacks = self.setup.battle.attacks();
         let plan = prep
             .as_ref()
@@ -1050,7 +1078,7 @@ impl Battle {
             lock,
         ));
         if let Some(l) = self.remote_live.as_mut() {
-            l.set_most(most);
+            l.set_most(most, max);
             l.set_rungs(self.rungs.iter().map(|r| (Rc::clone(&r.track), r.up)).collect());
             self.log.push(l.describe());
             if !self.seats.is_empty() {
@@ -1491,7 +1519,7 @@ impl Battle {
             life: shown.life,
             out: shown.out,
             left: shown.out && self.own.left(),
-            score: accuracy(&view),
+            score: percent_shown(&view),
             sum: view.ddi.map(|d| d.score),
             combo: shown.combo,
             power: None,
@@ -2493,11 +2521,12 @@ impl Battle {
                     out: shown.out,
                     left: shown.out && s.feed.left(),
                     // The stream tells DDI's sum alone: the percent is
-                    // worked out from it, the W0s it told and the chart's
-                    // most (`live::ddi_of_sum`); none without a most.
+                    // worked out from it, the W0s it told, its combo part
+                    // and the chart's most and full combo's part
+                    // (`live::ddi_of_sum`); none without a most.
                     score: match (view.and_then(|v| v.ddi), self.most) {
-                        // `accuracy` of a DDI view.
-                        (Some(d), Some(_)) if d.most > 0 => d.ratio as f64 / 1_000_000.0,
+                        // `percent_shown` of a DDI view.
+                        (Some(d), Some(_)) if d.most > 0 => d.fraction(),
                         (None, Some(_)) => 0.0,
                         _ => f64::NAN,
                     },
@@ -2526,7 +2555,7 @@ impl Battle {
                         life: shown.life,
                         out: shown.out,
                         left: false,
-                        score: view.as_ref().map_or(0.0, accuracy),
+                        score: view.as_ref().map_or(0.0, percent_shown),
                         sum: Some(view.and_then(|v| v.ddi).map_or(0, |d| d.score)),
                         combo: shown.combo,
                         power: self
@@ -2544,7 +2573,7 @@ impl Battle {
                         life: s.opponent.life(),
                         out: s.out_at().is_some(),
                         left: false,
-                        score: accuracy(&score),
+                        score: percent_shown(&score),
                         sum: score.ddi.map(|d| d.score),
                         combo: s.opponent.combo(),
                         power: self

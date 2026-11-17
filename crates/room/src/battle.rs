@@ -187,12 +187,16 @@ impl ReportedRun {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RunDetail {
     /// The ruleset's score where it counts one, as shown (money; DDI's
-    /// score, the sum of its proportional part and its absolute score; a
-    /// CPU's its own, since it plays the whole chart, `cpu-play-v1`).
+    /// score, the sum of its proportional part, its absolute score and its
+    /// combo part; a CPU's its own, since it plays the whole chart,
+    /// `cpu-play-v1`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub score: Option<i64>,
     /// Its percent in hundredths of a percent (`9950` is 99.50 %; DDI's
-    /// may be negative).
+    /// may be negative). DDI's is its percent as shown: since room model
+    /// revision 13 (`ddi-percent-v1`) nine tenths its accuracy and one
+    /// tenth its combo part over a full combo's, the accuracy alone
+    /// before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub percent: Option<i32>,
     /// The grade, in the ruleset's own word.

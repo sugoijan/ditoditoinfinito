@@ -681,7 +681,9 @@ fn scaled(v: &ScoreView, k: f64) -> ScoreView {
         ddi: v.ddi.map(|d| {
             let points = (d.points as f64 * k).round() as i64;
             let combo = (d.combo as f64 * k).round() as i64;
-            ddi_engine::rules::ddi::DdiScoreView::of(points, d.most, 0).with_combo(combo)
+            ddi_engine::rules::ddi::DdiScoreView::of(points, d.most, 0)
+                .with_max(d.max)
+                .with_combo(combo)
         }),
     }
 }
