@@ -1107,7 +1107,7 @@ mod tests {
         // combo part beside it; no line for the absolute.
         assert_eq!(d.score, "1186220");
         assert_eq!(stat(&d, "Percent").as_deref(), Some("95.10%"));
-        assert_eq!(stat(&d, "Combo").as_deref(), Some("45000"));
+        assert_eq!(stat(&d, "Combo score").as_deref(), Some("45000"));
         assert_eq!(stat(&d, "Absolute score"), None);
         assert_eq!(stat(&d, "Score"), None);
         assert_eq!(d.grade, "S");
@@ -1121,7 +1121,7 @@ mod tests {
         assert_eq!(d.score, "95.10%");
         assert_eq!(stat(&d, "Score").as_deref(), Some("1186220"));
         assert_eq!(stat(&d, "Percent"), None);
-        assert_eq!(stat(&d, "Combo").as_deref(), Some("45000"));
+        assert_eq!(stat(&d, "Combo score").as_deref(), Some("45000"));
         Settings::default().save();
         // Boos on: counted by their word; the options on the mods line.
         let boos = ddi::ruleset(&DdiOptions {

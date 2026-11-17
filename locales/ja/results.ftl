@@ -38,7 +38,7 @@ results-early-late = 早い／遅い
 
 results-ddi-score = スコア
 results-ddi-percent = パーセント
-results-ddi-combo = コンボ
+results-ddi-combo = コンボスコア
 
 results-mean-offset = 平均のずれ
 
