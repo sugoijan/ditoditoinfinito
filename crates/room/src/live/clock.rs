@@ -172,6 +172,15 @@ impl ClockEstimator {
         self.samples.is_empty()
     }
 
+    /// The round trip of the exchanges kept (µs): the median of the
+    /// lowest [`Self::BEST`], as the estimate takes them.
+    pub fn round_trip_us(&self) -> Option<i64> {
+        let mut rtts: Vec<i64> = self.samples.iter().map(|s| s.rtt_us).collect();
+        rtts.sort_unstable();
+        rtts.truncate(Self::BEST);
+        rtts.get(rtts.len() / 2).copied()
+    }
+
     /// The estimate from the exchanges kept, if any.
     pub fn estimate(&self) -> Option<ClockEstimate> {
         let mut best: Vec<Sample> = self.samples.iter().copied().collect();

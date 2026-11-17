@@ -129,7 +129,14 @@ pub fn supported(version: u32) -> bool {
 ///     (`RunDetail::percent`) is the new Percent (nine tenths accuracy,
 ///     one tenth the combo part over a full combo's), no longer the
 ///     accuracy alone, and the grade beside it reads it (SSS 99, SS 95,
-///     S 89, A 75, B 60, C 42).
+///     S 89, A 75, B 60, C 42); and a member's own usage report on its
+///     room's socket (`crate::client_stats`, `stats-v1`, the stats
+///     proposal's step 2, 2026-11-17): what kind of client it is and how
+///     its previous socket fared, in fixed lists, one a socket where
+///     Options' Usage statistics is on; the server takes or drops it by
+///     its prefix (`{"v":2,"stats":`), never answers it and never closes a
+///     socket over it (an authority before it closed the socket on a
+///     frame it could not read).
 pub const ROOM_MODEL_REVISION: u32 = 13;
 
 /// What a client makes of an authority older than itself (never sent by

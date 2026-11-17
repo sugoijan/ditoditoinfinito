@@ -69,6 +69,7 @@ pub mod audience;
 pub mod authority;
 pub mod awards;
 pub mod battle;
+pub mod client_stats;
 pub mod command;
 pub mod fake;
 pub mod ids;

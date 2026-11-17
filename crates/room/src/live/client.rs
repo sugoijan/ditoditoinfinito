@@ -274,6 +274,14 @@ impl LiveLink {
         self.on
     }
 
+    /// The room clock's round trip as measured so far (ms; the lowest
+    /// exchanges' median), for the usage report (`crate::client_stats`).
+    pub fn round_trip_ms(&self) -> Option<u64> {
+        self.clock
+            .round_trip_us()
+            .map(|us| (us.max(0) as u64).div_ceil(1_000))
+    }
+
     /// The room's clock as estimated so far.
     pub fn clock(&self) -> Option<ClockEstimate> {
         self.clock.estimate()

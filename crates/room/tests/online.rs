@@ -1963,3 +1963,89 @@ fn a_hidden_tab_never_takes_its_live_socket_for_dead() {
         assert_eq!(bob.link.keepalives().1, 1);
     }
 }
+
+/// The usage report (room model revision 13, `ddi_room::client_stats`):
+/// one a socket once it has the room, nothing where the person turned it
+/// off, the room never reading it (no revision, nothing it reads, every
+/// socket kept); the next socket says how the one before it ended, as
+/// the client saw it.
+#[test]
+fn a_usage_report_goes_once_a_socket_and_says_how_the_last_one_ended() {
+    use ddi_room::client_stats::ClientKind;
+    let kind = ClientKind {
+        app: "web",
+        system: "android",
+        form: "phone",
+        gpu: "webgl2",
+        touch: "yes",
+        build: "0.1.0",
+    };
+    let clock = ManualClock::new(1_000);
+    let (server, mut alice, mut bob) = two(&clock);
+    let read = server.borrow().incoming();
+    let revision = server.borrow().state().revision;
+    // Alice turned it off: nothing goes, and nothing is due after.
+    assert!(alice.link.stats_due());
+    assert!(!alice.link.send_stats(None));
+    assert!(!alice.link.stats_due());
+    // Bob's page is shown; his report goes once.
+    bob.link.set_hidden(false, clock.now().0);
+    assert!(bob.link.send_stats(Some(&kind)));
+    assert!(!bob.link.send_stats(Some(&kind)), "once a socket");
+    pump_all(&mut [&mut alice, &mut bob]);
+    {
+        let s = server.borrow();
+        let reports = s.usage_reports();
+        assert_eq!(reports.len(), 1);
+        let (who, r) = &reports[0];
+        assert_eq!(*who, ParticipantId(2));
+        let r = r.as_ref().expect("taken");
+        assert_eq!(
+            (
+                r.app.as_str(),
+                r.form.as_str(),
+                r.nth.as_str(),
+                r.tries.as_str()
+            ),
+            ("web", "phone", "1", "1")
+        );
+        assert!(r.prev.is_none());
+        assert_eq!(s.incoming(), read, "the room read nothing");
+        assert_eq!(s.state().revision, revision);
+        assert_eq!(s.sockets(), 2);
+    }
+    // Hidden for a while, then cut silently: the keep-alive takes it for
+    // dead, the next socket says so.
+    idle(&clock, &mut [&mut alice, &mut bob], 30_000, 100);
+    bob.link.set_hidden(true, clock.now().0);
+    server.borrow_mut().fault(ParticipantId(2), Fault::Silent);
+    for _ in 0..600 {
+        clock.advance(100);
+        alice.pump();
+        bob.pump();
+        if bob.link.stats_due() {
+            break;
+        }
+    }
+    assert_eq!(bob.link.link(), LinkState::Connected);
+    assert!(bob.link.send_stats(Some(&kind)));
+    pump_all(&mut [&mut alice, &mut bob]);
+    let s = server.borrow();
+    let (_, r) = s.usage_reports().last().unwrap();
+    let r = r.as_ref().expect("taken");
+    assert_eq!(r.nth, "2");
+    let prev = r.prev.as_ref().expect("the socket before");
+    assert_eq!(
+        (
+            prev.fate.as_str(),
+            prev.code.as_str(),
+            prev.keepalive.as_str(),
+            prev.life.as_str(),
+            prev.hidden.as_str(),
+            prev.at_end.as_str(),
+        ),
+        ("keepalive_dead", "none", "dead", "1-5m", "20-60s", "20-60s")
+    );
+    assert_eq!(s.usage_reports().len(), 2);
+    assert_eq!(s.sockets(), 2);
+}

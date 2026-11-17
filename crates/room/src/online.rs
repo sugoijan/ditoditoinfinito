@@ -24,6 +24,7 @@
 //! ([`OnlineAuthority::ticket`]).
 
 use crate::authority::{Clock, RoomAuthority};
+use crate::client_stats::{ClientKind, ClientStatsEnvelope, Ending, KeepAliveSeen, Tracker};
 use crate::command::Rejection;
 use crate::ids::{Millis, Revision, RoomId};
 use crate::live::client::LiveLink;
@@ -325,6 +326,11 @@ impl KeepAlive {
         (self.sent, self.dead)
     }
 
+    /// One went out and nothing was heard since.
+    pub(crate) fn awaiting(&self) -> bool {
+        self.sent_at_run.is_some()
+    }
+
     fn due(&mut self, now: u64, policy: &KeepAlivePolicy) -> Option<KeepAliveDue> {
         if self.dead(policy) {
             return Some(KeepAliveDue::Dead);
@@ -373,6 +379,8 @@ pub struct OnlineAuthority<T: Transport, C: Clock> {
     live: LiveLink,
     keepalive: KeepAlivePolicy,
     keep: KeepAlive,
+    /// The sockets' fates for the usage report (`crate::client_stats`).
+    stats: Tracker,
 }
 
 impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
@@ -395,7 +403,49 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
             live: LiveLink::new(LIVE_V1),
             keepalive: KEEPALIVE_V0,
             keep: KeepAlive::default(),
+            stats: Tracker::default(),
         }
+    }
+
+    /// The page hidden or shown at `at_ms` (the shell's, on this
+    /// authority's clock; a shell that never says leaves it unknown in the
+    /// usage report).
+    pub fn set_hidden(&mut self, hidden: bool, at_ms: u64) {
+        let at = at_ms.min(self.clock.now().0);
+        self.stats.set_hidden(hidden, at);
+    }
+
+    /// A usage report is due: a socket has the room and none was sent for
+    /// it (`crate::client_stats`).
+    pub fn stats_due(&self) -> bool {
+        self.stats.due()
+    }
+
+    /// The due usage report sent for a client of `kind`; `None` (Options'
+    /// Usage statistics off, or no kind said) sends nothing and drops it.
+    /// Whether one was sent.
+    pub fn send_stats(&mut self, kind: Option<&ClientKind>) -> bool {
+        let report = self.stats.take(kind);
+        match report {
+            Some(r) if self.synced => {
+                self.send(ClientStatsEnvelope::text(r));
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The socket ended (as the client saw it): its fate kept for the next
+    /// socket's usage report.
+    fn socket_ended(&mut self, how: Ending) {
+        let now = self.clock.now().0;
+        let keep = KeepAliveSeen {
+            own: self.transport.keeps_alive(),
+            sent: self.keep.counts().0,
+            awaiting: self.keep.awaiting(),
+        };
+        let rtt = self.live.round_trip_ms();
+        self.stats.ended(now, how, keep, rtt);
     }
 
     /// Under another keep-alive policy (tests).
@@ -524,6 +574,7 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
                 self.ticket = Ticket::Used;
                 self.synced = false;
                 self.keep.heard(self.clock.now().0);
+                self.stats.opening(self.clock.now().0, self.keep.counts().0);
                 self.transport.open(&self.room, &ticket);
             }
             Err(TicketProblem::SignedOut) => self.end(LinkState::SignInAgain),
@@ -565,6 +616,7 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
     /// a join (the same member is restored by the server; nothing here is
     /// assumed of the room).
     pub fn restart(&mut self) {
+        self.socket_ended(Ending::Restarted);
         self.transport.close();
         self.link = LinkState::Joining;
         self.synced = false;
@@ -636,6 +688,7 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
                     // The socket's first: connected, and what was not
                     // answered goes again under its own sequence number.
                     self.synced = true;
+                    self.stats.synced();
                     self.link = LinkState::Connected;
                     for e in self.unanswered.clone() {
                         self.send_envelope(&e);
@@ -726,6 +779,7 @@ impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
                     if self.link.ended() {
                         continue;
                     }
+                    self.socket_ended(Ending::Closed(code));
                     match code {
                         close::SIGN_IN_AGAIN => self.end(LinkState::SignInAgain),
                         close::ROOM_CLOSED => self.end(LinkState::Closed),
@@ -744,6 +798,7 @@ impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
                 Some(KeepAliveDue::Dead) => {
                     // Silently gone (no close came): replaced, as a socket
                     // that closed.
+                    self.socket_ended(Ending::KeepAliveDead);
                     self.transport.close();
                     self.retry_later();
                 }

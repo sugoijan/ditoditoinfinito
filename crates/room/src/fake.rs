@@ -187,6 +187,9 @@ pub struct FakeServer {
     incoming: (u64, u64, u64),
     /// Keep-alives answered without the room reading them.
     auto_answered: u64,
+    /// Members' usage reports as the server reads them (`None`: one
+    /// refused whole), never read by the room (`crate::client_stats`).
+    usage: Vec<(ParticipantId, Option<crate::client_stats::ClientStats>)>,
     /// The server's bounds on a member's sockets and tickets, where a
     /// test turns them on ([`FakeServer::set_bounds`]).
     bounds: Option<Bounds>,
@@ -244,6 +247,12 @@ impl FakeServer {
     /// room (`crate::online::KEEPALIVE_V0`).
     pub fn auto_answered(&self) -> u64 {
         self.auto_answered
+    }
+
+    /// The usage reports members' sockets sent, as the server reads them
+    /// (`None`: refused whole); the room never reads them, nor answers.
+    pub fn usage_reports(&self) -> &[(ParticipantId, Option<crate::client_stats::ClientStats>)] {
+        &self.usage
     }
 
     /// A hosted room (as the server makes one: `MatchRules::hosted_for`
@@ -308,6 +317,7 @@ impl FakeServer {
             notes: Vec::new(),
             incoming: (0, 0, 0),
             auto_answered: 0,
+            usage: Vec::new(),
             bounds: None,
             tickets_issued: BTreeMap::new(),
             admins: Default::default(),
@@ -730,6 +740,15 @@ impl FakeServer {
                 Frame::Text(crate::audience::KEEPALIVE_ANSWER.into()),
                 false,
             );
+            return;
+        }
+        // A usage report (room model revision 13): taken or dropped, never
+        // the room's, never answered, never a reason to close the socket.
+        if let Message::Text(t) = &up
+            && let Some(report) = crate::client_stats::read(t)
+        {
+            let participant = c.participant;
+            self.usage.push((participant, report));
             return;
         }
         let mut at = now;
