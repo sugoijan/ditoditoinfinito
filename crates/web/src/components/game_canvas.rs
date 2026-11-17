@@ -3626,6 +3626,13 @@ fn js_debug(
     };
     let r = js_sys::Object::new();
     set(&r, "grade", d.grade.as_str().into());
+    // What the next letter would have taken (DDI's), as the line under
+    // the grade says it.
+    set(
+        &r,
+        "next_grade",
+        d.next_grade.as_deref().map_or(JsValue::NULL, |s| s.into()),
+    );
     set(&r, "score", d.score.as_str().into());
     set(
         &r,

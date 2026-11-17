@@ -2125,7 +2125,8 @@ on every clear. The letters' shares of the clears:
 | Round U as built (rounded thresholds) | 9.9 | 63.3 | 24.9 | 1.9 | 0.0 |
 
 Against the matched thresholds the rounded ones move 1.7% of the
-clears from S to A, about 1.5% from B to A and 0.2% from C to B (the
-lower thresholds only lift a clear; read from the shares).
+clears from S to A (S's 89 is above its matched threshold), about 1.5%
+from B to A and 0.2% from C to B (A's and C's below theirs); read from
+the shares.
 None of the maintainer's clears reaches SS (95) under either rule.
 
