@@ -19,6 +19,30 @@ pub mod ui;
 use std::path::Path;
 use std::sync::Once;
 
+/// The system's languages English (`DDI_SYSTEM_LANGUAGES=en-US`,
+/// `ddi_desktop::shell::system_languages`) for every test of a binary
+/// that has these helpers, where the run names none: the UI speaks
+/// English whatever the machine's languages (a developer's or a CI
+/// image's in Japanese would see Japanese in assertions and pictures). A
+/// test that means a system in another language sets its own before it
+/// makes a UI (`tests/system_language.rs`, which has no helpers). Set
+/// before `main`, so before any thread of the run reads the environment.
+#[used]
+#[cfg_attr(
+    any(target_os = "linux", target_os = "android", target_os = "freebsd"),
+    unsafe(link_section = ".init_array")
+)]
+#[cfg_attr(target_vendor = "apple", unsafe(link_section = "__DATA,__mod_init_func"))]
+#[cfg_attr(windows, unsafe(link_section = ".CRT$XCU"))]
+static ENGLISH_SYSTEM: extern "C" fn() = english_system;
+
+extern "C" fn english_system() {
+    if std::env::var_os("DDI_SYSTEM_LANGUAGES").is_none() {
+        // SAFETY: run before `main`, while the process has one thread.
+        unsafe { std::env::set_var("DDI_SYSTEM_LANGUAGES", "en-US") };
+    }
+}
+
 /// Writes the indexes the bundled songs and noteskins are listed from,
 /// when they are missing (`cargo run -p xtask -- gen-songs`,
 /// `gen-noteskins`), once a test binary.
