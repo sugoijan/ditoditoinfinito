@@ -729,8 +729,12 @@ fn the_players_left_and_an_early_win_are_told_as_they_happen() {
         [
             "battle match begin",
             "gameplay here we go normal",
-            "battle stage won",
+            // The player's combo reaches 20 before the last CPU slips
+            // out (`cpu-levels-v2`'s CPUs slip later than v1's did, which
+            // put the win first): the combo line in a quiet moment, then
+            // the win as it is decided.
             "gameplay 20 combo",
+            "battle stage won",
             // The play's end: the full combo's line; no cleared after
             // the win was said.
             "gameplay full combo",
@@ -2074,7 +2078,10 @@ fn the_attack_lines_are_said_in_a_stage_and_shown_only_where_they_were_not() {
     let incoming_line = Line::Battle(Battle::AttackIncoming);
     let launched_line = Line::Battle(Battle::AttackLaunched);
     let mut now = 0;
-    let mut practice = attacks_room(3, 9);
+    // Three level-9 CPUs (`cpu-levels-v2`; level 10 under v1): their
+    // attacks against the player come at the player's own launches but
+    // one, so one launch is passed over and the others are said.
+    let mut practice = attacks_room(3, 8);
     let order = begin_at(&song, &mut practice, &mut now, LONG);
     let (voice, lines) = scratch_pack(
         "attack-lines",

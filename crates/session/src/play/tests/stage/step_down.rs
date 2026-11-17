@@ -335,13 +335,13 @@ fn the_player_and_strong_cpus_step_up_alike_at_any_frame_rate() {
 }
 
 /// The CPUs' level (from 0) whose plays climb from Medium to Hard and
-/// fall back on this song: three stars (chosen under `adaptive-v2`, whose
-/// accuracy kept two-star CPUs from climbing at all; `adaptive-v3`'s
-/// normal step up lets them, and three stars still climb and fall back,
-/// under `adaptive-v4` too).
-const LEVEL_UP_DOWN: u8 = 2;
+/// fall back on this song: two stars (three under `cpu-levels-v1`, chosen
+/// under `adaptive-v2`; since `cpu-levels-v2`, round V, three stars keep
+/// up with Hard once they climb, and one and two stars climb and fall
+/// back).
+const LEVEL_UP_DOWN: u8 = 1;
 
-/// Three-star CPUs on Medium (they climb to Hard now and then, and fall
+/// Two-star CPUs on Medium (they climb to Hard now and then, and fall
 /// back; from Hard the song is too short for any to come back up): their
 /// fields and their plays agree on every step, both ways, at any frame
 /// rate.
@@ -367,7 +367,7 @@ fn fields_follow_steps_down_and_back_up() {
         s.battle().unwrap().feeds().map(|f| f.steps().collect()).collect()
     };
     assert_eq!(fields(&a), fields(&b));
-    assert!(both, "a three-star CPU up to Hard and back down");
+    assert!(both, "a two-star CPU up to Hard and back down");
 }
 
 /// A step down that closes the chart it left (the rule's: life ran out
