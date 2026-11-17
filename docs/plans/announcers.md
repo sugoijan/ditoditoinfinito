@@ -1188,10 +1188,14 @@ addendum, accepted with its picks.
   fetched at the browser's low priority (`songs::fetch_bytes_low`,
   `priority: "low"`); Start never waits for them (as before: a line not
   decoded when due is left out). Measured from the packs as committed
-  (MP3, 128 kb/s, about 31 KB a sound): a first song select about 0.8 MB
-  (its intro and comments, up to eight of each, decoded when first
-  asked for), a play of a 300-note chart about 1.5 MB, of 1,500 notes
-  about 1.9 MB; the opening (ready, here we go) about 33 KB.
+  (MP3, 128 kb/s, about 31 KB a sound): a first song select 24 sounds,
+  about 0.8 MB (its intro and comments, up to eight of each, decoded when
+  first asked for), a play of a 300-note chart about 1.5 MB, of 1,500
+  notes about 1.9 MB; the opening (ready, here we go) about 33 KB.
+  Measured in headless Chrome and Firefox on a fresh profile
+  (2026-11-17, Beatucada's 217-note chart): 47 sounds, 1.37 to 1.48 MB,
+  in English or Japanese alone, the first asked for 0.05 to 0.4 s after
+  the music's last byte; Mixed the same count from both.
   `__DDI_DEBUG.announcerLoads` lists the voices loaded, their choices
   and the sounds asked for.
 - **The studio** keeps its examples: each set is the built-in's voice in
