@@ -1374,7 +1374,12 @@ voiced end when the pack is made or loaded."
   (`play::voice::tail`), the web on the main thread after
   `decodeAudioData` (`announcers::tail`, reading the buffer's channels
   once; `__DDI_DEBUG.announcerTails` counts the sounds and the
-  milliseconds). The voice keeps each sound's tail beside it
+  milliseconds). Measured: a play of Beatucada's Beginner decodes 45
+  sounds, their tails taking 6 ms (headless Chrome) and 8 ms (headless
+  Firefox, Playwright's build) of the main thread in all, spread over
+  the decodes behind the prompt; a practice stage's 57 and song select's
+  24 together 10 and 15 ms; desktop, on its decode thread, 0.09 ms a
+  sound in a debug build (20 ms for 217). The voice keeps each sound's tail beside it
   (`Voice::add_from`, `add_ranked_from`, `add_tailed`). Nothing is
   written into the bundled index: the web needs no tail before a sound
   is decoded, since no line is placed before its sound is in.
@@ -1406,3 +1411,12 @@ voiced end when the pack is made or loaded."
   voice ends, 0.75 s (English) and 0.64 s (Japanese) earlier, over its
   tail. Its quiet moment is now 5 s (a battle line's voice of 1.9 s at
   most after a combo line's of 2.6 s), not 8 s.
+- **Checked in the browsers** (headless Chrome and Firefox, muted, the
+  built-in announcer in English, `__DDI_DEBUG.announcer`'s `voicedEnd`
+  and `soundEnd` beside `at`): an autoplayed play of Beatucada's
+  Beginner, its sixteen lines with none passed over, ready and here we go with no
+  tail (their voice ends with their sound), cleared beginning where the
+  full combo's voice ends, 0.64 s before its sound does; a CPU practice
+  stage with attacks, a battle line after a combo line's voice, the
+  stage's win after the full combo's and (Chrome) a step's line after
+  an attack line's voice, each over the tail before it.
