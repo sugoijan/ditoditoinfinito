@@ -26,6 +26,8 @@ pub fn identity() -> FoldFn {
 /// The window's UI (`shell::theme_ui`) on `first`, its motion reduced
 /// where `reduced`, sized to `size` at a ratio of 1.
 pub fn theme(first: &str, fold: FoldFn, size: [u32; 2], reduced: bool) -> (Ui, Env) {
+    // A practice room it opens on, seeded as every test's.
+    super::practice::seeded();
     let (mut ui, env, _) = ddi_desktop::shell::theme_ui(first, fold);
     if reduced {
         env.reduced_motion.set(true);

@@ -41,7 +41,7 @@ fn a_stage_due_under_options_and_calibrate_is_told_and_gone_to() {
     for nested in [false, true] {
         // A fresh practice room, its stages' plays asked through `slot`.
         ddi_desktop::room::discard();
-        let room = ddi_desktop::room::current();
+        let room = common::practice::room();
         room.borrow_mut().set_rules_seen(true);
         let slot: Rc<RefCell<Option<ddi_desktop::play::Request>>> = Rc::default();
         h.ui.push(ddi_desktop::room::room_screen_with(
@@ -114,7 +114,7 @@ fn a_stage_due_under_a_stages_results_is_told_and_gone_to() {
     h.run(0.3);
     let entry = common::practice::song_entry("beatucada", "Beatucada", 1, Difficulty::Hard);
     ddi_desktop::room::discard();
-    let room = ddi_desktop::room::current();
+    let room = common::practice::room();
     room.borrow_mut().set_rules_seen(true);
     let slot: Rc<RefCell<Option<ddi_desktop::play::Request>>> = Rc::default();
     h.ui.push(ddi_desktop::room::room_screen_with(

@@ -352,9 +352,13 @@ pub fn current() -> SharedRoom {
         r.borrow_mut()
             .get_or_insert_with(|| {
                 let now = crate::clock::now_ms();
-                match TEST_SEED.get() {
-                    Some(seed) => ddi_ui::state::room::RoomClient::shared(now, seed),
-                    None => ddi_ui::state::room::practice_room(now),
+                use ddi_ui::state::room::{RoomClient, development, practice_room};
+                match (TEST_SEED.get(), development().cpus) {
+                    (None, _) => practice_room(now),
+                    (Some(seed), 0) => RoomClient::shared(now, seed),
+                    (Some(seed), cpus) => {
+                        Rc::new(RefCell::new(RoomClient::development(now, seed, cpus)))
+                    }
                 }
             })
             .clone()
@@ -383,7 +387,7 @@ pub fn develop(cpus: u16) {
 /// each one's seed, so their play and the stage's battle) from `seed`
 /// rather than from the time they are made, so a stage played in a test
 /// is the same in every run (the development switch's CPUs beyond the
-/// cap left aside).
+/// cap, [`develop`], drawn from it too).
 pub fn seed_for_tests(seed: u64) {
     TEST_SEED.set(Some(seed));
     discard();

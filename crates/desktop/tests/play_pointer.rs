@@ -73,6 +73,8 @@ impl Window {
                 ..r.rules().clone()
             };
             rules.set_attacks(true);
+            // (The CPUs are the room's roster, whose seeds are the room's:
+            // `common::practice::SEED`.)
             rules.cpu.opponent.seed = 7;
             r.save_rules(rules).unwrap();
         }

@@ -29,7 +29,7 @@ fn a_new_room_comes_back_where_the_last_one_was_and_singleplayer_stays() {
     h.run(0.3);
     let solo = MenuPlace::load();
     let room = |h: &mut Harness| {
-        ddi_desktop::room::current()
+        common::practice::room()
             .borrow_mut()
             .set_rules_seen(true);
         h.ui.push(ddi_desktop::room::room_screen_with(

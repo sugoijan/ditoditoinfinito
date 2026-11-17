@@ -81,8 +81,8 @@ impl Rig {
                 stages: 3,
                 ..r.rules().clone()
             };
-            // The same CPUs on every run (a practice room's seed is the
-            // time it was made): the same pictures.
+            // (The CPUs are the room's roster, whose seeds are the room's:
+            // `common::practice::SEED`, the same stage on every run.)
             rules.cpu.opponent.seed = 7;
             r.save_rules(rules).unwrap();
         }

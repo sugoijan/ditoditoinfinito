@@ -82,9 +82,9 @@ fn stage_with(key_of: &str, folder: Option<PathBuf>) -> Option<Heard> {
     let clock = common::rig::fake_clock(&mut host);
     let draws = common::rig::Draws::here(&mut host, SIZE);
     // The same stage in every run: the room's CPUs and the voice's takes
-    // drawn from fixed seeds, never from the time (a new room each time).
-    ddi_desktop::room::seed_for_tests(SEED);
-    ddi_desktop::play::voice::seed_for_tests(SEED);
+    // drawn from fixed seeds, never from the time (a new room each time,
+    // its voice's shuffles begun anew).
+    common::practice::seed(SEED);
     let room = common::practice::open(&mut ui, &env, &host);
     let chart = 4;
     let entry = common::practice::song_entry("beatucada", "Beatucada", chart, Difficulty::Medium);

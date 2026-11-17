@@ -29,7 +29,7 @@ fn the_rules_pop_up_mid_match_and_the_marked_standings_are_drawn() {
     let mut pictures = common::gpu::Pictures::new();
     let (mut ui, env) = common::ui::theme("room", common::ui::lowercase(), SIZE, true);
     frames(&mut ui, 30);
-    let room = ddi_desktop::room::current();
+    let room = common::practice::room();
     room.borrow_mut().set_rules_seen(true);
     {
         let mut r = room.borrow_mut();
@@ -139,7 +139,7 @@ fn the_rules_pop_up_fits_with_few_and_many_cpus() {
                 assert!(ddi_l10n::force(lang));
                 let (mut ui, env) = common::ui::theme("room", common::ui::lowercase(), size, true);
                 frames(&mut ui, 30);
-                let room = ddi_desktop::room::current();
+                let room = common::practice::room();
                 room.borrow_mut().set_rules_seen(true);
                 {
                     let mut r = room.borrow_mut();
@@ -176,7 +176,7 @@ fn the_attacks_at_once_row_is_drawn() {
             assert!(ddi_l10n::force(lang));
             let (mut ui, env) = common::ui::theme("room", common::ui::lowercase(), size, true);
             frames(&mut ui, 30);
-            let room = ddi_desktop::room::current();
+            let room = common::practice::room();
             room.borrow_mut().set_rules_seen(true);
             ui.push_over(RulesDialog::new(env.clone(), room.clone()));
             frames(&mut ui, 30);
@@ -230,7 +230,7 @@ fn the_shocks_per_attack_row_is_drawn() {
             assert!(ddi_l10n::force(lang));
             let (mut ui, env) = common::ui::theme("room", common::ui::lowercase(), size, true);
             frames(&mut ui, 30);
-            let room = ddi_desktop::room::current();
+            let room = common::practice::room();
             room.borrow_mut().set_rules_seen(true);
             ui.push_over(RulesDialog::new(env.clone(), room.clone()));
             frames(&mut ui, 30);
