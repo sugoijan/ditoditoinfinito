@@ -41,3 +41,21 @@ en-US | - | ja | ja
 en-US | - | JA | ja
 ja-JP | - | xx | ja
 ja-JP | - | | ja
+
+# The settings' language, where they were stored after the defaults of
+# 2026-11-17 were put back (`Settings::defaults_reset_2026_11_17`).
+en-US | {"language": "ja", "defaults_reset_2026_11_17": true} | - | ja
+ja-JP | {"language": "en", "defaults_reset_2026_11_17": true} | - | en
+ja-JP | {"language": null, "defaults_reset_2026_11_17": true} | - | ja
+ja-JP | {"language": "xx", "defaults_reset_2026_11_17": true} | - | ja
+ja-JP | {"defaults_reset_2026_11_17": true, "speed": 3.0} | - | ja
+ja-JP | {"language": "en", "defaults_reset_2026_11_17": true} | ja | ja
+# Stored before them: the language is the system's (put back once as
+# the game loads them, the loader choosing as it will).
+en-US | {"language": "ja"} | - | en
+ja-JP | {"language": "en"} | - | ja
+ja-JP | {"language": "en", "defaults_reset_2026_11_17": false} | - | ja
+en-US | {"language": "ja", "rules_moved": true, "cursor_style": "InfinitoArrow"} | - | en
+en-US | {"language": "ja"} | ja | ja
+# Unreadable settings: as none.
+ja-JP | not json | - | ja

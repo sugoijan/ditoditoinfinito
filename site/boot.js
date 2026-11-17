@@ -24,7 +24,12 @@
     for (const m of String(hash).matchAll(/[?&]lang=([^&]*)/g)) forced = m[1];
     if (known(forced)) return known(forced);
     try {
-      const saved = JSON.parse(stored || "{}").language;
+      // Settings stored before the defaults of 2026-11-17 have their
+      // language put back to the system's as the game loads them
+      // (Settings::defaults_reset_2026_11_17): theirs counts only once
+      // marked.
+      const settings = JSON.parse(stored || "{}");
+      const saved = settings.defaults_reset_2026_11_17 === true && settings.language;
       if (saved && known(saved)) return known(saved);
     } catch (e) {}
     const alias = { tl: "fil", iw: "he", in: "id", no: "nb" };

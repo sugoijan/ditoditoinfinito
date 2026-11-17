@@ -30,6 +30,10 @@ pub const DEFAULT_RULESET: &str = "ddi";
 /// The default before it, which settings naming it moved from once.
 const OLD_DEFAULT_RULESET: &str = "itg";
 
+/// The name [`Settings::defaults_reset_2026_11_17`] is stored by, which
+/// the web page's loader reads (`site/boot.js`).
+pub const DEFAULTS_RESET: &str = "defaults_reset_2026_11_17";
+
 /// The start prompt's countdowns Options offers, seconds (0: off).
 pub const START_COUNTDOWNS: [f32; 4] = [0.0, 3.0, 5.0, 10.0];
 
@@ -147,6 +151,17 @@ pub struct Settings {
     /// it lack the field and read `false`.
     #[serde(default = "not_yet")]
     pub rules_moved: bool,
+    /// The defaults of 2026-11-17 were put back, once
+    /// ([`DEFAULTS_RESET`]; `docs/plans/localization.md`, "Choosing the
+    /// language"): the language back to the system's, the judgment words
+    /// to English and the cursor to the Infinito cursor, whatever was
+    /// stored (a default and a choice cannot be told apart, see
+    /// `ruleset`). Settings stored before it lack the field and read
+    /// `false`; a choice made after it stays. The web page's loader reads
+    /// it too (`site/boot.js`: a stored language counts only once this is
+    /// set).
+    #[serde(default = "not_yet")]
+    pub defaults_reset_2026_11_17: bool,
     /// The kept plays under these rules (a preset's id) wait to be judged
     /// again under the rules now chosen: set by the move from ITG, taken
     /// by the shells once the play history is read
@@ -653,6 +668,7 @@ impl Default for Settings {
             style: "dance-single".into(),
             ruleset: DEFAULT_RULESET.into(),
             rules_moved: true,
+            defaults_reset_2026_11_17: true,
             rejudge_from: None,
             ddi: DdiOptions::default(),
             ddi_score: ScoreDisplay::Score,
@@ -855,6 +871,16 @@ impl Settings {
                 self.ruleset = DEFAULT_RULESET.into();
                 self.rejudge_from = Some(OLD_DEFAULT_RULESET.into());
             }
+        }
+        // The defaults of 2026-11-17 (the system's language, English
+        // judgment words, the Infinito cursor) put back once over what
+        // was stored before them; the cursor's size and the rest stay.
+        if !self.defaults_reset_2026_11_17 {
+            self.defaults_reset_2026_11_17 = true;
+            let defaults = Settings::default();
+            self.language = defaults.language;
+            self.judgment_words = defaults.judgment_words;
+            self.cursor_style = defaults.cursor_style;
         }
         const SPIRAL: &str = "bundled:dance/spiral base";
         const OLD_DITO: &str = "bundled:dance/dito";
@@ -1625,6 +1651,67 @@ mod tests {
         assert!(!rules.judge.hold.is_ticked());
         assert_eq!(rules.fail, ddi_engine::FailPolicy::ImmediateContinue);
         assert_eq!(s.ruleset().ddi, Some(s.ddi));
+    }
+
+    /// The defaults of 2026-11-17 put back once: settings stored before
+    /// them (Japanese chosen, the words in the menus' language, the
+    /// Infinito arrow) come out as a fresh profile has them, marked,
+    /// the rest as stored; a second load changes nothing; a choice made
+    /// after the mark stays; a forced language (`?lang=`, `--lang`) is
+    /// no stored choice and is untouched.
+    #[test]
+    fn the_defaults_of_2026_11_17_are_put_back_once() {
+        storage::install(Rc::new(MemoryStore::default()));
+        assert!(Settings::default().defaults_reset_2026_11_17);
+        let mut old = serde_json::to_value(Settings::default()).unwrap();
+        let o = old.as_object_mut().unwrap();
+        assert!(o.remove(DEFAULTS_RESET).is_some());
+        o.insert("language".into(), "ja".into());
+        o.insert("judgment_words".into(), "Localized".into());
+        o.insert("cursor_style".into(), "InfinitoArrow".into());
+        o.insert("cursor_size".into(), 40.0.into());
+        o.insert("speed".into(), 3.5.into());
+        o.insert("ruleset".into(), "sm5".into());
+        storage::set(Area::Local, KEY, &old.to_string()).unwrap();
+        let s = Settings::load();
+        assert!(s.defaults_reset_2026_11_17);
+        assert_eq!(s.language, None);
+        assert_eq!(s.judgment_words, JudgmentWords::English);
+        assert_eq!(s.cursor_style, CursorStyle::PointerTip);
+        // The rest as stored.
+        assert_eq!((s.cursor_size, s.speed, s.ruleset.as_str()), (40.0, 3.5, "sm5"));
+        // Stored so: a second load reads it as it is.
+        let stored: serde_json::Value =
+            serde_json::from_str(&storage::get(Area::Local, KEY).unwrap()).unwrap();
+        assert_eq!(stored[DEFAULTS_RESET], true);
+        assert_eq!(stored["language"], serde_json::Value::Null);
+        let text = storage::get(Area::Local, KEY);
+        assert_eq!(Settings::load(), s);
+        assert_eq!(storage::get(Area::Local, KEY), text);
+        // A choice after it stays.
+        let mut chosen = s.clone();
+        chosen.language = Some("ja".into());
+        chosen.judgment_words = JudgmentWords::Game;
+        chosen.cursor_style = CursorStyle::InfinitoArrow;
+        chosen.save();
+        assert_eq!(Settings::load(), chosen);
+        // Another old configuration, with its choices other than these.
+        let o = old.as_object_mut().unwrap();
+        o.insert("language".into(), "en".into());
+        o.insert("judgment_words".into(), "English".into());
+        o.insert("cursor_style".into(), "System".into());
+        storage::set(Area::Local, KEY, &old.to_string()).unwrap();
+        let s = Settings::load();
+        assert_eq!(
+            (s.language, s.judgment_words, s.cursor_style),
+            (None, JudgmentWords::English, CursorStyle::PointerTip)
+        );
+        // A forced language is the run's, never stored or put back.
+        assert!(ddi_l10n::force("ja"));
+        assert_eq!(Settings::load().choose_language().tag, "ja");
+        assert_eq!(Settings::load().language, None);
+        ddi_l10n::unforce();
+        ddi_l10n::choose(Some("en"));
     }
 
     #[test]

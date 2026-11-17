@@ -362,9 +362,10 @@ impl Replay {
             .and_then(|v| serde_json::from_value::<Settings>(v.clone()).ok());
         let read = snapshot.is_some();
         let mut s = snapshot.unwrap_or_else(|| current.clone());
-        // As kept: the default ruleset's move is the player's settings',
-        // not a record's.
+        // As kept: the default ruleset's move and the defaults put back
+        // on 2026-11-17 are the player's settings', not a record's.
         s.rules_moved = true;
+        s.defaults_reset_2026_11_17 = true;
         s.sanitize();
         let drawn = &self.record.setup.drawn;
         let named = |name: &str| serde_json::Value::String(name.to_string());
