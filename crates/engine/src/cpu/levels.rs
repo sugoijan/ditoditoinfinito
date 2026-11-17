@@ -24,11 +24,17 @@
 //! level keeps up with some charts and is lost on others. Its ten rungs
 //! were chosen by measurement over local arcade packs too (what each
 //! keeps up with: `docs/plans/cpu-player.md`), never against people.
-//! [`CPU_LEVELS`] names the scale opponents play at; the solo CPU's five
-//! strengths stay `cpu-levels-v0`'s.
+//! `cpu-levels-v2` ([`CPU_LEVELS_V2`], round V, room model revision 14)
+//! keeps them absolute and gives them a person's shape (`super::absolute`,
+//! `cpu-model-v2`): a lean of their own, hits that loosen long before
+//! notes are left out, breaks in bursts; its ten were fitted to targets
+//! stated before the fit. `cpu-levels-v1` is retired from play (kept by
+//! name for the studies' comparison). [`CPU_LEVELS`] names the scale
+//! opponents and the solo CPU at a level play at; the solo CPU's five
+//! named strengths are its levels 6 to 10 (`super::strength_level`).
 
 use super::STRENGTHS;
-use super::absolute::Ability;
+use super::absolute::{ABSOLUTE_V2, Ability};
 
 /// How many levels there are.
 pub const LEVELS: usize = 10;
@@ -152,8 +158,12 @@ impl From<Ability> for Strength {
 pub enum LevelScale {
     /// `cpu-levels-v0`: strength relative to the chart ([`CPU_LEVELS_V0`]).
     RelativeV0,
-    /// `cpu-levels-v1`: abilities in real units ([`CPU_LEVELS_V1`]).
+    /// `cpu-levels-v1`: abilities in real units ([`CPU_LEVELS_V1`]),
+    /// retired from play since round V: the studies' comparison alone.
     AbsoluteV1,
+    /// `cpu-levels-v2`: abilities in real units with a person's shape
+    /// ([`CPU_LEVELS_V2`], round V).
+    AbsoluteV2,
 }
 
 impl LevelScale {
@@ -161,6 +171,7 @@ impl LevelScale {
         match self {
             LevelScale::RelativeV0 => CPU_LEVELS_V0.id,
             LevelScale::AbsoluteV1 => CPU_LEVELS_V1.id,
+            LevelScale::AbsoluteV2 => CPU_LEVELS_V2.id,
         }
     }
 
@@ -169,13 +180,25 @@ impl LevelScale {
         match self {
             LevelScale::RelativeV0 => CPU_LEVELS_V0.level(index).map(Strength::Relative),
             LevelScale::AbsoluteV1 => CPU_LEVELS_V1.level(index).map(Strength::Absolute),
+            LevelScale::AbsoluteV2 => CPU_LEVELS_V2.level(index).map(Strength::Absolute),
+        }
+    }
+
+    /// The absolute scale's level `index`'s ability (none for
+    /// `cpu-levels-v0`'s).
+    pub fn ability(self, index: usize) -> Option<Ability> {
+        match self.strength(index)? {
+            Strength::Absolute(a) => Some(a),
+            Strength::Relative(_) => None,
         }
     }
 }
 
 /// The levels a CPU opponent plays at (every multiplayer CPU: practice,
-/// online rooms, the bots', the audience's, the studies).
-pub const CPU_LEVELS: LevelScale = LevelScale::AbsoluteV1;
+/// online rooms, the bots', the audience's, the studies; and the solo
+/// CPU at a level): `cpu-levels-v2` since round V (room model revision
+/// 14).
+pub const CPU_LEVELS: LevelScale = LevelScale::AbsoluteV2;
 
 /// The ten abilities, named and versioned.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -193,10 +216,18 @@ impl AbilityTable {
 }
 
 const fn ability(spread_ms: f64, speed: f64, floor: f64) -> Ability {
+    Ability::v1(spread_ms, speed, floor)
+}
+
+/// A level of `cpu-levels-v2` ([`ABSOLUTE_V2`]).
+const fn ability_v2(spread_ms: f64, speed: f64, floor: f64, lean_ms: f64, drift_ms: f64) -> Ability {
     Ability {
         spread_ms,
         speed,
         floor,
+        lean_ms,
+        drift_ms,
+        model: &ABSOLUTE_V2,
     }
 }
 
@@ -218,6 +249,31 @@ pub const CPU_LEVELS_V1: AbilityTable = AbilityTable {
         ability(7.3, 6.4, 0.0004),
         ability(6.6, 7.3, 0.0003),
         ability(5.5, 9.0, 0.0002),
+    ],
+};
+
+/// `cpu-levels-v2` (PROVISIONAL, round V, `docs/plans/cpu-player.md`):
+/// each level's spread about its own lean on a comfortable note
+/// (milliseconds), the notes a second it keeps up with, its chance of
+/// leaving a note out where nothing is hard, its lean's and its drift's
+/// standard deviations (milliseconds), the same on every chart, played by
+/// [`ABSOLUTE_V2`]: looser hits long before notes are left out, as a
+/// person's. The shape was read from one player's local play history
+/// (not included); the levels were fitted to targets stated before
+/// fitting, by measurement over charts.
+pub const CPU_LEVELS_V2: AbilityTable = AbilityTable {
+    id: "cpu-levels-v2",
+    levels: [
+        ability_v2(32.0, 2.5, 0.004, 16.0, 5.0),
+        ability_v2(30.0, 3.1, 0.003, 14.0, 5.0),
+        ability_v2(27.0, 3.8, 0.002, 13.0, 5.0),
+        ability_v2(25.0, 4.6, 0.0015, 12.0, 4.0),
+        ability_v2(22.5, 6.0, 0.001, 12.0, 4.0),
+        ability_v2(20.5, 7.2, 0.0008, 11.0, 4.0),
+        ability_v2(17.5, 8.1, 0.0006, 8.0, 3.0),
+        ability_v2(14.5, 8.9, 0.0004, 6.0, 3.0),
+        ability_v2(11.5, 10.1, 0.0003, 4.0, 2.0),
+        ability_v2(8.0, 12.0, 0.0002, 2.0, 1.5),
     ],
 };
 
@@ -258,7 +314,23 @@ mod tests {
             Some(Strength::Relative(t.levels[5]))
         );
         assert!(LevelScale::AbsoluteV1.strength(10).is_none());
-        assert_eq!(CPU_LEVELS, LevelScale::AbsoluteV1);
+        // v2: every ability better than the one below (its lean and drift
+        // no larger), each valid, played by `cpu-model-v2`; the levels
+        // opponents and the solo CPU play since round V.
+        let v = CPU_LEVELS_V2;
+        assert_eq!(v.id, "cpu-levels-v2");
+        for w in v.levels.windows(2) {
+            w[0].validate().unwrap();
+            assert!(w[0].spread_ms > w[1].spread_ms && w[0].speed < w[1].speed);
+            assert!(w[0].floor >= w[1].floor);
+            assert!(w[0].lean_ms >= w[1].lean_ms && w[0].drift_ms >= w[1].drift_ms);
+        }
+        assert!(v.levels.iter().all(|a| a.model.id == "cpu-model-v2"));
+        assert!(CPU_LEVELS_V1.levels.iter().all(|a| a.model.id == "cpu-model-v1"));
+        assert!(LevelScale::AbsoluteV2.strength(10).is_none());
+        assert_eq!(CPU_LEVELS, LevelScale::AbsoluteV2);
+        assert_eq!(CPU_LEVELS.ability(4), Some(v.levels[4]));
+        assert_eq!(LevelScale::RelativeV0.ability(4), None);
         assert!(
             Level {
                 strength: f64::NAN,

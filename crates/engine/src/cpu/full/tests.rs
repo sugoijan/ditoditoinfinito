@@ -29,7 +29,7 @@ fn rules() -> Ruleset {
 /// A CPU at `level` (`cpu-levels-v1`) playing the chart whole.
 fn opponent(song: &Song, level: usize, seed: u64, skills: Skills) -> Opponent {
     let plan = Plan::automatic(song, 1).unwrap();
-    let strength = crate::cpu::CPU_LEVELS_V1.level(level).unwrap();
+    let strength = crate::cpu::CPU_LEVELS_V2.level(level).unwrap();
     let o = Opponent::planned_as(
         &plan,
         song,
@@ -154,7 +154,7 @@ fn holds_under_a_busy_stream_are_let_go_more_the_weaker_the_level() {
     assert!(t.let_go > 0, "{t:?}");
     // The tap-only copy has no holds to keep.
     let plan = Plan::automatic(&song, 1).unwrap();
-    let level = crate::cpu::CPU_LEVELS_V1.level(4).unwrap();
+    let level = crate::cpu::CPU_LEVELS_V2.level(4).unwrap();
     let mut o = Opponent::planned_as(
         &plan,
         &song,
@@ -178,7 +178,7 @@ fn a_row_played_while_a_hold_is_down_asks_more() {
     let held: Vec<u8> = plan.demands().iter().map(|d| d.held).collect();
     assert!(held.iter().filter(|&&h| h == 1).count() >= 12 * 14, "{held:?}");
     assert_eq!(held[0], 0);
-    let a = crate::cpu::CPU_LEVELS_V1.level(4).unwrap();
+    let a = crate::cpu::CPU_LEVELS_V2.level(4).unwrap();
     let s = Skills::default();
     let mut d = plan.demands()[5];
     d.held = 0;

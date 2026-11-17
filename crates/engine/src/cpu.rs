@@ -17,11 +17,12 @@ mod levels;
 mod mines;
 mod opponent;
 mod personality;
-pub use absolute::{ABSOLUTE_V1, Ability, AbsoluteModel, RowDemand, loads};
+pub use absolute::{ABSOLUTE_V1, ABSOLUTE_V2, Ability, AbsoluteModel, RowDemand, loads};
 pub use automatic::{Automatic, Plan};
 pub use full::{CPU_PLAY, CpuPlay, FullPlan, HOLD_MODEL_V1, HoldModel};
 pub use levels::{
-    AbilityTable, CPU_LEVELS, CPU_LEVELS_V0, CPU_LEVELS_V1, LEVELS, Level, LevelScale, LevelTable,
+    AbilityTable, CPU_LEVELS, CPU_LEVELS_V0, CPU_LEVELS_V1, CPU_LEVELS_V2, LEVELS, Level, LevelScale,
+    LevelTable,
     Strength,
 };
 pub use mines::{
@@ -339,8 +340,8 @@ pub fn strength(value: &str) -> Result<usize, String> {
         .ok_or_else(|| "CPU strength: relaxed, easy, normal, strong or expert".into())
 }
 
-/// The solo CPU's level where none is named (an index into
-/// [`CPU_LEVELS_V1`]: level 5 of 10, the middle, at home on Medium charts),
+/// The solo CPU's level where none is named (an index into the
+/// opponents' scale, [`CPU_LEVELS`]: level 5 of 10, the middle),
 /// since it plays the absolute scale by default (2026-11-14, the
 /// maintainer: "The CPU CLI bots should move to the new levels").
 pub const SOLO_LEVEL: usize = 4;
@@ -353,8 +354,8 @@ pub fn strength_level(strength: usize) -> usize {
 }
 
 /// A solo CPU's level on the opponents' absolute scale (`--cpu-level N`,
-/// the web's `level=N`): `1` to `10`, as an index into
-/// [`CPU_LEVELS_V1`] (0 the weakest).
+/// the web's `level=N`): `1` to `10`, as an index into [`CPU_LEVELS`]
+/// (0 the weakest).
 pub fn absolute_level(value: &str) -> Result<usize, String> {
     value
         .trim()
@@ -368,8 +369,8 @@ pub fn absolute_level(value: &str) -> Result<usize, String> {
 /// The solo CPU's presses on `plan`: at its named strength (`strength`,
 /// an index into [`STRENGTHS`], chart-relative, `cpu-levels-v0`, exactly
 /// as before), or where `absolute` names one, at that level of the
-/// opponents' absolute scale ([`CPU_LEVELS_V1`]; an automatic plan's
-/// alone).
+/// opponents' absolute scale ([`CPU_LEVELS`], `cpu-levels-v2` since
+/// round V; an automatic plan's alone).
 pub fn solo_script(
     plan: &Plan,
     strength: usize,
@@ -380,8 +381,8 @@ pub fn solo_script(
     match absolute {
         None => plan.script_with_skills(strength, seed, skills),
         Some(level) => {
-            let at = CPU_LEVELS_V1
-                .level(level)
+            let at = CPU_LEVELS
+                .ability(level)
                 .ok_or_else(|| format!("CPU level: 1 to {LEVELS}"))?;
             plan.script_play(
                 Strength::Absolute(at),

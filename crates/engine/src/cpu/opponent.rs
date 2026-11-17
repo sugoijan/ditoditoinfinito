@@ -9,7 +9,7 @@
 //!
 //! What it is not: a skill-tuned opponent. It plays at one of ten levels
 //! (`super::levels`, [`CPU_LEVELS`]): abilities in real units, the same on
-//! every chart (`cpu-levels-v1`, `super::absolute`), or the earlier
+//! every chart (`cpu-levels-v2`, `super::absolute`), or the earlier
 //! strength relative to the chart with, for the weaker five, a chance of
 //! leaving notes out where the chart is demanding (`cpu-levels-v0`;
 //! `docs/plans/cpu-player.md`); at an absolute level it plays the
@@ -179,7 +179,7 @@ impl Opponent {
 
     /// [`Opponent::new`] with a personality: `skills` bend its abilities
     /// per pattern (`super::personality`, `super::absolute`). At one of
-    /// the ten levels opponents play at ([`CPU_LEVELS`], `cpu-levels-v1`:
+    /// the ten levels opponents play at ([`CPU_LEVELS`], `cpu-levels-v2`:
     /// abilities the same on every chart).
     pub fn with_skills(
         song: &Song,
@@ -250,7 +250,7 @@ impl Opponent {
     }
 
     /// A strength of its own and an avoidance (`0..=1`: the ten levels',
-    /// [`CPU_LEVELS_V1`], [`CPU_LEVELS_V0`], [`MINE_RESPONSE_V0`], or a
+    /// [`CPU_LEVELS_V2`], [`CPU_LEVELS_V0`], [`MINE_RESPONSE_V0`], or a
     /// study's candidates) on a plan already made for the chart (a study
     /// playing one chart many times).
     pub fn planned(

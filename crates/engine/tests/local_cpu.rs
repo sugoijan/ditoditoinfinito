@@ -43,7 +43,7 @@ use std::path::{Path, PathBuf};
 
 use ddi_chart::{Difficulty, Song};
 use ddi_engine::cpu::{
-    Ability, CPU_LEVELS_V0, CPU_LEVELS_V1, CPU_PLAY, CpuPlay, Level, LevelScale, MINE_RESPONSE_V0,
+    Ability, CPU_LEVELS_V0, CPU_LEVELS_V1, CPU_LEVELS_V2, CPU_PLAY, CpuPlay, Level, LevelScale, MINE_RESPONSE_V0,
     Opponent, Plan, Skills, Strength,
 };
 use ddi_engine::rules::presets::{self, HoldStyle};
@@ -88,6 +88,10 @@ struct Sum {
     /// note W0, every hold kept), thousands.
     score: f64,
     best: f64,
+    /// DDI's Percent (`ddi-percent-v1`, the combo in it), and the breaks
+    /// (a W4, a W5, a Miss or a mine stepped on) a note.
+    ddi_percent: f64,
+    breaks: f64,
 }
 
 impl Sum {
@@ -105,6 +109,8 @@ impl Sum {
         self.mines += o.mines;
         self.score += o.score;
         self.best += o.best;
+        self.ddi_percent += o.ddi_percent;
+        self.breaks += o.breaks;
     }
 }
 
@@ -181,6 +187,13 @@ fn play(
         life: if out { 0.0 } else { f64::from(o.life()) },
         out: u32::from(out),
         missed: f64::from(tally.taps[Judgement::Miss as usize]) / f64::from(taps.max(1)),
+        ddi_percent: view.ddi.map_or(0.0, |d| d.percent as f64 / 10_000.0),
+        breaks: f64::from(
+            tally.taps[Judgement::W4 as usize]
+                + tally.taps[Judgement::W5 as usize]
+                + tally.taps[Judgement::Miss as usize]
+                + tally.mine_hit,
+        ) / f64::from(taps.max(1)),
         held: tally.held,
         let_go: tally.let_go,
         mines_hit: tally.mine_hit,
@@ -198,6 +211,16 @@ fn play(
         }),
         ..Sum::default()
     }
+}
+
+/// Seed `seed` of chart `index` of `song`: the chart's own, so that over
+/// the corpus a level's CPUs have as many leans (`cpu-levels-v2`, drawn
+/// from the seed) as plays.
+fn chart_seed(song: &Song, index: usize, seed: u64) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    format!("{:?}", song.chart_digest(index)).hash(&mut h);
+    (h.finish() ^ seed).wrapping_mul(0x9E37_79B9_7F4A_7C15)
 }
 
 fn slot(d: Difficulty) -> &'static str {
@@ -241,6 +264,9 @@ fn local_cpu_levels() {
     let Some(dirs) = std::env::var_os("DDI_CPU_CORPUS") else {
         return;
     };
+    if std::env::var("DDI_CPU_ORDER").is_ok_and(|v| v == "1") {
+        return;
+    }
     let levels = strengths();
     let seeds: u64 = std::env::var("DDI_CPU_SEEDS")
         .ok()
@@ -251,15 +277,135 @@ fn local_cpu_levels() {
         .split(',')
         .map(str::to_string)
         .collect();
+    let (files, table, unparsed, refused) = measure(&dirs, &levels, seeds, &rules);
+    println!(
+        "{} files, {unparsed} not read, {refused} charts the CPU cannot plan, {seeds} seeds, {}",
+        files.len(),
+        cpu_play().id()
+    );
+    println!(
+        "levels: {}",
+        levels
+            .iter()
+            .map(|l| match l {
+                Strength::Relative(l) => format!("{}:{}", l.strength, l.lapse),
+                Strength::Absolute(a) => format!("{}:{}:{}", a.spread_ms, a.speed, a.floor),
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    for ((rules, group), (charts, sums)) in &table {
+        let row = |f: &dyn Fn(&Sum) -> f64| {
+            sums.iter()
+                .map(|s| format!("{:5.1}", f(s)))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let n = |s: &Sum| f64::from(s.plays.max(1));
+        println!("{rules} | {group} | {charts} charts");
+        println!("  percent  {}", row(&|s| 100.0 * s.percent / n(s)));
+        println!("  Percent  {}", row(&|s| 100.0 * s.ddi_percent / n(s)));
+        println!("  break %  {}", row(&|s| 100.0 * s.breaks / n(s)));
+        println!("  out %    {}", row(&|s| 100.0 * f64::from(s.out) / n(s)));
+        println!("  life %   {}", row(&|s| 100.0 * s.life / n(s)));
+        println!("  missed % {}", row(&|s| 100.0 * s.missed / n(s)));
+        println!(
+            "  seed sd  {}",
+            row(&|s| 100.0 * s.spread / f64::from(s.charts.max(1)))
+        );
+        println!(
+            "  let go % {}",
+            row(&|s| 100.0 * f64::from(s.let_go) / f64::from((s.held + s.let_go).max(1)))
+        );
+        println!(
+            "  mines %  {}",
+            row(&|s| 100.0 * f64::from(s.mines_hit) / f64::from(s.mines.max(1)))
+        );
+        println!(
+            "  holds/pl {}",
+            row(&|s| f64::from(s.held + s.let_go) / n(s))
+        );
+        println!("  score k  {}", row(&|s| s.score / n(s)));
+        println!("  best k   {}", row(&|s| s.best / n(s)));
+    }
+}
+
+/// The ordering test (round V, `cpu-levels-v2`): `DDI_CPU_ORDER=1` with
+/// `DDI_CPU_CORPUS` plays every dance-single chart under the folders at
+/// each of the levels opponents play at (`DDI_CPU_SEEDS` seeds a chart,
+/// each chart its own, under DDI Normal, the fail off) and asserts that
+/// in every group of 30 charts or more (all, each difficulty slot, each
+/// meter range, each band of notes a second, by holds) each level is at
+/// least as good as the one below on what matters: the accuracy and the
+/// Percent of the whole chart (within 0.3 points: seeds' noise), the
+/// breaks a note (within 0.2 a hundred) and how often it goes out
+/// (within half a point).
+#[test]
+fn local_cpu_order() {
+    let (Some(dirs), true) = (
+        std::env::var_os("DDI_CPU_CORPUS"),
+        std::env::var("DDI_CPU_ORDER").is_ok_and(|v| v == "1"),
+    ) else {
+        return;
+    };
+    let levels = strengths();
+    let seeds: u64 = std::env::var("DDI_CPU_SEEDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4);
+    let (files, table, _, _) = measure(&dirs, &levels, seeds, &["ddi-normal".to_string()]);
+    let mut wrong = Vec::new();
+    let mut groups = 0;
+    for ((_, group), (charts, sums)) in &table {
+        if *charts < 30 {
+            continue;
+        }
+        groups += 1;
+        let n = |s: &Sum| f64::from(s.plays.max(1));
+        for (k, w) in sums.windows(2).enumerate() {
+            let (lo, hi) = (&w[0], &w[1]);
+            let checks = [
+                ("accuracy", hi.percent / n(hi) + 0.003 >= lo.percent / n(lo)),
+                ("Percent", hi.ddi_percent / n(hi) + 0.003 >= lo.ddi_percent / n(lo)),
+                ("breaks", hi.breaks / n(hi) <= lo.breaks / n(lo) + 0.002),
+                ("out", f64::from(hi.out) / n(hi) <= f64::from(lo.out) / n(lo) + 0.005),
+            ];
+            for (what, ok) in checks {
+                if !ok {
+                    wrong.push(format!("{group} ({charts} charts): level {} below level {} on {what}", k + 2, k + 1));
+                }
+            }
+        }
+    }
+    println!(
+        "{} files, {groups} groups of 30 charts or more, {seeds} seeds a chart: {} out of order",
+        files.len(),
+        wrong.len()
+    );
+    assert!(groups > 0, "no group to compare");
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// Every dance-single chart as written under `dirs` played at each of
+/// `levels` and seeds under each of `rules`, by group: the files read,
+/// the table, the files not read and the charts the CPU cannot plan.
+fn measure(
+    dirs: &std::ffi::OsStr,
+    levels: &[Strength],
+    seeds: u64,
+    rules: &[String],
+) -> (Vec<PathBuf>, Table, u32, u32) {
     let mut files = Vec::new();
     for dir in std::env::split_paths(&dirs) {
         collect(&dir, &mut files);
     }
     files.sort();
     sample(&mut files);
-    let workers = std::thread::available_parallelism().map_or(4, |n| n.get().min(8));
-    let chunk = files.len().div_ceil(workers).max(1);
-    let (levels, rules) = (&levels, &rules);
+    let workers: usize = std::env::var("DDI_CPU_THREADS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4);
+    let chunk = files.len().div_ceil(workers.max(1)).max(1);
     let parts: Vec<(Table, u32, u32)> = std::thread::scope(|scope| {
         let handles: Vec<_> = files
             .chunks(chunk)
@@ -326,8 +472,14 @@ fn local_cpu_levels() {
                                         let mut s = Sum::default();
                                         let mut each = Vec::new();
                                         for seed in 1..=seeds {
-                                            let one =
-                                                play(&plan, &song, index, r, (k, level), seed);
+                                            let one = play(
+                                                &plan,
+                                                &song,
+                                                index,
+                                                r,
+                                                (k, level),
+                                                chart_seed(&song, index, seed),
+                                            );
                                             each.push(one.percent);
                                             s.add(&one);
                                         }
@@ -374,54 +526,7 @@ fn local_cpu_levels() {
             }
         }
     }
-    println!(
-        "{} files, {unparsed} not read, {refused} charts the CPU cannot plan, {seeds} seeds, {}",
-        files.len(),
-        cpu_play().id()
-    );
-    println!(
-        "levels: {}",
-        levels
-            .iter()
-            .map(|l| match l {
-                Strength::Relative(l) => format!("{}:{}", l.strength, l.lapse),
-                Strength::Absolute(a) => format!("{}:{}:{}", a.spread_ms, a.speed, a.floor),
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
-    for ((rules, group), (charts, sums)) in &table {
-        let row = |f: &dyn Fn(&Sum) -> f64| {
-            sums.iter()
-                .map(|s| format!("{:5.1}", f(s)))
-                .collect::<Vec<_>>()
-                .join(" ")
-        };
-        let n = |s: &Sum| f64::from(s.plays.max(1));
-        println!("{rules} | {group} | {charts} charts");
-        println!("  percent  {}", row(&|s| 100.0 * s.percent / n(s)));
-        println!("  out %    {}", row(&|s| 100.0 * f64::from(s.out) / n(s)));
-        println!("  life %   {}", row(&|s| 100.0 * s.life / n(s)));
-        println!("  missed % {}", row(&|s| 100.0 * s.missed / n(s)));
-        println!(
-            "  seed sd  {}",
-            row(&|s| 100.0 * s.spread / f64::from(s.charts.max(1)))
-        );
-        println!(
-            "  let go % {}",
-            row(&|s| 100.0 * f64::from(s.let_go) / f64::from((s.held + s.let_go).max(1)))
-        );
-        println!(
-            "  mines %  {}",
-            row(&|s| 100.0 * f64::from(s.mines_hit) / f64::from(s.mines.max(1)))
-        );
-        println!(
-            "  holds/pl {}",
-            row(&|s| f64::from(s.held + s.let_go) / n(s))
-        );
-        println!("  score k  {}", row(&|s| s.score / n(s)));
-        println!("  best k   {}", row(&|s| s.best / n(s)));
-    }
+    (files, table, unparsed, refused)
 }
 
 /// The levels measured: the opponents' ten, the earlier ones
@@ -433,10 +538,19 @@ fn strengths() -> Vec<Strength> {
             .split(',')
             .map(|p| {
                 let f: Vec<f64> = p.split(':').map(|x| x.trim().parse().expect("number")).collect();
-                Strength::Absolute(Ability {
-                    spread_ms: f[0],
-                    speed: f[1],
-                    floor: f.get(2).copied().unwrap_or(0.0),
+                let floor = f.get(2).copied().unwrap_or(0.0);
+                Strength::Absolute(match (f.get(3), f.get(4)) {
+                    // Five values: a `cpu-levels-v2` candidate (its lean
+                    // and drift too); three: a `cpu-levels-v1` one.
+                    (Some(&lean_ms), Some(&drift_ms)) => Ability {
+                        spread_ms: f[0],
+                        speed: f[1],
+                        floor,
+                        lean_ms,
+                        drift_ms,
+                        model: &ddi_engine::cpu::ABSOLUTE_V2,
+                    },
+                    _ => Ability::v1(f[0], f[1], floor),
                 })
             })
             .collect();
@@ -453,10 +567,10 @@ fn strengths() -> Vec<Strength> {
             })
             .collect();
     }
-    if std::env::var("DDI_CPU_SCALE").is_ok_and(|v| v == "v0") {
-        CPU_LEVELS_V0.levels.map(Strength::Relative).to_vec()
-    } else {
-        CPU_LEVELS_V1.levels.map(Strength::Absolute).to_vec()
+    match std::env::var("DDI_CPU_SCALE").as_deref() {
+        Ok("v0") => CPU_LEVELS_V0.levels.map(Strength::Relative).to_vec(),
+        Ok("v1") => CPU_LEVELS_V1.levels.map(Strength::Absolute).to_vec(),
+        _ => CPU_LEVELS_V2.levels.map(Strength::Absolute).to_vec(),
     }
 }
 
@@ -497,10 +611,10 @@ const EVASIONS: [f64; 3] = [0.5, 1.0, 2.0];
 
 /// The scale the shocks' study runs (`DDI_CPU_SCALE=v0`: the earlier one).
 fn scale() -> LevelScale {
-    if std::env::var("DDI_CPU_SCALE").is_ok_and(|v| v == "v0") {
-        LevelScale::RelativeV0
-    } else {
-        ddi_engine::cpu::CPU_LEVELS
+    match std::env::var("DDI_CPU_SCALE").as_deref() {
+        Ok("v0") => LevelScale::RelativeV0,
+        Ok("v1") => LevelScale::AbsoluteV1,
+        _ => ddi_engine::cpu::CPU_LEVELS,
     }
 }
 

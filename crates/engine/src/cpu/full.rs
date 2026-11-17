@@ -57,7 +57,7 @@
 //! `powf` agree (`super::absolute`'s note: they may differ in the last
 //! bit, which the quantization hides but at a boundary).
 
-use super::absolute::{ABSOLUTE_V1, Ability, RowDemand, law, respond, row_demands};
+use super::absolute::{ABSOLUTE_V1, Ability, Personal, RowDemand, law, respond, row_demands, tenths};
 use super::mines::{MINE_RESPONSE_V1, MineResponse, Purpose, draw};
 use super::{
     MAX_AUTOMATIC_ROWS, OMITTED, Press, Random, Row, Skills, basis, check_layout, group_rows,
@@ -311,10 +311,11 @@ impl FullPlan {
     }
 }
 
-/// What one row is to the CPU: its timing law's key, its lapse and its
-/// load for letting a hold go.
+/// What one row is to the CPU: its spread (before its play's own
+/// factor, `Personal::factor`), its lapse and its load for letting a hold
+/// go.
 struct RowPlay {
-    tenths: u32,
+    spread: f64,
     lapse: f64,
     load: f64,
 }
@@ -329,7 +330,7 @@ pub(super) fn script(
     mines: MineResponse,
 ) -> Result<Vec<Press>, String> {
     a.validate()?;
-    let m = &ABSOLUTE_V1;
+    let m = a.model;
     let h = &HOLD_MODEL_V1;
     let v = skills.values();
     let endurance = (v[3] * v[6]).sqrt();
@@ -341,7 +342,7 @@ pub(super) fn script(
         .map(|d| {
             let (spread, lapse, load) = respond(&a, &skills, d, m);
             RowPlay {
-                tenths: (spread * 10.0).round().max(10.0) as u32,
+                spread,
                 lapse,
                 load,
             }
@@ -377,6 +378,12 @@ pub(super) fn script(
         let x = over(load - m.onset);
         (m.lapse_over(a.floor, x) * h.drop_share / endurance).min(m.most_lapse)
     };
+    let mut me = Personal::new(
+        &a,
+        seed,
+        plan.rows.first().map_or(0.0, |r| r.seconds),
+        plan.rows.last().map_or(0.0, |r| r.seconds),
+    );
     let mut rng = Random(seed);
     let mut out: Vec<Press> = Vec::with_capacity(plan.notes.len() + 16);
     let mut free = [f64::NEG_INFINITY; 4];
@@ -400,10 +407,12 @@ pub(super) fn script(
         let u = [rng.unit(), rng.unit(), rng.unit()];
         let omit = OMITTED + row.lapse * (1.0 - OMITTED);
         if u[2] < omit {
+            me.played(t, None);
             continue;
         }
-        let q = law_of(row.tenths);
-        let off = offset(&basis::EDGES, &q, u[0], u[1]);
+        let q = law_of(tenths(row.spread * me.factor(t)));
+        let off = me.aim(t, offset(&basis::EDGES, &q, u[0], u[1]));
+        me.played(t, Some(off));
         let earliest = free[l] + 0.0001;
         match note.kind {
             Kind::Tap => {
@@ -517,10 +526,11 @@ pub(super) fn script(
                         if draw(seed, note.tick, lane, Purpose::RollSlip, n) < rows[j].lapse {
                             continue;
                         }
-                        let q = law_of(rows[j].tenths);
+                        let q = law_of(tenths(rows[j].spread * me.factor(nominal)));
                         let u0 = draw(seed, note.tick, lane, Purpose::RollTap, 2 * n);
                         let u1 = draw(seed, note.tick, lane, Purpose::RollTap, 2 * n + 1);
-                        let tap = (nominal + offset(&basis::EDGES, &q, u0, u1)).max(free[l] + 0.0001);
+                        let tap = (nominal + me.aim(nominal, offset(&basis::EDGES, &q, u0, u1)))
+                            .max(free[l] + 0.0001);
                         if tap > end || !clear(tap) {
                             continue;
                         }

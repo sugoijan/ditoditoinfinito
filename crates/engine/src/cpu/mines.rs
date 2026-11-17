@@ -67,7 +67,7 @@ pub struct MineResponseTable {
     /// At avoidance 1: steps on the fewest.
     pub good: MineResponse,
     /// Each level's avoidance (an opponent's ten levels, by a level's
-    /// index on either scale: [`super::CPU_LEVELS_V1`] or
+    /// index on any scale: [`super::CPU_LEVELS_V2`], [`super::CPU_LEVELS_V1`] or
     /// [`super::CPU_LEVELS_V0`]).
     pub by_level: [f64; super::LEVELS],
 }
@@ -123,7 +123,7 @@ pub const MINE_RESPONSE_V0: MineResponseTable = MineResponseTable {
 
 impl MineResponseTable {
     /// The avoidance of a CPU at `level` (a level's index on either scale,
-    /// [`super::CPU_LEVELS_V1`] or [`super::CPU_LEVELS_V0`]; past the
+    /// [`super::CPU_LEVELS_V2`], [`super::CPU_LEVELS_V1`] or [`super::CPU_LEVELS_V0`]; past the
     /// last, the last's).
     pub fn avoidance(&self, level: usize) -> f64 {
         self.by_level[level.min(self.by_level.len() - 1)]
@@ -276,6 +276,11 @@ pub(super) enum Purpose {
     ChartMine = 9,
     ChartMinePlace = 10,
     HoldMine = 11,
+    /// A play's own timing (`cpu-levels-v2`, `super::absolute::Personal`):
+    /// its lean, its drift's knots and its form.
+    Lean = 12,
+    Drift = 13,
+    Form = 14,
 }
 
 /// A uniform draw in `0..1` keyed by the CPU's seed, the shock (its tick

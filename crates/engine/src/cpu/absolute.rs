@@ -1,7 +1,7 @@
-//! A CPU whose ability is absolute (`cpu-levels-v1`,
-//! `docs/plans/cpu-player.md`, "An opponent's ten levels"): the same on
-//! every chart, so an easy chart is played nearly perfectly by a middling
-//! CPU and a chart above its head breaks it.
+//! A CPU whose ability is absolute (`cpu-levels-v2` since round V,
+//! `cpu-levels-v1` before; `docs/plans/cpu-player.md`, "An opponent's ten
+//! levels"): the same on every chart, so an easy chart is played well by
+//! a middling CPU and a chart above its head breaks it.
 //!
 //! - **Its abilities**, in real units ([`Ability`]): how precisely it
 //!   times a comfortable note (`spread_ms`, a spread in milliseconds) and
@@ -19,22 +19,31 @@
 //!   (presses a second on one lane), and how irregular the rhythm is. Never
 //!   normalized by the chart's own average or peak; nothing is fitted per
 //!   chart.
-//! - **How it fails** past its limits: its spread widens in a straight
-//!   line once the row's demand passes [`AbsoluteModel::onset`] of its
-//!   limit, and it leaves notes out with a chance rising with how far the
-//!   demand is above that ([`AbsoluteModel::lapse_linear`],
-//!   [`AbsoluteModel::lapse_square`]), never a flat share.
+//! - **How it fails** as a row asks more: its spread widens in a straight
+//!   line once the row's demand passes [`AbsoluteModel::spread_onset`] of
+//!   its limit, and it leaves notes out with a chance rising with how far
+//!   the demand is above [`AbsoluteModel::onset`]
+//!   ([`AbsoluteModel::lapse_linear`], [`AbsoluteModel::lapse_square`]),
+//!   never a flat share. Under `cpu-model-v2` ([`ABSOLUTE_V2`]) the
+//!   spread widens well before notes are left out, as a person's hits get
+//!   loose long before they miss.
+//! - **Its own timing** (`cpu-model-v2`, [`Personal`]): a steady lean
+//!   drawn from its seed (early or late, as poor calibration is) and a
+//!   drift about it, a play's form, a burst of looser presses after a
+//!   stumble and a little fatigue toward a song's end; `cpu-model-v1`
+//!   ([`ABSOLUTE_V1`]) has none of these and presses as it always did.
 //!
-//! The shape of that fall-off (where it starts, how fast the spread
-//! widens and the misses rise) was checked against one player's local
-//! play history, which is not included; the levels' values are rungs
-//! chosen by measurement over charts ([`CPU_LEVELS_V1`]), never a
-//! person's skill rating.
+//! The shape (where the spread starts to widen, how fast, where misses
+//! start, the lean, the bursts) was read from one player's local play
+//! history, as aggregates; it is not included. The levels' values are
+//! rungs fitted by measurement over charts to targets stated before the
+//! fit ([`super::CPU_LEVELS_V2`]), never a person's skill rating.
 //!
 //! The motor is the same (three draws a note, 12 ms holds, the third
 //! deciding a note left out); the timing law of a row is a mixture of two
 //! normal laws on the plan's grid, cached by its spread in tenths of a
-//! millisecond. The arithmetic is the plan's own: sums, products,
+//! millisecond; `cpu-model-v2`'s own timing draws nothing from the
+//! motor's stream (its draws are keyed by the seed). The arithmetic is the plan's own: sums, products,
 //! divisions and square roots, correctly rounded and so the same natively
 //! and in wasm, and `ln` for the rhythm's irregularity and the normal
 //! tail's `exp` (with `powf` in the shock response, `super::mines`),
@@ -50,6 +59,7 @@
 //! counts the other (`ddi_room::live::LiveStage::cpu_mismatches`); the
 //! shocks it commits are the same for every device either way.
 
+use super::mines::{Purpose, draw};
 use super::{OMITTED, Press, Row, Skills, basis, motor, offset};
 use std::collections::BTreeMap;
 
@@ -57,16 +67,40 @@ use std::collections::BTreeMap;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ability {
     /// How precisely it times a comfortable note: the spread (standard
-    /// deviation) of its presses' offsets, milliseconds.
+    /// deviation) of its presses' offsets about its own lean,
+    /// milliseconds.
     pub spread_ms: f64,
     /// The notes a second it keeps up with before it degrades (the
     /// second before a row and the gap since the last row, single notes).
     pub speed: f64,
     /// The chance it leaves a note out where nothing is hard.
     pub floor: f64,
+    /// Its lean (`cpu-levels-v2`): the standard deviation of the steady
+    /// offset each play of it has, drawn from its seed (early or late, as
+    /// a person whose calibration is off is), milliseconds; 0 none.
+    pub lean_ms: f64,
+    /// The standard deviation of how far its lean wanders within a play
+    /// (a knot every [`AbsoluteModel::drift_period`] seconds, a straight
+    /// line between), milliseconds; 0 none.
+    pub drift_ms: f64,
+    /// The model it plays by ([`ABSOLUTE_V2`], [`ABSOLUTE_V1`], or a
+    /// study's candidate).
+    pub model: &'static AbsoluteModel,
 }
 
 impl Ability {
+    /// An ability of `cpu-levels-v1` ([`ABSOLUTE_V1`]: no lean, no drift).
+    pub const fn v1(spread_ms: f64, speed: f64, floor: f64) -> Ability {
+        Ability {
+            spread_ms,
+            speed,
+            floor,
+            lean_ms: 0.0,
+            drift_ms: 0.0,
+            model: &ABSOLUTE_V1,
+        }
+    }
+
     /// Within what a plan can be made for.
     pub fn validate(&self) -> Result<(), String> {
         if self.spread_ms.is_finite()
@@ -75,6 +109,10 @@ impl Ability {
             && (0.5..=50.0).contains(&self.speed)
             && self.floor.is_finite()
             && (0.0..=0.5).contains(&self.floor)
+            && self.lean_ms.is_finite()
+            && (0.0..=100.0).contains(&self.lean_ms)
+            && self.drift_ms.is_finite()
+            && (0.0..=100.0).contains(&self.drift_ms)
         {
             Ok(())
         } else {
@@ -87,6 +125,7 @@ impl Ability {
 /// fails past its limits. Named and versioned with the levels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AbsoluteModel {
+    pub id: &'static str,
     /// Seconds before a row whose notes count for its speed.
     pub window: f64,
     /// The gap since the row before's share of the speed (the rest the
@@ -105,10 +144,13 @@ pub struct AbsoluteModel {
     /// A lane repeating: its limit (presses a second on one lane) as a
     /// share of the speed.
     pub jack_share: f64,
-    /// The demand (a share of the limit) from which its spread widens and
-    /// it starts leaving notes out.
+    /// The demand (a share of the limit) from which it starts leaving
+    /// notes out (and from which a hold may be let go).
     pub onset: f64,
-    /// The spread's widening per unit of demand past the onset.
+    /// The demand from which its spread widens (`cpu-levels-v2`: well
+    /// before it leaves notes out; `cpu-levels-v1`: the same as `onset`).
+    pub spread_onset: f64,
+    /// The spread's widening per unit of demand past `spread_onset`.
     pub widen: f64,
     /// The widest spread, milliseconds.
     pub most_spread_ms: f64,
@@ -130,6 +172,26 @@ pub struct AbsoluteModel {
     /// held_load` for each lane held ([`RowDemand::held`]). A tap-only
     /// copy (`cpu-play-v0`) holds nothing, so it never counts there.
     pub held_load: f64,
+    /// `cpu-levels-v2`'s person-like timing (all off in
+    /// `cpu-levels-v1`, which then presses exactly as it did):
+    /// - seconds between the knots of a play's drift ([`Ability::drift_ms`];
+    ///   0: none);
+    pub drift_period: f64,
+    /// - a play's form: its spread times `1 + form × z` (`z` a standard
+    ///   draw from the seed, kept within ±2, halved where it is below 0),
+    ///   some plays much looser than others, a few a little tighter;
+    pub form: f64,
+    /// - after a stumble (a note left out, or a press more than
+    ///   `stumble_ms` off its note as aimed) its spread is `1 + burst`
+    ///   times as wide, easing back over `burst_seconds`, so loose
+    ///   presses and breaks come in bursts;
+    pub burst: f64,
+    pub burst_seconds: f64,
+    pub stumble_ms: f64,
+    /// - its spread `1 + fatigue × p` times as wide at the share `p` of
+    ///   the play gone (its first row to its last), a little looser
+    ///   toward a song's end.
+    pub fatigue_end: f64,
 }
 
 impl AbsoluteModel {
@@ -148,6 +210,7 @@ impl AbsoluteModel {
 /// That shape was checked against one player's local play history, which
 /// is not included.
 pub const ABSOLUTE_V1: AbsoluteModel = AbsoluteModel {
+    id: "cpu-model-v1",
     window: 1.0,
     gap_share: 0.3,
     most_rate: 20.0,
@@ -156,6 +219,7 @@ pub const ABSOLUTE_V1: AbsoluteModel = AbsoluteModel {
     fatigue: 0.7,
     jack_share: 0.65,
     onset: 0.85,
+    spread_onset: 0.85,
     widen: 3.0,
     most_spread_ms: 150.0,
     technical: 0.35,
@@ -165,6 +229,53 @@ pub const ABSOLUTE_V1: AbsoluteModel = AbsoluteModel {
     tail_share: 0.12,
     tail_width: 2.5,
     held_load: 0.25,
+    drift_period: 0.0,
+    form: 0.0,
+    burst: 0.0,
+    burst_seconds: 0.0,
+    stumble_ms: 0.0,
+    fatigue_end: 0.0,
+};
+
+/// `cpu-model-v2`'s shape (`cpu-levels-v2`, PROVISIONAL; round V,
+/// `docs/plans/cpu-player.md`, "Round V"): a row's demand read as
+/// `cpu-model-v1` reads it (the plan's demands are made once, with
+/// [`ABSOLUTE_V1`]'s); the spread widening from 0.65 of a limit, 1.35
+/// times as wide at the limit and 1.65 times at 1.3 times it, while
+/// notes are left out only from the limit (`cpu-model-v1`'s curve past
+/// it); a thin tail (2% of presses three times as wide); a lean and a
+/// drift of a CPU's own ([`Ability::lean_ms`], [`Ability::drift_ms`], a
+/// knot every 16 s); a play's form (a draw's 0.35 looser, half that
+/// tighter); a stumble (a note left out, or a press more than 90 ms off)
+/// doubling the spread, easing back over two seconds; and a quarter
+/// wider by a song's end. The shape was read from one player's local
+/// play history (its aggregates; not included).
+pub const ABSOLUTE_V2: AbsoluteModel = AbsoluteModel {
+    id: "cpu-model-v2",
+    window: 1.0,
+    gap_share: 0.3,
+    most_rate: 20.0,
+    sustain: 8.0,
+    stamina_share: 0.75,
+    fatigue: 0.7,
+    jack_share: 0.65,
+    onset: 1.0,
+    spread_onset: 0.65,
+    widen: 1.0,
+    most_spread_ms: 150.0,
+    technical: 0.35,
+    lapse_linear: 0.067,
+    lapse_square: 0.1,
+    most_lapse: 0.95,
+    tail_share: 0.02,
+    tail_width: 3.0,
+    held_load: 0.25,
+    drift_period: 16.0,
+    form: 0.35,
+    burst: 1.0,
+    burst_seconds: 2.0,
+    stumble_ms: 90.0,
+    fatigue_end: 0.25,
 };
 
 /// What a row asks of a CPU, read from the chart in real units.
@@ -268,8 +379,8 @@ pub fn respond(
     let (load, lanes) = loads(a, skills, d, m);
     let over = |x: f64| if x > 0.0 { x } else { 0.0 };
     let rhythm = 1.0 + m.technical * d.irregular / v[6];
-    let spread =
-        (a.spread_ms * (1.0 + m.widen * over(load - m.onset)) * rhythm).min(m.most_spread_ms);
+    let spread = (a.spread_ms * (1.0 + m.widen * over(load - m.spread_onset)) * rhythm)
+        .min(m.most_spread_ms);
     let most = load.max(lanes);
     let lapse = m.lapse_over(a.floor, over(most - m.onset)).min(m.most_lapse);
     (spread, lapse, most)
@@ -309,6 +420,127 @@ pub(super) fn law(tenths: u32, m: &AbsoluteModel) -> [f64; 91] {
     super::automatic::mixture(&near, &far, m.tail_share)
 }
 
+/// A play's own timing (`cpu-levels-v2`; nothing at all under
+/// `cpu-levels-v1`): its lean and the drift about it, its form, a little
+/// fatigue toward its end, and the burst of looser presses after a
+/// stumble. Every draw is keyed by the seed ([`draw`]), never taken from
+/// the motor's stream, and the arithmetic is sums, products, divisions
+/// and a square root, so it is the same on every device.
+pub(super) struct Personal {
+    m: &'static AbsoluteModel,
+    /// Seconds.
+    lean: f64,
+    drift: Vec<f64>,
+    from: f64,
+    span: f64,
+    form: f64,
+    /// When it last stumbled.
+    stumbled: f64,
+}
+
+/// The farthest a press is aimed from its note (the timing law's grid's
+/// own bound, `basis::EDGES`), seconds.
+const AIM_BOUND: f64 = 0.18;
+
+/// A standard draw from `seed` for `purpose` (`extra` its own key): the
+/// sum of four keyed uniforms, centered and scaled (Irwin–Hall), within
+/// `±most`.
+fn standard(seed: u64, purpose: Purpose, extra: u64, most: f64) -> f64 {
+    let s: f64 = (0..4).map(|k| draw(seed, 0, 0, purpose, extra * 4 + k)).sum();
+    ((s - 2.0) * 3.0f64.sqrt()).clamp(-most, most)
+}
+
+impl Personal {
+    /// The timing of a play of `a` with `seed` whose rows run from
+    /// `first` to `last` seconds.
+    pub(super) fn new(a: &Ability, seed: u64, first: f64, last: f64) -> Personal {
+        let m = a.model;
+        let span = (last - first).max(1.0);
+        let lean = if a.lean_ms > 0.0 {
+            (a.lean_ms * standard(seed, Purpose::Lean, 0, 2.5) * 10.0).round() / 10_000.0
+        } else {
+            0.0
+        };
+        let drift = if a.drift_ms > 0.0 && m.drift_period > 0.0 {
+            let knots = (span / m.drift_period) as u64 + 2;
+            (0..knots)
+                .map(|k| (a.drift_ms * standard(seed, Purpose::Drift, k, 2.5) * 10.0).round() / 10_000.0)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let form = if m.form > 0.0 {
+            // Skewed: a bad day is looser by the whole draw, a good one
+            // tighter by half of it.
+            let z = standard(seed, Purpose::Form, 0, 2.0);
+            1.0 + m.form * if z > 0.0 { z } else { z / 2.0 }
+        } else {
+            1.0
+        };
+        Personal {
+            m,
+            lean,
+            drift,
+            from: first,
+            span,
+            form,
+            stumbled: f64::NEG_INFINITY,
+        }
+    }
+
+    /// Where its presses aim at `t` against the note: its lean and the
+    /// drift about it there, seconds.
+    pub(super) fn shift(&self, t: f64) -> f64 {
+        if self.drift.is_empty() {
+            return self.lean;
+        }
+        let x = ((t - self.from) / self.m.drift_period).max(0.0);
+        let k = (x as usize).min(self.drift.len() - 2);
+        let f = (x - k as f64).min(1.0);
+        self.lean + self.drift[k] + (self.drift[k + 1] - self.drift[k]) * f
+    }
+
+    /// A press `off` seconds off its note by the timing law, aimed at
+    /// `t`: with its lean and drift, never more than the law's own
+    /// bound (180 ms) off its note, as every press of `cpu-levels-v1`
+    /// was (a press is judged against its note or left out, never a
+    /// stray one).
+    pub(super) fn aim(&self, t: f64, off: f64) -> f64 {
+        if self.lean == 0.0 && self.drift.is_empty() {
+            return off;
+        }
+        (self.shift(t) + off).clamp(-AIM_BOUND, AIM_BOUND)
+    }
+
+    /// How much wider than the row asks its spread is at `t`: its form,
+    /// its fatigue so far and a stumble's burst.
+    pub(super) fn factor(&self, t: f64) -> f64 {
+        let m = self.m;
+        let mut f = self.form;
+        if m.fatigue_end > 0.0 {
+            f *= 1.0 + m.fatigue_end * ((t - self.from) / self.span).clamp(0.0, 1.0);
+        }
+        if m.burst > 0.0 && t >= self.stumbled && t - self.stumbled < m.burst_seconds {
+            f *= 1.0 + m.burst * (1.0 - (t - self.stumbled) / m.burst_seconds);
+        }
+        f
+    }
+
+    /// A note at `t` played: left out (`None`) or pressed `off` seconds
+    /// off its note (its lean and drift included). A stumble starts a
+    /// burst.
+    pub(super) fn played(&mut self, t: f64, off: Option<f64>) {
+        if self.m.burst > 0.0 && off.is_none_or(|o| o.abs() * 1000.0 > self.m.stumble_ms) {
+            self.stumbled = t;
+        }
+    }
+}
+
+/// The timing law's key at `spread` milliseconds.
+pub(super) fn tenths(spread: f64) -> u32 {
+    (spread * 10.0).round().max(10.0) as u32
+}
+
 /// The presses of a CPU of `a` with `skills` and `seed` on `rows` (their
 /// demands `demands`).
 pub(super) fn script(
@@ -319,20 +551,29 @@ pub(super) fn script(
     skills: Skills,
 ) -> Result<Vec<Press>, String> {
     a.validate()?;
-    let m = &ABSOLUTE_V1;
+    let m = a.model;
     let mut laws: BTreeMap<u32, [f64; 91]> = BTreeMap::new();
     let mut current = None;
     let mut q = [0.0; 91];
     let mut omit = OMITTED;
+    let mut me = Personal::new(
+        &a,
+        seed,
+        rows.first().map_or(0.0, |r| r.seconds),
+        rows.last().map_or(0.0, |r| r.seconds),
+    );
     motor(rows, seed, |i, u| {
+        let t = rows[i].seconds;
         if current != Some(i) {
             let (spread, lapse, _) = respond(&a, &skills, &demands[i], m);
-            let tenths = (spread * 10.0).round().max(10.0) as u32;
-            q = *laws.entry(tenths).or_insert_with(|| law(tenths, m));
+            let key = tenths(spread * me.factor(t));
+            q = *laws.entry(key).or_insert_with(|| law(key, m));
             omit = OMITTED + lapse * (1.0 - OMITTED);
             current = Some(i);
         }
-        (u[2] >= omit).then(|| offset(&basis::EDGES, &q, u[0], u[1]))
+        let off = (u[2] >= omit).then(|| me.aim(t, offset(&basis::EDGES, &q, u[0], u[1])));
+        me.played(t, off);
+        off
     })
 }
 
@@ -396,11 +637,7 @@ mod tests {
     #[test]
     fn it_fails_past_its_limits_and_not_before() {
         let m = ABSOLUTE_V1;
-        let a = Ability {
-            spread_ms: 10.0,
-            speed: 6.0,
-            floor: 0.001,
-        };
+        let a = Ability::v1(10.0, 6.0, 0.001);
         let s = Skills::default();
         let at = |speed: f64| {
             let (spread, lapse, _) = respond(

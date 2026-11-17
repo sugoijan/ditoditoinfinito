@@ -227,7 +227,7 @@ fn a_solo_cpu_plays_at_an_absolute_level_where_asked() {
         &song,
         1,
         presets::itg(),
-        LevelScale::AbsoluteV1,
+        CPU_LEVELS,
         2,
         7,
         Skills::default(),
@@ -607,7 +607,7 @@ fn an_absolute_level_is_lost_on_a_chart_above_its_head() {
             })
             .collect()
     };
-    let weakest = CPU_LEVELS_V1.levels[0];
+    let weakest = CPU_LEVELS_V2.levels[0];
     for (gap, pressed) in [(1.0, 0.99), (0.0625, 0.5)] {
         let r = rows(gap);
         let d = absolute::row_demands(&r, &ABSOLUTE_V1);
@@ -639,7 +639,7 @@ fn absolute_levels_stay_within_bounds_on_extreme_rows() {
     }));
     let d = absolute::row_demands(&rows, &ABSOLUTE_V1);
     assert!(d.iter().all(|d| d.speed.is_finite() && d.lane.is_finite()));
-    for a in CPU_LEVELS_V1.levels {
+    for a in CPU_LEVELS_V2.levels {
         let presses = absolute::script(&rows, &d, a, 3, Skills::default()).unwrap();
         validate_script(&presses).unwrap();
     }
@@ -653,7 +653,7 @@ fn absolute_hits(rows: &[Row], skills: Skills) -> f64 {
     let notes: usize = rows.iter().map(|r| r.mask.count_ones() as usize).sum();
     let mut hits = 0;
     for seed in 1..=8 {
-        let presses = absolute::script(rows, &d, CPU_LEVELS_V1.levels[4], seed, skills).unwrap();
+        let presses = absolute::script(rows, &d, CPU_LEVELS_V2.levels[4], seed, skills).unwrap();
         hits += presses
             .iter()
             .filter(|p| {
@@ -859,4 +859,95 @@ fn the_solo_cpu_plays_the_absolute_levels_by_default() {
         .unwrap()
         .on_absolute_scale(true);
     assert_eq!(prepared.absolute, None);
+}
+
+/// `cpu-levels-v2` (round V): a CPU leans as its seed says, the same on
+/// every chart it plays; its presses loosen as a row asks more, well
+/// before it leaves notes out; and past its limit it leaves them out.
+#[test]
+fn a_v2_cpu_leans_and_loosens_before_it_leaves_notes_out() {
+    let stream = |gap: f64| -> Vec<Row> {
+        (0..600)
+            .map(|i| Row {
+                seconds: 1.0 + i as f64 * gap,
+                mask: 1 << (i % 4),
+            })
+            .collect()
+    };
+    let level = CPU_LEVELS_V2.levels[4];
+    // Each press against its note: the offsets, and the share pressed.
+    let offsets = |rows: &[Row], seed: u64| -> (Vec<f64>, f64) {
+        let d = absolute::row_demands(rows, &ABSOLUTE_V1);
+        let presses = absolute::script(rows, &d, level, seed, Skills::default()).unwrap();
+        validate_script(&presses).unwrap();
+        let mut off = Vec::new();
+        for p in &presses {
+            let near = rows
+                .iter()
+                .filter(|r| r.mask & (1 << p.lane) != 0)
+                .map(|r| p.press - r.seconds)
+                .min_by(|a, b| a.abs().total_cmp(&b.abs()))
+                .unwrap();
+            off.push(near);
+        }
+        let share = presses.len() as f64 / rows.len() as f64;
+        (off, share)
+    };
+    let sd = |v: &[f64]| {
+        let m = v.iter().sum::<f64>() / v.len() as f64;
+        (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt()
+    };
+    let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    // At rest (3 notes a second, half its limit): every note pressed,
+    // about its own lean, which differs from seed to seed.
+    let rest = stream(1.0 / 3.0);
+    let mut leans = Vec::new();
+    for seed in 1..=40 {
+        let (off, share) = offsets(&rest, seed);
+        assert!(share > 0.99, "{seed}: {share}");
+        leans.push(mean(&off));
+        // The same seed, the same lean on another chart.
+        let (other, _) = offsets(&stream(0.4), seed);
+        assert!((mean(&other) - mean(&off)).abs() < 0.006, "{seed}");
+    }
+    let lean_sd = sd(&leans) * 1000.0;
+    assert!(
+        lean_sd > 0.6 * level.lean_ms && lean_sd < 1.5 * level.lean_ms,
+        "the leans' spread {lean_sd} ms against {} ms",
+        level.lean_ms
+    );
+    // Loaded (just under its limit): wider, notes still pressed.
+    let (calm, _) = offsets(&rest, 7);
+    let (busy, busy_share) = offsets(&stream(1.0 / 5.8), 7);
+    assert!(sd(&busy) > 1.15 * sd(&calm), "{} {}", sd(&busy), sd(&calm));
+    assert!(busy_share > 0.98, "{busy_share}");
+    // Well past it: notes left out.
+    let (_, over_share) = offsets(&stream(1.0 / 10.0), 7);
+    assert!(over_share < 0.95, "{over_share}");
+}
+
+/// `cpu-levels-v1`, kept for the studies' comparison, plays by
+/// `cpu-model-v1` with nothing of v2's own timing: no lean, no drift, no
+/// form, no burst, no fatigue (it presses exactly as it did before round
+/// V: its fixture was checked against these levels when v2 was built).
+#[test]
+fn cpu_levels_v1_has_none_of_v2_s_own_timing() {
+    for a in CPU_LEVELS_V1.levels {
+        let me = absolute::Personal::new(&a, 7, 1.0, 120.0);
+        for t in [0.0, 1.0, 60.0, 119.0, 500.0] {
+            assert_eq!(me.shift(t), 0.0);
+            assert_eq!(me.factor(t), 1.0);
+            assert_eq!(me.aim(t, 0.0123), 0.0123);
+        }
+    }
+    let m = ABSOLUTE_V1;
+    assert_eq!((m.form, m.burst, m.fatigue_end, m.drift_period), (0.0, 0.0, 0.0, 0.0));
+    assert_eq!(m.spread_onset, m.onset);
+    // v2 reads a row's demand exactly as v1 does (the plan's demands are
+    // made once, with v1's shape).
+    let v2 = ABSOLUTE_V2;
+    assert_eq!(
+        (v2.window, v2.gap_share, v2.most_rate, v2.sustain),
+        (m.window, m.gap_share, m.most_rate, m.sustain)
+    );
 }
