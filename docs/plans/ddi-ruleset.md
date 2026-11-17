@@ -2102,7 +2102,7 @@ next letter's line are in their sections above, as they are now):
   documented percents (`cpu-levels-v1`'s 61 to 96, the level tests,
   `local_cpu`, `a_level_watched`, the attack study's `percent`) read the
   accuracy, which the heavier miss lowers for plays that miss (the
-  levels themselves are unchanged: they press as before). The Adaptive
+  levels themselves are unchanged: they press as before; measured again under this rule and replaced by `cpu-levels-v2` in round V, `docs/plans/cpu-player.md`, "Round V"). The Adaptive
   ladder's step rule reads judgments (`AdaptiveRule::accuracy`,
   `early_best`), never points or the percent: untouched.
 - **The study** (`combo_study`): its "today" is now the rule before round

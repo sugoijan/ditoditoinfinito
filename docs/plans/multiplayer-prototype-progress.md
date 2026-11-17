@@ -11822,6 +11822,91 @@ changed), only to be rebuilt and deployed at revision 13. People in
 rooms are told to reload. Kept plays are judged again by themselves on
 the first start of the new game (web and desktop).
 
+## Round V: the CPUs' levels measured again and made more like a person (room model revision 14, 2026-11-17)
+
+The maintainer: "Go ahead with re-measuring the CPU levels' and
+re-adjusting them, including the wider timing within accuracy (for
+sloppy combos) to increase its human-like behavior." The whole round,
+its measurements, the reference's shape (the maintainer's kept plays,
+aggregates only), the targets stated before the fit, the fit, the
+ordering test and what it does to multiplayer, are in
+`docs/plans/cpu-player.md`, "Round V". In short:
+
+- **`cpu-levels-v2`** (`ddi_engine::cpu::CPU_LEVELS`, `CPU_LEVELS_V2`,
+  `cpu-model-v2`, `ABSOLUTE_V2`): a CPU has a lean of its own (drawn
+  from its seed, early or late, as poor calibration is) and a spread
+  about it that widens under load well before it leaves notes out; a
+  play's form, a burst after a stumble and fatigue toward the end make
+  its breaks come as a person's do. The middle levels play an ordinary
+  player's A with many W2s and a loose full combo now and then; level 1
+  clears the easiest charts with loose hits and several breaks; level
+  10 is near-perfect. `cpu-levels-v1` is retired from play (kept,
+  pressing exactly as before, for the studies' comparison).
+- **Every device computes the room's CPUs**, so `ROOM_MODEL_REVISION` is
+  14; the stored revision-13 room (`crates/room/tests/room-revision-13.json`,
+  written by revision 13's own reducer: the revision-12 room gone on,
+  stage 3 played and reported, the match over) loads, writes back what
+  it reads and plays on. A stored roster's and practice's kept roster's
+  level numbers are kept and mean the new levels.
+- **Multiplayer, measured and not retuned** (the attack-rate study's six
+  bundled charts, the step-up study over the arcade mixes): a mixed
+  field's bars a minute 2.60 → 2.17 and attacks a stage 24.7 → 22.8
+  (looser hits earn less power: W0 and W1 two, W2 one), seats out 38% →
+  30% (the middle levels survive like a person; level 1 goes out a
+  little more), knockouts by an attack still rare; on the Adaptive
+  ladder the CPUs still spread over the rungs, the middle levels step up
+  as often but more of them by the normal rule than the early one, and
+  fall back far less (level 5 from a Medium pick: 31% → 13% of steps up
+  undone within sixteen bars). A player like the reference is an even
+  match for a level-6 CPU on their charts (against v1 they beat most CPUs
+  up to level 6, which went out, and lost to every one from level 8).
+  Nothing broke; no change to the battle is proposed.
+- **The words**: the Rules' note ("A CPU's stars show its level: the
+  charts it keeps up with, not a skill rating"), Add custom's stars and
+  the solo CPU's "Level 5 of 10" still fit; unchanged.
+- **The server needs no code change** (it carries the CPUs' reports and
+  runs `ddi_room` without CPUs of its own), but it builds against this
+  game's `crates/room` and must be rebuilt at revision 14.
+
+### Fixtures and pins
+
+- **The CPUs' fixture** (`the_cpus_play_alike`, `crates/session/src/battle/cpus/fixture.txt`)
+  recorded again once, natively, and checked in wasm32-wasip1 through
+  the committed runner: 232 of its lines moved (every scenario's
+  checkpoint reports, the power each CPU earned, their commitments and
+  outs; the proof's shape unchanged: attacks both ways, CPUs out).
+- **The pinned stage traces** recorded again once: all 45 practice
+  stages of `pinned.txt` changed their order (their CPUs, several of one
+  level in most, now differ from one another by their leans and forms,
+  as people do), and 3 of the 6 live ones. One before and after
+  ("played": four level-4 CPUs and the autoplayed player, DDI Normal):
+  before `P1 > P5 > P4 > P3 > P2`, the CPUs 80.3 to 90.4 percent, A to S,
+  their tiers about 100 / 67 / 39 / 6 / 0 / 0 / 4 (W0 first, a miss
+  last); after `P1 > P2 > P4 > P3 > P5`, 66.3 to 86.1 percent, B to A,
+  about 49 / 47 / 82 / 35 / 4 / 0 / 2: looser, fewer misses, longer
+  combos for most (54 to 149 before, 42 to 128 after).
+- **Tests whose seeded stage changed, their meaning kept**: the
+  step-down fields test seats two-star CPUs; the attack lines test three
+  level-9 CPUs; the early-win voice test hears the 20 combo before the
+  win; the desktop's chained-attacks stage three four-star CPUs with
+  roster seed 53 (found by a sweep: v1's five-star CPUs with seed 21 no
+  longer go out there); the bots' test checks a bot plays `CPU_LEVELS`,
+  now v2; the bundled charts' level-order test allows a hold-rich harder
+  chart eight points (v2's looser taps earn less than a kept hold's units)
+  and asks level 5 an ordinary player's accuracy on the easiest chart (75
+  or more; 95 under v1) and level 10 93 or more.
+
+### For the deploy
+
+Server and frontend together, the server first: the server needs no code
+change of its own, only to be rebuilt against this game's `crates/room`
+and deployed at revision 14 (a client at 14 refuses a server at 13 as
+"the server is being updated"; a server at 14 refuses clients at 13 with
+"reload to update"). People in rooms are told to reload. Nothing a person
+keeps changes (plays, bests, settings); a kept practice roster's levels
+read as before.
+
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -11862,7 +11947,8 @@ the first start of the new game (web and desktop).
 | `watch-v0`: a grid's field is at most a play's own field (`GRID_LANE_SHARE` 1.0); a layout with more rows wins within a tenth of the largest lane (`GRID_FILL` 0.9) | `ddi_shell::opponents::arrange_grid` | One to three watched fields are nearly the screen's height; eight are four by two at lanes of 29 px (1280×720) | The sizes; whether eight should give up the play's proportion (shorter fields, larger lanes) |
 | `slew-v0` (2026-11-13): a live play's stream and views on the room's song clock, its correction averaged over 4 s and moved at most 2 ms a second; its judging on its own | `ddi_room::live::slew::SLEW_V0`, `ddi_session::battle::live::Live::sync` | None visible: remote fields keep their delay however the devices' clocks drift | The rate; whether a large disagreement should be told to the room |
 | `watch-v1` (2026-11-13; `watch-v0` ended 2.5 s after the decision): a watched stage goes on after its decision while anyone still plays its song, its results 2.5 s after the last one ended (`WATCH_END_HOLD`) or at the song's end | `ddi_session::play::watch`, `Battle::still_playing` | A watcher (and a player out of the stage) sees the winner finish the song, "X wins the stage" on the status line from the decision on; Enter or Start still skips | Whether the hold after the winner finishes should be shorter |
-| `cpu-levels-v1` (2026-11-13): a CPU's level is abilities in real units, the same on every chart (spread 17 to 5.5 ms, speed 2.2 to 9 notes a second, a floor of 0.4% to 0.02%); `cpu-model-v1`'s shape (`ABSOLUTE_V1`: onset at 0.85 of a limit, the spread three times wider per unit past it, the lapse 0.067x + 0.1x², a lane's limit 0.65 of the speed, sustained 0.75, a 12% tail 2.5 times as wide) | `ddi_engine::cpu::{CPU_LEVELS_V1, ABSOLUTE_V1}` | Level 1 at home on Beginner, 3 on Easy, 5 on Medium, 7 on Hard, 9 on Challenge; under Adaptive the levels settle on different rungs | What each level should be at home on; whether "at home" may cost a CPU the stage on the slot's hardest charts (7% to 18%) |
+| `cpu-levels-v2` (round V, 2026-11-17, revision 14; `cpu-levels-v1` retired from play): a level is a spread about a lean of its own (32 to 8 ms; the lean's standard deviation 16 to 2 ms, a drift 5 to 1.5 ms), a speed (2.5 to 12 notes a second) and a floor; `cpu-model-v2` (`ABSOLUTE_V2`: the spread widens from 0.65 of a limit, notes left out from the limit, a 2% tail three times as wide, a play's form 0.35, a stumble doubling the spread for two seconds, a quarter wider by the end) | `ddi_engine::cpu::{CPU_LEVELS_V2, ABSOLUTE_V2}` | The middle levels play like an ordinary person on their charts (an A, loose full combos now and then, many W2s); the weak levels break with loose hits before they miss; looser hits earn less attack power and go out less | Whether levels 5 and 6 should sit at the reference's median (fitted so) or below it, a person on unfamiliar charts doing worse; whether a CPU's lean should stay with it across a match's stages (today it is its stage seed's) |
+| `cpu-levels-v1` (2026-11-13; retired from play by round V, kept for the studies): a CPU's level is abilities in real units, the same on every chart (spread 17 to 5.5 ms, speed 2.2 to 9 notes a second, a floor of 0.4% to 0.02%); `cpu-model-v1`'s shape (`ABSOLUTE_V1`: onset at 0.85 of a limit, the spread three times wider per unit past it, the lapse 0.067x + 0.1x², a lane's limit 0.65 of the speed, sustained 0.75, a 12% tail 2.5 times as wide) | `ddi_engine::cpu::{CPU_LEVELS_V1, ABSOLUTE_V1}` | Level 1 at home on Beginner, 3 on Easy, 5 on Medium, 7 on Hard, 9 on Challenge; under Adaptive the levels settle on different rungs | What each level should be at home on; whether "at home" may cost a CPU the stage on the slot's hardest charts (7% to 18%) |
 | `watch-v0`: where every person watches, a practice stage starts with the pick (the room's countdown), with no press of the watcher's | `ddi_room` `humans_needed`, `maybe_commit` | A watching host's pick is followed by the stage three seconds later | Whether a watching host should start it with a press |
 | `watch-v0`: the status line's moments for a watcher: out, attacks, the win; an attack never takes the line from someone going out | `ddi_session::play::watch::Watch::tell` | With eight CPUs attacking the line changes every few seconds | Which moments a watcher is told, and whether as a line of the announcer's |
 | A forfeit in play: the stage is watched on; the player's results are graded QUIT, their line last with no points | `Battle::forfeit_now`, `PlaySession::tick` | Escape twice in a stage shows "Left the stage" over the field and the stage goes on | Whether leaving should ask first, or be undoable for a moment |
@@ -12456,6 +12542,11 @@ the first start of the new game (web and desktop).
   Challenge nearly perfectly, the coordinator's starting points)? Should
   the solo CPU move to the ten levels too (today its five chart-relative
   strengths, with `--cpu-level`/`level=` beside them)?
+- CPU levels (round V, `cpu-levels-v2`): the middle levels were fitted to
+  the maintainer's own plays on their usual charts (familiar ones);
+  should they sit lower, as a person sight-reading would? Should the
+  shocks' response (`MINE_RESPONSE_V1`, made up before) follow a
+  person's once a stage's plays tell one?
 - CPUs online: a CPU's reading horizon is 2 s for every CPU (practice
   reckons it from the local player's own). Keep it fixed, or take the
   stage's slowest player's?

@@ -21,7 +21,13 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   `--cpu-level`/`level=`; provisional. The full chart (`cpu-play-v1`,
   2026-11-14): at a level a CPU plays holds, rolls, lifts and the chart's
   mines, its field drawn whole and its score its own; the levels' anchors
-  unmoved; the hold model provisional.
+  unmoved; the hold model provisional. Round V (`cpu-levels-v2`,
+  2026-11-17, room model revision 14): the levels measured again under
+  round U's rule and given a person's shape (a lean of their own, hits
+  that loosen long before notes are left out, breaks in bursts), read
+  from the maintainer's kept plays as aggregates, fitted to targets
+  stated first, ordered over the corpus; multiplayer measured before and
+  after, not retuned; provisional.
 
 ## Multiplayer design
 

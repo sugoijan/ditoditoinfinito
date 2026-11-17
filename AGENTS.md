@@ -81,13 +81,20 @@ Rust and the browser are implementation details, not advertised features.
   judged to first, `Player::judge_to_bars`; the plan over every rung,
   `ladder::merged`; a CPU's rungs, `cpu::planned_ladder`,
   `Opponent::add_rungs`); a CPU opponent's ten levels (`cpu/levels.rs`,
-  `CPU_LEVELS`, `docs/plans/cpu-player.md`: since `cpu-levels-v1`,
-  `CPU_LEVELS_V1`, absolute, `cpu/absolute.rs`: each level a timing
-  spread in milliseconds, the notes a second it keeps up with and a
-  floor, the same on every chart; a row's demand read from the chart in
-  real units, `RowDemand`, never normalized by the chart; past its
-  limits its spread widens and it leaves notes out, `ABSOLUTE_V1`, the
-  shape checked against one player's local play history, not included;
+  `CPU_LEVELS`, `docs/plans/cpu-player.md`: since round V (room model
+  revision 14) `cpu-levels-v2`, `CPU_LEVELS_V2`, absolute,
+  `cpu/absolute.rs`: each level a timing spread in milliseconds about a
+  lean of its own (drawn from its seed, with a drift; poor calibration's
+  look), the notes a second it keeps up with and a floor, the same on
+  every chart; a row's demand read from the chart in real units,
+  `RowDemand`, never normalized by the chart; under load its spread
+  widens well before it leaves notes out, a play's form, bursts after a
+  stumble and fatigue toward the end, `ABSOLUTE_V2`, `Personal`; the
+  shape read from one player's local play history, not included, the
+  levels fitted to targets stated first (`cpu_levels_study`, the
+  ordering test `local_cpu_order`); `cpu-levels-v1`, `CPU_LEVELS_V1`,
+  `ABSOLUTE_V1`, retired from play, kept pressing exactly as before for
+  the studies' comparison (`DDI_CPU_SCALE=v1`);
   `Strength`, `Opponent::with_skills` and `on_scale`, a stage's CPUs
   on its chart planned once, `Opponent::on_rung`; what it plays, `cpu/full.rs`, `CPU_PLAY`: at an absolute
   level the chart a person is given, `cpu-play-v1`, `FullPlan`,
@@ -1329,7 +1336,10 @@ Rust and the browser are implementation details, not advertised features.
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 13 since 2026-11-17: DDI's points, percent and
+  (`ROOM_MODEL_REVISION`, 14 since 2026-11-17: the CPUs' levels,
+  `cpu-levels-v2`, which every device computes (a stored roster's level
+  numbers mean the new levels; `tests/room-revision-13.json`); 13 since
+  2026-11-17: DDI's points, percent and
   letters, `ddi-percent-v1`, the percent a starter reports
   (`RunDetail::percent`) the new one; 12 since 2026-11-16: Shocks per attack, a
   returning member's administrator flag, `Event::AdminChanged`, a member
@@ -1987,8 +1997,8 @@ Rust and the browser are implementation details, not advertised features.
   the original seeded inputs. See `docs/plans/cpu-player.md`.
   Prepares an analytical plan locally for imported/bundled keyboard 4K charts.
   Tap-only, 1×, no fail; normal judge, no personal history or bests. It
-  plays the multiplayer CPUs' absolute scale (`cpu-levels-v1`,
-  `ddi_engine::cpu::solo_script`): `--cpu-level N` / `level=N`, 1 to 10,
+  plays the multiplayer CPUs' absolute scale (`CPU_LEVELS`,
+  `cpu-levels-v2`, `ddi_engine::cpu::solo_script`): `--cpu-level N` / `level=N`, 1 to 10,
   level 5 where none is named (`SOLO_LEVEL`); the five named strengths
   (`--cpu-strength`, `strength=`) are levels 6 to 10 (`strength_level`);
   a prepared profile plays its strength chart-relative (`cpu-levels-v0`)

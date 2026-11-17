@@ -5,8 +5,10 @@ imported or bundled single-player keyboard 4K charts through the normal judge.
 No offline profile, model download, training environment or external calculator
 is required. Strength is relative to the selected chart, not a transferable
 human skill rating or a guaranteed score. The multiplayer CPU opponents play
-at absolute levels instead (`cpu-levels-v1`, below): what a level keeps up
-with is the same on every chart, and the solo CPU can play at one of them.
+at absolute levels instead (`cpu-levels-v2` since round V, 2026-11-17,
+below): what a level keeps up with is the same on every chart, its hits
+loosen long before it misses, as a person's, and the solo CPU plays at
+one of them.
 
 ## Launch
 
@@ -24,11 +26,12 @@ cargo run -- --play SONG --chart 0 --cpu=1 --cpu-level 5 --cpu-seed 7
 
 Since 2026-11-14 (the maintainer: "The CPU CLI bots should move to the
 new levels") the solo CPU plays the opponents' absolute scale
-(`cpu-levels-v1`, below): `level=N` on the web or `--cpu-level N` on
-desktop, 1 to 10, is its strength; without one it plays **level 5**
-(`ddi_engine::cpu::SOLO_LEVEL`: the middle of the scale, at home on
-Medium charts, so that a CPU started with no flag plays the common
-charts well and the hard ones badly, as a level should). The five named
+(`ddi_engine::cpu::CPU_LEVELS`, `cpu-levels-v2` since round V, below):
+`level=N` on the web or `--cpu-level N` on desktop, 1 to 10, is its
+strength; without one it plays **level 5** (`ddi_engine::cpu::SOLO_LEVEL`:
+the middle of the scale, an ordinary player's A on the charts it is at
+home on, so that a CPU started with no flag plays the common charts well
+and the hard ones badly, as a level should). The five named
 strengths, `strength=` / `--cpu-strength relaxed|easy|normal|strong|expert`,
 are still taken and are **levels 6 to 10** of the new scale
 (`strength_level`), as they were levels 6 to 10 of the chart-relative one;
@@ -36,7 +39,9 @@ a level and a strength cannot be combined. Prepared profiles (`--cpu
 FILE`, a `cpu=` path) play their strength, chart-relative, as before.
 The chart-relative model (`cpu-levels-v0`, the five strengths'
 multipliers 0.75, 0.9, 1, 1.1, 1.25) stays in the engine by name with its
-fixtures, reachable from prepared profiles, the tests and the studies.
+fixtures, reachable from prepared profiles, the tests and the studies;
+round V left it and the prepared profiles exactly as they were (they
+play the tap-only copy at their strength, chart-relative).
 The prompt and the results say "Level 5 of 10". Seed 1 by default. Seeds are unsigned 64-bit
 integers; the same chart, level, skills and seed reproduce the same inputs. Retry
 keeps them; returning to song select does not leave CPU mode enabled.
@@ -108,7 +113,7 @@ unused weight representing ordinary precision. Each row's effective ability is
 and bad-component width with the existing bounds. Quiet gaps reduce load.
 The whole-chart analytical anchor is chosen before applying personality, so it
 does not compensate away the selected weaknesses. At an absolute level
-(`cpu-levels-v1`, below) the axes multiply the limits their patterns meet
+(`cpu-levels-v1` and `cpu-levels-v2`, below) the axes multiply the limits their patterns meet
 instead (a streamer keeps up with faster streams, a jacker with faster
 jacks), with nothing normalized to the chart.
 
@@ -117,12 +122,18 @@ jacks), with nothing normalized to the chart.
 A multiplayer stage's CPU opponents (`ddi_engine::cpu::Opponent`,
 `docs/plans/multiplayer-prototype-progress.md`) play at one of ten levels,
 shown as five stars and never as a number (`ddi_ui::stars`). Since
-2026-11-13 the levels are absolute (`cpu-levels-v1`,
-`ddi_engine::cpu::CPU_LEVELS_V1`, `cpu/absolute.rs`; `CPU_LEVELS` names the
-scale opponents play at): every multiplayer CPU (practice, online rooms
-computed on every device, the bots' CPUs, the audience's, the studies)
-plays them. The earlier levels (`cpu-levels-v0`, `CPU_LEVELS_V0`, below)
-are kept by name for comparison and as the solo CPU's five strengths.
+2026-11-13 the levels are absolute (`cpu/absolute.rs`; `CPU_LEVELS` names
+the scale opponents play at), since 2026-11-17 (round V, room model
+revision 14) `cpu-levels-v2` (`ddi_engine::cpu::CPU_LEVELS_V2`, played by
+`cpu-model-v2`, `ABSOLUTE_V2`): every multiplayer CPU (practice, online
+rooms computed on every device, the bots' CPUs, the audience's, the
+studies) and the solo CPU at a level play them. `cpu-levels-v1`
+(`CPU_LEVELS_V1`, `ABSOLUTE_V1`) is retired from play: nothing a room,
+the solo CPU or a play reads it; it is kept by name, pressing exactly as
+it did, for the studies' comparison (`DDI_CPU_SCALE=v1`,
+`DDI_LEVELS_SCALE=v1`), as the earlier levels (`cpu-levels-v0`,
+`CPU_LEVELS_V0`, below) are kept for comparison and as the solo CPU's
+five strengths.
 
 ### Why absolute
 
@@ -136,7 +147,99 @@ abilities in real units, a row's demand is read from the chart in real
 units, and nothing is fitted per chart: an easy chart is played nearly
 perfectly by a middling CPU and a chart above its head breaks it.
 
-### The model (`cpu-levels-v1`, PROVISIONAL)
+### The model (`cpu-levels-v2`, PROVISIONAL, round V)
+
+What a level is, since 2026-11-17 (the maintainer: "Go ahead with
+re-measuring the CPU levels' and re-adjusting them, including the wider
+timing within accuracy (for sloppy combos) to increase its human-like
+behavior"; the round's measurements and fit below, "Round V"). A row's
+demand is read exactly as `cpu-levels-v1` reads it (the next section:
+`RowDemand`, the plan's demands made once with `ABSOLUTE_V1`'s shape), and
+a CPU's abilities are still in real units, the same on every chart
+(`Ability`): its **spread** (now about its own lean), its **speed**, its
+**floor**, and two new ones, its **lean** and its **drift**. How it plays
+(`cpu-model-v2`, `ddi_engine::cpu::ABSOLUTE_V2`, `cpu/absolute.rs`'s
+`Personal`):
+
+- **Timing = a steady lean + a spread about it.** Each play of a CPU has
+  a lean, drawn from its seed (a standard draw of four keyed uniforms,
+  Irwin–Hall, times its lean's standard deviation, `lean_ms`; within 2.5
+  of them; to a tenth of a millisecond): early or late, as a person whose
+  calibration is off is. The same seed leans the same on every chart it
+  plays (every rung of a ladder). About it the lean drifts: a knot every
+  16 s, each its own draw times `drift_ms`, a straight line between.
+- **The spread about the lean** is the level's on a comfortable row, from
+  a law of two normals on the plan's grid as before (98% of presses at
+  the spread, 2% three times as wide: a far thinner tail than v1's 12% at
+  2.5 times), times the row's widening, times the play's own factor:
+  - it **widens from 0.65 of a limit** (v1: 0.85), one and a third as wide
+    at the limit and two thirds wider at 1.3 times it (`widen` 1.0), so a
+    loaded CPU's hits fall in W2 and W3 while its combo holds;
+  - a **play's form**: the spread times `1 + 0.35 z` for a standard draw
+    `z` (within ±2), halved where `z` is below 0: some plays much looser,
+    a few a little tighter (people's plays vary far more than sampling
+    makes them, below);
+  - **a stumble** (a note left out, or a press more than 90 ms off its
+    note as aimed) doubles the spread, easing back over two seconds:
+    loose presses and breaks come in bursts;
+  - **fatigue**: a quarter wider by the play's last row, from nothing at
+    its first.
+- **Notes are left out from the limit** (v1: from 0.85 of it), on
+  `cpu-model-v1`'s curve past it (`floor + 0.067 x + 0.1 x²`), and as ever
+  at the level's floor; the larger of its two loads (speed, a lane's) as
+  before. So misses come from load (dense passages, a lane repeating) and
+  lapses, rare at rest; breaks (a W4, a W5, a Miss, a mine) come from the
+  spread loosening (load, a bad day, a stumble's burst, the end of a song)
+  and the lean pushing one side out.
+- **A press is aimed within 180 ms of its note** (the law's own bound),
+  lean and drift included, as every v1 press was: it is judged against
+  its note or left out, never a stray press (a Boo where Boos count).
+- **Determinism**: every new draw is keyed by the seed (`Purpose::Lean`,
+  `Drift`, `Form`), never taken from the motor's stream, and the new
+  arithmetic is sums, products, divisions and a square root (correctly
+  rounded everywhere); the law's cache key (tenths of a millisecond) as
+  before. The same chart, level, seed, skills and shocks press the same
+  at any frame rate, natively and in wasm32 (the online CPUs' fixture
+  recorded again and checked in wasm32-wasip1).
+- **What it feeds**: the full chart's holds and rolls (`hold-model-v1`)
+  are played as before, with the new timing where a note's timing law is
+  used (heads, roll taps, a lift's release) and the new lapse curve where
+  a hold may be let go (its chance is a share of the row's lapse past the
+  onset, which is now the limit: holds are let go a little less at a
+  given load). The chart's mines and a battle's shocks are met with
+  `MINE_RESPONSE_V1` by the level's index, unchanged.
+- **`cpu-levels-v1` is `cpu-model-v1` with none of this** (no lean, no
+  drift, no form, no burst, no fatigue, the spread's onset the misses'):
+  it presses exactly as before (checked against the CPUs' fixture recorded
+  under it, `the_cpus_play_alike`, when v2 was built).
+
+### The ten levels (`CPU_LEVELS_V2`, PROVISIONAL, round V)
+
+| Level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Spread about its lean (ms) | 32 | 30 | 27 | 25 | 22.5 | 20.5 | 17.5 | 14.5 | 11.5 | 8 |
+| Speed (notes/s) | 2.5 | 3.1 | 3.8 | 4.6 | 6.0 | 7.2 | 8.1 | 8.9 | 10.1 | 12.0 |
+| Floor (%) | 0.4 | 0.3 | 0.2 | 0.15 | 0.1 | 0.08 | 0.06 | 0.04 | 0.03 | 0.02 |
+| Lean, standard deviation (ms) | 16 | 14 | 13 | 12 | 12 | 11 | 8 | 6 | 4 | 2 |
+| Drift, standard deviation (ms) | 5 | 5 | 5 | 4 | 4 | 4 | 3 | 3 | 2 | 1.5 |
+
+Fitted to targets stated before the fit (round V, below) over the local
+arcade mixes under DDI Normal, the shape from one player's kept plays. In
+words, on the charts each is at home on (by the chart's notes a second;
+accuracy / Percent of the plays that stay in): level 1 clears charts
+under 2 notes a second with loose hits and several breaks (70 / 66, a B
+or a C, a full combo in 6% of them) and is out on most of the next band;
+level 3 clears 2 to 3 notes a second (75 / 71); levels 5 and 6 play the
+3 to 4.5 notes a second band like an ordinary person (80 / 76 and 84 /
+81: an A, a full combo in 6% and 13% of plays, most of them below 90%
+accuracy, 38% of the taps in W2), level 6 the 4.5 to 6 band too (77 /
+73, out 4%); level 8 is an S on 4.5 to 6; level 10 near-perfect on every
+band (96 to 98, W0 and W1 87% of its taps, a W2 here and there, a break
+on the hardest passages: 0.09 a hundred notes, 0.24 on 6 notes a second
+and more). The stars mean the same thing as before (a level's number in
+a stored roster or a kept practice roster means the new level).
+
+### The model (`cpu-levels-v1`, retired from play since round V)
 
 A CPU's abilities, the same on every chart (`Ability`):
 
@@ -196,7 +299,7 @@ shape is the reference, and the levels themselves are rungs chosen by
 measurement over charts, never against people. A level is what a CPU
 keeps up with, not a skill rating.
 
-### The ten levels (`CPU_LEVELS_V1`, PROVISIONAL)
+### The ten levels (`CPU_LEVELS_V1`, retired from play since round V)
 
 | Level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -226,7 +329,7 @@ level at home goes out on the hardest charts of its slot more as the
 slots get denser (7% of Medium charts at level 5, 18% of Challenge at
 level 9): the slot is wide.
 
-### Measured (`cpu-levels-v1`)
+### Measured (`cpu-levels-v1`, 2026-11-13, under DDI before round U)
 
 `DDI_CPU_CORPUS=<dir>[:<dir>…] DDI_CPU_RULES=ddi-easy,ddi-normal,ddi-hard
 cargo test --release -p ddi-engine --test local_cpu -- --nocapture`
@@ -536,6 +639,352 @@ What the tables say:
   "Measured: the ten CPU levels under DDI": percent 61.4 to 95.9 under
   Normal, out of the stage on a fifth of the charts at level 1 and never
   from level 5 on; never out under Easy; Hard about where ITG FA+ was.
+
+## Round V (2026-11-17): the levels measured again and made more like a person
+
+**The maintainer's words.** On the combo studies: "Maybe the 'sloppiness'
+is something that could be added to the CPU, so we can get more human
+behavior. Part of what I feel like causes it in practice is poor
+calibration." Then: "Go ahead with re-measuring the CPU levels' and
+re-adjusting them, including the wider timing within accuracy (for
+sloppy combos) to increase its human-like behavior." Built:
+`cpu-levels-v2` (the model and the levels above), room model revision 14
+(every device computes the room's CPUs).
+
+**How it was measured.** `cpu_levels_study` (`ddi-session`,
+`crates/session/src/battle/combo_study/levels.rs`; `cargo test --release
+-p ddi-session --lib cpu_levels_study -- --ignored --nocapture`, the
+corpus with `DDI_LEVELS_CORPUS`, the kept plays with `DDI_LEVELS_PLAYS`,
+candidates with `DDI_LEVELS_ABILITIES` and `DDI_LEVELS_MODEL`): every
+dance-single chart as written of the thirteen arcade mixes of the
+maintainer's local library (996 simfiles, 4,147 charts, read in place;
+aggregates only), four seeds a chart and level, each chart its own seeds
+(so that a level's leans are many), DDI Normal, the chart a person is
+given, the fail off (the whole chart judged; "out" the gauge emptying at
+any point). The same measures for the CPUs and for the reference, from a
+play's judgments in order, its taps put on DDI Normal's grid by their
+offsets: the accuracy and the Percent as round U has them, the letters,
+the tiers (W0 to W5, Miss), misses and breaks (a W4, a W5, a Miss, a mine)
+a hundred notes, full combos and how accurate they are, where along the
+play breaks fall, how often a break follows a break, a play's lean (its
+hits' mean offset) and spread about it, and how the spread and the breaks
+grow with the notes in the second before a note. Grouped by the chart's
+notes a second (comparable between a person's plays and the corpus: the
+kept plays name no chart's slot) and by how the play did.
+
+### The reference's shape (aggregates only)
+
+The maintainer's kept plays, read in place, read-only (the desktop's
+`plays/` folder alone; nothing of them in the repository but these
+aggregates): 505 plays judged under DDI on Normal's grid (played under DDI
+or judged again under it), not autoplayed, not quit; one player, mostly
+on familiar charts: **its shape, not the level of any CPU**. Its charts
+are mostly 3 to 4.5 notes a second (300 plays) and 4.5 to 6 (164).
+
+- **Clears** (95% of plays): accuracy 82.2, Percent 79.2 (median 79.8),
+  S 9.5%, A 60.2%, B 23.8%, C 1.6% of plays; 13.3% full combos, 62.5% of
+  them below 90% accuracy (none below 70).
+- **Tiers**: W0 21.9, W1 19.9, W2 38.6, W3 16.2, W4 2.2, W5 0.7, Miss 0.5%;
+  3.4 breaks and 0.5 misses a hundred notes: **its breaks are loose hits
+  (W4), not misses**. A break follows a break 30% of the time (3.4% of
+  notes break): bursts.
+- **Where breaks fall**: 7, 6, 8, 9, 10, 11, 11, 11, 11, 16% of them in
+  each tenth of a play's notes: more toward the end.
+- **Load**: the spread about the play's lean is about 30 ms up to 6 notes
+  in the second before a note, 36 at 6 to 8, 56 at 8 to 11, 76 beyond;
+  misses 0.1 to 0.2 a hundred notes up to 6, 0.4, 3.3 and 10.7 beyond:
+  **hits loosen from about 6 notes a second, misses start at about 8**.
+- **By how the play did**: at a given accuracy its tiers are what a
+  spread gives (clears at 80 to 85%: W0+W1 42.5, W2 40.6, W3 14.9; at 90
+  to 95%: 61.8, 34.1, 3.7), and full combos are 2% of the clears at 70 to
+  80%, 5% at 80 to 85, 21% at 85 to 90 and 65% at 90 to 95.
+
+**Calibration against skill.** A play's lean averages −9.5 ms (early;
+10th, 50th and 90th percentiles −23.3, −9.5 and +3.4 ms; 11.7 ms in size
+on average), varies 11.0 ms between plays (sampling alone would give 1.8)
+and drifts within a play (its quarters' means 5.9 ms about it, sampling
+alone 3.1). Between sessions (plays 45 minutes apart: 68 sessions) the
+sessions' means vary 8.9 ms, within a session 8.6 ms: the lean changes
+from play to play, not only from day to day. Every one of the seven audio
+devices' plays lean early on average (−6 to −13 ms on the four with five
+plays or more), and 23 distinct audio offsets were in effect: a
+calibration that leaves the player a little early, set again often.
+Taken away (each play's hits about its own lean), W0+W1 rises from 41.8
+to 48.3% and W3 falls from 16.2 to 12.3%; the breaks barely move (W4 and
+beyond 2.9 to 2.5%). Plays leaning 20 ms or more average 74.2% accuracy
+against 79.5 to 82.9% for the rest. So a lean costs the top tiers, the
+spread of about 30 ms is skill, and the breaks are mostly skill under
+load. The model takes both: a lean of the CPU's own and a spread about
+it.
+
+### The levels before (`cpu-levels-v1`) under today's rule
+
+Over the same charts, measured the same way (DDI Normal, round U's rule):
+
+| All charts (4,147) | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | Person |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| plays | 16588 | 16588 | 16588 | 16588 | 16588 | 16588 | 16588 | 16588 | 16588 | 16588 | 505 |
+| out % | 54.2 | 42.3 | 32.8 | 25.7 | 17.3 | 10.7 | 7.3 | 3.8 | 1.8 | 0.2 | 4.8 |
+| accuracy, whole chart | -12.8 | 16.5 | 41.1 | 56.4 | 70.4 | 82.1 | 89.7 | 94.5 | 96.3 | 98.7 | 79.3 |
+| clears: accuracy | 75.2 | 77.0 | 85.5 | 86.6 | 89.1 | 91.6 | 95.0 | 96.7 | 97.1 | 98.7 | 82.2 |
+| clears: Percent | 71.3 | 72.6 | 82.6 | 84.0 | 85.9 | 89.0 | 93.8 | 95.8 | 96.3 | 98.3 | 79.2 |
+| S or better / A / B / C, D / F, % of plays | 6 / 16 / 13 / 11 / 54 | 5 / 28 / 13 / 12 / 42 | 32 / 17 / 9 / 9 / 33 | 39 / 17 / 9 / 9 / 26 | 48 / 20 / 9 / 6 / 17 | 59 / 19 / 7 / 3 / 11 | 77 / 9 / 4 / 2 / 7 | 86 / 6 / 3 / 1 / 4 | 89 / 6 / 2 / 0 / 2 | 96 / 3 / 0 / 0 / 0 | 10 / 60 / 24 / 2 / 5 |
+| W0+W1 / W2 / W3 / W4+W5 / Miss, % | 18 / 14 / 11 / 7.9 / 47.9 | 26 / 18 / 12 / 7.9 / 36.4 | 38 / 18 / 10 / 4.9 / 28.0 | 46 / 19 / 10 / 4.3 / 20.6 | 56 / 19 / 8 / 3.4 / 14.0 | 66 / 18 / 6 / 2.1 / 8.0 | 76 / 14 / 4 / 1.3 / 4.6 | 83 / 12 / 2 / 0.7 / 2.3 | 88 / 10 / 1 / 0.4 / 1.4 | 95 / 4 / 0 / 0.1 / 0.4 | 42 / 39 / 16 / 2.9 / 0.5 |
+| misses a hundred notes | 47.95 | 36.45 | 28.01 | 20.59 | 13.99 | 7.99 | 4.61 | 2.30 | 1.36 | 0.37 | 0.49 |
+| breaks a hundred notes | 55.99 | 44.40 | 32.92 | 24.97 | 17.43 | 10.14 | 5.96 | 3.00 | 1.77 | 0.50 | 3.38 |
+| full combos, % of clears | 13.4 | 6.6 | 33.4 | 38.3 | 24.4 | 39.6 | 66.6 | 75.0 | 77.8 | 83.7 | 13.3 |
+| their accuracy (below 90, %) | 92.5 (1) | 93.7 (3) | 97.1 (0) | 96.7 (0) | 97.5 (0) | 97.4 (0) | 98.3 (0) | 98.7 (0) | 98.7 (0) | 99.3 (0) | 88.1 (62) |
+| breaks in the first / last tenth, % | 7 / 11 | 7 / 11 | 6 / 12 | 6 / 12 | 5 / 12 | 6 / 12 | 5 / 15 | 3 / 17 | 4 / 16 | 6 / 19 | 7 / 16 |
+| break after a break, % | 80 | 75 | 69 | 63 | 55 | 42 | 32 | 24 | 18 | 12 | 30 |
+| lean (its mean size) / spread about it, ms | 4.6 / 59 | 3.2 / 49 | 2.8 / 35 | 2.2 / 30 | 2.3 / 25 | 1.5 / 20 | 0.9 / 15 | 0.8 / 12 | 0.6 / 11 | 0.5 / 8 | 11.7 / 32 |
+
+
+By the chart's notes a second (accuracy / Percent of the plays that stay in / out % / full combos % of those), `cpu-levels-v1`:
+
+| Notes a second (charts) | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | Person |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| under 2 (1441) | 82 / 78 / 0 / 18 | 86 / 82 / 0 / 11 | 95 / 94 / 0 / 61 | 96 / 95 / 0 / 74 | 95 / 93 / 0 / 45 | 96 / 95 / 0 / 70 | 98 / 98 / 0 / 99 | 99 / 99 / 0 / 100 | 98 / 99 / 0 / 100 | 99 / 99 / 0 / 100 |  |
+| 2 to 3 (899) | 55 / 50 / 49 / 0 | 67 / 62 / 8 / 0 | 84 / 79 / 1 / 6 | 89 / 86 / 0 / 13 | 94 / 92 / 0 / 20 | 96 / 94 / 0 / 45 | 98 / 98 / 0 / 86 | 99 / 98 / 0 / 94 | 99 / 99 / 0 / 96 | 99 / 99 / 0 / 99 | 82 / 80 / 0 / 21 |
+| 3 to 4.5 (1097) | out 100 | 44 / 41 / 89 / 0 | 58 / 53 / 58 / 0 | 66 / 61 / 32 / 0 | 78 / 73 / 7 / 0 | 88 / 84 / 1 / 5 | 95 / 93 / 0 / 33 | 98 / 97 / 0 / 62 | 98 / 98 / 0 / 72 | 99 / 99 / 0 / 85 | 84 / 82 / 3 / 19 |
+| 4.5 to 6 (465) | out 100 | out 100 | out 100 | out 100 | 50 / 46 / 84 / 0 | 66 / 60 / 41 / 0 | 78 / 72 / 15 / 0 | 90 / 85 / 2 / 6 | 94 / 90 / 0 / 16 | 98 / 97 / 0 / 41 | 80 / 75 / 3 / 2 |
+| 6 and more (244) | out 100 | out 100 | out 100 | out 100 | out 100 | 36 / 33 / 100 / 0 | 54 / 49 / 94 / 0 | 70 / 64 / 61 / 0 | 78 / 72 / 30 / 0 | 92 / 87 / 3 / 2 | 61 / 56 / 65 / 0 |
+
+What they say: **v1's CPUs are far more precise than a person and break
+the other way round.** Every v1 level's clears are at least as accurate as
+the reference's, yet its breaks are misses (v1's level 5 misses 14 notes
+a hundred, the reference 0.5); a weak level misses long before its hits
+loosen (level 3 on 3 to 4.5 notes a second: W0+W1 34%, misses 17 a
+hundred), and when a v1 CPU keeps its combo it is precise (no full combo
+of any level below 90% accuracy but 3% of level 2's). Under round U's
+rule (a miss −120) the levels' accuracy over every play fell (level 1
+−12.8, level 5 70.4) and their documented percents (61 to 96, measured
+before round U) no longer describe them.
+
+### The targets (stated before the fit)
+
+On the arcade mixes under DDI Normal, by the chart's notes a second
+(accuracy / Percent of clears, out %, full combos % of clears), the shape
+of every level the reference's (looser hits long before misses, breaks
+in bursts, more toward the end, a loose full combo ordinary for the
+middle levels on charts within their reach and rare for level 1), the
+middle levels around the reference on its band:
+
+| Level | At home on | There | The band above |
+| --- | --- | --- | --- |
+| 1 | under 2 notes/s | 70 / 63 (B), out under 5, full combos 2–5%, breaks 5–8 a hundred | 2–3: out 25–50% |
+| 2 | under 2 | 74 / 68, out under 2, 5–8% | 2–3: out 10–25% |
+| 3 | under 2 and 2–3 | 78 / 72 and 74 / 69, out under 8 | 3–4.5: out 30–60% |
+| 4 | 2–3 | 78 / 73, out under 3, about 10% | 3–4.5: out 10–30% |
+| 5 | 3–4.5 | 80 ± 2 / 76 ± 2 (an A), out under 8, 8–15%; W0+W1 40–45, W2 about 38, W3 about 15% | 4.5–6: out 20–40% |
+| 6 | 3–6 (the reference's) | 3–4.5: 84 ± 2 / 81 ± 2, out under 3, 12–20%; 4.5–6: 80 / 75, out under 8 | 6 and more: out 40–70% |
+| 7 | 4.5–6 | 85 / 82, out under 4, about 12% | 6 and more: out 25–45% |
+| 8 | 4.5–6 | 89 / 87, out under 2, about 25% | 6 and more: out 10–25% |
+| 9 | 6 and more | 88 / 85, out under 8; 4.5–6: 93 / 92, about 45% | |
+| 10 | everything | 95 or more up to 6 notes/s, out under 3 beyond; W0+W1 90% or more | |
+
+Every level at least as good as the one below on accuracy, Percent,
+breaks and outs in every group of charts; the gaps wider at the bottom.
+Leans of about 20 ms at level 1, 11 at level 6 and 2.5 at level 10;
+breaks clustered (a break after a break 20 to 40% of the time at the
+middle) and rising toward the end.
+
+### The fit (`cpu-levels-v2`)
+
+Six candidates, each over the whole corpus (35 s each on four threads):
+the first gave level 6 the reference's tiers on its band but no full
+combo at all (its breaks spread evenly: a 6% tail of wide presses); a
+thinner tail, a play's form and bursts after a stumble brought full
+combos back; level 6's spread grew faster with density than the
+reference's (8 to 11 notes in a second: 84 ms against 56) until the
+widening was softened (from 0.65 of a limit, `widen` 1.0); the speeds of
+levels 5 to 10 rose (an ordinary player keeps up with 4.5 to 6 notes a
+second on their charts), those of 1 to 4 barely. The result, measured the
+same way:
+
+| All charts (4,147) | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | Person |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| plays | 16588 | 16588 | 16588 | 16588 | 16588 | 16588 | 16588 | 16588 | 16588 | 16588 | 505 |
+| out % | 53.2 | 41.0 | 27.8 | 17.5 | 8.2 | 3.8 | 1.5 | 0.3 | 0.0 | 0.0 | 4.8 |
+| accuracy, whole chart | 1.0 | 28.8 | 50.4 | 64.5 | 76.4 | 81.7 | 86.6 | 90.5 | 94.0 | 97.5 | 79.3 |
+| clears: accuracy | 66.4 | 70.4 | 74.1 | 77.1 | 80.7 | 83.3 | 87.1 | 90.6 | 94.0 | 97.5 | 82.2 |
+| clears: Percent | 62.4 | 66.5 | 70.6 | 74.0 | 78.2 | 81.3 | 85.8 | 89.8 | 93.7 | 97.4 | 79.2 |
+| S or better / A / B / C, D / F, % of plays | 0 / 7 / 20 / 19 / 53 | 0 / 15 / 27 / 17 / 41 | 2 / 27 / 30 / 14 / 28 | 4 / 39 / 30 / 10 / 18 | 10 / 53 / 24 / 5 / 8 | 18 / 58 / 17 / 3 / 4 | 40 / 51 / 7 / 1 / 2 | 65 / 32 / 2 / 0 / 0 | 88 / 11 / 0 / 0 / 0 | 99 / 1 / 0 / 0 / 0 | 10 / 60 / 24 / 2 / 5 |
+| W0+W1 / W2 / W3 / W4+W5 / Miss, % | 11 / 14 / 16 / 23.0 / 35.9 | 15 / 18 / 20 / 22.9 / 23.5 | 21 / 24 / 22 / 19.1 / 13.8 | 26 / 29 / 22 / 15.1 / 7.3 | 34 / 34 / 20 / 8.9 / 2.5 | 40 / 37 / 17 / 5.1 / 1.0 | 49 / 36 / 11 / 2.3 / 0.6 | 59 / 33 / 6 / 0.8 / 0.3 | 72 / 25 / 2 / 0.2 / 0.1 | 87 / 12 / 0 / 0.0 / 0.1 | 42 / 39 / 16 / 2.9 / 0.5 |
+| misses a hundred notes | 35.99 | 23.50 | 13.80 | 7.33 | 2.46 | 1.03 | 0.56 | 0.29 | 0.14 | 0.05 | 0.49 |
+| breaks a hundred notes | 59.14 | 46.56 | 33.05 | 22.49 | 11.43 | 6.14 | 2.88 | 1.15 | 0.38 | 0.09 | 3.38 |
+| full combos, % of clears | 4.3 | 6.6 | 11.0 | 14.8 | 21.1 | 28.0 | 40.5 | 54.8 | 70.9 | 86.8 | 13.3 |
+| their accuracy (below 90, %) | 82.1 (99) | 83.5 (96) | 84.8 (93) | 85.8 (88) | 86.9 (80) | 88.0 (68) | 90.4 (40) | 92.6 (17) | 95.1 (3) | 97.8 (0) | 88.1 (62) |
+| breaks in the first / last tenth, % | 7 / 11 | 7 / 11 | 6 / 12 | 5 / 13 | 5 / 14 | 4 / 15 | 4 / 17 | 4 / 18 | 5 / 19 | 6 / 16 | 7 / 16 |
+| break after a break, % | 80 | 73 | 65 | 56 | 43 | 34 | 27 | 19 | 12 | 6 | 30 |
+| lean (its mean size) / spread about it, ms | 14.4 / 85 | 12.4 / 73 | 11.4 / 60 | 10.4 / 50 | 10.0 / 39 | 9.2 / 32 | 6.6 / 26 | 5.1 / 21 | 3.4 / 16 | 1.8 / 11 | 11.7 / 32 |
+
+
+By the chart's notes a second (accuracy / Percent of the plays that stay in / out % / full combos % of those), `cpu-levels-v2`:
+
+| Notes a second (charts) | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | Person |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| under 2 (1441) | 70 / 66 / 0 / 6 | 75 / 72 / 0 / 11 | 79 / 76 / 0 / 21 | 81 / 79 / 0 / 29 | 83 / 82 / 0 / 40 | 85 / 84 / 0 / 50 | 88 / 88 / 0 / 63 | 92 / 92 / 0 / 76 | 95 / 95 / 0 / 88 | 98 / 98 / 0 / 95 |  |
+| 2 to 3 (899) | 56 / 52 / 45 / 0 | 66 / 61 / 9 / 1 | 75 / 71 / 1 / 3 | 80 / 76 / 0 / 9 | 83 / 80 / 0 / 18 | 85 / 83 / 0 / 28 | 89 / 88 / 0 / 43 | 92 / 91 / 0 / 61 | 95 / 94 / 0 / 77 | 98 / 98 / 0 / 90 | 82 / 80 / 0 / 21 |
+| 3 to 4.5 (1097) | 42 / 38 / 99 / 0 | 53 / 48 / 83 / 0 | 62 / 57 / 40 / 0 | 71 / 66 / 10 / 1 | 80 / 76 / 1 / 6 | 84 / 81 / 0 / 13 | 88 / 86 / 0 / 28 | 91 / 90 / 0 / 47 | 94 / 94 / 0 / 65 | 98 / 97 / 0 / 84 | 84 / 82 / 3 / 19 |
+| 4.5 to 6 (465) | out 100 | out 100 | 49 / 45 / 100 / 0 | 55 / 50 / 80 / 0 | 69 / 64 / 22 / 0 | 77 / 73 / 4 / 2 | 84 / 81 / 1 / 10 | 89 / 87 / 0 / 22 | 93 / 93 / 0 / 50 | 97 / 97 / 0 / 77 | 80 / 75 / 3 / 2 |
+| 6 and more (244) | out 100 | out 100 | out 100 | out 100 | 54 / 49 / 93 / 0 | 64 / 59 / 55 / 0 | 73 / 69 / 23 / 0 | 81 / 77 / 4 / 2 | 90 / 87 / 1 / 15 | 96 / 96 / 0 / 53 | 61 / 56 / 65 / 0 |
+
+Against the targets: levels 2 to 9 are within them or at their edge;
+level 1 breaks more than asked (10 a hundred notes on its band, 5 to 8
+asked: its spread and lean together push one press in ten past W3) and
+goes out on 2 to 3 notes a second a little more (45%); level 4 is a
+little strong on 2 to 3 (80 / 76) and level 8 on 6 notes a second and
+more (out 4%, 10 to 25 asked); level 10's W0+W1 is 87%, under the 90
+asked (a W2 one tap in eight: "here and there" read generously). Level 6
+against the reference on its band: 3 to 4.5 notes a second 83.6 / 81.1,
+out 0.3%, full combos 12.9% (the reference 84.0 / 81.7, 2.7%, 18.8%),
+tiers 44 / 39 / 15 / 1.7 / 0.2 (45 / 40 / 13 / 1.6 / 0.2); 4.5 to 6 77.1
+/ 72.8, out 4.1%, 1.9% (79.7 / 75.4, 3.0%, 2.5%). At a given accuracy
+the CPUs' tiers now match the reference's closely (clears at 70 to 80%:
+W0+W1 32, W2 37, W3 26, W4+W5 4.8 against 33, 40, 23, 3.8; at 90 to 95%:
+61, 35, 4 against 62, 34, 4), and a loose full combo is ordinary for the
+middle levels (68% of level 6's full combos below 90% accuracy, 80% of
+level 5's; the reference's 62%). Breaks rise toward the end (level 6:
+4% of them in a play's first tenth, 15% in its last; the reference 7 and
+16) and come in bursts (a break after a break 34% at level 6, the
+reference 30%). Leans: 9 to 14 ms in size at levels 1 to 6, 1.8 at level
+10 (the reference 11.7).
+
+**The ordering test** (`local_cpu_order`, `ddi-engine`, opt-in:
+`DDI_CPU_CORPUS=… DDI_CPU_ORDER=1 DDI_CPU_SEEDS=4 cargo test --release -p
+ddi-engine --test local_cpu local_cpu_order -- --nocapture`): every group
+of 30 charts or more (all, each slot, each meter range, each band of
+notes a second, by holds: 21 groups over the arcade mixes), each level at
+least as good as the one below on the accuracy and the Percent of the
+whole chart (within 0.3 points), the breaks (within 0.2 a hundred notes)
+and the outs (within half a point): **none out of order**. The bundled
+charts' test (`absolute_levels_are_monotone_in_level_and_in_the_chart`, every
+bundled single chart, within half a point over four seeds) passes too.
+
+### What it does to multiplayer (measured, not retuned)
+
+Life under DDI is drained by W5s (−5 on Normal), misses (−10), mines and
+shocks (−5) and holds let go, and filled by W0 to W2 (+2) and W3 (+1); a
+W4 does nothing. Looser hits with fewer misses keep a CPU in: the middle
+levels go out much less, the weakest a little more (their looser hits
+add W5s). Attack power is credited from the tiers (W0 and W1 two, W2
+one): looser hits earn less. The ladder's step up reads the share of taps
+in the three best judgments (W0 to W2): more W3s, fewer early steps up.
+
+**Attack rates** (`attack_rates`, the six bundled charts of the study,
+four seeds, DDI Normal, eight CPUs at one level, `cpu-levels-v1` →
+`cpu-levels-v2`):
+
+| Level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Bars a minute | 1.09 → 0.83 | 1.44 → 1.05 | 1.79 → 1.30 | 2.03 → 1.60 | 2.38 → 1.97 | 2.74 → 2.28 | 3.03 → 2.64 | 3.41 → 3.03 | 3.62 → 3.36 | 3.89 → 3.73 |
+| Attacks launched a minute | 0.60 → 0.42 | 0.87 → 0.56 | 1.34 → 0.89 | 1.53 → 1.18 | 1.87 → 1.53 | 2.16 → 1.87 | 2.38 → 2.20 | 2.83 → 2.55 | 3.04 → 2.77 | 3.28 → 3.13 |
+| Out % | 67.7 → 76.0 | 66.7 → 66.7 | 64.6 → 51.0 | 52.6 → 27.6 | 25.5 → 16.1 | 17.2 → 4.2 | 16.7 → 1.0 | 1.0 → 0.0 | 0 → 0 | 0 → 0 |
+| Life an attack received | 16.5 → 18.2 | 16.9 → 17.0 | 13.7 → 15.5 | 12.6 → 15.3 | 11.6 → 12.6 | 9.7 → 11.0 | 9.2 → 11.7 | 4.4 → 5.7 | 4.5 → 4.6 | 1.4 → 1.4 |
+
+A mixed field (levels 1, 2, 3, 4, 5, 6, 8 and 10): bars a minute 2.60 →
+2.17, attacks launched a stage 24.7 → 22.8, attacks launched a minute a
+seat in 2.06 → 1.73, seats out 38.0% → 30.2%, attacks that knocked their
+recipient out 0.3% → 1.5%. Under DDI Hard the same direction (level 5
+1.50 → 1.34 attacks a minute, level 10 3.25 → 3.01). **Nothing breaks**:
+attacks a stage fall by a twelfth, a weak CPU still goes out of most
+stages and a strong one of none, a knockout by an attack stays rare.
+
+**Steps on the Adaptive ladder** (`adaptive_step_up_study`, `adaptive-v5`
+unchanged, every second song file of the arcade mixes, one seed, ten
+CPUs one a level, DDI Normal, attacks on; from a Medium pick, steps up a
+stage (of them early), steps up a minute, steps up that fell back within
+sixteen bars, finished one rung below / on the pick / one above / two
+above, %):
+
+| Level | `cpu-levels-v1` | `cpu-levels-v2` |
+| --- | --- | --- |
+| 1 | 0.12 (0.06), 0.07/min, 50% back; 55 / 18 / 3 / 0 | 0.14 (0.04), 0.08/min, 53%; 53 / 27 / 4 / 0 |
+| 2 | 0.46 (0.32), 0.27/min, 50%; 44 / 38 / 9 / 1 | 0.14 (0.07), 0.08/min, 41%; 41 / 46 / 6 / 0 |
+| 3 | 0.64 (0.50), 0.37/min, 40%; 25 / 47 / 25 / 1 | 0.79 (0.27), 0.45/min, 25%; 12 / 44 / 42 / 1 |
+| 4 | 0.93 (0.85), 0.53/min, 39%; 17 / 45 / 35 / 2 | 1.04 (0.86), 0.59/min, 24%; 7 / 37 / 50 / 6 |
+| 5 | 1.12 (1.03), 0.64/min, 31%; 7 / 39 / 47 / 7 | 1.19 (0.79), 0.68/min, 13%; 1 / 20 / 66 / 13 |
+| 6 | 1.24 (1.17), 0.71/min, 16%; 2 / 25 / 59 / 14 | 1.30 (0.94), 0.75/min, 4%; 0 / 5 / 76 / 19 |
+| 7 | 1.32 (1.26), 0.76/min, 12%; 1 / 11 / 70 / 18 | 1.32 (1.28), 0.76/min, 1%; 0 / 1 / 72 / 27 |
+| 8 to 10 | 1.31 to 1.32, 0.75/min, 0 to 6% | the same, 0 to 1% |
+
+The CPUs still spread over the ladder (from a Medium pick the weakest
+mostly step down, the middle ones climb a rung, the strongest two), the
+middle levels step up as often a minute but more of them by the normal
+rule (six bars, 80% in the three best) than the early one, and fall back
+far less (they keep up with what they climbed to); level 2 climbs less
+(its hits below the 80% now), level 3 more. From a Beginner pick the
+early steps up fall at the middle (level 5 2.59 → 1.24 a stage), the
+steps a stage barely (2.75 → 2.67).
+
+**A person among the CPUs.** The chance one of the reference's plays
+beats one CPU of each level on charts of the same density (out below
+every clear, then the Percent: what a stage ranks by, life aside), and
+the place that makes among eight CPUs of that level (of nine):
+
+| Notes a second (plays) | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 3 to 4.5 (300), v1 | 99% (1.1) | 98% (1.1) | 97% (1.2) | 94% (1.5) | 73% (3.2) | 42% (5.7) | 10% (8.2) | 2% (8.9) | 1% (8.9) | 0% (9.0) |
+| 3 to 4.5, v2 | 99% (1.1) | 98% (1.1) | 96% (1.3) | 88% (1.9) | 67% (3.7) | 50% (5.0) | 30% (6.6) | 14% (7.9) | 5% (8.6) | 0% (9.0) |
+| 4.5 to 6 (164), v1 | 98% | 98% | 98% | 98% | 98% (1.1) | 93% (1.6) | 63% (4.0) | 21% (7.3) | 7% (8.4) | 0% (9.0) |
+| 4.5 to 6, v2 | 98% | 98% | 98% | 98% | 84% (2.3) | 57% (4.5) | 27% (6.8) | 10% (8.2) | 2% (8.8) | 0% (9.0) |
+
+Against v1 such a player beat most CPUs up to level 6 because those went
+out, and lost to every one from level 8 on whatever they did; against v2
+they are an even match for level 6, and the levels around it are
+reachable either way.
+
+**Shocks** (`local_cpu_shocks`, four attacks of eight shocks a chart over
+the arcade mixes, four seeds; `MINE_RESPONSE_V1` unchanged): the shocks
+stepped on are the level's, as before to the noise (level 5 at Evasion 1:
+1.41 → 1.48 of 8; level 10 0.16 both), the life an attack costs a little
+more at the weak levels (level 1 28.0 → 29.3) and knockouts the same to a
+few points (level 5 26.2% → 26.9%). Since round U a shock stepped on costs
+50 points (10 before), so a level-5 CPU loses about 37 points an attack of
+four shocks to them besides the life; the response's numbers were made
+up before there were people's plays to compare (a stage's plays are never
+kept, so no person's shock rate is known): **left as they are**, a
+question for the maintainer whether the middle levels should step on
+fewer once a person's rate is known.
+
+### Cost
+
+`planning_cost` (the 31 bundled single charts, release, natively; the
+machine shared): a CPU's presses on the tap-only copy 162 µs a chart at
+level 8 and 327 µs at level 3 under v2 (59 and 93 under v1: a play's own
+factor gives its rows more distinct spreads, each a law made once), on
+the full chart 160 and 284 µs; a plan 178 µs as before. A stage of 72
+CPUs (`adaptive_cost_of_72_cpus`, Beatucada's Medium): loaded in 17 ms
+as picked and 103 ms with a ladder of four rungs, played out in 51 and
+176 ms (v1 31 / 100 and 77 / 179 when measured, on a busier machine); a
+frame of 72 online CPUs 0.013 ms mean, 0.98 ms at most
+(`what_computing_the_cpus_costs_a_frame`): as before.
+
+### The solo CPU and prepared profiles
+
+The solo CPU at a level (`level=N`, `--cpu-level N`, level 5 by default,
+the named strengths its levels 6 to 10) plays `cpu-levels-v2` (`CPU_LEVELS`;
+its prompt and results still say "Level 5 of 10"). Prepared profiles and
+the five named strengths on a profile play `cpu-levels-v0`, chart-
+relative, on the tap-only copy, exactly as before.
+
+### What else moved
+
+- `the_cpus_play_alike`'s fixture (the online CPUs' proof) recorded again,
+  natively and checked in wasm32-wasip1; the pinned practice and live
+  stage traces recorded again (the progress note, "Round V").
+- Tests that asserted what particular CPUs did in a seeded stage, their
+  meaning kept: the step-down fields test seats two-star CPUs (they climb
+  to Hard and fall back under v2, three-star ones keep up); the attack
+  lines test seats three level-9 CPUs (under v2 the level-10 CPUs'
+  attacks against the autoplayed player came at every one of its own
+  launches, so the rule passed every launch line over: nothing showed a
+  launch said); the early-win voice test hears the 20-combo line before
+  the win (the CPUs slip out later).
+- Not changed: what a person's play judges, scores or shows; the
+  ruleset; the ladder's rule; the attack ledger's rules; the CPUs' play
+  of holds, rolls, lifts and mines but where a note's timing or lapse
+  feeds it (above).
 
 ## What a CPU plays: the full chart (`cpu-play-v1`)
 
@@ -900,7 +1349,15 @@ frame stalls and absence of personal score records. The opponent's ten levels:
 each plans and plays the same at any frame rate, a weaker one scores no
 better on average, levels 6 to 10 press exactly as the five strengths did
 (the fixture), and levels 1 to 5 press fewer notes the weaker they are.
-The absolute levels (`cpu-levels-v1`): a row's demand in real units (a
+`cpu-levels-v2` (round V): a CPU leans as its seed says and the same on
+every chart, its spread widens under load while it still presses nearly
+every note, and past its limit it leaves notes out
+(`a_v2_cpu_leans_and_loosens_before_it_leaves_notes_out`); `cpu-levels-v1`
+has none of v2's own timing (`cpu_levels_v1_has_none_of_v2_s_own_timing`);
+every v2 level better than the one below
+(`ten_levels_the_last_five_the_frozen_strengths`); over a local
+corpus, the ordering test (`local_cpu_order`, opt-in, above).
+The absolute levels (`cpu-levels-v1`, the tests now on `cpu-levels-v2`): a row's demand in real units (a
 stream of ten notes a second asks about ten, half the rate half), no
 failure below the onset and more past it, bounded; monotone in level on
 every bundled single chart (within half a point over four seeds) and in
