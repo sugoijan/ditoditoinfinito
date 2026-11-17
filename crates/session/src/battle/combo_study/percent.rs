@@ -27,6 +27,12 @@
 //! equal to the engine's on every CPU play.
 //!
 //! MEASUREMENTS OF CPUS, and of one person's kept plays in aggregate.
+//!
+//! Since round U (2026-11-17) "today" here is the rule before it (a Miss
+//! and a mine −10, the percent the accuracy, [`TODAY_GRADES`]): see the
+//! parent module's header. [`built_percent`] and [`built_grade`] are
+//! round U's rule as the engine plays it, worked out from the same
+//! reading and checked against the engine on every CPU play.
 
 use super::*;
 use ddi_engine::rules::Judgement;
@@ -58,11 +64,36 @@ pub(super) struct PCand {
     rule: Rule,
     /// The most below the accuracy the percent may fall, hundredths.
     cap: Option<i64>,
-    /// SSS, SS, S, A, B, C in hundredths (today's `ddi::GRADES` if none).
+    /// SSS, SS, S, A, B, C in hundredths (today's, [`TODAY_GRADES`], if
+    /// none).
     grades: [i64; 6],
 }
 
+/// The letters before round U (2026-11-17): what this study calls today.
 const TODAY_GRADES: [i64; 6] = [9900, 9600, 8900, 8000, 6800, 5500];
+
+/// Round U's percent (`ddi::PERCENT_RULE`, `ddi-percent-v1`) of a play
+/// this study reads on the rule before it: its misses at the engine's
+/// −120 and its `mines` (mines and shocks stepped on) at −50, then
+/// `ddi::percent_of`. Equal to the engine's on every play judged by it.
+pub(super) fn built_percent(p: &Pp, mines: u32) -> i64 {
+    let points = p.points
+        + (ddi::TAP_POINTS[5] - super::TAP_POINTS[5]) * i64::from(p.tiers[5])
+        + (ddi::MINE_POINTS - super::MINE_POINTS) * i64::from(mines);
+    ddi::percent_of(points, p.most, p.combo, p.max)
+}
+
+/// Round U's letters (`ddi::GRADES`) of [`built_percent`], the floors as
+/// ever: the grade index ([`grade_index`]).
+pub(super) fn built_grade(p: &Pp, mines: u32) -> usize {
+    grade_at(&BUILT_GRADES, built_percent(p, mines), p)
+}
+
+/// `ddi::GRADES`' thresholds, SSS to C.
+pub(super) const BUILT_GRADES: [i64; 6] = {
+    let g = ddi::GRADES;
+    [g[0].1, g[1].1, g[2].1, g[3].1, g[4].1, g[5].1]
+};
 
 fn cand(
     tiers: usize,
@@ -468,7 +499,7 @@ impl Pp {
         let t = &TIERS[table].1;
         self.points
             + (0..6)
-                .map(|i| i64::from(self.tiers[i]) * (t[i] - ddi::TAP_POINTS[i]))
+                .map(|i| i64::from(self.tiers[i]) * (t[i] - super::TAP_POINTS[i]))
                 .sum::<i64>()
     }
 }
@@ -1150,7 +1181,7 @@ fn made_up(n: u32, at: &[usize], points: i64) -> Option<Pp> {
     let want = points + 10 * b as i64;
     let points_of = |offs: &[f64]| -> i64 {
         offs.iter()
-            .map(|&d| ddi::TAP_POINTS[usize::from(ddi_tier_of(d))])
+            .map(|&d| super::TAP_POINTS[usize::from(ddi_tier_of(d))])
             .sum()
     };
     if want > 50 * taps as i64 {
@@ -1184,13 +1215,13 @@ fn made_up(n: u32, at: &[usize], points: i64) -> Option<Pp> {
         if at.contains(&i) {
             k = 0;
             tiers[5] += 1;
-            sum += ddi::TAP_POINTS[5];
+            sum += super::TAP_POINTS[5];
             moments.push((MISS, None));
         } else {
             let d = *hits.next().expect("an offset a tap");
             let t = ddi_tier_of(d);
             tiers[usize::from(t)] += 1;
-            sum += ddi::TAP_POINTS[usize::from(t)];
+            sum += super::TAP_POINTS[usize::from(t)];
             k += 1;
             combo += ddi::combo_points(k);
             moments.push((t, Some(d)));
@@ -1496,7 +1527,7 @@ fn by_counts(n: u32, at: &[usize], counts: [u32; 3]) -> Pp {
         .sum();
     Pp {
         n,
-        points: seq.iter().map(|&c| ddi::TAP_POINTS[usize::from(c)]).sum(),
+        points: seq.iter().map(|&c| super::TAP_POINTS[usize::from(c)]).sum(),
         most: 50 * i64::from(n),
         combo,
         max: ddi::full_combo_points(n),

@@ -57,9 +57,14 @@
 //!    aggregates to the JSON file `DDI_PCT_DIST_OUT` names, from the plays
 //!    `DDI_COMBO_PLAYS` names.
 //!
-//! `DDI_COMBO_ONLY=made-up|plays|stages|ladder|kept|percent|distributions`
-//! runs one part; every part but `percent` and `distributions` runs when it
-//! is not set.
+//! 8. `built` (round U, 2026-11-17, [`percent::distributions::built`]):
+//!    round U's rule as the engine plays it over the kept plays' clears
+//!    (`DDI_COMBO_PLAYS`), beside the series it was chosen from;
+//!    aggregates only.
+//!
+//! `DDI_COMBO_ONLY=made-up|plays|stages|ladder|kept|percent|distributions|built`
+//! runs one part; every part but `percent`, `distributions` and `built`
+//! runs when it is not set.
 //!
 //! The candidates: the score without a combo part ("today"), the first
 //! study's pick at 20% of the million ("A100+B": half a ramp to 100, half
@@ -69,6 +74,23 @@
 //! notes is about 200,000. The percent is today's under all of them.
 //!
 //! MEASUREMENTS OF CPUS, not of people.
+//!
+//! **Which rule each part measures (since round U, 2026-11-17, room model
+//! revision 13).** The study was made before round U and its "today" is
+//! the rule before it: a Miss −10 points, a mine or shock stepped on −10
+//! ([`TAP_POINTS`], [`MINE_POINTS`], kept here), and the percent the
+//! accuracy alone with the letters SSS 99, SS 96, S 89, A 80, B 68, C 55
+//! (`percent::TODAY_GRADES`). The engine now plays round U's rule
+//! (`ddi::TAP_POINTS`'s Miss −120, `ddi::MINE_POINTS` −50,
+//! `ddi::PERCENT_RULE`, `ddi::GRADES`): every play the engine judges is
+//! read back on the old rule ([`before_u`]: its misses and its mines or
+//! shocks stepped on priced as before; nothing else differs, life never
+//! reading points), so parts 1 to 7 and their candidates and series
+//! measure against the rule before round U, as when they were written,
+//! and their checks against the engine hold on that reading. Part 8,
+//! `built` ([`percent::distributions::built`]), measures round U's rule
+//! itself: the engine's own percent and letters over the kept plays
+//! beside the series it was chosen from (`ddi-miss3.4-combo10`).
 
 use super::*;
 use ddi_engine::cpu::{CPU_LEVELS_V1, CPU_PLAY, MINE_RESPONSE_V0, Plan, Skills, Strength};
@@ -85,6 +107,27 @@ mod percent;
 type Seq = Vec<u8>;
 const BROKE: u8 = 6;
 const MISS: u8 = 5;
+
+/// The points of a tap-like note by tier, W1 to Miss, under the rule this
+/// study measures as "today": DDI's before round U (2026-11-17), a Miss
+/// −10. The engine's are `ddi::TAP_POINTS` (a Miss −120).
+pub(super) const TAP_POINTS: [i64; 6] = [50, 40, 25, 10, 0, -10];
+/// A mine or a shock stepped on before round U: −10 (the engine's
+/// `ddi::MINE_POINTS`, −50, since).
+pub(super) const MINE_POINTS: i64 = -10;
+
+/// An engine's DDI view as the rule before round U has it: the misses and
+/// the mines or shocks stepped on of `seq` (the play's judgments) priced
+/// as [`TAP_POINTS`] and [`MINE_POINTS`] price them, the rest as it is
+/// (the combo part and the most do not read points).
+fn before_u(d: ddi::DdiScoreView, seq: &[u8]) -> ddi::DdiScoreView {
+    let count = |c: u8| seq.iter().filter(|&&x| x == c).count() as i64;
+    let points = d.points
+        - (ddi::TAP_POINTS[5] - TAP_POINTS[5]) * count(MISS)
+        - (ddi::MINE_POINTS - MINE_POINTS) * count(BROKE);
+    let w0 = (d.absolute - 100 * d.points).clamp(0, i64::from(u32::MAX)) as u32;
+    ddi::DdiScoreView::of(points, d.most, w0).with_combo(d.combo)
+}
 const KS: [u64; 3] = [50, 100, 200];
 
 /// What the candidates read of a play.
@@ -198,13 +241,13 @@ fn feat(seq: &[u8], n: u32, most: i64, w0: u32, other: i64) -> Feat {
             for (sum, p) in f.per.iter_mut().zip(&PER) {
                 *sum += per_note(p, combo);
             }
-            f.fixed += ddi::TAP_POINTS[usize::from(c)];
+            f.fixed += TAP_POINTS[usize::from(c)];
             continue;
         }
         match c {
             MISS => f.misses += 1,
-            BROKE => f.fixed += ddi::MINE_POINTS,
-            _ => f.fixed += ddi::TAP_POINTS[usize::from(c)],
+            BROKE => f.fixed += MINE_POINTS,
+            _ => f.fixed += TAP_POINTS[usize::from(c)],
         }
         f.breaks += 1;
         squares += combo * combo;
@@ -226,8 +269,8 @@ fn feat(seq: &[u8], n: u32, most: i64, w0: u32, other: i64) -> Feat {
 fn seq_points(seq: &[u8]) -> i64 {
     seq.iter()
         .map(|&c| match c {
-            BROKE => ddi::MINE_POINTS,
-            c => ddi::TAP_POINTS[usize::from(c)],
+            BROKE => MINE_POINTS,
+            c => TAP_POINTS[usize::from(c)],
         })
         .sum()
 }
@@ -442,7 +485,7 @@ fn read_play(p: &ddi_engine::player::Player, view: &ScoreView) -> (Seq, Feat) {
             _ => None,
         })
         .collect();
-    let d = view.ddi.expect("DDI");
+    let d = before_u(view.ddi.expect("DDI"), &seq);
     let f = feat(
         &seq,
         p.score_ctx().steps,
@@ -475,7 +518,7 @@ fn solo(plan: &Plan, song: &Song, chart: usize, level: usize, seed: u64) -> Opti
     o.start(0.0);
     o.finish();
     let (seq, f) = read_play(o.player(), &o.score());
-    let d = o.score().ddi.unwrap();
+    let d = before_u(o.score().ddi.unwrap(), &seq);
     assert_eq!(
         Cand { shape: Shape::Today, s: 0.0, full: false }.score(&f),
         d.score - d.combo,
@@ -511,10 +554,15 @@ fn solo(plan: &Plan, song: &Song, chart: usize, level: usize, seed: u64) -> Opti
     };
     let out = o.out_at().is_some();
     if !out {
+        // Round U's rule worked out here from the play read on the old
+        // one is the engine's own percent and grade.
+        let mines = seq.iter().filter(|&&c| c == BROKE).count() as u32;
+        let built = o.score().ddi.unwrap();
+        assert_eq!(percent::built_percent(&pp, mines), built.percent, "the built percent is the engine's");
         assert_eq!(
             percent::grade_index(&o.player().results_brief().grade),
-            Some(percent::today_grade(&pp)),
-            "the study's grade is the engine's"
+            Some(percent::built_grade(&pp, mines)),
+            "the built grade is the engine's"
         );
     }
     Some(Played { level, seq, f, out, pp })
@@ -743,7 +791,7 @@ impl Sum {
 
 /// A play's points at today's values.
 fn points(f: &Feat) -> i64 {
-    f.fixed + ddi::TAP_POINTS[usize::from(MISS)] * i64::from(f.misses)
+    f.fixed + TAP_POINTS[usize::from(MISS)] * i64::from(f.misses)
 }
 
 fn simfiles(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -1057,6 +1105,9 @@ fn stages(cands: &[Cand]) {
                         let p = s.opponent.player();
                         let view = s.opponent.score();
                         let d = view.ddi.expect("DDI");
+                        // Read on the rule before round U once its
+                        // judgments are known (`seq`, below).
+                        let new = d;
                         let results = p.results();
                         let hits: Vec<(u8, f64)> = s
                             .feed
@@ -1125,6 +1176,7 @@ fn stages(cands: &[Cand]) {
                         }
                         let n = p.score_ctx().steps;
                         let w0 = p.tally().w0;
+                        let d = before_u(new, &seq);
                         let other = d.points - seq_points(&seq);
                         let f = feat(&seq, n, d.most, w0, other);
                         assert_eq!(cands[0].score(&f), d.score - d.combo, "the study's score is the engine's");
@@ -1212,7 +1264,7 @@ fn made_up_play(n: u32, most: i64, share: f64, breaks: usize) -> Feat {
     let at: Vec<usize> = (1..=breaks).map(|j| j * seq.len() / (breaks + 1)).collect();
     let mut f = feat(&with_misses(&seq, &at), n, most, 0, 0);
     let target = (most as f64 * share).round() as i64;
-    f.fixed = target - ddi::TAP_POINTS[usize::from(MISS)] * i64::from(f.misses);
+    f.fixed = target - TAP_POINTS[usize::from(MISS)] * i64::from(f.misses);
     f
 }
 
@@ -1400,7 +1452,7 @@ fn read_kept(dir: &Path) -> (Vec<Kept>, KeptRead) {
             r.no_ddi += 1;
             continue;
         };
-        let Some(d) = worked.score.ddi else {
+        let Some(new) = worked.score.ddi else {
             r.no_ddi += 1;
             continue;
         };
@@ -1440,6 +1492,10 @@ fn read_kept(dir: &Path) -> (Vec<Kept>, KeptRead) {
             r.exact += u32::from(diff == 0);
             r.diff += diff;
         }
+        // Judged by round U's rule (judge 6 on): read on the old one (its
+        // misses and mines are `seq`'s however its taps were put on DDI's
+        // grid).
+        let d = if worked.judge_version >= 6 { before_u(new, &seq) } else { new };
         let n = seq.iter().filter(|&&c| c != BROKE).count() as u32;
         let w0 = (d.absolute - 100 * d.points).clamp(0, i64::from(u32::MAX)) as u32;
         let f = feat(&seq, n, d.most, w0, d.points - seq_points(&seq));
@@ -1675,6 +1731,12 @@ fn combo_score_study() {
     }
     if only.as_deref() == Some("percent") {
         percent_part();
+    }
+    if only.as_deref() == Some("built") {
+        match std::env::var_os("DDI_COMBO_PLAYS") {
+            Some(dir) => percent::distributions::built(Path::new(&dir)),
+            None => println!("built: DDI_COMBO_PLAYS names the plays"),
+        }
     }
     if only.as_deref() == Some("distributions") {
         match (std::env::var_os("DDI_COMBO_PLAYS"), std::env::var_os("DDI_PCT_DIST_OUT")) {

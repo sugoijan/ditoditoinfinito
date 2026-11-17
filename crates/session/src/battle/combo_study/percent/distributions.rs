@@ -97,9 +97,9 @@ fn series() -> Vec<Series> {
             miss,
             mines,
             combo,
-            w4: ddi::TAP_POINTS[3],
-            w5: ddi::TAP_POINTS[4],
-            w2: ddi::TAP_POINTS[1],
+            w4: super::super::TAP_POINTS[3],
+            w5: super::super::TAP_POINTS[4],
+            w2: super::super::TAP_POINTS[1],
             wide: false,
         },
     };
@@ -112,7 +112,7 @@ fn series() -> Vec<Series> {
             combo,
             w4,
             w5,
-            w2: ddi::TAP_POINTS[1],
+            w2: super::super::TAP_POINTS[1],
             wide: false,
         },
     };
@@ -120,11 +120,11 @@ fn series() -> Vec<Series> {
         id: id.into(),
         name: name.into(),
         kind: Kind::Ddi {
-            miss: ddi::TAP_POINTS[5],
+            miss: super::super::TAP_POINTS[5],
             mines: false,
             combo,
-            w4: ddi::TAP_POINTS[3],
-            w5: ddi::TAP_POINTS[4],
+            w4: super::super::TAP_POINTS[3],
+            w5: super::super::TAP_POINTS[4],
             w2,
             wide,
         },
@@ -254,8 +254,8 @@ fn moved_to_w1(moments: &[Moment], difficulty: ddi::Difficulty, w2: u32) -> u32 
 /// A DDI series' percent of a play (hundredths, floored).
 fn ddi_percent(miss: i64, mines_follow: bool, w: i64, p: &Pp, mines: u32) -> i64 {
     ddi_percent_low(
-        ddi::TAP_POINTS[3],
-        ddi::TAP_POINTS[4],
+        super::super::TAP_POINTS[3],
+        super::super::TAP_POINTS[4],
         miss,
         mines_follow,
         w,
@@ -274,7 +274,7 @@ fn ddi_percent_low(
     p: &Pp,
     mines: u32,
 ) -> i64 {
-    ddi_percent_all(ddi::TAP_POINTS[1], w4, w5, miss, mines_follow, w, p, mines)
+    ddi_percent_all(super::super::TAP_POINTS[1], w4, w5, miss, mines_follow, w, p, mines)
 }
 
 /// The same with a W2 worth `w2` too.
@@ -289,12 +289,12 @@ fn ddi_percent_all(
     p: &Pp,
     mines: u32,
 ) -> i64 {
-    let extra = (w2 - ddi::TAP_POINTS[1]) * i64::from(p.tiers[1])
-        + (w4 - ddi::TAP_POINTS[3]) * i64::from(p.tiers[3])
-        + (w5 - ddi::TAP_POINTS[4]) * i64::from(p.tiers[4])
-        + (miss - ddi::TAP_POINTS[5]) * i64::from(p.tiers[5])
+    let extra = (w2 - super::super::TAP_POINTS[1]) * i64::from(p.tiers[1])
+        + (w4 - super::super::TAP_POINTS[3]) * i64::from(p.tiers[3])
+        + (w5 - super::super::TAP_POINTS[4]) * i64::from(p.tiers[4])
+        + (miss - super::super::TAP_POINTS[5]) * i64::from(p.tiers[5])
         + if mines_follow {
-            (miss - ddi::MINE_POINTS) * i64::from(mines)
+            (miss - super::super::MINE_POINTS) * i64::from(mines)
         } else {
             0
         };
@@ -350,7 +350,7 @@ impl Play<'_> {
             let m = self.moved;
             p.tiers[0] += m;
             p.tiers[1] -= m;
-            p.points += (ddi::TAP_POINTS[0] - ddi::TAP_POINTS[1]) * i64::from(m);
+            p.points += (super::super::TAP_POINTS[0] - super::super::TAP_POINTS[1]) * i64::from(m);
             p.dist = p.dist.saturating_sub(u64::from(m));
         }
         p
@@ -725,9 +725,9 @@ fn definition(s: &Series) -> (String, Value, String, String) {
             wide,
         } => {
             let worth = miss as f64 / 50.0;
-            let lows = w4 != ddi::TAP_POINTS[3] || w5 != ddi::TAP_POINTS[4];
+            let lows = w4 != super::super::TAP_POINTS[3] || w5 != super::super::TAP_POINTS[4];
             let notes = 1.0 - worth;
-            let mine = if mines { miss } else { ddi::MINE_POINTS };
+            let mine = if mines { miss } else { super::super::MINE_POINTS };
             let mut def = format!(
                 "10,000 × points ÷ most, floored: W0 and W1 50, W2 {w2}, W3 25, W4 {w4}, W5 {w5}, Miss {miss}, a mine \
                  or shock {mine}, a Boo −5, each hold unit earned 50 (a dropped hold earns no more units, as today)"
@@ -770,7 +770,7 @@ fn definition(s: &Series) -> (String, Value, String, String) {
                      other rules, at most DDI's own W2 count: an estimate); holds, the combo, full combos and \
                      Absolute Dito unchanged (W1 and W2 both continue the combo); "
                         .to_string()
-                } else if w2 != ddi::TAP_POINTS[1] {
+                } else if w2 != super::super::TAP_POINTS[1] {
                     format!("only W2's worth changes ({w2}, today 40), for comparison; ")
                 } else if lows {
                     format!(
@@ -868,11 +868,11 @@ pub(in super::super) fn run(dir: &Path, out: &Path) {
         let worked_out = t
             .taps
             .iter()
-            .zip(ddi::TAP_POINTS)
+            .zip(super::super::TAP_POINTS)
             .map(|(&n, w)| i64::from(n) * w)
             .sum::<i64>()
             + ddi::BOO_POINTS * i64::from(t.boo)
-            + ddi::MINE_POINTS * i64::from(t.mine_hit)
+            + super::super::MINE_POINTS * i64::from(t.mine_hit)
             + ddi::UNIT_POINTS * i64::from(t.hold_units);
         points_agree += u32::from(worked_out == k.pp.points);
         let mut pp = k.pp;
@@ -930,9 +930,9 @@ pub(in super::super) fn run(dir: &Path, out: &Path) {
         miss: -10,
         mines: false,
         combo: 0,
-        w4: ddi::TAP_POINTS[3],
-        w5: ddi::TAP_POINTS[4],
-        w2: ddi::TAP_POINTS[1],
+        w4: super::super::TAP_POINTS[3],
+        w5: super::super::TAP_POINTS[4],
+        w2: super::super::TAP_POINTS[1],
         wide: false,
     };
     let today: Vec<i64> = clears.iter().map(|p| p.percent(today_kind)).collect();
@@ -1032,7 +1032,7 @@ pub(in super::super) fn run(dir: &Path, out: &Path) {
                     "w4_worth": round4(w4 as f64 / 50.0),
                     "w5_worth": round4(w5 as f64 / 50.0),
                 });
-                if w2 != ddi::TAP_POINTS[1] {
+                if w2 != super::super::TAP_POINTS[1] {
                     entry["variant"]["w2_points"] = json!(w2);
                     entry["variant"]["w2_worth"] = json!(round4(w2 as f64 / 50.0));
                 }
@@ -1553,4 +1553,79 @@ fn the_distributions_series_are_what_they_say() {
         moved_to_w1(&[(1, Some(0.022))], ddi::Difficulty::Easy, 1),
         0
     );
+}
+
+/// Part 8 (round U, 2026-11-17, `built`): round U's rule as the engine
+/// plays it (`ddi::PERCENT_RULE`, a Miss −120, a mine −50, `ddi::GRADES`)
+/// over the kept plays' clears as part 6 counts them (cleared, kept for
+/// the bests, 20 tap-like notes or more), beside the series it was chosen
+/// from (`ddi-miss3.4-combo10`: the same but a mine at −10). Prints
+/// aggregates only: how many clears, how many the series reproduces
+/// exactly (those with no mine stepped on), and the share of the clears at
+/// each letter under each, with the share at 95 or more.
+pub(in super::super) fn built(dir: &Path) {
+    use super::{built_grade, built_percent, grade_index};
+    let (kept, _) = read_kept(dir);
+    let clears: Vec<_> = kept.iter().filter(|k| k.clear && k.counts && k.f.n >= 20).collect();
+    let n = clears.len();
+    let names = ["AD", "SSS", "SS", "S", "A", "B", "C", "D"];
+    let (mut same, mut with_mines, mut engine_agrees, mut at_95) = (0usize, 0usize, 0usize, 0usize);
+    let mut built_at = [0usize; 8];
+    let mut series_at = [0usize; 8];
+    let mut today_at = [0usize; 8];
+    for k in &clears {
+        let mines = k.tally.mine_hit;
+        let built = built_percent(&k.pp, mines);
+        let series = ddi_percent(miss_of(34), false, 10, &k.pp, mines);
+        if mines == 0 {
+            same += usize::from(built == series);
+        } else {
+            with_mines += 1;
+        }
+        // The engine's own grade of the same view.
+        let points = k.pp.points
+            + (ddi::TAP_POINTS[5] - super::super::TAP_POINTS[5]) * i64::from(k.pp.tiers[5])
+            + (ddi::MINE_POINTS - super::super::MINE_POINTS) * i64::from(mines);
+        let view = ddi::DdiScoreView::of(points, k.pp.most, k.tally.w0)
+            .with_max(k.pp.max)
+            .with_combo(k.pp.combo);
+        assert_eq!(view.percent, built, "the engine's percent");
+        let sv = ddi_engine::rules::ScoreView {
+            ddi: Some(view),
+            percent: Some(view.fraction()),
+            ..Default::default()
+        };
+        let g = built_grade(&k.pp, mines);
+        engine_agrees += usize::from(grade_index(ddi::grade(&sv, &k.tally, false)) == Some(g));
+        built_at[g] += 1;
+        at_95 += usize::from(built >= 9500 || g <= 2);
+        series_at[grade_at(&super::BUILT_GRADES, series, &k.pp)] += 1;
+        today_at[super::today_grade(&k.pp)] += 1;
+    }
+    let pct = |c: usize| 100.0 * c as f64 / n.max(1) as f64;
+    let line = |label: &str, at: &[usize; 8]| {
+        let cells: Vec<String> = names.iter().zip(at).map(|(g, &c)| format!("{g} {:.1}", pct(c))).collect();
+        let s_up: usize = at[..4].iter().sum();
+        let c_down: usize = at[6..].iter().sum();
+        println!(
+            "-- {label}: {} | S or better {:.1}, A {:.1}, B {:.1}, C or below {:.1}",
+            cells.join(", "),
+            pct(s_up),
+            pct(at[4]),
+            pct(at[5]),
+            pct(c_down)
+        );
+    };
+    println!(
+        "== built (round U) over the kept clears: {n}; the series reproduces the engine's percent on {} of the \
+         {} without a mine stepped on; {with_mines} with one or more (priced −50 here, −10 in the series); the \
+         engine's grade agrees with this reading on {:.1}%",
+        same,
+        n - with_mines,
+        pct(engine_agrees)
+    );
+    line("before round U (accuracy, a miss −10)", &today_at);
+    line("ddi-miss3.4-combo10 under round U's letters", &series_at);
+    line("round U as built", &built_at);
+    println!("-- round U as built: at 95 or more (SS or better) {:.1}%", pct(at_95));
 }
