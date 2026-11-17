@@ -114,6 +114,53 @@ Mixed=1
 StepMania reads none of this: a pack meant for it too keeps its line
 folders at its top.
 
+## A script: one sound for several lines, tags, weights
+
+A pack may also carry `announcer.lua`, run once when the pack is chosen
+(never during a play), which says which sounds there are and what each
+may be said for. The game still decides when a line is said.
+
+```lua
+local pack = Announcer.pack()
+-- Every sound of the language folders, for its folder's line.
+for _, file in ipairs(Announcer.files()) do
+  if file:sub(1, 7) ~= "shared/" then pack:take(file) end
+end
+-- One sound for two lines.
+pack:take("shared/awesome.ogg", {
+  events = { "gameplay 100 combo", "evaluation cheer" },
+  lang = "en",
+})
+-- A sound the player may switch off.
+pack:take("en/gameplay 200 combo/damn.ogg", { tags = { "profanity" } })
+pack:tag("profanity", { label = "Profanity", default = true })
+pack:languages({ "en", "ja" }, { mixed = true })
+return pack
+```
+
+- `pack:take(file, options)`: `file` is the sound's path in the pack.
+  `events` lists the lines it may be said for (folder names); without
+  them, its folder's line. `lang` is its language; without it, its first
+  folder's when that is a language's tag. `tags` are words of your own.
+  `weight` is its share when languages are mixed (1 by default).
+- `pack:tag(name, { label, default })` shows a switch under the announcer
+  in Options (`label` its name there); takes with a tag switched off are
+  not said. A line left with none falls back as if the pack lacked it.
+- `pack:languages(list, { mixed = true })` says the languages offered, in
+  order, and whether Mixed is.
+- `Announcer.files()` lists the pack's sounds (`Announcer.files("en/")`
+  those under a folder), `Announcer.param(name)` reads a parameter
+  declared in `announcer.ini` (as a noteskin's are: `Type=Choice`,
+  `Toggle`, `Number`, `Color`, shown as rows under the announcer; the
+  Language's value is the language chosen, or `mixed`), and
+  `Announcer.language()` is the game's language.
+- Sounds outside line folders (`shared/` above) are kept for the script.
+- Limits: the sandboxed Lua 5.1 of noteskins without anything that
+  reaches outside the pack, 1,000,000 fuel, 4 MiB, a 64 KB script, 8,000
+  takes, 16 tags. A script that stops, or names a file the pack lacks or
+  a line the game does not know, is refused whole: the pack's folders
+  speak instead, and Options says "Its script stopped".
+
 ## The lines
 
 **Who** says where a line comes from: **SM** for StepMania 5.1,

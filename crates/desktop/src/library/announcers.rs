@@ -100,13 +100,15 @@ fn in_dir(dir: &Path) -> Vec<DiskAnnouncer> {
             if kept.is_silent() {
                 return None;
             }
-            // Its declaration's text, read where it is.
-            kept.ini = a
-                .declaration
-                .as_ref()
-                .and_then(|d| d.to_path(parent))
-                .and_then(|p| std::fs::read(p).ok())
-                .map(|b| declaration_text(&b));
+            // Its declaration's and script's texts, read where they are.
+            let text = |file: &Option<RelPathBuf>| {
+                file.as_ref()
+                    .and_then(|d| d.to_path(parent))
+                    .and_then(|p| std::fs::read(p).ok())
+                    .map(|b| declaration_text(&b))
+            };
+            kept.ini = text(&a.declaration);
+            kept.script = text(&a.script);
             Some(DiskAnnouncer {
                 base: Base::Dir(a.dir.to_path(parent)?),
                 kept,
@@ -138,11 +140,13 @@ fn in_zip(path: &Path) -> Vec<DiskAnnouncer> {
         .into_iter()
         .map(|a| {
             let mut kept = a.kept();
-            kept.ini = a
-                .declaration
-                .as_ref()
-                .and_then(|d| zip.read(d).ok())
-                .map(|b| declaration_text(&b));
+            let text = |file: &Option<RelPathBuf>| {
+                file.as_ref()
+                    .and_then(|d| zip.read(d).ok())
+                    .map(|b| declaration_text(&b))
+            };
+            kept.ini = text(&a.declaration);
+            kept.script = text(&a.script);
             DiskAnnouncer {
                 kept,
                 base: Base::Zip {
@@ -155,10 +159,11 @@ fn in_zip(path: &Path) -> Vec<DiskAnnouncer> {
         .collect()
 }
 
-/// An `announcer.ini`'s bytes as its text, bounded
-/// (`ddi_library::announcer::pool::MAX_DECLARATION`).
+/// An `announcer.ini`'s or `announcer.lua`'s bytes as its text, bounded
+/// (a script longer than `ddi_library::announcer::script::MAX_SOURCE` is
+/// refused as it runs).
 fn declaration_text(bytes: &[u8]) -> String {
-    let n = bytes.len().min(announcer::pool::MAX_DECLARATION * 4);
+    let n = bytes.len().min(announcer::script::MAX_SOURCE + 1);
     String::from_utf8_lossy(&bytes[..n]).into_owned()
 }
 
@@ -511,6 +516,53 @@ mod tests {
         assert!(ja.lines.values().flatten().all(|f| f.as_str().starts_with("ja/")));
         let other = a.kept.resolve(&none, "fr");
         assert!(other.lines.values().flatten().all(|f| f.as_str().starts_with("en/")));
+    }
+
+    /// A declared pack with its script, in a folder and in a zip: read in
+    /// place, its script run as it is chosen (a take reused, its
+    /// language's), its other sounds read through its reader.
+    #[test]
+    fn a_scripted_pack_runs_its_script_from_a_folder_and_a_zip() {
+        const INI: &str = "[Announcer]\nName=Scripted\n[Parameters]\nList=Language\n\
+            [Parameter Language]\nType=Language\nLanguages=en,ja\n";
+        const LUA: &str = "local p = Announcer.pack() \
+            for _, f in ipairs(Announcer.files()) do \
+              if f:sub(1, 7) ~= 'shared/' then p:take(f) end end \
+            p:take('shared/x.ogg', { events = { 'gameplay ready', 'evaluation cheer' } }) \
+            return p";
+        let base = scratch("announcers-scripted");
+        let files = [
+            "Announcers/Scripted/en/gameplay ready/r.ogg",
+            "Announcers/Scripted/ja/gameplay ready/r.ogg",
+            "Announcers/Scripted/shared/x.ogg",
+        ];
+        write(&base, &files);
+        std::fs::write(base.join("Announcers/Scripted/announcer.ini"), INI).unwrap();
+        std::fs::write(base.join("Announcers/Scripted/announcer.lua"), LUA).unwrap();
+        let mut entries: Vec<(&str, &[u8])> = files
+            .iter()
+            .map(|f| (f.strip_prefix("Announcers/").unwrap(), f.as_bytes()))
+            .collect();
+        entries.push(("Scripted/announcer.ini", INI.as_bytes()));
+        entries.push(("Scripted/announcer.lua", LUA.as_bytes()));
+        std::fs::create_dir_all(base.join("Zipped/Announcers")).unwrap();
+        zip(&base.join("Zipped/Announcers/Scripted.zip"), &entries);
+        for folder in [base.clone(), base.join("Zipped")] {
+            let found = in_folder(&folder);
+            assert_eq!(found.len(), 1, "{}", folder.display());
+            let a = &found[0];
+            assert!(a.kept.script.is_some() && a.kept.ini.is_some());
+            let values = ddi_ui::state::settings::Values::new();
+            let (ja, refused) = a.kept.resolve_said(&values, "ja");
+            assert_eq!(refused, None);
+            let ready: Vec<&str> = ja.lines["gameplay ready"].iter().map(|f| f.as_str()).collect();
+            assert_eq!(ready, ["ja/gameplay ready/r.ogg", "shared/x.ogg"]);
+            assert_eq!(ja.lines["evaluation cheer"].len(), 1);
+            let reader = a.reader().unwrap();
+            let bytes = reader.read(&a.name_in_reader(RelPath::new("shared/x.ogg"))).unwrap();
+            assert_eq!(bytes, b"Announcers/Scripted/shared/x.ogg");
+        }
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

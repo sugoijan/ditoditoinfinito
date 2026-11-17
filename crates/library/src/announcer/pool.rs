@@ -343,6 +343,41 @@ impl Pool {
         }
     }
 
+    /// The pool a script built: its takes and tags; the languages it
+    /// offers those it said, else those `declared` lists that its takes
+    /// speak, then the others its takes speak; mixed as it said, else as
+    /// declared.
+    pub fn scripted(scripted: super::script::Scripted, declared: &Declaration) -> Pool {
+        let spoken: Vec<&String> = scripted
+            .takes
+            .iter()
+            .filter_map(|t| t.lang.as_ref())
+            .collect();
+        let (languages, mixed) = match scripted.languages {
+            Some(said) => said,
+            None => {
+                let mut langs: Vec<String> = declared
+                    .languages
+                    .iter()
+                    .filter(|l| spoken.contains(l))
+                    .cloned()
+                    .collect();
+                for l in spoken {
+                    if !langs.contains(l) && langs.len() < MAX_LANGUAGES {
+                        langs.push(l.clone());
+                    }
+                }
+                (langs, declared.mixed)
+            }
+        };
+        Pool {
+            takes: scripted.takes,
+            mixed: mixed && languages.len() > 1,
+            languages,
+            tags: scripted.tags,
+        }
+    }
+
     /// The languages `choice` speaks for the game's language `game`.
     pub fn languages_for(&self, choice: &LanguageChoice, game: &str) -> Vec<String> {
         match choice {
@@ -428,29 +463,78 @@ impl Kept {
             .map_or_else(|| self.name.clone(), str::to_string)
     }
 
-    /// Its pool of takes ([`Pool::plain`]).
+    /// Its pool of takes with `values` chosen and the game's language
+    /// `game`: its script's ([`super::script`]) where it has one that
+    /// runs, else its folders' ([`Pool::plain`]); with why its script was
+    /// refused, if it was.
+    pub fn pool_with(&self, values: &Values, game: &str) -> (Pool, Option<String>) {
+        let declared = self.declaration();
+        let Some(source) = self.script.as_deref() else {
+            return (Pool::plain(self, &declared), None);
+        };
+        let files: Vec<String> = self.sounds().into_iter().map(ToString::to_string).collect();
+        let params = self.script_values(&declared, values);
+        match super::script::run(source, &files, &params, game) {
+            Ok(scripted) => (Pool::scripted(scripted, &declared), None),
+            Err(e) => (Pool::plain(self, &declared), Some(e)),
+        }
+    }
+
+    /// Its pool of takes with nothing chosen, in English
+    /// ([`Kept::pool_with`]).
     pub fn pool(&self) -> Pool {
-        Pool::plain(self, &self.declaration())
+        self.pool_with(&Values::new(), FALLBACK_LANGUAGE).0
+    }
+
+    /// What its script reads of the player's `values`: each declared
+    /// parameter's value (its default where none is kept), and the
+    /// Language chosen (a tag or `mixed`; nothing for the game's).
+    fn script_values(&self, declared: &Declaration, values: &Values) -> Values {
+        let mut out: Values = declared
+            .parameters
+            .iter()
+            .map(|p| {
+                let v = values
+                    .get(&p.name)
+                    .and_then(|v| p.accept(v))
+                    .unwrap_or_else(|| p.default.clone());
+                (p.name.clone(), v)
+            })
+            .collect();
+        if let Some(v) = LanguageChoice::of(values).value() {
+            out.insert(LANGUAGE.into(), v);
+        }
+        out
     }
 
     /// What it offers the player ([`Offered`]), with `values` chosen, the
     /// game's language `game`.
     pub fn offered(&self, values: &Values, game: &str) -> Offered {
         let declared = self.declaration();
-        let pool = Pool::plain(self, &declared);
-        Offered::of(&pool, &declared, values, game)
+        let (pool, refused) = self.pool_with(values, game);
+        Offered {
+            refused,
+            ..Offered::of(&pool, &declared, values, game)
+        }
     }
 
     /// Itself as `values` choose for the game's language `game`: its
     /// lines those the choices keep ([`Pool::resolve`]), its shuffles
     /// apart from another choice's ([`Kept::choice`]).
     pub fn resolve(&self, values: &Values, game: &str) -> Kept {
-        if self.voices.is_empty() && self.ini.is_none() {
+        self.resolve_said(values, game).0
+    }
+
+    /// [`Kept::resolve`], and why its script was refused, if it was (said
+    /// in the log; its folders speak instead).
+    pub fn resolve_said(&self, values: &Values, game: &str) -> (Kept, Option<String>) {
+        if self.voices.is_empty() && self.ini.is_none() && self.script.is_none() {
             // A pack of line folders alone: as it always was.
-            return self.clone();
+            return (self.clone(), None);
         }
-        let chosen = self.pool().resolve(values, game);
-        Kept {
+        let (pool, refused) = self.pool_with(values, game);
+        let chosen = pool.resolve(values, game);
+        let kept = Kept {
             name: self.name.clone(),
             files: chosen.lines.values().map(Vec::len).sum(),
             lines: chosen.lines,
@@ -459,7 +543,10 @@ impl Kept {
             voices: BTreeMap::new(),
             ini: None,
             choice: chosen.key,
-        }
+            script: None,
+            others: Vec::new(),
+        };
+        (kept, refused)
     }
 }
 
@@ -480,11 +567,15 @@ pub struct Offered {
     pub tags: Vec<Tag>,
     /// Its other parameters.
     pub parameters: Vec<Parameter>,
+    /// Why its script was refused (its folders speaking instead), if it
+    /// was.
+    pub refused: Option<String>,
 }
 
 impl Offered {
     fn of(pool: &Pool, declared: &Declaration, _values: &Values, game: &str) -> Offered {
         Offered {
+            refused: None,
             names: declared.names.clone(),
             languages: pool
                 .languages

@@ -103,6 +103,12 @@ pub fn start() {
     router::reset_start_focus();
     // Settings and the song list's place, from the browser's storage.
     web::kv::install();
+    // Announcers' scripts: the page's clock behind their fuel, and a seed
+    // they cannot know for their tables' hashing.
+    ddi_library::announcer::script::set_host(
+        || js_sys::Date::now() / 1000.0,
+        (js_sys::Math::random() * 9_007_199_254_740_991.0) as u64,
+    );
     // The UI's language: the settings' choice, else the browser's.
     let languages: Vec<String> = web_sys::window()
         .map(|w| {

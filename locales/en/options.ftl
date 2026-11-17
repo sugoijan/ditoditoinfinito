@@ -434,6 +434,13 @@ options-announcer-language-game = Same as game language ({ $language })
 options-announcer-language-mixed = Mixed
 options-announcer-language-description = The language the announcer speaks: the game's own by default, one of its languages, or all of them mixed.
 
+# Beside the announcer, where its pack's script stopped and the pack's
+# folders speak instead (a few words).
+options-announcer-script-stopped = Its script stopped
+# The description of a switch an announcer's pack offers (its name is the
+# pack's own words, such as "Profanity").
+options-announcer-tag-description = Whether the announcer says the lines its pack marks so.
+
 options-announcer-volume = Announcer volume
 options-announcer-volume-description = How loud the announcer speaks, as a share of the music volume (muting the music mutes it too).
 

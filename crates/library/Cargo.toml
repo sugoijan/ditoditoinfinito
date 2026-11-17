@@ -19,6 +19,9 @@ ddi-platform.workspace = true
 # Announcers' `announcer.ini`, read as skins' `metrics.ini` and their
 # parameters are (`announcer::pool`).
 ddi-noteskin.workspace = true
+# Announcers' `announcer.lua`, run once at load on the sandboxed Lua
+# (`announcer::script`).
+ddi-lua.workspace = true
 ddi-share-protocol.workspace = true
 serde.workspace = true
 thiserror.workspace = true

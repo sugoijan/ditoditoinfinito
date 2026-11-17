@@ -311,6 +311,23 @@ pub fn run() {
     let utility = instance::utility(&args);
     instance::start(&args);
     clock::epoch();
+    // Announcers' scripts: the clock behind their fuel, and a seed they
+    // cannot know for their tables' hashing.
+    {
+        use std::hash::{BuildHasher, Hasher};
+        static EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        EPOCH.get_or_init(std::time::Instant::now);
+        let mut seed = std::collections::hash_map::RandomState::new().build_hasher();
+        seed.write_u128(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
+        );
+        ddi_library::announcer::script::set_host(
+            || EPOCH.get().map_or(0.0, |e| e.elapsed().as_secs_f64()),
+            seed.finish(),
+        );
+    }
     match utility {
         Some(utility) => {
             store::install_reading();

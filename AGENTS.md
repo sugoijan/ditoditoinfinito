@@ -343,7 +343,10 @@ Rust and the browser are implementation details, not advertised features.
   `bundled:clank`, `BUILT_IN`), and the web's index of them with what
   each sound says; an announcer as a pool of takes, its
   `announcer.ini`'s languages and names, resolved by the player's
-  choices to the lines the session speaks, `announcer/pool.rs`;
+  choices to the lines the session speaks, `announcer/pool.rs`; a
+  pack's `announcer.lua` run once at load on the sandboxed Lua to build
+  that pool (reuse, tags, weights; refused whole for its folders when it
+  fails), `announcer/script.rs`;
   `docs/plans/announcers.md`; every line,
   when it speaks and what it falls back to, for pack authors:
   `docs/announcer-lines.md`; the announcer studio's drafts, takes

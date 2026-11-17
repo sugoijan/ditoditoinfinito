@@ -330,7 +330,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   default and speaking the game's language (a Language row, Mixed),
   settings with it Off or the old packs moved to it once with a notice
   for those who had it Off, and announcers as pools of takes resolved
-  by the player's choices. Louder since 2026-11-12:
+  by the player's choices, which a pack's `announcer.lua` may build once
+  at load (a take for several lines, switchable tags, parameters); the
+  built-in runs on its own script. Louder since 2026-11-12:
   made through the announcer studio's tidy, the one leveler, whose
   chain (`announcer-level-v3`: a phase rotator, a compressor, a limiter
   that has little left to do) brings them to about 3 LU under the

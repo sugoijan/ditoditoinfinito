@@ -9,7 +9,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use ddi_library::announcer::{Announcer, Bundled, Index, Kept, find_announcers, pool};
+use ddi_library::announcer::{Announcer, Bundled, Index, Kept, find_announcers, pool, script};
+use ddi_noteskin::params::{Value, Values};
 use serde::Deserialize;
 
 use crate::songs::LicenseEntry;
@@ -75,6 +76,8 @@ pub(crate) struct Pack {
     pub(crate) voices: Vec<(String, Provenance)>,
     pub(crate) announcer: Announcer,
     pub(crate) ini: Option<String>,
+    /// Its `announcer.lua`'s text.
+    pub(crate) script: Option<String>,
 }
 
 /// A PROVENANCE.toml read and checked: its licences known.
@@ -123,6 +126,7 @@ pub(crate) fn scan(root: &Path) -> Result<Vec<Pack>> {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         let ini = fs::read_to_string(folder.join(pool::DECLARATION)).ok();
+        let script = fs::read_to_string(folder.join(script::SCRIPT)).ok();
         let declared = ini.as_deref().map(pool::Declaration::parse);
         let mut voices = Vec::new();
         match &declared {
@@ -216,12 +220,15 @@ pub(crate) fn scan(root: &Path) -> Result<Vec<Pack>> {
                 bail!("{name}: [said] and the sounds differ at {f}");
             }
         }
-        out.push(Pack {
+        let pack = Pack {
             path: name,
             voices,
             announcer: a,
             ini,
-        });
+            script,
+        };
+        check_script(&pack)?;
+        out.push(pack);
     }
     Ok(out)
 }
@@ -231,8 +238,46 @@ fn kept(pack: &Pack) -> Kept {
     Kept {
         bundled: true,
         ini: pack.ini.clone(),
+        script: pack.script.clone(),
         ..pack.announcer.kept()
     }
+}
+
+/// A scripted pack's script runs for every choice of language and every
+/// game language (the pseudo ones too), and says every line its folders
+/// say in each.
+fn check_script(pack: &Pack) -> Result<()> {
+    let Some(_) = &pack.script else {
+        return Ok(());
+    };
+    let kept = kept(pack);
+    let plain = Kept {
+        script: None,
+        ..kept.clone()
+    };
+    let mut choices = vec![Values::new()];
+    for (lang, _) in kept.offered(&Values::new(), "en").languages {
+        choices.push(Values::from([(pool::LANGUAGE.into(), Value::Text(lang))]));
+    }
+    choices.push(Values::from([(pool::LANGUAGE.into(), Value::Text(pool::MIXED.into()))]));
+    let mut games: Vec<&str> = ddi_l10n::all().map(|l| l.tag).collect();
+    games.push("fr");
+    for values in &choices {
+        for game in &games {
+            let (said, refused) = kept.resolve_said(values, game);
+            if let Some(why) = refused {
+                bail!("{}: {}: {why}", pack.path, script::SCRIPT);
+            }
+            let folders = plain.resolve(values, game);
+            if let Some(line) = folders.lines.keys().find(|l| !said.lines.contains_key(*l)) {
+                bail!(
+                    "{}: its script leaves out {line:?} ({values:?}, the game in {game})",
+                    pack.path
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn gen_announcers(check: bool) -> Result<()> {
@@ -398,6 +443,18 @@ holders = ["a"]
         assert_eq!(kept.files, 8);
         assert!(kept.lines.is_empty() && kept.ini.is_some());
         assert_eq!(kept.display_name("ja"), "声");
+        // A script saying it all, and one leaving lines out or broken.
+        for (tag, script, ok) in [
+            ("script", "local p = Announcer.pack() for _, f in ipairs(Announcer.files()) do p:take(f) end return p", true),
+            ("script-short", "return Announcer.pack()", false),
+            ("script-broken", "while true do end", false),
+        ] {
+            let root = make(tag, "声", &LINES);
+            fs::write(root.join("assets/announcers/Two/announcer.lua"), script).unwrap();
+            let result = scan(&root);
+            fs::remove_dir_all(&root).unwrap();
+            assert_eq!(result.is_ok(), ok, "{tag}");
+        }
         for (tag, name, lines) in [("short", "声", &LINES[..3]), ("misnamed", "Voice", &LINES[..])] {
             let root = make(tag, name, lines);
             let result = scan(&root);

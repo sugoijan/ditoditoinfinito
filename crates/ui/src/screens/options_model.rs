@@ -1023,7 +1023,17 @@ impl OptionsModel {
             rows.extend(studio);
             return rows;
         };
+        // Its script refused: said in a word beside it.
+        if self
+            .world
+            .announcer_offers
+            .get(key)
+            .is_some_and(|o| o.refused.is_some())
+        {
+            rows[0].note = m::announcer_script_stopped().into();
+        }
         rows.extend(self.announcer_language_row(key));
+        rows.extend(self.announcer_choice_rows(key));
         let percent = (volume_to_slider(s.announcer_volume) * 100.0).round() as usize;
         let mut volume = row(
             "announcer_volume",
@@ -1091,6 +1101,44 @@ impl OptionsModel {
             out.push((m::announcer_language_mixed().into(), LanguageChoice::Mixed));
         }
         Some(out)
+    }
+
+    /// Announcer `key`'s other rows: a switch for each tag it lets the
+    /// player switch off, then its parameters as a skin's show (their
+    /// labels and choices the pack's own words: data).
+    fn announcer_choice_rows(&self, key: &str) -> Vec<OptionDef> {
+        let Some(offered) = self.world.announcer_offers.get(key) else {
+            return Vec::new();
+        };
+        let stored = self.settings.announcer_params(key);
+        let mut rows = Vec::new();
+        for tag in &offered.tags {
+            let on = match stored.get(&pool::tag_value_name(&tag.name)) {
+                Some(ParamValue::Bool(on)) => *on,
+                _ => tag.default,
+            };
+            rows.push(choice(
+                &format!("{ANNOUNCER_TAG}{}", tag.name),
+                UiText::data(&tag.label),
+                on_off(),
+                usize::from(on),
+                m::announcer_tag_description(),
+            ));
+        }
+        for p in &offered.parameters {
+            let (labels, _, at) = param_values(p, stored.get(&p.name));
+            rows.push(row(
+                &format!("{ANNOUNCER_PARAM}{}", p.name),
+                UiText::data(&p.label),
+                match p.kind {
+                    ParamKind::Number { .. } => OptionKind::Stepper(labels.into()),
+                    _ => OptionKind::Choices(labels),
+                },
+                at,
+                UiText::data(&p.description),
+            ));
+        }
+        rows
     }
 
     /// Announcer `key`'s Language row, where it offers more than one.
@@ -2084,6 +2132,44 @@ impl OptionsModel {
                 }
             }
             "announcer_volume" => s.announcer_volume = slider_to_volume(i as f32 / 100.0),
+            id if id.starts_with(ANNOUNCER_TAG) => {
+                if let Some(key) = s.announcer.clone()
+                    && let Some(tag) = self.world.announcer_offers.get(&key).and_then(|o| {
+                        o.tags
+                            .iter()
+                            .find(|t| t.name == id[ANNOUNCER_TAG.len()..])
+                            .cloned()
+                    })
+                {
+                    self.settings.set_announcer_param(
+                        &key,
+                        &pool::tag_value_name(&tag.name),
+                        Some(ParamValue::Bool(i == 1)),
+                        Some(&ParamValue::Bool(tag.default)),
+                    );
+                }
+            }
+            id if id.starts_with(ANNOUNCER_PARAM) => {
+                if let Some(key) = s.announcer.clone()
+                    && let Some(p) = self.world.announcer_offers.get(&key).and_then(|o| {
+                        o.parameters
+                            .iter()
+                            .find(|p| p.name == id[ANNOUNCER_PARAM.len()..])
+                            .cloned()
+                    })
+                {
+                    let stored = self.settings.announcer_params(&key);
+                    let (_, values, _) = param_values(&p, stored.get(&p.name));
+                    if let Some(v) = values.get(i) {
+                        self.settings.set_announcer_param(
+                            &key,
+                            &p.name,
+                            Some(v.clone()),
+                            Some(&p.default),
+                        );
+                    }
+                }
+            }
             ANNOUNCER_LANGUAGE => {
                 if let Some(key) = s.announcer.clone()
                     && let Some((_, choice)) = self
@@ -2611,6 +2697,10 @@ impl OptionsModel {
 
 /// The announcer's Language row.
 pub const ANNOUNCER_LANGUAGE: &str = "announcer.language";
+/// The ids of the announcer's tags' rows (then the tag), and of its
+/// parameters' (then the name).
+pub const ANNOUNCER_TAG: &str = "announcer.tag.";
+pub const ANNOUNCER_PARAM: &str = "announcer.param.";
 
 /// The ids of the chosen skin's parameters' rows (then the name), and of
 /// the chosen pump skin's.
@@ -3642,6 +3732,56 @@ mod tests {
         assert!(!has(&m, "announcer.remove"));
         m.settings.announcer = Some("made".into());
         assert!(has(&m, "announcer.remove"));
+    }
+
+    /// A scripted pack's switchable tag and its parameter as rows under
+    /// it, each kept per announcer; a script that stops is said beside it.
+    #[test]
+    fn an_announcer_s_tags_and_parameters_are_rows() {
+        use ddi_library::announcer::{Kept, pool};
+        let mut kept = Kept {
+            name: "Mine".into(),
+            ini: Some(
+                "[Parameters]\nList=Mood\n[Parameter Mood]\nType=Choice\nLabel=Mood\nChoices=Normal,Calm\n"
+                    .into(),
+            ),
+            script: Some(
+                "local p = Announcer.pack() \
+                 p:take('gameplay ready/a.ogg', { tags = { 'profanity' } }) \
+                 p:tag('profanity', { label = 'Profanity', default = false }) return p"
+                    .into(),
+            ),
+            ..Kept::default()
+        };
+        kept.lines
+            .insert("gameplay ready".into(), vec!["gameplay ready/a.ogg".into()]);
+        let mut m = model();
+        m.set_announcers_kept(&[built_in(), kept.clone()], false);
+        m.settings.announcer = Some("mine".into());
+        let d = m.data();
+        assert_eq!(find(&d, "announcer.tag.profanity").values(), ["Off", "On"]);
+        assert_eq!(find(&d, "announcer.tag.profanity").index, 0);
+        assert_eq!(find(&d, "announcer.tag.profanity").label, "Profanity");
+        assert_eq!(find(&d, "announcer.param.Mood").values(), ["Normal", "Calm"]);
+        assert_eq!(find(&d, "announcer").note, "");
+        assert_eq!(m.change("announcer.tag.profanity", 1), Some(Effect::Announce));
+        assert_eq!(
+            m.settings.announcer_params("mine").get(&pool::tag_value_name("profanity")),
+            Some(&ParamValue::Bool(true))
+        );
+        m.change("announcer.param.Mood", 1);
+        assert_eq!(
+            m.settings.announcer_params("mine").get("Mood"),
+            Some(&ParamValue::Text("Calm".into()))
+        );
+        // Back to their defaults: nothing kept.
+        m.change("announcer.tag.profanity", 0);
+        m.change("announcer.param.Mood", 0);
+        assert!(!m.settings.announcer_params.contains_key("mine"));
+        // A script that stops: a word beside it, its folders speaking.
+        kept.script = Some("while true do end".into());
+        m.set_announcers_kept(&[built_in(), kept], false);
+        assert_eq!(find(&m.data(), "announcer").note, "Its script stopped");
     }
 
     /// The built-in announcer's Language row: Same as game language,

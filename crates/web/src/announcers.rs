@@ -107,10 +107,15 @@ fn game_language() -> &'static str {
     ddi_l10n::current().tag
 }
 
-/// Announcer `key` resolved with the player's choices for it.
+/// Announcer `key` resolved with the player's choices for it; a script
+/// refused is said in the log (its folders speak instead).
 fn resolved(kept: &Kept, key: &str) -> Kept {
     let values = crate::settings::Settings::load().announcer_params(key);
-    kept.resolve(&values, game_language())
+    let (kept, refused) = kept.resolve_said(&values, game_language());
+    if let Some(why) = refused {
+        web_sys::console::warn_1(&format!("announcer {key}: its script stopped: {why}").into());
+    }
+    kept
 }
 
 /// The key the chosen announcer's voice is known by now (`None`: Off).

@@ -105,7 +105,10 @@ impl VoiceLoad {
                     return;
                 };
                 let bags: &Mutex<Bags> = test_bags.as_deref().unwrap_or(&BAGS);
-                let kept = a.kept.resolve(&values, &game);
+                let (kept, refused) = a.kept.resolve_said(&values, &game);
+                if let Some(why) = refused {
+                    eprintln!("announcer {key}: its script stopped: {why}; its folders speak");
+                }
                 let wanted = match bags.lock() {
                     Ok(mut bags) => of.wanted(&kept, &mut bags),
                     Err(_) => return,

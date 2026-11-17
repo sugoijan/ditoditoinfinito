@@ -632,6 +632,11 @@ pub struct Announcer {
     /// its voices (the shells read the file's text into
     /// [`Kept::ini`]).
     pub declaration: Option<RelPathBuf>,
+    /// Its `announcer.lua` ([`script::SCRIPT`]), if it has one: a
+    /// declaration too, and the pack's sounds outside its line folders
+    /// (its [`Announcer::unused`] and [`Announcer::unknown`] folders')
+    /// are kept for it to name ([`Kept::others`]).
+    pub script: Option<RelPathBuf>,
     /// Known lines not spoken, by the name they are kept under.
     pub unused: BTreeMap<String, Vec<RelPathBuf>>,
     /// Folders of sounds no engine names, by their name in lower case.
@@ -728,6 +733,13 @@ pub struct Kept {
     /// resolved, or a pack without choices; [`Kept::resolve`]).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub choice: String,
+    /// Its `announcer.lua`'s text ([`script`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script: Option<String>,
+    /// A scripted pack's sounds outside its line folders, which its
+    /// script may name (`shared/awesome.ogg`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub others: Vec<RelPathBuf>,
 }
 
 impl Kept {
@@ -749,21 +761,24 @@ impl Kept {
         }
     }
 
-    /// Every sound of it, in its lines and its voices, each once.
+    /// Every sound of it, in its lines, its voices and those its script
+    /// may name, each once.
     pub fn sounds(&self) -> BTreeSet<&RelPathBuf> {
         self.lines
             .values()
             .chain(self.voices.values().flat_map(|v| v.values()))
             .flatten()
+            .chain(&self.others)
             .collect()
     }
 
-    /// Every list of sounds, its lines' and its voices', to change in
-    /// place (an import keeps what it stored).
+    /// Every list of sounds, its lines', its voices' and its script's
+    /// others, to change in place (an import keeps what it stored).
     pub fn sound_lists_mut(&mut self) -> impl Iterator<Item = &mut Vec<RelPathBuf>> {
         self.lines
             .values_mut()
             .chain(self.voices.values_mut().flat_map(|v| v.values_mut()))
+            .chain(std::iter::once(&mut self.others))
     }
 
     /// Drops lines left without a sound, and voices without a line.
@@ -775,9 +790,12 @@ impl Kept {
         self.voices.retain(|_, v| !v.is_empty());
     }
 
-    /// Whether it has no sound of a line at all.
+    /// Whether it has no sound of a line at all (a script naming sounds
+    /// outside line folders has some).
     pub fn is_silent(&self) -> bool {
-        self.lines.is_empty() && self.voices.is_empty()
+        self.lines.is_empty()
+            && self.voices.is_empty()
+            && (self.script.is_none() || self.others.is_empty())
     }
 
     /// Its sounds for `line`, from the first of [`Line::chain`] it has.
@@ -920,6 +938,15 @@ impl Announcer {
                 voice.insert(line.folder(), files);
             }
         }
+        // What a script may name beside its line folders.
+        if self.script.is_some() {
+            for files in self.unused.values().chain(self.unknown.values()) {
+                let files = within(files);
+                kept.files += files.len();
+                kept.others.extend(files);
+            }
+            kept.others.sort();
+        }
         kept
     }
 
@@ -1017,7 +1044,9 @@ fn detect<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<(String, Vec<RelPathB
         }
         if is_audio(p) {
             audio_dirs.insert(parent(p));
-        } else if file_name(p).eq_ignore_ascii_case(pool::DECLARATION) {
+        } else if file_name(p).eq_ignore_ascii_case(pool::DECLARATION)
+            || file_name(p).eq_ignore_ascii_case(script::SCRIPT)
+        {
             declared.insert(parent(p));
         }
     }
@@ -1109,7 +1138,8 @@ pub fn find_announcers<S: AsRef<str>>(files: &[(S, u64)], root: &str) -> Found {
         let declares = files.iter().any(|(p, _)| {
             let p = p.as_ref();
             !is_ignored(p)
-                && file_name(p).eq_ignore_ascii_case(pool::DECLARATION)
+                && (file_name(p).eq_ignore_ascii_case(pool::DECLARATION)
+                    || file_name(p).eq_ignore_ascii_case(script::SCRIPT))
                 && parent(p) == dir.as_str()
         });
         // Line folder (as on disk, with its language folder in a declared
@@ -1138,6 +1168,9 @@ pub fn find_announcers<S: AsRef<str>>(files: &[(S, u64)], root: &str) -> Found {
                 }
                 [file] if declares && file.eq_ignore_ascii_case(pool::DECLARATION) => {
                     a.declaration = Some(RelPathBuf::from(path));
+                }
+                [file] if declares && file.eq_ignore_ascii_case(script::SCRIPT) => {
+                    a.script = Some(RelPathBuf::from(path));
                 }
                 [lang, folder, _, ..] if declares && pool::is_language(lang) => {
                     a.report.ignored += 1;
@@ -1213,6 +1246,7 @@ pub fn find_announcers<S: AsRef<str>>(files: &[(S, u64)], root: &str) -> Found {
 pub mod draft;
 pub mod examples;
 pub mod pool;
+pub mod script;
 pub mod tidy;
 pub mod stadium;
 

@@ -752,8 +752,15 @@ async fn store_announcers(
         progress.emit(ImportStep::StoringAnnouncer {
             name: a.name.clone(),
         });
-        // Its declaration (`announcer.ini`), kept as text with it.
-        if let Some(source) = a.declaration.as_ref().and_then(|d| sources.get(d.as_str())) {
+        // Its declaration (`announcer.ini`) and script (`announcer.lua`),
+        // kept as text with it.
+        for (path, name) in [
+            (&a.declaration, ddi_library::announcer::pool::DECLARATION),
+            (&a.script, ddi_library::announcer::script::SCRIPT),
+        ] {
+            let Some(source) = path.as_ref().and_then(|d| sources.get(d.as_str())) else {
+                continue;
+            };
             let text = match read_blob(source, "text/plain").await {
                 Ok(blob) => crate::web::files::blob_bytes(&blob)
                     .await
@@ -761,11 +768,15 @@ async fn store_announcers(
                 Err(e) => Err(e),
             };
             match text {
-                Ok(bytes) => kept.ini = Some(String::from_utf8_lossy(&bytes).into_owned()),
-                Err(e) => report.warnings.push((
-                    label.clone(),
-                    file_failed(ddi_library::announcer::pool::DECLARATION, e),
-                )),
+                Ok(bytes) => {
+                    let text = Some(String::from_utf8_lossy(&bytes).into_owned());
+                    if name == ddi_library::announcer::script::SCRIPT {
+                        kept.script = text;
+                    } else {
+                        kept.ini = text;
+                    }
+                }
+                Err(e) => report.warnings.push((label.clone(), file_failed(name, e))),
             }
         }
         let mut sounds = Vec::new();

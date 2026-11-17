@@ -865,3 +865,197 @@ fn a_bundled_voice_reads_as_a_pack_of_its_own() {
     assert_eq!(ja.said["gameplay ready/ready.ogg"], "準備！");
     assert!(b.voice("de").is_none());
 }
+
+/// A scripted pack: its sounds of two languages, a take outside its line
+/// folders said for two lines, tagged.
+fn scripted(script: &str) -> Kept {
+    let mut listed = vec!["S/announcer.ini".to_string(), "S/announcer.lua".to_string()];
+    for lang in ["en", "ja"] {
+        for f in small("") {
+            listed.push(format!("S/{lang}/{f}"));
+        }
+    }
+    listed.push("S/shared/awesome.ogg".into());
+    let a = &find_announcers(&files(&listed, 10), "root").announcers[0];
+    assert_eq!(a.script.as_ref().map(|s| s.as_str()), Some("S/announcer.lua"));
+    Kept {
+        ini: Some(
+            "[Parameters]\nList=Language,Mood\n[Parameter Language]\nType=Language\nLanguages=en,ja\n\
+             [Parameter Mood]\nType=Choice\nChoices=Normal,Calm\n"
+                .into(),
+        ),
+        script: Some(script.into()),
+        ..a.kept()
+    }
+}
+
+const SCRIPT: &str = r#"
+local pack = Announcer.pack()
+for _, f in ipairs(Announcer.files()) do
+  if f:sub(1, 7) ~= "shared/" then pack:take(f) end
+end
+pack:take("shared/awesome.ogg", {
+  events = { "gameplay 100 combo", "evaluation cheer" },
+  lang = "en",
+  tags = { "loud" },
+})
+if Announcer.param("Mood") == "Calm" then
+  pack:take("en/gameplay ready/ready.ogg", { events = { "evaluation cheer" } })
+end
+pack:tag("loud", { label = "Loud lines", default = true })
+pack:languages({ "en", "ja" }, { mixed = true })
+return pack
+"#;
+
+#[test]
+fn a_script_reuses_a_take_tags_it_and_mixes_its_languages() {
+    use ddi_noteskin::params::{Value, Values};
+    let kept = scripted(SCRIPT);
+    assert_eq!(paths(&kept.others), ["shared/awesome.ogg"]);
+    let none = Values::new();
+    let en = kept.resolve(&none, "en");
+    // One take, two lines.
+    assert_eq!(paths(&en.lines["gameplay 100 combo"]), ["shared/awesome.ogg"]);
+    assert_eq!(paths(&en.lines["evaluation cheer"]), ["shared/awesome.ogg"]);
+    assert_eq!(paths(&en.lines["gameplay ready"]), ["en/gameplay ready/ready.ogg"]);
+    // In Japanese the English take is not said.
+    let ja = kept.resolve(&none, "ja");
+    assert!(!ja.lines.contains_key("evaluation cheer"));
+    // Its tag switched off: its take is not said; the row's default on.
+    let off = Values::from([(pool::tag_value_name("loud"), Value::Bool(false))]);
+    assert!(!kept.resolve(&off, "en").lines.contains_key("gameplay 100 combo"));
+    let offered = kept.offered(&none, "en");
+    assert_eq!(offered.refused, None);
+    assert_eq!(offered.tags.len(), 1);
+    assert_eq!((offered.tags[0].label.as_str(), offered.tags[0].default), ("Loud lines", true));
+    assert!(offered.mixed && offered.has_languages());
+    // Mixed: both languages.
+    let mixed = Values::from([(pool::LANGUAGE.to_string(), Value::Text(pool::MIXED.into()))]);
+    assert_eq!(
+        paths(&kept.resolve(&mixed, "en").lines["gameplay ready"]),
+        ["en/gameplay ready/ready.ogg", "ja/gameplay ready/ready.ogg"]
+    );
+    // Its parameters read by the script.
+    let calm = Values::from([("Mood".to_string(), Value::Text("Calm".into()))]);
+    assert_eq!(
+        paths(&kept.resolve(&calm, "en").lines["evaluation cheer"]),
+        ["shared/awesome.ogg", "en/gameplay ready/ready.ogg"]
+    );
+    // The same each time.
+    assert_eq!(kept.resolve(&none, "en"), en);
+}
+
+/// Scripts that loop, grow without end, reach outside the pack, name a
+/// line the game does not know or break are refused whole, each with
+/// its reason, and the pack's folders speak instead: what its plain
+/// layout says.
+#[test]
+fn a_hostile_or_broken_script_is_refused_and_the_folders_speak() {
+    use ddi_noteskin::params::Values;
+    let none = Values::new();
+    let plain = Kept {
+        script: None,
+        others: Vec::new(),
+        ..scripted(SCRIPT)
+    };
+    let fallback = plain.resolve(&none, "en");
+    for (case, script, said) in [
+        ("loop", "while true do end", "fuel"),
+        (
+            "huge table",
+            "local t = {} for i = 1, 1e9 do t[i] = ('x'):rep(64) .. i end return Announcer.pack()",
+            "",
+        ),
+        ("huge string", "local s = string.rep('x', 1e9) return Announcer.pack()", ""),
+        (
+            "recursion",
+            "local function f(n) return f(n + 1) + 1 end f(1) return Announcer.pack()",
+            "",
+        ),
+        (
+            "outside the pack",
+            "local p = Announcer.pack() p:take('../Other/gameplay ready/r.ogg') return p",
+            "no sound of this pack",
+        ),
+        (
+            "an unknown line",
+            "local p = Announcer.pack() p:take('shared/awesome.ogg', { events = { 'gameplay victory dance' } }) return p",
+            "not a line",
+        ),
+        (
+            "a folder of no line",
+            "local p = Announcer.pack() p:take('shared/awesome.ogg') return p",
+            "names no line",
+        ),
+        ("syntax", "local p = Announcer.pack( return p", ""),
+        ("an error", "error('broken')", "broken"),
+        ("no pack", "return 5", "must return its pack"),
+        ("the system", "os.execute('true') return Announcer.pack()", ""),
+        ("a file read", "io.open('/etc/passwd') return Announcer.pack()", ""),
+        (
+            "a bad tag",
+            "local p = Announcer.pack() p:tag('no spaces please') return p",
+            "not a tag's name",
+        ),
+        (
+            "a bad weight",
+            "local p = Announcer.pack() p:take('en/gameplay ready/ready.ogg', { weight = -1 }) return p",
+            "weight",
+        ),
+    ] {
+        let kept = scripted(script);
+        let started = std::time::Instant::now();
+        let offered = kept.offered(&none, "en");
+        let refused = offered.refused.unwrap_or_else(|| panic!("{case}: not refused"));
+        assert!(refused.contains(said), "{case}: {refused}");
+        let (resolved, why) = kept.resolve_said(&none, "en");
+        assert!(why.is_some(), "{case}");
+        assert_eq!(resolved, fallback, "{case}");
+        assert!(started.elapsed().as_secs_f64() < 5.0, "{case}: {:?}", started.elapsed());
+    }
+}
+
+/// The built-in announcer on its script says what its folders say, in
+/// every choice and for every game language.
+#[test]
+fn the_built_in_announcer_s_script_says_what_its_folders_say() {
+    use ddi_noteskin::params::{Value, Values};
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/announcers");
+    let mut listed = Vec::new();
+    let mut walk = vec![root.join(BUILT_IN_FOLDER)];
+    while let Some(dir) = walk.pop() {
+        for e in std::fs::read_dir(&dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                walk.push(p);
+            } else {
+                let rel = p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
+                listed.push((rel, 1u64));
+            }
+        }
+    }
+    let a = &find_announcers(&listed, "root").announcers[0];
+    let read = |name: &str| std::fs::read_to_string(root.join(BUILT_IN_FOLDER).join(name)).ok();
+    let kept = Kept {
+        ini: read(pool::DECLARATION),
+        script: read(script::SCRIPT),
+        ..a.kept()
+    };
+    assert!(kept.script.is_some(), "the built-in has its script");
+    let plain = Kept {
+        script: None,
+        ..kept.clone()
+    };
+    for choice in [None, Some("en"), Some("ja"), Some(pool::MIXED)] {
+        let values: Values = choice
+            .map(|c| (pool::LANGUAGE.to_string(), Value::Text(c.into())))
+            .into_iter()
+            .collect();
+        for game in ["en", "ja", "ja-JP", "qps-ploc", "qps-wide", "fr"] {
+            let (by_script, refused) = kept.resolve_said(&values, game);
+            assert_eq!(refused, None, "{choice:?} {game}");
+            assert_eq!(by_script, plain.resolve(&values, game), "{choice:?} {game}");
+        }
+    }
+    assert_eq!(kept.offered(&Values::new(), "en"), plain.offered(&Values::new(), "en"));
+}

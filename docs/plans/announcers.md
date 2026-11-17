@@ -1245,3 +1245,82 @@ know), `Mixed=1` offers them mixed, each take as likely as any other.
 The web keeps the file's text with an imported pack (`Kept::ini`),
 desktop reads it in place, folders and zips.
 
+## A pack's script (2026-11-17)
+
+A pack may carry `announcer.lua` (`ddi_library::announcer::script`):
+run once when its sounds are chosen (a play's voice, song select's,
+Options' sample and rows), never during a play, it builds the pack's pool
+and returns it. The engine keeps everything about when and whether a
+line is said; the script only says which takes there are. A folder
+holding `announcer.lua` is a declared pack, as one holding
+`announcer.ini` is, and the sounds outside its line folders (its unknown
+folders', `shared/awesome.ogg`) are kept for its script to name
+(`Kept::others`; the web stores them with the pack).
+
+```lua
+local pack = Announcer.pack()
+pack:take("shared/awesome.ogg", {
+  events = { "gameplay 100 combo", "evaluation cheer" },  -- reuse
+  lang = "en",
+})
+pack:take("en/gameplay 200 combo/damn.ogg", { tags = { "profanity" } })
+pack:tag("profanity", { label = "Profanity", default = true })
+pack:languages({ "en", "ja" }, { mixed = true })
+return pack
+```
+
+- `Announcer.pack()`: the pack (one; the script returns it).
+- `pack:take(file, { events, lang, tags, weight })`: a take of `file` (a
+  sound of the pack, its path in it). `events`: the lines (folder names,
+  any case and StepMania's aliases; none: its folder's line); `lang`: its
+  language (none: its first folder's where that is a language's tag);
+  `tags`: words of the pack's own; `weight`: its share when languages are
+  mixed (1 by default, 0 never, at most 100; a weight above 1 makes it up
+  to four sounds of its line).
+- `pack:tag(name, { label, default })`: a tag the player may switch off,
+  a row under the announcer ("Profanity: On / Off", the label the pack's
+  words), On by default unless `default = false` (or `"off"`); a take
+  with a tag switched off is not said, and a line left with no take
+  falls back as a pack lacking it does (in a battle, the status line
+  shows its moment).
+- `pack:languages(list, { mixed })`: the languages offered, in order, and
+  Mixed (none: those `announcer.ini` lists that its takes speak).
+- What it reads: `Announcer.files()` (the pack's sounds, sorted;
+  `Announcer.files("en/")` those under a folder), `Announcer.param(name)`
+  (its parameters' values as `announcer.ini` declares them, a skin's
+  types, their defaults where none is kept, and the Language chosen, a
+  tag or `mixed`, nothing for the game's), `Announcer.language()` (the
+  game's language). Nothing of the player, the play, the clock or
+  anything outside the pack.
+- **Its budget:** Lua 5.1's globals and nothing that reaches outside
+  (`ddi_lua`), 1,000,000 fuel, 4 MiB, strings of 64 KiB, its source at
+  most 64 KB, and where the shell gives a clock a quarter of a second
+  (the backstop behind the fuel; the shells give theirs and a seed of
+  their randomness for its tables' hashing, `script::set_host`).
+  `math.random` has a fixed seed: the pool is a function of the files,
+  the values, the game's language and the script.
+- **Checked in Rust:** every take's file one of the pack's, every event a
+  line the game knows, tags names (letters, digits, `_`, `-`, 24 at most),
+  at most 8,000 takes, 16 tags. A script that fails (an error, its fuel or
+  memory spent, a file outside the pack, a line the game does not know)
+  is refused whole: its folders speak instead (`Pool::plain`), the log
+  says why, and Options says "Its script stopped" beside the announcer.
+- **Parameters** are declared in `announcer.ini` as a skin's are
+  (`docs/plans/skin-parameters.md`: Choice, Toggle, Number, Color) and show
+  as rows under the announcer, kept per announcer in
+  `Settings::announcer_params` with its tags' switches (`tag.<name>`).
+- **The built-in announcer runs on its script**
+  (`assets/announcers/Clank/announcer.lua`): every sound of its voices a
+  take of its folder's line in its folder's language, both offered alone
+  or mixed. A test compares what it says with what its folders say, in
+  every choice and every game language
+  (`the_built_in_announcer_s_script_says_what_its_folders_say`), and
+  `xtask gen-announcers` refuses a bundled script that stops or leaves a
+  line out. The web's index carries the script's text; desktop reads it
+  in place, folders and zips.
+- **Not built** (the proposal's later stages): the studio writing
+  multi-language packs, tags per take or a take on several lines (it
+  writes plain layouts, which read through the pool as before); scripts
+  told the game's moments during a play; a game-wide switch for
+  well-known tags; "how often"; Opus copies of the built-in for the web.
+
