@@ -11728,6 +11728,49 @@ you chose for a play already running."
   cleared while its run waits for the next wake-up (it ran the dropped
   closure: "closure invoked … after being dropped").
 
+## Round U: DDI's points, percent and letters (room model revision 13, 2026-11-17)
+
+The maintainer decided from a chart of their whole play history under
+each candidate (`docs/plans/ddi-ruleset.md`, "Round U"): "people value
+combos a lot, so in some cases a 'sloppy full combo' feels like it
+should be a bigger achievement than a very precise hits with a few
+breaks." Built:
+
+- **Points**: a Miss −120 (was −10), a mine or a battle's shock stepped
+  on −50 (was −10); the rest, life and the lamps as before.
+- **Percent** `ddi-percent-v1` (`ddi::PERCENT_RULE`): nine tenths the
+  accuracy and one tenth the combo part over a full combo's, one floor;
+  the letters read it: SSS 99, SS 95, S 89, A 75, B 60, C 42, the floors
+  as before. **Accuracy** (the points over the most, the old percent) is
+  a line of its own on the results, and the CPUs are still tuned and
+  measured by it.
+- **The next letter's line** under the grade on the results
+  (`ddi::next_grade`): "SS: at least 247 Amazing or better (you had
+  180)", or "S needs a full combo here".
+- **Kept plays**: `JUDGE_VERSION` 6; the reworker judges every kept play
+  again from its log on first start.
+- **Rooms**: every device computes the CPUs' scores with the new points
+  and ranks a stage by them; a starter's reported percent
+  (`RunDetail::percent`) is the new one; a remote person's percent on a
+  miniature is worked out from their stream's sum, their W0s and combo
+  part and the chart's most and a full combo's part (`max`, which every
+  device has), as exactly as before (the stream needs nothing new).
+  `ROOM_MODEL_REVISION` 13; the stored revision-12 room fixture
+  (`crates/room/tests/room-revision-12.json`) loads and plays on. The
+  CPUs' fixture moved in their scores alone (14 lines; judgments, life,
+  attacks and outs unchanged); of the 45 pinned practice stages 3 changed
+  their order (two neighbors swapped each: "played", "adaptive, stepping
+  down", "adaptive, stepping up"), none of the 6 live ones.
+
+### For the deploy
+
+Server and frontend together, the server first: the server builds
+against this game's `crates/room` and needs no code change of its own
+(it carries scores and percents; nothing in the stream or the wire
+changed), only to be rebuilt and deployed at revision 13. People in
+rooms are told to reload. Kept plays are judged again by themselves on
+the first start of the new game (web and desktop).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

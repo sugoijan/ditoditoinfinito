@@ -752,7 +752,11 @@ Rust and the browser are implementation details, not advertised features.
   study" and "Combos count"), and its part 6, `combo_study/percent.rs`
   (`DDI_COMBO_ONLY=percent`: percents and grades counting the combo
   beside today's and beside other rulesets' readings of the same
-  presses; "Should the combo score count toward the percent?");
+  presses; "Should the combo score count toward the percent?"); since
+  round U its "today" is the rule before it (its own `TAP_POINTS` and
+  `MINE_POINTS`, every engine play read back on it, `before_u`), and
+  part 8 (`DDI_COMBO_ONLY=built`) checks round U's rule as built over
+  the kept plays;
   the local player's attack policy changed in play (D8,
   `Battle::policy`, `retarget`): either Shift and Tab, each unless the
   player's bindings give it to a lane (`play::POLICY_KEYS`, the shared
@@ -1325,7 +1329,9 @@ Rust and the browser are implementation details, not advertised features.
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 12 since 2026-11-16: Shocks per attack, a
+  (`ROOM_MODEL_REVISION`, 13 since 2026-11-17: DDI's points, percent and
+  letters, `ddi-percent-v1`, the percent a starter reports
+  (`RunDetail::percent`) the new one; 12 since 2026-11-16: Shocks per attack, a
   returning member's administrator flag, `Event::AdminChanged`, a member
   reconnecting for a moment keeping their place, the member's
   keep-alive, DDI's combo part (`ddi-combo-v0`) and `adaptive-v5`
@@ -2336,13 +2342,23 @@ proportional part, the absolute score and the combo part together
 1,000-note chart about 7,060,000, a longer one more; the combo part,
 `ddi-combo-v0`, `ddi::combo_points`, every note judged in combo adding
 `6 × min(k, 100) + 28 × isqrt(k − 100)` of the combo `k` after it, in
-whole numbers, nothing divided by the chart's size; the results show
-the score and the percent and a Combo line of the combo part, the
-absolute score has no line; percent, grades and lamps are accuracy
-alone); a person sees the score or the percent and nothing
-else of it, in a room too (`ratio` stays for the sum's own arithmetic
-and for comparing across charts). `JUDGE_VERSION` 5 judged every kept
-play again for it, from its log. Stored settings naming ITG moved
+whole numbers, nothing divided by the chart's size), on the points of
+round U (2026-11-17, room model revision 13: a Miss −120, a mine or
+shock −50, the rest as before). The percent is `ddi-percent-v1`
+(`ddi::PERCENT_RULE`, `ddi::percent_of`, its shares
+`ddi::PERCENT_SHARES`): nine tenths the accuracy (`points ÷ most`,
+`DdiScoreView::accuracy`) and one tenth the combo part over a full
+combo's of the notes shown (`DdiScoreView::max`), one floor; the letters
+read it (SSS 99, SS 95, S 89, A 75, B 60, C 42, the floors as before);
+CPUs are tuned and measured by the accuracy (`ScoreView::accuracy`,
+`battle::accuracy`), never the percent. The results show the score or
+the percent, an Accuracy line and a Combo score line, and under the
+grade one quiet line of what the next letter would have taken
+(`ddi::next_grade`, `ResultsData::next_grade`); the absolute score has
+no line; a person sees the score or the percent and nothing else of it,
+in a room too (`ratio` stays for the sum's own arithmetic).
+`JUDGE_VERSION` 5 judged every kept play again for the combo part and 6
+for round U, from its log. Stored settings naming ITG moved
 to DDI once (`Settings::rules_moved`; never move a ruleset again without
 such a mark) and their ITG plays were asked to be judged again
 (`Settings::rejudge_from`, `Plays::rejudge_asked`). Stored settings had

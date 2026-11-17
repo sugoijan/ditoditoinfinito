@@ -8,8 +8,11 @@ round 3 (multiplayer: rooms play DDI alone, a shock is a mine) built
 "Round 3b (built)" at the end). Combos count in the score since
 2026-11-16 (`ddi-combo-v0`, "Combos count" at the end). Whether the
 combo should count toward the percent and the grades too: measured
-2026-11-17, nothing changed ("Should the combo score count toward the
-percent?" at the end).
+2026-11-17 ("Should the combo score count toward the percent?" at the
+end), then decided the same day (round U, room model revision 13,
+`ddi-percent-v1`: "Round U" at the end): a Miss −120, a mine or shock
+−50, the percent nine tenths accuracy and one tenth combo, the letters
+moved, an Accuracy line and the next letter's line on the results.
 Values marked *tune* are starting
 points the maintainer will play and adjust; everything else is decided.
 
@@ -299,8 +302,13 @@ One point count, shown two ways, and a combo part beside it.
 | W5 | 0 |
 | Miss | −10 |
 | Boo | −5 |
-| Mine or shock stepped on | −10 |
+| Mine or shock stepped on | −50 |
 | A hold's or roll's unit earned | 50 |
+
+A Miss was −10 and a mine −10 until round U (2026-11-17): a Miss now
+costs 3.4 notes (the note's 50 and 170 more, as ITG's Miss against its
+best tier), a mine "a middle value". Life reads none of this (its own
+table, above): a Miss still takes 10 of it on Normal, a mine 5.
 
 The most a chart gives is 50 a tap-like note (heads included) and 50 a
 hold unit.
@@ -311,7 +319,21 @@ hold unit.
   (see the notes below). It counts up from 0 during the play; a
   1,000-note chart played perfectly with every tap a W0 is 1,000,000 +
   5,000,000 + 1,000 + 1,062,400 = 7,063,400, and a longer chart gives
-  more.
+  more. What one Miss in the middle of a full combo of W1s costs, before
+  round U and now (the proportional part, the absolute score and the
+  combo part together):
+
+  | Notes | 100 | 300 | 1,200 |
+  | --- | ---: | ---: | ---: |
+  | A Miss, before (−10) | 33,300 | 78,716 | 299,716 |
+  | A Miss, now (−120) | 66,300 | 97,050 | 312,550 |
+  | A mine in the middle, now (−50; before 18,000 / 69,587 / 292,667) | 30,000 | 76,254 | 297,334 |
+  | A W4 in the middle (a break, 10 points; unchanged) | 27,300 | 75,383 | 297,383 |
+
+  and in the Percent (below), points of it: a Miss 8.11 / 4.45 / 2.42
+  (before, in the accuracy that was the percent, 1.20 / 0.40 / 0.10), a
+  mine 5.86 / 3.69 / 2.23, a W4 5.77 / 3.67 / 2.22. On long charts the
+  break is most of a Miss's cost; on short ones the Miss itself.
 - **The combo part** (`ddi-combo-v0`, since 2026-11-16, "Combos count"
   below): every note judged in combo adds `6 × min(k, 100) + 28 ×
   isqrt(k − 100)` points, `k` the combo after it (the second term 0 up to
@@ -321,16 +343,31 @@ hold unit.
   continue it, a dropped hold neither adds nor breaks), never falls, and
   carries across a step of the ladder as the combo does. A full combo of
   100 notes adds 30,300, of 300 notes 200,672, of 1,000 notes 1,062,400.
-- **Percent** (the other display): the proportional part's ratio, two
-  decimals, floored. Grades are read from it: pure accuracy, the combo
-  part never in it.
+- **Percent** (the other display; `ddi-percent-v1` since round U,
+  `ddi_engine::rules::ddi::PERCENT_RULE`, its shares
+  `PERCENT_SHARES`, 90 and 10): nine tenths the accuracy and one tenth
+  the combo part over a full combo's, in hundredths of a percent with one
+  floor:
+  `floor(100 × (90 × points × max + 10 × combo × most) ÷ (most × max))`,
+  `max` the combo part of a full combo of the notes the play was shown
+  (`ddi::full_combo_points` of its tap-like notes; under a ladder's
+  steps of the notes judged before a step and the new chart's, as the
+  most is; a combo given to a staged play counted up to `max`). A chart
+  with no tap-like note has no `max`: its percent is the accuracy; a
+  chart that gives nothing, 0. Grades are read from it. It counts up
+  during the play as the score does (the combo's share with the combo).
+- **Accuracy**: `floor(10,000 × points ÷ most)`, what the Percent was
+  until round U: the results' Accuracy line, and what the CPU levels are
+  tuned and measured by (`DdiScoreView::accuracy`,
+  `ScoreView::accuracy`).
 - **The parts** stay readable (`DdiScoreView::ratio`, `absolute`,
   `combo`): the proportional part, `floor(1,000,000 × points ÷ most)`, is
   the same for every chart played as well; the absolute score, `100 ×
   points + W0s`, is not divided by the chart's size (FFR's raw score's
   role), and its W0s are the score's tie-break; the combo part is not
   divided either. The results show the combo part on a line of its own
-  ("Combo"), beside Score or Percent; the absolute score has none.
+  ("Combo score"), beside Score or Percent and Accuracy; the absolute
+  score has none.
 - The first two may be negative; the combo part never is.
 
 **The displayed Score is the sum (2026-11-12).** The first build showed
@@ -363,13 +400,19 @@ proportional part (`ratio`, the percent) does.
 | --- | --- |
 | Absolute Dito | every tap and lift W0, no mine or shock stepped on, every hold and roll held |
 | SSS | 99 |
-| SS | 96 |
+| SS | 95 |
 | S | 89 |
-| A | 80 |
-| B | 68 |
-| C | 55 |
-| D | below 55, cleared |
+| A | 75 |
+| B | 60 |
+| C | 42 |
+| D | below 42, cleared |
 | F | failed |
+
+Read from the Percent (`ddi-percent-v1`). SS was 96, A 80, B 68 and C
+55 until round U (2026-11-17): with the heavier miss and the combo in
+the percent, "matched" to keep the maintainer's history's shares, then
+rounded by the maintainer ("S 89, A 75, B 60, C 42"; "Maybe we can make
+SS 95").
 
 The thresholds were 99.5, 98, 95, 90, 80 and 70 until 2026-11-12. Over
 the maintainer's 447 kept plays judged under both rules the percent
@@ -388,7 +431,29 @@ stepped on 6); the play's grade is at least Absolute Dito minus the
 sum of distances (never below D, never above SSS). One W1 is SSS
 whatever the chart's size; one W2 at least SS; one Miss at least C. On
 a long chart the percent already gives as much; the floors matter on
-short charts.
+short charts. Under round U they still hold and say less: one W1 or one
+W2 keeps the combo, so its percent is near 100 anyway; a single Miss on
+a 100-note chart otherwise all W0 is 96.60% accurate and reads 91.89%
+in the middle of the chart (S) and 96.74% at either end (SS), above the
+C its floor promises; on 300 notes 95.55% (SS), on 1,200 97.58% (SS).
+
+**What the next letter takes** (round U): under the grade the results
+say in one quiet line what the next letter up would have taken
+(`ddi::next_grade`, `ResultsData::next_grade`; both shells through
+`results_facts`): the play's W2s made W1 one at a time, then its W3s,
+everything else as played (they keep the combo, so the combo part
+stays), until the grade (the percent and the floors) reaches it: "SS:
+at least 247 Amazing or better (you had 180)", W1's word in the
+player's judgment words. Where that is not enough but the same
+judgments in one full combo would be, "S needs a full combo here";
+nothing else where nothing simple is true, nor at SSS or Absolute Dito
+(the next is every tap a W0), nor for a failed, quit or autoplayed
+play or another ruleset. Examples (300 notes, full combos unless
+said): 180 W1, 100 W2, 20 W3 is 91.00%, an S, and SS takes 247 W1 (67
+of the W2s); 270 W1, 10 W2, 20 W3 is 96.40%, an SS, and SSS takes 294
+(every W2 and 14 W3s); 285 W1, 10 W2 and five Misses in six runs is
+86.51%, an A: every hit W1 is still an A (87.11%), one run would be an S
+(94.30%), so the line says S needs a full combo.
 
 An autoplay or a CPU's play that would be Absolute Dito is
 **Absolute Bot**.
@@ -1529,8 +1594,9 @@ one.
 
 ## Should the combo score count toward the percent? A study (2026-11-17)
 
-**Measured only: nothing a player sees or a play scores changed.** The
-maintainer, after playing with the combo part: "I've been thinking
+**Measured only: nothing a player sees or a play scores changed** (then
+decided: "Round U" below). The maintainer, after playing with the combo
+part: "I've been thinking
 whether the combo score should count towards the percentage, can you
 make some estimates of how that would affect grades?"; then, after more
 testing: "people value combos a lot, so in some cases a 'sloppy full
@@ -1992,3 +2058,74 @@ DDI_COMBO_PLAYS=<the desktop's plays/> DDI_PCT_DIST_OUT=<a JSON file
 outside the repository> cargo test --release -p ddi-session --lib
 combo_score_study -- --ignored --nocapture`. A play that ended early
 counts what it judged over the whole chart under every series.
+
+## Round U (2026-11-17, `ddi-percent-v1`, room model revision 13)
+
+**Built.** The maintainer, from a chart of their whole play history under
+each candidate (part 7 above) and an export of what they leaned toward:
+"people value combos a lot, so in some cases a 'sloppy full combo'
+feels like it should be a bigger achievement than a very precise hits
+with a few breaks." The export, `ddi-miss3.4-combo10`: "90% × that
+accuracy + 10% × the combo part ÷ a full combo's (ddi-combo-v0); the
+accuracy with W0 and W1 50, W2 40, W3 25, W4 10, W5 0, Miss -120, … a
+Boo −5, hold units 50", its letters matched to keep that history's
+shares. Asked one by one: "Build it for revision 13"; thresholds "S 89,
+A 75, B 60, C 42" (SSS 99 unchanged; SS first kept at 96, then "Maybe
+we can make SS 95"); a mine or a battle's shock stepped on "A middle
+value (-50)"; an Accuracy line on the results ("could be a useful metric
+to expose"); the next letter's line counted as "Hits in the second tier
+or better". Not chosen: flatter tiers, a wider W1, cheaper W4 and W5.
+
+**What was built** (the Score, the Percent, Accuracy, the Grades and the
+next letter's line are in their sections above, as they are now):
+
+- **Engine** (`rules/ddi.rs`): `TAP_POINTS`' Miss −120, `MINE_POINTS`
+  −50; `PERCENT_RULE` and `PERCENT_SHARES` (90, 10), `percent_of`,
+  `accuracy_of`; `DdiScoreView::accuracy` and `max` (a full combo's part
+  of the notes shown, from `ScoreCtx::steps` at the start and at each
+  step of the ladder), `with_max`; `GRADES` SSS 99, SS 95, S 89, A 75,
+  B 60, C 42; `next_grade` and `NextGrade`. `ScoreView::accuracy` for
+  what reads accuracy (the CPU tests and studies, `local_cpu`).
+  `JUDGE_VERSION` 6. Life untouched (a test).
+- **Screens**: the results' Accuracy line (`results-ddi-accuracy`, ja
+  精度, a draft) between Score or Percent and Combo score; the next
+  letter's line under the grade and the lamp (`results-ddi-next-hits`,
+  `results-ddi-next-full-combo`, drafts in Japanese); the HUD's percent,
+  Options' preview, song select's lists, the plays list, the ghost's
+  lead under the Percent display (now of the percent as shown), a
+  stage's miniatures and Standings show the new percent.
+- **Kept plays**: a view kept before reads its percent as its accuracy
+  (no `max`) until the reworker judges it again from its log, as for
+  versions 3 to 5; bests follow the Score; an export from before or
+  after imports and is judged again (tests in `ddi_ui::state::history`).
+- **Multiplayer**: see the progress note's "Round U". The CPU levels'
+  documented percents (`cpu-levels-v1`'s 61 to 96, the level tests,
+  `local_cpu`, `a_level_watched`, the attack study's `percent`) read the
+  accuracy, which the heavier miss lowers for plays that miss (the
+  levels themselves are unchanged: they press as before). The Adaptive
+  ladder's step rule reads judgments (`AdaptiveRule::accuracy`,
+  `early_best`), never points or the percent: untouched.
+- **The study** (`combo_study`): its "today" is now the rule before round
+  U, kept in the study (`TAP_POINTS`, `MINE_POINTS`, `TODAY_GRADES`),
+  every engine play read back on it (`before_u`); part 8 (`built`)
+  checks round U against it.
+
+**Checked over the maintainer's kept plays** (read in place, read-only,
+aggregates only; 474 clears, as part 6 counts them): the engine's
+percent equals the series `ddi-miss3.4-combo10` exactly on all 468
+clears with no mine stepped on (the other 6 stepped on one or more,
+priced −50 in the engine and −10 in the series; the shares below came
+out the same under both), and the engine's grade agrees with the study's reading of it
+on every clear. The letters' shares of the clears:
+
+| | S or better | A | B | C or below | 95 or more |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Before round U (accuracy, a Miss −10) | 11.6 | 60.1 | 26.2 | 2.1 | 0.0 |
+| `ddi-miss3.4-combo10`, its matched thresholds (the chart) | 11.6 | 60.1 | 26.2 | 2.1 | |
+| Round U as built (rounded thresholds) | 9.9 | 63.3 | 24.9 | 1.9 | 0.0 |
+
+Against the matched thresholds the rounded ones move 1.7% of the
+clears from S to A, about 1.5% from B to A and 0.2% from C to B (the
+lower thresholds only lift a clear; read from the shares).
+None of the maintainer's clears reaches SS (95) under either rule.
+

@@ -312,7 +312,11 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   score (2026-11-16), then combos counted in it (2026-11-16,
   `ddi-combo-v0`: a combo part, a Combo line on the results, kept plays
   judged again); a study of counting the combo toward the percent and
-  the grades, beside other rulesets (2026-11-17, measured only). Our own
+  the grades, beside other rulesets (2026-11-17), then round U (2026-11-17,
+  room model revision 13, `ddi-percent-v1`: a Miss −120 and a mine −50,
+  the percent nine tenths accuracy and one tenth combo, the letters
+  moved, an Accuracy line and the next letter's line on the results,
+  kept plays judged again). Our own
   ruleset, the only one in multiplayer and the default for normal play:
   W0–W5 on a 1/120 s grid (1/144 Hard, 1/90 Easy) with early and late
   words, FFR-style life and Boos (off by default), a 1,000,000 score or
