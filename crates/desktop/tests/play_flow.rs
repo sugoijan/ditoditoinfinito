@@ -42,6 +42,17 @@ fn a_play_from_its_prompt_to_its_results_and_back() {
         formats,
     };
     let target = common::gpu::Target::new(&device, SIZE);
+    // A play's flow alone: without the dancing hand (with it, a quick
+    // restart goes back through its prompt to warm a fresh hand, so the
+    // play followed here would end at the restart) and without the
+    // announcer (on by default since 2026-11-17; its line would come
+    // before the play's in the log).
+    ddi_ui::state::settings::Settings {
+        dancing_hand: false,
+        announcer: None,
+        ..ddi_ui::state::settings::Settings::load()
+    }
+    .save();
 
     // Song select's call: the prompt, then "Press Start" once read.
     *host.requested.borrow_mut() = Some(Request::song("beatucada", 2, true));
