@@ -21,8 +21,9 @@ alike. Changes to this list are the maintainer's.
 - Judgments and grades: they come from the chosen Judge (the ruleset), not
   from the language, and read the same in every language. So do the
   game's readouts: score, percentage, combo, offsets in ms. The one
-  exception is DDI's own judgment words, below, which the player may see
-  in their language (Options → Rules → Judgment words, on by default);
+  exception is DDI's own judgment words, below: English by default, and
+  the player may choose Japanese or "Same as game language" instead
+  (Options → Rules → Judgment words, `JudgmentWords`);
   its grades (Absolute Dito, Absolute Bot, SSS … D, F) and lamps stay
   Latin.
 - The results' marks beside the lamps: REPLAY, AUTOPLAY, ASSIST (with

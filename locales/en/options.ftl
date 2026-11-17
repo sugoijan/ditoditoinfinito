@@ -16,7 +16,7 @@ options-language = Language
 #   $language (String) - the language that gives, written in itself ("English", "日本語")
 options-language-system = As the system ({ $language })
 
-options-language-description = The language of the menus. Judgments and scores read the same in every language.
+options-language-description = The language of the menus. Scores and grades read the same in every language; judgment words are English unless chosen otherwise.
 
 ## The screen: its header, the notice beside it, its footer's key hints
 ## (a word after the keys' caps, about 10 letters) and the field

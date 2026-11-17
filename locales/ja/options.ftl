@@ -4,7 +4,7 @@ options-language = 言語（Language）
 
 options-language-system = システムに合わせる（{ $language }）
 
-options-language-description = メニューの言語です。判定やスコアの表示はどの言語でも同じです。
+options-language-description = メニューの言語です。スコアやグレードはどの言語でも同じで、判定の文字は変えない限り英語です。
 
 ## The screen.
 
