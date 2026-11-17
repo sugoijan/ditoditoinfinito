@@ -34,6 +34,19 @@ const OLD_DEFAULT_RULESET: &str = "itg";
 /// the web page's loader reads (`site/boot.js`).
 pub const DEFAULTS_RESET: &str = "defaults_reset_2026_11_17";
 
+/// The name [`Settings::announcer_moved`] is stored by.
+pub const ANNOUNCER_MOVED: &str = "announcer_moved";
+/// The announcer new settings have: the built-in one.
+pub const BUILT_IN_ANNOUNCER: &str = ddi_library::announcer::BUILT_IN;
+/// The bundled packs the built-in announcer replaced (2026-11-17): Mr.
+/// Clank's and ガキンさん's keys (escaped: data, never drawn).
+const OLD_BUNDLED_ANNOUNCERS: [&str; 2] = [
+    "bundled:mr. clank",
+    "bundled:\u{30ac}\u{30ad}\u{30f3}\u{3055}\u{3093}",
+];
+/// Announcers whose values are kept, at most.
+const MAX_ANNOUNCERS_WITH_PARAMS: usize = 64;
+
 /// The start prompt's countdowns Options offers, seconds (0: off).
 pub const START_COUNTDOWNS: [f32; 4] = [0.0, 3.0, 5.0, 10.0];
 
@@ -210,13 +223,32 @@ pub struct Settings {
     pub mine_sound: bool,
     /// The announcer that speaks (`docs/plans/announcers.md`): its key,
     /// the name in lower case (`ddi_library::announcer::key`; an
-    /// imported one on the web, one in the song folders on desktop);
-    /// `None`: off, as in a fresh profile. One that is gone is let go
-    /// once the shell has listed them all ([`Settings::let_go_missing_announcer`]).
+    /// imported one on the web, one in the song folders on desktop), the
+    /// built-in one's [`BUILT_IN_ANNOUNCER`] by default; `None`: off. One
+    /// that is gone is let go for the built-in once the shell has listed
+    /// them all ([`Settings::let_go_missing_announcer`]).
     pub announcer: Option<String>,
     /// The announcer's volume as a share of the music's (a gain, 0..=1;
     /// all of it by default, so muting the music mutes the voice).
     pub announcer_volume: f32,
+    /// The values set for announcers' choices (their Language, the tags
+    /// they let the player switch off, their other parameters), by
+    /// announcer key, then by name; a value at its default is not kept
+    /// (as [`Settings::skin_params`]; `ddi_library::announcer::pool`).
+    pub announcer_params: BTreeMap<String, Values>,
+    /// The move to the built-in announcer, on by default, was made once
+    /// ([`ANNOUNCER_MOVED`]): settings stored before it with the
+    /// announcer Off or with one of the two bundled packs it replaced
+    /// got the built-in one at its default language; a choice of another
+    /// pack stayed. Settings stored before it lack the field and read
+    /// `false`; Off chosen after it stays Off.
+    #[serde(default = "not_yet")]
+    pub announcer_moved: bool,
+    /// Song select says once that an announcer now speaks, with a way to
+    /// turn it off (set by the move for a player who had it Off; taken
+    /// by [`Settings::take_announcer_notice`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub announcer_notice: bool,
     /// Keyboard and controller bindings per layout (`keys`, `pads`; older
     /// `keys_single` is migrated on load).
     #[serde(flatten)]
@@ -682,8 +714,11 @@ impl Default for Settings {
             volume: DEFAULT_VOLUME,
             assist_clap: false,
             mine_sound: true,
-            announcer: None,
+            announcer: Some(BUILT_IN_ANNOUNCER.into()),
             announcer_volume: 1.0,
+            announcer_params: BTreeMap::new(),
+            announcer_moved: true,
+            announcer_notice: false,
             language: None,
             reduced_motion: ReducedMotion::Auto,
             cursor_style: CursorStyle::default(),
@@ -788,13 +823,58 @@ impl Settings {
     }
 
     /// Lets go of the chosen announcer when it is not among those `there`
-    /// says are; whether it did.
+    /// says are, for the built-in one (never for Off); whether it did.
     pub fn let_go_missing_announcer(&mut self, there: impl Fn(&str) -> bool) -> bool {
-        let missing = self.announcer.as_deref().is_some_and(|k| !there(k));
+        let missing = self
+            .announcer
+            .as_deref()
+            .is_some_and(|k| k != BUILT_IN_ANNOUNCER && !there(k));
         if missing {
-            self.announcer = None;
+            self.announcer = Some(BUILT_IN_ANNOUNCER.into());
         }
         missing
+    }
+
+    /// The values stored for announcer `key`'s choices.
+    pub fn announcer_params(&self, key: &str) -> Values {
+        self.announcer_params.get(key).cloned().unwrap_or_default()
+    }
+
+    /// Sets announcer `key`'s value `name` to `value`, or forgets it
+    /// (`None`, or `value` its `default`).
+    pub fn set_announcer_param(
+        &mut self,
+        key: &str,
+        name: &str,
+        value: Option<ParamValue>,
+        default: Option<&ParamValue>,
+    ) {
+        let value = value.filter(|v| Some(v) != default);
+        let values = self.announcer_params.entry(key.to_string()).or_default();
+        match value {
+            Some(v) => {
+                values.insert(name.to_string(), v);
+            }
+            None => {
+                values.remove(name);
+            }
+        }
+        if values.is_empty() {
+            self.announcer_params.remove(key);
+        }
+    }
+
+    /// The announcer chosen and its values (none: Off).
+    pub fn announcer_choice(&self) -> Option<(String, Values)> {
+        let key = self.announcer.clone()?;
+        let values = self.announcer_params(&key);
+        Some((key, values))
+    }
+
+    /// Whether song select is to say once that an announcer now speaks
+    /// ([`Settings::announcer_notice`]): taken, so it is said once.
+    pub fn take_announcer_notice(&mut self) -> bool {
+        std::mem::take(&mut self.announcer_notice)
     }
 
     /// The announcer's gain in a play: its share of the music's.
@@ -881,6 +961,24 @@ impl Settings {
             self.language = defaults.language;
             self.judgment_words = defaults.judgment_words;
             self.cursor_style = defaults.cursor_style;
+        }
+        // The built-in announcer, on by default (2026-11-17): settings
+        // with it Off or with one of the two packs it replaced get it at
+        // its default language, once (Off by choice and Off by default
+        // cannot be told apart, see `ruleset`); another pack stays. Those
+        // who had it Off are told, once.
+        if !self.announcer_moved {
+            self.announcer_moved = true;
+            let was = self.announcer.clone();
+            if was.is_none()
+                || was
+                    .as_deref()
+                    .is_some_and(|k| OLD_BUNDLED_ANNOUNCERS.contains(&k))
+            {
+                self.announcer = Some(BUILT_IN_ANNOUNCER.into());
+                self.announcer_params.remove(BUILT_IN_ANNOUNCER);
+                self.announcer_notice = was.is_none();
+            }
         }
         const SPIRAL: &str = "bundled:dance/spiral base";
         const OLD_DITO: &str = "bundled:dance/dito";
@@ -984,6 +1082,13 @@ impl Settings {
             ddi_noteskin::params::bound_stored(values);
         }
         self.skin_params.retain(|_, v| !v.is_empty());
+        while self.announcer_params.len() > MAX_ANNOUNCERS_WITH_PARAMS {
+            self.announcer_params.pop_last();
+        }
+        for values in self.announcer_params.values_mut() {
+            ddi_noteskin::params::bound_stored(values);
+        }
+        self.announcer_params.retain(|_, v| !v.is_empty());
         // Only a pump skin draws the pump layouts.
         if self
             .pump_noteskin
@@ -1482,11 +1587,15 @@ mod tests {
     }
 
     #[test]
-    fn the_announcer_starts_off_at_the_musics_volume_and_goes_when_gone() {
+    fn the_announcer_starts_built_in_at_the_musics_volume_and_goes_back_to_it() {
         let s: Settings = serde_json::from_str(r#"{"speed": 2.0}"#).unwrap();
-        assert_eq!((s.announcer.as_deref(), s.announcer_volume), (None, 1.0));
+        assert_eq!(
+            (s.announcer.as_deref(), s.announcer_volume),
+            (Some(BUILT_IN_ANNOUNCER), 1.0)
+        );
+        assert_eq!(Settings::default().announcer.as_deref(), Some("bundled:clank"));
         let mut s: Settings = serde_json::from_str(
-            r#"{"volume": 0.5, "announcer": "techno", "announcer_volume": 7.0}"#,
+            r#"{"volume": 0.5, "announcer": "techno", "announcer_volume": 7.0, "announcer_moved": true}"#,
         )
         .unwrap();
         s.sanitize();
@@ -1494,8 +1603,67 @@ mod tests {
         s.announcer_volume = 0.5;
         assert_eq!(s.voice_volume(), 0.25);
         assert!(!s.let_go_missing_announcer(|k| k == "techno"));
+        // One gone: the built-in speaks for it, never Off.
         assert!(s.let_go_missing_announcer(|k| k == "other"));
+        assert_eq!(s.announcer.as_deref(), Some(BUILT_IN_ANNOUNCER));
+        assert!(!s.let_go_missing_announcer(|_| false));
+        s.announcer = None;
+        assert!(!s.let_go_missing_announcer(|_| false));
         assert_eq!(s.announcer, None);
+        // Its values, kept at all but their defaults.
+        s.set_announcer_param("bundled:clank", "Language", Some(ParamValue::Text("ja".into())), None);
+        assert_eq!(
+            s.announcer_params("bundled:clank").get("Language"),
+            Some(&ParamValue::Text("ja".into()))
+        );
+        s.set_announcer_param("bundled:clank", "Language", None, None);
+        assert!(s.announcer_params.is_empty());
+    }
+
+    /// The move to the built-in announcer (2026-11-17): Off and the two
+    /// packs it replaced become it at its default language, once; Off is
+    /// told; another pack stays; a choice after it stays; fresh settings
+    /// have it, untold.
+    #[test]
+    fn the_built_in_announcer_comes_once_for_off_and_the_old_packs() {
+        storage::install(Rc::new(MemoryStore::default()));
+        assert!(Settings::default().announcer_moved);
+        assert!(!Settings::default().announcer_notice);
+        let old = |announcer: serde_json::Value| -> Settings {
+            let mut v = serde_json::to_value(Settings::default()).unwrap();
+            let o = v.as_object_mut().unwrap();
+            assert!(o.remove(ANNOUNCER_MOVED).is_some());
+            o.insert("announcer".into(), announcer);
+            o.insert(
+                "announcer_params".into(),
+                serde_json::json!({"bundled:clank": {"Language": "ja"}, "techno": {"Mood": "Calm"}}),
+            );
+            storage::set(Area::Local, KEY, &v.to_string()).unwrap();
+            Settings::load()
+        };
+        for (was, now, told) in [
+            (serde_json::Value::Null, Some(BUILT_IN_ANNOUNCER), true),
+            ("bundled:mr. clank".into(), Some(BUILT_IN_ANNOUNCER), false),
+            ("bundled:ガキンさん".into(), Some(BUILT_IN_ANNOUNCER), false),
+            ("techno".into(), Some("techno"), false),
+        ] {
+            let mut s = old(was.clone());
+            assert!(s.announcer_moved, "{was}");
+            assert_eq!(s.announcer.as_deref(), now, "{was}");
+            assert_eq!(s.announcer_notice, told, "{was}");
+            // The old language is not kept; another pack's values are.
+            let built_in = s.announcer_params.contains_key(BUILT_IN_ANNOUNCER);
+            assert_eq!(built_in, now == Some("techno"), "{was}");
+            assert!(s.announcer_params.contains_key("techno"));
+            // Stored so; told once.
+            assert_eq!(Settings::load(), s);
+            assert_eq!(s.take_announcer_notice(), told);
+            assert!(!s.take_announcer_notice());
+            // Off chosen after it stays Off.
+            s.announcer = None;
+            s.save();
+            assert_eq!(Settings::load().announcer, None);
+        }
     }
 
     /// DDI's judgment words: English by default (2026-11-17), a

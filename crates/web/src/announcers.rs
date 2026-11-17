@@ -9,7 +9,11 @@
 //! removes an imported one and speaks a line of the one chosen
 //! ([`speak_sample`]); a play decodes the sounds it can speak behind its
 //! prompt ([`load_voice`], step 4); song select's lines are decoded when
-//! first asked for and spoken on its sound ([`announce`], step 5).
+//! first asked for and spoken on its sound ([`announce`], step 5). What is
+//! spoken is the announcer as the player's choices resolve it (its
+//! language, `ddi_library::announcer::pool`): only the sounds of the
+//! language chosen are ever fetched, and ours at the browser's low
+//! priority, the play's music being read before them.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, VecDeque};
@@ -85,18 +89,35 @@ pub(crate) async fn bundled() -> Result<Vec<Bundled>, String> {
     Ok(index.announcers)
 }
 
-/// The announcers one can choose `(key, name)`: ours and the imported
-/// (Options orders them). An error (storage or ours unread) keeps the
+/// The announcers one can choose: ours and the imported (Options orders
+/// them), each as kept. An error (storage or ours unread) keeps the
 /// choice as it is.
-pub(crate) async fn choices() -> Result<Vec<(String, String)>, String> {
+pub(crate) async fn choices() -> Result<Vec<Kept>, String> {
     let ours = bundled().await?;
     let db = Db::open().await?;
     Ok(ours
         .into_iter()
         .map(|b| b.kept)
         .chain(all(&db).await?)
-        .map(|k| (k.key(), k.name))
         .collect())
+}
+
+/// The game's language now, as an announcer's Language follows it.
+fn game_language() -> &'static str {
+    ddi_l10n::current().tag
+}
+
+/// Announcer `key` resolved with the player's choices for it.
+fn resolved(kept: &Kept, key: &str) -> Kept {
+    let values = crate::settings::Settings::load().announcer_params(key);
+    kept.resolve(&values, game_language())
+}
+
+/// The key the chosen announcer's voice is known by now (`None`: Off).
+fn chosen_voice_key(settings: &crate::settings::Settings) -> Option<(String, String)> {
+    let (key, values) = settings.announcer_choice()?;
+    let voice = ddi_library::announcer::pool::voice_key(&key, &values, game_language());
+    Some((key, voice))
 }
 
 /// Removes an imported announcer and its sounds (never one of ours).
@@ -140,7 +161,9 @@ enum Source {
     },
 }
 
-/// Announcer `key`'s record, and where its sounds are.
+/// Announcer `key`'s record as the player's choices resolve it (only
+/// the sounds of the language chosen in its lines), and where its sounds
+/// are.
 async fn open(key: &str) -> Result<(Kept, Source), String> {
     if is_bundled(key) {
         let b = bundled()
@@ -149,7 +172,7 @@ async fn open(key: &str) -> Result<(Kept, Source), String> {
             .find(|b| b.kept.key() == key)
             .ok_or_else(|| format!("no announcer {key}"))?;
         return Ok((
-            b.kept,
+            resolved(&b.kept, key),
             Source::Bundled {
                 path: b.path,
                 hashes: b.hashes,
@@ -158,7 +181,7 @@ async fn open(key: &str) -> Result<(Kept, Source), String> {
     }
     let db = Db::open().await?;
     let kept = kept(&db, key).await?;
-    Ok((kept, Source::Stored(db)))
+    Ok((resolved(&kept, key), Source::Stored(db)))
 }
 
 /// The bytes of announcer `key`'s sound `path` (a path of
@@ -176,7 +199,7 @@ async fn sound(source: &Source, key: &str, path: &str) -> Result<Vec<u8>, String
         Source::Bundled { path: dir, hashes } => {
             let hash = hashes.get(path).map(String::as_str);
             let url = crate::songs::bundled_url("announcers", dir, path, hash);
-            crate::songs::fetch_bytes(&url).await
+            crate::songs::fetch_bytes_low(&url).await
         }
     }
 }
@@ -218,6 +241,7 @@ pub(crate) fn load_voice(
         let started = async {
             let (kept, source) = open(&key).await?;
             let wanted = BAGS.with_borrow_mut(|b| of.wanted(&kept, b));
+            loaded(&kept, of, &wanted);
             voice
                 .borrow_mut()
                 .expect(wanted.iter().map(|(line, _)| *line));
@@ -282,11 +306,14 @@ impl Load {
                 Err(e) => Err(e),
             };
             match decoded {
-                Ok(buffer) => self.voice.borrow_mut().add_ranked(line, rank, buffer),
+                Ok(buffer) => self
+                    .voice
+                    .borrow_mut()
+                    .add_ranked_from(line, rank, &path, buffer),
                 Err(e) => web_sys::console::warn_1(&format!("announcer: {path}: {e}").into()),
             }
             if self.of == For::Menu {
-                speak_waiting(&self.key);
+                speak_waiting();
             }
         }
     }
@@ -345,16 +372,16 @@ pub(crate) fn announce(line: Line) {
         return;
     }
     let settings = crate::settings::Settings::load();
-    let Some(key) = settings.announcer.clone() else {
+    let Some((key, voice_key)) = chosen_voice_key(&settings) else {
         return;
     };
-    let fresh = MENU.with_borrow(|m| m.as_ref().is_none_or(|m| m.voice.key() != key));
+    let fresh = MENU.with_borrow(|m| m.as_ref().is_none_or(|m| m.voice.key() != voice_key));
     if fresh {
         let voice = SharedVoice::default();
         let alive = Rc::new(Cell::new(true));
         let old = MENU.with_borrow_mut(|m| {
             m.replace(Menu {
-                voice: MenuVoice::new(key.clone(), voice.clone()),
+                voice: MenuVoice::new(voice_key.clone(), voice.clone()),
                 alive: alive.clone(),
                 spoken: Vec::new(),
             })
@@ -382,9 +409,45 @@ fn speak_menu(found: Option<(Line, AudioBuffer)>, settings: &crate::settings::Se
     }
 }
 
-/// `__DDI_DEBUG.menuAnnouncer`: song select's lines spoken this session
-/// (every page's debug state carries it, `crate::web::screen::debug_into`).
+thread_local! {
+    /// The voices loaded this session, the last few: for whom, with what
+    /// choice, and the sounds asked for (`__DDI_DEBUG.announcerLoads`).
+    static LOADS: RefCell<VecDeque<serde_json::Value>> = const { RefCell::new(VecDeque::new()) };
+}
+
+/// A voice's load, for the record.
+fn loaded(kept: &Kept, of: For, wanted: &[(Line, Vec<RelPathBuf>)]) {
+    let files: Vec<String> = wanted
+        .iter()
+        .flat_map(|(_, f)| f.iter().map(ToString::to_string))
+        .collect();
+    let entry = serde_json::json!({
+        "key": kept.key(),
+        "choice": kept.choice,
+        "for": format!("{of:?}"),
+        "files": files,
+    });
+    LOADS.with_borrow_mut(|l| {
+        if l.len() == 8 {
+            l.pop_front();
+        }
+        l.push_back(entry);
+    });
+}
+
+/// `__DDI_DEBUG.menuAnnouncer`: song select's lines spoken this session;
+/// `announcerLoads`: the voices loaded, with their choices and sounds
+/// (every page's debug state carries them, `crate::web::screen::debug_into`).
 pub(crate) fn debug_into(obj: &js_sys::Object) {
+    LOADS.with_borrow(|l| {
+        if !l.is_empty()
+            && let Ok(v) = js_sys::JSON::parse(
+                &serde_json::Value::Array(l.iter().cloned().collect()).to_string(),
+            )
+        {
+            let _ = js_sys::Reflect::set(obj, &"announcerLoads".into(), &v);
+        }
+    });
     MENU.with_borrow(|m| {
         if let Some(m) = m {
             let list = js_sys::Array::new();
@@ -396,12 +459,15 @@ pub(crate) fn debug_into(obj: &js_sys::Object) {
     });
 }
 
-/// Speaks song select's line waiting, if announcer `key`'s sound for it
-/// is in now and it is still due.
-fn speak_waiting(key: &str) {
+/// Speaks song select's line waiting, if the chosen announcer's sound
+/// for it is in now and it is still due.
+fn speak_waiting() {
+    let Some((_, voice_key)) = chosen_voice_key(&crate::settings::Settings::load()) else {
+        return;
+    };
     let found = MENU.with_borrow_mut(|m| {
         m.as_mut()
-            .filter(|m| m.voice.key() == key)?
+            .filter(|m| m.voice.key() == voice_key)?
             .voice
             .poll(menu_now())
     });

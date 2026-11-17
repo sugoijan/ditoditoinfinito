@@ -360,7 +360,9 @@ auditions and on the same page, where each line's variants play in turn:
   one, and anything else in the pack's folder goes too. What a pack file
   made is its own: making one leaves the other's alone.
 - **In the game** with `--bundle`: each pack as it was made, in
-  `assets/announcers/<name>/` (what else is there goes, and a folder the
+  `assets/announcers/<bundle>/`, its pack file's `bundle` (ours are the
+  built-in announcer's voices, `Clank/en` and `Clank/ja`, beside its
+  `announcer.ini`; else `<name>`) (what else is there goes, and a folder the
   pack file bundled under another name), with a `PROVENANCE.toml`
   written from the records: the pack file, model, revision, voice,
   versions, CC0 held by its `author`, and what a voice in it learned

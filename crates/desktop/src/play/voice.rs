@@ -43,7 +43,8 @@ pub fn seed_for_tests(seed: u64) {
 enum Arrived {
     /// The lines being decoded.
     Expect(Vec<Line>),
-    Sound(Line, Sound),
+    /// A sound of a line, from its file (its path in the announcer).
+    Sound(Line, String, Sound),
     Failed(String),
 }
 
@@ -79,6 +80,10 @@ impl VoiceLoad {
     ) -> VoiceLoad {
         let (tx, rx) = mpsc::channel();
         let test_bags = TEST_BAGS.with_borrow(Clone::clone);
+        // The player's choices for it (its language), read here: the
+        // game's language is this thread's.
+        let values = ddi_ui::state::settings::Settings::cached().announcer_params(&key);
+        let game = ddi_l10n::current().tag.to_string();
         let _ = std::thread::Builder::new()
             .name("ddi-announcer".into())
             .spawn(move || {
@@ -100,8 +105,9 @@ impl VoiceLoad {
                     return;
                 };
                 let bags: &Mutex<Bags> = test_bags.as_deref().unwrap_or(&BAGS);
+                let kept = a.kept.resolve(&values, &game);
                 let wanted = match bags.lock() {
-                    Ok(mut bags) => of.wanted(&a.kept, &mut bags),
+                    Ok(mut bags) => of.wanted(&kept, &mut bags),
                     Err(_) => return,
                 };
                 let _ = tx.send(Arrived::Expect(wanted.iter().map(|(l, _)| *l).collect()));
@@ -123,7 +129,7 @@ impl VoiceLoad {
                             )
                         });
                         let sent = tx.send(match sound {
-                            Ok(s) => Arrived::Sound(line, s),
+                            Ok(s) => Arrived::Sound(line, file.to_string(), s),
                             Err(e) => Arrived::Failed(format!("{file}: {e}")),
                         });
                         // The play went: no more.
@@ -148,7 +154,9 @@ impl VoiceLoad {
         loop {
             match self.rx.try_recv() {
                 Ok(Arrived::Expect(lines)) => self.voice.borrow_mut().expect(lines),
-                Ok(Arrived::Sound(line, sound)) => self.voice.borrow_mut().add(line, sound),
+                Ok(Arrived::Sound(line, file, sound)) => {
+                    self.voice.borrow_mut().add_from(line, &file, sound)
+                }
                 Ok(Arrived::Failed(e)) => eprintln!("announcer: {e}"),
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {

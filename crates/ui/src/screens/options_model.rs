@@ -29,12 +29,13 @@ use super::data::{
 use super::options::CALIBRATE;
 use crate::state::bind::Bound;
 use crate::state::settings::{
-    BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, GeneratedBackground,
+    BUILT_IN_ANNOUNCER, BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, GeneratedBackground,
     Graphics, INFINITO, OpponentFields, PadBindings, Palette, ParamValue, ReducedMotion, START_COUNTDOWNS,
     JudgmentWords, ScoreDisplay, Settings, VideoMode, slider_to_volume, volume_to_slider,
 };
 use ddi_l10n::UiText;
 use ddi_l10n::msg::{common, options as m};
+use ddi_library::announcer::pool::{self, LanguageChoice, Offered};
 use ddi_noteskin::params::{Kind as ParamKind, Parameter};
 
 /// The row whose button judges the kept plays again under the rules
@@ -69,6 +70,10 @@ pub struct World {
     /// Those made in the announcer studio on desktop (their keys), which
     /// can be removed.
     pub made_announcers: Vec<String>,
+    /// What each announcer offers the player (its languages, its names in
+    /// each), by key (`ddi_library::announcer::Kept::offered`): the rows
+    /// under the one chosen.
+    pub announcer_offers: std::collections::BTreeMap<String, Offered>,
     /// The default skin's Lua is off for the session.
     pub default_lua_off: bool,
     /// The parameters skins declare (`docs/plans/skin-parameters.md`),
@@ -400,8 +405,18 @@ impl OptionsModel {
         }
     }
 
-    /// An announcer's name (its key when it is not listed).
+    /// An announcer's name (its key when it is not listed): its own in the
+    /// UI's language where it declares one (the built-in's "Mr. Clank",
+    /// "ガキンさん": data, not a translation).
     pub fn announcer_name(&self, key: &str) -> String {
+        if let Some(name) = self
+            .world
+            .announcer_offers
+            .get(key)
+            .and_then(|o| o.name(ddi_l10n::current().tag))
+        {
+            return name.to_string();
+        }
         self.world
             .announcers
             .iter()
@@ -975,7 +990,7 @@ impl OptionsModel {
             self.world
                 .announcers
                 .iter()
-                .map(|(_, n)| UiText::data(n).into()),
+                .map(|(k, _)| UiText::data(self.announcer_name(k)).into()),
         );
         let listed = |k: &str| self.world.announcers.iter().position(|(key, _)| key == k);
         let at = match s.announcer.as_deref() {
@@ -1008,6 +1023,7 @@ impl OptionsModel {
             rows.extend(studio);
             return rows;
         };
+        rows.extend(self.announcer_language_row(key));
         let percent = (volume_to_slider(s.announcer_volume) * 100.0).round() as usize;
         let mut volume = row(
             "announcer_volume",
@@ -1036,6 +1052,59 @@ impl OptionsModel {
         }
         rows.extend(studio);
         rows
+    }
+
+    /// The languages announcer `key` offers, as its Language row has
+    /// them: Same as game language, each language, Mixed where offered;
+    /// with what each choice keeps.
+    fn announcer_languages(&self, key: &str) -> Option<Vec<(String, LanguageChoice)>> {
+        let offered = self.world.announcer_offers.get(key)?;
+        if !offered.has_languages() {
+            return None;
+        }
+        let tags: Vec<String> = offered.languages.iter().map(|(t, _)| t.clone()).collect();
+        let named = |tag: &str| -> String {
+            ddi_l10n::find(tag)
+                .map(|l| l.name.to_string())
+                .or_else(|| {
+                    offered
+                        .languages
+                        .iter()
+                        .find(|(t, _)| t == tag)
+                        .and_then(|(_, l)| l.clone())
+                })
+                .unwrap_or_else(|| tag.to_string())
+        };
+        let game = pool::pick_language(&tags, ddi_l10n::current().tag)
+            .map_or_else(String::new, |t| named(t));
+        let mut out = vec![(
+            m::announcer_language_game(game).into(),
+            LanguageChoice::Game,
+        )];
+        for tag in &tags {
+            out.push((
+                UiText::data(named(tag)).into(),
+                LanguageChoice::One(tag.clone()),
+            ));
+        }
+        if offered.mixed {
+            out.push((m::announcer_language_mixed().into(), LanguageChoice::Mixed));
+        }
+        Some(out)
+    }
+
+    /// Announcer `key`'s Language row, where it offers more than one.
+    fn announcer_language_row(&self, key: &str) -> Option<OptionDef> {
+        let choices = self.announcer_languages(key)?;
+        let now = LanguageChoice::of(&self.settings.announcer_params(key));
+        let at = choices.iter().position(|(_, c)| *c == now).unwrap_or(0);
+        Some(row(
+            ANNOUNCER_LANGUAGE,
+            m::announcer_language(),
+            OptionKind::Choices(choices.into_iter().map(|(l, _)| l).collect()),
+            at,
+            m::announcer_language_description(),
+        ))
     }
 
     fn display(&self) -> OptionSection {
@@ -2015,6 +2084,16 @@ impl OptionsModel {
                 }
             }
             "announcer_volume" => s.announcer_volume = slider_to_volume(i as f32 / 100.0),
+            ANNOUNCER_LANGUAGE => {
+                if let Some(key) = s.announcer.clone()
+                    && let Some((_, choice)) = self
+                        .announcer_languages(&key)
+                        .and_then(|c| c.into_iter().nth(i))
+                {
+                    self.settings
+                        .set_announcer_param(&key, pool::LANGUAGE, choice.value(), None);
+                }
+            }
             "show_deltas" => s.show_deltas = on,
             "ghost" => s.ghost = on,
             "dancing_hand" => s.dancing_hand = on,
@@ -2109,6 +2188,7 @@ impl OptionsModel {
                 Effect::Volume
             } else if s.announcer != before.announcer
                 || s.announcer_volume != before.announcer_volume
+                || s.announcer_params != before.announcer_params
             {
                 Effect::Announce
             } else if s.language != before.language {
@@ -2437,14 +2517,19 @@ impl OptionsModel {
                     .as_deref()
                     .is_some_and(|k| !ddi_library::announcer::is_bundled(k))
                 {
-                    self.settings.announcer = None;
+                    self.settings.announcer = Some(BUILT_IN_ANNOUNCER.into());
                 }
+                self.settings
+                    .announcer_params
+                    .retain(|k, _| ddi_library::announcer::is_bundled(k));
             }
             Reset::History => {}
+            // What was chosen and is gone: the built-in speaks for it.
             Reset::Announcer(k) => {
                 if self.settings.announcer.as_deref() == Some(k.as_str()) {
-                    self.settings.announcer = None;
+                    self.settings.announcer = Some(BUILT_IN_ANNOUNCER.into());
                 }
+                self.settings.announcer_params.remove(k);
             }
             Reset::Noteskin(k) => {
                 if self.settings.noteskin.as_deref() == Some(k.as_str()) {
@@ -2497,6 +2582,23 @@ impl OptionsModel {
         self.world.announcers = announcers;
     }
 
+    /// The announcers one can choose, as the shell keeps them: listed by
+    /// their names in the UI's language ([`OptionsModel::set_announcers`])
+    /// with what each offers.
+    pub fn set_announcers_kept(&mut self, kept: &[ddi_library::announcer::Kept], complete: bool) {
+        let ui = ddi_l10n::current().tag;
+        let list = kept.iter().map(|k| (k.key(), k.display_name(ui))).collect();
+        self.world.announcer_offers = kept
+            .iter()
+            .map(|k| {
+                let key = k.key();
+                let offered = k.offered(&self.settings.announcer_params(&key), ui);
+                (key, offered)
+            })
+            .collect();
+        self.set_announcers(list, complete);
+    }
+
     /// The parameters the skins declare, by key (the shell reads them
     /// with the skins, [`ddi_noteskin::params::Declared::of_skin`]).
     pub fn set_skin_parameters(
@@ -2506,6 +2608,9 @@ impl OptionsModel {
         self.world.skin_parameters = parameters;
     }
 }
+
+/// The announcer's Language row.
+pub const ANNOUNCER_LANGUAGE: &str = "announcer.language";
 
 /// The ids of the chosen skin's parameters' rows (then the name), and of
 /// the chosen pump skin's.
@@ -3239,7 +3344,7 @@ mod tests {
 
     fn model() -> OptionsModel {
         storage::install(Rc::new(MemoryStore::default()));
-        OptionsModel::new(
+        let mut m = OptionsModel::new(
             Settings::default(),
             World {
                 noteskins: vec![
@@ -3256,7 +3361,27 @@ mod tests {
                 }],
                 ..Default::default()
             },
-        )
+        );
+        m.set_announcers_kept(&[built_in()], false);
+        m
+    }
+
+    /// The built-in announcer as the shells keep it: its two voices, its
+    /// declaration the game's own.
+    fn built_in() -> ddi_library::announcer::Kept {
+        let mut kept = ddi_library::announcer::Kept {
+            name: "Clank".into(),
+            bundled: true,
+            ini: Some(include_str!("../../../../assets/announcers/Clank/announcer.ini").into()),
+            ..Default::default()
+        };
+        for lang in ["en", "ja"] {
+            kept.voices.entry(lang.into()).or_default().insert(
+                "select music intro".into(),
+                vec![format!("{lang}/select music intro/a.mp3").into()],
+            );
+        }
+        kept
     }
 
     /// The judgment words' row: English (the default), each other
@@ -3414,19 +3539,23 @@ mod tests {
                 .any(|o| o.id == id)
         };
         let mut m = model();
-        // Off, none listed: the row alone.
-        assert_eq!(find(&m.data(), "announcer").values(), ["Off"]);
+        m.settings.announcer = None;
+        // Off: the row alone.
+        assert_eq!(find(&m.data(), "announcer").values(), ["Off", "Mr. Clank"]);
         assert!(!has(&m, "announcer_volume"));
         m.set_announcers(
             vec![
+                (BUILT_IN_ANNOUNCER.into(), "Mr. Clank".into()),
                 ("ddr 1st mix".into(), "DDR 1st Mix".into()),
                 ("techno".into(), "Techno".into()),
             ],
             true,
         );
-        assert_eq!(m.change("announcer", 2), Some(Effect::Announce));
+        assert_eq!(m.change("announcer", 3), Some(Effect::Announce));
         assert_eq!(m.settings.announcer.as_deref(), Some("techno"));
-        assert_eq!(find(&m.data(), "announcer").index, 2);
+        assert_eq!(find(&m.data(), "announcer").index, 3);
+        // One language: no Language row.
+        assert!(!has(&m, ANNOUNCER_LANGUAGE));
         // Its volume, a share of the music's, on the music's scale.
         assert_eq!(find(&m.data(), "announcer_volume").value(), "100%");
         m.change("announcer_volume", 50);
@@ -3442,10 +3571,11 @@ mod tests {
         m.world.platform = super::super::data::Platform::Web;
         let (_, body, _) = Reset::Announcer("techno".into()).texts(&m);
         assert!(body.starts_with("Techno is removed"), "{body}");
+        // Removed: the built-in speaks for it.
         m.reset(&Reset::Announcer("techno".into()));
-        assert_eq!(m.settings.announcer, None);
+        assert_eq!(m.settings.announcer.as_deref(), Some(BUILT_IN_ANNOUNCER));
         // One chosen and not listed yet shows by its key; gone once all
-        // are listed.
+        // are listed, for the built-in.
         m.settings.announcer = Some("elsewhere".into());
         let row = find(&m.data(), "announcer").clone();
         assert_eq!(row.values()[row.index], "elsewhere");
@@ -3453,15 +3583,16 @@ mod tests {
         m.set_announcers(listed.clone(), false);
         assert_eq!(m.settings.announcer.as_deref(), Some("elsewhere"));
         m.set_announcers(listed, true);
-        assert_eq!(m.settings.announcer, None);
-        // Removing the imported songs lets it go too.
-        m.change("announcer", 1);
+        assert_eq!(m.settings.announcer.as_deref(), Some(BUILT_IN_ANNOUNCER));
+        // Removing the imported songs lets it go too, for the built-in.
+        m.change("announcer", 2);
+        assert_eq!(m.settings.announcer.as_deref(), Some("ddr 1st mix"));
         m.reset(&Reset::Songs);
-        assert_eq!(m.settings.announcer, None);
+        assert_eq!(m.settings.announcer.as_deref(), Some(BUILT_IN_ANNOUNCER));
     }
 
     #[test]
-    fn our_announcers_come_first_and_stay() {
+    fn our_announcer_comes_first_and_stays() {
         let has = |m: &OptionsModel, id: &str| {
             m.data()
                 .sections
@@ -3470,12 +3601,12 @@ mod tests {
                 .any(|o| o.id == id)
         };
         let mut m = model();
-        // Off by default.
-        assert_eq!(m.settings.announcer, None);
+        // On by default: the built-in one.
+        assert_eq!(m.settings.announcer.as_deref(), Some(BUILT_IN_ANNOUNCER));
         m.set_announcers(
             vec![
                 ("techno".into(), "Techno".into()),
-                ("bundled:mr. clank".into(), "Mr. Clank".into()),
+                (BUILT_IN_ANNOUNCER.into(), "Mr. Clank".into()),
                 ("ddr".into(), "ddr".into()),
             ],
             true,
@@ -3484,14 +3615,16 @@ mod tests {
             find(&m.data(), "announcer").values(),
             ["Off", "Mr. Clank", "ddr", "Techno"]
         );
+        assert_eq!(find(&m.data(), "announcer").index, 1);
+        m.change("announcer", 0);
         assert_eq!(m.settings.announcer, None);
         m.change("announcer", 1);
-        assert_eq!(m.settings.announcer.as_deref(), Some("bundled:mr. clank"));
+        assert_eq!(m.settings.announcer.as_deref(), Some(BUILT_IN_ANNOUNCER));
         // Never removed, nor let go with the imported songs.
         assert!(has(&m, "announcer_volume"));
         assert!(!has(&m, "announcer.remove"));
         m.reset(&Reset::Songs);
-        assert_eq!(m.settings.announcer.as_deref(), Some("bundled:mr. clank"));
+        assert_eq!(m.settings.announcer.as_deref(), Some(BUILT_IN_ANNOUNCER));
         // The studio opens from here, Off or not, on both shells.
         assert!(has(&m, "announcer.studio"));
         assert_eq!(m.action("announcer.studio", 0), Act::Studio);
@@ -3509,6 +3642,56 @@ mod tests {
         assert!(!has(&m, "announcer.remove"));
         m.settings.announcer = Some("made".into());
         assert!(has(&m, "announcer.remove"));
+    }
+
+    /// The built-in announcer's Language row: Same as game language,
+    /// naming what it speaks for the UI's language, each language in
+    /// itself, then Mixed; its name the UI language's; a choice kept per
+    /// announcer and spoken at once.
+    #[test]
+    fn the_announcer_s_language_follows_the_game_unless_chosen() {
+        use ddi_library::announcer::pool::{LANGUAGE, MIXED};
+        let mut m = model();
+        let row = find(&m.data(), ANNOUNCER_LANGUAGE).clone();
+        assert_eq!(
+            row.values(),
+            ["Same as game language (English)", "English", "日本語", "Mixed"]
+        );
+        assert_eq!(row.index, 0);
+        assert_eq!(find(&m.data(), "announcer").values(), ["Off", "Mr. Clank"]);
+        assert_eq!(m.change(ANNOUNCER_LANGUAGE, 2), Some(Effect::Announce));
+        assert_eq!(
+            m.settings.announcer_params(BUILT_IN_ANNOUNCER).get(LANGUAGE),
+            Some(&ParamValue::Text("ja".into()))
+        );
+        assert_eq!(find(&m.data(), ANNOUNCER_LANGUAGE).index, 2);
+        assert_eq!(Settings::load().announcer_params, m.settings.announcer_params);
+        m.change(ANNOUNCER_LANGUAGE, 3);
+        assert_eq!(
+            m.settings.announcer_params(BUILT_IN_ANNOUNCER).get(LANGUAGE),
+            Some(&ParamValue::Text(MIXED.into()))
+        );
+        // Back to the default: nothing kept.
+        m.change(ANNOUNCER_LANGUAGE, 0);
+        assert!(m.settings.announcer_params.is_empty());
+        // In Japanese: its Japanese name, and the game's language named.
+        ddi_l10n::in_language(ddi_l10n::find("ja").unwrap(), || {
+            assert_eq!(find(&m.data(), "announcer").values()[1], "ガキンさん");
+            assert!(
+                find(&m.data(), ANNOUNCER_LANGUAGE).values()[0].contains("日本語"),
+                "{:?}",
+                find(&m.data(), ANNOUNCER_LANGUAGE).values()
+            );
+        });
+        // Off: no Language row.
+        m.change("announcer", 0);
+        assert!(
+            !m.data()
+                .sections
+                .iter()
+                .flat_map(|s| &s.options)
+                .any(|o| o.id == ANNOUNCER_LANGUAGE)
+        );
     }
 
     fn find<'a>(d: &'a OptionsData, id: &str) -> &'a OptionDef {
@@ -3624,9 +3807,13 @@ mod tests {
                 let again = m.data();
                 assert_eq!(find(&again, &o.id).index, i, "{}", o.id);
             }
-            // (The hand's rows under it show while it is on.)
+            // (The hand's rows under it show while it is on, and the
+            // announcer's while one is chosen.)
             if o.id == "dancing_hand" {
                 m.change("dancing_hand", 1);
+            }
+            if o.id == "announcer" {
+                m.change("announcer", 1);
             }
         }
         m.change("dancing_hand", 0);

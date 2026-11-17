@@ -7,7 +7,7 @@
 //! [`draft`], tidied as [`tidy`] says, with [`examples`] of each line
 //! (`docs/plans/announcer-studio.md`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -623,6 +623,15 @@ pub struct Announcer {
     pub name: String,
     /// The lines it speaks, each with its sound files.
     pub lines: BTreeMap<Line, Vec<RelPathBuf>>,
+    /// A declared pack's ([`Announcer::declaration`]) lines in each
+    /// language, by its folder's tag ([`pool::language_tag`]): the line
+    /// folders under `<dir>/<tag>/`.
+    pub voices: BTreeMap<String, BTreeMap<Line, Vec<RelPathBuf>>>,
+    /// Its `announcer.ini` ([`pool::DECLARATION`]), if it has one: then
+    /// it is one announcer whatever its folders, its language folders
+    /// its voices (the shells read the file's text into
+    /// [`Kept::ini`]).
+    pub declaration: Option<RelPathBuf>,
     /// Known lines not spoken, by the name they are kept under.
     pub unused: BTreeMap<String, Vec<RelPathBuf>>,
     /// Folders of sounds no engine names, by their name in lower case.
@@ -657,6 +666,15 @@ impl Announcer {
         line.chain()
             .into_iter()
             .find_map(|l| self.lines.get(&l).map(|f| (l, f.as_slice())))
+    }
+
+    /// Every line it has a sound of, in any language.
+    fn every_line(&self) -> BTreeSet<Line> {
+        self.lines
+            .keys()
+            .chain(self.voices.values().flat_map(|v| v.keys()))
+            .copied()
+            .collect()
     }
 }
 
@@ -697,6 +715,19 @@ pub struct Kept {
     /// its key is [`bundled_key`].
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bundled: bool,
+    /// A declared pack's lines in each language, by tag, as [`Kept::lines`]
+    /// has its own (paths relative to the announcer's folder, so under
+    /// the language's folder): the voices its Language parameter chooses
+    /// among ([`Kept::resolve`]). Records stored before them read none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub voices: BTreeMap<String, BTreeMap<String, Vec<RelPathBuf>>>,
+    /// Its `announcer.ini`'s text ([`pool::Declaration`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ini: Option<String>,
+    /// What it was resolved with, among its shuffles (`""`: not
+    /// resolved, or a pack without choices; [`Kept::resolve`]).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub choice: String,
 }
 
 impl Kept {
@@ -706,6 +737,47 @@ impl Kept {
         } else {
             key(&self.name)
         }
+    }
+
+    /// The key its lines' shuffles are kept under: its own, and what it
+    /// was resolved with (English and Japanese take turns apart).
+    pub fn bag_key(&self) -> String {
+        if self.choice.is_empty() {
+            self.key()
+        } else {
+            format!("{}#{}", self.key(), self.choice)
+        }
+    }
+
+    /// Every sound of it, in its lines and its voices, each once.
+    pub fn sounds(&self) -> BTreeSet<&RelPathBuf> {
+        self.lines
+            .values()
+            .chain(self.voices.values().flat_map(|v| v.values()))
+            .flatten()
+            .collect()
+    }
+
+    /// Every list of sounds, its lines' and its voices', to change in
+    /// place (an import keeps what it stored).
+    pub fn sound_lists_mut(&mut self) -> impl Iterator<Item = &mut Vec<RelPathBuf>> {
+        self.lines
+            .values_mut()
+            .chain(self.voices.values_mut().flat_map(|v| v.values_mut()))
+    }
+
+    /// Drops lines left without a sound, and voices without a line.
+    pub fn drop_empty(&mut self) {
+        self.lines.retain(|_, f| !f.is_empty());
+        for v in self.voices.values_mut() {
+            v.retain(|_, f| !f.is_empty());
+        }
+        self.voices.retain(|_, v| !v.is_empty());
+    }
+
+    /// Whether it has no sound of a line at all.
+    pub fn is_silent(&self) -> bool {
+        self.lines.is_empty() && self.voices.is_empty()
     }
 
     /// Its sounds for `line`, from the first of [`Line::chain`] it has.
@@ -739,6 +811,13 @@ pub struct Index {
     pub announcers: Vec<Bundled>,
 }
 
+/// The built-in announcer's folder under `assets/announcers/` (one
+/// character, a voice a language: `en/`, `ja/`), and so its key
+/// ([`BUILT_IN`]).
+pub const BUILT_IN_FOLDER: &str = "Clank";
+/// The built-in announcer's key, the `announcer` setting's default.
+pub const BUILT_IN: &str = "bundled:clank";
+
 /// A bundled announcer in [`Index`].
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Bundled {
@@ -754,6 +833,44 @@ pub struct Bundled {
     /// `[said]`): the announcer studio's examples.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub said: BTreeMap<String, String>,
+}
+
+impl Bundled {
+    /// Its voice in language `lang` as a pack of its own: its folder that
+    /// language's, its lines that voice's, its hashes and texts by their
+    /// paths in it (the announcer studio's examples).
+    pub fn voice(&self, lang: &str) -> Option<Bundled> {
+        let lines = self.kept.voices.get(lang)?;
+        let prefix = format!("{lang}/");
+        let within = |p: &str| p.strip_prefix(&prefix).map(str::to_string);
+        let rekey = |m: &BTreeMap<String, String>| -> BTreeMap<String, String> {
+            m.iter()
+                .filter_map(|(k, v)| Some((within(k)?, v.clone())))
+                .collect()
+        };
+        let lines: BTreeMap<String, Vec<RelPathBuf>> = lines
+            .iter()
+            .map(|(folder, files)| {
+                let files = files
+                    .iter()
+                    .filter_map(|f| within(f.as_str()).map(RelPathBuf::from))
+                    .collect();
+                (folder.clone(), files)
+            })
+            .collect();
+        Some(Bundled {
+            path: format!("{}/{lang}", self.path),
+            kept: Kept {
+                name: self.kept.display_name(lang),
+                files: lines.values().map(Vec::len).sum(),
+                lines,
+                bundled: true,
+                ..Kept::default()
+            },
+            hashes: rekey(&self.hashes),
+            said: rekey(&self.said),
+        })
+    }
 }
 
 /// The first `n` of `items` (the report names a few and counts the
@@ -784,26 +901,44 @@ impl Announcer {
             bytes: self.report.line_bytes,
             ..Kept::default()
         };
-        for (line, files) in &self.lines {
-            let files: Vec<RelPathBuf> = files
+        let within = |files: &Vec<RelPathBuf>| -> Vec<RelPathBuf> {
+            files
                 .iter()
                 .map(|f| f.strip_prefix(&self.dir).unwrap_or(f).to_rel_path_buf())
-                .collect();
+                .collect()
+        };
+        for (line, files) in &self.lines {
+            let files = within(files);
             kept.files += files.len();
             kept.lines.insert(line.folder(), files);
+        }
+        for (lang, lines) in &self.voices {
+            let voice = kept.voices.entry(lang.clone()).or_default();
+            for (line, files) in lines {
+                let files = within(files);
+                kept.files += files.len();
+                voice.insert(line.folder(), files);
+            }
         }
         kept
     }
 
     /// What an import says of it.
     pub fn said(&self) -> Said {
-        let by = |s: Spoken| self.lines.keys().filter(|l| l.spoken() == s).count();
+        let every = self.every_line();
+        let by = |s: Spoken| every.iter().filter(|l| l.spoken() == s).count();
         let summary = AnnouncerSummary {
-            lines: self.lines.len(),
+            lines: every.len(),
             in_play: by(Spoken::Play),
             on_results: by(Spoken::Results),
             on_select: by(Spoken::Menu),
-            sounds: self.lines.values().map(Vec::len).sum(),
+            sounds: self.lines.values().map(Vec::len).sum::<usize>()
+                + self
+                    .voices
+                    .values()
+                    .flat_map(|v| v.values())
+                    .map(Vec::len)
+                    .sum::<usize>(),
             bytes: self.report.line_bytes,
         };
         let r = &self.report;
@@ -869,14 +1004,21 @@ pub struct Found {
 /// `Announcers`; never one inside another announcer, under `Themes` or
 /// named `Empty` (StepMania's template, which it hides).
 fn detect<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<(String, Vec<RelPathBuf>)> {
-    let mut audio_dirs: std::collections::BTreeSet<&str> = Default::default();
+    let mut audio_dirs: BTreeSet<&str> = Default::default();
+    // The folders holding an `announcer.ini`: one announcer each.
+    let mut declared: BTreeSet<&str> = Default::default();
     // A line folder's sounds come in a song's music's formats: StepMania's
     // (`GameSoundManager::DoPlayOnceFromDir`), and Opus and FLAC, which both
     // shells decode as they do songs' music (StepMania passes them over;
     // the studio keeps them as recorded, `draft`).
     for p in paths {
-        if !is_ignored(p) && is_audio(p) {
+        if is_ignored(p) {
+            continue;
+        }
+        if is_audio(p) {
             audio_dirs.insert(parent(p));
+        } else if file_name(p).eq_ignore_ascii_case(pool::DECLARATION) {
+            declared.insert(parent(p));
         }
     }
     let mut lines: BTreeMap<&str, usize> = BTreeMap::new();
@@ -886,15 +1028,26 @@ fn detect<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<(String, Vec<RelPathB
         }
         let name = file_name(dir);
         if Line::parse(name).is_some() || unused(name).is_some() {
-            *lines.entry(parent(dir)).or_default() += 1;
+            // A declared pack's language folder's lines are its own.
+            let mut owner = parent(dir);
+            if !owner.is_empty()
+                && pool::is_language(file_name(owner))
+                && declared.contains(parent(owner))
+            {
+                owner = parent(owner);
+            }
+            *lines.entry(owner).or_default() += 1;
         }
+    }
+    for dir in &declared {
+        lines.entry(dir).or_default();
     }
     let mut found: Vec<(String, Vec<RelPathBuf>)> = Vec::new();
     for (dir, count) in lines {
         let components: Vec<String> = dir.split('/').map(str::to_ascii_lowercase).collect();
         let under_announcers =
             components.len() >= 2 && components[components.len() - 2] == "announcers";
-        if !(count >= MIN_LINES || under_announcers)
+        if !(count >= MIN_LINES || under_announcers || declared.contains(dir))
             || components.iter().any(|c| c == "themes")
             || file_name(dir).eq_ignore_ascii_case("empty")
         {
@@ -920,6 +1073,9 @@ pub fn announcer_dirs<S: AsRef<str>>(paths: &[S]) -> Vec<RelPathBuf> {
         .map(|(d, _)| d.into())
         .collect()
 }
+
+/// A folder's sounds as found: each path and its bytes.
+type Sounds<'a> = Vec<(&'a str, u64)>;
 
 /// The announcers among an import's files (`(path, bytes)`, `/`-separated),
 /// in their folders' order. An announcer at the import's root (its line
@@ -950,10 +1106,17 @@ pub fn find_announcers<S: AsRef<str>>(files: &[(S, u64)], root: &str) -> Found {
             },
             ..Announcer::default()
         };
-        // Line folder (as on disk) → its sounds and their bytes.
-        let mut folders: BTreeMap<&str, Vec<(&str, u64)>> = BTreeMap::new();
+        let declares = files.iter().any(|(p, _)| {
+            let p = p.as_ref();
+            !is_ignored(p)
+                && file_name(p).eq_ignore_ascii_case(pool::DECLARATION)
+                && parent(p) == dir.as_str()
+        });
+        // Line folder (as on disk, with its language folder in a declared
+        // pack) → its sounds and their bytes.
+        let mut folders: BTreeMap<(Option<&str>, &str), Sounds> = BTreeMap::new();
         // Line folders holding something other than a sound.
-        let mut silent: std::collections::BTreeSet<&str> = Default::default();
+        let mut silent: BTreeSet<(Option<&str>, &str)> = Default::default();
         for (path, bytes) in files {
             let path = path.as_ref();
             if is_ignored(path) {
@@ -962,34 +1125,51 @@ pub fn find_announcers<S: AsRef<str>>(files: &[(S, u64)], root: &str) -> Found {
             let Some(rel) = RelPath::new(path).strip_prefix(RelPath::new(&dir)) else {
                 continue;
             };
-            match rel.as_str().split_once('/') {
-                Some((folder, file)) if !file.contains('/') && is_audio(file) => {
-                    folders.entry(folder).or_default().push((path, *bytes));
+            let parts: Vec<&str> = rel.as_str().split('/').collect();
+            match parts.as_slice() {
+                [folder, file] if is_audio(file) => {
+                    folders.entry((None, folder)).or_default().push((path, *bytes));
                 }
-                Some((folder, _)) => {
+                [lang, folder, file] if declares && pool::is_language(lang) && is_audio(file) => {
+                    folders
+                        .entry((Some(lang), folder))
+                        .or_default()
+                        .push((path, *bytes));
+                }
+                [file] if declares && file.eq_ignore_ascii_case(pool::DECLARATION) => {
+                    a.declaration = Some(RelPathBuf::from(path));
+                }
+                [lang, folder, _, ..] if declares && pool::is_language(lang) => {
                     a.report.ignored += 1;
-                    silent.insert(folder);
+                    silent.insert((Some(lang), folder));
                 }
-                None => a.report.ignored += 1,
+                [folder, _, ..] => {
+                    a.report.ignored += 1;
+                    silent.insert((None, folder));
+                }
+                _ => a.report.ignored += 1,
             }
         }
         a.report.empty = silent
             .into_iter()
             .filter(|f| !folders.contains_key(f))
-            .map(str::to_string)
+            .map(|(lang, f)| match lang {
+                Some(lang) => format!("{lang}/{f}"),
+                None => f.to_string(),
+            })
             .collect();
         // Each folder's kind, the lines first.
-        let mut kinds: Vec<(Kind, Vec<(&str, u64)>)> = folders
+        let mut kinds: Vec<(Option<&str>, Kind, Sounds)> = folders
             .into_iter()
-            .map(|(folder, sounds)| (classify(folder), sounds))
+            .map(|((lang, folder), sounds)| (lang, classify(folder), sounds))
             .collect();
         let rank = |k: &Kind| match k {
             Kind::Line(_) => 0,
             Kind::Unused(_) => 1,
             Kind::Unknown(_) => 2,
         };
-        kinds.sort_by_key(|(k, _)| rank(k));
-        for (kind, mut sounds) in kinds {
+        kinds.sort_by_key(|(_, k, _)| rank(k));
+        for (lang, kind, mut sounds) in kinds {
             sounds.sort();
             let mut kept = Vec::new();
             for (path, bytes) in sounds {
@@ -1007,10 +1187,20 @@ pub fn find_announcers<S: AsRef<str>>(files: &[(S, u64)], root: &str) -> Found {
             if kept.is_empty() {
                 continue;
             }
-            let list = match kind {
-                Kind::Line(line) => a.lines.entry(line).or_default(),
-                Kind::Unused(name) => a.unused.entry(name).or_default(),
-                Kind::Unknown(name) => a.unknown.entry(name).or_default(),
+            let named = |name: String| match lang {
+                Some(lang) => format!("{lang}/{name}"),
+                None => name,
+            };
+            let list = match (kind, lang) {
+                (Kind::Line(line), None) => a.lines.entry(line).or_default(),
+                (Kind::Line(line), Some(lang)) => a
+                    .voices
+                    .entry(pool::language_tag(lang))
+                    .or_default()
+                    .entry(line)
+                    .or_default(),
+                (Kind::Unused(name), _) => a.unused.entry(named(name)).or_default(),
+                (Kind::Unknown(name), _) => a.unknown.entry(named(name)).or_default(),
             };
             list.extend(kept);
             list.sort();
@@ -1022,6 +1212,7 @@ pub fn find_announcers<S: AsRef<str>>(files: &[(S, u64)], root: &str) -> Found {
 
 pub mod draft;
 pub mod examples;
+pub mod pool;
 pub mod tidy;
 pub mod stadium;
 

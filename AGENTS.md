@@ -339,8 +339,12 @@ Rust and the browser are implementation details, not advertised features.
   StepMania's layout and aliases, Etterna's two names and ours; the
   multiplayer battle's own category, `Line::Battle`, `Spoken::Battle`,
   folders `battle …`, with their fallbacks, heard only in a stage;
-  our bundled packs' keys, `bundled:<name>`, and the web's index of them
-  with what each sound says; `docs/plans/announcers.md`; every line,
+  our bundled packs' keys, `bundled:<name>` (the built-in one's
+  `bundled:clank`, `BUILT_IN`), and the web's index of them with what
+  each sound says; an announcer as a pool of takes, its
+  `announcer.ini`'s languages and names, resolved by the player's
+  choices to the lines the session speaks, `announcer/pool.rs`;
+  `docs/plans/announcers.md`; every line,
   when it speaks and what it falls back to, for pack authors:
   `docs/announcer-lines.md`; the announcer studio's drafts, takes
   matched to lines by name, their notes, the text lines planned and
@@ -1859,10 +1863,12 @@ Rust and the browser are implementation details, not advertised features.
   the original Dito variants are retired
   and procedural arrows are an internal fallback without a picker entry);
   `assets/fonts/` the embedded HUD faces and the theme's text face
-  (Iosevka Term, served as `fonts/`); `assets/announcers/<name>/` our
-  announcers (`Mr. Clank`, `ガキンさん`), made by `kokoro.py pack
-  --bundle` with the `PROVENANCE.toml` it writes, Off by default
-  (`docs/plans/announcers.md`, "Packs of our own").
+  (Iosevka Term, served as `fonts/`); `assets/announcers/Clank/` the
+  built-in announcer, on by default (`bundled:clank`), its
+  `announcer.ini` and a voice a language, `en/` (Mr. Clank) and `ja/`
+  (ガキンさん), each made by `kokoro.py pack --bundle` with the
+  `PROVENANCE.toml` it writes (`docs/plans/announcers.md`, "Packs of our
+  own", "One built-in announcer, on by default").
 
 ## Commands
 

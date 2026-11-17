@@ -60,6 +60,60 @@ there are read too), or list its folder itself.
 Limits: 2,000 sounds and 128 MB an announcer, 50 announcers an import.
 The lines spoken keep their sounds first.
 
+## Several languages in one pack
+
+A pack can speak more than one language: put an `announcer.ini` beside
+its folders and a folder of line folders for each language, named by
+the language's tag (`en`, `ja`, `pt-BR`):
+
+```
+My Announcer/
+  announcer.ini
+  en/
+    gameplay ready/
+      ready.ogg
+  ja/
+    gameplay ready/
+      junbi.ogg
+  evaluation cheer/
+    crowd.ogg
+```
+
+```ini
+[Announcer]
+Name=My Announcer
+Name.ja=マイ・アナウンサー
+
+[Parameters]
+List=Language
+
+[Parameter Language]
+Type=Language
+Languages=en,ja
+Mixed=1
+```
+
+- **A folder with `announcer.ini` is one announcer**, whatever is in it:
+  its language folders are its voices, never announcers of their own.
+- **The player chooses the language** in Options → Sound → Language
+  under the announcer: "Same as game language" by default, each language
+  the pack lists in `Languages=` (in that order), and "Mixed" where the
+  pack says `Mixed=1` (its lines taken from every language, each sound
+  as likely as any other). Where the game's language has no voice, it
+  speaks English, else the pack's first language.
+- **Line folders beside the language folders** (`evaluation cheer/`
+  above) have no language: they are said in every one.
+- **`Name.<tag>`** names the pack in that language of the game's menus,
+  `Name` in any other; without them its name is its folder's.
+- **`Labels=`** names languages the game does not know, in the order of
+  `Languages=` (`Labels=,,Deutsch`); a language the game knows is named
+  in itself.
+- A line one language lacks falls back as in any pack (the lines below);
+  it is not taken from another language.
+
+StepMania reads none of this: a pack meant for it too keeps its line
+folders at its top.
+
 ## The lines
 
 **Who** says where a line comes from: **SM** for StepMania 5.1,

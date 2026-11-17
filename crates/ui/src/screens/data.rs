@@ -256,6 +256,33 @@ impl Notice {
             error: false,
         }
     }
+
+    /// That an announcer now speaks, with a way to turn it off at once
+    /// ([`ANNOUNCER_OFF`]): told once to a player who had it Off before
+    /// the built-in announcer came on by default
+    /// (`crate::state::settings::Settings::take_announcer_notice`).
+    pub fn announcer_on() -> Notice {
+        Notice {
+            text: ddi_l10n::msg::notices::announcer_on().into(),
+            link: Some((
+                ddi_l10n::msg::notices::announcer_turn_off().into(),
+                ANNOUNCER_OFF.into(),
+            )),
+            error: false,
+        }
+    }
+}
+
+/// The link of [`Notice::announcer_on`]: the announcer turned off
+/// ([`turn_announcer_off`]).
+pub const ANNOUNCER_OFF: &str = "announcer-off";
+
+/// The announcer turned off from [`Notice::announcer_on`]'s link, as Off
+/// chosen in Options, and saved.
+pub fn turn_announcer_off() {
+    let mut s = crate::state::settings::Settings::load();
+    s.announcer = None;
+    s.save();
 }
 
 /// Where the game runs, for the screens' wording: the shell says (the

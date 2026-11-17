@@ -62,8 +62,12 @@ fn an_announcer_speaks_over_a_play_and_its_results() {
         std::fs::write(dir.join("a.wav"), &tone).unwrap();
     }
     storage::install(Rc::new(MemoryStore::default()));
+    // Without the dancing hand: with it, a quick restart goes back
+    // through its prompt to warm a fresh hand (`play::host`'s restart),
+    // so the play this test follows would end at the restart.
     Settings {
         announcer: Some("tones".into()),
+        dancing_hand: false,
         ..Settings::default()
     }
     .save();
@@ -167,20 +171,26 @@ fn an_announcer_speaks_over_a_play_and_its_results() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// Ours, which come with the game, chosen by their keys: song select's
-/// lines read from the assets and decoded, with no song folder at all
-/// (`docs/plans/announcers.md`, "Packs of our own").
+/// Ours, which comes with the game, in each of its languages: song
+/// select's lines read from the assets and decoded, with no song folder
+/// at all (`docs/plans/announcers.md`, "Packs of our own", "One built-in
+/// announcer").
 #[test]
 fn ours_speak_from_the_assets() {
     use ddi_library::announcer::{Comment, Line};
+    use ddi_ui::state::settings::ParamValue;
     common::indexes();
     storage::install(Rc::new(MemoryStore::default()));
-    for key in ["bundled:mr. clank", "bundled:ガキンさん"] {
-        Settings {
-            announcer: Some(key.into()),
-            ..Settings::default()
-        }
-        .save();
+    for key in ["en", "ja"] {
+        let mut settings = Settings::default();
+        assert_eq!(settings.announcer.as_deref(), Some("bundled:clank"));
+        settings.set_announcer_param(
+            "bundled:clank",
+            "Language",
+            Some(ParamValue::Text(key.into())),
+            None,
+        );
+        settings.save();
         let mut p = ddi_desktop::preview::Player::with(
             ddi_desktop::audio::Audio::silent(0.8),
             ddi_desktop::preview::PreviewSong::bundled,

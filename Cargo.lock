@@ -1275,6 +1275,7 @@ dependencies = [
  "ddi-actor",
  "ddi-chart",
  "ddi-engine",
+ "ddi-noteskin",
  "ddi-platform",
  "ddi-share-protocol",
  "deflate64",

@@ -168,7 +168,9 @@ fn take_each(
     which: impl Fn(Line) -> bool,
     count: impl Fn(Line) -> usize,
 ) -> Vec<(Line, Vec<RelPathBuf>)> {
-    let key = kept.key();
+    // Its shuffles apart for each of its choices (English and Japanese
+    // take turns apart).
+    let key = kept.bag_key();
     let mut lines: Vec<(Line, Vec<RelPathBuf>)> = kept
         .lines
         .iter()
@@ -189,11 +191,20 @@ fn take_each(
     lines
 }
 
+/// A sound's file, as the voice tells two apart ([`Voice::add_ranked_from`]).
+pub fn file_id(path: &str) -> u64 {
+    ddi_library::pack::fnv1a64(path.as_bytes())
+}
+
 /// The announcer's sounds as decoded, by line.
 #[derive(Debug)]
 pub struct Voice<B> {
-    /// Each line's sounds with their ranks, in the order spoken.
-    lines: BTreeMap<Line, Vec<(usize, B)>>,
+    /// Each line's sounds with their ranks and files ([`file_id`], where
+    /// the shell told it), in the order spoken.
+    lines: BTreeMap<Line, Vec<(usize, Option<u64>, B)>>,
+    /// The file last spoken: a take a pack says for several lines is
+    /// never said twice in a row through two of them.
+    last: Option<u64>,
     /// The lines being decoded: one of these not there when it is due
     /// was not decoded in time ([`Report::missing`]); any other the pack
     /// lacks ([`Report::absent`]).
@@ -206,6 +217,7 @@ impl<B> Default for Voice<B> {
     fn default() -> Voice<B> {
         Voice {
             lines: BTreeMap::new(),
+            last: None,
             expected: BTreeSet::new(),
             cursor: BTreeMap::new(),
         }
@@ -220,18 +232,36 @@ impl<B> Voice<B> {
 
     /// A sound of `line`, decoded.
     pub fn add(&mut self, line: Line, buffer: B) {
+        self.add_file(line, None, buffer);
+    }
+
+    /// A sound of `line` from file `path` (of the announcer's), decoded.
+    pub fn add_from(&mut self, line: Line, path: &str, buffer: B) {
+        self.add_file(line, Some(file_id(path)), buffer);
+    }
+
+    fn add_file(&mut self, line: Line, file: Option<u64>, buffer: B) {
         let sounds = self.lines.entry(line).or_default();
         let rank = sounds.len();
-        sounds.push((rank, buffer));
+        sounds.push((rank, file, buffer));
     }
 
     /// A sound of `line`, the `rank`th of those asked for, decoded in
     /// any order: it is spoken in its place among them, and what was
     /// spoken already stays behind the line's next sound.
     pub fn add_ranked(&mut self, line: Line, rank: usize, buffer: B) {
+        self.add_ranked_file(line, rank, None, buffer);
+    }
+
+    /// [`Voice::add_ranked`], from file `path` (of the announcer's).
+    pub fn add_ranked_from(&mut self, line: Line, rank: usize, path: &str, buffer: B) {
+        self.add_ranked_file(line, rank, Some(file_id(path)), buffer);
+    }
+
+    fn add_ranked_file(&mut self, line: Line, rank: usize, file: Option<u64>, buffer: B) {
         let sounds = self.lines.entry(line).or_default();
-        let at = sounds.partition_point(|(r, _)| *r < rank);
-        sounds.insert(at, (rank, buffer));
+        let at = sounds.partition_point(|(r, _, _)| *r < rank);
+        sounds.insert(at, (rank, file, buffer));
         if let Some(next) = self.cursor.get_mut(&line)
             && at < *next
         {
@@ -274,22 +304,39 @@ impl<B> Voice<B> {
         (self.decoded(), self.expected.len())
     }
 
+    /// The place among `found`'s sounds of the one it speaks next: the
+    /// next in turn, past any of the file last spoken where it has
+    /// another.
+    fn pick(&self, found: Line) -> usize {
+        let sounds = &self.lines[&found];
+        let next = self.cursor.get(&found).copied().unwrap_or(0);
+        if self.last.is_some() {
+            for skip in 0..sounds.len() {
+                if sounds[(next + skip) % sounds.len()].1 != self.last {
+                    return next + skip;
+                }
+            }
+        }
+        next
+    }
+
     /// The sound `line` (or the first of its chain decoded) speaks next.
     pub fn peek(&self, line: Line) -> Option<(Line, &B)> {
         let found = self.find(line)?;
         let sounds = &self.lines[&found];
-        let i = self.cursor.get(&found).copied().unwrap_or(0) % sounds.len();
-        Some((found, &sounds[i].1))
+        let i = self.pick(found) % sounds.len();
+        Some((found, &sounds[i].2))
     }
 
     /// [`Voice::peek`], the line's next sound then the one after.
     pub fn next(&mut self, line: Line) -> Option<(Line, &B)> {
         let found = self.find(line)?;
-        let i = self.cursor.entry(found).or_insert(0);
-        let at = *i;
-        *i += 1;
+        let at = self.pick(found);
+        self.cursor.insert(found, at + 1);
         let sounds = &self.lines[&found];
-        Some((found, &sounds[at % sounds.len()].1))
+        let (_, file, sound) = &sounds[at % sounds.len()];
+        self.last = *file;
+        Some((found, sound))
     }
 }
 

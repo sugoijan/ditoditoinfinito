@@ -741,7 +741,7 @@ async fn store_announcers(
             a.dir.to_string()
         };
         let mut kept = a.kept();
-        if kept.lines.is_empty() {
+        if kept.is_silent() {
             report.skipped.push((label, Finding::AnnouncerWithoutLines));
             continue;
         }
@@ -752,9 +752,25 @@ async fn store_announcers(
         progress.emit(ImportStep::StoringAnnouncer {
             name: a.name.clone(),
         });
+        // Its declaration (`announcer.ini`), kept as text with it.
+        if let Some(source) = a.declaration.as_ref().and_then(|d| sources.get(d.as_str())) {
+            let text = match read_blob(source, "text/plain").await {
+                Ok(blob) => crate::web::files::blob_bytes(&blob)
+                    .await
+                    .map_err(Finding::System),
+                Err(e) => Err(e),
+            };
+            match text {
+                Ok(bytes) => kept.ini = Some(String::from_utf8_lossy(&bytes).into_owned()),
+                Err(e) => report.warnings.push((
+                    label.clone(),
+                    file_failed(ddi_library::announcer::pool::DECLARATION, e),
+                )),
+            }
+        }
         let mut sounds = Vec::new();
         let mut bytes = 0;
-        for files in kept.lines.values_mut() {
+        for files in kept.sound_lists_mut() {
             let mut stored = Vec::new();
             for f in files.drain(..) {
                 let at = a.dir.join(&f);
@@ -772,7 +788,7 @@ async fn store_announcers(
             }
             *files = stored;
         }
-        kept.lines.retain(|_, files| !files.is_empty());
+        kept.drop_empty();
         kept.files = sounds.len();
         kept.bytes = bytes;
         let said = a.said();

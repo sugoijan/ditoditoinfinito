@@ -776,11 +776,13 @@ impl Studio {
         self.saved_at.set(self.now());
     }
 
+    /// The built-in announcer's voice in `set`'s language, as a pack.
     fn pack_of(&self, set: Set) -> Option<(Bundled, DiskAnnouncer)> {
+        let path = format!("{}/{}", ddi_library::announcer::BUILT_IN_FOLDER, set.key());
         self.ours
             .borrow()
             .iter()
-            .find(|(b, _)| b.kept.name == set.pack())
+            .find(|(b, _)| b.path == path)
             .cloned()
     }
 
@@ -1602,13 +1604,15 @@ fn read_example(a: &DiskAnnouncer, path: &str) -> Result<Sound, String> {
     crate::audio::decoder::sound(bytes, sound.extension(), Default::default(), RATE)
 }
 
-/// Ours, each with what its sounds say (the bundled index's, where it
-/// was generated).
+/// Ours, each voice as a pack of its own (the built-in's, a language
+/// each), with what its sounds say (the bundled index's, where it was
+/// generated).
 fn ours() -> Vec<(Bundled, DiskAnnouncer)> {
+    use crate::library::announcers::Base;
     let index = crate::library::announcers::index();
     crate::library::announcers::bundled()
         .into_iter()
-        .map(|a| {
+        .flat_map(|a| {
             let said = index
                 .iter()
                 .find(|b| b.kept.name == a.kept.name)
@@ -1620,7 +1624,25 @@ fn ours() -> Vec<(Bundled, DiskAnnouncer)> {
                 hashes: Default::default(),
                 said,
             };
-            (bundled, a)
+            let langs: Vec<String> = a.kept.voices.keys().cloned().collect();
+            langs
+                .into_iter()
+                .filter_map(|lang| {
+                    let voice = bundled.voice(&lang)?;
+                    let base = match &a.base {
+                        Base::Dir(d) => Base::Dir(d.join(&lang)),
+                        Base::Zip { zip, dir } => Base::Zip {
+                            zip: zip.clone(),
+                            dir: dir.join(&lang),
+                        },
+                    };
+                    let disk = DiskAnnouncer {
+                        kept: voice.kept.clone(),
+                        base,
+                    };
+                    Some((voice, disk))
+                })
+                .collect::<Vec<_>>()
         })
         .collect()
 }

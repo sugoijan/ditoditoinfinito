@@ -10,6 +10,10 @@
 # judgments by ruleset, so a line says how it went, not what it is called.
 
 name = "Mr. Clank"
+# Where `kokoro.py pack --bundle` puts it: the built-in announcer's voice
+# in this language (its folder under assets/announcers/, beside the
+# announcer's announcer.ini).
+bundle = "Clank/en"
 # Who holds the pack (CC0): its PROVENANCE.toml when bundled.
 author = "すごいジャン"
 # One of Kokoro's voices, or a blend of their styles by weight, e.g.

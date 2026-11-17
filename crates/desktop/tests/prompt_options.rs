@@ -60,6 +60,13 @@ fn play_options_are_this_plays_kept_with_it_and_saved_when_asked() {
         }
         ui.update(0.3);
     };
+    // No announcer (on by default since 2026-11-17): the play's own line
+    // is the log's first.
+    Settings {
+        announcer: None,
+        ..Settings::load()
+    }
+    .save();
     let stored = Settings::load();
     assert!(!stored.reverse);
 

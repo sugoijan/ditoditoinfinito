@@ -12,6 +12,10 @@
 # A file is named by how its text sounds.
 
 name = "ガキンさん"
+# Where `kokoro.py pack --bundle` puts it: the built-in announcer's voice
+# in this language (its folder under assets/announcers/, beside the
+# announcer's announcer.ini).
+bundle = "Clank/ja"
 # Who holds the pack (CC0): its PROVENANCE.toml when bundled.
 author = "すごいジャン"
 # Kokoro's Japanese voices: jf_alpha (its best, C+), jf_gongitsune and

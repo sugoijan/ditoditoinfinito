@@ -326,7 +326,11 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   documented for pack authors in `docs/announcer-lines.md`. Packs of our
   own made with Kokoro, `Mr. Clank` and `ガキンさん` (every line, from
   `tools/announcer-design/pack.toml` and `pack-ja.toml`), bundled
-  2026-11-06; the announcer is Off by default. Louder since 2026-11-12:
+  2026-11-06; since 2026-11-17 one built-in announcer of the two, on by
+  default and speaking the game's language (a Language row, Mixed),
+  settings with it Off or the old packs moved to it once with a notice
+  for those who had it Off, and announcers as pools of takes resolved
+  by the player's choices. Louder since 2026-11-12:
   made through the announcer studio's tidy, the one leveler, whose
   chain (`announcer-level-v3`: a phase rotator, a compressor, a limiter
   that has little left to do) brings them to about 3 LU under the

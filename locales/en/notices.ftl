@@ -46,6 +46,14 @@ notices-storage = { $kept ->
 # (it may ask the player).
 notices-keep-songs = keep them
 
+## Both shells'.
+
+# Said once, to a player who had the announcer off before it came on by
+# default: a voice now comments on their plays.
+notices-announcer-on = An announcer now speaks in plays. Turn it off here, or later in Options → Sound.
+# The link that turns the announcer off at once.
+notices-announcer-turn-off = turn it off
+
 ## Desktop's.
 
 # Files chosen to add as songs that are not zips: a folder of songs is

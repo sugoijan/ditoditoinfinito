@@ -74,8 +74,11 @@ fn rig_with(
     let (device, queue) = gpu::device(&adapter).unwrap();
     // The dancing hand beside the stage (a player's choice for
     // multiplayer, Off by default): what follows checks it plays on.
+    // No announcer: the status line says the steps (with one on, as by
+    // default since 2026-11-17, its voice says them instead).
     ddi_ui::state::settings::Settings {
         dancing_hand_multiplayer: true,
+        announcer: None,
         ..Default::default()
     }
     .save();

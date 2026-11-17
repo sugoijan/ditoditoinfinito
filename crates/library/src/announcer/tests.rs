@@ -502,12 +502,17 @@ fn a_bundled_announcers_key_is_apart_from_an_imported_ones() {
 
 #[test]
 fn our_combos_are_the_combo_lines_our_packs_have() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/announcers");
+    // The built-in announcer's voices, a folder a language.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/announcers")
+        .join(BUILT_IN_FOLDER);
+    let mut voices = 0;
     for pack in std::fs::read_dir(&root).unwrap() {
         let pack = pack.unwrap().path();
         if !pack.is_dir() {
             continue;
         }
+        voices += 1;
         let mut combos: Vec<u32> = std::fs::read_dir(&pack)
             .unwrap()
             .filter_map(|e| match Line::parse(e.ok()?.file_name().to_str()?) {
@@ -518,6 +523,7 @@ fn our_combos_are_the_combo_lines_our_packs_have() {
         combos.sort();
         assert_eq!(combos, OUR_COMBOS, "{}", pack.display());
     }
+    assert_eq!(voices, 2);
 }
 
 #[test]
@@ -698,4 +704,164 @@ fn the_combo_lines_are_the_counts_the_overflow_and_the_stop() {
     assert_eq!(combos, want);
     assert!(Line::Combo(64).is_combo() && Line::Combo(1500).is_combo());
     assert!(!Line::FullCombo.is_combo() && !Line::EvaluationFullCombo(1).is_combo());
+}
+
+/// A declared pack (`announcer.ini`): its language folders are its
+/// voices, never announcers of their own; without the file, each is one.
+#[test]
+fn a_declared_pack_is_one_announcer_its_language_folders_its_voices() {
+    let mut listed = vec!["Announcers/Clank/announcer.ini".to_string()];
+    for lang in ["en", "ja"] {
+        for f in small("") {
+            listed.push(format!("Announcers/Clank/{lang}/{f}"));
+        }
+    }
+    listed.push("Announcers/Clank/cheer/x.ogg".into());
+    let found = find_announcers(&files(&listed, 10), "root");
+    assert_eq!(found.announcers.len(), 1);
+    let a = &found.announcers[0];
+    assert_eq!((a.dir.as_str(), a.name.as_str()), ("Announcers/Clank", "Clank"));
+    assert_eq!(
+        a.declaration.as_ref().map(|d| d.as_str()),
+        Some("Announcers/Clank/announcer.ini")
+    );
+    assert!(a.lines.is_empty());
+    assert_eq!(a.voices.keys().collect::<Vec<_>>(), ["en", "ja"]);
+    assert_eq!(
+        paths(&a.voices["ja"][&Line::Cleared]),
+        [
+            "Announcers/Clank/ja/gameplay cleared/cleared 1.ogg",
+            "Announcers/Clank/ja/gameplay cleared/cleared 2.mp3"
+        ]
+    );
+    assert_eq!(a.unknown.keys().collect::<Vec<_>>(), ["cheer"]);
+    let summary = a.said().summary;
+    assert_eq!((summary.lines, summary.sounds), (3, 8));
+    let kept = a.kept();
+    assert_eq!(kept.files, 8);
+    assert_eq!(
+        paths(&kept.voices["en"]["gameplay ready"]),
+        ["en/gameplay ready/ready.ogg"]
+    );
+    // The same folders without the declaration: two announcers.
+    listed.remove(0);
+    let names: Vec<String> = find_announcers(&files(&listed, 10), "root")
+        .announcers
+        .into_iter()
+        .map(|a| a.name)
+        .collect();
+    assert_eq!(names, ["en", "ja"]);
+}
+
+const DECLARED: &str = "[Announcer]\nName=Mr. Clank\nName.ja=ガキンさん\n\n\
+    [Parameters]\nList=Language,Mood\n\n\
+    [Parameter Language]\nType=Language\nLanguages=ja,en,xx-, de\nLabels=,,,Deutsch\nMixed=1\n\n\
+    [Parameter Mood]\nType=Choice\nChoices=Normal,Calm\n";
+
+#[test]
+fn a_declaration_names_the_pack_and_its_languages() {
+    let d = pool::Declaration::parse(DECLARED);
+    assert_eq!(d.name("ja"), Some("ガキンさん"));
+    assert_eq!(d.name("ja-JP"), Some("ガキンさん"));
+    assert_eq!(d.name("en"), Some("Mr. Clank"));
+    assert_eq!(d.name("qps-ploc"), Some("Mr. Clank"));
+    assert_eq!(d.languages, ["ja", "en", "de"]);
+    assert_eq!(d.language_labels["de"], "Deutsch");
+    assert!(d.mixed);
+    // The other parameters as a skin's; the Language one is ours.
+    let names: Vec<&str> = d.parameters.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["Mood"]);
+    assert_eq!(d.warnings, ["\"xx-\" is not a language's tag"]);
+    assert_eq!(pool::Declaration::parse("").name("en"), None);
+}
+
+/// A declared pack of two voices, as kept.
+fn two_voices() -> Kept {
+    let mut listed = vec!["Two/announcer.ini".to_string()];
+    for lang in ["en", "ja"] {
+        for f in small("") {
+            listed.push(format!("Two/{lang}/{f}"));
+        }
+    }
+    listed.push("Two/gameplay failed/f.ogg".into());
+    let a = &find_announcers(&files(&listed, 10), "root").announcers[0];
+    Kept {
+        ini: Some(DECLARED.into()),
+        ..a.kept()
+    }
+}
+
+#[test]
+fn the_language_follows_the_game_unless_chosen() {
+    use ddi_noteskin::params::{Value, Values};
+    use pool::{LANGUAGE, MIXED};
+    let kept = two_voices();
+    let none = Values::new();
+    let ready = |k: &Kept| paths(&k.lines["gameplay ready"]).join(" ");
+    // The game's language, its primary subtag, else English, else the
+    // first; what has no language in every one.
+    for (game, said) in [
+        ("ja", "ja/gameplay ready/ready.ogg"),
+        ("ja-JP", "ja/gameplay ready/ready.ogg"),
+        ("en", "en/gameplay ready/ready.ogg"),
+        ("qps-ploc", "en/gameplay ready/ready.ogg"),
+        ("fr", "en/gameplay ready/ready.ogg"),
+    ] {
+        let k = kept.resolve(&none, game);
+        assert_eq!(ready(&k), said, "{game}");
+        assert_eq!(paths(&k.lines["gameplay failed"]), ["gameplay failed/f.ogg"]);
+        assert!(k.voices.is_empty() && k.ini.is_none());
+        assert_eq!(k.key(), kept.key());
+    }
+    assert_eq!(kept.resolve(&none, "ja").bag_key(), "two#ja");
+    // Chosen: one language whatever the game's; one the pack lacks is the
+    // game's.
+    let chosen = |v: &str| Values::from([(LANGUAGE.to_string(), Value::Text(v.into()))]);
+    assert_eq!(ready(&kept.resolve(&chosen("ja"), "en")), "ja/gameplay ready/ready.ogg");
+    assert_eq!(ready(&kept.resolve(&chosen("de"), "ja")), "ja/gameplay ready/ready.ogg");
+    // Mixed: both, each take once.
+    let mixed = kept.resolve(&chosen(MIXED), "en");
+    assert_eq!(
+        ready(&mixed),
+        "en/gameplay ready/ready.ogg ja/gameplay ready/ready.ogg"
+    );
+    assert_eq!(mixed.bag_key(), "two#ja+en");
+    let offered = kept.offered(&none, "ja-JP");
+    assert!(offered.has_languages() && offered.mixed);
+    assert_eq!(offered.game.as_deref(), Some("ja"));
+    assert_eq!(
+        offered.languages,
+        [("ja".to_string(), None), ("en".to_string(), None)]
+    );
+    assert_eq!(kept.display_name("ja"), "ガキンさん");
+    // A pack of line folders alone reads as it always did.
+    let plain = find_announcers(&files(&small("Plain"), 10), "root").announcers[0].kept();
+    assert_eq!(plain.resolve(&chosen("ja"), "ja"), plain);
+    assert!(!plain.offered(&none, "ja").has_languages());
+    // The voice key changes with the choice and the game's language.
+    assert_ne!(
+        pool::voice_key("two", &none, "en"),
+        pool::voice_key("two", &chosen("ja"), "en")
+    );
+}
+
+#[test]
+fn a_bundled_voice_reads_as_a_pack_of_its_own() {
+    let kept = Kept {
+        bundled: true,
+        ..two_voices()
+    };
+    let b = Bundled {
+        path: "Two".into(),
+        hashes: [("ja/gameplay ready/ready.ogg".to_string(), "abc".to_string())].into(),
+        said: [("ja/gameplay ready/ready.ogg".to_string(), "準備！".to_string())].into(),
+        kept,
+    };
+    let ja = b.voice("ja").unwrap();
+    assert_eq!(ja.path, "Two/ja");
+    assert_eq!(ja.kept.name, "ガキンさん");
+    assert_eq!(paths(&ja.kept.lines["gameplay ready"]), ["gameplay ready/ready.ogg"]);
+    assert_eq!(ja.hashes["gameplay ready/ready.ogg"], "abc");
+    assert_eq!(ja.said["gameplay ready/ready.ogg"], "準備！");
+    assert!(b.voice("de").is_none());
 }

@@ -16,6 +16,9 @@ ddi-chart.workspace = true
 # A work's charts' excessive setting, kept in its entry (`scan`).
 ddi-engine.workspace = true
 ddi-platform.workspace = true
+# Announcers' `announcer.ini`, read as skins' `metrics.ini` and their
+# parameters are (`announcer::pool`).
+ddi-noteskin.workspace = true
 ddi-share-protocol.workspace = true
 serde.workspace = true
 thiserror.workspace = true

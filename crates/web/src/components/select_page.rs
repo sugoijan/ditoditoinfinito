@@ -74,6 +74,8 @@ pub(crate) enum Msg {
     Say(String),
     /// The said line's time is over.
     Unsay(u64),
+    /// The announcer turned off from its notice.
+    AnnouncerOff,
 }
 
 /// What the screen's calls and the page share.
@@ -157,6 +159,9 @@ pub(crate) struct SelectPage {
     said: Option<(u64, String)>,
     said_count: u64,
     _said_timer: Option<Timeout>,
+    /// That an announcer now speaks, told once
+    /// (`Settings::take_announcer_notice`).
+    announcer_on: bool,
 }
 
 /// `shared`: song select on the share loaded last (`crate::share`),
@@ -186,9 +191,9 @@ impl Component for SelectPage {
     type Properties = Props;
 
     fn create(ctx: &Context<Self>) -> Self {
-        let shared = ctx.props().shared;
+        let shared_list = ctx.props().shared;
         ctx.link()
-            .send_future(async move { Msg::Library(load_library(shared).await) });
+            .send_future(async move { Msg::Library(load_library(shared_list).await) });
         import::watch(Some(ctx.link().callback(|_| Msg::ImportChanged)));
         {
             let link = ctx.link().clone();
@@ -215,7 +220,7 @@ impl Component for SelectPage {
             } else {
                 MenuPlace::load()
             }),
-            of_share: shared,
+            of_share: shared_list,
             room: ctx.props().room.clone(),
             packs: RefCell::new(Vec::new()),
             import_debug: RefCell::new(ImportDebug::now()),
@@ -245,6 +250,14 @@ impl Component for SelectPage {
             said: None,
             said_count: 0,
             _said_timer: None,
+            announcer_on: !shared_list && {
+                let mut settings = Settings::load();
+                let told = settings.take_announcer_notice();
+                if told {
+                    settings.save();
+                }
+                told
+            },
         }
     }
 
@@ -294,6 +307,11 @@ impl Component for SelectPage {
             }
             Msg::Persisted(p) => {
                 self.persisted = p;
+                self.send_notices();
+            }
+            Msg::AnnouncerOff => {
+                ddi_ui::screens::data::turn_announcer_off();
+                self.announcer_on = false;
                 self.send_notices();
             }
             Msg::ImportChanged => {
@@ -667,6 +685,9 @@ impl SelectPage {
         if let Some((_, text)) = &self.said {
             out.push(Notice::error(text));
         }
+        if self.announcer_on {
+            out.push(Notice::announcer_on());
+        }
         // A share's list is not the stored library: nothing of its state.
         if let (false, Some(l)) = (self.shared.of_share, self.shared.library.borrow().as_ref()) {
             if let Some(e) = &l.imported_error {
@@ -1028,6 +1049,7 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
                     });
                 }
             }
+            ddi_ui::screens::data::ANNOUNCER_OFF => link.send_message(Msg::AnnouncerOff),
             "remove-unreadable" => {
                 let ids = shared
                     .library

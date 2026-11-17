@@ -20,6 +20,12 @@ notices-storage = { $kept ->
 
 notices-keep-songs = 保持する
 
+## Both shells'.
+
+notices-announcer-on = プレイ中にアナウンサーが話すようになりました。ここで、またはあとで「オプション → サウンド」でオフにできます。
+
+notices-announcer-turn-off = オフにする
+
 ## Desktop's.
 
 notices-only-zips = パックとして読み込めるのはZIPファイルだけです。除外したもの：{ $files }。曲のフォルダーは「フォルダーを選択」で追加します。

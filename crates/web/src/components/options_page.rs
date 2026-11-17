@@ -56,7 +56,7 @@ pub(crate) enum Msg {
     /// for.
     Library(Option<ManifestEntry>, usize, usize, Vec<Layout>),
     Noteskins(Result<crate::noteskins::Choices, String>),
-    Announcers(Result<Vec<(String, String)>, String>),
+    Announcers(Result<Vec<ddi_library::announcer::Kept>, String>),
     AnnouncerRemoved(Result<(), String>),
     PadsTick,
     ImportChanged,
@@ -213,7 +213,7 @@ impl Component for OptionsPage {
             // tab upgrading storage, the network): the choice stays.
             Msg::Noteskins(Err(e)) => web_sys::console::warn_1(&e.into()),
             Msg::Announcers(Ok(list)) => {
-                s.model.borrow_mut().set_announcers(list, true);
+                s.model.borrow_mut().set_announcers_kept(&list, true);
                 send(s);
             }
             // Storage could not be read: the choice stays.

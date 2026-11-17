@@ -206,16 +206,19 @@ impl Player {
             return Some((told, line, spoke));
         }
         let settings = Settings::cached();
-        let key = settings.announcer.clone()?;
-        if self.menu.as_ref().is_none_or(|(m, _)| m.key() != key) {
+        let (key, values) = settings.announcer_choice()?;
+        // Loaded anew for another announcer or other choices of it.
+        let voice_key =
+            ddi_library::announcer::pool::voice_key(&key, &values, ddi_l10n::current().tag);
+        if self.menu.as_ref().is_none_or(|(m, _)| m.key() != voice_key) {
             let load = crate::play::voice::VoiceLoad::start(
-                key.clone(),
+                key,
                 crate::library::all_folders(),
                 ddi_session::announcer::For::Menu,
                 self.audio.sample_rate(),
                 None,
             );
-            self.menu = Some((MenuVoice::new(key, load.voice.clone()), load));
+            self.menu = Some((MenuVoice::new(voice_key, load.voice.clone()), load));
         }
         let now = self.epoch.elapsed().as_secs_f64();
         let found = self.menu.as_mut().and_then(|(m, load)| {

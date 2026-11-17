@@ -42,7 +42,8 @@ is said around a line changes how it is said.
 English one, and pack-ja.toml, the Japanese, by default), every line the
 game speaks with its variants, as `Announcers/<name>/` there, on the page
 too; `--bundle` puts each in the game, `assets/announcers/<name>/`, with
-its PROVENANCE.toml. Kokoro speaks English (its `a` and `b` voices) and
+its PROVENANCE.toml (the built-in's voices each in their folder,
+`assets/announcers/Clank/<language>/`, its pack file's `bundle`). Kokoro speaks English (its `a` and `b` voices) and
 Japanese (`j`) here; a voice speaks its own language unless `lang` gives
 another. `loudness` has a few lines of each pack made at several levels
 (`--levels`, voiced RMS in dBFS) under `--dest`, with what each measures
@@ -784,16 +785,18 @@ def toml_str(s):
 
 def bundle(path, pack, state):
     """The pack just made, put in the game as it was made
-    (`assets/announcers/<name>/`) with its PROVENANCE.toml: what else is
-    there goes, and so does a folder this pack file bundled under another
-    name."""
+    (`assets/announcers/<bundle>/`: its `bundle`, a voice's folder of the
+    built-in announcer such as `Clank/en`, else its name) with its
+    PROVENANCE.toml: what else is there goes, and so does a folder this
+    pack file bundled under another name. The announcer's own
+    `announcer.ini`, beside its voices' folders, is left alone."""
     source = path.name
     name = pack["name"]
     author = pack.get("author") or sys.exit(f"{source}: a bundled pack needs an `author`, who holds it")
     pack_file = path.resolve().relative_to(A.ROOT).as_posix()
     records = {rel: c for rel, c in state.pack.items() if c.get("source", "pack.toml") == source}
-    dest = BUNDLED / name
-    for other in BUNDLED.glob("*/PROVENANCE.toml"):
+    dest = BUNDLED / pack.get("bundle", name)
+    for other in BUNDLED.rglob("PROVENANCE.toml"):
         bundled_from = tomllib.loads(other.read_text()).get("kokoro", {}).get("pack")
         if other.parent != dest and bundled_from == pack_file:
             shutil.rmtree(other.parent)
@@ -922,7 +925,7 @@ def main():
     pk.add_argument("packs", nargs="*", type=Path,
                     default=[A.HERE / "pack.toml", A.HERE / "pack-ja.toml"])
     pk.add_argument("--bundle", action="store_true",
-                    help="put each pack in the game, assets/announcers/<name>/, with its PROVENANCE.toml")
+                    help="put each pack in the game, assets/announcers/<bundle or name>/, with its PROVENANCE.toml")
     ld = sub.add_parser("loudness")
     ld.add_argument("packs", nargs="*", type=Path,
                     default=[A.HERE / "pack.toml", A.HERE / "pack-ja.toml"])

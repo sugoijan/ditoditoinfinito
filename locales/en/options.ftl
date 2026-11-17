@@ -424,6 +424,16 @@ options-announcer-description = { $platform ->
    *[desktop] A voice that comments on your plays and calls your grade: one that comes with the game, or an announcer pack (StepMania's, or its forks') in a song folder's Announcers folder.
 }
 
+# The language the chosen announcer speaks in, where it speaks several
+# (the built-in one: English and Japanese).
+options-announcer-language = Language
+# Variables:
+#   $language (String) - the language the game's language makes it speak, written in itself ("English", "日本語")
+options-announcer-language-game = Same as game language ({ $language })
+# Its lines taken from every language it speaks, at random.
+options-announcer-language-mixed = Mixed
+options-announcer-language-description = The language the announcer speaks: the game's own by default, one of its languages, or all of them mixed.
+
 options-announcer-volume = Announcer volume
 options-announcer-volume-description = How loud the announcer speaks, as a share of the music volume (muting the music mutes it too).
 
@@ -981,8 +991,8 @@ options-confirm-announcer = Remove this announcer?
 #   $announcer (String) - the announcer's name
 #   $platform (String) - web or desktop
 options-confirm-announcer-body = { $platform ->
-    [web] { $announcer } is removed from this browser; plays are silent again.
-   *[desktop] { $announcer } is deleted; plays are silent again.
+    [web] { $announcer } is removed from this browser; the announcer that comes with the game speaks instead.
+   *[desktop] { $announcer } is deleted; the announcer that comes with the game speaks instead.
 }
 options-confirm-announcer-button = Remove
 

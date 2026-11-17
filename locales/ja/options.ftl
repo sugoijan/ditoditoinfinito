@@ -218,6 +218,10 @@ options-announcer-description = { $platform ->
     [web] プレイにコメントし、評価を読み上げる声です。ゲームに付属のものか、「曲を追加」でインポートしたアナウンサーパック（StepManiaやその派生のもの）を選べます。
    *[desktop] プレイにコメントし、評価を読み上げる声です。ゲームに付属のものか、曲フォルダーのAnnouncersフォルダーにあるアナウンサーパック（StepManiaやその派生のもの）を選べます。
 }
+options-announcer-language = 言語
+options-announcer-language-game = ゲームの言語に合わせる（{ $language }）
+options-announcer-language-mixed = ミックス
+options-announcer-language-description = アナウンサーが話す言語です。標準ではゲームの言語に合わせますが、その言語のひとつや、すべての言語のミックスも選べます。
 options-announcer-volume = アナウンサーの音量
 options-announcer-volume-description = アナウンサーの声の大きさで、音楽の音量に対する割合です（音楽をミュートするとこちらもミュートされます）。
 options-announcer-remove = このアナウンサー
@@ -516,8 +520,8 @@ options-confirm-pump-noteskin-body = { $skin }をこのブラウザーから削�
 options-confirm-noteskin-button = 削除
 options-confirm-announcer = このアナウンサーを削除しますか？
 options-confirm-announcer-body = { $platform ->
-    [web] { $announcer }をこのブラウザーから削除します。プレイ中のアナウンスはなくなります。
-   *[desktop] { $announcer }を削除します。プレイ中のアナウンスはなくなります。
+    [web] { $announcer }をこのブラウザーから削除します。代わりにゲームに付属のアナウンサーが話します。
+   *[desktop] { $announcer }を削除します。代わりにゲームに付属のアナウンサーが話します。
 }
 options-confirm-announcer-button = 削除
 

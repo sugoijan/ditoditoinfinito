@@ -571,12 +571,13 @@ impl Studio {
         self.decode_pending();
     }
 
+    /// The built-in announcer's voice in `set`'s language, as a pack.
     fn pack_of(&self, set: Set) -> Option<Bundled> {
         self.ours
             .borrow()
             .iter()
-            .find(|b| b.kept.name == set.pack())
-            .cloned()
+            .find(|b| b.kept.key() == ddi_library::announcer::BUILT_IN)
+            .and_then(|b| b.voice(set.key()))
     }
 
     fn refresh_examples(&self) {

@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use ddi_library::announcer::{Announcer, Bundled, Index, Kept, find_announcers};
+use ddi_library::announcer::{Announcer, Bundled, Index, Kept, find_announcers, pool};
 use serde::Deserialize;
 
 use crate::songs::LicenseEntry;
@@ -66,10 +66,46 @@ pub(crate) struct TrainedOn {
     pub(crate) holders: Vec<String>,
 }
 
-/// Every bundled announcer: its folder's name, provenance and what was
-/// found in it. Each must be one announcer of known lines and their
-/// sounds alone, beside its PROVENANCE.toml.
-pub(crate) fn scan(root: &Path) -> Result<Vec<(String, Provenance, Announcer)>> {
+/// A bundled announcer as found: its folder's name, each voice's
+/// provenance (by its language's tag; `""`: a pack of one voice, its
+/// PROVENANCE.toml beside its line folders), what was found in it and
+/// its `announcer.ini`'s text.
+pub(crate) struct Pack {
+    pub(crate) path: String,
+    pub(crate) voices: Vec<(String, Provenance)>,
+    pub(crate) announcer: Announcer,
+    pub(crate) ini: Option<String>,
+}
+
+/// A PROVENANCE.toml read and checked: its licences known.
+fn provenance(root: &Path, path: &Path, name: &str) -> Result<Provenance> {
+    let prov: Provenance = toml::from_str(
+        &fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?,
+    )
+    .with_context(|| format!("parsing {}", path.display()))?;
+    if prov.licenses.is_empty() {
+        bail!("{name}: PROVENANCE.toml has no [[licenses]] entries");
+    }
+    for spdx in prov
+        .licenses
+        .iter()
+        .map(|l| &l.spdx)
+        .chain(prov.trained_on.iter().map(|t| &t.spdx))
+    {
+        if !root.join("LICENSES").join(format!("{spdx}.txt")).is_file() {
+            bail!("{name}: {spdx} is not in LICENSES/");
+        }
+    }
+    Ok(prov)
+}
+
+/// Every bundled announcer. Each must be one announcer of known lines
+/// and their sounds alone: a pack of one voice beside its
+/// PROVENANCE.toml, or a declared pack (`announcer.ini`) whose every
+/// declared language is a folder of its own with its PROVENANCE.toml,
+/// named there as the declaration names it, every voice with the same
+/// lines.
+pub(crate) fn scan(root: &Path) -> Result<Vec<Pack>> {
     let dir = root.join("assets/announcers");
     let mut out = Vec::new();
     if !dir.is_dir() {
@@ -86,31 +122,41 @@ pub(crate) fn scan(root: &Path) -> Result<Vec<(String, Provenance, Announcer)>> 
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let prov_path = folder.join("PROVENANCE.toml");
-        let prov: Provenance = toml::from_str(
-            &fs::read_to_string(&prov_path)
-                .with_context(|| format!("reading {}", prov_path.display()))?,
-        )
-        .with_context(|| format!("parsing {}", prov_path.display()))?;
-        if prov.name != name {
-            bail!("{name}: PROVENANCE.toml names it {:?}", prov.name);
-        }
-        if prov.licenses.is_empty() {
-            bail!("{name}: PROVENANCE.toml has no [[licenses]] entries");
-        }
-        for spdx in prov
-            .licenses
-            .iter()
-            .map(|l| &l.spdx)
-            .chain(prov.trained_on.iter().map(|t| &t.spdx))
-        {
-            if !root.join("LICENSES").join(format!("{spdx}.txt")).is_file() {
-                bail!("{name}: {spdx} is not in LICENSES/");
+        let ini = fs::read_to_string(folder.join(pool::DECLARATION)).ok();
+        let declared = ini.as_deref().map(pool::Declaration::parse);
+        let mut voices = Vec::new();
+        match &declared {
+            Some(d) => {
+                if !d.warnings.is_empty() {
+                    bail!("{name}: announcer.ini: {}", d.warnings.join("; "));
+                }
+                if d.languages.is_empty() {
+                    bail!("{name}: announcer.ini declares no language");
+                }
+                for lang in &d.languages {
+                    let prov = provenance(
+                        root,
+                        &folder.join(lang).join("PROVENANCE.toml"),
+                        &format!("{name}/{lang}"),
+                    )?;
+                    let named = d.name(lang).unwrap_or(&name);
+                    if prov.name != named {
+                        bail!("{name}/{lang}: PROVENANCE.toml names it {:?}, announcer.ini {named:?}", prov.name);
+                    }
+                    voices.push((lang.clone(), prov));
+                }
+            }
+            None => {
+                let prov = provenance(root, &folder.join("PROVENANCE.toml"), &name)?;
+                if prov.name != name {
+                    bail!("{name}: PROVENANCE.toml names it {:?}", prov.name);
+                }
+                voices.push((String::new(), prov));
             }
         }
         let mut files = Vec::new();
         crate::noteskins::walk(&folder, "", &mut files)?;
-        files.retain(|f| f != "PROVENANCE.toml");
+        files.retain(|f| !f.ends_with("PROVENANCE.toml"));
         let listed: Vec<(String, u64)> = files
             .iter()
             .map(|f| Ok((format!("{name}/{f}"), fs::metadata(folder.join(f))?.len())))
@@ -134,29 +180,58 @@ pub(crate) fn scan(root: &Path) -> Result<Vec<(String, Provenance, Announcer)>> 
                 r.nested.len()
             );
         }
-        if !prov.said.is_empty() {
-            let sounds: std::collections::BTreeSet<String> = a
-                .kept()
-                .lines
-                .values()
-                .flatten()
-                .map(ToString::to_string)
-                .collect();
+        let kept = a.kept();
+        if declared.is_some() {
+            if !kept.lines.is_empty() {
+                bail!("{name}: line folders outside its languages' folders");
+            }
+            let langs: Vec<&String> = kept.voices.keys().collect();
+            let mut wanted: Vec<&String> = voices.iter().map(|(l, _)| l).collect();
+            wanted.sort();
+            if langs != wanted {
+                bail!("{name}: its language folders are not those it declares");
+            }
+            let first = kept.voices.values().next().map(|v| v.keys().collect::<Vec<_>>());
+            for (lang, lines) in &kept.voices {
+                if Some(lines.keys().collect::<Vec<_>>()) != first {
+                    bail!("{name}/{lang}: not the same lines as the other voices");
+                }
+            }
+        }
+        for (lang, prov) in &voices {
+            if prov.said.is_empty() {
+                continue;
+            }
+            let sounds: std::collections::BTreeSet<String> = if lang.is_empty() {
+                kept.lines.values().flatten().map(ToString::to_string).collect()
+            } else {
+                kept.voices[lang]
+                    .values()
+                    .flatten()
+                    .map(|f| f.as_str().strip_prefix(&format!("{lang}/")).unwrap_or(f.as_str()).to_string())
+                    .collect()
+            };
             let told: std::collections::BTreeSet<String> = prov.said.keys().cloned().collect();
             if let Some(f) = sounds.symmetric_difference(&told).next() {
                 bail!("{name}: [said] and the sounds differ at {f}");
             }
         }
-        out.push((name, prov, a));
+        out.push(Pack {
+            path: name,
+            voices,
+            announcer: a,
+            ini,
+        });
     }
     Ok(out)
 }
 
 /// What the shells keep of a bundled announcer.
-fn kept(a: &Announcer) -> Kept {
+fn kept(pack: &Pack) -> Kept {
     Kept {
         bundled: true,
-        ..a.kept()
+        ini: pack.ini.clone(),
+        ..pack.announcer.kept()
     }
 }
 
@@ -166,12 +241,12 @@ pub(crate) fn gen_announcers(check: bool) -> Result<()> {
     let index = Index {
         announcers: scan(&root)?
             .into_iter()
-            .map(|(path, prov, a)| {
-                let kept = kept(&a);
+            .map(|pack| {
+                let kept = kept(&pack);
+                let path = pack.path.clone();
                 let hashes = kept
-                    .lines
-                    .values()
-                    .flatten()
+                    .sounds()
+                    .into_iter()
                     .map(|f| {
                         let file = f
                             .to_path(dir.join(&path))
@@ -180,11 +255,22 @@ pub(crate) fn gen_announcers(check: bool) -> Result<()> {
                         Ok((f.to_string(), format!("{:016x}", ddi_library::pack::fnv1a64(&bytes))))
                     })
                     .collect::<Result<_>>()?;
+                // What each sound says, by its path in the pack.
+                let said = pack
+                    .voices
+                    .into_iter()
+                    .flat_map(|(lang, prov)| {
+                        prov.said.into_iter().map(move |(f, text)| {
+                            let at = if lang.is_empty() { f } else { format!("{lang}/{f}") };
+                            (at, text)
+                        })
+                    })
+                    .collect();
                 Ok(Bundled {
                     path,
                     kept,
                     hashes,
-                    said: prov.said,
+                    said,
                 })
             })
             .collect::<Result<_>>()?,
@@ -255,9 +341,10 @@ holders = ["a"]
         let found = scan(&root);
         fs::remove_dir_all(&root).unwrap();
         let found = found.unwrap();
-        let (path, prov, a) = &found[0];
-        assert_eq!((path.as_str(), prov.author.as_str()), ("Voice", "a"));
-        let kept = kept(a);
+        let pack = &found[0];
+        let prov = &pack.voices[0].1;
+        assert_eq!((pack.path.as_str(), prov.author.as_str()), ("Voice", "a"));
+        let kept = kept(pack);
         assert_eq!(kept.key(), "bundled:voice");
         assert_eq!(kept.files, 4);
         assert!(prov.said.is_empty());
@@ -269,6 +356,54 @@ holders = ["a"]
             ready,
             ["gameplay ready/get-ready.mp3", "gameplay ready/ready.mp3"]
         );
+    }
+
+    /// A declared pack of two voices (the built-in's shape): one entry,
+    /// its sounds and texts by their paths in it; a voice short of a line,
+    /// or misnamed, refused.
+    #[test]
+    fn a_declared_pack_lists_its_voices() {
+        const INI: &str = "[Announcer]\nName=Voice\nName.ja=声\n[Parameters]\nList=Language\n\
+            [Parameter Language]\nType=Language\nLanguages=en,ja\n";
+        let make = |tag: &str, ja_name: &str, ja_lines: &[&str]| -> PathBuf {
+            let root = library(tag, "Two", PROVENANCE, &[]);
+            let dir = root.join("assets/announcers/Two");
+            fs::remove_file(dir.join("PROVENANCE.toml")).unwrap();
+            fs::write(dir.join("announcer.ini"), INI).unwrap();
+            for (lang, name, lines) in [("en", "Voice", &LINES[..]), ("ja", ja_name, ja_lines)] {
+                let v = dir.join(lang);
+                fs::create_dir_all(&v).unwrap();
+                fs::write(
+                    v.join("PROVENANCE.toml"),
+                    PROVENANCE.replace("name = \"Voice\"", &format!("name = \"{name}\"")),
+                )
+                .unwrap();
+                for f in lines {
+                    let p = v.join(f);
+                    fs::create_dir_all(p.parent().unwrap()).unwrap();
+                    fs::write(p, f.as_bytes()).unwrap();
+                }
+            }
+            root
+        };
+        let root = make("declared", "声", &LINES);
+        let found = scan(&root);
+        fs::remove_dir_all(&root).unwrap();
+        let found = found.unwrap();
+        let pack = &found[0];
+        let langs: Vec<&str> = pack.voices.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(langs, ["en", "ja"]);
+        let kept = kept(pack);
+        assert_eq!(kept.key(), "bundled:two");
+        assert_eq!(kept.files, 8);
+        assert!(kept.lines.is_empty() && kept.ini.is_some());
+        assert_eq!(kept.display_name("ja"), "声");
+        for (tag, name, lines) in [("short", "声", &LINES[..3]), ("misnamed", "Voice", &LINES[..])] {
+            let root = make(tag, name, lines);
+            let result = scan(&root);
+            fs::remove_dir_all(&root).unwrap();
+            assert!(result.is_err(), "{tag}");
+        }
     }
 
     #[test]

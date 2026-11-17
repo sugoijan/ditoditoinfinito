@@ -175,10 +175,8 @@ impl Shared {
             .and_then(|rx| rx.try_recv().ok());
         if let Some(found) = announcers {
             *self.announcers.borrow_mut() = None;
-            let list: Vec<(String, String)> = found
-                .iter()
-                .map(|a| (a.key(), a.kept.name.clone()))
-                .collect();
+            let list: Vec<ddi_library::announcer::Kept> =
+                found.iter().map(|a| a.kept.clone()).collect();
             // Not `complete`, as for skins: a folder away for now (a
             // drive unplugged) keeps its announcer chosen.
             let made = crate::library::announcers::made()
@@ -187,7 +185,7 @@ impl Shared {
                 .collect();
             {
                 let mut m = self.model.borrow_mut();
-                m.set_announcers(list, false);
+                m.set_announcers_kept(&list, false);
                 m.world.made_announcers = made;
             }
             *self.found.borrow_mut() = found;
@@ -362,7 +360,12 @@ impl OptionsPlatform for Desktop {
         let pick = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.subsec_nanos() as usize);
-        if let Some(line) = a.kept.sample(pick) {
+        // As the player's choices have it (its language).
+        let kept = a.kept.resolve(
+            &self.0.model.borrow().settings.announcer_params(key),
+            ddi_l10n::current().tag,
+        );
+        if let Some(line) = kept.sample(pick) {
             let mut p = sound.borrow_mut();
             p.set_volume(volume);
             p.announce(a, line, share);

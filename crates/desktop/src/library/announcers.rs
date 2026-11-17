@@ -96,10 +96,17 @@ fn in_dir(dir: &Path) -> Vec<DiskAnnouncer> {
         .announcers
         .into_iter()
         .filter_map(|a| {
-            let kept = a.kept();
-            if kept.lines.is_empty() {
+            let mut kept = a.kept();
+            if kept.is_silent() {
                 return None;
             }
+            // Its declaration's text, read where it is.
+            kept.ini = a
+                .declaration
+                .as_ref()
+                .and_then(|d| d.to_path(parent))
+                .and_then(|p| std::fs::read(p).ok())
+                .map(|b| declaration_text(&b));
             Some(DiskAnnouncer {
                 base: Base::Dir(a.dir.to_path(parent)?),
                 kept,
@@ -129,15 +136,30 @@ fn in_zip(path: &Path) -> Vec<DiskAnnouncer> {
     announcer::find_announcers(&listed, stem)
         .announcers
         .into_iter()
-        .map(|a| DiskAnnouncer {
-            kept: a.kept(),
-            base: Base::Zip {
-                zip: path.to_path_buf(),
-                dir: a.dir,
-            },
+        .map(|a| {
+            let mut kept = a.kept();
+            kept.ini = a
+                .declaration
+                .as_ref()
+                .and_then(|d| zip.read(d).ok())
+                .map(|b| declaration_text(&b));
+            DiskAnnouncer {
+                kept,
+                base: Base::Zip {
+                    zip: path.to_path_buf(),
+                    dir: a.dir,
+                },
+            }
         })
-        .filter(|a| !a.kept.lines.is_empty())
+        .filter(|a| !a.kept.is_silent())
         .collect()
+}
+
+/// An `announcer.ini`'s bytes as its text, bounded
+/// (`ddi_library::announcer::pool::MAX_DECLARATION`).
+fn declaration_text(bytes: &[u8]) -> String {
+    let n = bytes.len().min(announcer::pool::MAX_DECLARATION * 4);
+    String::from_utf8_lossy(&bytes[..n]).into_owned()
 }
 
 /// The folders and zips directly in `dir`, sorted.
@@ -442,30 +464,37 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// The repository's own: every line ours, every sound decoded.
+    /// The repository's own: the built-in announcer, one, every line ours
+    /// in each of its languages, every sound read, each language's ready
+    /// decoded; its names as declared.
     #[test]
-    fn the_bundled_announcers_speak_every_line_they_hold() {
+    fn the_built_in_announcer_speaks_every_line_in_each_language() {
         let found = bundled();
-        let names: Vec<&str> = found.iter().map(|a| a.kept.name.as_str()).collect();
-        assert_eq!(names, ["Mr. Clank", "ガキンさん"]);
-        for a in &found {
-            assert!(a.key().starts_with("bundled:"));
+        let keys: Vec<String> = found.iter().map(DiskAnnouncer::key).collect();
+        assert_eq!(keys, [announcer::BUILT_IN]);
+        let a = &found[0];
+        assert!(a.kept.lines.is_empty());
+        assert_eq!(a.kept.display_name("en"), "Mr. Clank");
+        assert_eq!(a.kept.display_name("ja"), "ガキンさん");
+        let reader = a.reader().unwrap();
+        for lang in ["en", "ja"] {
+            let values = ddi_ui::state::settings::Values::from([(
+                announcer::pool::LANGUAGE.to_string(),
+                ddi_ui::state::settings::ParamValue::Text(lang.into()),
+            )]);
+            let kept = a.kept.resolve(&values, "en");
+            assert_eq!(kept.bag_key(), format!("bundled:clank#{lang}"));
             // Every line the game speaks, the battle's eighteen among them.
-            assert_eq!(a.kept.lines.len(), 68, "{}", a.kept.name);
+            assert_eq!(kept.lines.len(), 68, "{lang}");
             for b in announcer::Battle::ALL {
                 let line = announcer::Line::Battle(b);
-                assert_eq!(
-                    a.kept.files(line).map(|(l, _)| l),
-                    Some(line),
-                    "{}: {b:?}",
-                    a.kept.name
-                );
+                assert_eq!(kept.files(line).map(|(l, _)| l), Some(line), "{lang}: {b:?}");
             }
-            let reader = a.reader().unwrap();
-            for f in a.kept.lines.values().flatten() {
+            for f in kept.lines.values().flatten() {
+                assert!(f.as_str().starts_with(&format!("{lang}/")), "{f}");
                 assert!(reader.read(&a.name_in_reader(f)).is_ok(), "{f}");
             }
-            let (_, files) = a.kept.files(announcer::Line::Ready).unwrap();
+            let (_, files) = kept.files(announcer::Line::Ready).unwrap();
             for f in files {
                 let bytes = reader.read(&a.name_in_reader(f)).unwrap();
                 let pcm =
@@ -473,9 +502,15 @@ mod tests {
                         .unwrap();
                 // Longer than a tenth of a second, as said.
                 let frames = pcm.data.len() / usize::from(pcm.channels);
-                assert!(frames > 4800, "{}: {f}", a.kept.name);
+                assert!(frames > 4800, "{lang}: {f}");
             }
         }
+        // Same as game language: the game's.
+        let none = ddi_ui::state::settings::Values::new();
+        let ja = a.kept.resolve(&none, "ja");
+        assert!(ja.lines.values().flatten().all(|f| f.as_str().starts_with("ja/")));
+        let other = a.kept.resolve(&none, "fr");
+        assert!(other.lines.values().flatten().all(|f| f.as_str().starts_with("en/")));
     }
 
     #[test]

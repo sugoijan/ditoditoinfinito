@@ -40,7 +40,9 @@ impl Set {
         Set::ALL.into_iter().find(|s| s.key() == key)
     }
 
-    /// The name of our pack whose sounds are this set's examples.
+    /// The name of the built-in announcer's voice whose sounds are this
+    /// set's examples (its folder is [`Set::key`]'s, under
+    /// `assets/announcers/Clank/`).
     pub fn pack(self) -> &'static str {
         match self {
             Set::English => "Mr. Clank",

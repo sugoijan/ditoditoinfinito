@@ -100,6 +100,31 @@ pub(crate) async fn fetch_bytes(path: &str) -> Result<Vec<u8>, String> {
     resp.binary().await.map_err(|e| format!("GET {path}: {e}"))
 }
 
+/// [`fetch_bytes`] at the browser's low priority (`priority: "low"`, where
+/// it knows it; else as any fetch): what may wait for what matters more,
+/// the announcer's sounds behind a play's music.
+pub(crate) async fn fetch_bytes_low(path: &str) -> Result<Vec<u8>, String> {
+    let window = web_sys::window().ok_or("no window")?;
+    let init = web_sys::RequestInit::new();
+    let _ = js_sys::Reflect::set(&init, &"priority".into(), &"low".into());
+    let url = asset_url(path);
+    let resp: web_sys::Response =
+        wasm_bindgen_futures::JsFuture::from(window.fetch_with_str_and_init(&url, &init))
+            .await
+            .map_err(|e| format!("GET {path}: {e:?}"))?
+            .dyn_into()
+            .map_err(|_| format!("GET {path}: not a response"))?;
+    if !resp.ok() {
+        return Err(format!("GET {path}: HTTP {}", resp.status()));
+    }
+    let buffer = wasm_bindgen_futures::JsFuture::from(
+        resp.array_buffer().map_err(|e| format!("GET {path}: {e:?}"))?,
+    )
+    .await
+    .map_err(|e| format!("GET {path}: {e:?}"))?;
+    Ok(js_sys::Uint8Array::new(&buffer).to_vec())
+}
+
 /// A file fetched to the end and let go, so that the browser has it when
 /// it is asked for again (a share's files are kept by the browser's own
 /// cache, `Cache-Control: private, max-age`): a room's stage song's music,

@@ -839,3 +839,55 @@ fn what_stands_in_is_the_example() {
     a.say(&mut audio, &Line::Restart.chain(), 1.0);
     assert_eq!(audio.voiced[0].2, 0.5);
 }
+
+/// A take a pack says for several lines (reuse) is never said twice in a
+/// row through two of them: the line's next take comes first, the one
+/// passed over after it; sounds of no file told are as before.
+#[test]
+fn a_take_of_two_lines_is_not_said_twice_in_a_row() {
+    let mut v: Voice<&str> = Voice::default();
+    v.add_from(Line::Combo(100), "shared/awesome.ogg", "awesome");
+    v.add_from(Line::Cheer, "shared/awesome.ogg", "awesome");
+    v.add_from(Line::Cheer, "cheer/yes.ogg", "yes");
+    assert_eq!(v.next(Line::Combo(100)), Some((Line::Combo(100), &"awesome")));
+    assert_eq!(v.peek(Line::Cheer), Some((Line::Cheer, &"yes")));
+    assert_eq!(v.next(Line::Cheer), Some((Line::Cheer, &"yes")));
+    assert_eq!(v.next(Line::Cheer), Some((Line::Cheer, &"awesome")));
+    // Its only take is said again, there being no other.
+    assert_eq!(v.next(Line::Combo(100)), Some((Line::Combo(100), &"awesome")));
+    let mut plain: Voice<&str> = Voice::default();
+    plain.add(Line::Ready, "a");
+    plain.add(Line::Ready, "b");
+    assert_eq!(plain.next(Line::Ready), Some((Line::Ready, &"a")));
+    assert_eq!(plain.next(Line::Ready), Some((Line::Ready, &"b")));
+    assert_eq!(plain.next(Line::Ready), Some((Line::Ready, &"a")));
+}
+
+/// A resolved announcer's lines take turns apart from another choice's.
+#[test]
+fn each_language_has_shuffles_of_its_own() {
+    use ddi_library::announcer::Kept;
+    let mut kept = Kept {
+        name: "Two".into(),
+        ..Kept::default()
+    };
+    kept.lines.insert(
+        "gameplay ready".into(),
+        (0..6).map(|i| format!("gameplay ready/{i}.ogg").into()).collect(),
+    );
+    let en = Kept {
+        choice: "en".into(),
+        ..kept.clone()
+    };
+    let mut bags = Bags::new(7);
+    assert_eq!(wanted(&en, 10, &mut bags).len(), 1);
+    // The other language's bag is its own.
+    let ja = Kept {
+        choice: "ja".into(),
+        ..kept
+    };
+    assert_eq!(wanted(&ja, 10, &mut bags).len(), 1);
+    assert_eq!((en.bag_key().as_str(), ja.bag_key().as_str()), ("two#en", "two#ja"));
+    let keys: BTreeSet<&str> = bags.bags.keys().map(|(k, _)| k.as_str()).collect();
+    assert_eq!(keys, BTreeSet::from(["two#en", "two#ja"]));
+}

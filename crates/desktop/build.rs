@@ -88,6 +88,13 @@ fn main() {
     // CARGO_TARGET_DIR. Nothing in the shipped executable remembers that path.
     println!("cargo:rerun-if-changed={}", root.join("assets").display());
     copy_assets(&root.join("assets"), &profile.join("assets"));
+    // What a staging before moved away goes: the announcers are found by
+    // their folders (the two packs that became the built-in announcer's
+    // voices would be listed still).
+    prune(
+        &root.join("assets/announcers"),
+        &profile.join("assets/announcers"),
+    );
     for name in ["songs", "noteskins"] {
         let index = root.join("target").join(name).join("index.json");
         println!("cargo:rerun-if-changed={}", index.display());
@@ -324,6 +331,25 @@ fn copy_assets(source: &std::path::Path, destination: &std::path::Path) {
             copy_assets(&path, &destination.join(entry.file_name()));
         } else if kind.is_file() {
             copy_file(&path, &destination.join(entry.file_name()));
+        }
+    }
+}
+
+/// Removes what `destination` holds that `source` does not, at any depth.
+fn prune(source: &std::path::Path, destination: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(destination) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let theirs = source.join(entry.file_name());
+        let path = entry.path();
+        let is_dir = entry.file_type().is_ok_and(|k| k.is_dir());
+        if is_dir && theirs.is_dir() {
+            prune(&theirs, &path);
+        } else if is_dir && !theirs.exists() {
+            std::fs::remove_dir_all(&path).expect("Remove a stale staged asset");
+        } else if !is_dir && !theirs.is_file() {
+            std::fs::remove_file(&path).expect("Remove a stale staged asset");
         }
     }
 }

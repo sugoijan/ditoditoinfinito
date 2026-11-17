@@ -24,6 +24,13 @@ LINES = ["gameplay ready", "gameplay 100 combo", "gameplay comment hot",
 PACKS = [("en", "Mr. Clank"), ("ja", "ガキンさん")]
 
 
+def pack_folder(root, lang, name):
+    """A dry pack's folder under `root`: by its name, as packs were laid
+    out before the built-in announcer, else as the built-in's voice."""
+    named = root / name
+    return named if named.is_dir() else root / "Clank" / lang
+
+
 def run(*args):
     return subprocess.run(args, check=True, capture_output=True).stdout
 
@@ -134,8 +141,8 @@ def main():
                         help="folder containing dry packs with provenance, before creative effects")
     args = parser.parse_args()
     source_root = args.source.resolve()
-    for _, name in PACKS:
-        provenance = tomllib.loads((source_root / name / "PROVENANCE.toml").read_text())
+    for lang, name in PACKS:
+        provenance = tomllib.loads((pack_folder(source_root, lang, name) / "PROVENANCE.toml").read_text())
         if "announcer-stadium-" in provenance.get("kokoro", {}).get("sound", ""):
             parser.error(f"{name} already has stadium effects; use --source DIR with dry packs")
     dest = args.dest.resolve()
@@ -151,7 +158,7 @@ def main():
     client = SoundCraft(args.port)
     try:
         for lang, name in PACKS:
-            folder = source_root / name
+            folder = pack_folder(source_root, lang, name)
             (dest / f"PROVENANCE-{lang}.toml").write_bytes((folder / "PROVENANCE.toml").read_bytes())
             source = work / f"{lang}-source.wav"
             cues, seconds = reel(folder, source)

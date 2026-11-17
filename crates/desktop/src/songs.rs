@@ -16,7 +16,7 @@ use std::sync::Arc;
 use ddi_library::manifest::ManifestEntry;
 use ddi_ui::message::Message;
 use ddi_ui::screens::Env;
-use ddi_ui::screens::data::{Notice, SelectData, ShareState, ShareView, SharedView};
+use ddi_ui::screens::data::{ANNOUNCER_OFF, Notice, SelectData, ShareState, ShareView, SharedView};
 use ddi_ui::screens::select::{
     FEED, OpenFn, PlayFn, SelectCall, SelectScreen, SharedFeed, ShellFn,
 };
@@ -1051,6 +1051,16 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
                 }
                 return;
             }
+            // The announcer turned off from its notice.
+            if matches!(&call, SelectCall::Notice(id) if id == ANNOUNCER_OFF) {
+                ddi_ui::screens::data::turn_announcer_off();
+                songs
+                    .notices
+                    .borrow_mut()
+                    .retain(|n| n.link.as_ref().is_none_or(|(_, id)| id != ANNOUNCER_OFF));
+                songs.send_notices(cx);
+                return;
+            }
             let rows_change = matches!(
                 call,
                 SelectCall::RemovePack(_) | SelectCall::RemoveSong(_) | SelectCall::Reread(_)
@@ -1061,7 +1071,15 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
             }
         })
     };
-    let screen = SelectScreen::new(env.clone(), songs.data(), None, play, open)
+    // That an announcer now speaks, told once.
+    let mut settings = Settings::load();
+    if settings.take_announcer_notice() {
+        settings.save();
+        songs.notices.borrow_mut().push(Notice::announcer_on());
+    }
+    let mut data = songs.data();
+    data.notices = songs.notices.borrow().clone();
+    let screen = SelectScreen::new(env.clone(), data, None, play, open)
         .with_shell(calls, songs.feed.clone())
         .with_editing()
         // Share… while the hidden switch is on (`crate::share`).

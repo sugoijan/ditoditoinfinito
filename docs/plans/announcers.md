@@ -3,8 +3,11 @@
 Status: done 2026-11-03 (PLAN.md decision 81); planned the same day, the
 maintainer's choices taken then (step 6's lines all wanted, `oni` on the
 battery gauges, a first clear in place of a new record); our own packs,
-`Mr. Clank` in English and `ガキンさん` in Japanese, bundled 2026-11-06,
-the announcer still Off by default (the last section). Import the announcer packs made for StepMania
+`Mr. Clank` in English and `ガキンさん` in Japanese, bundled 2026-11-06;
+since 2026-11-17 one built-in announcer, on by default, speaking the
+game's language, and announcers as pools of takes ("One built-in
+announcer, on by default" and "Pools of takes", the last sections).
+Import the announcer packs made for StepMania
 and its forks and play them where those engines do (steps 1–5), then a
 few lines of our own in the same layout (step 6). The research, with
 sources, is `docs/research/announcers.md`.
@@ -60,11 +63,11 @@ sources, is `docs/research/announcers.md`.
    reference pack of our own (recorded, or made with a voice service
    whose terms allow a free licence) can follow once the import is
    proven on existing packs; not before.
-2. **Off by default.** A fresh profile has no announcer; Options →
-   Sound → Announcer lists Off, ours (since 2026-11-06, the maintainer
-   keeping Off the default) and the imported ones. One choice for
-   every layout (StepMania keeps one per game type; we have no game
-   types to the player).
+2. **Off by default** until 2026-11-17, when the built-in announcer
+   came on by default ("One built-in announcer, on by default").
+   Options → Sound → Announcer lists Off, ours and the imported ones.
+   One choice for every layout (StepMania keeps one per game type; we
+   have no game types to the player).
 3. **Its own volume**, Announcer volume beside Music volume, as a share
    of it (100% by default, so muting the music mutes the voice).
 4. **Presentation only.** Lines never touch judging, the clock, a play's
@@ -1115,3 +1118,130 @@ all final MP3 hashes. Generated announcer indexes and credits pass checks.
 A repeat generation kept all 433 sounds and wrote no bundled files; their
 hashes still match the audit. The refreshed local web build includes these
 Rust-generated packs.
+
+## One built-in announcer, on by default (2026-11-17)
+
+The maintainer: "The announcer should become one of our built-in
+announcers … make the announcer language an argument similar to how it
+is on the 'judgement words' but the default being 'Same as game
+language'", and, for who is moved to it, "those with it Off or with one
+of the built-in ones that is being replaced (without preserving the
+language choice), but preserve custom announcer choices". The design
+is `target/scratch/mp/notes/announcer-lua-proposal.md` with its
+addendum, accepted with its picks.
+
+- **One character, a voice a language.** `assets/announcers/Clank/`,
+  key `bundled:clank` (`ddi_library::announcer::BUILT_IN`,
+  `BUILT_IN_FOLDER`), its two voices moved there byte for byte (`git
+  mv`): `en/` (was `Mr. Clank/`) and `ja/` (was `ガキンさん/`), each with
+  its `PROVENANCE.toml`. Its `announcer.ini` declares its names and its
+  languages (below). Shown as "Mr. Clank" where the UI is English and
+  "ガキンさん" where it is Japanese: the pack's own names, data per
+  language, not a translation (ガキン is the clank of metal). A third
+  language is a folder and a tag in `Languages=`, with its pack file's
+  `bundle` (`kokoro.py pack --bundle` writes `pack.toml` into `Clank/en`,
+  `pack-ja.toml` into `Clank/ja`), no code.
+- **On by default.** `Settings::announcer` is `Some("bundled:clank")` in
+  new settings. Settings stored before carry no `announcer_moved` mark
+  (`ANNOUNCER_MOVED`, a mark of its own, apart from the defaults reset
+  of the same day): once, an announcer Off or one of the two old keys
+  (`bundled:mr. clank`, `bundled:ガキンさん`) becomes the built-in one at
+  its default language (the old pack's language is not kept: a player
+  who had ガキンさん with an English UI hears English, one press of the
+  Language row from Japanese); any other key (imported, made in the
+  studio, a song folder's) stays. Off chosen after it stays Off.
+- **Told once.** A player moved from Off sees one notice on song select
+  ("An announcer now speaks in plays. Turn it off here, or later in
+  Options → Sound.", `Notice::announcer_on`) with a link that turns it
+  off at once (`ANNOUNCER_OFF`); it is taken when shown
+  (`Settings::take_announcer_notice`). Fresh settings get none: song
+  select's intro introduces the voice.
+- **Gone falls back to the built-in, never to Off.** A chosen announcer
+  no longer listed (`let_go_missing_announcer`), one removed in Options
+  and the imported ones removed with the songs give the built-in one.
+- **The Language row** (Options → Sound, under Announcer, where the
+  chosen announcer offers two languages or more,
+  `options_model::ANNOUNCER_LANGUAGE`): "Same as game language
+  (English)", naming what it resolves to, the default and kept as
+  nothing; each language named in itself (`ddi_l10n`'s name for a tag it
+  knows, else the pack's `Labels=`, else the tag); "Mixed" where the pack
+  offers it. Kept per announcer in `Settings::announcer_params` (the
+  skins' `Values`, bounded as theirs are), a change speaking a line as
+  choosing one does. The game's language resolves to a voice as: the
+  same tag, its primary subtag (`ja-JP` → `ja`), English, the pack's
+  first (`pool::pick_language`; the pseudo-languages get English).
+- **Its sounds, for each choice.** An announcer is resolved before its
+  sounds are chosen (`Kept::resolve`): what the session sees is the same
+  `Kept` of lines it always saw, holding only the chosen language's
+  takes, so `wanted`, `menu`, the shuffles, the timing and
+  `battle-voice-v3` are unchanged. Its shuffles are kept by announcer and
+  choice (`Kept::bag_key`, `bundled:clank#ja`), so the languages take
+  turns apart; song select's voice is loaded anew when the choice or the
+  game's language changes (`pool::voice_key`).
+- **What the web fetches.** `announcers/index.json` lists the built-in
+  once, its 433 sounds by their paths in it (`en/…`, `ja/…`) with their
+  hashes and what each says, and its `announcer.ini` inline. Resolution
+  runs over the index's names, so a play fetches only the chosen
+  language's sounds, and only those `wanted` picks; Mixed fetches from
+  every language it mixes. A play's music is read before its prompt
+  shows, so the voice's fetches begin after it, and our sounds are
+  fetched at the browser's low priority (`songs::fetch_bytes_low`,
+  `priority: "low"`); Start never waits for them (as before: a line not
+  decoded when due is left out). Measured from the packs as committed
+  (MP3, 128 kb/s, about 31 KB a sound): a first song select about 0.8 MB
+  (its intro and comments, up to eight of each, decoded when first
+  asked for), a play of a 300-note chart about 1.5 MB, of 1,500 notes
+  about 1.9 MB; the opening (ready, here we go) about 33 KB.
+  `__DDI_DEBUG.announcerLoads` lists the voices loaded, their choices
+  and the sounds asked for.
+- **The studio** keeps its examples: each set is the built-in's voice in
+  that language (`Bundled::voice`, its paths and texts as a pack of its
+  own), its packs still StepMania's plain layout.
+- **`xtask gen-announcers`** reads a declared pack: every declared
+  language a folder with its `PROVENANCE.toml`, named there as
+  `announcer.ini` names it, every voice the same lines, no line folder
+  outside them; `gen-credits` credits each voice as before.
+
+## Pools of takes (2026-11-17)
+
+An announcer is a pool of takes (`ddi_library::announcer::pool`): a take
+is one sound file with the lines it may be said for, its language and
+its tags. A pack's folders make the pool (`Pool::plain`): a line folder
+is a line, and in a declared pack (a folder holding `announcer.ini`,
+`pool::DECLARATION`) a language folder above line folders (`en/`,
+`pt-BR/`, `pool::is_language`) is that language. A declared pack is one
+announcer whatever its folders: its language folders are its voices,
+never announcers of their own (without the file, `en/` and `ja/` would
+each be one, as before). The player's choices filter the pool
+(`Pool::resolve`): the takes of the languages chosen, and those of no
+language in every one. What is left is each line's sounds, and the
+engine does what it always did: the line's fallback chain where a line
+has no take left, the shuffle, precedence and timing; one rule more,
+that a take said for several lines is never said twice in a row through
+two of them (`Voice::next`, by the file each sound came from,
+`Voice::add_from`). A StepMania or Etterna pack (no `announcer.ini`)
+reads exactly as before: `Kept::resolve` gives it back as it is.
+
+`announcer.ini` is read as skins' `metrics.ini` is
+(`ddi_noteskin::ini::Ini`, `params::Declared`), with a type of its own:
+
+```ini
+[Announcer]
+Name=Mr. Clank
+Name.ja=ガキンさん
+
+[Parameters]
+List=Language
+
+[Parameter Language]
+Type=Language
+Languages=en,ja
+Mixed=1
+```
+
+`Name.<tag>` names the pack in a UI language; `Languages=` lists the
+languages offered in order (`Labels=` may name those the game does not
+know), `Mixed=1` offers them mixed, each take as likely as any other.
+The web keeps the file's text with an imported pack (`Kept::ini`),
+desktop reads it in place, folders and zips.
+

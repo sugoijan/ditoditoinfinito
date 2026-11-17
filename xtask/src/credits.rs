@@ -294,9 +294,11 @@ fn collect(root: &Path) -> Result<CreditsJson> {
         })
         .collect();
 
+    // Each voice of each: the built-in's two are one character's.
     let announcers_out = crate::announcers::scan(root)?
         .into_iter()
-        .map(|(_, prov, _)| AnnouncerCredit {
+        .flat_map(|pack| pack.voices.into_iter().map(|(_, prov)| prov))
+        .map(|prov| AnnouncerCredit {
             name: prov.name,
             author: prov.author,
             language: prov.language,
