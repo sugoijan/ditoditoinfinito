@@ -846,9 +846,9 @@ fn what_stands_in_is_the_example() {
 #[test]
 fn a_take_of_two_lines_is_not_said_twice_in_a_row() {
     let mut v: Voice<&str> = Voice::default();
-    v.add_from(Line::Combo(100), "shared/awesome.ogg", "awesome");
-    v.add_from(Line::Cheer, "shared/awesome.ogg", "awesome");
-    v.add_from(Line::Cheer, "cheer/yes.ogg", "yes");
+    v.add_from(Line::Combo(100), "shared/awesome.ogg", "awesome", 0.0);
+    v.add_from(Line::Cheer, "shared/awesome.ogg", "awesome", 0.0);
+    v.add_from(Line::Cheer, "cheer/yes.ogg", "yes", 0.0);
     assert_eq!(v.next(Line::Combo(100)), Some((Line::Combo(100), &"awesome")));
     assert_eq!(v.peek(Line::Cheer), Some((Line::Cheer, &"yes")));
     assert_eq!(v.next(Line::Cheer), Some((Line::Cheer, &"yes")));
@@ -890,4 +890,52 @@ fn each_language_has_shuffles_of_its_own() {
     assert_eq!((en.bag_key().as_str(), ja.bag_key().as_str()), ("two#en", "two#ja"));
     let keys: BTreeSet<&str> = bags.bags.keys().map(|(k, _)| k.as_str()).collect();
     assert_eq!(keys, BTreeSet::from(["two#en", "two#ja"]));
+}
+
+/// A sound made here as an announcer's line with a reverb: `voice`
+/// seconds of a voice (two tones at 0.5 and 0.05) at 48 kHz, then `tail`
+/// seconds of it falling from 26 dB under the voice by 40 dB a second;
+/// its length and its tail as `ddi_library::announcer::tail` measures it
+/// from the samples (`voice-tail-v0`).
+pub(super) fn tailed_sound(voice: f64, tail: f64) -> (f64, f64) {
+    let rate = 48_000u32;
+    let n = |s: f64| (s * f64::from(rate)).round() as usize;
+    let tone = |i: usize| {
+        let t = i as f64 / f64::from(rate);
+        0.5 * (t * 220.0 * std::f64::consts::TAU).sin()
+            + 0.05 * (t * 1_310.0 * std::f64::consts::TAU).sin()
+    };
+    let mut samples: Vec<f32> = (0..n(voice)).map(|i| tone(i) as f32).collect();
+    for k in 0..n(tail) {
+        let db = -26.0 - 40.0 * k as f64 / f64::from(rate);
+        samples.push((tone(n(voice) + k) * 10f64.powf(db / 20.0)) as f32);
+    }
+    let length = samples.len() as f64 / f64::from(rate);
+    (length, ddi_library::announcer::tail::tail(&[samples], rate))
+}
+
+/// `voice-tail-v0` in a play: the full combo's line said with a tail,
+/// cleared follows at the end of its voice, over its tail; a sound
+/// without one (a StepMania pack's) as before, at its end.
+#[test]
+fn cleared_follows_the_full_combo_s_voice_not_its_tail() {
+    let sound = tailed_sound(1.0, 0.7);
+    assert!((sound.1 - 0.7).abs() <= 0.01, "{sound:?}");
+    for (tail, after) in [(sound.1, sound.0 - sound.1), (0.0, sound.0)] {
+        let mut v = Voice::default();
+        for line in [Line::FullComboW(1), Line::Cleared] {
+            v.expect([line]);
+            v.add_tailed(line, sound.0, tail);
+        }
+        let mut a = Announcer::new(true, 0.5, None, TIMING, Some(1.0));
+        a.set_voice(Rc::new(RefCell::new(v)));
+        let mut audio = Fake::default();
+        let mut m = at(5.0, 1.0 / 60.0);
+        m.ended = true;
+        m.full_combo = FullCombo::MarvelousFC;
+        a.tick(&mut audio, &m);
+        assert_eq!(spoken(&a), ["gameplay full combo w1", "gameplay cleared"]);
+        let starts: Vec<f64> = a.report.spoken.iter().map(|(_, t)| *t).collect();
+        assert!((starts[1] - starts[0] - after).abs() < 1e-9, "{starts:?}");
+    }
 }

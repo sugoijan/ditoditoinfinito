@@ -311,10 +311,12 @@ impl Load {
                 Err(e) => Err(e),
             };
             match decoded {
-                Ok(buffer) => self
-                    .voice
-                    .borrow_mut()
-                    .add_ranked_from(line, rank, &path, buffer),
+                Ok(buffer) => {
+                    let tail = tail(&buffer);
+                    self.voice
+                        .borrow_mut()
+                        .add_ranked_from(line, rank, &path, buffer, tail)
+                }
                 Err(e) => web_sys::console::warn_1(&format!("announcer: {path}: {e}").into()),
             }
             if self.of == For::Menu {
@@ -322,6 +324,30 @@ impl Load {
             }
         }
     }
+}
+
+thread_local! {
+    /// The announcer's sounds whose tails were measured this session, and
+    /// the milliseconds that took (`__DDI_DEBUG.announcerTails`).
+    static TAILS: Cell<(u32, f64)> = const { Cell::new((0, 0.0)) };
+}
+
+/// The tail of an announcer's sound as decoded: the seconds after its
+/// voice ends (`voice-tail-v0`, `ddi_library::announcer::tail`), which
+/// the voice does not count as the line being said. Its samples read
+/// once, here, on the main thread.
+pub(crate) fn tail(buffer: &AudioBuffer) -> f64 {
+    let began = crate::web::clock::PerformanceClock::now_ms();
+    let channels: Vec<Vec<f32>> = (0..buffer.number_of_channels())
+        .map(|c| buffer.get_channel_data(c).unwrap_or_default())
+        .collect();
+    let tail = ddi_library::announcer::tail::tail(&channels, buffer.sample_rate() as u32);
+    let took = crate::web::clock::PerformanceClock::now_ms() - began;
+    TAILS.with(|t| {
+        let (n, ms) = t.get();
+        t.set((n + 1, ms + took));
+    });
+    tail
 }
 
 /// Song select's lines, for the announcer chosen.
@@ -453,6 +479,13 @@ pub(crate) fn debug_into(obj: &js_sys::Object) {
             let _ = js_sys::Reflect::set(obj, &"announcerLoads".into(), &v);
         }
     });
+    let (sounds, ms) = TAILS.with(Cell::get);
+    if sounds > 0 {
+        let tails = js_sys::Object::new();
+        let _ = js_sys::Reflect::set(&tails, &"sounds".into(), &sounds.into());
+        let _ = js_sys::Reflect::set(&tails, &"ms".into(), &ms.into());
+        let _ = js_sys::Reflect::set(obj, &"announcerTails".into(), &tails);
+    }
     MENU.with_borrow(|m| {
         if let Some(m) = m {
             let list = js_sys::Array::new();

@@ -276,7 +276,7 @@ fn powers_of<C: AsRef<[f32]>>(
 }
 
 /// The frame levels are measured over at `rate` Hz, samples.
-fn frame_len(rate: u32) -> usize {
+pub(super) fn frame_len(rate: u32) -> usize {
     (FRAME * f64::from(rate)).round().max(1.0) as usize
 }
 
@@ -331,7 +331,7 @@ fn voiced_rms<C: AsRef<[f32]>>(channels: &[C], frame: usize) -> f64 {
 }
 
 /// The RMS of the voiced frames of `powers` ([`voiced_rms`]).
-fn voiced_of(powers: &[f64]) -> f64 {
+pub(super) fn voiced_of(powers: &[f64]) -> f64 {
     let mut sum = 0.0f64;
     let mut count = 0usize;
     for (p, l) in powers.iter().zip(levels(powers)) {

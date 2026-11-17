@@ -1328,3 +1328,81 @@ return pack
   told the game's moments during a play; a game-wide switch for
   well-known tags; "how often"; Opus copies of the built-in for the web.
 
+
+## A line ends where its voice ends (2026-11-17)
+
+The stadium processing ("Shared Rust studio and generation processing")
+gave every line of our announcer a reverb tail of about 0.6 s, and the
+voice counted a line as being said for its file's whole length, so it
+stayed busy longer and passed over more lines. The maintainer, asked:
+**"Tail doesn't block"**: "A line counts as finished when its voiced
+part ends; the next line may start over the fading tail. I'd measure the
+voiced end when the pack is made or loaded."
+
+- **The rule, `voice-tail-v0`** (`ddi_library::announcer::tail`), over a
+  sound's decoded samples, every channel together: its level over 10 ms
+  frames and its voiced level as the leveler measures them (the RMS of
+  the frames within 30 dB of the loudest, `tidy`'s); its voice ends at
+  the end of the last frame no more than 20 dB under that level
+  (`TAIL_DB`, compared as powers, no logarithm); what follows is its
+  tail if it lasts a quarter of a second or more (`MIN_TAIL`), else it
+  has none and its voice ends at its end. A silent sound has no voiced
+  frame and no tail (counted whole, as before); the loudest frame is
+  always voiced, so no sound is all tail.
+- **Why those numbers**, measured on our pack's 433 sounds (decoded at
+  48 kHz) as committed and as they were before the stadium commit (read
+  from Git): 20 dB under the voiced level, the dry sounds end at most
+  0.16 s (English) and 0.17 s (Japanese) after their last voiced frame
+  (the leveler keeps 0.1 s after the speech), none of them a tail; every
+  processed line has 0.52 s or more after it but the opening's (ready,
+  restart, here we go: they kept their dry length), which have none. A
+  processed line's voice ends a median 0.08 s (English) and 0.10 s
+  (Japanese) after the same speech's dry voice did: the reverb's first,
+  loudest moment counts as voice. At 15 dB a dry line's quiet last word
+  measured 0.31 s (a tail where there is none); at 30 dB the reverb
+  counted for 0.2 s of the voice.
+- **Our pack's tails** as desktop decodes it (`voice::tests::tails`):
+  English 205 of 217 sounds with a tail, median 0.69 s, from 0.62 to
+  0.78 s; Japanese 204 of 216, median 0.62 s, from 0.53 to 0.72 s; the
+  twelve of each language without one are ready, restart and here we
+  go. Before the stadium commit: none of the 433. The longest voices
+  are now 1.8 s (a battle line) and 2.5 s (a combo line), against 2.5
+  and 3.2 s for the whole sounds.
+- **Where it is measured:** as each shell decodes an announcer's sound
+  for a play, a stage, song select or the studio's scenes (every pack,
+  imported ones too, no pack change): desktop on its decode thread
+  (`play::voice::tail`), the web on the main thread after
+  `decodeAudioData` (`announcers::tail`, reading the buffer's channels
+  once; `__DDI_DEBUG.announcerTails` counts the sounds and the
+  milliseconds). The voice keeps each sound's tail beside it
+  (`Voice::add_from`, `add_ranked_from`, `add_tailed`). Nothing is
+  written into the bundled index: the web needs no tail before a sound
+  is decoded, since no line is placed before its sound is in.
+- **What the voice does with it** (`ddi_session::announcer::voiced_length`):
+  everywhere it asked how long a line is said, it is now until its voice
+  ends: `here we go` placed to end half a second before the first note
+  and ready before it (both untailed in our pack: placed as before),
+  cleared after the full combo's line, a stage's line being said
+  (`StageVoice::busy`): a battle line that matters less passed over only
+  during the voice, a step's line and a combo line waiting for the
+  voice's end, a combo line or the end's lines dropped where a battle
+  line is due before their voice would end, the stage's results' outcome
+  after cleared's voice. Nothing else changed: which line wins, the
+  windows, the gaps, the deadlines. Song select's lines and the results'
+  (the cheer 2.5 s after the line) never asked; the studio's scenes'
+  lengths (how long a scene waits for its sound) stay the whole sound.
+- **Both buses mix:** each line is a sound of its own on the voice's
+  bus (desktop's mixer adds every voice it plays; the web's bus is a
+  gain node every line's source node joins), and neither ever stopped
+  one sound for another: a line that matters more started over one that
+  matters less before, and still does, the lower one playing on under
+  it. So a tail plays to its end under the next line. A quit, a restart
+  and leaving stop all of it as before.
+- **The seeded stage** (`room_stage_voice`, Beatucada's Medium, seed 7):
+  the same thirteen lines in the same order, four passed over, one of the
+  four launches said (the other three come in the frame an attack
+  against the player is said, which matters more) before and after; the
+  difference is that the match's outcome starts where the full combo's
+  voice ends, 0.75 s (English) and 0.64 s (Japanese) earlier, over its
+  tail. Its quiet moment is now 5 s (a battle line's voice of 1.9 s at
+  most after a combo line's of 2.6 s), not 8 s.

@@ -1249,6 +1249,7 @@ pub mod pool;
 pub mod script;
 pub mod tidy;
 pub mod stadium;
+pub mod tail;
 
 #[cfg(test)]
 mod tests;

@@ -1021,7 +1021,7 @@ impl Studio {
             self.director.pinned_take(),
             self.decoded.borrow().sounds(),
             |t, s| Some(self.processed(t.id, s, draft.processing(t))),
-            |s| s.duration(),
+            |s| (s.duration(), crate::play::voice::tail(s)),
         )
     }
 
@@ -1520,7 +1520,9 @@ impl Studio {
                 WaitFor::Draft(which) => self.staged_voice(which),
                 WaitFor::Example { plan, .. } => {
                     let sounds = self.example_sounds.borrow();
-                    director::voiced_from(plan, |key| sounds.get(key).cloned(), |s| s.duration())
+                    director::voiced_from(plan, |key| sounds.get(key).cloned(), |s| {
+                        (s.duration(), crate::play::voice::tail(s))
+                    })
                 }
             }
         });

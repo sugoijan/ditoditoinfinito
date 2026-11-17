@@ -1162,4 +1162,119 @@ mod tests {
         };
         assert!(!won.shown(&p), "Stage won shows already");
     }
+
+    /// A stage's announcer as [`stage`]'s, its voice `lines` each the
+    /// sound `sound`: `(length, tail)` seconds.
+    fn stage_tailed(lines: &[&str], (len, tail): (f64, f64)) -> super::super::Announcer<f64> {
+        use super::super::{Announcer, Timing, Voice};
+        let mut v = Voice::default();
+        for f in lines {
+            let line = Line::parse(f).unwrap();
+            v.expect([line]);
+            v.add_tailed(line, len, tail);
+        }
+        let timing = Timing {
+            start: 100.0,
+            offset: 0.0,
+            rate: 1.0,
+        };
+        let mut a = Announcer::new(true, 0.5, None, timing, Some(10.0))
+            .in_stage(Event::StageBegin, BATTLE_VOICE_V3);
+        a.set_voice(std::rc::Rc::new(std::cell::RefCell::new(v)));
+        a
+    }
+
+    /// `voice-tail-v0`: a line counts as said until its voice ends, its
+    /// reverb's tail not. A sound made here (1.4 s of voice, then a tail
+    /// falling from 26 dB under it for 0.6 s) measures its tail from its
+    /// samples; a line that matters less, due during the first line's
+    /// voice, is passed over as before; due during its tail, it is said
+    /// at once, over the tail, which plays on under it to the sound's end
+    /// (the voice's report: the first's voice ended before the second
+    /// began, its sound after).
+    #[test]
+    fn a_line_due_over_another_s_tail_is_said_over_it() {
+        let sound = super::super::tests::tailed_sound(1.4, 0.6);
+        assert!((sound.1 - 0.6).abs() <= 0.01, "{sound:?}");
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage_tailed(&["battle attack incoming", "battle attack launched"], sound);
+        let incoming = Line::Battle(Event::AttackIncoming);
+        let launched = Line::Battle(Event::AttackLaunched);
+        assert_eq!(
+            a.battle_by(&mut audio, Event::AttackIncoming, 119.0, Some(130.0)),
+            Some(incoming)
+        );
+        let voiced = 119.03 + sound.0 - sound.1;
+        // During its voice: passed over.
+        assert_eq!(a.battle(&mut audio, Event::AttackLaunched, voiced - 0.1), None);
+        assert_eq!(a.report.dropped, 1);
+        // During its tail: said at once.
+        assert_eq!(
+            a.battle(&mut audio, Event::AttackLaunched, voiced + 0.05),
+            Some(launched)
+        );
+        let said = spoken(&a);
+        assert_eq!(said[1].0, "battle attack launched");
+        assert!((said[1].1 - (voiced + 0.08)).abs() < 1e-9, "{said:?}");
+        // Both played whole: the first sound still going as the second
+        // begins.
+        assert_eq!(audio.voiced.len(), 2);
+        let (first_len, first_at, _) = audio.voiced[0];
+        assert!(first_at + first_len > audio.voiced[1].1, "{:?}", audio.voiced);
+        let ends = &a.report.ends;
+        assert!((ends[0].0 - voiced).abs() < 1e-9 && (ends[0].1 - (119.03 + sound.0)).abs() < 1e-9);
+        // Untailed, the same moment is passed over: the whole sound is
+        // said (as every StepMania pack's is).
+        let mut audio = super::super::tests::Fake::default();
+        let lines = ["battle attack incoming", "battle attack launched"];
+        let mut a = stage_tailed(&lines, (sound.0, 0.0));
+        a.battle_by(&mut audio, Event::AttackIncoming, 119.0, Some(130.0));
+        assert_eq!(a.battle(&mut audio, Event::AttackLaunched, voiced + 0.05), None);
+        assert_eq!(a.report.ends[0].0, a.report.ends[0].1);
+    }
+
+    /// The lines that wait for quiet wait for a voice's end, not its
+    /// tail's: a step's line ([`super::super::Announcer::battle_patient`])
+    /// due during a battle line's tail is said at once, during its voice
+    /// at its voice's end; a combo line held for a battle line at that
+    /// line's voice's end; the results' outcome at the end of cleared's
+    /// voice.
+    #[test]
+    fn the_lines_that_wait_for_quiet_wait_for_the_voice_not_its_tail() {
+        use ddi_engine::rules::FullCombo;
+        let sound = (2.0, 0.6);
+        // A step's line: during the tail, at once; during the voice, at
+        // its end.
+        for (at, want) in [(120.5, 120.53), (119.5, 120.43)] {
+            let mut audio = super::super::tests::Fake::default();
+            let mut a = stage_tailed(&["battle attack incoming", "battle step up"], sound);
+            a.battle_by(&mut audio, Event::AttackIncoming, 119.0, Some(130.0));
+            assert_eq!(
+                a.battle_patient(&mut audio, Event::StepUp, at),
+                Some(Line::Battle(Event::StepUp))
+            );
+            assert!((spoken(&a)[1].1 - want).abs() < 1e-9, "{:?}", spoken(&a));
+        }
+        // A combo line held for an attack line said at 119.53: at the end
+        // of its voice (120.93), not its sound (121.53).
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage_tailed(&["gameplay 100 combo", "battle attack incoming"], sound);
+        run(&mut a, &mut audio, 30, |i| i * 5, |i, a, audio| {
+            if i == 19 {
+                a.battle_by(audio, Event::AttackIncoming, 119.5, Some(130.0));
+            }
+        });
+        let said = spoken(&a);
+        assert_eq!(said[1].0, "gameplay 100 combo");
+        assert!((said[1].1 - 120.93).abs() < 1e-9, "{said:?}");
+        // The results' outcome after cleared: at cleared's voice's end.
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage_tailed(&["battle stage not won", "gameplay cleared"], sound);
+        play_out(&mut a, &mut audio, 20, (false, FullCombo::None), |_, _, _| {});
+        a.stage_end(Some(Event::StageNotWon));
+        a.stage_results(&mut audio, 119.9, None);
+        let said = spoken(&a);
+        assert_eq!(said[0], ("gameplay cleared", 119.53));
+        assert!((said[1].1 - (119.53 + 1.4)).abs() < 1e-9, "{said:?}");
+    }
 }

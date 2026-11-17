@@ -32,10 +32,13 @@ const SIZE: [u32; 2] = [1280, 720];
 const SEED: u64 = 7;
 
 /// Seconds before a moment within which no battle line was said for it to
-/// fall in a quiet moment: longer than any of our packs' battle lines
-/// (2.5 s at most) said at the end of a combo line it waited for (3.2 s
-/// at most).
-const QUIET: f64 = 8.0;
+/// fall in a quiet moment: longer than the voice of any of our packs'
+/// battle lines (1.9 s at most; a line counts as said until its voice
+/// ends, its reverb's tail not, `voice-tail-v0`) said at the end of the
+/// voice of a combo line it waited for (2.6 s at most): 4.5 s. (Until
+/// 2026-11-17 a line was said for its whole sound, 2.5 and 3.2 s at
+/// most with the tails, and this was 8 s.)
+const QUIET: f64 = 5.0;
 
 /// A moment as the play told it: its line's folder, whether a line said
 /// it (else it was shown, or left to the results), and when (host
@@ -51,6 +54,9 @@ struct Told {
 struct Heard {
     /// The lines spoken, by folder, in order.
     spoken: Vec<String>,
+    /// Each spoken line's start, its voice's end and its sound's end
+    /// (context seconds).
+    ends: Vec<(f64, f64, f64)>,
     /// The player's attack moments as told.
     attacks: Vec<Told>,
     /// The battle's moments as told.
@@ -179,8 +185,21 @@ fn stage_with(key_of: &str, language: Option<&str>, folder: Option<PathBuf>) -> 
             .filter(|l| l.starts_with("attack: committed ") && l.contains(part))
             .count()
     };
+    // "battle match begin 0.130–1.390–2.037"
+    let ends = host
+        .log
+        .iter()
+        .filter_map(|l| l.strip_prefix("announcer: ends "))
+        .flat_map(|l| l.split(", "))
+        .filter_map(|e| {
+            let times = e.rsplit(' ').next()?;
+            let t: Vec<f64> = times.split('–').map(|t| t.parse().expect("seconds")).collect();
+            Some((t[0], t[1], t[2]))
+        })
+        .collect();
     Some(Heard {
         spoken: list("announcer: spoke "),
+        ends,
         attacks: marked(list("attacks: ")),
         moments: marked(list("battle: ")),
         launched: committed(" you→"),
@@ -362,6 +381,13 @@ fn our_announcers_say_the_battle_lines_in_a_practice_stage() {
         // outcome's line follows), no failed.
         let n = heard.spoken.len();
         assert_eq!(heard.spoken[n - 2], "gameplay full combo w1", "{key}: {:?}", heard.spoken);
+        // `voice-tail-v0`: the outcome, waiting for the full combo's line,
+        // starts where its voice ends, over its reverb's tail (our lines
+        // all have one: their sounds end later than their voices).
+        assert_eq!(heard.ends.len(), n, "{key}");
+        let (full, outcome) = (heard.ends[n - 2], heard.ends[n - 1]);
+        assert!((outcome.0 - full.1).abs() < 1e-3, "{key}: {:?}", heard.ends);
+        assert!(outcome.0 < full.2 - 0.4, "{key}: {:?}", heard.ends);
         assert_eq!(said("gameplay cleared") + said("gameplay failed"), 0, "{key}: {:?}", heard.spoken);
         assert!(heard.spoken.iter().any(|l| combo(l)), "{key}: a combo line: {:?}", heard.spoken);
         // The player, autoplayed, steps up: each said by its line.

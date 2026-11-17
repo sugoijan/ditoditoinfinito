@@ -310,6 +310,24 @@ results and in the room. The moments the design names that the
 prototype cannot have yet (the readiness deadline, a watched stage, a
 connection lost) have no lines yet.
 
+### When a line is over (since 2026-11-17)
+
+Wherever these rules say a line "is speaking", "is being said" or
+"ends" (a line that waits for another to end, one passed over while
+another speaks, `cleared` after the full combo's line, `here we go`
+ending half a second before the first note), they mean the line's
+voice, not the whole sound: the game finds where each sound's voice
+ends and only a fading tail is left (a reverb, an echo), and counts the
+line as said until then. The sound still plays to its end, and the next
+line may start over its tail, the two heard together. The voice ends
+at the end of the last 10 ms that is no more than 20 dB under the
+sound's voiced level (the level of its parts within 30 dB of its
+loudest); what follows is its tail only if it lasts a quarter of a
+second or more (`voice-tail-v0`). A sound with no reverb, cut close to
+its last word as most packs' are, has no tail: its line ends with its
+sound, as before. A long quiet ending (breath, a held note fading away)
+may count as a tail.
+
 ### Read, not spoken
 
 These are recognized (and not reported as unknown), but nothing speaks

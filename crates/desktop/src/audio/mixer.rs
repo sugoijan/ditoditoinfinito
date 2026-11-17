@@ -643,6 +643,46 @@ mod tests {
         assert_eq!(buf[2], 1.0);
     }
 
+    /// `voice-tail-v0` (`docs/plans/announcers.md`, "A line ends where its
+    /// voice ends"): the announcer's next line may start over a line's
+    /// fading tail, and the voice's bus mixes the two: the tail is not
+    /// cut, the new line is heard over it, and the first sound ends at its
+    /// own end. A line of 0.4 s of voice and a tail of 0.6 s falling from
+    /// 26 dB under it (measured as the game measures it), the next line at
+    /// its voice's end.
+    #[test]
+    fn a_tail_plays_on_under_the_next_line_on_the_voices_bus() {
+        let mut data = vec![0.5f32; 400];
+        data.extend((0..600).map(|i| 0.025 * (1.0 - i as f32 / 600.0)));
+        let first = Arc::new(Pcm {
+            rate: RATE,
+            channels: 1,
+            data,
+        });
+        let tail = ddi_library::announcer::tail::tail_interleaved(&first.data, 1, RATE);
+        assert!((tail - 0.6).abs() <= 0.01, "{tail}");
+        let voiced_end = ((first.duration() - tail) * f64::from(RATE)).round() as u64;
+        let mut m = Mixer::new(RATE, 1.0);
+        for (id, sound, start) in [(1, first.clone(), 0), (2, dc(800, 0.25), voiced_end)] {
+            let mut v = Voice::new(id, sound, start, 0.0, 1.0, RATE);
+            v.bus = true;
+            m.apply(Command::Play(Box::new(v)), 0, &mut |_| panic!("refused"));
+        }
+        let (out, ended) = run(&mut m, 80, 16);
+        let at = |f: u64| out[f as usize];
+        // The voice alone, then its tail under the new line, then the
+        // new line alone once the first sound is over.
+        assert_eq!(at(100), 0.5);
+        for f in [voiced_end, voiced_end + 50, 999] {
+            let tail_sample = first.data[f as usize];
+            assert!(tail_sample > 0.0);
+            assert_eq!(at(f), tail_sample + 0.25, "frame {f}");
+        }
+        assert_eq!(at(1_000), 0.25);
+        assert_eq!(at(voiced_end + 800), 0.0);
+        assert_eq!(ended, [1, 2]);
+    }
+
     #[test]
     fn stereo_and_mono_and_sums() {
         let mut m = Mixer::new(RATE, 1.0);

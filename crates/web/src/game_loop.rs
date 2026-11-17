@@ -1603,12 +1603,16 @@ fn watch_debug(watch: Option<&ddi_shell::play_view::WatchDrawn>) -> Value {
 }
 
 /// `__DDI_DEBUG.announcer`: the lines spoken (folders) and when (context
-/// seconds), how many its gate dropped, those due but not decoded yet,
+/// seconds), when each one's voice and sound end (`voicedEnd`,
+/// `soundEnd`: the voice counts it said until the first), how many its
+/// gate dropped, those due but not decoded yet,
 /// and those not in the pack (`docs/plans/announcers.md`).
 fn announcer_debug(a: &ddi_session::announcer::Report) -> Value {
     json!({
         "spoken": a.spoken.iter().map(|(f, _)| f).collect::<Vec<_>>(),
         "at": a.spoken.iter().map(|(_, t)| t).collect::<Vec<_>>(),
+        "voicedEnd": a.ends.iter().map(|(v, _)| v).collect::<Vec<_>>(),
+        "soundEnd": a.ends.iter().map(|(_, e)| e).collect::<Vec<_>>(),
         "missing": a.missing,
         "absent": a.absent,
         "dropped": a.dropped,

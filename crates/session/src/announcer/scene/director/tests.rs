@@ -562,10 +562,10 @@ fn an_example_plan_says_each_line_once_with_its_next_sound() {
             words: Some("Ready!".into()),
         }]
     );
-    let (_, lengths, words) = voiced_from(plan.clone(), |_| Some(2.0), |s: &Sound| *s);
+    let (_, lengths, words) = voiced_from(plan.clone(), |_| Some(2.0), |s: &Sound| (*s, 0.0));
     assert_eq!(lengths.get(&line), Some(&2.0));
     assert_eq!(words.get(&line).map(String::as_str), Some("Ready!"));
-    let (_, lengths, _) = voiced_from(plan, |_| None, |s: &Sound| *s);
+    let (_, lengths, _) = voiced_from(plan, |_| None, |s: &Sound| (*s, 0.0));
     assert!(lengths.is_empty());
     // An example pinned is said in place of the next one, and only on
     // its line; the turns stay as they were after its scene.
@@ -612,7 +612,7 @@ fn the_draft_as_a_voice_takes_each_lines_next_recording_first() {
         None,
         &decoded,
         |_, s: &f64| Some(*s),
-        |s| *s,
+        |s| (*s, 0.0),
     );
     assert_eq!(lengths[&Line::Ready], 2.0, "the next one's");
     assert_eq!(lengths.get(&Line::Cleared), None);
@@ -627,7 +627,7 @@ fn the_draft_as_a_voice_takes_each_lines_next_recording_first() {
         Some(first),
         &decoded,
         |_, s: &f64| Some(*s),
-        |s| *s,
+        |s| (*s, 0.0),
     );
     assert_eq!(lengths[&Line::Ready], 1.0);
     assert_eq!(voice.next(Line::Ready).unwrap().1, &1.0);
@@ -643,7 +643,7 @@ fn the_draft_as_a_voice_takes_each_lines_next_recording_first() {
             None,
             &decoded,
             |_, s: &f64| Some(*s),
-            |s| *s,
+            |s| (*s, 0.0),
         )
         .2
     };

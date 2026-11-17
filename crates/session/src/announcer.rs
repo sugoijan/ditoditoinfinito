@@ -196,12 +196,23 @@ pub fn file_id(path: &str) -> u64 {
     ddi_library::pack::fnv1a64(path.as_bytes())
 }
 
+/// A sound of a line as decoded: its rank among the line's sounds asked
+/// for, its file ([`file_id`], where the shell told it), its tail
+/// (seconds after its voice ends, `ddi_library::announcer::tail`, 0 for
+/// none or where nobody measured it) and its buffer.
+#[derive(Debug)]
+struct Decoded<B> {
+    rank: usize,
+    file: Option<u64>,
+    tail: f64,
+    buffer: B,
+}
+
 /// The announcer's sounds as decoded, by line.
 #[derive(Debug)]
 pub struct Voice<B> {
-    /// Each line's sounds with their ranks and files ([`file_id`], where
-    /// the shell told it), in the order spoken.
-    lines: BTreeMap<Line, Vec<(usize, Option<u64>, B)>>,
+    /// Each line's sounds, in the order spoken.
+    lines: BTreeMap<Line, Vec<Decoded<B>>>,
     /// The file last spoken: a take a pack says for several lines is
     /// never said twice in a row through two of them.
     last: Option<u64>,
@@ -230,38 +241,66 @@ impl<B> Voice<B> {
         self.expected.extend(lines);
     }
 
-    /// A sound of `line`, decoded.
+    /// A sound of `line`, decoded (its tail unmeasured: none).
     pub fn add(&mut self, line: Line, buffer: B) {
-        self.add_file(line, None, buffer);
+        self.add_file(line, None, buffer, 0.0);
     }
 
-    /// A sound of `line` from file `path` (of the announcer's), decoded.
-    pub fn add_from(&mut self, line: Line, path: &str, buffer: B) {
-        self.add_file(line, Some(file_id(path)), buffer);
+    /// A sound of `line` with a `tail` of that many seconds after its
+    /// voice ends (`ddi_library::announcer::tail::tail`).
+    pub fn add_tailed(&mut self, line: Line, buffer: B, tail: f64) {
+        self.add_file(line, None, buffer, tail);
     }
 
-    fn add_file(&mut self, line: Line, file: Option<u64>, buffer: B) {
+    /// A sound of `line` from file `path` (of the announcer's), decoded,
+    /// with its `tail` as measured.
+    pub fn add_from(&mut self, line: Line, path: &str, buffer: B, tail: f64) {
+        self.add_file(line, Some(file_id(path)), buffer, tail);
+    }
+
+    fn add_file(&mut self, line: Line, file: Option<u64>, buffer: B, tail: f64) {
         let sounds = self.lines.entry(line).or_default();
         let rank = sounds.len();
-        sounds.push((rank, file, buffer));
+        sounds.push(Decoded {
+            rank,
+            file,
+            tail: tail.max(0.0),
+            buffer,
+        });
     }
 
     /// A sound of `line`, the `rank`th of those asked for, decoded in
     /// any order: it is spoken in its place among them, and what was
     /// spoken already stays behind the line's next sound.
     pub fn add_ranked(&mut self, line: Line, rank: usize, buffer: B) {
-        self.add_ranked_file(line, rank, None, buffer);
+        self.add_ranked_file(line, rank, None, buffer, 0.0);
     }
 
-    /// [`Voice::add_ranked`], from file `path` (of the announcer's).
-    pub fn add_ranked_from(&mut self, line: Line, rank: usize, path: &str, buffer: B) {
-        self.add_ranked_file(line, rank, Some(file_id(path)), buffer);
+    /// [`Voice::add_ranked`], from file `path` (of the announcer's), with
+    /// its `tail` as measured ([`Voice::add_from`]).
+    pub fn add_ranked_from(&mut self, line: Line, rank: usize, path: &str, buffer: B, tail: f64) {
+        self.add_ranked_file(line, rank, Some(file_id(path)), buffer, tail);
     }
 
-    fn add_ranked_file(&mut self, line: Line, rank: usize, file: Option<u64>, buffer: B) {
+    fn add_ranked_file(
+        &mut self,
+        line: Line,
+        rank: usize,
+        file: Option<u64>,
+        buffer: B,
+        tail: f64,
+    ) {
         let sounds = self.lines.entry(line).or_default();
-        let at = sounds.partition_point(|(r, _, _)| *r < rank);
-        sounds.insert(at, (rank, file, buffer));
+        let at = sounds.partition_point(|d| d.rank < rank);
+        sounds.insert(
+            at,
+            Decoded {
+                rank,
+                file,
+                tail: tail.max(0.0),
+                buffer,
+            },
+        );
         if let Some(next) = self.cursor.get_mut(&line)
             && at < *next
         {
@@ -312,7 +351,7 @@ impl<B> Voice<B> {
         let next = self.cursor.get(&found).copied().unwrap_or(0);
         if self.last.is_some() {
             for skip in 0..sounds.len() {
-                if sounds[(next + skip) % sounds.len()].1 != self.last {
+                if sounds[(next + skip) % sounds.len()].file != self.last {
                     return next + skip;
                 }
             }
@@ -322,22 +361,45 @@ impl<B> Voice<B> {
 
     /// The sound `line` (or the first of its chain decoded) speaks next.
     pub fn peek(&self, line: Line) -> Option<(Line, &B)> {
+        self.peek_tailed(line).map(|(found, b, _)| (found, b))
+    }
+
+    /// [`Voice::peek`], with the sound's tail (seconds).
+    pub fn peek_tailed(&self, line: Line) -> Option<(Line, &B, f64)> {
         let found = self.find(line)?;
         let sounds = &self.lines[&found];
-        let i = self.pick(found) % sounds.len();
-        Some((found, &sounds[i].2))
+        let d = &sounds[self.pick(found) % sounds.len()];
+        Some((found, &d.buffer, d.tail))
     }
 
     /// [`Voice::peek`], the line's next sound then the one after.
     pub fn next(&mut self, line: Line) -> Option<(Line, &B)> {
+        self.next_tailed(line).map(|(found, b, _)| (found, b))
+    }
+
+    /// [`Voice::next`], with the sound's tail (seconds).
+    pub fn next_tailed(&mut self, line: Line) -> Option<(Line, &B, f64)> {
         let found = self.find(line)?;
         let at = self.pick(found);
         self.cursor.insert(found, at + 1);
         let sounds = &self.lines[&found];
-        let (_, file, sound) = &sounds[at % sounds.len()];
-        self.last = *file;
-        Some((found, sound))
+        let d = &sounds[at % sounds.len()];
+        self.last = d.file;
+        Some((found, &d.buffer, d.tail))
     }
+}
+
+/// How long a sound `length` seconds long with a `tail` of so many seconds
+/// after its voice ([`ddi_library::announcer::tail`], `voice-tail-v0`) is
+/// said: until its voice ends. Wherever the voice asks whether a line is
+/// still being said, or when it ends (a line placed after another, the
+/// lines that never talk over one, a stage's line being said), it is
+/// this; the sound itself plays to its end, its tail under what follows
+/// (both shells' voice buses mix what they play, never cutting one sound
+/// for another). A sound without a tail (every StepMania pack's that
+/// measures none) is said for its whole length, as before.
+pub fn voiced_length(length: f64, tail: f64) -> f64 {
+    (length - tail.max(0.0)).max(0.0)
 }
 
 /// The voice as the shell decodes it and the session speaks it.
@@ -450,6 +512,11 @@ pub struct Report {
     /// The lines started or scheduled, by folder, and the context time
     /// each starts (one scheduled ahead and cut by a quit is listed).
     pub spoken: Vec<(String, f64)>,
+    /// For each line of [`Report::spoken`], in its order, when its voice
+    /// ends and when its sound does (context time): the voice counts it
+    /// as said until the first ([`voiced_length`]), the sound plays on to
+    /// the second.
+    pub ends: Vec<(f64, f64)>,
     /// Gated lines that came too soon after another (5.1 drops them), and
     /// a stage's battle lines passed over for one that mattered as much
     /// or more ([`battle::VoicePolicy::priority`]) or for their deadline.
@@ -671,10 +738,13 @@ impl<B> Announcer<B> {
         self.on && self.voice.is_some()
     }
 
-    /// The length of `line`'s next sound, if decoded.
+    /// How long `line`'s next sound is said, if decoded: until its voice
+    /// ends ([`voiced_length`]), its tail going on under what follows.
     fn length<A: AudioBackend<Buffer = B>>(&self, audio: &A, line: Line) -> Option<f64> {
         let voice = self.voice.as_ref()?.borrow();
-        voice.peek(line).map(|(_, sound)| audio.duration(sound))
+        voice
+            .peek_tailed(line)
+            .map(|(_, sound, tail)| voiced_length(audio.duration(sound), tail))
     }
 
     /// Speaks the first of `lines` it has a sound for at `at`; whether
@@ -694,7 +764,7 @@ impl<B> Announcer<B> {
         let voice = self.voice.clone()?;
         let mut voice = voice.borrow_mut();
         for &line in lines {
-            let Some((found, sound)) = voice.next(line) else {
+            let Some((found, sound, tail)) = voice.next_tailed(line) else {
                 continue;
             };
             let volume = match self.example {
@@ -702,7 +772,11 @@ impl<B> Announcer<B> {
                 None => self.volume,
             };
             if audio.play_voice(sound, at, volume).is_ok() {
+                let length = audio.duration(sound);
                 self.report.spoken.push((found.folder(), at));
+                self.report
+                    .ends
+                    .push((at + voiced_length(length, tail), at + length));
                 return Some(found);
             }
         }

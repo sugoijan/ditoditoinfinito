@@ -2157,6 +2157,16 @@ impl Host {
             a.missing,
             a.absent
         ));
+        // Each line's start, where its voice ends (the voice counts it
+        // said until then) and where its sound does (context seconds).
+        let ends: Vec<String> = a
+            .spoken
+            .iter()
+            .zip(&a.ends)
+            .map(|((f, at), (voiced, end))| format!("{f} {at:.3}–{voiced:.3}–{end:.3}"))
+            .collect();
+        self.log
+            .push(format!("announcer: ends {}", ends.join(", ")));
     }
 
     /// The scene is over (its play, its prompt or its results): the frame

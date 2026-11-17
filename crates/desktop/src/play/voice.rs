@@ -43,9 +43,21 @@ pub fn seed_for_tests(seed: u64) {
 enum Arrived {
     /// The lines being decoded.
     Expect(Vec<Line>),
-    /// A sound of a line, from its file (its path in the announcer).
-    Sound(Line, String, Sound),
+    /// A sound of a line, from its file (its path in the announcer), and
+    /// its tail (`ddi_library::announcer::tail`, measured on the thread).
+    Sound(Line, String, Sound, f64),
     Failed(String),
+}
+
+/// The tail of an announcer's `sound` as decoded: the seconds after its
+/// voice ends (`voice-tail-v0`, `ddi_library::announcer::tail`), which
+/// the voice does not count as the line being said.
+pub fn tail(sound: &Sound) -> f64 {
+    ddi_library::announcer::tail::tail_interleaved(
+        &sound.data,
+        usize::from(sound.channels),
+        sound.rate,
+    )
 }
 
 /// An announcer's sounds being decoded for a play.
@@ -132,7 +144,10 @@ impl VoiceLoad {
                             )
                         });
                         let sent = tx.send(match sound {
-                            Ok(s) => Arrived::Sound(line, file.to_string(), s),
+                            Ok(s) => {
+                                let tail = tail(&s);
+                                Arrived::Sound(line, file.to_string(), s, tail)
+                            }
                             Err(e) => Arrived::Failed(format!("{file}: {e}")),
                         });
                         // The play went: no more.
@@ -157,8 +172,8 @@ impl VoiceLoad {
         loop {
             match self.rx.try_recv() {
                 Ok(Arrived::Expect(lines)) => self.voice.borrow_mut().expect(lines),
-                Ok(Arrived::Sound(line, file, sound)) => {
-                    self.voice.borrow_mut().add_from(line, &file, sound)
+                Ok(Arrived::Sound(line, file, sound, tail)) => {
+                    self.voice.borrow_mut().add_from(line, &file, sound, tail)
                 }
                 Ok(Arrived::Failed(e)) => eprintln!("announcer: {e}"),
                 Err(mpsc::TryRecvError::Empty) => break,
@@ -174,5 +189,110 @@ impl VoiceLoad {
     /// taken in by [`VoiceLoad::poll`].
     pub fn done(&self) -> bool {
         self.done
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    /// Every sound under `dir`, sorted.
+    fn sounds(dir: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for e in std::fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                out.extend(sounds(&p));
+            } else if p.extension().is_some_and(|x| x == "mp3" || x == "ogg" || x == "wav") {
+                out.push(p);
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// The built-in announcer as desktop decodes it for a play: every
+    /// sound of its stadium-processed lines has a tail (`voice-tail-v0`),
+    /// so the next line may start over it; its opening's (ready, restart,
+    /// here we go), which kept their dry length, have none, so a play's
+    /// opening is placed exactly as before.
+    #[test]
+    fn the_built_in_announcer_s_lines_have_tails_but_its_opening() {
+        let built_in = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/announcers/Clank");
+        for lang in ["en", "ja"] {
+            let all = sounds(&built_in.join(lang));
+            assert!(all.len() > 200, "{lang}: {}", all.len());
+            for path in all {
+                let line = path.parent().and_then(|p| p.file_name()).unwrap().to_string_lossy();
+                let bytes = std::fs::read(&path).unwrap();
+                let sound =
+                    crate::audio::decoder::sound(bytes, Some("mp3"), Default::default(), 48_000)
+                        .unwrap();
+                let tail = super::tail(&sound);
+                let opening = matches!(
+                    &*line,
+                    "gameplay ready" | "gameplay restart" | "gameplay here we go normal"
+                );
+                if opening {
+                    assert_eq!(tail, 0.0, "{}", path.display());
+                } else {
+                    assert!((0.4..1.0).contains(&tail), "{}: {tail}", path.display());
+                }
+            }
+        }
+    }
+
+    /// The tails of the sounds under each of `DDI_VOICE_TAILS`'s folders
+    /// (`:`-separated; the built-in announcer's voices where none is
+    /// given) as desktop decodes them for a play (48 kHz): by folder, how
+    /// many have a tail, its median and longest, those without one, and
+    /// how long measuring took (this build's; a play decodes about 47).
+    /// `cargo test -p ddi-desktop --lib voice::tests::tails -- --ignored --nocapture`
+    #[test]
+    #[ignore = "a study over a pack's sounds: DDI_VOICE_TAILS"]
+    fn tails() {
+        let built_in = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/announcers/Clank");
+        let dirs: Vec<PathBuf> = match std::env::var("DDI_VOICE_TAILS") {
+            Ok(v) => v.split(':').map(PathBuf::from).collect(),
+            Err(_) => vec![built_in.join("en"), built_in.join("ja")],
+        };
+        for dir in dirs {
+            let mut tails = Vec::new();
+            let mut none = 0;
+            let mut untailed = std::collections::BTreeSet::new();
+            let mut took = std::time::Duration::ZERO;
+            for path in sounds(&dir) {
+                let bytes = std::fs::read(&path).unwrap();
+                let ext = path.extension().and_then(|e| e.to_str()).map(str::to_string);
+                let sound =
+                    crate::audio::decoder::sound(bytes, ext.as_deref(), Default::default(), 48_000)
+                        .unwrap();
+                let began = std::time::Instant::now();
+                let tail = super::tail(&sound);
+                took += began.elapsed();
+                if tail > 0.0 {
+                    tails.push(tail);
+                } else {
+                    none += 1;
+                    let line = path.parent().and_then(|p| p.file_name()).unwrap();
+                    untailed.insert(line.to_string_lossy().into_owned());
+                }
+            }
+            tails.sort_by(f64::total_cmp);
+            let n = tails.len() + none;
+            println!(
+                "{}: {} with a tail of {} sounds; median {:.3} s, shortest {:.3}, longest {:.3}; \
+                 none in {} ({:?}); measured in {:.2} ms",
+                dir.display(),
+                tails.len(),
+                n,
+                tails.get(tails.len() / 2).copied().unwrap_or(0.0),
+                tails.first().copied().unwrap_or(0.0),
+                tails.last().copied().unwrap_or(0.0),
+                none,
+                untailed,
+                took.as_secs_f64() * 1000.0,
+            );
+        }
     }
 }

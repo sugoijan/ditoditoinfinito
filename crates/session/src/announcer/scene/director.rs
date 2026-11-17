@@ -66,11 +66,14 @@ pub struct Planned {
 }
 
 /// The voice `plan` says, each sound as `sound` has it (one it has not
-/// is left out), each line's length by `duration`.
+/// is left out), each line's length and the sound's tail by `measure`
+/// (seconds: its whole length, which the scene waits for, and its tail
+/// after its voice, `ddi_library::announcer::tail`, which the play's
+/// voice does not count as the line said, as in a play).
 pub fn voiced_from<S: Clone>(
     plan: Vec<Planned>,
     sound: impl Fn(&str) -> Option<S>,
-    duration: impl Fn(&S) -> f64,
+    measure: impl Fn(&S) -> (f64, f64),
 ) -> Voiced<S> {
     let mut voice = Voice::default();
     let mut lengths = HashMap::new();
@@ -80,8 +83,9 @@ pub fn voiced_from<S: Clone>(
             continue;
         };
         voice.expect([p.line]);
-        lengths.insert(p.line, duration(&s));
-        voice.add(p.line, s);
+        let (length, tail) = measure(&s);
+        lengths.insert(p.line, length);
+        voice.add_tailed(p.line, s, tail);
         if let Some(w) = p.words {
             words.insert(p.line, w);
         }
@@ -373,7 +377,8 @@ fn say(text: String, seconds: f64) -> Message {
 /// The draft as a voice for the lines `which` keeps: each line's
 /// recordings decoded so far (`decoded`, by take), as the pack has them,
 /// the line's next one (`turns`) first, each made a sound by `make`; with
-/// the first one's length and words (where it has them) of each line.
+/// the first one's length and words (where it has them) of each line,
+/// each sound's length and tail by `measure` ([`voiced_from`]'s).
 /// The line of take `pinned` says it alone.
 pub fn draft_voice<S>(
     draft: &Draft,
@@ -382,7 +387,7 @@ pub fn draft_voice<S>(
     pinned: Option<u64>,
     decoded: &HashMap<u64, S>,
     make: impl Fn(&Take, &S) -> Option<S>,
-    length: impl Fn(&S) -> f64,
+    measure: impl Fn(&S) -> (f64, f64),
 ) -> Voiced<S> {
     let mut voice = Voice::default();
     let mut lengths = HashMap::new();
@@ -412,8 +417,9 @@ pub fn draft_voice<S>(
         for k in 0..takes.len() {
             let t = takes[(first + k) % takes.len()];
             if let Some(b) = make(t, &decoded[&t.id]) {
-                lengths.entry(line).or_insert_with(|| length(&b));
-                voice.add(line, b);
+                let (length, tail) = measure(&b);
+                lengths.entry(line).or_insert(length);
+                voice.add_tailed(line, b, tail);
             }
         }
     }

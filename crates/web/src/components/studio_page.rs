@@ -1186,7 +1186,7 @@ impl Studio {
                 let (pcm, rate) = self.shaped(t.id, b, draft.processing(t));
                 make(pcm, rate)
             },
-            AudioBuffer::duration,
+            |b| (b.duration(), crate::announcers::tail(b)),
         )
     }
 
@@ -1354,7 +1354,7 @@ impl Studio {
         Ok(director::voiced_from(
             plan,
             |key| sounds.get(key).cloned(),
-            AudioBuffer::duration,
+            |b| (b.duration(), crate::announcers::tail(b)),
         ))
     }
 

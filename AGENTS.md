@@ -368,7 +368,13 @@ Rust and the browser are implementation details, not advertised features.
   span and retaining the bounded effect tail. The optional studio Stadium
   effect and pack generation share `announcer/stadium.rs` and
   `draft::Processing`; its response data is in `assets/announcer-filters/`,
-  fetched on demand by the web and embedded by desktop/xtask. More
+  fetched on demand by the web and embedded by desktop/xtask;
+  `announcer/tail.rs` (`voice-tail-v0`, `docs/plans/announcers.md`, "A
+  line ends where its voice ends"): where a sound's voice ends and only
+  its tail (a reverb) is left, measured by both shells as they decode an
+  announcer's sounds; the voice counts a line said until then
+  (`ddi_session::announcer::voiced_length`) and the next line may start
+  over the tail, both voice buses mixing it under. More
   examples of the lines,
   `announcer/examples.rs`, text only from `announcer/examples.toml`,
   which the library's `build.rs` makes a table, the game carrying no
