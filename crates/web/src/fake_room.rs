@@ -36,6 +36,8 @@ thread_local! {
     /// Asked for (`mpfakeready=R`): how long after she has a stage alice
     /// readies, seconds.
     static READY_AFTER: Cell<f64> = const { Cell::new(0.0) };
+    /// Asked for (`mpfakelive=1`): the room plays live.
+    static LIVE: Cell<bool> = const { Cell::new(false) };
     static FAKE: RefCell<Option<Rc<RefCell<Fake>>>> = const { RefCell::new(None) };
 }
 
@@ -49,6 +51,14 @@ pub(crate) fn want(after: f64) {
 /// default).
 pub(crate) fn ready_after(after: f64) {
     READY_AFTER.set(after.max(0.0));
+}
+
+/// The fake room plays live (`RoomPolicy::with_live`), as a hosted room
+/// does: its stage's song zero on the room's clock, a start missed by more
+/// than the late join a forfeit. Alice prepares her stage to play live
+/// and never streams (she is a no-show).
+pub(crate) fn live() {
+    LIVE.set(true);
 }
 
 /// Whether the fake room was asked for.
@@ -94,7 +104,11 @@ fn fake() -> Rc<RefCell<Fake>> {
         ROOM,
         Identity::new("dev:alice"),
         "alice",
-        RoomPolicy::default(),
+        if LIVE.get() {
+            RoomPolicy::default().with_live()
+        } else {
+            RoomPolicy::default()
+        },
         clock.clone(),
     )
     .shared();
@@ -237,7 +251,19 @@ impl Fake {
             a.upload_finished(j.stage, Ok("abc12345".into()));
         }
         for job in a.take_load_jobs() {
-            a.finish_load(&job, Ok(()));
+            if job.live.is_none() {
+                a.finish_load(&job, Ok(()));
+                continue;
+            }
+            // Live: her stage prepared to play live, from the song.
+            let alice = self.alice.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = match crate::songs::load_chart(SONG).await {
+                    Ok(song) => prepare_stage(&job, &song, &mut |_| {}).map(|p| p.live),
+                    Err(_) => Err(ddi_ui::state::room::LoadProblem::Unreadable),
+                };
+                alice.borrow_mut().finish_load_live(&job, result);
+            });
         }
         if a.take_stage_order().is_some() {
             self.ready_at = Some(now + (READY_AFTER.get() * 1_000.0) as u64);

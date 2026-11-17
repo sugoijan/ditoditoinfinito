@@ -174,7 +174,7 @@ fn share_switch(hash: &str) {
 /// (`Settings::multiplayer_rules_first`), and `mpwatchlink=1`, More's Copy
 /// watch-only link (`Settings::multiplayer_watch_link`); TESTING ONLY,
 /// `mpfakeseat=1` (`mpfakeend=S`, `mpfakematch=STAGES,CUT,WAIT`) and
-/// `mpfakeroom=S` (`mpfakeready=R`). Each
+/// `mpfakeroom=S` (`mpfakeready=R`, `mpfakelive=1`). Each
 /// address is read once.
 fn multiplayer_params(hash: &str, at_load: bool) {
     let (path, Some(query)) = split_hash(hash) else {
@@ -242,6 +242,12 @@ fn multiplayer_params(hash: &str, at_load: bool) {
     }
     if let Some(after) = param("mpfakeready").and_then(|s| s.parse::<f64>().ok()) {
         crate::fake_room::ready_after(after);
+    }
+    // `mpfakelive=1`, the fake room plays live (as a hosted room does:
+    // its stage's song zero on the room's clock, a late start's late join,
+    // the streams).
+    if param("mpfakelive").as_deref() == Some("1") {
+        crate::fake_room::live();
     }
     let flag = |key: &str| match param(key).as_deref() {
         Some("1") => Some(true),
