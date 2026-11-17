@@ -11614,6 +11614,120 @@ what feeds each; its `src/stats.rs` the vocabulary and the logic.
   (`FieldGeometry::placed`), Reverse off against on; 10 runs in a row
   pass, skipped with `DDI_NO_GPU=1`.
 
+## A hidden page starts its stage (2026-11-17)
+
+Round P1b let a stage's play run on unseen, but a page hidden (or a
+window covered or minimized) **when the room started the stage** never
+started its play: the Ready screen is a screen, run by the page's frames,
+and a hidden page has none. The maintainer decided: "If they pressed
+Ready and the stage starts while the tab is hidden, the play starts and
+runs unseen (they miss notes until they return). Consistent with what
+you chose for a play already running."
+
+- **Before** (headless Chrome, `hidden-tab.js` at one timer a second;
+  the page hidden right after Ready): in CPU practice nothing ran the
+  room, so its countdown ended only when the page was shown and the play
+  began then from the song's start; in an online room that plays live
+  (the fake room with `mpfakelive=1`) the room started the stage on time,
+  the player never streamed and was a no-show: hidden 20 s, the stage
+  was decided without them and the page came back on stage 2's prompt.
+  Desktop: `a_ready_players_hidden_window_starts_the_stage_and_plays_it_unseen`
+  failed (the room never started: nothing ran it while occluded).
+- **Built, one path for both shells** (`ddi_ui`): `Screen::unseen`, a
+  step while no frame comes that does only what must not wait (no
+  animation, no countdown of the screen's own), and `Ui::step_unseen`,
+  which runs it on the clocks the shell set. The room's stage's prompt
+  (`PromptScreen::room_unseen`) runs its room and, once the room starts
+  the stage with this player in its lineup, presses Start for the shell
+  as a frame would, once, outside any gesture. Nobody is readied by it
+  (the prompt's own countdown to Ready stands still), a player not in
+  the lineup (not ready, sat out, may still enter late) and a member who
+  chose Watch wait for the page to be seen, as before.
+- **The web** (`components::game_canvas`'s `prompt_unseen`,
+  `ui_host::step_unseen`): a room's stage's prompt has a timer (100 ms
+  asked; a hidden page's timers come a second apart or more) that steps
+  it unseen while the page is hidden, and the kept online room's socket
+  wakes it at once (`room::wake_hidden` runs the room, then the prompt:
+  `room::set_unseen_prompt`). Start then goes the way a frame's does: the
+  music decoded on the context the Ready press made or kept (Ready was
+  the gesture; nothing new needs one), the play begun, the prompt closed
+  and the play judged at once (`schedule_play`'s first tick, so its
+  stream starts now) and then on its unseen timer (round P1b).
+- **Desktop**: `Host::step_unseen` steps the prompt unseen too (and
+  begins the play at once on the window's device), every 100 ms while
+  the window is occluded (`Shell::about_to_wait`, `Host::prompts_unseen`).
+- **Judged as seen**: `a_stage_started_unseen_judges_as_one_started_seen`
+  (a play started hidden, stepped a second at a time to 30 s, then at 60
+  frames: the same tally, ledger and outcome as one started seen).
+- **How late it starts.** On the web the start is seen at the hidden
+  page's next timer, or at once where the socket brings it:
+  - **a real server** (an online room): the room's start (the stage's
+    phase) comes on the socket, which wakes a hidden page as it comes
+    (`wake_hidden`); the play begins in the same task, the music already
+    decoded: late by the message's way over the network, at any timer
+    rate, even once a minute (from the code: no server was run this
+    round);
+  - **practice and the fake rooms** (no socket: the room is in the page):
+    at one timer a second the play begins within a second or so of the
+    start. Measured, hidden 20 s from the Ready press: in practice 0.6 s
+    (Chrome) and 0.5 s (Firefox) after the room's 3 s countdown, the
+    song from its start; in the live fake room, four runs, at the song's
+    0.4 s and 0.1 s (Chrome), 0.0 s and 0.6 s (Firefox), where a page in
+    front begins at its −1.0 s: 1.0 to 1.6 s late, the notes before
+    missed. At once a
+    minute (Chrome after five minutes hidden without sound) up to a
+    minute late: practice began 24 s after Ready (the next wake-up); in
+    the live fake room, whose server is the page's own and moves only at
+    a wake-up too, the stage started at one wake-up and the prompt was
+    stepped before it saw the start, so by the next, a minute on, the
+    stage had been decided with the player a no-show: hidden 75 s, the
+    page came back on stage 2's prompt, as before this round. (A real
+    server's start wakes the page through its socket instead.)
+  - Past the late join (`late_join_ms`, 5 s after the song's time zero)
+    a live stage's play that begins is a forfeit watched (`live_start`),
+    as for any late starter, and the room counts the player a no-show:
+    they get the stage's watch view, then its results, never its points.
+    With a real server this needs the socket's message itself to be
+    more than five seconds late. In practice nothing is missed: the
+    room is the page's and its play starts from the song's start (only
+    later).
+- **The sound**: the context made or kept by the Ready press plays the
+  music from the start, hidden or not (Chrome and Firefox run it in a
+  hidden tab); on return it is running with no press (measured: `audio`
+  Running, the output's peak −11 dBFS). A browser that suspends or
+  interrupts a hidden page's context (Safari on iOS): the play has no
+  running sound to start on, so Start goes the way a pad's does (a new
+  context asked to start, then "press a key" on the prompt where it does
+  not), and a play already running stops as interrupted, round P1b's
+  rule. Not measured here (no such browser headless).
+- **The song**: Ready opens only once the song can be played (round N1:
+  read, its music fetched); the music decodes on the Ready press's
+  context (`predecode`), which needs no frame (`decodeAudioData` and
+  promises run in a hidden page). A start that comes before the decode
+  ends begins once it ends. Two waits in it are timers: the wait for the
+  output's latency (where the browser reports none: headless Chrome,
+  Safari) was sixteen 50 ms timers, sixteen wake-ups of a hidden page (a
+  quarter of an hour at once a minute); it is now 0.8 s by the clock
+  (`WebAudio::wait_for_latency`), one wake-up at most. An MP3's
+  alignment pass and the wasm decoder (a browser that cannot decode the
+  file) yield every 25 ms on a 0 ms timer, a wake-up each while hidden:
+  unchanged (a song readied in front has decoded long before).
+- **On return**: the play is drawn from where the song is, the Ready
+  card and the loading screen gone (closed when the play began), the
+  room's lists showing the player Playing throughout (desktop's test:
+  `Participation::Competing` from the start).
+- **Not done**: a dancing hand in a stage (Options, off by default in
+  multiplayer) prepares only on frames, so a play that waits for it
+  starts once the page is shown; the audience's page and a member's
+  watched stage still wait for the page to be seen (nothing to miss:
+  watching starts from where the stage is).
+- Testing only: `mpfakelive=1` makes the fake room play live
+  (`RoomPolicy::with_live`; alice prepares live and never streams, a
+  no-show); `__DDI_DEBUG.play_began` (`{ms, song, hidden}`, written as the
+  play begins, readable while hidden); `hidden-tab.js` now cancels a timer
+  cleared while its run waits for the next wake-up (it ran the dropped
+  closure: "closure invoked … after being dropped").
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
