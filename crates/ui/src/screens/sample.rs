@@ -425,6 +425,8 @@ pub fn results() -> ResultsData {
         ),
         mods: format!("×2.5 · {}", ddi_l10n::msg::mods::reverse()),
         grade: "★".into(),
+        // An ITG play: DDI's next-letter line is DDI's alone.
+        next_grade: None,
         score: "96.77%".into(),
         ex: Some(data("EX 1680 / 1785")),
         failed: false,

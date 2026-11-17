@@ -39,6 +39,9 @@ results-early-late = 早い／遅い
 results-ddi-score = スコア
 results-ddi-percent = パーセント
 results-ddi-combo = コンボスコア
+results-ddi-accuracy = 精度
+results-ddi-next-hits = { $grade }：{ $word }以上が{ $needed }回必要（今回は{ $had }回）
+results-ddi-next-full-combo = { $grade }にはフルコンボが必要です
 
 results-mean-offset = 平均のずれ
 

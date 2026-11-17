@@ -506,6 +506,7 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         } else {
             r.grade.clone()
         },
+        next_grade: ddi_next_grade(r, names, p.autoplay),
         score: score_text_as(r, percent),
         ex: ex_text(&r.score),
         failed: r.failed,
@@ -561,9 +562,11 @@ pub fn flare_stat(r: &Results) -> Option<(String, String)> {
 }
 
 /// A DDI play's score or percent, the one the big number (the score, or
-/// with `percent` the percent) does not show, then its combo part (what
-/// its combos added to the score, `ddi-combo-v0`). The score is the
-/// proportional part, the absolute score and the combo part together
+/// with `percent` the percent) does not show, then its accuracy (the
+/// points over the most, nine tenths of the percent since
+/// `ddi-percent-v1`), then its combo part (what its combos added to the
+/// score, `ddi-combo-v0`). The score is the proportional part, the
+/// absolute score and the combo part together
 /// (`ddi_engine::rules::ddi::DdiScoreView::score`); the absolute score
 /// has no line of its own.
 pub fn ddi_stats(r: &Results, percent: bool) -> Vec<(String, String)> {
@@ -580,8 +583,36 @@ pub fn ddi_stats(r: &Results, percent: bool) -> Vec<(String, String)> {
                 UiText::data(format!("{}%", d.percent_text())).into(),
             )
         },
+        (
+            rm::ddi_accuracy().into(),
+            UiText::data(format!("{}%", d.accuracy_text())).into(),
+        ),
         (rm::ddi_combo().into(), d.combo.to_string()),
     ]
+}
+
+/// The quiet line under a DDI play's grade: what the next letter up would
+/// have taken ([`ddi_engine::rules::ddi::next_grade`]), in hits W1 or
+/// better named by W1's word as the results show it (`names`, in the
+/// player's judgment words), or that it needs a full combo. None for
+/// another ruleset, a failed, quit or autoplayed play, SSS and Absolute
+/// Dito, and where nothing simple is true.
+pub fn ddi_next_grade(r: &Results, names: &JudgeNames, autoplay: bool) -> Option<String> {
+    use ddi_engine::rules::ddi::{NextGrade, next_grade};
+    let d = r.score.ddi.as_ref()?;
+    if r.failed || r.quit || autoplay || r.ddi.is_none() {
+        return None;
+    }
+    Some(match next_grade(d, &r.tally)? {
+        NextGrade::Hits { grade, needed, had } => rm::ddi_next_hits(
+            UiText::data(grade),
+            needed,
+            UiText::data(names.name(Judgement::W1)),
+            had,
+        )
+        .into(),
+        NextGrade::FullCombo { grade } => rm::ddi_next_full_combo(UiText::data(grade)).into(),
+    })
 }
 
 /// An FFR play's total score and raw goods, as R^3's results show them
@@ -1040,6 +1071,50 @@ mod tests {
     /// Held and Off, Boos when on, the score (the proportional part, the
     /// absolute score and the combo part) with its percent and its combo
     /// part, the lamp by name, and a bot's grade.
+    /// Round U: the Accuracy line beside the Percent (nine tenths of it
+    /// and a tenth of the combo), and under the grade what the next letter
+    /// would have taken, in W1's word; none for a failed, quit or
+    /// autoplayed play.
+    #[test]
+    fn a_ddi_play_shows_its_accuracy_and_what_the_next_letter_takes() {
+        use ddi_engine::rules::ddi::{self, DdiOptions, DdiResult, DdiScoreView, Lamp};
+        ddi_platform::storage::install(std::rc::Rc::new(
+            ddi_platform::storage::MemoryStore::default(),
+        ));
+        let layout = single();
+        let rules = ddi::ruleset(&DdiOptions::default());
+        // A full combo of 300: 180 W1, 100 W2, 20 W3.
+        let mut r = results([180, 100, 20, 0, 0, 0]);
+        let max = ddi::full_combo_points(300);
+        let view = DdiScoreView::of(13_500, 15_000, 0).with_max(max).with_combo(max);
+        r.score = ScoreView {
+            percent: Some(view.fraction()),
+            ddi: Some(view),
+            ..ScoreView::default()
+        };
+        r.grade = "S".into();
+        r.ddi = Some(DdiResult {
+            lamp: Lamp::FullCombo,
+            sides: [[0, 0]; 6],
+        });
+        let d = results_data(&info(&r, &rules, &layout));
+        let stat = |label: &str| d.stats.iter().find(|(l, _)| l == label).map(|(_, v)| v.as_str());
+        assert_eq!(stat("Percent"), Some("91.00%"));
+        assert_eq!(stat("Accuracy"), Some("90.00%"));
+        assert_eq!(
+            d.next_grade.as_deref(),
+            Some("SS: at least 247 Amazing or better (you had 180)")
+        );
+        for (failed, quit, auto) in [(true, false, false), (false, true, false), (false, false, true)] {
+            let mut r = r.clone();
+            r.failed = failed;
+            r.quit = quit;
+            let mut i = info(&r, &rules, &layout);
+            i.autoplay = auto;
+            assert_eq!(results_data(&i).next_grade, None);
+        }
+    }
+
     #[test]
     fn a_ddi_play_shows_both_words_its_sides_and_its_two_scores() {
         use ddi_engine::rules::ddi::{self, DdiOptions, DdiResult, DdiScoreView, Lamp};
@@ -1107,6 +1182,7 @@ mod tests {
         // combo part beside it; no line for the absolute.
         assert_eq!(d.score, "1186220");
         assert_eq!(stat(&d, "Percent").as_deref(), Some("95.10%"));
+        assert_eq!(stat(&d, "Accuracy").as_deref(), Some("95.10%"));
         assert_eq!(stat(&d, "Combo score").as_deref(), Some("45000"));
         assert_eq!(stat(&d, "Absolute score"), None);
         assert_eq!(stat(&d, "Score"), None);

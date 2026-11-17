@@ -86,6 +86,28 @@ results-ddi-percent = Percent
 # Percent: "200672".
 results-ddi-combo = Combo score
 
+# DDI's rules: how precise the play was, the points over the most the
+# chart gives (the percent is nine tenths this and one tenth the combo),
+# beside Score, Percent and Combo score: "96.60%".
+results-ddi-accuracy = Accuracy
+
+# DDI's rules: one quiet line under the grade, what the next letter up
+# would have taken with every other judgment as played: so many hits
+# in the second-best tier or better.
+# Variables:
+#   $grade (String) - the next letter ("SS"), data
+#   $needed (Number) - the hits that letter needed in that tier or better
+#   $word (String) - that tier's word as the results show it ("Amazing"), data
+#   $had (Number) - how many the play had
+results-ddi-next-hits = { $grade }: at least { $needed } { $word } or better (you had { $had })
+
+# DDI's rules: the line under the grade where more precision alone would
+# not reach the next letter but the same judgments in one unbroken combo
+# would.
+# Variables:
+#   $grade (String) - the next letter ("SS"), data
+results-ddi-next-full-combo = { $grade } needs a full combo here
+
 # The average of the hits' errors, then their spread: "−2.1 ms (σ 9.8)".
 results-mean-offset = Mean offset
 

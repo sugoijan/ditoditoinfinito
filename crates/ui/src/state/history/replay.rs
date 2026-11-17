@@ -729,11 +729,11 @@ impl GhostRun {
         self.player.update_at(t);
         let theirs = self.player.ruleset().score.view();
         // DDI: the lead as the score is shown, exact in whole points:
-        // of the score (the sum), or of the percent (the proportional
-        // part alone, a millionth a point).
+        // of the score (the sum), or of the percent as shown (hundredths
+        // of a percent, `ddi-percent-v1`: the combo in it).
         if let (Some(a), Some(b)) = (&score.ddi, &theirs.ddi) {
             return if self.percent {
-                GhostDelta::Percent((a.ratio - b.ratio) as f64 / 10_000.0)
+                GhostDelta::Percent((a.percent - b.percent) as f64 / 100.0)
             } else {
                 GhostDelta::Points((a.score - b.score) as f64)
             };

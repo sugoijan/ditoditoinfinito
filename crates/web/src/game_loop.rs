@@ -1028,14 +1028,17 @@ impl GameLoop {
                     // The player's life (`0..=1`) and, under DDI, the
                     // score as the HUD's display has it (the sum, what a
                     // room shows and ranks by) with its parts, the combo
-                    // part (`ddi-combo-v0`) among them.
+                    // part (`ddi-combo-v0`) among them, and the percent
+                    // with the accuracy beside it (`ddi-percent-v1`).
                     "life": p.ruleset().gauge.life(),
                     "ddi_score": p.ruleset().score.view().ddi.map(|d| json!({
                         "score": d.score,
                         "ratio": d.ratio,
                         "percent": d.percent,
+                        "accuracy": d.accuracy,
                         "points": d.points,
                         "combo": d.combo,
+                        "max": d.max,
                     })),
                     "mines_hit": r.tally.mine_hit,
                     // The lanes a mine or a shock locked in the player's

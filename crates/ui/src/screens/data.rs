@@ -849,6 +849,9 @@ pub struct ResultsData {
     /// What was played with ("×2.5 · reverse · shuffle ↓←→↑").
     pub mods: String,
     pub grade: String,
+    /// One quiet line under the grade: what the next letter up would have
+    /// taken (DDI's, [`super::play::ddi_next_grade`]).
+    pub next_grade: Option<String>,
     /// As the ruleset scores: money ("987650"), percent ("96.77%") or
     /// "—".
     pub score: String,

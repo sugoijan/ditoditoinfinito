@@ -1774,3 +1774,76 @@ fn a_ddi_export_from_before_or_after_the_combo_part_imports() {
         assert_eq!(b.history().get(&id), Some(&now), "{was_stale}");
     }
 }
+
+/// A DDI summary as a store kept it before `ddi-percent-v1`
+/// (`JUDGE_VERSION` 5): its view without `max` or `accuracy`, its percent
+/// the accuracy, the grade `grade`.
+fn before_percent(s: &PlaySummary, grade: &str) -> String {
+    let mut v = serde_json::to_value(s).unwrap();
+    let w = &mut v["worked"];
+    w["judge_version"] = 5.into();
+    w["grade"] = grade.into();
+    let accuracy = s.worked.as_ref().unwrap().score.ddi.unwrap().accuracy;
+    w["score"]["percent"] = (accuracy as f64 / 10_000.0).into();
+    let ddi = w["score"]["ddi"].as_object_mut().unwrap();
+    ddi.remove("max");
+    ddi.remove("accuracy");
+    ddi.insert("percent".into(), accuracy.into());
+    v.to_string()
+}
+
+/// Round U (`ddi-percent-v1`, `JUDGE_VERSION` 6): a DDI play kept before
+/// the percent counted the combo reads with its percent its accuracy, is
+/// stale, and judged again from its log comes to the new percent (nine
+/// tenths accuracy, one tenth combo) and the letter it reads; its export
+/// from before imports and is judged again the same way.
+#[test]
+fn a_ddi_play_kept_before_the_new_percent_is_judged_again_with_it() {
+    let song = Rc::new(song());
+    let store = Rc::new(MemoryPlayStore::default());
+    let plays = Plays::new(store.clone());
+    plays.load(|r| r.unwrap());
+    let (log, results) = play(&song, 0, &ddi_key(), Some(0.03));
+    let rec = record(&song, 0, &ddi_key(), 3.0, false);
+    let id = play_id(3.0, 0);
+    plays.record(id.clone(), &rec, &log, &results, |r| r.unwrap()).unwrap();
+    let fresh = plays.history().get(&id).unwrap().clone();
+    let w = fresh.worked.clone().unwrap();
+    let d = w.score.ddi.unwrap();
+    // A full combo off the beat: the percent a tenth over nine tenths of
+    // the accuracy, and the letter it reads.
+    assert_eq!(d.combo, d.max);
+    assert_eq!(d.percent, 9 * d.accuracy / 10 + 1_000);
+    assert!(d.percent > d.accuracy);
+    assert_eq!(w.score.percent, Some(d.fraction()));
+    let old = before_percent(&fresh, "D");
+    store.replace_summaries(vec![(id.clone(), old.clone())], Box::new(|r| r.unwrap()));
+    let again = Plays::new(store.clone());
+    again.load(|r| r.unwrap());
+    let kept = again.history().get(&id).unwrap().worked.clone().unwrap();
+    assert!(kept.is_stale());
+    assert_eq!(kept.score.ddi.unwrap().percent, d.accuracy, "kept before: the accuracy");
+    let (n, done) = answered();
+    again.rework_song("s1", song.clone(), 10, done);
+    assert_eq!(n.borrow_mut().take().unwrap().unwrap(), 1);
+    assert_eq!(again.history().get(&id), Some(&fresh));
+    // Its export from before imports, waits and is judged again.
+    let (entries, done) = answered();
+    store.records(vec![id.clone()], Box::new(done));
+    let mut entry = entries.borrow_mut().take().unwrap().unwrap().remove(0);
+    entry.summary = Some(old);
+    let line = format!("{}\n", entry.to_json());
+    let b = Plays::new(Rc::new(MemoryPlayStore::default()));
+    b.load(|r| r.unwrap());
+    let mut reader = PlayImport::new(b.history().ids());
+    reader.push(line.as_bytes());
+    reader.finish();
+    let (r, done) = answered();
+    b.import(reader.take(), done);
+    assert_eq!(r.take().unwrap().unwrap().0, 1);
+    assert!(b.history().get(&id).unwrap().worked.as_ref().unwrap().is_stale());
+    let (n, done) = answered();
+    b.rework_song("s1", song.clone(), 10, done);
+    assert_eq!(n.borrow_mut().take().unwrap().unwrap(), 1);
+    assert_eq!(b.history().get(&id), Some(&fresh));
+}

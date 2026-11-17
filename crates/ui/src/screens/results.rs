@@ -3,7 +3,9 @@
 //!
 //! - **Left**: the song and the chart, the mods, the grade, the score
 //!   (money, percent or "—", as the ruleset scores) and EX where the
-//!   ruleset has it (`Results.Score`), the lamp or FAILED, the ruleset's
+//!   ruleset has it (`Results.Score`), the lamp or FAILED, under DDI one
+//!   quiet line of what the next letter would have taken
+//!   (`ResultsData::next_grade`), the ruleset's
 //!   tiers with bars (`Results.Judgement`; tiers it does not name are
 //!   left out), then holds (under the ruleset's names), hold ticks, mines,
 //!   stray presses, max combo, fast and slow, the mean and σ.
@@ -575,6 +577,16 @@ impl ResultsScreen {
                 children.push(right(env.numbers("Ex", ex, 14.0, "Muted"), w, ty));
             }
             ty += 22.0;
+        }
+        // What the next letter up would have taken (DDI's): one quiet
+        // line.
+        if let Some(next) = &d.next_grade {
+            children.push(left(
+                cut(env.text("NextGrade", next, 13.0, 400, "Muted"), w),
+                0.0,
+                ty,
+            ));
+            ty += 20.0;
         }
         // Judgements.
         let max = d

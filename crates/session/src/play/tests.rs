@@ -1242,9 +1242,12 @@ fn the_ghost_leads_in_ddi_points_or_percent() {
         matches!(points, Some(GhostDelta::Points(p)) if p == lead),
         "{points:?}"
     );
+    // Of the percent: 82.00 % (nine tenths of 80 % and the full combo's
+    // tenth) against 100.
+    assert_eq!(behind.percent, 8_200);
     let (_, _, percent) = play(0.03, Some(ghost.showing_percent(true)));
     assert!(
-        matches!(percent, Some(GhostDelta::Percent(p)) if (p + 20.0).abs() < 1e-9),
+        matches!(percent, Some(GhostDelta::Percent(p)) if (p + 18.0).abs() < 1e-9),
         "{percent:?}"
     );
 }
