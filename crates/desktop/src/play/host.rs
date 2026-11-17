@@ -2111,7 +2111,8 @@ impl Host {
         };
     }
 
-    /// What the play said, for a timed run's lines.
+    /// What the play said, for a timed run's lines: each battle and
+    /// attack moment as told, at its host second.
     fn log_said(&mut self, play: &Play) {
         // A stage's battle moments: said by a line, or shown.
         let told = play.session.battle_told();
@@ -2121,11 +2122,12 @@ impl Host {
                 .iter()
                 .map(|t| {
                     let line = ddi_library::announcer::Line::Battle(t.event).folder();
-                    match (t.said, t.shown(&policy)) {
-                        (_, true) => format!("{line} (shown)"),
-                        (Some(l), _) => format!("{line} (said: {})", l.folder()),
-                        (None, _) => format!("{line} (results, room)"),
-                    }
+                    let how = match (t.said, t.shown(&policy)) {
+                        (_, true) => "shown".to_string(),
+                        (Some(l), _) => format!("said: {}", l.folder()),
+                        (None, _) => "not said".to_string(),
+                    };
+                    format!("{line} ({how}) at {:.3} s", t.at)
                 })
                 .collect();
             self.log.push(format!("battle: {}", moments.join(", ")));
@@ -2138,7 +2140,7 @@ impl Host {
                 .map(|t| {
                     let line = ddi_library::announcer::Line::Battle(t.moment.event()).folder();
                     let how = if t.spoken() { "said" } else { "shown" };
-                    format!("{line} ({how})")
+                    format!("{line} ({how}) at {:.3} s", t.at)
                 })
                 .collect();
             self.log.push(format!("attacks: {}", moments.join(", ")));

@@ -24,16 +24,41 @@ use ddi_ui::state::settings::Settings;
 
 const SIZE: [u32; 2] = [1280, 720];
 
+/// The seed of the practice room's CPUs (so their play, the attacks and
+/// the stage's battle) and of the voice's takes: the same stage in every
+/// run. Under it the player's fourth attack launches at 84.59 s of the
+/// song, 16 s after the attack moments before it and two before the
+/// next, where nothing is said: its line is ([`quiet_launches_are_said`]).
+const SEED: u64 = 7;
+
+/// Seconds before a moment within which no battle line was said for it to
+/// fall in a quiet moment: longer than any of our packs' battle lines
+/// (2.5 s at most) said at the end of a combo line it waited for (3.2 s
+/// at most).
+const QUIET: f64 = 8.0;
+
+/// A moment as the play told it: its line's folder, whether a line said
+/// it (else it was shown, or left to the results), and when (host
+/// seconds).
+#[derive(Debug)]
+struct Told {
+    line: String,
+    said: bool,
+    at: f64,
+}
+
 /// What a stage said and showed.
 struct Heard {
     /// The lines spoken, by folder, in order.
     spoken: Vec<String>,
-    /// The player's attack moments, each its line's folder and whether
-    /// it was said (else shown).
-    attacks: Vec<(String, bool)>,
-    /// The battle's moments, each its line's folder and whether a line
-    /// said it.
-    moments: Vec<(String, bool)>,
+    /// The player's attack moments as told.
+    attacks: Vec<Told>,
+    /// The battle's moments as told.
+    moments: Vec<Told>,
+    /// The attacks the player launched, and those against them, as the
+    /// stage committed them.
+    launched: usize,
+    against: usize,
 }
 
 /// A one-stage practice match under the attacks' battle on Beatucada's
@@ -56,6 +81,10 @@ fn stage_with(key_of: &str, folder: Option<PathBuf>) -> Option<Heard> {
     let mut host = Host::new(Rc::default(), Some(Plays::new(store)));
     let clock = common::rig::fake_clock(&mut host);
     let draws = common::rig::Draws::here(&mut host, SIZE);
+    // The same stage in every run: the room's CPUs and the voice's takes
+    // drawn from fixed seeds, never from the time (a new room each time).
+    ddi_desktop::room::seed_for_tests(SEED);
+    ddi_desktop::play::voice::seed_for_tests(SEED);
     let room = common::practice::open(&mut ui, &env, &host);
     let chart = 4;
     let entry = common::practice::song_entry("beatucada", "Beatucada", chart, Difficulty::Medium);
@@ -121,20 +150,93 @@ fn stage_with(key_of: &str, folder: Option<PathBuf>) -> Option<Heard> {
             .filter(|l| !l.is_empty())
             .collect()
     };
-    let marked = |items: Vec<String>| -> Vec<(String, bool)> {
+    // "battle attack launched (shown) at 123.456 s"
+    let marked = |items: Vec<String>| -> Vec<Told> {
         items
             .into_iter()
             .map(|i| {
-                let (line, how) = i.split_once(" (").unwrap_or((i.as_str(), ""));
-                (line.to_string(), how.starts_with("said"))
+                let (line, rest) = i.split_once(" (").expect("how it was told");
+                let (how, at) = rest.split_once(") at ").expect("when");
+                Told {
+                    line: line.to_string(),
+                    said: how.starts_with("said"),
+                    at: at.trim_end_matches(" s").parse().expect("seconds"),
+                }
             })
             .collect()
+    };
+    let committed = |part: &str| {
+        host.log
+            .iter()
+            .filter(|l| l.starts_with("attack: committed ") && l.contains(part))
+            .count()
     };
     Some(Heard {
         spoken: list("announcer: spoke "),
         attacks: marked(list("attacks: ")),
         moments: marked(list("battle: ")),
+        launched: committed(" you→"),
+        against: committed("→you "),
     })
+}
+
+/// What `battle-voice-v3` promises of the player's attack moments,
+/// whichever take of each line was said: each attack the player launched
+/// told once and each against them at most once (one right behind
+/// another is not told again), by its line or in the status line; a
+/// launch told in the frame an attack against the player was said (a
+/// line that matters more) shown; a launch where no battle line was said
+/// for [`QUIET`] seconds said; and the stage ([`SEED`]) has such a quiet
+/// launch.
+fn quiet_launches_are_said(key: &str, heard: &Heard) {
+    let launches: Vec<&Told> = heard
+        .attacks
+        .iter()
+        .filter(|t| t.line == "battle attack launched")
+        .collect();
+    let incoming = || {
+        heard
+            .attacks
+            .iter()
+            .filter(|t| t.line == "battle attack incoming")
+    };
+    assert_eq!(launches.len(), heard.launched, "{key}: {:?}", heard.attacks);
+    assert!(
+        (1..=heard.against).contains(&incoming().count()),
+        "{key}: {} against the player: {:?}",
+        heard.against,
+        heard.attacks
+    );
+    let mut quiet = 0;
+    for launch in &launches {
+        if incoming().any(|t| t.said && t.at == launch.at) {
+            assert!(
+                !launch.said,
+                "{key}: said over an attack against the player: {:?}",
+                heard.attacks
+            );
+        }
+        let speaking = heard
+            .attacks
+            .iter()
+            .chain(&heard.moments)
+            .filter(|t| !std::ptr::eq(*t, *launch))
+            .any(|t| t.said && t.at <= launch.at && t.at > launch.at - QUIET);
+        if !speaking {
+            quiet += 1;
+            assert!(
+                launch.said,
+                "{key}: a quiet launch not said: {:?} {:?}",
+                heard.attacks, heard.moments
+            );
+        }
+    }
+    assert!(
+        quiet > 0,
+        "{key}: no launch in a quiet moment: {:?} {:?}",
+        heard.attacks,
+        heard.moments
+    );
 }
 
 /// `seconds` of a 16-bit mono WAV tone at 48 kHz.
@@ -150,8 +252,9 @@ fn wav(seconds: f64) -> Vec<u8> {
 /// (and nothing else of the battle's), found in a song folder's
 /// `Announcers/` and chosen: a practice stage says `battle attack
 /// incoming` and `battle attack launched` for the player's attack
-/// moments, and each moment is said or shown, never neither; the
-/// battle's other moments, which the pack lacks, are not said.
+/// moments, and each moment is said or shown, never neither, a launch in
+/// a quiet moment said ([`quiet_launches_are_said`]); the battle's other
+/// moments, which the pack lacks, are not said.
 #[test]
 fn a_scratch_pack_s_attack_lines_are_said_in_a_practice_stage() {
     let root = std::env::temp_dir()
@@ -176,10 +279,10 @@ fn a_scratch_pack_s_attack_lines_are_said_in_a_practice_stage() {
         heard
             .attacks
             .iter()
-            .filter(|(l, said)| l == line && *said == how)
+            .filter(|t| t.line == line && t.said == how)
             .count()
     };
-    assert!(said("battle attack launched") > 0, "{:?}", heard.spoken);
+    quiet_launches_are_said("tones", &heard);
     assert!(said("battle attack incoming") > 0, "{:?}", heard.spoken);
     for line in ["battle attack incoming", "battle attack launched"] {
         assert_eq!(said(line), told(line, true), "{line}");
@@ -198,11 +301,7 @@ fn a_scratch_pack_s_attack_lines_are_said_in_a_practice_stage() {
         "{:?}",
         heard.spoken
     );
-    assert!(
-        heard.moments.iter().all(|(_, said)| !said),
-        "{:?}",
-        heard.moments
-    );
+    assert!(heard.moments.iter().all(|t| !t.said), "{:?}", heard.moments);
 }
 
 /// Ours, which come with the game, chosen by their keys: each says a
@@ -214,7 +313,9 @@ fn a_scratch_pack_s_attack_lines_are_said_in_a_practice_stage() {
 /// in another's place), the
 /// autoplayed player's steps up as their new charts begin, and the status
 /// line shows only the moments passed over for a line that mattered as
-/// much.
+/// much: a launch in a quiet moment is said, one over an attack against
+/// the player shown ([`quiet_launches_are_said`]), never which happens to
+/// win.
 #[test]
 fn our_announcers_say_the_battle_lines_in_a_practice_stage() {
     for key in ["bundled:mr. clank", "bundled:ガキンさん"] {
@@ -227,7 +328,7 @@ fn our_announcers_say_the_battle_lines_in_a_practice_stage() {
         assert_eq!(heard.spoken[0], "battle match begin", "{key}: {:?}", heard.spoken);
         assert_eq!(heard.spoken[1], "gameplay here we go normal", "{key}");
         assert!(said("battle attack incoming") > 0, "{key}: {:?}", heard.spoken);
-        assert!(said("battle attack launched") > 0, "{key}: {:?}", heard.spoken);
+        quiet_launches_are_said(key, &heard);
         assert_eq!(
             heard.spoken.last().map(String::as_str),
             Some("battle match won"),
@@ -262,7 +363,7 @@ fn our_announcers_say_the_battle_lines_in_a_practice_stage() {
             let told = heard
                 .attacks
                 .iter()
-                .filter(|(l, said)| l == line && *said)
+                .filter(|t| t.line == line && t.said)
                 .count();
             assert_eq!(said(line), told, "{key}: {line}");
         }
@@ -270,7 +371,7 @@ fn our_announcers_say_the_battle_lines_in_a_practice_stage() {
             heard
                 .attacks
                 .iter()
-                .all(|(l, said)| *said || l == "battle attack launched"),
+                .all(|t| t.said || t.line == "battle attack launched"),
             "{key}: an attack against the player not said: {:?}",
             heard.attacks
         );
@@ -279,7 +380,7 @@ fn our_announcers_say_the_battle_lines_in_a_practice_stage() {
             heard
                 .moments
                 .iter()
-                .any(|(l, said)| l == "battle match begin" && *said),
+                .any(|t| t.line == "battle match begin" && t.said),
             "{key}: {:?}",
             heard.moments
         );

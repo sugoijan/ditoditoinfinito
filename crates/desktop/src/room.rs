@@ -40,6 +40,9 @@ thread_local! {
     static NEWS: RefCell<Option<Sender<ShellNews>>> = const { RefCell::new(None) };
     /// Where the audience's threads send theirs ([`audience_inbox`]).
     static AUDIENCE_NEWS: RefCell<Option<NewsTx>> = const { RefCell::new(None) };
+    /// TESTING ONLY: the seed the next practice room's CPUs are drawn
+    /// from in place of the time it is made ([`seed_for_tests`]).
+    static TEST_SEED: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
 }
 
 /// The room a stage handed to the play host is of (`crate::play::Request`
@@ -347,7 +350,13 @@ pub fn prepare_audience(job: LoadJob) {
 pub fn current() -> SharedRoom {
     let room = ROOM.with(|r| {
         r.borrow_mut()
-            .get_or_insert_with(|| ddi_ui::state::room::practice_room(crate::clock::now_ms()))
+            .get_or_insert_with(|| {
+                let now = crate::clock::now_ms();
+                match TEST_SEED.get() {
+                    Some(seed) => ddi_ui::state::room::RoomClient::shared(now, seed),
+                    None => ddi_ui::state::room::practice_room(now),
+                }
+            })
             .clone()
     });
     // The player's own row: their signed-in name where they are (not
@@ -366,6 +375,17 @@ pub fn develop(cpus: u16) {
         cpus,
         ..ddi_ui::state::room::development()
     });
+    discard();
+}
+
+/// TESTING ONLY: the practice room there is forgotten, and those this
+/// thread makes from now on ([`current`]) draw their CPUs (the roster,
+/// each one's seed, so their play and the stage's battle) from `seed`
+/// rather than from the time they are made, so a stage played in a test
+/// is the same in every run (the development switch's CPUs beyond the
+/// cap left aside).
+pub fn seed_for_tests(seed: u64) {
+    TEST_SEED.set(Some(seed));
     discard();
 }
 

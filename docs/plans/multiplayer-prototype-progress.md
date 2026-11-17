@@ -11529,6 +11529,26 @@ what feeds each; its `src/stats.rs` the vocabulary and the logic.
   switches for them (step 2, revision 13), the per-room session log
   (step 3), error reports (step 4).
 
+## The stage voice test's flake (2026-11-17)
+
+- **Cause, the test's:** `room_stage_voice`'s practice room drew its CPUs
+  from the time it was made (`practice_room(now_ms)`, as the shells mean
+  it) and the voice its takes from a time-seeded shuffle shared by every
+  thread, so each run played another stage (other CPUs, other attacks,
+  now and then a CPU outscoring the autoplay); the voice measures a
+  line's end on the play's audio clock, the fake one here, and was never
+  at fault. Fix: `ddi_desktop::room::seed_for_tests` and
+  `play::voice::seed_for_tests` (TESTING ONLY, this thread's), the
+  test's stage seeded (7) and the same in every run.
+- **The assertion says the design** (`battle-voice-v3`): each launch
+  told once, by its line or the status line; one in the frame an attack
+  against the player was said, shown; one with no battle line said in
+  the 8 s before it, said, and the seeded stage has one (the fourth
+  launch, 84.59 s). The host's log gives each told moment its host
+  second. The test alone 60 times under load (60 identical logs) and 10
+  times in the whole desktop suite (5 without `DDI_NO_GPU=1`, 5 with):
+  all passed.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

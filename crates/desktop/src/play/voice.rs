@@ -24,6 +24,21 @@ static BAGS: LazyLock<Mutex<Bags>> = LazyLock::new(|| {
     Mutex::new(Bags::new(seed))
 });
 
+thread_local! {
+    /// TESTING ONLY: this thread's own shuffles ([`seed_for_tests`]).
+    static TEST_BAGS: std::cell::RefCell<Option<Arc<Mutex<Bags>>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// TESTING ONLY: the voices this thread loads from now on take their
+/// sounds from shuffles of their own, begun anew from `seed`, rather
+/// than from the run's (seeded by the time, and shared by every thread):
+/// so which take of each line a test's play says, and how long it
+/// speaks, is the same in every run and whatever other tests load.
+pub fn seed_for_tests(seed: u64) {
+    TEST_BAGS.with_borrow_mut(|b| *b = Some(Arc::new(Mutex::new(Bags::new(seed)))));
+}
+
 /// What the thread sends.
 enum Arrived {
     /// The lines being decoded.
@@ -63,6 +78,7 @@ impl VoiceLoad {
         wake: Option<Arc<dyn Fn() + Send + Sync>>,
     ) -> VoiceLoad {
         let (tx, rx) = mpsc::channel();
+        let test_bags = TEST_BAGS.with_borrow(Clone::clone);
         let _ = std::thread::Builder::new()
             .name("ddi-announcer".into())
             .spawn(move || {
@@ -83,7 +99,8 @@ impl VoiceLoad {
                     )));
                     return;
                 };
-                let wanted = match BAGS.lock() {
+                let bags: &Mutex<Bags> = test_bags.as_deref().unwrap_or(&BAGS);
+                let wanted = match bags.lock() {
                     Ok(mut bags) => of.wanted(&a.kept, &mut bags),
                     Err(_) => return,
                 };
