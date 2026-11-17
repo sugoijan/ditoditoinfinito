@@ -928,3 +928,55 @@ fn a_room_stored_by_revision_12_loads_and_plays_on() {
     assert!(matches!(state.phase, Phase::Preparing { stage: StageId(3), .. }));
     assert_eq!(state.standings().unwrap(), before, "stages 1 and 2's points kept");
 }
+
+/// A room stored by revision 13 loads under every later one (round V,
+/// revision 14): the JSON revision 13's own reducer wrote
+/// (`room-revision-13.json`: the revision-12 fixture's room gone on,
+/// stage 3 picked, readied and played by three people and its two
+/// roster CPUs, reported with how each performed (the percent as round
+/// U has it), the match over) reads, writes back what it reads, and
+/// plays on. Revision 14 changes how every device plays a CPU of a level
+/// (`cpu-levels-v2`), not what a room keeps of it: a stored roster's
+/// levels read as they were written, a level's number now meaning the
+/// new level.
+#[test]
+fn a_room_stored_by_revision_13_loads_and_plays_on() {
+    let text = include_str!("room-revision-13.json");
+    let mut state: RoomState = serde_json::from_str(text).unwrap();
+    let back = serde_json::to_value(&state).unwrap();
+    assert_eq!(
+        back,
+        serde_json::from_str::<serde_json::Value>(text).unwrap(),
+        "written as it was read"
+    );
+    assert_eq!(state.phase, Phase::MatchResults);
+    let m = state.current.as_ref().unwrap();
+    assert_eq!(m.rules.cpu.mode, ddi_room::CpuMode::Roster);
+    assert_eq!(
+        m.rules.cpu.roster.iter().map(|c| c.level).collect::<Vec<_>>(),
+        [3, 7],
+        "the levels as stored"
+    );
+    let play = m.stages[2].play.as_ref().unwrap();
+    assert_eq!(play.reports.len(), 5);
+    assert_eq!(play.details.get(&ParticipantId(7)).unwrap().percent, Some(9_620));
+    assert!(play.result.is_some());
+    let before = state.standings().unwrap();
+    let revision = state.revision;
+    state
+        .apply(
+            ddi_room::Actor::Member(ParticipantId(2)),
+            Some(revision),
+            &Command::Pick {
+                content: ContentId {
+                    song: SongKey::new("song-4"),
+                    chart: ChartKey::new("digest-4"),
+                },
+                card: None,
+            },
+            Millis(2_000_000),
+        )
+        .unwrap();
+    assert!(matches!(state.phase, Phase::Preparing { .. }));
+    assert_ne!(state.standings(), Some(before), "a new match");
+}
