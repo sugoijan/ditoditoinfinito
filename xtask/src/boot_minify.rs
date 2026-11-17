@@ -360,6 +360,95 @@ mod tests {
         std::fs::remove_dir_all(&out).unwrap();
     }
 
+    /// The loader's choice of language (`site/boot.js`'s `chooseLanguage`,
+    /// between its `language-choice` marks) on every case of
+    /// `locales/system-language-cases.txt`, run under Node: the game's
+    /// own choice is held to the same lines (`ddi-ui`'s
+    /// `the_game_chooses_each_case_s_language`), so the loader says its
+    /// lines in the language the game will speak. Given the languages
+    /// there are and the shipped ones as `minify-boot` puts them in.
+    /// Without Node it says so and passes, except on CI (`CI` set), where
+    /// it fails.
+    #[test]
+    fn the_loader_chooses_each_case_s_language() {
+        use std::io::Write;
+        let root = crate::repo_root();
+        let js = std::fs::read_to_string(root.join("site/boot.js")).unwrap();
+        let begin = js.find("// language-choice: begin").expect("boot.js's begin mark");
+        let end = js.find("// language-choice: end").expect("boot.js's end mark");
+        let function = &js[begin..end];
+        let text = std::fs::read_to_string(root.join("locales/system-language-cases.txt")).unwrap();
+        let mut cases = Vec::new();
+        let mut wants = Vec::new();
+        for line in text.lines().map(str::trim) {
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let fields: Vec<&str> = line.split('|').map(str::trim).collect();
+            let [system, stored, forced, want] = fields[..] else {
+                panic!("not a case: {line}");
+            };
+            let system: Vec<&str> = match system {
+                "-" => Vec::new(),
+                s => s.split(',').map(str::trim).collect(),
+            };
+            let hash = match forced {
+                "-" => "#/".to_string(),
+                tag => format!("#/?lang={tag}"),
+            };
+            let stored = (stored != "-").then_some(stored);
+            cases.push(serde_json::json!({"system": system, "stored": stored, "hash": hash}));
+            wants.push((line.to_string(), want.to_string()));
+        }
+        let tags: Vec<&str> = ddi_l10n::all()
+            .filter(|l| l.status != ddi_l10n::Status::Pseudo)
+            .map(|l| l.tag)
+            .collect();
+        let lines = crate::l10n::boot_lines(false).unwrap();
+        let script = format!(
+            "{function}\nconst cases = {};\nconst tags = {};\nconst shipped = {};\n\
+             process.stdout.write(JSON.stringify(cases.map((c) => \
+             chooseLanguage(c.hash, c.stored, c.system, tags, shipped))));\n",
+            serde_json::Value::from(cases),
+            serde_json::json!(tags),
+            lines["shipped"],
+        );
+        let child = std::process::Command::new("node")
+            .arg("-")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn();
+        let mut child = match child {
+            Ok(c) => c,
+            Err(e) => {
+                assert!(
+                    std::env::var_os("CI").is_none(),
+                    "Node is needed on CI: {e}"
+                );
+                eprintln!("the loader's language cases not run: no Node ({e})");
+                return;
+            }
+        };
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(script.as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let chosen: Vec<String> = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(chosen.len(), wants.len());
+        for ((line, want), chosen) in wants.iter().zip(&chosen) {
+            assert_eq!(chosen, want, "{line}");
+        }
+    }
+
     #[test]
     fn a_broken_script_is_refused() {
         assert!(minify("(() => {").is_err());

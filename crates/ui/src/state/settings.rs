@@ -1853,4 +1853,47 @@ mod dancing_hand_tests {
         assert_eq!(Settings::cached().speed, 3.0);
         assert_eq!(Settings::cached().speed, 3.0);
     }
+
+    /// The cases of `locales/system-language-cases.txt`: the system's
+    /// languages, the settings as stored, the address's `lang=`, and the
+    /// language the game speaks as it starts (the settings loaded, then
+    /// their language chosen, then the address's forced, as the web's
+    /// start and router do). The web page's loader is held to the same
+    /// lines (`xtask`'s `the_loader_chooses_each_case_s_language`).
+    #[test]
+    fn the_game_chooses_each_case_s_language() {
+        use ddi_platform::storage::MemoryStore;
+        use std::rc::Rc;
+        let cases = include_str!("../../../../locales/system-language-cases.txt");
+        let mut n = 0;
+        for line in cases.lines().map(str::trim) {
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let fields: Vec<&str> = line.split('|').map(str::trim).collect();
+            let [system, stored, forced, want] = fields[..] else {
+                panic!("not a case: {line}");
+            };
+            storage::install(Rc::new(MemoryStore::default()));
+            if stored != "-" {
+                storage::set(Area::Local, KEY, stored).unwrap();
+            }
+            let system: Vec<&str> = match system {
+                "-" => Vec::new(),
+                s => s.split(',').map(str::trim).collect(),
+            };
+            ddi_l10n::set_system_languages(&system);
+            ddi_l10n::unforce();
+            Settings::load().choose_language();
+            if forced != "-" && !forced.is_empty() {
+                ddi_l10n::force(forced);
+            }
+            assert_eq!(ddi_l10n::current().tag, want, "{line}");
+            ddi_l10n::unforce();
+            n += 1;
+        }
+        assert!(n > 10, "{n} cases");
+        ddi_l10n::set_system_languages(Vec::<String>::new());
+        ddi_l10n::choose(Some("en"));
+    }
 }

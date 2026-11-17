@@ -2084,6 +2084,24 @@ pub fn opens_on_library(screen: &str, sample: bool) -> bool {
     LIBRARY_SCREENS.contains(&screen) && (!sample || screen == "announcer")
 }
 
+/// The system's languages, best first (`sys-locale`: macOS's preferred
+/// languages, Windows' user interface languages, Linux's `LANGUAGE`,
+/// `LC_ALL`, `LC_MESSAGES` and `LANG`); TESTING: `DDI_SYSTEM_LANGUAGES`
+/// (tags separated by commas, `ja-JP,en-US`) stands for them, so a run
+/// or a test is a system in another language without changing the
+/// machine's.
+pub fn system_languages() -> Vec<String> {
+    match std::env::var("DDI_SYSTEM_LANGUAGES") {
+        Ok(tags) => tags
+            .split(',')
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_string)
+            .collect(),
+        Err(_) => sys_locale::get_locales().collect(),
+    }
+}
+
 /// The theme's look, its environment (motion reduced as the settings
 /// say) and a UI for its screens.
 fn theme_base(fold: FoldFn) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
@@ -2092,7 +2110,7 @@ fn theme_base(fold: FoldFn) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
     env.platform = theme_screens::data::Platform::Desktop;
     let settings = ddi_ui::state::settings::Settings::load();
     // The UI's language: the settings' choice, else the system's.
-    ddi_l10n::set_system_languages(sys_locale::get_locales());
+    ddi_l10n::set_system_languages(system_languages());
     settings.choose_language();
     env.follow_motion(settings.reduced_motion, false);
     env.follow_cursor(&settings);

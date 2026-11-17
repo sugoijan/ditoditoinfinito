@@ -26,7 +26,7 @@ status = "shipped"
 [[language]]
 tag = "ja"
 name = "日本語"
-status = "preview"
+status = "shipped"
 faces = ["Noto Sans CJK JP"]
 
 # The faces the languages name, each cut to what its languages' messages

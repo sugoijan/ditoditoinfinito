@@ -1,0 +1,43 @@
+# The language the game speaks as it starts, and the web page's loader
+# with it (`site/boot.js`, which says its lines in it before the game
+# runs): one case a line, read by both sides' tests, so that the two
+# never disagree (`ddi-ui`'s `the_game_chooses_each_case_s_language`,
+# the game's own choice; `xtask`'s `the_loader_chooses_each_case_s_language`,
+# the loader's function run under Node).
+#
+# The rule (`ddi_l10n::choose`, `docs/plans/localization.md`, "Choosing
+# the language"): the address's `?lang=` where a language has that tag;
+# else the settings' language where a language has that tag; else the
+# first of the system's languages (the browser's `navigator.languages`,
+# desktop's `sys-locale`), best first, that a shipped language speaks:
+# the same tag, else the language without its region or script (`ja-JP`
+# and `ja-Jpan-JP` are `ja`), else any shipped language of it; else
+# English. Tags are matched without regard to case; a system's form
+# (`ja_JP.UTF-8`) and the old names (`tl` for `fil`) are read as BCP 47.
+#
+# Each line: the system's languages, best first, separated by commas
+# (`-`: none) | the settings as stored (their JSON; `-`: none) | the
+# address's `lang=` (`-`: none) | the language spoken.
+
+# The system's languages alone: the first one shipped wins.
+ja, ja-JP, en-US | - | - | ja
+ja-JP | - | - | ja
+JA-jp | - | - | ja
+ja-Jpan-JP | - | - | ja
+ja_JP.UTF-8 | - | - | ja
+en-US, ja | - | - | en
+en-US, ja-JP | - | - | en
+fr-FR, ja-JP | - | - | ja
+zh-Hant-TW, de, ja | - | - | ja
+fr-FR, de | - | - | en
+en-GB | - | - | en
+tl-PH | - | - | en
+- | - | - | en
+
+# The address's language for the session, whatever the rest says; a tag
+# no language has changes nothing.
+ja-JP | - | en | en
+en-US | - | ja | ja
+en-US | - | JA | ja
+ja-JP | - | xx | ja
+ja-JP | - | | ja

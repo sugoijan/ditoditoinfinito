@@ -12,32 +12,49 @@
   // The language the game will speak, chosen as it chooses it
   // (ddi_l10n::choose): the address's ?lang=, else the settings', else
   // the first of the browser's that a shipped language speaks (the same
-  // tag, else the language without its region, else any of it), else
-  // English.
-  const lang = (() => {
-    const tags = Object.keys(BOOT.first);
+  // tag, else the language without its region or script, else any of
+  // it), else English. `hash` is the address's, `stored` the settings'
+  // text, `browser` the browser's languages, best first, `tags` the
+  // languages there are and `shipped` those the browser's may choose.
+  // language-choice: begin (xtask's test runs this function on
+  // locales/system-language-cases.txt, as ddi-ui's runs the game's)
+  const chooseLanguage = (hash, stored, browser, tags, shipped) => {
     const known = (tag) => tags.find((t) => t.toLowerCase() == String(tag).toLowerCase());
     let forced = "";
-    for (const m of location.hash.matchAll(/[?&]lang=([^&]*)/g)) forced = m[1];
+    for (const m of String(hash).matchAll(/[?&]lang=([^&]*)/g)) forced = m[1];
     if (known(forced)) return known(forced);
     try {
-      const saved = JSON.parse(localStorage.getItem("ddi.settings.v1") || "{}").language;
+      const saved = JSON.parse(stored || "{}").language;
       if (saved && known(saved)) return known(saved);
     } catch (e) {}
     const alias = { tl: "fil", iw: "he", in: "id", no: "nb" };
     const base = (tag) => tag.split("-")[0].toLowerCase();
-    for (let tag of navigator.languages || [navigator.language || ""]) {
+    for (let tag of browser) {
       tag = String(tag).split(/[.@]/)[0].replace(/_/g, "-").toLowerCase();
       const b = alias[base(tag)] || base(tag);
       tag = b + tag.slice(base(tag).length);
       const found =
-        BOOT.shipped.find((t) => t.toLowerCase() == tag) ||
-        BOOT.shipped.find((t) => t.toLowerCase() == b) ||
-        BOOT.shipped.find((t) => base(t) == b);
+        shipped.find((t) => t.toLowerCase() == tag) ||
+        shipped.find((t) => t.toLowerCase() == b) ||
+        shipped.find((t) => base(t) == b);
       if (found) return found;
     }
     return "en";
-  })();
+  };
+  // language-choice: end
+  const lang = chooseLanguage(
+    location.hash,
+    (() => {
+      try {
+        return localStorage.getItem("ddi.settings.v1");
+      } catch (e) {
+        return null;
+      }
+    })(),
+    navigator.languages || [navigator.language || ""],
+    Object.keys(BOOT.first),
+    BOOT.shipped,
+  );
   // The language's lines: its first ones, the rest once fetched (below),
   // English's until then and should the fetch fail.
   const lines = Object.assign({}, BOOT.first[lang]);

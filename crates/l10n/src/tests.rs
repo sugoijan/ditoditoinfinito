@@ -117,9 +117,11 @@ fn pseudo_languages_mark_messages_and_data() {
 fn the_system_chooses_a_shipped_language() {
     set_system_languages(["fr-FR", "en_GB.UTF-8"]);
     assert_eq!(system_language().tag, "en");
-    // Japanese is a preview: never the system's choice, always the
-    // player's.
-    set_system_languages(["ja-JP"]);
+    // Japanese is shipped (2026-11-17): the system's choice where it is
+    // the first of the system's languages a shipped one speaks.
+    set_system_languages(["ja", "ja-JP", "en-US"]);
+    assert_eq!(choose(None).tag, "ja");
+    set_system_languages(["en-US", "ja-JP"]);
     assert_eq!(choose(None).tag, "en");
     assert_eq!(choose(Some("ja")).tag, "ja");
     assert_eq!(current().tag, "ja");
