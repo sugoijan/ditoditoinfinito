@@ -351,6 +351,12 @@ pub struct Settings {
     /// the default roster.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub practice_roster: Option<serde_json::Value>,
+    /// Options → Data → Usage statistics (the stats proposal's step 2, on
+    /// by default): an online room's socket sends the room's server what
+    /// kind of client this is and how its previous socket fared, in fixed
+    /// ranges (`ddi_room::client_stats`). Off, nothing of it is sent; what
+    /// the server counts by itself goes on.
+    pub usage_stats: bool,
 }
 
 /// The music's gain in a fresh profile: 69% on the volume slider (about
@@ -745,6 +751,7 @@ impl Default for Settings {
             multiplayer_rules_first: false,
             multiplayer_watch_link: false,
             practice_roster: None,
+            usage_stats: true,
             controls: ControlBindings::default(),
             fast_pad_poll: true,
             controller_styles: Default::default(),

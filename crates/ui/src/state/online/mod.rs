@@ -240,7 +240,17 @@ pub struct Online {
     /// Counts sign-ins completed (a room's link starts again after one).
     epoch: u64,
     version: u64,
+    /// What kind of client this is, as the shell says it, for a room's
+    /// usage report (`ddi_room::client_stats`; none: nothing is sent).
+    client_kind: Option<ClientKindFn>,
+    /// The page hidden or shown, and since when (the rooms' clock); none
+    /// until the shell says.
+    visibility: Option<(bool, u64)>,
 }
+
+/// The shell's account of what kind of client it is, asked when a report
+/// is due (its renderer may come after the online state).
+pub type ClientKindFn = Rc<dyn Fn() -> ddi_room::client_stats::ClientKind>;
 
 pub type SharedOnline = Rc<RefCell<Online>>;
 
@@ -271,7 +281,38 @@ impl Online {
             now: 0,
             epoch: 0,
             version: 0,
+            client_kind: None,
+            visibility: None,
         }
+    }
+
+    /// What kind of client this is, for the rooms' usage reports.
+    pub fn with_client_kind(mut self, kind: ClientKindFn) -> Online {
+        self.client_kind = Some(kind);
+        self
+    }
+
+    /// What kind of client this is, said after the state was made.
+    pub fn set_client_kind(&mut self, kind: ClientKindFn) {
+        self.client_kind = Some(kind);
+    }
+
+    /// What kind of client this is, where the shell said
+    /// (`ddi_room::client_stats::ClientKind`).
+    pub fn client_kind(&self) -> Option<ddi_room::client_stats::ClientKind> {
+        self.client_kind.as_ref().map(|k| k())
+    }
+
+    /// The page hidden or shown at `at_ms` (the rooms' clock): how long a
+    /// room's socket lived hidden, for its usage report.
+    pub fn set_hidden(&mut self, hidden: bool, at_ms: u64) {
+        if self.visibility.map(|(h, _)| h) != Some(hidden) {
+            self.visibility = Some((hidden, at_ms));
+        }
+    }
+
+    pub fn visibility(&self) -> Option<(bool, u64)> {
+        self.visibility
     }
 
     pub fn shared(self) -> SharedOnline {
@@ -834,3 +875,6 @@ mod review_tests;
 
 #[cfg(test)]
 mod away_tests;
+
+#[cfg(test)]
+mod usage_tests;

@@ -476,7 +476,17 @@ pages-privacy-stats-play = what was played: the charts' difficulty range and sty
 # A line of the list of what is counted (after a bullet).
 pages-privacy-stats-people = how many different people were in rooms each day.
 
-pages-privacy-stats-kept = These totals contain no names, accounts, addresses, rooms or song titles. To count the people of a day without knowing who they are, the server keeps a code made from each account with a secret key that changes every day, and deletes it once the day is counted. The totals are kept day by day for 13 months, then month by month. Bots and the game's computer players are counted apart from people. The game itself sends nothing for these statistics, and playing alone is never counted.
+pages-privacy-stats-kept = These totals contain no names, accounts, addresses, rooms or song titles. To count the people of a day without knowing who they are, the server keeps a code made from each account with a secret key that changes every day, and deletes it once the day is counted. The totals are kept day by day for 13 months, then month by month. Bots and the game's computer players are counted apart from people. Playing alone is never counted.
+
+# What the game itself sends for the totals (the stats proposal's step 2),
+# and the Options row that turns it off (options-usage-stats, "Send usage
+# statistics", in the Data section).
+# Variables:
+#   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
+pages-privacy-stats-game = { $platform ->
+    [web] While you are in an online room, the game also tells our server a few things for these totals, each time its connection to the room opens: that it is the game in a browser; your system (such as Windows, macOS, Android or iOS); whether your device is a phone, a tablet or a computer; whether the game draws with WebGPU or WebGL2; whether the screen is a touch screen; the game's version; how many times it has connected to the room and how many tries this connection took; and how its previous connection to the room ended (closed or dropped, and with which code), how long that connection lasted, how long the page was in the background while it lasted, whether its keep-alive messages were answered, and the round trip to our server. Each of these is one value from a fixed list or a range, never a name, an account, an address, a room or a song. The server adds them to the totals and keeps nothing else of them. To turn this off, set Options → Data → Send usage statistics to Off: the game then sends none of it, and the server's own counts above go on. Watching with an audience sends none of it.
+   *[desktop] While you are in an online room, the app also tells our server a few things for these totals, each time its connection to the room opens: that it is the app; your system (Windows, macOS or Linux); whether it draws with Metal, Vulkan, DirectX 12 or OpenGL; the game's version; how many times it has connected to the room and how many tries this connection took; and how its previous connection to the room ended (closed or dropped, and with which code), how long that connection lasted, how long the window was hidden while it lasted, and the round trip to our server. Each of these is one value from a fixed list or a range, never a name, an account, an address, a room or a song. The server adds them to the totals and keeps nothing else of them. To turn this off, set Options → Data → Send usage statistics to Off: the app then sends none of it, and the server's own counts above go on. Watching with an audience sends none of it.
+}
 
 # A heading inside the note.
 pages-privacy-logs-heading = Server logs

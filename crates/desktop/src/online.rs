@@ -120,14 +120,82 @@ pub fn signed_in_name() -> Option<String> {
 pub fn current() -> SharedOnline {
     KEPT.with(|k| {
         k.online_or(|| {
-            session(
+            let online = session(
                 crate::share::base(),
                 site(),
                 load_token(),
                 Rc::new(save_token),
-            )
+            );
+            {
+                let mut o = online.borrow_mut();
+                o.set_client_kind(Rc::new(|| client_kind("desktop")));
+                o.set_hidden(HIDDEN.get(), crate::clock::now_ms());
+            }
+            online
         })
     })
+}
+
+/// What the window draws with, for a room's usage report (`unknown`
+/// before a window is made; a bot says `none`).
+static GPU: std::sync::Mutex<&str> = std::sync::Mutex::new("unknown");
+
+thread_local! {
+    /// The window hidden (occluded or minimized).
+    static HIDDEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The window's graphics backend, as the usage report names it.
+pub fn set_gpu(backend: wgpu::Backend) {
+    let gpu = match backend {
+        wgpu::Backend::Metal => "metal",
+        wgpu::Backend::Vulkan => "vulkan",
+        wgpu::Backend::Dx12 => "dx12",
+        wgpu::Backend::Gl => "gl",
+        _ => "other",
+    };
+    if let Ok(mut g) = GPU.lock() {
+        *g = gpu;
+    }
+}
+
+/// The window hidden or shown: the online state told where there is one
+/// (how long a room's socket lived hidden, for its usage report).
+pub fn set_hidden(hidden: bool) {
+    HIDDEN.set(hidden);
+    if let Some(online) = KEPT.with(Kept::online) {
+        online
+            .borrow_mut()
+            .set_hidden(hidden, crate::clock::now_ms());
+    }
+}
+
+/// What kind of client this run is (`desktop`, or a bot's `bot`), for a
+/// room's usage report (`ddi_room::client_stats`; sent only where
+/// Options' Usage statistics is on).
+pub fn client_kind(app: &'static str) -> ddi_room::client_stats::ClientKind {
+    let system = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "other"
+    };
+    let gpu = if app == "bot" {
+        "none"
+    } else {
+        GPU.lock().map_or("unknown", |g| *g)
+    };
+    ddi_room::client_stats::ClientKind {
+        app,
+        system,
+        form: if app == "bot" { "unknown" } else { "computer" },
+        gpu,
+        touch: "unknown",
+        build: env!("CARGO_PKG_VERSION"),
+    }
 }
 
 /// An online state against the server at `base`, invite links on

@@ -115,6 +115,7 @@ pub fn privacy(platform: &str) -> Block {
         body.push(Block::Text(format!("• {}", String::from(line))));
     }
     body.push(Block::Text(pm::privacy_stats_kept().into()));
+    body.push(Block::Text(pm::privacy_stats_game(platform).into()));
     part(&mut body, pm::privacy_logs_heading(), pm::privacy_logs());
     part(
         &mut body,

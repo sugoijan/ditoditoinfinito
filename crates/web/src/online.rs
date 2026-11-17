@@ -258,16 +258,76 @@ pub(crate) fn current() -> SharedOnline {
     }
     KEPT.with(|k| {
         k.online_or(|| {
-            Online::new(
+            let online = Online::new(
                 Box::new(WebHttp::default()),
                 OnlineConfig {
                     platform: Platform::Web,
                     site: site(),
                 },
             )
-            .shared()
+            .with_client_kind(Rc::new(client_kind))
+            .shared();
+            follow_visibility(&online);
+            online
         })
     })
+}
+
+/// What kind of client this page is, for a room's usage report
+/// (`ddi_room::client_stats`; sent only where Options' Usage statistics
+/// is on): the browser's User-Agent, touch points and screen read here
+/// into the report's fixed lists, never sent as such.
+fn client_kind() -> ddi_room::client_stats::ClientKind {
+    let window = web_sys::window();
+    let navigator = window.as_ref().map(|w| w.navigator());
+    let agent = navigator
+        .as_ref()
+        .and_then(|n| n.user_agent().ok())
+        .unwrap_or_default();
+    let touch = navigator
+        .as_ref()
+        .map_or(0, |n| n.max_touch_points().max(0) as u32);
+    let short = window
+        .as_ref()
+        .and_then(|w| w.screen().ok())
+        .and_then(|s| Some(s.width().ok()?.min(s.height().ok()?)))
+        .map_or(0.0, f64::from);
+    let (system, form) = ddi_room::client_stats::web_device(&agent, touch, short);
+    let gpu = match crate::web::screen::current() {
+        Some(g) if g.is_gl() => "webgl2",
+        Some(_) => "webgpu",
+        None => "unknown",
+    };
+    ddi_room::client_stats::ClientKind {
+        app: "web",
+        system,
+        form,
+        gpu,
+        touch: if touch > 0 { "yes" } else { "no" },
+        build: env!("CARGO_PKG_VERSION"),
+    }
+}
+
+/// The page's visibility handed to the online state as it changes (how
+/// long a room's socket lived hidden, for its usage report).
+fn follow_visibility(online: &SharedOnline) {
+    let hidden = || {
+        web_sys::window()
+            .and_then(|w| w.document())
+            .is_some_and(|d| d.hidden())
+    };
+    online.borrow_mut().set_hidden(hidden(), now_ms());
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    let weak = Rc::downgrade(online);
+    let listener = gloo::events::EventListener::new(&document, "visibilitychange", move |_| {
+        if let Some(online) = weak.upgrade() {
+            online.borrow_mut().set_hidden(hidden(), now_ms());
+        }
+    });
+    // For the page's life, as the online state is.
+    listener.forget();
 }
 
 fn dest_text(dest: &Dest) -> String {

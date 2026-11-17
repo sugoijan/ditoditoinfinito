@@ -38,6 +38,11 @@ impl Kept {
         o
     }
 
+    /// The online state, where it was made (never made for the asking).
+    pub fn online(&self) -> Option<SharedOnline> {
+        self.online.borrow().clone()
+    }
+
     /// The signed-in player's display name, where the online state exists
     /// and is signed in (never made for the asking): CPU practice's own
     /// row shows it with a "You" badge.

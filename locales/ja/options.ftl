@@ -456,6 +456,11 @@ options-privacy-description = { $platform ->
     [web] ゲームとそのオンラインサーバーがあなたについて保存するものと、サーバーが数える利用統計の合計です。ゲームのサイトでお知らせを開きます。クレジットにも載っています。
    *[desktop] ゲームとそのオンラインサーバーがあなたについて保存するものと、サーバーが数える利用統計の合計です。Webでお知らせを開きます。クレジットにも載っています。
 }
+options-usage-stats = 利用統計を送る
+options-usage-stats-description = { $platform ->
+    [web] オンラインのルームで、どんなデバイスか、前回の接続がどうだったかを、決まった範囲の値で名前なしにサーバーへ伝えます。オフにすると何も送りません。
+   *[desktop] オンラインのルームで、どんなコンピューターか、前回の接続がどうだったかを、決まった範囲の値で名前なしにサーバーへ伝えます。オフにすると何も送りません。
+}
 options-reset-folders = 曲フォルダー
 options-reset-folders-button = 解除
 options-reset-folders-none = なし

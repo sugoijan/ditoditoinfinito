@@ -1987,6 +1987,13 @@ impl OptionsModel {
                     "",
                     m::privacy_description(self.world.platform.l10n()),
                 ),
+                choice(
+                    "usage_stats",
+                    m::usage_stats(),
+                    on_off(),
+                    self.settings.usage_stats as usize,
+                    m::usage_stats_description(self.world.platform.l10n()),
+                ),
                 actions(
                     "reset.everything",
                     m::reset_everything(),
@@ -2081,6 +2088,7 @@ impl OptionsModel {
             "simplify_center" => s.simplify_center = at(&CENTER_VERSIONS, i),
             "convert_pump_single" => s.convert_pump_single = on,
             "convert_five_keys" => s.convert_five_keys = on,
+            "usage_stats" => s.usage_stats = on,
             "no_holds" => s.transform.no_holds = on,
             "no_stretch" => s.transform.no_stretch = on,
             "ruleset_mode" => s.ruleset_mode = at(&RULESET_MODES, i),

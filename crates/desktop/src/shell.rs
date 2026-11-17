@@ -548,6 +548,7 @@ impl Shell {
         self.play.refresh_hint = refresh_rate(&window);
         self.pacer.set_refresh_hint(self.play.refresh_hint);
         self.play.graphics = format!("{:?}", adapter.get_info().backend);
+        crate::online::set_gpu(adapter.get_info().backend);
         let link = crate::display_link::DisplayLink::new(&window, self.play.refresh_hint);
         if let Some(l) = &link {
             l.run(self.play_on);
@@ -1658,6 +1659,9 @@ impl ApplicationHandler for Shell {
                     self.hidden.hide(Instant::now());
                 } else if !o {
                     self.shown();
+                }
+                if o != self.occluded {
+                    crate::online::set_hidden(o);
                 }
                 self.occluded = o;
                 self.pending = false;

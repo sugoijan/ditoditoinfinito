@@ -11529,6 +11529,57 @@ what feeds each; its `src/stats.rs` the vocabulary and the logic.
   switches for them (step 2, revision 13), the per-room session log
   (step 3), error reports (step 4).
 
+## Usage statistics, step 2: the client says what it is and how its connection fared (2026-11-17)
+
+The stats proposal's step 2, inside room model revision 13 (the round's
+other reasons are another agent's): a member's device sends, on its room's
+socket, one usage report a socket (`ddi_room::client_stats`, `stats-v1`),
+in fixed lists and ranges, and the server adds it to step 1's daily
+totals. The server's README, "Usage statistics (step 2)", has the
+metrics and what feeds each.
+
+- **The message**: `{"v":2,"stats":{…}}`, its own envelope (never inside
+  `live`, whose reader closes a socket on what it cannot read), sent once
+  the socket's first snapshot came, only where Options → Data → **Send
+  usage statistics** is On (`Settings::usage_stats`, On by default; the
+  row under Privacy, both shells) and the shell said what kind of client
+  it is (`Online::with_client_kind`/`set_client_kind`). What it says:
+  the app (web, desktop, bot), the system family, phone/tablet/computer
+  (the web's from its User-Agent, touch points and screen, read on the
+  device and never sent: an iPad asking for desktop pages is a tablet,
+  `client_stats::web_device`), WebGPU or WebGL2 (desktop: Metal, Vulkan,
+  DirectX 12, OpenGL), touch, the build (`CARGO_PKG_VERSION`), the
+  socket's number in the room and the tickets it took; and the previous
+  socket's fate as the client saw it: closed or dropped and its code, the
+  keep-alive's verdict or the client starting over, its life, the time
+  the page was hidden while it lived (the web's `visibilitychange`,
+  desktop's window occluded; unknown where never said, as for bots) and
+  hidden at its end, the keep-alive on it, the room clock's round trip.
+  Measured sans-IO in `OnlineAuthority` (`client_stats::Tracker`); sent by
+  the UI's `OnlineLink`. Audience seats send nothing.
+- **Bounds**: 1,024 bytes, one a socket, every value from its list (the
+  build one to four groups of digits); anything else refused whole by the
+  server (counted as refused, nothing kept or logged). The server tells it
+  by its prefix, never answers it, never broadcasts it and never closes a
+  socket over it; `FakeServer` does the same (`usage_reports`).
+- **Older peers**: none meet (revision 13 on both sides, the server
+  first); a server that dropped a report would change nothing for the
+  client, which waits for no answer.
+- **Tests**: `client_stats`'s own (the tracker's fates, refusals,
+  `web_device`), `tests/online.rs`'s
+  `a_usage_report_goes_once_a_socket_and_says_how_the_last_one_ended`
+  (the room reads nothing, a silent cut's fate), the UI's `usage_tests`
+  (Off: nothing leaves; On: once a socket; no kind said: nothing); the
+  server's `nothing_identifying_is_counted_or_kept` over a played room
+  with reports taken and refused, and
+  `a_clients_own_report_is_counted_beside_the_servers_guess`.
+- **The privacy note**: a changed paragraph (`pages-privacy-stats-game`,
+  the site's page, "The game itself sends nothing" gone from
+  `pages-privacy-stats-kept`): **a draft for the maintainer's review**,
+  Japanese unverified.
+- **Not done**: steps 3 (the per-room session log) and 4 (error reports,
+  Global Privacy Control).
+
 ## The stage voice test's flake (2026-11-17)
 
 - **Cause, the test's:** `room_stage_voice`'s practice room drew its CPUs

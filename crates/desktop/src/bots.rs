@@ -1628,6 +1628,10 @@ pub fn run_with(o: Options, token: &str) -> i32 {
             Some(session),
             Rc::new(|_: Option<&str>| {}),
         );
+        // Its rooms' usage reports say it is a bot.
+        online
+            .borrow_mut()
+            .set_client_kind(Rc::new(|| crate::online::client_kind("bot")));
         let role = if o.host && n == 0 {
             Role::Host(Box::new(Host {
                 songs: songs.clone(),

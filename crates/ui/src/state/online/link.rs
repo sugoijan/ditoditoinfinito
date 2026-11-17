@@ -291,6 +291,7 @@ impl OnlineLink {
                 _ => {}
             }
         }
+        self.usage_report();
         if self.authority.wants_ticket() {
             self.authority.ticket_asked();
             self.ticket_req = Some(self.online.borrow_mut().request(api::ticket(&self.room_id)));
@@ -365,6 +366,26 @@ impl OnlineLink {
         // Tried at once, still Reconnecting (never Joining for a moment)
         // and its attempts counted on.
         waiting && self.authority.retry_now()
+    }
+
+    /// The page's visibility handed on, and the usage report sent once a
+    /// socket has the room (`ddi_room::client_stats`): only where Options'
+    /// Usage statistics is on and the shell said what kind of client it
+    /// is; otherwise dropped, nothing sent.
+    fn usage_report(&mut self) {
+        let visibility = self.online.borrow().visibility();
+        if let Some((hidden, at)) = visibility {
+            self.authority.set_hidden(hidden, at);
+        }
+        if !self.authority.stats_due() {
+            return;
+        }
+        let kind = if crate::state::settings::Settings::cached().usage_stats {
+            self.online.borrow().client_kind()
+        } else {
+            None
+        };
+        self.authority.send_stats(kind.as_ref());
     }
 
     fn take(&self, req: Option<u64>) -> Option<ApiResponse> {

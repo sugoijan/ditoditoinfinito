@@ -867,6 +867,19 @@ options-privacy-description = { $platform ->
    *[desktop] What the game and its online server keep about you, and the usage totals the server counts. Opens the note on the web; it is also in the credits.
 }
 
+# Options → Data, under Privacy: a switch (Off, On; On by default). In an
+# online room the game sends the server what kind of client it is and how
+# its last connection to the room went, for the usage totals (the stats
+# proposal's step 2); Off, it sends none of this.
+options-usage-stats = Send usage statistics
+
+# Variables:
+#   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
+options-usage-stats-description = { $platform ->
+    [web] In an online room, the game tells our server what kind of device this is and how its last connection went, in fixed ranges, never your name. Off, it sends none of it.
+   *[desktop] In an online room, the app tells our server what kind of computer this is and how its last connection went, in fixed ranges, never your name. Off, it sends none of it.
+}
+
 # Desktop: forgets every song folder.
 options-reset-folders = Song folders
 options-reset-folders-button = Forget
