@@ -1295,6 +1295,7 @@ impl GameLoop {
                 "prompt_backdrop",
                 "replay",
                 "music_seconds",
+                "play_began",
             ] {
                 if let Ok(v) = js_sys::Reflect::get(&old, &key.into())
                     && !v.is_undefined()

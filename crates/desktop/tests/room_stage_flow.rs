@@ -417,3 +417,82 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
     assert_eq!(room.borrow().my_targeting(), Targeting::Leader);
     eprintln!("attacks: {attacks}, {against_me} against the player");
 }
+
+/// The maintainer's of 2026-11-17: a window hidden (covered, minimized)
+/// when the room starts a stage the player readied for starts its play by
+/// itself and runs it unseen (the notes passed meanwhile missed), as a
+/// play already running does (round P1b). The window draws no frame and
+/// updates no screen while hidden: only its unseen step runs, a second
+/// apart here (a hidden page's timers). The play starts within one step of
+/// the room's start, is judged on unseen to its end, and the room hears
+/// it played; shown again, the results are there. Never ready by itself:
+/// a player not ready is left alone.
+#[test]
+fn a_ready_players_hidden_window_starts_the_stage_and_plays_it_unseen() {
+    common::indexes();
+    let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
+    let mut host = Host::new(Rc::default(), None);
+    let clock = common::rig::fake_clock(&mut host);
+    let draws = common::rig::Draws::here(&mut host, SIZE);
+    let room = common::practice::open(&mut ui, &env, &host);
+    let entry = common::practice::song_entry("beatucada", "Beatucada", CHART, Difficulty::Hard);
+    room.borrow_mut().pick(&entry, &entry.charts[0]).unwrap();
+    ui.update(0.1);
+    let stage = room.borrow().state().upcoming_stage().unwrap();
+    let mut request = host.requested.borrow_mut().take().expect("the stage asked for");
+    request.auto = true;
+    *host.requested.borrow_mut() = Some(request);
+    draws.wait_prompt(&mut host, &mut ui, &env);
+    ui.update(0.5);
+    assert_eq!(top(&ui), "play-prompt");
+    let hidden_step = |host: &mut Host, ui: &mut ddi_ui::Ui, at_ms: u64| {
+        ui.set_wall_ms(at_ms);
+        let now = clock.fetch_add(1_000_000_000, Ordering::SeqCst) + 1_000_000_000;
+        host.step_unseen(HostTime(now as f64 / 1e9), ui, &env, draws.dev(), 48_000);
+        // (The window's loop polls the host between its steps too.)
+        draws.poll(host, ui, &env);
+    };
+    // Not ready: hidden through the room's whole window, nothing readies
+    // or starts.
+    let t0 = room.borrow().now_ms();
+    for s in 1..=3 {
+        hidden_step(&mut host, &mut ui, t0 + s * 1_000);
+    }
+    assert!(!room.borrow().ready() && !host.playing(), "never readied by itself");
+    // Ready, then hidden: the room counts down (3 s) and starts the stage.
+    ui.update(0.05);
+    key(&mut ui, "Enter", "Enter");
+    ui.update(0.05);
+    assert!(room.borrow().ready());
+    let t0 = room.borrow().now_ms();
+    let mut started = None;
+    for s in 1..=6 {
+        hidden_step(&mut host, &mut ui, t0 + s * 1_000);
+        if host.playing() {
+            started = Some(s);
+            break;
+        }
+    }
+    assert!(room.borrow().stage_started(stage), "the room started it");
+    assert_eq!(started, Some(3), "the play starts at the unseen step after the start");
+    let me = room.borrow().me();
+    assert!(
+        matches!(
+            room.borrow().state().participation(me),
+            Some(ddi_room::Participation::Competing { .. })
+        ),
+        "playing in the room's lists"
+    );
+    // Judged on unseen to its end, a second at a time.
+    let mut steps = 0;
+    while host.playing() {
+        hidden_step(&mut host, &mut ui, t0 + (4 + steps) * 1_000);
+        steps += 1;
+        assert!(steps < 400, "the play never ended");
+    }
+    assert!(steps > 30, "played through: {steps}");
+    // Shown again: the results, the prompt gone.
+    ui.update(0.05);
+    assert_eq!(top(&ui), "results");
+    assert!(!ui.layers().iter().any(|l| l.name == "play-prompt"), "{:?}", ui.layers());
+}

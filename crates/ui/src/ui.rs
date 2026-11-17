@@ -1106,6 +1106,23 @@ impl Ui {
         !self.layers.is_empty() && !self.layers.iter().any(|l| l.phase.in_transition())
     }
 
+    /// A step while the shell draws no frame and updates nothing (a
+    /// hidden page, a covered or minimized window): each screen's
+    /// [`Screen::unseen`] alone, on the clocks the shell set
+    /// ([`Ui::set_wall_ms`]); no time passes for the screens' own
+    /// animations and countdowns. What the screens asked for is taken as
+    /// after an update ([`Ui::take_requests`]).
+    pub fn step_unseen(&mut self) {
+        for id in self.layer_ids() {
+            let mut cx = self.cx(id, false);
+            let Some(layer) = self.layer_mut(id) else {
+                continue;
+            };
+            layer.screen.unseen(&mut cx);
+            self.apply(id, cx);
+        }
+    }
+
     pub fn update(&mut self, dt: f32) {
         let dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
         self.time += f64::from(dt);

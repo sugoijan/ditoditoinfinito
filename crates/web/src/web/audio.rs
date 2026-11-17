@@ -320,10 +320,16 @@ impl WebAudio {
     /// Waits (up to ~800 ms) for the output stream to report its hardware
     /// latency, which reads 0 right after the context starts (`baseLatency`
     /// is available immediately and is not what we are waiting for). Browsers
-    /// that never report it simply wait out the timeout.
+    /// that never report it simply wait out the timeout. The timeout is the
+    /// clock's, not a count of timers: a hidden page's timers come a
+    /// second apart or more (a minute, in Chrome after five minutes), and
+    /// sixteen of them would hold up the music's decode of a stage that
+    /// starts while the page is hidden (2026-11-17); it waits one then.
     pub(crate) async fn wait_for_latency(&self) {
+        let now = crate::web::clock::PerformanceClock::now_ms;
+        let start = now();
         for _ in 0..16 {
-            if self.output_latency() > 0.0 {
+            if self.output_latency() > 0.0 || now() - start >= 800.0 {
                 return;
             }
             gloo::timers::future::TimeoutFuture::new(50).await;

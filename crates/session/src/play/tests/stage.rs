@@ -1098,6 +1098,46 @@ fn a_hidden_stage_plays_on_and_judges_as_its_frames_would() {
     ));
 }
 
+/// The maintainer's of 2026-11-17: a page hidden when the room starts the
+/// stage its player readied for starts the play by itself and runs it
+/// unseen (`ddi_ui`'s `Screen::unseen`): its first step comes a hidden
+/// page's timer after its start, a second here, and the next a second
+/// apart, until the page is shown again at 30 s and its frames go on at
+/// 60 a second. Judged by the audio clock, it ends as the same play
+/// started seen: the same tally, attack ledger and outcome.
+#[test]
+fn a_stage_started_unseen_judges_as_one_started_seen() {
+    let song = bundled("beatucada");
+    let mut practice = attacks_room(3, 2);
+    let mut now = 0;
+    let order = begin(&song, &mut practice, &mut now);
+    let keys: Vec<(f64, &str, bool)> = (0..8)
+        .flat_map(|i| {
+            let at = 4.0 + f64::from(i) * 0.5;
+            [(at, "ArrowLeft", true), (at + 0.05, "ArrowLeft", false)]
+        })
+        .collect();
+    let (mut seen, clock) = stage_session(&song, &order, false, &keys);
+    let seen_end = run(&mut seen, &clock, 60.0, 300.0).expect("ends");
+    let (mut unseen, clock) = stage_session(&song, &order, false, &keys);
+    unseen.inputs.hidden = true;
+    assert!(run_until(&mut unseen, &clock, 1.0, 30.0).is_none());
+    let unseen_end = run(&mut unseen, &clock, 60.0, 300.0).expect("ends");
+    assert!(!matches!(unseen_end, SessionEvent::Interrupted), "interrupted");
+    assert_eq!(
+        std::mem::discriminant(&seen_end),
+        std::mem::discriminant(&unseen_end)
+    );
+    assert_eq!(seen.player.tally(), unseen.player.tally());
+    let (a, b) = (
+        seen.battle().unwrap().attacks().unwrap(),
+        unseen.battle().unwrap().attacks().unwrap(),
+    );
+    assert_eq!(a.record(), b.record(), "the ledger");
+    let (oa, ob) = (seen.take_stage_outcome(), unseen.take_stage_outcome());
+    assert_eq!(oa.map(|o| o.ranking), ob.map(|o| o.ranking), "the outcome");
+}
+
 /// The stage `s` played, again without frames: the player's log replayed
 /// in long steps into a fresh battle (its shocks delivered again as the
 /// checkpoints commit them), the CPUs from their seeds. Its record.

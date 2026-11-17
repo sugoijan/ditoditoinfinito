@@ -228,6 +228,14 @@ pub trait Screen {
     /// A frame of `dt` seconds, after the actors' own update.
     fn update(&mut self, _dt: f32, _root: &mut Actor, _cx: &mut Cx) {}
 
+    /// A step while the shell draws no frame (a hidden page, a covered or
+    /// minimized window: [`crate::Ui::step_unseen`]): what must not wait
+    /// for the screen to be seen again, and nothing else (no animation, no
+    /// countdown of the screen's own). A room's stage's prompt starts the
+    /// play its player readied for once the room starts the stage (the
+    /// maintainer, 2026-11-17).
+    fn unseen(&mut self, _cx: &mut Cx) {}
+
     /// Whether the screen moves its contents under a still pointer by
     /// its own hand this frame (a list gliding, a field following the
     /// music), without tweens: the hover is picked again while it does.

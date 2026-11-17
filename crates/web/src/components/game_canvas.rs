@@ -2577,6 +2577,22 @@ impl GameCanvas {
                     &session.layout,
                     &self.settings,
                 );
+                // When the play began, the song's second then and whether
+                // the page was hidden (`__DDI_DEBUG.play_began`, for tests:
+                // a stage the room started while the page was hidden
+                // begins unseen).
+                if let Some(d) = crate::web::debug_object() {
+                    let ms = crate::web::clock::PerformanceClock::now_ms();
+                    let song = session
+                        .player
+                        .clock()
+                        .heard_now(ddi_platform::HostTime(ms / 1000.0));
+                    let began = js_sys::Object::new();
+                    let _ = js_sys::Reflect::set(&began, &"ms".into(), &ms.into());
+                    let _ = js_sys::Reflect::set(&began, &"song".into(), &song.into());
+                    let _ = js_sys::Reflect::set(&began, &"hidden".into(), &page_hidden().into());
+                    let _ = js_sys::Reflect::set(&d, &"play_began".into(), &began);
+                }
                 self.start_refresh = self.refresh_hz();
                 self.begun += 1;
                 self.save = Save::NotAsked;
@@ -3003,6 +3019,7 @@ impl GameCanvas {
         }
         let mut prompt = PromptScreen::new(env, self.prompt_state.clone(), act);
         // A room's stage (M7b): its prompt is the readiness check.
+        let in_room = ctx_stage.is_some() && !watched;
         if let Some(order) = ctx_stage.as_deref().filter(|_| !watched) {
             let (room, shell) = crate::room::prompt_room();
             prompt = prompt.with_room(room, order.stage, shell);
@@ -3018,8 +3035,12 @@ impl GameCanvas {
                 *self.results_host.borrow_mut() = Some(Rc::downgrade(&e.host));
                 let pads = self.gamepads.as_ref().map(Gamepads::connected);
                 crate::ui_host::hand_over(&e.host, pads.unwrap_or_default());
+                let frames = schedule(self.game.clone(), GameLoop::idle);
+                if in_room {
+                    *frames.unseen.borrow_mut() = Some(prompt_unseen(&e.host));
+                }
                 self.prompt = Some(e);
-                self.raf = Some(schedule(self.game.clone(), GameLoop::idle));
+                self.raf = Some(frames);
             }
             Err(e) => web_sys::console::warn_1(&format!("start prompt: {e}").into()),
         }
@@ -3054,6 +3075,7 @@ impl GameCanvas {
         }
         self.results_host.borrow_mut().take();
         self.raf = None;
+        crate::room::set_unseen_prompt(None);
         crate::generated::set_still(None, None);
         crate::web::forget_debug(&["ui", "prompt", "prompt_backdrop"]);
     }
@@ -3888,11 +3910,8 @@ const UNSEEN_MS: u32 = 100;
 /// forfeits the stage; `GameLoop::tick_unseen`).
 fn schedule_play(game: Rc<RefCell<Option<GameLoop>>>) -> Rc<Frames> {
     let frames = schedule(game.clone(), GameLoop::frame);
-    let timer = gloo::timers::callback::Interval::new(UNSEEN_MS, move || {
-        let hidden = web_sys::window()
-            .and_then(|w| w.document())
-            .is_some_and(|d| d.hidden());
-        if !hidden {
+    let tick = move || {
+        if !page_hidden() {
             return;
         }
         let now = crate::web::clock::PerformanceClock::now_ms();
@@ -3901,9 +3920,45 @@ fn schedule_play(game: Rc<RefCell<Option<GameLoop>>>) -> Rc<Frames> {
         {
             g.tick_unseen(now);
         }
-    });
+    };
+    // A play that starts while the page is hidden (its prompt's unseen
+    // step, [`prompt_unseen`]) is judged at once: its stream begins now,
+    // not at the hidden page's next timer, which may be a minute away.
+    tick();
+    let timer = gloo::timers::callback::Interval::new(UNSEEN_MS, tick);
     *frames.unseen.borrow_mut() = Some(timer);
     frames
+}
+
+/// Whether the page is hidden (a tab in the background, a minimized
+/// window): the browser gives it no animation frame.
+fn page_hidden() -> bool {
+    web_sys::window()
+        .and_then(|w| w.document())
+        .is_some_and(|d| d.hidden())
+}
+
+/// A room's stage's prompt while the page is hidden and draws no frame
+/// (the maintainer, 2026-11-17: the play starts and runs unseen once the
+/// room starts the stage the player readied for): its screens stepped
+/// unseen (`crate::ui_host::step_unseen`: the room run, Start pressed for
+/// the player) on a timer at the hidden page's pace, a second apart or
+/// more, and at once when the room's socket brings something
+/// (`crate::room::wake_hidden`, which runs the room first: the start
+/// committed wakes the page as it comes). The audio context is the one
+/// the Ready press made or kept (`PromptChoice::Ready`), so nothing new
+/// needs a gesture. The timer, kept with the prompt's frames.
+fn prompt_unseen(host: &Rc<RefCell<crate::ui_host::Host>>) -> gloo::timers::callback::Interval {
+    let weak = Rc::downgrade(host);
+    let step: Rc<dyn Fn()> = Rc::new(move || {
+        if page_hidden()
+            && let Some(host) = weak.upgrade()
+        {
+            crate::ui_host::step_unseen(&host);
+        }
+    });
+    crate::room::set_unseen_prompt(Some(step.clone()));
+    gloo::timers::callback::Interval::new(UNSEEN_MS, move || step())
 }
 
 /// Pixels of a work's layers kept decoded, in all (each is kept twice: the

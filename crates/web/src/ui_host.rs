@@ -522,6 +522,30 @@ pub(crate) fn wake(host: &Rc<RefCell<Host>>) {
     schedule(host);
 }
 
+/// A step of `host`'s screens while the page is hidden and the browser
+/// gives it no frame (`ddi_ui::Ui::step_unseen`: what must not wait for
+/// the page to be seen again, nothing drawn): its clocks set as a frame
+/// sets them, what the screens asked for carried out. A room's stage's
+/// prompt starts the play its player readied for once the room starts
+/// the stage (the maintainer, 2026-11-17).
+pub(crate) fn step_unseen(host: &Rc<RefCell<Host>>) {
+    let Ok(mut h) = host.try_borrow_mut() else {
+        return;
+    };
+    if h.closed {
+        return;
+    }
+    let (origin, now) = web_sys::window()
+        .and_then(|w| w.performance())
+        .map_or((0.0, 0.0), |p| (p.time_origin(), p.now()));
+    h.ui.set_clock((origin + now) / 1000.0);
+    h.ui.set_wall_ms(crate::room::now_ms());
+    h.ui.step_unseen();
+    let requests = h.ui.take_requests();
+    h.run(requests);
+    h.navigate_now();
+}
+
 /// Runs `ui` (with `theme`'s env, when given) on the app's canvas over the
 /// whole window in `el`, a route of its own: its frame, the hidden inputs,
 /// the listeners, the pads, history for its dialogs; `extra` adds to

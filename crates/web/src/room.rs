@@ -221,6 +221,21 @@ thread_local! {
     static HURRIED_AT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
+thread_local! {
+    /// The unseen step of a room's stage's prompt on the page, while it
+    /// shows (`components::game_canvas`'s `prompt_unseen`).
+    static UNSEEN_PROMPT: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+}
+
+/// The unseen step of the stage's prompt the page shows (`None` once it
+/// goes): run after the kept room's own run when its socket wakes the
+/// hidden page ([`wake_hidden`]), so that a stage the room starts while
+/// the page is hidden starts its play as the start comes (the maintainer,
+/// 2026-11-17), not at the hidden page's next timer.
+pub(crate) fn set_unseen_prompt(step: Option<Rc<dyn Fn()>>) {
+    UNSEEN_PROMPT.with_borrow_mut(|s| *s = step);
+}
+
 /// A hidden page's reconnect is tried at once no more often than this
 /// (ms): a socket that closes again and again (a server that is down)
 /// backs off as ever in between.
@@ -350,6 +365,11 @@ pub(crate) fn wake_hidden(closed: bool) {
             return;
         }
         pump_kept(false);
+        // A stage's prompt on the page: stepped now too, so that the
+        // start the socket brought starts its play now.
+        if let Some(step) = UNSEEN_PROMPT.with_borrow(Clone::clone) {
+            step();
+        }
         let now = now_ms();
         if closed && now.saturating_sub(HURRIED_AT.get()) >= HURRY_EVERY_MS {
             HURRIED_AT.set(now);

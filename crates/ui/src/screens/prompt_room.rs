@@ -298,6 +298,39 @@ impl PromptScreen {
         }
     }
 
+    /// The room's part of a step unseen ([`crate::Screen::unseen`]: a
+    /// hidden page, a covered or minimized window, no frame drawn): its
+    /// pump, and once the room starts the stage with this player in its
+    /// lineup (they were ready), Start pressed for the shell as a frame
+    /// would (the maintainer, 2026-11-17: the play starts and runs
+    /// unseen, its notes missed until the player is back, as a play
+    /// already running does since round P1b). Nothing else: no one is
+    /// readied (the prompt's own countdown stands still), a watcher's
+    /// stage and a stage sat out wait for the screen to be seen.
+    pub(super) fn room_unseen(&mut self, cx: &mut Cx) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        if rm.started.get() || rm.gone.get().is_some() || rm.quit_at.get().is_some() {
+            return;
+        }
+        rm.pump.borrow_mut().run(&rm.room, &rm.shell, cx);
+        let start = {
+            let r = rm.room.borrow();
+            let me = r.me();
+            r.stage_started(rm.stage)
+                && r.state()
+                    .stage(rm.stage)
+                    .and_then(|st| st.play.as_ref())
+                    .is_some_and(|p| p.lineup.contains(&me))
+        };
+        if start {
+            rm.started.set(true);
+            self.countdown = Countdown::Done;
+            (self.act)(PromptChoice::Start, cx);
+        }
+    }
+
     /// Whether closing the game from the stage's prompt asks first
     /// ([`crate::Screen::guards_leaving`]): leaving the room costs
     /// something (Back here only leaves the prompt, for the room).

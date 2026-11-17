@@ -52,6 +52,12 @@ fn song() -> SongEntry {
 /// otherwise it never finishes loading, and the room waits with the
 /// player ready (as for people still loading or getting ready).
 fn rig_with(env: Env, loads: bool, attacks: bool) -> Rig {
+    rig_counting(env, loads, attacks, None)
+}
+
+/// [`rig_with`], the prompt counting `countdown` seconds down to Ready by
+/// itself where the shell asks for it (a play opened from song select).
+fn rig_counting(env: Env, loads: bool, attacks: bool, countdown: Option<f32>) -> Rig {
     let room = RoomClient::shared(0, 1);
     if attacks {
         let mut rules = room.borrow().rules().clone();
@@ -73,6 +79,7 @@ fn rig_with(env: Env, loads: bool, attacks: bool) -> Rig {
     });
     let state = Rc::new(RefCell::new(PromptState::default()));
     state.borrow_mut().info.title = "Single Song".into();
+    state.borrow_mut().set_countdown(countdown);
     let mut h = harness();
     h.push(
         PromptScreen::new(
@@ -82,7 +89,7 @@ fn rig_with(env: Env, loads: bool, attacks: bool) -> Rig {
         )
         .with_room(room.clone(), order.stage, shell),
     );
-    h.run(0.5);
+    h.run(if countdown.is_some() { 0.0 } else { 0.5 });
     Rig { h, room, seen }
 }
 
@@ -622,4 +629,58 @@ fn back_on_the_loading_screen_of_a_started_stage_takes_the_gesture() {
         r.h.run(0.1);
     }
     assert_eq!(backs(&r), 0);
+}
+
+/// The maintainer's of 2026-11-17: a page hidden when the room starts the
+/// stage its player readied for starts the play by itself. The shell
+/// draws no frame there and steps the screens unseen
+/// ([`crate::Ui::step_unseen`], a hidden page's timers a second apart
+/// here): the prompt runs its room, and once the room starts the stage
+/// with the player in its lineup it presses Start for the shell, outside
+/// any gesture (the Ready press made the sound), once. Unseen it readies
+/// no one: the prompt's own countdown to Ready stands still, and a room
+/// waiting for a player not ready starts nothing.
+#[test]
+fn unseen_the_prompt_starts_the_stage_its_player_readied_for_and_readies_no_one() {
+    let starts = |r: &Rig| {
+        r.seen
+            .borrow()
+            .iter()
+            .filter(|(c, _)| *c == PromptChoice::Start)
+            .count()
+    };
+    let unseen = |r: &mut Rig, from: u64, seconds: u64| {
+        for s in 1..=seconds {
+            r.h.ui.set_wall_ms(from + s * 1_000);
+            r.h.ui.step_unseen();
+        }
+    };
+    // Not ready, the shell's countdown to Ready asked for: nothing moves.
+    let mut r = rig_counting(env(), true, false, Some(3.0));
+    let t0 = r.room.borrow().now_ms();
+    unseen(&mut r, t0, 10);
+    assert!(!r.room.borrow().ready(), "never readied unseen");
+    assert_eq!(phase(&r), ddi_room::PhaseKind::Preparing);
+    assert!(r.seen.borrow().is_empty(), "{:?}", r.seen.borrow());
+    // (Seen, its countdown readies the player, as ever.)
+    r.h.run(3.5);
+    assert!(r.room.borrow().ready(), "the countdown, seen");
+    // Ready (pressed while seen), then unseen: the room's countdown runs
+    // on the unseen steps, and Start is pressed at the first after it.
+    let mut r = rig_with(env(), true, false);
+    enter(&mut r.h);
+    assert!(r.room.borrow().ready());
+    let t0 = r.room.borrow().now_ms();
+    let mut started = None;
+    for s in 1..=6 {
+        unseen(&mut r, t0 + (s - 1) * 1_000, 1);
+        if starts(&r) > 0 {
+            started = Some(s);
+            break;
+        }
+    }
+    assert_eq!(started, Some(3), "{:?}", r.seen.borrow());
+    assert_eq!(r.seen.borrow().last(), Some(&(PromptChoice::Start, false)));
+    unseen(&mut r, t0 + 3_000, 5);
+    assert_eq!(starts(&r), 1, "once");
 }

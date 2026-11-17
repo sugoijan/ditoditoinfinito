@@ -2049,6 +2049,10 @@ impl Screen for PromptScreen {
         "play-prompt"
     }
 
+    fn unseen(&mut self, cx: &mut Cx) {
+        self.room_unseen(cx);
+    }
+
     fn build(&mut self, cx: &mut Cx) -> Actor {
         if self.over {
             self.env.state.borrow_mut().over += 1;

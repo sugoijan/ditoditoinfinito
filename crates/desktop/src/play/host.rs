@@ -1826,11 +1826,35 @@ impl Host {
         self.running().is_some_and(|p| p.session.plays_on_unseen())
     }
 
-    /// A room's stage judged on at `now` while its window is hidden and
-    /// draws no frame (round P1b: hiding forfeits nothing; the song runs,
-    /// its moments and reports go to the room), its end handled as a
-    /// frame's.
-    pub fn step_unseen(&mut self, now: HostTime, ui: &mut Ui, env: &Env) {
+    /// Whether a room's stage's prompt is up, which starts its play
+    /// unseen once the room starts the stage the player readied for (the
+    /// maintainer, 2026-11-17; [`Host::step_unseen`]).
+    pub fn prompts_unseen(&self) -> bool {
+        matches!(&self.stage, Stage::Prompt(r) if r.request.stage.is_some())
+    }
+
+    /// A step while the window is hidden and draws no frame: a room's
+    /// stage's prompt stepped unseen (`ddi_ui::Ui::step_unseen`: its room
+    /// run, and Start pressed for the player once the room starts the
+    /// stage they readied for, the maintainer's of 2026-11-17), the play
+    /// it starts begun at once (on `dev`, the sound at `rate`, as
+    /// [`Host::poll`]); a room's stage judged on at `now` (round P1b:
+    /// hiding forfeits nothing; the song runs, its moments and reports go
+    /// to the room), its end handled as a frame's. The UI's clocks are
+    /// the shell's to set first, and what the screens asked for its to
+    /// take after.
+    pub fn step_unseen(
+        &mut self,
+        now: HostTime,
+        ui: &mut Ui,
+        env: &Env,
+        dev: Option<Device<'_>>,
+        rate: u32,
+    ) {
+        if self.prompts_unseen() {
+            ui.step_unseen();
+            self.poll(ui, env, dev, rate);
+        }
         if self.plays_on_unseen() {
             self.play_frame(None, now, ui, env);
         }

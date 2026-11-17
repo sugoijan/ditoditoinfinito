@@ -1933,11 +1933,22 @@ impl ApplicationHandler for Shell {
             }
         }
         // A room's stage while the window is hidden: judged on without
-        // frames (round P1b), every tenth of a second.
-        if self.occluded && self.play.plays_on_unseen() {
+        // frames (round P1b), every tenth of a second; and its prompt,
+        // which starts the play by itself once the room starts the stage
+        // the player readied for (the maintainer, 2026-11-17).
+        if self.occluded && (self.play.plays_on_unseen() || self.play.prompts_unseen()) {
             if let Some(env) = self.theme.as_ref().map(|(e, _)| e.clone()) {
-                self.play
-                    .step_unseen(crate::clock::now(), &mut self.ui, &env);
+                let now = crate::clock::now();
+                WALL_ORIGIN.with(|o| {
+                    o.borrow_mut()
+                        .frame(&mut self.ui, now.0, crate::clock::now_ms());
+                });
+                let rate = self.sound.borrow().audio.sample_rate();
+                let dev = self.target.as_ref().map(Target::device);
+                self.play.step_unseen(now, &mut self.ui, &env, dev, rate);
+                self.sync_play_mode();
+                let r = self.ui.take_requests();
+                self.run(r);
             }
             let at = Instant::now() + UNSEEN_STEP;
             match event_loop.control_flow() {
