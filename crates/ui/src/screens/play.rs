@@ -999,12 +999,18 @@ mod tests {
             .iter()
             .map(|j| (j.name.clone(), j.color.clone()))
             .collect();
-        ddi_l10n::judgments::set_localized(false);
+        use ddi_l10n::judgments::{Words, set_words};
+        set_words(Words::English);
         let english = results_data(&info(&r, &rules, &layout));
         let english = names(&english);
-        ddi_l10n::judgments::set_localized(true);
+        set_words(Words::Game);
         ddi_l10n::unforce();
         ddi_l10n::choose(Some("en"));
+        // Japanese's words under English menus.
+        set_words(Words::In(ddi_l10n::find("ja").unwrap()));
+        let japanese = results_data(&info(&r, &rules, &layout));
+        set_words(Words::Game);
+        assert_eq!(names(&japanese)[1], "オーサム / アメージング");
         assert_eq!(
             shown,
             [

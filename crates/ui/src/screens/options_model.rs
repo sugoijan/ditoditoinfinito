@@ -737,13 +737,19 @@ impl OptionsModel {
                     pos(&SCORE_DISPLAYS, s.ddi_score),
                     m::ddi_score_description(),
                 ),
-                choice(
-                    "ddi.words",
-                    m::ddi_words(),
-                    labels(&JUDGMENT_WORDS),
-                    pos(&JUDGMENT_WORDS, s.judgment_words),
-                    m::ddi_words_description(),
-                ),
+                {
+                    let words = judgment_words();
+                    choice(
+                        "ddi.words",
+                        m::ddi_words(),
+                        words.iter().map(|w| judgment_words_label(*w)),
+                        words
+                            .iter()
+                            .position(|w| *w == s.judgment_words)
+                            .unwrap_or(0),
+                        m::ddi_words_description(),
+                    )
+                },
             ]);
         } else {
             rows.extend([
@@ -1978,9 +1984,9 @@ impl OptionsModel {
             "ddi.practice" => s.ddi.practice = i == 1,
             "ddi.score" => s.ddi_score = at(&SCORE_DISPLAYS, i),
             "ddi.words" => {
-                s.judgment_words = at(&JUDGMENT_WORDS, i);
+                s.judgment_words = judgment_words().get(i).copied().unwrap_or_default();
                 // Shown so from the next frame (the preview's, a play's).
-                ddi_l10n::judgments::set_localized(s.judgment_words == JudgmentWords::Localized);
+                ddi_l10n::judgments::set_words(s.judgment_words.words());
             }
             "danoni.gauge" => {
                 s.danoni.gauge = DANONI_GAUGES
@@ -2932,10 +2938,32 @@ const SCORE_DISPLAYS: [Labeled<ScoreDisplay>; 2] = [
     (ScoreDisplay::Score, m::ddi_score_score),
     (ScoreDisplay::Percent, m::ddi_score_percent),
 ];
-const JUDGMENT_WORDS: [Labeled<JudgmentWords>; 2] = [
-    (JudgmentWords::Localized, m::ddi_words_localized),
-    (JudgmentWords::English, m::ddi_words_english),
-];
+/// The judgment words' choices (`docs/plans/ddi-ruleset.md`, round 4;
+/// English first, the default since 2026-11-17): English, each other
+/// language's (a language added later among them by itself), then the
+/// menus' language.
+fn judgment_words() -> Vec<JudgmentWords> {
+    std::iter::once(JudgmentWords::English)
+        .chain(
+            ddi_l10n::LANGUAGES
+                .iter()
+                .filter(|l| l.tag != "en")
+                .map(|l| JudgmentWords::Language(l.tag)),
+        )
+        .chain([JudgmentWords::Game])
+        .collect()
+}
+
+/// A judgment words' choice as its row shows it: a language named in
+/// itself, as the Language row names it ("English", "日本語").
+fn judgment_words_label(words: JudgmentWords) -> UiText {
+    let tag = match words {
+        JudgmentWords::Game => return m::ddi_words_game(),
+        JudgmentWords::English => "en",
+        JudgmentWords::Language(tag) => tag,
+    };
+    UiText::data(ddi_l10n::find(tag).map_or(tag, |l| l.name))
+}
 const HOLD_STYLES: [Labeled<HoldStyle>; 3] = [
     (HoldStyle::ByGame, m::holds_by_game),
     (HoldStyle::Dance, m::holds_dance),
@@ -3228,6 +3256,30 @@ mod tests {
                 ..Default::default()
             },
         )
+    }
+
+    /// The judgment words' row: English (the default), each other
+    /// language named in itself, then the menus' language; a choice is
+    /// shown so at once.
+    #[test]
+    fn the_judgment_words_row_offers_english_each_language_and_the_menus() {
+        use ddi_l10n::judgments::{Words, words};
+        let mut m = model();
+        m.settings.ruleset = "ddi".into();
+        let data = m.data();
+        let row = find(&data, "ddi.words");
+        assert_eq!(row.value(), "English");
+        assert_eq!(row.values(), ["English", "日本語", "Same as game language"]);
+        m.change("ddi.words", 1);
+        assert_eq!(m.settings.judgment_words, JudgmentWords::Language("ja"));
+        assert_eq!(words(), Words::In(ddi_l10n::find("ja").unwrap()));
+        m.change("ddi.words", 2);
+        assert_eq!(m.settings.judgment_words, JudgmentWords::Game);
+        assert_eq!(words(), Words::Game);
+        m.change("ddi.words", 0);
+        assert_eq!(m.settings.judgment_words, JudgmentWords::English);
+        assert_eq!(words(), Words::English);
+        ddi_l10n::judgments::set_words(Words::Game);
     }
 
     #[test]

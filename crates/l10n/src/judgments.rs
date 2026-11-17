@@ -1,18 +1,34 @@
-//! The DDI ruleset's judgment words in the player's language
+//! The DDI ruleset's judgment words in a language
 //! (`docs/plans/ddi-ruleset.md`, "Names in other languages"; round 4):
-//! the messages of `locales/<tag>/judgments.ftl`, shown where the option
-//! is on (Options → Rules → Judgment words, `Settings::judgment_words`,
-//! on by default), else the ruleset's English data as before.
+//! the messages of `locales/<tag>/judgments.ftl`, shown in the language
+//! the option chooses (Options → Rules → Judgment words,
+//! `Settings::judgment_words`: English by default since 2026-11-17, a
+//! language of its own, or the menus' language), else the ruleset's
+//! English data as before.
 //!
 //! The option is the thread's, as the language is: the shells set it
-//! from the settings ([`set_localized`]) where they choose the language.
+//! from the settings ([`set_words`]) where they choose the language.
 
 use std::cell::Cell;
 
-use crate::UiText;
+use crate::{Language, UiText};
+
+/// Which language DDI's words are shown in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Words {
+    /// The ruleset's own English words (its data).
+    English,
+    /// The language the menus speak ([`crate::current`]).
+    Game,
+    /// This language's, whatever the menus speak.
+    In(&'static Language),
+}
 
 thread_local! {
-    static LOCALIZED: Cell<bool> = const { Cell::new(true) };
+    /// The menus' language until a shell sets the settings' choice (as
+    /// every shell does where it chooses the language): what tests that
+    /// draw a play in a language without settings see.
+    static WORDS: Cell<Words> = const { Cell::new(Words::Game) };
 }
 
 /// One of DDI's words: the tiers' (W1 to W5 by side), W0's, a Miss's and
@@ -81,21 +97,30 @@ impl Word {
     }
 }
 
-/// Shows DDI's judgment words in the player's language (`true`, the
-/// default) or as the ruleset's English data.
-pub fn set_localized(localized: bool) {
-    LOCALIZED.with(|l| l.set(localized));
+/// Shows DDI's judgment words as `words` says.
+pub fn set_words(words: Words) {
+    WORDS.with(|w| w.set(words));
 }
 
-/// Whether DDI's judgment words are shown in the player's language.
-pub fn localized() -> bool {
-    LOCALIZED.with(Cell::get)
+/// The language DDI's judgment words are shown in.
+pub fn words() -> Words {
+    WORDS.with(Cell::get)
 }
 
-/// `word` as shown: its message where the option is on, `None` where the
+/// The language whose messages DDI's words are shown as: the menus' or
+/// the one chosen; `None` where the ruleset's English data is shown.
+pub fn language() -> Option<&'static Language> {
+    match words() {
+        Words::English => None,
+        Words::Game => Some(crate::current()),
+        Words::In(language) => Some(language),
+    }
+}
+
+/// `word` as shown: its message in [`language`], `None` where the
 /// ruleset's English data is shown instead.
 pub fn word(word: Word) -> Option<UiText> {
-    localized().then(|| word.message())
+    language().map(|l| crate::in_language(l, || word.message()))
 }
 
 /// [`word`] by DDI's tier number, as text: 0 W0, 1 to 5 W1 to W5 (by
@@ -173,12 +198,27 @@ mod tests {
     }
 
     #[test]
-    fn the_option_turns_the_words_off() {
+    fn the_option_chooses_the_words_language() {
+        let ja = crate::find("ja").unwrap();
         with("ja", || {
+            set_words(Words::Game);
             assert_eq!(word(Word::Late(3)).unwrap().as_str(), "グレート");
-            set_localized(false);
+            set_words(Words::English);
             assert_eq!(word(Word::Late(3)), None);
-            set_localized(true);
+            assert_eq!(language(), None);
         });
+        // Japanese's words under English menus, and the menus' language
+        // back after each.
+        with("en", || {
+            set_words(Words::In(ja));
+            assert_eq!(word(Word::Late(3)).unwrap().as_str(), "グレート");
+            let miss = crate::in_language(ja, crate::msg::judgments::miss);
+            assert_eq!(ddi_word(6, false).as_deref(), Some(miss.as_str()));
+            assert_eq!(crate::current().tag, "en");
+            assert_eq!(crate::msg::start::singleplayer().as_str(), "Singleplayer");
+            set_words(Words::Game);
+            assert_eq!(word(Word::Late(3)).unwrap().as_str(), "Great");
+        });
+        set_words(Words::Game);
     }
 }

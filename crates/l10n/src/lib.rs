@@ -411,6 +411,20 @@ pub fn unforce() {
     STATE.with_borrow_mut(|s| s.forced = None);
 }
 
+/// `f`'s messages in `language`, whatever the UI speaks (DDI's judgment
+/// words in a language of their own, [`judgments`]); the UI's language
+/// is back after, even should `f` panic.
+pub fn in_language<T>(language: &'static Language, f: impl FnOnce() -> T) -> T {
+    struct Back(&'static Language);
+    impl Drop for Back {
+        fn drop(&mut self) {
+            STATE.with_borrow_mut(|s| s.current = self.0);
+        }
+    }
+    let _back = Back(STATE.with_borrow_mut(|s| std::mem::replace(&mut s.current, language)));
+    f()
+}
+
 /// Speaks the language tagged `tag`, when there is one (a test, `--lang`).
 pub fn set_language(tag: &str) -> bool {
     match find(tag) {

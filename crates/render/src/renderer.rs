@@ -1152,25 +1152,22 @@ fn filter_path(amount: f32, lanes: bool, behind: bool, in_shaders: bool) -> Filt
     }
 }
 
-/// A ruleset's names and how they were last shown: in which language,
-/// with the option on or off.
+/// A ruleset's names and how they were last shown: in which language's
+/// words (`None`: the ruleset's own).
 pub(crate) struct ShownNames {
     source: JudgeNames,
-    language: &'static str,
-    localized: bool,
+    language: Option<&'static str>,
     shown: std::sync::Arc<JudgeNames>,
 }
 
-/// `names` as the play shows them (`JudgeNames::shown` with the player's
-/// language's words, `ddi_l10n::judgments`), kept in `cache` while the
-/// names, the language and the option stay: a frame compares, never
-/// builds.
+/// `names` as the play shows them (`JudgeNames::shown` with the words of
+/// the language the option chooses, `ddi_l10n::judgments`), kept in
+/// `cache` while the names and that language stay: a frame compares,
+/// never builds.
 pub(crate) fn shown_names(cache: &mut Option<ShownNames>, names: &JudgeNames) -> std::sync::Arc<JudgeNames> {
-    let language = ddi_l10n::current().tag;
-    let localized = ddi_l10n::judgments::localized();
+    let language = ddi_l10n::judgments::language().map(|l| l.tag);
     if let Some(c) = cache
         && c.language == language
-        && c.localized == localized
         && c.source == *names
     {
         return c.shown.clone();
@@ -1183,7 +1180,6 @@ pub(crate) fn shown_names(cache: &mut Option<ShownNames>, names: &JudgeNames) ->
     *cache = Some(ShownNames {
         source: names.clone(),
         language,
-        localized,
         shown: shown.clone(),
     });
     shown

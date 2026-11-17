@@ -56,6 +56,8 @@ thread_local! {
     static THEME_ASKED: Cell<bool> = const { Cell::new(false) };
     /// The languages' face files asked for.
     static LANGUAGE_ASKED: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
+    /// The face files whose bytes were asked for (the HUD's).
+    static BYTES_ASKED: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
     /// Each face's load, as asked for.
     static FACES: RefCell<Vec<js_sys::Promise>> = const { RefCell::new(Vec::new()) };
     /// Called when a face finishes loading; dropped once they answer
@@ -130,15 +132,42 @@ pub(crate) fn load_language_faces(tag: &str) {
         // which takes faces as bytes: DDI's judgment words in the
         // language's script, round 4); the browser's cache has the file.
         if face.weight == 700 {
-            let file = face.file;
-            wasm_bindgen_futures::spawn_local(async move {
-                match crate::songs::fetch_bytes(&format!("fonts/{file}")).await {
-                    Ok(bytes) => ddi_l10n::add_face_bytes(file, bytes),
-                    Err(e) => web_sys::console::warn_1(&e.into()),
-                }
-            });
+            load_face_bytes(face.file);
         }
     }
+}
+
+/// The bytes of the bold faces of language `tag`, for the play's HUD text
+/// alone: DDI's judgment words in that language under menus in another
+/// (`RunRasterizer::words_language`); the faces are not registered for
+/// the menus' text, whose stacks never name them.
+fn load_words_faces(tag: &str) {
+    let Some(language) = ddi_l10n::find(tag) else {
+        return;
+    };
+    for face in language.face_files().filter(|f| f.weight == 700) {
+        load_face_bytes(face.file);
+    }
+}
+
+/// Fetches face file `file`'s bytes for the drawers that take faces as
+/// bytes (`ddi_l10n::add_face_bytes`), once.
+fn load_face_bytes(file: &'static str) {
+    if BYTES_ASKED.with_borrow_mut(|asked| {
+        let before = asked.contains(&file);
+        if !before {
+            asked.push(file);
+        }
+        before
+    }) {
+        return;
+    }
+    wasm_bindgen_futures::spawn_local(async move {
+        match crate::songs::fetch_bytes(&format!("fonts/{file}")).await {
+            Ok(bytes) => ddi_l10n::add_face_bytes(file, bytes),
+            Err(e) => web_sys::console::warn_1(&e.into()),
+        }
+    });
 }
 
 /// Registers the face at `url` under `family`, `weight` and `style`, and
@@ -399,6 +428,10 @@ impl RunRasterizer for CanvasRasterizer {
         }
         self.ctx
             .clear_rect(f64::from(x), f64::from(y), f64::from(w), f64::from(h));
+    }
+
+    fn words_language(&mut self, tag: &str) {
+        load_words_faces(tag);
     }
 
     fn set_language(&mut self, tag: &str) {

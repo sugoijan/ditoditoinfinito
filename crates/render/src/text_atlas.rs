@@ -55,6 +55,11 @@ pub trait RunRasterizer {
     /// its script (unified Han characters in its forms) and, on the web,
     /// its faces loaded. The painter draws every run again after.
     fn set_language(&mut self, _tag: &str) {}
+    /// Words in language `tag` are drawn beside the UI's (DDI's judgment
+    /// words in a language of their own, `ddi_l10n::judgments`): on the
+    /// web, its bold faces' bytes fetched for the play's HUD text, which
+    /// takes faces as bytes (desktop embeds them).
+    fn words_language(&mut self, _tag: &str) {}
 }
 
 /// What the cache asks of whoever draws runs and keeps the pages.

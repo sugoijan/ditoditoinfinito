@@ -608,6 +608,9 @@ pub struct Painter {
     fonts_version: u64,
     /// The UI's language the runs are drawn for (`Painter::sync_fonts`).
     language: String,
+    /// The language DDI's judgment words were last shown in, the
+    /// rasterizer told (`RunRasterizer::words_language`).
+    words_language: Option<&'static str>,
     /// Images whose Gaussian filter and mipmaps the next draw prepares.
     unprepared: Vec<TextureId>,
     /// Images the shell draws itself, by source, their bindings (`None`:
@@ -641,6 +644,7 @@ impl Painter {
             raster: None,
             fonts_version: 0,
             language: String::new(),
+            words_language: None,
             unprepared: Vec::new(),
             externals: Vec::new(),
             instances: Vec::new(),
@@ -828,7 +832,9 @@ impl Painter {
 
     /// Runs drawn with fonts that changed since, or for another language
     /// than the UI's now (`ddi_l10n::current`), are drawn again; the
-    /// rasterizer is told the language ([`RunRasterizer::set_language`]).
+    /// rasterizer is told the language ([`RunRasterizer::set_language`])
+    /// and that of DDI's judgment words
+    /// ([`RunRasterizer::words_language`]).
     fn sync_fonts(&mut self) {
         if let Some(v) = self.raster.as_ref().map(|r| r.fonts_version())
             && v != self.fonts_version
@@ -843,6 +849,13 @@ impl Painter {
                 r.set_language(tag);
             }
             self.text.clear();
+        }
+        let words = ddi_l10n::judgments::language().map(|l| l.tag);
+        if self.words_language != words {
+            self.words_language = words;
+            if let (Some(tag), Some(r)) = (words, self.raster.as_mut()) {
+                r.words_language(tag);
+            }
         }
     }
 

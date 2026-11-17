@@ -160,9 +160,10 @@ pub struct Settings {
     /// What the play's HUD and the bests show of a DDI score.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub ddi_score: ScoreDisplay,
-    /// DDI's judgment words in the player's language (the default) or in
-    /// English (`docs/plans/ddi-ruleset.md`, round 4): words only, never
-    /// judging, a match rule or a best's key.
+    /// DDI's judgment words in English (the default since 2026-11-17), in
+    /// a language of their own or in the menus' language
+    /// (`docs/plans/ddi-ruleset.md`, round 4): words only, never judging,
+    /// a match rule or a best's key.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub judgment_words: JudgmentWords,
     /// Which rules each chart is played by (decision 23): the preset above
@@ -494,14 +495,63 @@ pub enum ScoreDisplay {
     Percent,
 }
 
-/// DDI's judgment words: in the player's language (the default), or the
-/// ruleset's English whatever the language
-/// (`ddi_l10n::judgments::set_localized`).
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// DDI's judgment words (`ddi_l10n::judgments`): the ruleset's English
+/// (the default since 2026-11-17; the menus' language before), a
+/// language's own whatever the menus speak, or the menus' language.
+/// Stored as `"English"`, the language's tag (`"ja"`) or `"Localized"`
+/// (the menus' language, its name since round 4); anything else reads
+/// as English.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum JudgmentWords {
     #[default]
-    Localized,
     English,
+    /// The words of the language tagged so (one of `ddi_l10n`'s
+    /// languages, never English or a pseudo-language).
+    Language(&'static str),
+    /// The menus' language.
+    Game,
+}
+
+impl JudgmentWords {
+    /// What the words of `tag` are: English's are the ruleset's own.
+    pub fn of(tag: &str) -> JudgmentWords {
+        match ddi_l10n::find(tag) {
+            Some(l) if l.status != ddi_l10n::Status::Pseudo && l.tag != "en" => {
+                JudgmentWords::Language(l.tag)
+            }
+            _ => JudgmentWords::English,
+        }
+    }
+
+    /// As `ddi_l10n::judgments` shows them.
+    pub fn words(self) -> ddi_l10n::judgments::Words {
+        use ddi_l10n::judgments::Words;
+        match self {
+            JudgmentWords::English => Words::English,
+            JudgmentWords::Game => Words::Game,
+            JudgmentWords::Language(tag) => ddi_l10n::find(tag).map_or(Words::English, Words::In),
+        }
+    }
+}
+
+impl Serialize for JudgmentWords {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(match self {
+            JudgmentWords::English => "English",
+            JudgmentWords::Language(tag) => tag,
+            JudgmentWords::Game => "Localized",
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for JudgmentWords {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<JudgmentWords, D::Error> {
+        Ok(match String::deserialize(d)?.as_str() {
+            "Localized" => JudgmentWords::Game,
+            "English" => JudgmentWords::English,
+            tag => JudgmentWords::of(tag),
+        })
+    }
 }
 
 /// The rules the settings choose, apart from the rest of them: what
@@ -604,7 +654,7 @@ impl Default for Settings {
             rejudge_from: None,
             ddi: DdiOptions::default(),
             ddi_score: ScoreDisplay::Score,
-            judgment_words: JudgmentWords::Localized,
+            judgment_words: JudgmentWords::English,
             ruleset_mode: RulesetMode::AllStepMania,
             danoni: DanoniOptions::default(),
             holds: HoldStyle::ByGame,
@@ -1160,7 +1210,7 @@ impl Settings {
     /// Speaks the settings' language (`ddi_l10n::choose`) and shows DDI's
     /// judgment words as they choose ([`Settings::judgment_words`]).
     pub fn choose_language(&self) -> &'static ddi_l10n::Language {
-        ddi_l10n::judgments::set_localized(self.judgment_words == JudgmentWords::Localized);
+        ddi_l10n::judgments::set_words(self.judgment_words.words());
         ddi_l10n::choose(self.language.as_deref())
     }
 
@@ -1418,6 +1468,46 @@ mod tests {
         assert!(!s.let_go_missing_announcer(|k| k == "techno"));
         assert!(s.let_go_missing_announcer(|k| k == "other"));
         assert_eq!(s.announcer, None);
+    }
+
+    /// DDI's judgment words: English by default (2026-11-17), a
+    /// language's own by its tag, the menus' language as "Localized"
+    /// (stored so since round 4); anything else English.
+    #[test]
+    fn judgment_words_read_what_was_stored_and_default_to_english() {
+        use ddi_l10n::judgments::Words;
+        assert_eq!(Settings::default().judgment_words, JudgmentWords::English);
+        let read = |v: &str| {
+            serde_json::from_str::<Settings>(&format!(r#"{{"judgment_words": {v}}}"#))
+                .unwrap()
+                .judgment_words
+        };
+        assert_eq!(read(r#""English""#), JudgmentWords::English);
+        assert_eq!(read(r#""Localized""#), JudgmentWords::Game);
+        assert_eq!(read(r#""ja""#), JudgmentWords::Language("ja"));
+        assert_eq!(read(r#""JA""#), JudgmentWords::Language("ja"));
+        for other in [r#""en""#, r#""qps-ploc""#, r#""xx""#, "5", "null"] {
+            assert_eq!(read(other), JudgmentWords::English, "{other}");
+        }
+        for words in [
+            JudgmentWords::English,
+            JudgmentWords::Language("ja"),
+            JudgmentWords::Game,
+        ] {
+            let s = Settings {
+                judgment_words: words,
+                ..Settings::default()
+            };
+            let back: Settings =
+                serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+            assert_eq!(back.judgment_words, words);
+        }
+        assert_eq!(JudgmentWords::English.words(), Words::English);
+        assert_eq!(JudgmentWords::Game.words(), Words::Game);
+        assert_eq!(
+            JudgmentWords::Language("ja").words(),
+            Words::In(ddi_l10n::find("ja").unwrap())
+        );
     }
 
     #[test]
