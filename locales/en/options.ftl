@@ -552,9 +552,13 @@ options-reduced-motion-description = No slides in the menus, and their art held 
 # The mouse pointer in the menus.
 options-cursor = Cursor
 
-# The game's animated arrow (Infinito is the game's own art's name).
+# The game's animated pointer, the default (Infinito is the game's own
+# art's name: keep it as a name).
+options-cursor-pointer = Infinito cursor
+
+# The game's animated arrow, shaped as its notes (Infinito is the game's
+# own art's name).
 options-cursor-infinito = Infinito arrow
-options-cursor-pointer = Pointer tip
 options-cursor-system = System
 options-cursor-description = Animated Infinito artwork, or your system cursor. Text and drag cursors keep their system shapes.
 

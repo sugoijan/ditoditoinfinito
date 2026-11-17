@@ -3017,9 +3017,10 @@ const REDUCED_MOTION: [Labeled<ReducedMotion>; 3] = [
     (ReducedMotion::On, common::on),
     (ReducedMotion::Off, common::off),
 ];
+/// The default first (the Infinito cursor, since 2026-11-17).
 const CURSORS: [Labeled<CursorStyle>; 3] = [
-    (CursorStyle::InfinitoArrow, m::cursor_infinito),
     (CursorStyle::PointerTip, m::cursor_pointer),
+    (CursorStyle::InfinitoArrow, m::cursor_infinito),
     (CursorStyle::System, m::cursor_system),
 ];
 const OPPONENT_FIELDS: [Labeled<OpponentFields>; 2] = [
@@ -3283,9 +3284,13 @@ mod tests {
     }
 
     #[test]
-    fn cursor_choices_and_size_round_trip_and_old_settings_get_the_arrow() {
+    fn cursor_choices_and_size_round_trip_and_new_settings_get_the_cursor() {
         let mut m = model();
-        assert_eq!(find(&m.data(), "cursor_style").value(), "Infinito arrow");
+        assert_eq!(find(&m.data(), "cursor_style").value(), "Infinito cursor");
+        assert_eq!(
+            find(&m.data(), "cursor_style").values(),
+            ["Infinito cursor", "Infinito arrow", "System"]
+        );
         for (i, (style, _)) in CURSORS.into_iter().enumerate() {
             m.change("cursor_style", i);
             assert_eq!(m.settings.cursor_style, style);
@@ -3300,7 +3305,7 @@ mod tests {
         m.change("cursor_size", 20);
         assert_eq!(m.settings.cursor_size, 36.0);
         let mut s: Settings = serde_json::from_str("{}").unwrap();
-        assert_eq!(s.cursor_style, CursorStyle::InfinitoArrow);
+        assert_eq!(s.cursor_style, CursorStyle::PointerTip);
         assert_eq!(s.cursor_size, 28.0);
         s.cursor_size = f32::NAN;
         s.sanitize();
@@ -3309,6 +3314,9 @@ mod tests {
         s.sanitize();
         assert_eq!(s.cursor_size, 64.0);
         let s: Settings = serde_json::from_str(r#"{"cursor_style":"unknown"}"#).unwrap();
+        assert_eq!(s.cursor_style, CursorStyle::PointerTip);
+        // The stored names are as they were.
+        let s: Settings = serde_json::from_str(r#"{"cursor_style":"InfinitoArrow"}"#).unwrap();
         assert_eq!(s.cursor_style, CursorStyle::InfinitoArrow);
     }
 

@@ -336,11 +336,13 @@ pub enum OpponentFields {
     UpToEight,
 }
 
-/// The pointer offered under Options → Display.
+/// The pointer offered under Options → Display. Stored by these names;
+/// shown as "Infinito cursor" ([`CursorStyle::PointerTip`], the default
+/// since 2026-11-17), "Infinito arrow" (the default before) and "System".
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CursorStyle {
-    #[default]
     InfinitoArrow,
+    #[default]
     PointerTip,
     System,
 }
