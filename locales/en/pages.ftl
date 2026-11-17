@@ -413,7 +413,7 @@ pages-credits-rust-notice-for = for { $crates }
 pages-privacy = Privacy
 
 # The note's first paragraph.
-pages-privacy-intro = This note says what { -game-name } and its online server keep about you, and for how long. Last changed on November 16, 2026.
+pages-privacy-intro = This note says what { -game-name } and its online server keep about you, and for how long. Last changed on November 17, 2026.
 
 # A heading inside the note.
 pages-privacy-alone-heading = Playing alone
@@ -481,12 +481,12 @@ pages-privacy-stats-kept = These totals contain no names, accounts, addresses, r
 # A heading inside the note.
 pages-privacy-logs-heading = Server logs
 
-pages-privacy-logs = Our server runs on Cloudflare, which handles the connections to it and keeps logs of the requests it receives for 7 days. These logs can include the address asked for (an invite link, for example) and technical details of the connection. Our own lines in these logs name rooms by their ids and never a player (only the administrator who changes the server's settings).
+pages-privacy-logs = Our server runs on Cloudflare, which handles the connections to it and keeps logs of the requests it receives for up to 7 days. These logs can include the address asked for (an invite link, for example) and technical details of the connection. Our own lines in these logs name rooms by their ids and never a player (only the administrator who changes the server's settings).
 
 # A heading inside the note.
 pages-privacy-questions-heading = Questions
 
-pages-privacy-questions = If something in this note is unclear, open an issue on the game's repository.
+pages-privacy-questions = If something in this note is unclear, open an issue on the game's repository, or write to me@sugoijan.dev.
 
 # A link to the same note on the game's site (opens the browser).
 # Variables:

@@ -189,7 +189,7 @@ pages-credits-rust-notice-for = 対象：{ $crates }
 ## Desktop's first start: the offer of other games' song folders.
 
 pages-privacy = プライバシー
-pages-privacy-intro = このお知らせは、{ -game-name }とそのオンラインサーバーがあなたについて何を保存し、どれだけの期間保存するかを説明します。最終更新：2026年11月16日。
+pages-privacy-intro = このお知らせは、{ -game-name }とそのオンラインサーバーがあなたについて何を保存し、どれだけの期間保存するかを説明します。最終更新：2026年11月17日。
 pages-privacy-alone-heading = ひとりで遊ぶとき
 pages-privacy-alone = ひとりで遊ぶとき、ゲームはすべてをあなたのデバイスに保存します。{ $platform ->
     [web] 設定、曲、プレイ履歴はブラウザーの保存領域か、コンピューター上のアプリのフォルダーに残ります。
@@ -218,9 +218,9 @@ pages-privacy-stats-play = 遊ばれた内容：譜面の難易度の範囲と�
 pages-privacy-stats-people = 1日にルームにいた人数（重複なし）。
 pages-privacy-stats-kept = これらの合計には、名前、アカウント、アドレス、ルーム、曲名は含まれません。誰かを知らずに1日の人数を数えるため、サーバーは毎日変わる秘密の鍵で各アカウントからコードを作って保存し、その日を数え終えたら削除します。合計は13か月間は1日ごと、その後は1か月ごとに保存します。ボットとゲームのコンピュータープレイヤーは、人とは分けて数えます。ゲーム自体はこの統計のために何も送りません。ひとりで遊んだ分が数えられることはありません。
 pages-privacy-logs-heading = サーバーのログ
-pages-privacy-logs = サーバーはCloudflare上で動いています。Cloudflareはサーバーへの接続を扱い、受け取ったリクエストのログを7日間保存します。このログには、要求されたアドレス（たとえば招待リンク）や接続の技術的な情報が含まれることがあります。ログに書くこちらの記録は、ルームをIDで示し、プレイヤーの名前は書きません（サーバーの設定を変えた管理者の名前だけを書きます）。
+pages-privacy-logs = サーバーはCloudflare上で動いています。Cloudflareはサーバーへの接続を扱い、受け取ったリクエストのログを最長7日間保存します。このログには、要求されたアドレス（たとえば招待リンク）や接続の技術的な情報が含まれることがあります。ログに書くこちらの記録は、ルームをIDで示し、プレイヤーの名前は書きません（サーバーの設定を変えた管理者の名前だけを書きます）。
 pages-privacy-questions-heading = お問い合わせ
-pages-privacy-questions = このお知らせでわかりにくい点があれば、ゲームのリポジトリでIssueを開いてください。
+pages-privacy-questions = このお知らせでわかりにくい点があれば、ゲームのリポジトリでIssueを開くか、me@sugoijan.dev までご連絡ください。
 pages-privacy-page = { $platform ->
     [web] ゲームのサイトでこのお知らせを読む
    *[desktop] Webでこのお知らせを読む
