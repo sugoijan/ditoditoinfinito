@@ -34,14 +34,14 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: REUSE lint
         uses: fsfe/reuse-action@v6
 
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -113,7 +113,7 @@ jobs:
       DDI_NO_GPU: "1"
       DDI_SKIP_VT: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -157,17 +157,19 @@ jobs:
   video:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: The module, built already
         id: fetch
         run: |
           if .github/scripts/video-assets.sh fetch module; then
             echo "built=1" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.fetch.outputs.built != '1'
         with:
           node-version: 22
+          # No cache of npm's: nothing here installs packages.
+          package-manager-cache: false
       - name: Build the module
         if: steps.fetch.outputs.built != '1'
         run: video/build.sh
@@ -176,7 +178,7 @@ jobs:
       # What configure found, to compare builds on different hosts.
       - name: Keep the build's configuration
         if: always() && steps.fetch.outputs.built != '1'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ddivideo-build
           path: |
@@ -194,7 +196,7 @@ jobs:
       - name: Check the module on generated clips
         if: steps.fetch.outputs.built != '1'
         run: video/clips.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ddivideo
           path: |
@@ -205,7 +207,7 @@ jobs:
     needs: video
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -233,7 +235,7 @@ jobs:
           echo "PUBLIC_URL=$PUBLIC_URL" >> "$GITHUB_ENV"
       # After rust-cache, which may clean target/ when it restores. Staged
       # into the site by Trunk's post_build hook (xtask stage-video).
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: ddivideo
           path: target/video
@@ -246,10 +248,10 @@ jobs:
           test -n "$tarball" && test -s "dist/video/$tarball"
       - name: Setup Pages
         if: github.event_name != 'pull_request'
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       - name: Upload artifact
         if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
@@ -265,7 +267,7 @@ jobs:
       contents: read
       actions: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Delete the stale caches
         run: .github/scripts/prune-caches.sh
 
@@ -284,4 +286,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

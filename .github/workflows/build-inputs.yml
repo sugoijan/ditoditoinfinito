@@ -35,17 +35,19 @@ jobs:
   module:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Built already
         id: have
         run: |
           if .github/scripts/video-assets.sh exists module; then
             echo "have=1" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.have.outputs.have != '1'
         with:
           node-version: 22
+          # No cache of npm's: nothing here installs packages.
+          package-manager-cache: false
       - name: Build the module
         if: steps.have.outputs.have != '1'
         run: video/build.sh
@@ -55,7 +57,7 @@ jobs:
       # What configure found, to compare builds on different hosts.
       - name: Keep the build's configuration
         if: always() && steps.have.outputs.have != '1'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ddivideo-build
           path: |
@@ -84,7 +86,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # For the host's target name only.
       - uses: dtolnay/rust-toolchain@stable
       - name: Built already
