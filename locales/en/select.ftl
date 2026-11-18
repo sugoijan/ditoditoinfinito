@@ -220,9 +220,6 @@ select-radar-estimate-overall = DDI
 # are how many points of Accuracy each skill costs a CPU of the chart's
 # level. Short.
 select-radar-estimate-unit = Skill costs, in points of Accuracy
-# In the radar's place where no skill stands out on the chart (its costs
-# are all small).
-select-radar-flat = No skill stands out on this chart
 # In the radar's place where the chart is longer or otherwise outside the
 # charts the estimate was studied on.
 select-radar-outside = Outside what the estimate was studied on

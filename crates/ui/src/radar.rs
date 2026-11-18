@@ -37,6 +37,56 @@ pub const COLORS: [Rgba; 4] = [
     [0.37, 0.82, 1.0, 1.0],
 ];
 
+/// The DDI estimate's radar (round Z3, the maintainer: "set a minimum
+/// value of 1 for each skill and grow everything proportionally to the
+/// difficulty"): each skill's value `1 + e`, `e = cost / (cost +`
+/// [`COST_HALF`]`)`, so nothing below the floor and a standout toward
+/// twice it; a spoke `base(decimal) × (1 + e ×` [`GROWTH`]`)` of the
+/// radius, `base` rising linearly from [`BASE_AT_1`] at 1 to
+/// [`BASE_AT_19`] at 19. A chart with no costs is a regular octagon whose
+/// size says its difficulty; the longest spoke there can be (19, a cost
+/// without end) reaches the outer ring.
+///
+/// The cost, in points of Accuracy, at which a skill is halfway to its
+/// most: a typical chart's Stream costs about 2.
+pub const COST_HALF: f32 = 2.0;
+/// How far past the base a skill's spoke reaches at its most: six tenths
+/// of it, a bulge rather than a spike, and room enough for the base to
+/// grow 2.8 times from 1 to 19.
+pub const GROWTH: f32 = 0.6;
+/// The base octagon at 1 and at 19, as fractions of the radius: 0.22
+/// keeps the easiest chart's octagon a clear octagon (14 px at the 1280 ×
+/// 720 radar's 64) inside its labels; at 19, `1 / (1 + GROWTH)`, so the
+/// longest spoke ends at the outer ring.
+pub const BASE_AT_1: f32 = 0.22;
+pub const BASE_AT_19: f32 = 1.0 / (1.0 + GROWTH);
+
+/// The base octagon's size for an estimate of `decimal` (1 to 19), as a
+/// fraction of the radius.
+pub fn estimate_base(decimal: f32) -> f32 {
+    let t = ((decimal - 1.0) / 18.0).clamp(0.0, 1.0);
+    BASE_AT_1 + (BASE_AT_19 - BASE_AT_1) * t
+}
+
+/// The DDI estimate's spokes, as fractions of the radius, for a chart of
+/// `decimal` whose skills cost `costs` points of Accuracy.
+pub fn estimate_spokes(decimal: f32, costs: &[f32; 8]) -> Vec<f32> {
+    let base = estimate_base(decimal);
+    costs
+        .iter()
+        .map(|c| {
+            let c = c.max(0.0);
+            base * (1.0 + c / (c + COST_HALF) * GROWTH)
+        })
+        .collect()
+}
+
+/// The DDI estimate's rings: the base octagon at 5, 10 and 15 (so two
+/// charts' sizes compare), and the outer ring.
+pub fn estimate_rings() -> [f32; 4] {
+    [estimate_base(5.0), estimate_base(10.0), estimate_base(15.0), 1.0]
+}
+
 /// The skillsets' shares of the overall (0 to 1), from the eight numbers
 /// (overall first).
 pub fn shares(values: &[f32; 8]) -> [f32; SKILLS] {
@@ -148,13 +198,24 @@ fn sector(a: [f32; 2], b: [f32; 2], color: Rgba) -> Option<Actor> {
 /// `shares` (each skillset's share of the overall, [`shares`]; a morph's
 /// on its way) and its outline. A frame named `Shape`, never hit.
 pub fn shape(shares: &[f32], radius: f32, colors: [Rgba; 4]) -> Actor {
+    shape_with(shares, radius, colors, None)
+}
+
+/// [`shape`] with its rings where `rings` says (fractions of the radius:
+/// the DDI estimate's difficulty marks, [`estimate_rings`]), else a
+/// quarter of the outer ring apart.
+pub fn shape_with(shares: &[f32], radius: f32, colors: [Rgba; 4], rings: Option<&[f32]>) -> Actor {
     let [_, grid, fill, line] = colors;
     let n = shares.len();
     let thin = (radius / 60.0).max(1.0);
     let mut parts = Vec::new();
-    // The rings, a quarter of the outer ring apart, and the spokes.
-    for ring in 1..=4 {
-        let r = radius * ring as f32 / 4.0;
+    // The rings, a quarter of the outer ring apart (or where asked), and
+    // the spokes.
+    let at: Vec<f32> = match rings {
+        Some(r) => r.iter().map(|f| radius * f).collect(),
+        None => (1..=4).map(|ring| radius * ring as f32 / 4.0).collect(),
+    };
+    for r in at {
         for k in 0..n {
             let [x0, y0] = direction(k, n);
             let [x1, y1] = direction((k + 1) % n, n);
@@ -411,6 +472,7 @@ pub fn radar(
     name: &str,
     numbers: &[String],
     shares: &[f32],
+    rings: Option<&[f32]>,
     size: [f32; 2],
     words: &Words,
 ) -> Actor {
@@ -420,7 +482,7 @@ pub fn radar(
     let p = place(size, words, numbers);
     let mut panel = quad("Panel", [w, h], colors[0]);
     call(&mut panel, "cornerradius", &[h.min(w) * 0.06]);
-    let mut parts = vec![panel, shape(shares, p.radius, colors)];
+    let mut parts = vec![panel, shape_with(shares, p.radius, colors, rings)];
     let names = if p.full { words.full } else { words.short };
     for (k, rect) in p.labels.iter().enumerate() {
         let [dx, _] = direction(k, n);
@@ -510,4 +572,51 @@ mod tests {
         // Too thin: none.
         assert!(sector([0.0, -10.0], [0.0, -5.0], [1.0; 4]).is_none());
     }
+}
+
+/// MSD's radar draws as it did before the DDI estimate's floor and
+/// difficulty marks (round Z3): its shape's geometry for fixed numbers,
+/// pinned on the code before (`crate::testing::rounded`).
+#[cfg(test)]
+#[test]
+fn msd_s_shape_draws_as_pinned() {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let v = [24.3f32, 22.1, 18.0, 9.5, 23.0, 14.2, 11.0, 20.7];
+    let mut s = DefaultHasher::new();
+    crate::testing::rounded(&format!("{:?}", shape(&shares(&v), 64.0, COLORS))).hash(&mut s);
+    assert_eq!(s.finish(), 1930352012017716584);
+}
+
+/// Round Z3: the DDI estimate's radar: a chart with no costs is a regular
+/// octagon whose size rises with its estimate (1, 10, 19); a standout
+/// skill bulges past the base, every other spoke at least the base; the
+/// longest spoke there can be ends inside the outer ring.
+#[cfg(test)]
+#[test]
+fn the_estimate_s_octagon_grows_with_difficulty() {
+    let flat = |d: f32| estimate_spokes(d, &[0.0; 8]);
+    let sizes: Vec<f32> = [1.0, 10.0, 19.0]
+        .iter()
+        .map(|&d| {
+            let s = flat(d);
+            assert!(s.iter().all(|x| (x - s[0]).abs() < 1e-6), "regular at {d}: {s:?}");
+            s[0]
+        })
+        .collect();
+    assert!(sizes[0] < sizes[1] && sizes[1] < sizes[2], "{sizes:?}");
+    assert!((sizes[0] - BASE_AT_1).abs() < 1e-6);
+    // A standout: a bulge, the others at the base.
+    let s = estimate_spokes(11.3, &[1.65, 0.0, 0.0, 0.32, 16.9, 0.0, 0.01, 0.0]);
+    let base = estimate_base(11.3);
+    assert!(s.iter().all(|x| *x >= base - 1e-6), "{s:?}");
+    let jack = s[4];
+    assert!(s.iter().all(|x| *x <= jack), "{s:?}");
+    assert!(jack > base * 1.4, "a bulge: {jack} against {base}");
+    // The longest there can be: inside the outer ring.
+    let most = estimate_spokes(19.0, &[1.0e9; 8]);
+    assert!(most.iter().all(|x| *x <= 1.0 + 1e-6), "{most:?}");
+    assert!(estimate_spokes(30.0, &[1.0e9; 8]).iter().all(|x| *x <= 1.0 + 1e-6));
+    // Its rings: the base at 5, 10, 15, then the outer ring.
+    let r = estimate_rings();
+    assert!(r[0] < r[1] && r[1] < r[2] && r[2] < r[3] && r[3] == 1.0);
 }

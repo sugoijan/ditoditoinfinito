@@ -204,8 +204,9 @@ fn pattern(bpm: u32, rows: &[&str], n: usize) -> ddi_chart::Song {
 
 /// Round Z2: song select under "Chart ratings: DDI estimate" with the
 /// radar On, drawn in the theme: a bundled chart whose skills stand out,
-/// a stream's and a jacks' pattern chart, a flat chart (in words), one
-/// outside what the estimate was studied on (in words), a Double chart;
+/// a stream's and a jacks' pattern chart, a flat chart (a small regular
+/// octagon, round Z3), one outside what the estimate was studied on (in
+/// words);
 /// eight spokes, their labels apart as the platform measures them; at
 /// 1280×720 in English and Japanese.
 #[test]
@@ -249,6 +250,10 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
             if let Some(e) = ratings::estimate_chart(&song, i) {
                 ratings::remember_estimate(d, e);
             }
+            // And its MSD, for the comparison.
+            if let Some(v) = ratings::rate_song(&song, &[i], &[])[0].values {
+                ratings::remember(d, v);
+            }
         }
         // The pattern charts, a song each.
         let mut add = |id: &str, title: &str, song: ddi_chart::Song| {
@@ -278,13 +283,19 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
         let env = Env::new(look.clone(), Rc::new(|s: &str| s.to_string()));
         env.reduced_motion.set(true);
         let size = [1280u32, 720u32];
-        for (id, scene, want) in [
-            ("into-my-dream", "estimate-relevant", "shown"),
-            ("z-stream", "estimate-stream", "shown"),
-            ("z-jacks", "estimate-jacks", "shown"),
-            ("z-slow", "estimate-flat", "flat"),
-            ("z-long", "estimate-outside", "outside"),
+        // A chart (its button, where not the one chosen first) under a
+        // source: the estimate's, and MSD's for comparison.
+        for (id, tap, source, scene, want) in [
+            ("into-my-dream", None, ratings::Source::Estimate, "estimate-relevant", "shown"),
+            ("into-my-dream", Some(0), ratings::Source::Estimate, "estimate-easy", "shown"),
+            ("into-my-dream", Some(5), ratings::Source::Estimate, "estimate-challenge", "shown"),
+            ("into-my-dream", None, ratings::Source::Msd, "msd-hard", "shown"),
+            ("z-stream", None, ratings::Source::Estimate, "estimate-stream", "shown"),
+            ("z-jacks", None, ratings::Source::Estimate, "estimate-jacks", "shown"),
+            ("z-slow", None, ratings::Source::Estimate, "estimate-flat", "shown"),
+            ("z-long", None, ratings::Source::Estimate, "estimate-outside", "outside"),
         ] {
+            ratings::set_mode(source, true);
             let mut ui = Ui::new(ddi_ui::screens::DESIGN, ddi_ui::TextMode::Own, false);
             ui.set_focus_ring(false);
             ui.push(SelectScreen::new(
@@ -299,12 +310,29 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
                 ratio: 1.0,
             });
             common::ui::frames(&mut ui, 1.0);
+            if let Some(k) = tap {
+                let c = ui.bounds(&format!("Chart{k}")).expect("the chart's button");
+                let at = [(c[0] + c[2]) / 2.0, (c[1] + c[3]) / 2.0];
+                for phase in [PointerPhase::Down, PointerPhase::Up] {
+                    ui.handle(UiEvent::Pointer(PointerEvent {
+                        id: 1,
+                        kind: PointerKind::Mouse,
+                        phase,
+                        pos: at,
+                        buttons: u32::from(phase == PointerPhase::Down),
+                        modifiers: Modifiers::default(),
+                        time: 3000.0,
+                    }));
+                }
+                common::ui::frames(&mut ui, 0.5);
+            }
             let shot = pictures.draw(&mut ui, size);
             let st = env.state.borrow().clone();
             assert_eq!(st.song_id, id);
             assert_eq!(st.radar, want, "{scene} {lang}: {:?}", st.chart);
             if want == "shown" {
-                assert_apart_n(&ui, &format!("{scene} {lang}"), 8);
+                let spokes = if source == ratings::Source::Msd { 7 } else { 8 };
+                assert_apart_n(&ui, &format!("{scene} {lang}"), spokes);
             }
             if let Some(p) = shot {
                 keep(scene, size, lang, &p);

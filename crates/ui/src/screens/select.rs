@@ -1730,14 +1730,16 @@ impl SelectScreen {
                 crate::radar::shares(&v).to_vec(),
                 m::radar_overall().into(),
             )),
+            // The estimate's: each skill at least the base octagon of the
+            // chart's difficulty, a standout bulging past it (round Z3,
+            // `crate::radar::estimate_spokes`).
             Some(Standing::Profile(p)) => {
-                let most = p.iter().copied().fold(0.0f32, f32::max).max(1e-6);
-                let decimal = self.chosen_estimate().map_or(0.0, |e| e.decimal);
+                let decimal = self.chosen_estimate().map_or(1.0, |e| e.decimal);
                 Some((
                     std::iter::once(crate::radar::number(decimal))
                         .chain(p.iter().map(|c| crate::radar::number(*c)))
                         .collect(),
-                    p.iter().map(|c| c / most).collect(),
+                    crate::radar::estimate_spokes(decimal, &p),
                     m::radar_estimate_overall().into(),
                 ))
             }
@@ -1787,7 +1789,11 @@ impl SelectScreen {
                     short: &short,
                     overall: &overall,
                 };
-                Some(crate::radar::radar(&self.env, "Radar", &numbers, &drawn, [w, h], &words))
+                // The estimate's rings mark difficulties (its base octagon
+                // at 5, 10 and 15); MSD's are quarters of its overall.
+                let marks = crate::radar::estimate_rings();
+                let rings = (drawn.len() == 8).then_some(&marks[..]);
+                Some(crate::radar::radar(&self.env, "Radar", &numbers, &drawn, rings, [w, h], &words))
             }
             (Some(other), None) => {
                 self.radar_drawn = None;
@@ -1795,7 +1801,6 @@ impl SelectScreen {
                 let estimate = crate::state::ratings::source() == crate::state::ratings::Source::Estimate;
                 let line: String = match other {
                     Standing::Rating => m::radar_rating(),
-                    Standing::Flat => m::radar_flat(),
                     Standing::Outside => m::radar_outside(),
                     Standing::NoLayout if estimate => m::radar_estimate_layout(),
                     Standing::NoLayout => m::radar_no_layout(),
@@ -1871,7 +1876,6 @@ impl SelectScreen {
         if self.layout.radar {
             return match self.radar_standing() {
                 Some(Standing::Rated(_) | Standing::Profile(_)) => "shown",
-                Some(Standing::Flat) => "flat",
                 Some(Standing::Outside) => "outside",
                 Some(Standing::Rating) => "rating",
                 Some(Standing::NoLayout) => "no-layout",

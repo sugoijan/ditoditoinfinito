@@ -711,11 +711,9 @@ pub enum Standing {
     /// Its MSD's eight numbers (the radar's skillsets).
     Rated(Values),
     /// Its DDI estimate's profile ([`ChartEstimate::profile`]): the eight
-    /// skills' costs, in percentage points, some standing out.
+    /// skills' costs, in percentage points (all small: a regular octagon,
+    /// round Z3, `crate::radar::estimate_spokes`).
     Profile([f32; 8]),
-    /// Its DDI estimate's profile, where no skill stands out: the costs
-    /// sum to under [`FLAT_PP`].
-    Flat,
     /// Its DDI estimate is outside what it was studied on (no profile).
     Outside,
     /// Waiting to be rated, or being rated (its song is offered, the
@@ -727,10 +725,6 @@ pub enum Standing {
     /// None, nor any to come (it could not be rated, or nothing rates it).
     Unrated,
 }
-
-/// Under this many percentage points of Accuracy in all, a DDI estimate's
-/// profile has no skill standing out, and the radar says so in words.
-pub const FLAT_PP: f32 = 0.5;
 
 /// Where chart `digest` (of layout `layout`, an original or a generated
 /// version) of song `song` stands for the radar, whose source follows
@@ -749,8 +743,7 @@ pub fn standing(song: &str, digest: Option<ChartDigest>, layout: &str, original:
         }
         return match digest.and_then(estimate) {
             Some(Some(e)) => match e.profile {
-                Some(p) if p.iter().sum::<f32>() >= FLAT_PP => Standing::Profile(p),
-                Some(_) => Standing::Flat,
+                Some(p) => Standing::Profile(p),
                 None if !e.studied => Standing::Outside,
                 None => Standing::Unrated,
             },
@@ -1161,8 +1154,8 @@ mod tests {
         assert_eq!(estimate(digest(5)), None);
     }
 
-    /// Round Z2: the estimate's profile in the radar's place: shown where
-    /// the skills' costs stand out, in words where they are flat or the
+    /// Round Z2: the estimate's profile in the radar's place: shown (even
+    /// where no skill stands out: round Z3's octagon), in words where the
     /// chart is outside what the estimate was studied on; a bundled one
     /// from its manifest; and the radar shows MSD's under the song's
     /// numbers.
@@ -1175,7 +1168,10 @@ mod tests {
         let mut outside = estimate_of(18.7, None);
         outside.studied = false;
         remember_estimate(digest(2), outside);
-        assert_eq!(standing("a", Some(digest(1)), "dance-single", true), Standing::Flat);
+        assert_eq!(
+            standing("a", Some(digest(1)), "dance-single", true),
+            Standing::Profile([0.1, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0])
+        );
         assert_eq!(standing("a", Some(digest(2)), "dance-single", true), Standing::Outside);
         remember(digest(3), [10.0; 8]);
         assert_eq!(standing("a", Some(digest(3)), "dance-single", true), Standing::Unrated, "no MSD");
@@ -1283,5 +1279,19 @@ mod tests {
         assert_eq!(next(), None);
         set_playing(false);
         assert_eq!(next().map(|j| j.estimates), Some(vec![0]));
+    }
+
+    /// Round Z3: a jacks pattern's radar under the estimate: its JackSpeed
+    /// spoke the longest, every other at least the chart's base octagon.
+    #[test]
+    fn a_jack_pattern_bulges_at_jack_speed() {
+        use ddi_engine::cpu::SKILL_NAMES;
+        let song = pattern(130, &JACK, 480);
+        let e = estimate_chart(&song, 0).expect("estimated");
+        let spokes = crate::radar::estimate_spokes(e.decimal, &e.profile.expect("a profile"));
+        let jack = SKILL_NAMES.iter().position(|n| *n == "JackSpeed").unwrap();
+        let base = crate::radar::estimate_base(e.decimal);
+        assert!(spokes.iter().all(|s| *s >= base - 1e-6), "{spokes:?}");
+        assert!(spokes.iter().all(|s| *s <= spokes[jack]), "{spokes:?}");
     }
 }

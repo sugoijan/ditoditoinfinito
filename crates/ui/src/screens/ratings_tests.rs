@@ -606,7 +606,7 @@ fn the_estimate_s_radar_draws_each_state() {
         studied,
         profile,
     };
-    // Song 0: Medium with a profile, Hard flat; song 1: Medium outside,
+    // Song 0: Medium with a profile, Hard with tiny costs; song 1: Medium outside,
     // Hard waiting.
     ratings::remember_estimate(
         ddi_chart::ChartDigest(0),
@@ -621,9 +621,10 @@ fn the_estimate_s_radar_draws_each_state() {
     }
     let (mut h, e) = select_at(data, [1280.0, 720.0]);
     let said = |e: &Env| e.state.borrow().radar.clone();
-    // Song 0's Hard (chosen first): flat.
-    assert_eq!(said(&e), "flat");
-    assert!(h.texts().iter().any(|t| t == "No skill stands out on this chart"), "{:?}", h.texts());
+    // Song 0's Hard (chosen first): no skill stands out, a regular
+    // octagon (round Z3: no words for it any more).
+    assert_eq!(said(&e), "shown");
+    assert!(h.ui.bounds("RadarNote").is_none());
     assert_eq!(e.state.borrow().chart.as_deref(), Some("Hard 9"));
     h.tap(PointerKind::Mouse, "Chart0");
     h.run(0.6);
