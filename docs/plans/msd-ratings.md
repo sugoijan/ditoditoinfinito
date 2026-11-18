@@ -116,6 +116,21 @@ a score goal; the listing is rate 1.0, goal 93%.
 - **Debug**: `__DDI_DEBUG.ratings` on the web (wanted, paused, pending,
   rating, rated, known, the worker's songs and time).
 
+Checked: `ddi_ui` tests (`screens/ratings_tests.rs`: Off reads, writes
+and offers nothing; MSD in the numbers' place, the song's in the row's
+line, a new rating shown unasked; the radar for a rated chart only),
+`state/ratings.rs`'s (the queue paused during a play, kept and read
+back), the theme's walk, desktop's offscreen pictures
+(`tests/ratings_offscreen.rs`, wide, phone sideways and upright, en and
+ja), and in headless Chrome and Firefox on a release build: both options
+On, the bundled songs' MSD and radar, the pointer's list, a scratch pack
+of synthetic charts imported and rated by the worker (`msdslow=400`), a
+play started while rating was under way pausing it (`paused` true, nothing
+rated through the play) and its results letting it go on to every chart,
+the phone upright without a radar, and both Off: nothing wanted, stored
+or fetched. The rating worker is 296 kB of wasm; the page's first bytes
+are unchanged but for its meta tag (25 bytes gzipped).
+
 Not done: the radar's numbers on keyboard focus (hover only); MSD at other
 rates (the listing's 1.0 only); works and FFR levels rated in the
 background.
