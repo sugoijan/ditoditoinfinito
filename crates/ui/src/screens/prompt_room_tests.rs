@@ -684,3 +684,36 @@ fn unseen_the_prompt_starts_the_stage_its_player_readied_for_and_readies_no_one(
     unseen(&mut r, t0 + 3_000, 5);
     assert_eq!(starts(&r), 1, "once");
 }
+
+/// Presses in CPU practice, whose room answers inside the press: Ready
+/// and two presses more in one frame (keys, clicks), or two presses right
+/// after the prompt's own countdown readied the player, take Ready back
+/// (round Y3: none is lost); Ready held is still one Ready.
+#[test]
+fn presses_in_one_frame_after_ready_all_count() {
+    let ready = |r: &Rig| r.room.borrow().ready();
+    let mut r = rig_with(env(), true, false);
+    for _ in 0..3 {
+        enter(&mut r.h);
+    }
+    r.h.run(0.1);
+    assert!(!ready(&r), "keys");
+    let mut r = rig_with(env(), true, false);
+    for _ in 0..3 {
+        r.h.tap(PointerKind::Mouse, "Start");
+    }
+    r.h.run(0.1);
+    assert!(!ready(&r), "clicks");
+    assert_eq!(r.seen.borrow().len(), 1, "one Ready");
+    let mut r = rig_counting(env(), true, false, Some(3.0));
+    r.h.run(3.2);
+    assert!(ready(&r), "the countdown readied");
+    enter(&mut r.h);
+    enter(&mut r.h);
+    r.h.run(0.1);
+    assert!(!ready(&r), "after the countdown");
+    let mut r = rig_with(env(), true, false);
+    r.h.key_down("Enter", "Enter");
+    r.h.run((CANCEL_HOLD + 0.3) as f32);
+    assert!(ready(&r), "the readying press held");
+}

@@ -1175,6 +1175,12 @@ pub struct RoomClient {
     clock: ManualClock,
     client: ClientId,
     seq: u64,
+    /// The last command sent, when the authority has not answered it yet
+    /// (online: the answer comes over the socket later).
+    unanswered: Option<u64>,
+    /// Ready (or not) asked of the room and not answered yet: the command's
+    /// `seq` and the readiness asked ([`Self::ready_as_asked`]).
+    ready_asked: Option<(u64, bool)>,
     mirror: Mirror,
     me: ParticipantId,
     picks: BTreeMap<ContentId, Picked>,
@@ -1837,6 +1843,8 @@ impl RoomClient {
             clock,
             client,
             seq: 0,
+            unanswered: None,
+            ready_asked: None,
             mirror: Mirror::new(),
             me,
             picks: BTreeMap::new(),
@@ -3006,11 +3014,31 @@ impl RoomClient {
             return self.refuse(Refusal::Room(Rejection::NotUpcoming));
         };
         let readiness_rev = self.readiness_rev(stage);
-        self.send(Command::SetReady {
+        let sent = self.send(Command::SetReady {
             stage,
             readiness_rev,
             ready,
-        })
+        });
+        // Online, the room answers later: until it does, what was asked
+        // is what a press after this one acts on (`ready_as_asked`).
+        self.ready_asked = match (&sent, self.unanswered) {
+            (Ok(()), Some(seq)) => Some((seq, ready)),
+            _ => None,
+        };
+        sent
+    }
+
+    /// Whether the local player is ready as they last asked the room: what
+    /// was asked while the room has not answered it yet (an online room's
+    /// round trip), else [`Self::ready`]. A stage's prompt reads it, so that
+    /// a press right after Ready is the first of taking it back, and one
+    /// right after taking it back readies again, however late the room's
+    /// answer (found 2026-11-16, round P1b; fixed 2026-11-18).
+    pub fn ready_as_asked(&self) -> bool {
+        match self.ready_asked {
+            Some((_, ready)) => ready,
+            None => self.ready(),
+        }
     }
 
     /// How `id` picks whom to attack (M8 round 3): a person's own choice,
@@ -3123,7 +3151,7 @@ impl RoomClient {
     /// P1b). An online room's committed start is past taking back: its
     /// prompt says the stage is starting instead.
     pub fn may_take_ready_back(&self) -> bool {
-        if !self.ready() {
+        if !self.ready_as_asked() {
             return false;
         }
         let s = self.state();
@@ -4463,7 +4491,9 @@ impl RoomClient {
 
     /// [`Self::send`] based on revision `base` (none: the mirror's now).
     fn send_at(&mut self, base: Option<Revision>, cmd: Command) -> Result<(), Refusal> {
-        match self.submit(base, cmd) {
+        let answer = self.submit(base, cmd);
+        self.unanswered = answer.is_none().then_some(self.seq);
+        match answer {
             Some(Some(rejection)) => self.refuse(Refusal::Room(rejection)),
             _ => {
                 self.refusal = None;
@@ -4488,6 +4518,10 @@ impl RoomClient {
 
     fn pump(&mut self) {
         self.pump_for(0);
+        // The readiness asked shows in the room already.
+        if self.ready_asked.is_some_and(|(_, r)| r == self.ready()) {
+            self.ready_asked = None;
+        }
         self.sync_loading();
     }
 
@@ -4501,6 +4535,14 @@ impl RoomClient {
                 ServerMessage::Ack { client, seq: s } if *client == self.client && *s == seq => {
                     answer = Some(None);
                 }
+                // Ready asked earlier, answered now: the room's own
+                // readiness is the player's again.
+                ServerMessage::Ack { client, seq: s }
+                    if *client == self.client && self.ready_asked.is_some_and(|(r, _)| r == *s) =>
+                {
+                    self.ready_asked = None;
+                    self.version += 1;
+                }
                 ServerMessage::Reject {
                     client,
                     seq: s,
@@ -4509,9 +4551,14 @@ impl RoomClient {
                     answer = Some(Some(rejection.clone()));
                 }
                 ServerMessage::Reject {
-                    client, rejection, ..
+                    client,
+                    rejection,
+                    seq: s,
                 } if *client == self.client => {
                     // An earlier command's refusal, come later (online).
+                    if self.ready_asked.is_some_and(|(r, _)| r == *s) {
+                        self.ready_asked = None;
+                    }
                     self.refusal = Some(Refusal::Room(rejection.clone()));
                     self.version += 1;
                 }

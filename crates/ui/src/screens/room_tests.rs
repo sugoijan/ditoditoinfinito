@@ -6564,3 +6564,104 @@ fn sitting_out_says_what_comes_next() {
     assert_eq!(of(4, true, Watching), SatOutThen::Chosen { watching: true });
     assert_eq!(of(1, true, Watching), SatOutThen::Last { watching: true });
 }
+
+/// Found by round P1b (2026-11-16), fixed 2026-11-18: a press right after
+/// the one that readied was read as a second Ready while the room had not
+/// answered the first (an online room's round trip: 160 ms here), so it
+/// never counted as the first press of taking Ready back; and one right
+/// after taking it back was read as a second take-back instead of a Ready.
+/// What the player asked last counts (`RoomClient::ready_as_asked`): the
+/// press that readies is never also the first of the gesture, and every
+/// press after it counts.
+#[test]
+fn a_press_within_the_rooms_round_trip_after_ready_is_never_lost() {
+    use crate::state::online::tests::room::{client, person, prepare, song, tick};
+    use ddi_room::fake::{FakeServer, Latency};
+    use ddi_room::{Identity, Intent, ManualClock, RoomPolicy};
+    let clock = ManualClock::new(1_000);
+    let server = FakeServer::hosted(
+        "Room000001",
+        Identity::new("dev:alice"),
+        "alice",
+        RoomPolicy::default(),
+        clock.clone(),
+    )
+    .shared();
+    server
+        .borrow_mut()
+        .join(Identity::new("dev:bob"), "bob", Intent::Play)
+        .unwrap();
+    let alice = Rc::new(RefCell::new(client(&server, person(&server, "alice"), "alice", 1_000)));
+    let bob = Rc::new(RefCell::new(client(&server, person(&server, "bob"), "bob", 1_000)));
+    let step = |ms: u64| tick(&clock, &mut [&mut alice.borrow_mut(), &mut bob.borrow_mut()], ms);
+    step(400);
+    let s = song();
+    alice.borrow_mut().pick(&s, &s.charts[0]).unwrap();
+    step(400);
+    crate::state::online::tests::room::upload(&server, &mut alice.borrow_mut(), "abc12345");
+    step(400);
+    for r in [&alice, &bob] {
+        prepare(&mut r.borrow_mut());
+    }
+    step(400);
+    let order = bob.borrow_mut().take_stage_order().unwrap();
+    let orders = Orders::default();
+    let seen: Rc<RefCell<Vec<PromptChoice>>> = Rc::default();
+    let sink = seen.clone();
+    let mut hb = harness();
+    hb.push(
+        PromptScreen::new(
+            env(),
+            Rc::new(RefCell::new(PromptState::default())),
+            Rc::new(move |c, _| sink.borrow_mut().push(c)),
+        )
+        .with_room(bob.clone(), order.stage, shell(&bob, &orders)),
+    );
+    hb.run(0.3);
+    let me = bob.borrow().me();
+    server.borrow_mut().set_latency(
+        me,
+        Latency {
+            down_ms: 80,
+            down_jitter_ms: 0,
+            up_ms: 80,
+            up_jitter_ms: 0,
+            seed: 1,
+        },
+    );
+    // Frames of 16 ms with the room's clock along.
+    let frames = |hb: &mut Harness, n: usize| {
+        for _ in 0..n {
+            step(16);
+            hb.frame(0.016);
+        }
+    };
+    // Ready, and in the same frame a first press of taking it back; the
+    // room answers the Ready 160 ms later.
+    hb.key("Enter", "Enter");
+    hb.key("Enter", "Enter");
+    assert!(!bob.borrow().ready(), "the room has not answered yet");
+    assert!(bob.borrow().ready_as_asked());
+    hb.frame(0.0);
+    assert!(has(&hb, "Cancel ready"), "{:?}", hb.texts());
+    frames(&mut hb, 15);
+    assert!(bob.borrow().ready(), "answered");
+    assert_eq!(*seen.borrow(), [PromptChoice::Ready], "one Ready told the shell");
+    // The second press of the gesture, 0.24 s after the first: taken back.
+    hb.key("Enter", "Enter");
+    assert!(!bob.borrow().ready_as_asked(), "taken back as asked");
+    // At once a press again, the take-back not answered: it readies.
+    hb.key("Enter", "Enter");
+    assert!(bob.borrow().ready_as_asked(), "ready again as asked");
+    frames(&mut hb, 30);
+    assert!(bob.borrow().ready(), "the room says ready");
+    assert!(bob.borrow().refusal().is_none(), "{:?}", bob.borrow().refusal());
+    assert_eq!(seen.borrow().len(), 2, "{:?}", seen.borrow());
+    // Then the gesture as ever: twice in time, answered late, not ready.
+    hb.key("Enter", "Enter");
+    frames(&mut hb, 5);
+    hb.key("Enter", "Enter");
+    frames(&mut hb, 30);
+    assert!(!bob.borrow().ready());
+    assert!(has(&hb, "Ready"), "{:?}", hb.texts());
+}

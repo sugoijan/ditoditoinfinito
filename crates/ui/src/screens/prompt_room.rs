@@ -203,11 +203,11 @@ impl PromptScreen {
         Some(if !r.in_stage(rm.stage) {
             // A watcher has nothing to be ready for.
             msg::room::watching()
-        } else if r.ready() && !r.may_take_ready_back() {
+        } else if r.ready_as_asked() && !r.may_take_ready_back() {
             // An online room's start is committed: nothing to take back
             // (round P1b: the button no longer offers it).
             msg::room::prompt_starting()
-        } else if r.ready() {
+        } else if r.ready_as_asked() {
             msg::room::unready()
         } else {
             msg::room::ready()
@@ -225,10 +225,14 @@ impl PromptScreen {
         if rm.started.get() || rm.gone.get().is_some() {
             return true;
         }
-        // A watcher's press readies nothing: the shell's sound alone.
+        // A watcher's press readies nothing: the shell's sound alone. What
+        // the player asked last counts, answered by the room or not (an
+        // online room's round trip): a press right after Ready is never a
+        // second Ready.
         if rm.room.borrow().in_stage(rm.stage) {
-            let ready = set.unwrap_or(!rm.room.borrow().ready());
-            if ready != rm.room.borrow().ready() {
+            let asked = rm.room.borrow().ready_as_asked();
+            let ready = set.unwrap_or(!asked);
+            if ready != asked {
                 let _ = rm.room.borrow_mut().set_ready(ready);
             }
         }
@@ -606,7 +610,7 @@ impl PromptScreen {
         self.room.as_ref().is_some_and(|rm| {
             !rm.started.get() && rm.gone.get().is_none() && rm.quit_at.get().is_none() && {
                 let r = rm.room.borrow();
-                r.in_stage(rm.stage) && r.ready()
+                r.in_stage(rm.stage) && r.ready_as_asked()
             }
         })
     }
