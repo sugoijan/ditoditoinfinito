@@ -12080,6 +12080,90 @@ stored moves; no room model revision (still 14); the CPUs' fixture and
   Back and forward kept song select's focus.
 - **Ratings of works and FFR levels** on the web: `docs/plans/msd-ratings.md`.
 
+## Round Y4: the cleanups the simplify pass left (2026-11-18)
+
+The larger findings of the 2026-11-14 simplify pass, each checked against
+the code as it stands. Nothing seen, judged, decided, stored or sent
+moves; no room model revision (still 14); the CPUs' fixture, the pinned
+stage traces and the pins of drawn output unchanged.
+
+- **room-4** (the room's tests' helpers), done: the mirrored room of
+  five test files is `tests/common`'s `Room` (every refusal checked to
+  change nothing in all of them now) and a member's streamed play its
+  `Stream`, which the audience's and live's tests shared by copy (about
+  290 lines fewer).
+- **room-25** (the UI's percent-encoding), done by an earlier round: the
+  UI calls `ddi_library::share::percent_encode`.
+- **session-15** (attack reads written twice), done: `Battle` reads the
+  room's or the local ledger through one view (`AttackRead`: the attacks,
+  a bar, a wait, a commitment's and a learning's time, a field's delay):
+  the power, the wait, the policy, the warning, the links seen and the
+  summary each written once. `launched` stays two ways: practice counts
+  the runner's stats, a live stage the room's attacks.
+- **session-16** (`StageSetup` a copy of `StageOrder`), done: `StageSetup`
+  is defined once in `ddi_ui::state::room` and a `StageOrder` carries it
+  (`order.setup`, its fields read through the order as before).
+- **session-20** (`PlaySession::start`), done: its refusals
+  (`SessionConfig::refuse`), its stage's battle (`stage_battle`) and its
+  announcer (`announcer_for`) are their own functions, in the same order
+  (460 lines to 355).
+- **desktop-15 and web-16** (the share's upload in each shell), done: one
+  sans-IO sequence, `ddi_library::share::Upload` (made, each file put,
+  the art, finished, every answer read as a refusal but a success, a
+  file's under its path, a lost connection said by its step); each shell
+  keeps its transport (desktop's ureq and files, the web's fetch and
+  blobs). One detail moved toward the web's: desktop takes any success
+  status, where it wanted the server's exact 201 and 200 (the server
+  sends those). Checked on a local server: desktop's `tests/online.rs`
+  (the resting song uploaded under the spotlight's grant, read by the
+  guest, the pick reusing it); `--mp-bots --host --guests 2` (the host
+  bot shared stage 1's song, both guests loaded it); and the web in
+  headless Chrome and Firefox, a signed-in page as the room's picker: its
+  resting song uploaded whole (3.7 MB, `__DDI_SHARE_UPLOAD` done), a
+  guest bot loaded the stage. A grant expiring part-way is a test (the
+  error the room's client renews on).
+- **web-17** (the fake rooms' HTTP written six times), done:
+  `ddi_room::fake::FakeServer::answer_http` answers a room's clients'
+  requests as the server does (`/me`, the summary, a ticket, the invite,
+  a grant, an invite's preview, the audience's join), which the web's
+  fake seats and rooms, desktop's room tests and the session's live tests
+  use, each keeping only what it does otherwise.
+- **ui-screens-6** (one renderer for a room's players), mostly done by
+  earlier rounds: the players panel, the Ready card and the audience's
+  page draw a line each with `room::player_line` (`players_part`). Left:
+  the Players pop-up's and a phone follower's rows (`room::panel`'s two
+  lines a player, in the room's order) and Host options' rows. Drawing
+  them with `player_line` would change their layout and their order
+  (`panel_order`), which is what a person sees.
+- **ui-core-10** (the spotlight's sharing beside a stage's), not done:
+  the two differ at every step (the spotlight's keyed by its song, never
+  renewed or retried, its version bumped only for progress, cleared when
+  the picker leaves the song); one map would carry a `match` at each, so
+  nothing would go.
+- **room-28** (`apply` clones the room per command), not done: the server
+  already writes the whole room as one JSON row on every change
+  (`tests/scale.rs`, `what_a_large_room_costs`, measures the two
+  together); the finding's (a) needs every command's checks before its first event (a
+  refused invalid command could be refused for another reason), (b)
+  changes the types the server and every reader of the history use.
+- **shell-render-28** (instanced miniature HUDs), not done: an earlier
+  attempt moved pixels, and the time went to the findings above.
+- **The online stage played without live play**, kept. What reaches it:
+  `RoomPolicy::default()` has no `live`, and the fake server's rooms the
+  tests use with it (the UI's online tests, desktop's room tests'
+  "After Hours" room, the session's stage tests); the web's testing-only
+  fake room unless `mpfakelive=1`; any transport that does not say it
+  carries binary frames (`Transport::binary`, false by default); a room
+  stored before live play, which the server upgrades on load but whose
+  stage already in play stays as it was, and the stored rooms the room's
+  tests load (`tests/room-revision-*.json`). The deployed server makes
+  every room live (`with_live`) and upgrades every stored room on load,
+  so nothing deployed reaches it but such a stage. The self-reported
+  settlement it uses (`OutcomePolicy`, `RoomState::report_deadline`) is
+  also what a live stage's reports wait on. Retiring it would mean making
+  the default policy live and moving those tests and the fake room, not
+  a bounded removal.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
