@@ -579,6 +579,7 @@ pub fn footer(
             keys,
             label,
             prefix: "",
+            drop: 0,
         })
         .collect();
     footer_hints(env, screen, &hints, controller, note, links, cx)
@@ -589,6 +590,10 @@ pub struct FooterHint<'a> {
     pub keys: &'a [&'a str],
     pub label: &'a str,
     pub prefix: &'a str,
+    /// Where the footer's hints do not fit beside its links, the order
+    /// they leave in ([`footer_hints`]): the highest first; 0, only once
+    /// every ranked one has left and the note is cut.
+    pub drop: u8,
 }
 
 pub fn footer_hints(
@@ -615,7 +620,13 @@ pub fn footer_hints(
     let mut x = margin;
     let mut texts = Vec::new();
     let active = cx.hints().active();
-    let resolved: Vec<(Vec<crate::keycaps::Keycap>, &str, &str)> = if active {
+    // The links from the right: where the hints and the note must end.
+    let links_w: f32 = links
+        .iter()
+        .map(|(_, label)| look::mono_width(label, 13.0) + 16.0 + 12.0)
+        .sum();
+    let room = screen[0] - margin - links_w - hint_gap + 12.0;
+    let resolved: Vec<(Vec<crate::keycaps::Keycap>, &str, &str, u8)> = if active {
         controller
             .iter()
             .filter_map(|(actions, label)| {
@@ -625,7 +636,7 @@ pub fn footer_hints(
                     } else {
                         cx.hints().actions(actions)
                     };
-                (!caps.is_empty()).then_some((caps, "", *label))
+                (!caps.is_empty()).then_some((caps, "", *label, 0))
             })
             .collect()
     } else {
@@ -639,12 +650,51 @@ pub fn footer_hints(
                         .collect(),
                     h.prefix,
                     h.label,
+                    h.drop,
                 )
             })
             .collect()
     };
-    for (i, (caps, prefix, label)) in resolved.iter().enumerate() {
-        let (mut a, w) = key_hint_prefixed(env, &format!("Hint{i}"), caps, prefix, label, cx);
+    // Each hint made, then those that fit (round Y3: since favorites'
+    // F, "Favorite" ran under "Manage…" on an imported song): where the
+    // hints and the note do not fit before the links, the ranked hints
+    // leave, the highest rank first (the later of equals); then the note
+    // is cut; then the unranked leave from the end, the first kept.
+    let mut made: Vec<(usize, Actor, f32, u8)> = resolved
+        .iter()
+        .enumerate()
+        .map(|(i, (caps, prefix, label, drop))| {
+            let (a, w) = key_hint_prefixed(env, &format!("Hint{i}"), caps, prefix, label, cx);
+            (i, a, w, *drop)
+        })
+        .collect();
+    let note_w = if note.is_empty() {
+        0.0
+    } else {
+        look::mono_width(note, 13.0)
+    };
+    let width = |made: &[(usize, Actor, f32, u8)]| -> f32 {
+        made.iter().map(|m| m.2 + hint_gap).sum::<f32>()
+    };
+    while margin + width(&made) + note_w > room {
+        let Some(k) = made
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.3 > 0)
+            .max_by_key(|(k, m)| (m.3, *k))
+            .map(|(k, _)| k)
+        else {
+            break;
+        };
+        made.remove(k);
+    }
+    let mut note_room = room - margin - width(&made);
+    while note_room < note_w.min(look::mono_width("…….", 13.0)) && made.len() > 1 {
+        made.pop();
+        note_room = room - margin - width(&made);
+    }
+    for (i, mut a, w, _) in made {
+        let (caps, prefix, label, _) = &resolved[i];
         call(&mut a, "xy", &[x + w / 2.0, h / 2.0]);
         x += w + hint_gap;
         children.push(a);
@@ -662,12 +712,12 @@ pub fn footer_hints(
                 .to_string(),
         );
     }
-    if !note.is_empty() {
-        children.push(left(
-            env.text("Footer.Note", note, 13.0, 400, "Muted"),
-            x,
-            h / 2.0,
-        ));
+    if !note.is_empty() && note_room > 0.0 {
+        let mut text = env.text("Footer.Note", note, 13.0, 400, "Muted");
+        if note_w > note_room {
+            look::ellipsized(&mut text, note_room);
+        }
+        children.push(left(text, x, h / 2.0));
         texts.push(note.to_string());
     }
     let mut rx = screen[0] - margin;

@@ -2346,3 +2346,121 @@ fn a_focus_moved_along_the_rows_matches_a_screen_built_with_it() {
         assert!(state(&moved) == state(&fresh), "{key} to {option}");
     }
 }
+
+/// Round Y3: song select's footer hints never run into each other, its
+/// note or its links, with the real look, at every width the footer
+/// shows at (a phone's compact layout has none) and in English, Japanese
+/// and the long pseudo-language: on a bundled song, an imported one (its
+/// Delete and Manage…), a pack's header, the Favorites pack's and a song
+/// in it (F), with and without the plays' P and the editor's E, and on a
+/// CPU practice room's picker's list (Rules, L). Where they do not fit,
+/// the least important leave first (`footer_drop` in `select.rs`).
+#[test]
+fn song_selects_footer_hints_never_overlap() {
+    use ddi_ui::screens::select::SelectScreen;
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let mut data = sample::select();
+    // Imported songs played in the style shown: their whole hints.
+    let style = data.style.clone().unwrap_or_else(|| "dance-single".into());
+    for s in &mut data.songs {
+        if s.pack.is_some() {
+            s.removable = true;
+            for c in &mut s.charts {
+                c.style = style.clone();
+            }
+        }
+    }
+    for p in &mut data.packs {
+        p.removable = true;
+    }
+    let mut seen_kinds = std::collections::BTreeSet::new();
+    for lang in ["en", "ja", "qps-ploc"] {
+        assert!(ddi_l10n::force(lang), "{lang}");
+        for size in [[1280.0, 720.0], [1024.0, 576.0], [844.0, 390.0]] {
+            let design = if size[1] < 500.0 { COMPACT } else { DESIGN };
+            for (extras, room) in [(false, false), (true, false), (true, true)] {
+                let mut h = harness(size, design);
+                let mut screen = SelectScreen::new(
+                    env.clone(),
+                    data.clone(),
+                    None,
+                    Rc::new(|_, _, _: &Env, _| {}),
+                    Rc::new(|_, _| {}),
+                );
+                if extras {
+                    screen = screen.with_plays(Rc::new(|_, _| Vec::new())).with_editing();
+                }
+                if room {
+                    let r = ddi_ui::state::room::RoomClient::shared(0, 1);
+                    screen = screen.with_room(r, Rc::new(|_, _| {}));
+                }
+                h.push(screen);
+                h.run(0.6);
+                // The heart on the first song: the Favorites pack at the top.
+                if !room {
+                    h.key("KeyF", "f");
+                    h.run(0.3);
+                }
+                for step in 0..14 {
+                    let hints = env.state.borrow().hints.clone();
+                    let what = format!("{lang} {size:?} extras {extras} room {room} step {step}: {hints:?}");
+                    let Some(footer) = h.ui.bounds("Footer") else {
+                        assert!(size[1] < 500.0, "no footer: {what}");
+                        break;
+                    };
+                    let mut boxes: Vec<(String, [f32; 4])> = Vec::new();
+                    for i in 0..24 {
+                        if let Some(b) = h.ui.bounds_of("Footer", &format!("Hint{i}")) {
+                            boxes.push((format!("Hint{i}"), b));
+                        }
+                    }
+                    if let Some(b) = h.ui.bounds_of("Footer", "Footer.Note") {
+                        boxes.push(("Note".into(), b));
+                    }
+                    for link in ["Link.Manage", "Link.Add", "Room.Rules", "Link.Options", "Link.Calibrate"] {
+                        if let Some(b) = h.ui.bounds_of("Footer", link) {
+                            boxes.push((link.into(), b));
+                        }
+                    }
+                    for (n, b) in &boxes {
+                        assert!(b[0] >= footer[0] - 0.5 && b[2] <= footer[2] + 0.5, "{n} off the screen {b:?}: {what}");
+                    }
+                    for (i, (a, ba)) in boxes.iter().enumerate() {
+                        for (b, bb) in &boxes[i + 1..] {
+                            let overlap = ba[2].min(bb[2]) - ba[0].max(bb[0]);
+                            assert!(overlap <= 0.5, "{a} {ba:?} and {b} {bb:?} overlap: {what}");
+                        }
+                    }
+                    let kind = if hints.iter().any(|t| t.starts_with("DEL"))
+                        && hints.iter().any(|t| t.starts_with("ENTER"))
+                    {
+                        "imported"
+                    } else if hints.iter().any(|t| t.starts_with("TAB")) {
+                        "bundled"
+                    } else {
+                        "header"
+                    };
+                    seen_kinds.insert(kind);
+                    if hints.iter().any(|t| t.starts_with("F ")) {
+                        seen_kinds.insert("favorite");
+                    }
+                    if hints.iter().any(|t| t.starts_with("L ")) {
+                        seen_kinds.insert("room");
+                    }
+                    // A pack's header: opened, its songs next.
+                    if kind == "header" && step % 4 == 1 {
+                        h.key("Enter", "Enter");
+                        h.run(0.45);
+                    }
+                    h.key("ArrowDown", "ArrowDown");
+                    h.run(0.45);
+                }
+            }
+        }
+    }
+    ddi_l10n::force("en");
+    for k in ["imported", "bundled", "header", "favorite", "room"] {
+        assert!(seen_kinds.contains(k), "never saw {k}: {seen_kinds:?}");
+    }
+}

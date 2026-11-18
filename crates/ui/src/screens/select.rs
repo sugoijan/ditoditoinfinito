@@ -363,6 +363,25 @@ enum Item {
     Song(usize),
 }
 
+/// The order song select's footer hints leave in where they do not fit
+/// beside its links (`footer_hints`; round Y3, `docs/plans/song-navigation.md`,
+/// "The footer's hints"): the editor's E first, then the plays' P, a
+/// room's players' L, Delete's managing, the heart's F, the style's Tab and
+/// the search's /; the song's and the chart's arrows, Enter, Escape and a
+/// room's T stay.
+fn footer_drop(keys: &[&str]) -> u8 {
+    match keys {
+        ["E"] => 7,
+        ["P"] => 6,
+        ["L"] => 5,
+        ["DEL"] => 4,
+        ["F"] => 3,
+        ["TAB"] => 2,
+        ["/"] => 1,
+        _ => 0,
+    }
+}
+
 /// What the footer says.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Hints {
@@ -2724,6 +2743,7 @@ impl SelectScreen {
                 keys,
                 label,
                 prefix: "",
+                drop: footer_drop(keys),
             })
             .collect();
         if now == Hints::Song && !joining {
