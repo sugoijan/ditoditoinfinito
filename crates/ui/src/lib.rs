@@ -27,6 +27,7 @@ pub mod dev_widgets;
 pub mod event;
 pub mod gesture;
 pub mod graph;
+pub mod heart;
 pub mod hit;
 pub mod keycaps;
 pub mod look;

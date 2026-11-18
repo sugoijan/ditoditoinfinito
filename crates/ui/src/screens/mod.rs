@@ -70,6 +70,8 @@ pub mod folders_offer;
 pub mod import_report;
 #[cfg(test)]
 mod l10n_tests;
+#[cfg(test)]
+mod favorites_tests;
 pub mod numbers;
 pub mod online;
 pub mod online_home;
@@ -167,6 +169,12 @@ pub struct ThemeState {
     pub shared_pack: Option<String>,
     /// The songs (ids) added to the next share, in order.
     pub to_share: Vec<String>,
+    /// Song select's heart for the song shown: a favorite or not; `None`
+    /// where it shows none (a share, a room's follower, no song).
+    pub favorite: Option<bool>,
+    /// The favorites' pack's songs (ids) in its order; empty where the
+    /// list has none.
+    pub favorites: Vec<String>,
     /// The selected song has no chart in the style.
     pub greyed: bool,
     pub style: String,

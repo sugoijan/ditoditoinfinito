@@ -1604,9 +1604,22 @@ pub const MORE: &str = "Room.More";
 
 /// Opens the room's More menu.
 pub fn open_more(env: &Env, room: &SharedRoom, compact: bool, cx: &mut Cx) {
+    open_more_with(env, room, compact, Vec::new(), cx);
+}
+
+/// [`open_more`] with the screen's own `first` (the room's song select's
+/// heart for the picker's song), picked as this menu's ([`MORE`]).
+pub fn open_more_with(
+    env: &Env,
+    room: &SharedRoom,
+    compact: bool,
+    first: Vec<(String, String)>,
+    cx: &mut Cx,
+) {
     // The invite read again: another operator may have replaced it.
     room.borrow_mut().refresh_invite();
-    let items = more_items(&room.borrow(), compact);
+    let mut items = first;
+    items.extend(more_items(&room.borrow(), compact));
     super::action_menu(env, &common::more(), items, MORE, cx);
 }
 

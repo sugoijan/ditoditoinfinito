@@ -392,6 +392,19 @@ fn place_after_bpm(root: &mut Actor, measure: &mut dyn ddi_actor::text::TextMeas
     }
 }
 
+/// The song's heart's height on song select's song side (wide, and a
+/// phone's or a room's short side).
+const FAVORITE: f32 = 24.0;
+const FAVORITE_SMALL: f32 = 18.0;
+
+/// Where song select puts the song's heart (`FavoriteSlot`): an empty
+/// frame at `at`, its `Extent` the heart's height.
+fn favorite_slot(height: f32, at: [f32; 2]) -> Actor {
+    let mut slot = frame("FavoriteSlot", vec![extent([height, height])]);
+    call(&mut slot, "xy", &at);
+    slot
+}
+
 /// The wide wheel's row: its banner's left, its size at rest and on the
 /// selected row, the title's size at rest and selected, and the room
 /// the meters take at its right.
@@ -573,7 +586,29 @@ impl Infinito {
         command_of(&mut none, "Available", "diffusealpha,0");
         right.push(none);
         let right = frame("Right", right);
-        inset(frame("", vec![shadow, p, back, banner, title, sub, right]))
+        // A favorite's heart over the banner's upper left corner, small,
+        // on a darker heart so it reads on any art; none on the others.
+        let mut fav = self.heart_badge(if compact { 10.0 } else { 12.0 });
+        call(&mut fav, "xy", &[bx + 9.0, by + 8.0]);
+        command_of(&mut fav, "Favorite", "diffusealpha,1");
+        command_of(&mut fav, "NotFavorite", "diffusealpha,0");
+        inset(frame(
+            "",
+            vec![shadow, p, back, banner, fav, title, sub, right],
+        ))
+    }
+
+    /// A small filled heart `h` tall on a darker one a little larger
+    /// (named `Fav`, hidden): a favorite's mark on a row.
+    fn heart_badge(&self, h: f32) -> Actor {
+        let mut ground = self.c("Ground");
+        ground[3] = 0.85;
+        let back = ddi_ui::heart::actor(true, h + 4.0, [ground, ground]);
+        let heart = ddi_ui::heart::actor(true, h, [self.c("Heart"), self.c("Heart.Empty")]);
+        let mut fav = frame("Fav", vec![back, heart]);
+        fav.decoration = true;
+        hide(&mut fav);
+        fav
     }
 
     fn song_header(&self, spec: &Spec) -> Actor {
@@ -638,7 +673,24 @@ impl Infinito {
         call(&mut cover, "xy", &[78.0, row / 2.0]);
         call(&mut cover, "cornerradius", &[3.0]);
         cover.visible = false;
-        let middle = frame("Middle", vec![chevron, cover, title]);
+        // The favorites' pack: its heart in the cover's place.
+        command_of(
+            &mut title,
+            "Favorites",
+            &format!("x,64;maxwidth,{}", w - 64.0 - 120.0),
+        );
+        let mut heart = ddi_ui::heart::actor(
+            true,
+            if compact { 14.0 } else { 16.0 },
+            [self.c("Heart"), self.c("Heart.Empty")],
+        );
+        heart.name = "Heart".into();
+        call(&mut heart, "xy", &[47.0, row / 2.0]);
+        hide(&mut heart);
+        command_of(&mut heart, "WithCover", "diffusealpha,0");
+        command_of(&mut heart, "WithoutCover", "diffusealpha,0");
+        command_of(&mut heart, "Favorites", "diffusealpha,1");
+        let middle = frame("Middle", vec![chevron, cover, heart, title]);
         let right = frame("Right", vec![count]);
         inset(frame("", vec![p, line, middle, right]))
     }
@@ -717,14 +769,19 @@ impl Infinito {
                 0.0,
                 bh + 8.0 + 11.0,
             );
-            max_width(&mut title, w);
+            // Room at the title's right for the song's heart.
+            max_width(&mut title, w - FAVORITE_SMALL - 10.0);
             let mut line = at_left(
                 self.text("Line", "", 13.0, 400, "Muted"),
                 0.0,
                 bh + 8.0 + 30.0,
             );
             max_width(&mut line, w);
-            c.extend([title, line]);
+            c.extend([
+                title,
+                line,
+                favorite_slot(FAVORITE_SMALL, [w - FAVORITE_SMALL * 0.55, bh + 8.0 + 11.0]),
+            ]);
         } else {
             let ty = bh + 12.0 + 17.6;
             let mut title = at_left(self.text("Title", "", 32.0, 700, "Text"), 0.0, ty);
@@ -788,6 +845,8 @@ impl Infinito {
                 // The song's own offset, when set.
                 at_right(self.text("Offset", "", 13.0, 600, "Accent"), w, sy + 1.0),
                 credit,
+                // The song's heart at the title's line's right end.
+                favorite_slot(FAVORITE, [w - FAVORITE * 0.55, ty]),
             ]);
         }
         frame("", c)
@@ -1342,6 +1401,13 @@ impl Look for Infinito {
                     self.c("Star.Empty"),
                 ],
             ),
+            // A song's heart on song select (the spec's text `on`: a
+            // favorite, filled), as tall as the spec.
+            "Heart" => ddi_ui::heart::actor(
+                spec.text == "on",
+                h,
+                [self.c("Heart"), self.c("Heart.Empty")],
+            ),
             "Button" => self.button(spec, "Plate2", "Text", 15.0, 600),
             "Button.Disabled" => {
                 let mut button = self.button(spec, "Plate2", "Muted", 15.0, 600);
@@ -1695,6 +1761,17 @@ impl Look for Infinito {
                     ],
                 );
             }
+            set(
+                actor,
+                "Fav",
+                &[(
+                    "y",
+                    &[mix(
+                        (row - WHEEL_BANNER[1]) / 2.0,
+                        (big - WHEEL_BANNER_BIG[1]) / 2.0,
+                    ) + 8.0],
+                )],
+            );
             let tx = WHEEL_BANNER_X + WHEEL_BANNER[0] + 14.0;
             let tx2 = WHEEL_BANNER_X + WHEEL_BANNER_BIG[0] + 16.0;
             let width = width - 2.0 * ROW_INSET;

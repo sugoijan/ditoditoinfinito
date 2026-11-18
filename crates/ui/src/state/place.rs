@@ -147,12 +147,29 @@ pub fn apply(
 pub const CLOSED_BUNDLED: &str = "Bundled songs";
 
 /// Key of a group of the list: the bundled songs or an imported pack
-/// (packs are told apart ignoring case).
+/// (packs are told apart ignoring case), or the favorites' pack
+/// ([`FAVORITES_KEY`]).
 pub fn pack_key(pack: Option<&str>) -> String {
     match pack {
         None => "bundled".into(),
+        Some(FAVORITES_PACK) => FAVORITES_KEY.into(),
         Some(p) => format!("pack:{}", p.to_lowercase()),
     }
+}
+
+/// The favorites' pack's name among song select's packs
+/// (`docs/plans/song-navigation.md`, "Favorites"): a pack of the screen's
+/// own at the top of the list, never a library's (no folder's name holds
+/// U+0001), shown by its message (`select-pack-favorites`).
+pub const FAVORITES_PACK: &str = "\u{1}favorites";
+
+/// The favorites' pack's key ([`pack_key`]): the place's open pack when it
+/// is the one open.
+pub const FAVORITES_KEY: &str = "favorites";
+
+/// Whether the pack named `name` is the favorites' pack.
+pub fn is_favorites(name: Option<&str>) -> bool {
+    name == Some(FAVORITES_PACK)
 }
 
 /// Whether `a` and `b` name the same pack: equal ignoring case, as song
@@ -310,5 +327,9 @@ mod tests {
         assert_eq!(MenuPlace::load(), p);
         assert_eq!(pack_key(Some("DDR")), "pack:ddr");
         assert_eq!(pack_key(None), "bundled");
+        // The favorites' pack: a key no pack has.
+        assert_eq!(pack_key(Some(FAVORITES_PACK)), FAVORITES_KEY);
+        assert_ne!(pack_key(Some("Favorites")), FAVORITES_KEY);
+        assert!(is_favorites(Some(FAVORITES_PACK)) && !is_favorites(Some("Favorites")));
     }
 }

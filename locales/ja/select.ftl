@@ -4,6 +4,8 @@
 
 select-pack-bundled = 収録曲
 
+select-pack-favorites = お気に入り
+
 select-pack-songs = { $count }曲
 
 select-pack-songs-found = { $count }曲中{ $found }曲
@@ -97,6 +99,10 @@ select-hint-plays = 履歴
 
 select-hint-edit = 編集
 
+select-hint-favorite = お気に入り
+
+select-hint-unfavorite = お気に入り解除
+
 select-hint-navigate = 移動
 
 select-hint-activate = 決定
@@ -145,6 +151,10 @@ select-more-manage = 曲・パックの管理
 select-more-share-remove = 共有リストから外す
 
 select-more-share-add = 共有リストに追加
+
+select-more-favorite-add = お気に入りに追加
+
+select-more-favorite-remove = お気に入りから外す
 
 select-more-share-list = { $count }曲を共有…
 

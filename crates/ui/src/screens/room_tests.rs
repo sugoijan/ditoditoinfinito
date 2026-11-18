@@ -5548,7 +5548,9 @@ fn a_room_that_could_not_be_made_says_why_in_a_sentence() {
 /// in feedback round H: the player's "You" badge moved onto its name's
 /// line; the Rules pop-up's (and the Add CPU pop-up's over it) for
 /// Adaptive's sentence (`adaptive-v3`, and again for `adaptive-v4`'s in
-/// round D1), nothing else.
+/// round D1), nothing else. Every one but the follower's again in round W
+/// (favorites): the picker's song select under them draws the song's
+/// heart and the footer's F; a follower's draws neither.
 #[test]
 fn the_rooms_screens_draw_as_pinned() {
     use ddi_room::{Finish, Finisher};
@@ -5628,16 +5630,16 @@ fn the_rooms_screens_draw_as_pinned() {
 }
 
 const PINNED: [(&str, u64); 10] = [
-    ("select", 9001431102370433080),
-    ("rules", 15298908884902704237),
-    ("add", 1582337695304301367),
-    ("add-level", 5774062213425346937),
-    ("players", 17490229943207298487),
-    ("standings", 4050983496291045925),
-    ("online-select", 14361459534628858177),
+    ("select", 16001433830104325910),
+    ("rules", 14777734907332526783),
+    ("add", 3011979641582632795),
+    ("add-level", 14452308440810743387),
+    ("players", 8610800191167024236),
+    ("standings", 16950822547352780372),
+    ("online-select", 15460780746050739119),
     ("online-follower", 17435691216428764643),
-    ("online-players", 17102094105239206682),
-    ("host", 6063949652104764403),
+    ("online-players", 7738760287648516505),
+    ("host", 1098231176107377334),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's

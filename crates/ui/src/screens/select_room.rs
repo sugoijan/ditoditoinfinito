@@ -870,6 +870,10 @@ impl SelectScreen {
             return;
         };
         if let Some(p) = &place {
+            // The favorites' pack open again where it was.
+            if p.open.as_ref().is_some_and(|n| is_favorites(n.as_deref())) {
+                self.resume_pack = Some(FAVORITES_KEY.to_string());
+            }
             // Every pack closed but the one that was open.
             let mut closed: Vec<Option<String>> = Vec::new();
             for song in &library.songs {
@@ -980,7 +984,9 @@ impl SelectScreen {
         let Some(rm) = &self.room else {
             return false;
         };
-        room::open_more(&self.env, &rm.room, self.layout.compact, cx);
+        // The picker's song's heart first.
+        let first = self.favorite_item().into_iter().collect();
+        room::open_more_with(&self.env, &rm.room, self.layout.compact, first, cx);
         true
     }
 
@@ -1124,7 +1130,12 @@ impl SelectScreen {
         {
             self.room_left(by, cx);
         }
-        if let Some(id) = crate::screens::menu_pick(msg, room::MORE) {
+        if let Some(id) = crate::screens::menu_pick(msg, room::MORE)
+            && id == super::favorites_mode::FAVORITE
+        {
+            self.toggle_favorite(root, cx);
+            cx.focus("Wheel");
+        } else if let Some(id) = crate::screens::menu_pick(msg, room::MORE) {
             match room::more_picked(id, &room, cx) {
                 room::MoreAction::Rules => self.open_rules(cx),
                 room::MoreAction::Players => self.open_players(cx),

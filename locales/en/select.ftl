@@ -10,6 +10,11 @@
 # about 40 letters.
 select-pack-bundled = Bundled songs
 
+# The pack at the top of the list that gathers the songs the player
+# marked with the heart (each song is still in its own pack too): its
+# header in the list. A header row's title, about 40 letters.
+select-pack-favorites = Favorites
+
 # A pack's header, at its right: how many songs it holds. Short, about
 # 12 letters.
 # Variables:
@@ -222,6 +227,14 @@ select-hint-plays = Plays
 # E: open the chart in the chart editor.
 select-hint-edit = Edit
 
+# F: mark the song shown as a favorite (a filled heart; it is listed in
+# the Favorites pack too). Short, about 12 letters.
+select-hint-favorite = Favorite
+
+# F on a song already a favorite: take the mark off (the heart goes back
+# to an outline). Short, about 12 letters.
+select-hint-unfavorite = Unfavorite
+
 # A controller's directions while on the header's row: move along it.
 select-hint-navigate = Navigate
 
@@ -311,6 +324,14 @@ select-more-share-remove = Remove from share
 
 # Adds the song shown to a list of songs to share together.
 select-more-share-add = Add to share
+
+# Marks the song shown as a favorite: a filled heart, and the song
+# listed in the Favorites pack at the top of the list.
+select-more-favorite-add = Add to favorites
+
+# Takes the favorite's mark off the song shown (and it leaves the
+# Favorites pack).
+select-more-favorite-remove = Remove from favorites
 
 # Shares the songs added to the list, by a link.
 # Variables:

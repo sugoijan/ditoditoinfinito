@@ -61,6 +61,11 @@ numbers_weight = 800
 "Star.Gold" = "#ffc83d"
 "Star.Silver" = "#c8ced9"
 "Star.Empty" = "#6d6676"
+# A favorite song's heart on song select (`ddi_ui::heart`): filled in a
+# warm raspberry of its own (none of the judgments', lamps' or states'),
+# an outline in a quiet light grey where the song is not one.
+"Heart" = "#f2476b"
+"Heart.Empty" = "#b3aca5"
 # A battle's attacks in the play (`attack_colors`): the line from the
 # power bar to the opponent attacked (or from the attacker to the
 # warning) and the outline around that opponent's miniature, and the

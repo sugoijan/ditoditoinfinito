@@ -54,7 +54,7 @@ use crate::message::Message;
 use crate::nav::{Focusable, MenuAction};
 use crate::request::{EnterKey, InputHints, InputMode, UiRequest};
 use crate::screen::{Cx, Handled, Input, Screen, TextChange};
-use crate::state::place::pack_key;
+use crate::state::place::{FAVORITES_KEY, is_favorites, pack_key};
 use crate::state::select_view::pack_label;
 use crate::widgets::field::{FieldEvent, SearchField};
 use crate::widgets::list::{ItemKind, List, ListConfig, ListEvent, ListModel, ListStyle};
@@ -68,6 +68,8 @@ use super::data::PackEntry;
 /// header's row is the header's (the bars stay put from screen to screen).
 #[path = "select_room.rs"]
 mod room_mode;
+#[path = "select_favorites.rs"]
+mod favorites_mode;
 
 const SELECT_PARTS: [(&str, super::Edge); 19] = {
     use super::Edge::{FooterBar, HeaderBar, Left, None, Right};
@@ -567,6 +569,8 @@ struct Wheel<'a> {
     open_pack: Option<usize>,
     /// The songs a search matches (none: no search).
     matches: Option<&'a [bool]>,
+    /// Each song is a favorite (empty: favorites do not apply).
+    favorite: &'a [bool],
     style: &'a str,
     style_name: &'a str,
     banner_side: f32,
@@ -614,6 +618,10 @@ impl ListModel for Wheel<'_> {
                         "WithoutCover"
                     },
                 );
+                // The favorites' pack: its heart in the cover's place.
+                if is_favorites(name.as_deref()) {
+                    crate::widgets::play(item, "Favorites");
+                }
                 let n = songs.len();
                 // While searching: how many of its songs match.
                 let count = match self.matches {
@@ -682,6 +690,15 @@ impl ListModel for Wheel<'_> {
                         "Available"
                     },
                 );
+                // A favorite's small heart.
+                crate::widgets::play(
+                    item,
+                    if self.favorite.get(s).copied().unwrap_or(false) {
+                        "Favorite"
+                    } else {
+                        "NotFavorite"
+                    },
+                );
             }
         }
     }
@@ -689,9 +706,17 @@ impl ListModel for Wheel<'_> {
 
 /// What song select's footer shows: its hints, whether a search is in
 /// them, its note (a gesture's, else the matches counted), whether Manage
-/// is offered, whether the header has the focus and whether a room's
-/// Pick songs is offered.
-type FooterKey = (Hints, bool, Result<String, usize>, bool, bool, bool);
+/// is offered, whether the header has the focus, whether a room's Pick
+/// songs is offered and the song's heart's (F's) state, where offered.
+type FooterKey = (
+    Hints,
+    bool,
+    Result<String, usize>,
+    bool,
+    bool,
+    bool,
+    Option<bool>,
+);
 
 /// Song select.
 pub struct SelectScreen {
@@ -722,6 +747,9 @@ pub struct SelectScreen {
     matches: Option<Vec<bool>>,
     /// How many songs `matches` matches.
     match_count: usize,
+    /// Each song of the data is a favorite (empty where favorites do not
+    /// apply: a share, a room's follower).
+    favorite: Vec<bool>,
     items: Vec<Item>,
     list: List,
     search: SearchField,
@@ -811,6 +839,7 @@ macro_rules! wheel_model {
             &$s.packs,
             $s.open_pack,
             $s.matches.as_deref(),
+            &$s.favorite,
             $s.style,
             $s.layout.compact,
         )
@@ -864,6 +893,7 @@ impl SelectScreen {
             resume_pack: None,
             matches: None,
             match_count: 0,
+            favorite: Vec::new(),
             items: Vec::new(),
             search,
             volume: Volume::new("Volume", crate::state::settings::Settings::load().volume),
@@ -915,7 +945,13 @@ impl SelectScreen {
         let search = data.search.clone();
         s.set_data(data, true);
         let closed: HashSet<&Option<String>> = closed.iter().collect();
-        let saved_open = s.packs.iter().position(|(name, _)| !closed.contains(name));
+        // The favorites' pack open only where the place says so.
+        let saved_open = if resume_pack.as_deref() == Some(FAVORITES_KEY) && s.has_favorites_pack()
+        {
+            Some(0)
+        } else {
+            s.first_open(&closed)
+        };
         s.open_pack = saved_open;
         if let Some(i) = style.and_then(|id| s.data.styles.iter().position(|st| st.id == id)) {
             s.style = i;
@@ -931,7 +967,7 @@ impl SelectScreen {
         let start_song = start_id.and_then(|id| s.data.songs.iter().position(|x| x.id == id));
         s.open_pack = start_song
             .filter(|_| start.is_some())
-            .and_then(|i| s.packs.iter().position(|(_, v)| v.contains(&i)))
+            .and_then(|i| s.own_pack(i))
             .or(saved_open);
         s.lay_out_items();
         s.reload();
@@ -1024,8 +1060,13 @@ impl SelectScreen {
         };
         match self.selected_item()? {
             Item::Header(p) => {
-                // The bundled songs are not shared.
-                let name = self.packs.get(p)?.0.clone()?;
+                // The bundled songs are not shared, nor the favorites.
+                let name = self
+                    .packs
+                    .get(p)?
+                    .0
+                    .clone()
+                    .filter(|n| !is_favorites(Some(n)))?;
                 let songs = pack_songs(&name);
                 (!songs.is_empty()).then(|| (name.clone(), songs, Some(name)))
             }
@@ -1177,7 +1218,8 @@ impl SelectScreen {
         // Where the song shown was: its pack and its place there, and the
         // wheel's place (a removed song gives way to its neighbour).
         let was = match self.shown {
-            Some(Item::Song(i)) => self.packs.iter().find_map(|(name, songs)| {
+            Some(Item::Song(i)) => self.pack_of(i).and_then(|p| {
+                let (name, songs) = &self.packs[p];
                 let k = songs.iter().position(|&s| s == i)?;
                 Some((name.clone(), k))
             }),
@@ -1205,6 +1247,20 @@ impl SelectScreen {
                 packs.len() - 1
             });
             packs[p].1.push(i);
+        }
+        // The favorites, and their pack at the top (`select_favorites.rs`).
+        self.favorite = if self.favorites_apply(&data) {
+            data.songs
+                .iter()
+                .map(|s| crate::state::favorites::is_favorite(&s.id))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if data.songs.len() >= PACKS_FROM
+            && let Some(pack) = favorites_mode::favorites_pack(&data.songs, &self.favorite)
+        {
+            packs.insert(0, pack);
         }
         // The songs' search text, folded again only when what it is made
         // of changed.
@@ -1244,19 +1300,29 @@ impl SelectScreen {
         }
         // By name: every pack but the open one is closed, a new one not.
         // A saved place being restored has its own list.
-        let closed: HashSet<&Option<String>> = if restoring.is_some() || restoring_pack.is_some() {
-            restore_closed.iter().collect()
-        } else {
-            old.iter()
-                .enumerate()
-                .filter(|&(p, _)| Some(p) != self.open_pack)
-                .map(|(_, (n, _))| n)
-                .collect()
-        };
-        self.open_pack = self
-            .packs
-            .iter()
-            .position(|(n, _)| !closed.contains(n))
+        let (closed, favorites_open): (HashSet<&Option<String>>, bool) =
+            if restoring.is_some() || restoring_pack.is_some() {
+                (
+                    restore_closed.iter().collect(),
+                    restoring_pack.as_deref() == Some(FAVORITES_KEY),
+                )
+            } else {
+                (
+                    old.iter()
+                        .enumerate()
+                        .filter(|&(p, _)| Some(p) != self.open_pack)
+                        .map(|(_, (n, _))| n)
+                        .collect(),
+                    was_open
+                        .as_ref()
+                        .is_some_and(|(_, n)| is_favorites(n.as_deref())),
+                )
+            };
+        // The favorites' pack open only where it was (or the place says
+        // so); a real pack by the closed ones.
+        self.open_pack = (favorites_open && self.has_favorites_pack())
+            .then_some(0)
+            .or_else(|| self.first_open(&closed))
             .or_else(|| {
                 let (p, name) = was_open.as_ref()?;
                 (!self.packs.is_empty() && !self.packs.iter().any(|(n, _)| n == name))
@@ -1356,7 +1422,8 @@ impl SelectScreen {
                 .copied()
                 .filter(|&s| self.matches.as_ref().is_none_or(|m| m[s]))
                 .collect();
-            if shown.is_empty() {
+            // While searching a song shows once, under its own pack.
+            if shown.is_empty() || (self.matches.is_some() && p == 0 && self.has_favorites_pack()) {
                 continue;
             }
             if !flat {
@@ -1729,6 +1796,7 @@ impl SelectScreen {
                 set_text(info, p, "");
             }
             set_image(info, "Banner", None);
+            self.fill_heart(root, false);
             return;
         };
         set_text(info, "Title", &data(&song.title));
@@ -1790,6 +1858,7 @@ impl SelectScreen {
         }
         let cd_title = song.cd_title.as_deref().map(|c| cx.texture(c, 128.0));
         set_image(info, "CdTitle", cd_title);
+        self.fill_heart(root, false);
         if self.layout.compact {
             // A room's: its name in the pack's place.
             let pack = match &self.room {
@@ -2240,7 +2309,11 @@ impl SelectScreen {
         };
         let in_header = self.in_header(cx);
         let take = self.room_may_take();
-        let key = (now, searching, found, manage, in_header, take);
+        // F's word follows the song's heart, on a song's row.
+        let favorite = self
+            .heart()
+            .filter(|_| matches!(now, Hints::Song | Hints::Greyed));
+        let key = (now, searching, found, manage, in_header, take, favorite);
         if self.hints.as_ref() == Some(&key) {
             return;
         }
@@ -2296,6 +2369,11 @@ impl SelectScreen {
             ddi_l10n::msg::common::close(),
         );
         let (manage_hint, plays, edit) = (msg::hint_manage(), msg::hint_plays(), msg::hint_edit());
+        let favorite_hint = if favorite == Some(true) {
+            msg::hint_unfavorite()
+        } else {
+            msg::hint_favorite()
+        };
         let take_pick = ddi_l10n::msg::room::take_pick();
         let (navigate, more, activate) = (
             msg::hint_navigate(),
@@ -2396,6 +2474,10 @@ impl SelectScreen {
         }
         if self.editing && !shared && now == Hints::Song && !self.layout.compact {
             hints.push(h(&["E"], &edit));
+        }
+        // F: the song's heart.
+        if favorite.is_some() {
+            hints.push(h(&["F"], &favorite_hint));
         }
         // A room's follower picks nothing: no Enter.
         hints.retain(|(_, label)| !label.is_empty());
@@ -2745,7 +2827,7 @@ impl SelectScreen {
         self.packs
             .iter()
             .enumerate()
-            .filter(|&(p, _)| Some(p) != self.open_pack)
+            .filter(|&(p, (n, _))| Some(p) != self.open_pack && !is_favorites(n.as_deref()))
             .map(|(_, (n, _))| n)
     }
 
@@ -3183,7 +3265,7 @@ impl SelectScreen {
         // closed.
         if self.matches.is_none()
             && let Some(Item::Song(s)) = self.shown
-            && let Some(p) = self.packs.iter().position(|(_, v)| v.contains(&s))
+            && let Some(p) = self.pack_of(s)
         {
             self.open_pack = Some(p);
         }
@@ -3345,6 +3427,16 @@ impl SelectScreen {
         st.song_id = song.map(|s| s.id.clone()).unwrap_or_default();
         st.shared_pack = self.data.shared.as_ref().map(|v| v.pack.clone());
         st.to_share = self.to_share.clone();
+        st.favorite = self.heart();
+        st.favorites = if self.has_favorites_pack() {
+            self.packs[0]
+                .1
+                .iter()
+                .map(|&i| self.data.songs[i].id.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
         st.items = self.items.len();
         st.closed = self
             .place_closed()
@@ -3430,7 +3522,7 @@ fn suggestions(
         let mut cands: Vec<(&str, &str, SuggestKind)> = Vec::new();
         // The bundled songs' pack is no data to search.
         for (p, _) in packs {
-            if let Some(p) = p {
+            if let Some(p) = p.as_deref().filter(|p| !is_favorites(Some(p))) {
                 cands.push((p, "", SuggestKind::Pack));
             }
         }
@@ -3457,12 +3549,14 @@ fn suggestions(
 
 /// The wheel's model over the screen's fields (borrowed apart from its
 /// list).
+#[allow(clippy::too_many_arguments)]
 fn wheel<'a>(
     items: &'a [Item],
     data: &'a SelectData,
     packs: &'a [(Option<String>, Vec<usize>)],
     open_pack: Option<usize>,
     matches: Option<&'a [bool]>,
+    favorite: &'a [bool],
     style: usize,
     compact: bool,
 ) -> Wheel<'a> {
@@ -3473,6 +3567,7 @@ fn wheel<'a>(
         packs,
         open_pack,
         matches,
+        favorite,
         style: st.map_or("", |s| s.id.as_str()),
         style_name: st.map_or("", |s| s.name.as_str()),
         banner_side: if compact { 96.0 } else { 224.0 },
@@ -3687,6 +3782,10 @@ impl Screen for SelectScreen {
                 v.extend((0..self.data.styles.len()).map(|i| Focusable::new(format!("Tab{i}"))));
                 v.extend((0..LADDER_ROWS).map(|k| Focusable::new(format!("Ladder.Row{k}"))));
             }
+        }
+        // The song's heart (a tap or a click on it).
+        if self.heart().is_some() {
+            v.push(Focusable::new(favorites_mode::FAVORITE));
         }
         if !self.notices.is_empty() {
             v.push(Focusable::new("Notice"));
@@ -4141,6 +4240,11 @@ impl SelectScreen {
                 self.open_plays(cx);
                 return Handled::Yes;
             }
+            // The song's heart (F, by its place on the keyboard).
+            Input::Key(k) if self.letter_shortcut(k) && k.code == "KeyF" && self.heart().is_some() => {
+                self.toggle_favorite(root, cx);
+                return Handled::Yes;
+            }
             // The chart's plays (P), its best's replay (V; W A S D move).
             Input::Key(k)
                 if self.letter_shortcut(k)
@@ -4372,6 +4476,7 @@ impl SelectScreen {
         if self.editing && !shared && self.song().is_some() {
             items.push(("EditChart".into(), msg::more_edit().into()));
         }
+        items.extend(self.favorite_item());
         if self.manageable().is_some() && !shared {
             items.push(("Link.Manage".into(), msg::more_manage().into()));
         }
@@ -4475,6 +4580,7 @@ impl SelectScreen {
                 self.open_suggestions(cx);
                 return Handled::Yes;
             }
+            favorites_mode::FAVORITE => self.toggle_favorite(root, cx),
             "History" => self.open_plays(cx),
             "WatchBest" => self.watch_best(cx),
             "EditChart" => self.edit(cx),

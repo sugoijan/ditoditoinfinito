@@ -2424,6 +2424,8 @@ fn publish_now(h: &Host) {
         // The plays list's rows (by their place in the list).
         names.extend((0..st.plays.len()).map(|i| format!("Row{i}")));
         names.push("ClearSearch".into());
+        // Song select's heart for the song shown.
+        names.push("Favorite".into());
         // Song select's quick volume and its slider.
         names.extend(["Volume", "Volume.Popup"].map(str::to_string));
         if st.screen == "start" {
@@ -2607,6 +2609,12 @@ fn publish_now(h: &Host) {
                 .map_or(JsValue::NULL, |s| s.into()),
         );
         set(&o, "toShare", strings(&st.to_share));
+        set(
+            &o,
+            "favorite",
+            st.favorite.map_or(JsValue::NULL, JsValue::from),
+        );
+        set(&o, "favorites", strings(&st.favorites));
         set(
             &o,
             "header",
