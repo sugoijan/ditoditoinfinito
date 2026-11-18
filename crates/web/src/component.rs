@@ -305,6 +305,7 @@ impl NodeRef {
 
 /// `root` as the page shown when the browser gives no GPU: plain DOM.
 pub(crate) fn no_gpu(root: &HtmlElement, reason: &str) {
+    crate::errors::report("no_gpu", reason);
     root.set_class_name("shell no-gpu");
     root.set_inner_html("");
     use ddi_l10n::msg::shell;

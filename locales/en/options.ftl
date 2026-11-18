@@ -894,6 +894,22 @@ options-usage-stats-description = { $platform ->
    *[desktop] In an online room, the app tells our server what kind of computer this is and how its last connection went, in fixed ranges, never your name. Off, it sends none of it.
 }
 
+# Options → Data, under Send usage statistics, in the browser only: a
+# switch (Off, On; On by default). When the game itself fails (a crash, a
+# lost graphics device, a page that cannot start it), it sends our server a
+# short report of the kind of error with a cleaned message (the stats
+# proposal's step 4); Off, it sends none. The desktop app sends none and
+# has no such row.
+options-error-reports = Send error reports
+
+# The row's description.
+options-error-reports-description = When the game itself goes wrong (a crash, a lost graphics device, a page that cannot start it), it tells our server what kind of error it was, with its message cleaned of paths, addresses, names and ids. Off, it sends none.
+
+# The row's description while the browser sends the Global Privacy Control
+# signal (a browser setting, named as browsers name it): no error report is
+# sent whatever the row says.
+options-error-reports-signal = Your browser sends the Global Privacy Control signal, so the game sends no error reports, whatever this row says.
+
 # Desktop: forgets every song folder.
 options-reset-folders = Song folders
 options-reset-folders-button = Forget

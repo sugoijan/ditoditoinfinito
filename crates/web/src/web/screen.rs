@@ -304,6 +304,9 @@ fn lost(generation: u64, why: &str) {
         true
     });
     if restart == Some(true) {
+        // An error report (Options → Data → Send error reports), the
+        // browser's words scrubbed.
+        crate::errors::report("gpu_lost", why);
         wasm_bindgen_futures::spawn_local(create());
     }
 }
@@ -381,6 +384,25 @@ pub(crate) fn current() -> Option<Rc<Gfx>> {
         _ => None,
     })
     .flatten()
+}
+
+/// What draws now, as the usage and error reports say it (`webgpu`,
+/// `webgl2`, `unknown`): read without waiting on anyone who holds the
+/// screen (an error report may be made inside a panic that did).
+pub(crate) fn gpu_word() -> &'static str {
+    SCREEN.with(|s| match s.try_borrow().ok().as_deref() {
+        Some(Some(Screen {
+            state: State::Ready(g),
+            ..
+        })) => {
+            if g.is_gl() {
+                "webgl2"
+            } else {
+                "webgpu"
+            }
+        }
+        _ => "unknown",
+    })
 }
 
 /// The canvas now (it is replaced when a device is made again).

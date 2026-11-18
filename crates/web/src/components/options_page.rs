@@ -145,6 +145,7 @@ impl Component for OptionsPage {
             importing: import::status().0.is_some(),
             sharing: settings.sharing,
             share_url: crate::share::base(),
+            privacy_signal: crate::errors::privacy_signal(),
             ..World::default()
         };
         let shared = Rc::new(Shared {

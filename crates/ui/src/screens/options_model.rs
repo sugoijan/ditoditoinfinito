@@ -106,6 +106,10 @@ pub struct World {
     /// Sharing section shows, with the server the uploads go to.
     pub sharing: bool,
     pub share_url: String,
+    /// The browser sends the Global Privacy Control signal
+    /// (`navigator.globalPrivacyControl`): no error report is sent, and
+    /// the row says so.
+    pub privacy_signal: bool,
 }
 
 /// What a confirmation is for.
@@ -1967,7 +1971,7 @@ impl OptionsModel {
         };
         let plays = self.world.plays;
         let wording = self.songs_wording();
-        section(
+        let mut data = section(
             "Data",
             m::section_data(),
             vec![
@@ -2024,7 +2028,29 @@ impl OptionsModel {
                     m::reset_everything_description(wording),
                 ),
             ],
-        )
+        );
+        // The web's own error reports, after Usage statistics (desktop
+        // sends none); the browser's Global Privacy Control turns them off
+        // whatever the row says, and its description says so then.
+        if self.world.platform == Platform::Web
+            && let Some(at) = data.options.iter().position(|o| o.id == "usage_stats")
+        {
+            data.options.insert(
+                at + 1,
+                choice(
+                    "error_reports",
+                    m::error_reports(),
+                    on_off(),
+                    self.settings.error_reports as usize,
+                    if self.world.privacy_signal {
+                        m::error_reports_signal()
+                    } else {
+                        m::error_reports_description()
+                    },
+                ),
+            );
+        }
+        data
     }
 
     /// Whose wording the songs' rows take (`$platform`): desktop's where
@@ -2103,6 +2129,7 @@ impl OptionsModel {
             "convert_pump_single" => s.convert_pump_single = on,
             "convert_five_keys" => s.convert_five_keys = on,
             "usage_stats" => s.usage_stats = on,
+            "error_reports" => s.error_reports = on,
             "no_holds" => s.transform.no_holds = on,
             "no_stretch" => s.transform.no_stretch = on,
             "ruleset_mode" => s.ruleset_mode = at(&RULESET_MODES, i),

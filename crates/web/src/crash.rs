@@ -7,7 +7,11 @@ pub(crate) fn install_hook() {
     let hook: Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Sync + Send + 'static> =
         Box::new(|info| {
             console_error_panic_hook::hook(info);
-            crate::boot::crash(&info.to_string());
+            let message = info.to_string();
+            // An error report (Options → Data → Send error reports), its
+            // message scrubbed, before the loader's crash page.
+            crate::errors::report("panic", &message);
+            crate::boot::crash(&message);
         });
     std::panic::set_hook(hook);
     #[cfg(debug_assertions)]

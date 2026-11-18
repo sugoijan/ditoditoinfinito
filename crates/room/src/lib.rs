@@ -71,6 +71,7 @@ pub mod awards;
 pub mod battle;
 pub mod client_stats;
 pub mod command;
+pub mod error_report;
 pub mod fake;
 pub mod ids;
 pub mod live;

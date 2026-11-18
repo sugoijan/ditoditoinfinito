@@ -277,7 +277,7 @@ pub(crate) fn current() -> SharedOnline {
 /// (`ddi_room::client_stats`; sent only where Options' Usage statistics
 /// is on): the browser's User-Agent, touch points and screen read here
 /// into the report's fixed lists, never sent as such.
-fn client_kind() -> ddi_room::client_stats::ClientKind {
+pub(crate) fn client_kind() -> ddi_room::client_stats::ClientKind {
     let window = web_sys::window();
     let navigator = window.as_ref().map(|w| w.navigator());
     let agent = navigator
@@ -293,11 +293,7 @@ fn client_kind() -> ddi_room::client_stats::ClientKind {
         .and_then(|s| Some(s.width().ok()?.min(s.height().ok()?)))
         .map_or(0.0, f64::from);
     let (system, form) = ddi_room::client_stats::web_device(&agent, touch, short);
-    let gpu = match crate::web::screen::current() {
-        Some(g) if g.is_gl() => "webgl2",
-        Some(_) => "webgpu",
-        None => "unknown",
-    };
+    let gpu = crate::web::screen::gpu_word();
     ddi_room::client_stats::ClientKind {
         app: "web",
         system,

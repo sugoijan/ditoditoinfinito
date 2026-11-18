@@ -386,6 +386,13 @@ pub struct Settings {
     /// ranges (`ddi_room::client_stats`). Off, nothing of it is sent; what
     /// the server counts by itself goes on.
     pub usage_stats: bool,
+    /// Options → Data → Send error reports (the stats proposal's step 4,
+    /// on by default; the web alone sends them): the game's own errors (a
+    /// crash, a promise nobody caught, a lost or missing graphics device,
+    /// the page unable to start the game) as a kind and a scrubbed message
+    /// (`ddi_room::error_report`). Off, or with the browser's Global
+    /// Privacy Control on, none is sent.
+    pub error_reports: bool,
 }
 
 /// The music's gain in a fresh profile: 69% on the volume slider (about
@@ -783,6 +790,7 @@ impl Default for Settings {
             multiplayer_watch_link: false,
             practice_roster: None,
             usage_stats: true,
+            error_reports: true,
             controls: ControlBindings::default(),
             fast_pad_poll: true,
             controller_styles: Default::default(),

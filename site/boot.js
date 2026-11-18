@@ -245,9 +245,45 @@
   const setStartProgress = (ratio) => {
     setProgress(share + clamp01(ratio) * (1 - share));
   };
+  // The game's own error reports (`ddi_room::error_report`; the game's
+  // are `crates/web/src/errors.rs`'s): a trap and the page unable to start
+  // the game, as a kind and a fixed word, never the browser's text; none
+  // where Options → Data → Send error reports is Off or the browser sends
+  // Global Privacy Control; one of each and five in all a session, shared
+  // with the game's (sessionStorage's ddi.errors.v1).
+  const report = (kind, msg) => {
+    try {
+      if (navigator.globalPrivacyControl === true || !navigator.sendBeacon) return;
+      if (JSON.parse(localStorage.getItem("ddi.settings.v1") || "{}").error_reports === false) return;
+      const key = "ddi.errors.v1";
+      const seen = JSON.parse(sessionStorage.getItem(key) || "{}").seen || [];
+      const id = kind + ":" + msg;
+      if (seen.length >= 5 || seen.includes(id)) return;
+      seen.push(id);
+      sessionStorage.setItem(key, JSON.stringify({ seen }));
+      const hash = location.hash;
+      const first = hash.replace(/^#\/?/, "").split(/[/?&]/)[0];
+      const route = !first ? "start"
+        : /^(select|play|options|edit|room)$/.test(first) ? first
+        : first !== "mp" ? "other"
+        : /^#\/mp\/(watch|audience)\//.test(hash) ? "watch" : "room";
+      const body = { s: 1, kind, route };
+      if (msg) body.msg = msg;
+      navigator.sendBeacon(
+        (window.__DDI_API_URL || "api").replace(/\/$/, "") + "/stats/error",
+        JSON.stringify(body)
+      );
+    } catch (e) {}
+  };
+  const trapWord = (message) =>
+    /unreachable/i.test(message) ? "unreachable"
+    : /out of bounds/i.test(message) ? "out_of_bounds"
+    : /call_indirect|indirect call/i.test(message) ? "call_indirect"
+    : "other";
   // The box shows: `code` what for, `message` and `hint` the keys of its
   // lines, `detail` what the browser said, shown in place of the hint.
   const fail = (code, message, hint, detail) => {
+    report("boot_" + String(code).replace(/-/g, "_"), "");
     state.blocked = { code: code || "blocked", message, hint, detail };
     applyState();
     if (art()) {
@@ -353,6 +389,8 @@
         message
       );
     if (isTrap) {
+      // A panic said so already (the game's hook, then this trap).
+      if (!state.crashed) report("wasm_trap", trapWord(message));
       crash(message);
     }
   });
@@ -362,6 +400,7 @@
       typeof WebAssembly === "object" &&
       reason instanceof WebAssembly.RuntimeError
     ) {
+      if (!state.crashed) report("wasm_trap", trapWord(String(reason.message)));
       crash(String(reason && reason.message ? reason.message : reason));
     }
   });

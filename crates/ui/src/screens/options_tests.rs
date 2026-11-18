@@ -1124,3 +1124,46 @@ fn the_shares_dialog_lists_copies_and_deletes() {
     assert!(rig.h.requested(|r| matches!(r, UiRequest::OpenUrl(_))) == 0);
     assert!(rig.h.ui.layers().iter().all(|l| l.name != "shares"));
 }
+
+/// The web's own error reports (stats step 4): a row of their own right
+/// after Usage statistics, On by default and kept as set; with the
+/// browser's Global Privacy Control signal its description says that none
+/// is sent; desktop, which sends none, has no such row.
+#[test]
+fn error_reports_are_a_web_row_that_says_when_the_privacy_signal_turns_them_off() {
+    let data_ids = |m: &OptionsModel| -> Vec<String> {
+        m.data()
+            .sections
+            .iter()
+            .find(|s| s.id == "Data")
+            .expect("the Data section")
+            .options
+            .iter()
+            .map(|o| o.id.clone())
+            .collect()
+    };
+    let row = |m: &OptionsModel| {
+        m.data()
+            .sections
+            .iter()
+            .flat_map(|s| s.options.clone())
+            .find(|o| o.id == "error_reports")
+    };
+    let mut m = OptionsModel::new(Settings::default(), World::default());
+    assert!(m.settings.error_reports, "On by default");
+    let ids = data_ids(&m);
+    let usage = ids.iter().position(|i| i == "usage_stats").unwrap();
+    assert_eq!(ids[usage + 1], "error_reports");
+    let r = row(&m).unwrap();
+    assert_eq!(r.index, 1);
+    assert!(!r.description.contains("Global Privacy Control"), "{}", r.description);
+    m.change("error_reports", 0);
+    assert!(!m.settings.error_reports);
+    assert_eq!(row(&m).unwrap().index, 0);
+    m.world.privacy_signal = true;
+    let r = row(&m).unwrap();
+    assert!(r.description.contains("Global Privacy Control"), "{}", r.description);
+    m.world.platform = super::data::Platform::Desktop;
+    assert!(row(&m).is_none(), "the desktop app sends none");
+    assert!(data_ids(&m).contains(&"usage_stats".to_string()));
+}

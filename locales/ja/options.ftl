@@ -467,6 +467,9 @@ options-usage-stats-description = { $platform ->
     [web] オンラインのルームで、どんなデバイスか、前回の接続がどうだったかを、決まった範囲の値で名前なしにサーバーへ伝えます。オフにすると何も送りません。
    *[desktop] オンラインのルームで、どんなコンピューターか、前回の接続がどうだったかを、決まった範囲の値で名前なしにサーバーへ伝えます。オフにすると何も送りません。
 }
+options-error-reports = エラーレポートを送る
+options-error-reports-description = ゲーム自体に問題が起きたとき（クラッシュ、グラフィックスデバイスの喪失、ゲームを始められないページなど）、どんな種類のエラーかを、パス・アドレス・名前・IDを取り除いたメッセージとともにサーバーへ伝えます。オフにすると何も送りません。
+options-error-reports-signal = ブラウザーがグローバル・プライバシー・コントロール（Global Privacy Control）の信号を送っているため、この設定にかかわらず、ゲームはエラーレポートを送りません。
 options-reset-folders = 曲フォルダー
 options-reset-folders-button = 解除
 options-reset-folders-none = なし

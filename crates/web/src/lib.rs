@@ -23,6 +23,8 @@ mod cpu;
 #[cfg(target_arch = "wasm32")]
 mod crash;
 #[cfg(target_arch = "wasm32")]
+mod errors;
+#[cfg(target_arch = "wasm32")]
 mod editor;
 #[cfg(target_arch = "wasm32")]
 mod editor_audio;
@@ -105,6 +107,10 @@ pub fn start() {
     router::reset_start_focus();
     // Settings and the song list's place, from the browser's storage.
     web::kv::install();
+    // The game's own error reports: a promise nobody caught (a panic's
+    // come from the hook above).
+    errors::watch_rejections();
+    errors::install_test_hook();
     // Announcers' scripts: the page's clock behind their fuel, and a seed
     // they cannot know for their tables' hashing.
     ddi_library::announcer::script::set_host(
