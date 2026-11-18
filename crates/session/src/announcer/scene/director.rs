@@ -190,6 +190,9 @@ pub fn hear_of(
     match act {
         studio::Act::Hear(line) => Some((line, None)),
         studio::Act::HearTake(id) => Some((draft.take(id)?.line?, Some(Pin::Take(id)))),
+        studio::Act::HearShared(id, line) => {
+            draft.take(id)?.says(line).then_some((line, Some(Pin::Take(id))))
+        }
         studio::Act::HearExample(line, i) => {
             let path = examples.get(&line)?.get(i)?.sound.clone()?;
             Some((line, Some(Pin::Example(path))))
@@ -423,7 +426,10 @@ pub fn draft_voice<S>(
             if let Some(b) = make(t, &decoded[&t.id]) {
                 let (length, tail) = measure(&b);
                 lengths.entry(line).or_insert(length);
-                voice.add_tailed(line, b, tail);
+                // By its take, as the game knows a pack's sounds by their
+                // file: one said for several lines is never said twice in
+                // a row through two of them.
+                voice.add_from(line, &format!("take/{}", t.id), b, tail);
             }
         }
     }

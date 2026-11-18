@@ -225,12 +225,32 @@ pub struct Take {
     /// players may switch off ([`Switch`]) leaves it out when off.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// The lines it is said for besides [`Take::line`] ("That's awesome!"
+    /// for `gameplay 100 combo` and `evaluation cheer`): one sound, written
+    /// once in the pack's `shared/` folder ([`Draft::export`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also: Vec<Line>,
 }
 
 impl Take {
     /// Its file's name, without the folders it came in.
     pub fn file_name(&self) -> &str {
         RelPath::new(&self.source).file_name()
+    }
+
+    /// The lines it is said for: its own, then those it is said for too.
+    pub fn lines(&self) -> impl Iterator<Item = Line> + '_ {
+        self.line.into_iter().chain(self.also.iter().copied())
+    }
+
+    /// Whether it is said for `line`.
+    pub fn says(&self, line: Line) -> bool {
+        self.line == Some(line) || self.also.contains(&line)
+    }
+
+    /// Whether it is said for more lines than one (written in `shared/`).
+    pub fn shared(&self) -> bool {
+        self.line.is_some() && !self.also.is_empty()
     }
 
     pub fn measure(&self) -> Option<&Measure> {
@@ -252,6 +272,25 @@ pub struct Switch {
     /// not until switched on).
     pub default: bool,
 }
+
+impl Switch {
+    /// Its label as a pack's script says it: on one line, at most what
+    /// Options shows, its tag where it says nothing.
+    pub fn label_written(&self) -> String {
+        let label: String = one_line(&self.label)
+            .chars()
+            .take(ddi_noteskin::params::MAX_LABEL)
+            .collect();
+        if label.trim().is_empty() {
+            self.tag.clone()
+        } else {
+            label
+        }
+    }
+}
+
+/// The folder of a pack's takes said for several lines.
+pub const SHARED: &str = "shared";
 
 /// Tags the studio suggests: plain words for how a recording sounds, any
 /// pack may use (the author's own words are as good).
@@ -760,6 +799,7 @@ impl Draft {
             words: None,
             lang: self.working_language().map(str::to_string),
             tags: Vec::new(),
+            also: Vec::new(),
         });
         id
     }
@@ -964,6 +1004,45 @@ impl Draft {
         }
     }
 
+    /// Take `id` said for `line` too (a combo line listed if it was not);
+    /// whether it was not already. Not for a take not on a line yet.
+    pub fn share(&mut self, id: u64, line: Line) -> bool {
+        let Some(t) = self.take_mut(id) else {
+            return false;
+        };
+        if t.line.is_none() || t.says(line) {
+            return false;
+        }
+        t.also.push(line);
+        if let Line::Combo(n) = line {
+            self.add_combo(n);
+        }
+        true
+    }
+
+    /// Take `id` no longer said for `line` besides its own; whether it was.
+    pub fn unshare(&mut self, id: u64, line: Line) -> bool {
+        let Some(t) = self.take_mut(id) else {
+            return false;
+        };
+        let before = t.also.len();
+        t.also.retain(|l| *l != line);
+        t.also.len() < before
+    }
+
+    /// Take `id` put on `line` (`None`: unsorted): said for it, and for
+    /// what it was said for besides as long as it is on a line.
+    pub fn set_line(&mut self, id: u64, line: Option<Line>) {
+        let Some(t) = self.take_mut(id) else {
+            return;
+        };
+        t.line = line;
+        match line {
+            Some(l) => t.also.retain(|a| *a != l),
+            None => t.also.clear(),
+        }
+    }
+
     /// The languages a take may be in, each (`None`: one, not named).
     fn each_language(&self) -> Vec<Option<&str>> {
         if self.languages.is_empty() {
@@ -978,7 +1057,7 @@ impl Draft {
         let lang = lang.or_else(|| self.languages.first().map(String::as_str));
         self.takes
             .iter()
-            .filter(move |t| exported(t) && t.line == Some(line) && self.lang_of(t) == lang)
+            .filter(move |t| exported(t) && t.says(line) && self.lang_of(t) == lang)
     }
 
     /// The lines tag `tag` switched off would leave with no recording, in
@@ -991,8 +1070,11 @@ impl Draft {
             let mut lines: Vec<Line> = self
                 .takes
                 .iter()
-                .filter(|t| exported(t) && self.lang_of(t) == lang.or(self.languages.first().map(String::as_str)))
-                .filter_map(|t| t.line)
+                .filter(|t| {
+                    exported(t)
+                        && self.lang_of(t) == lang.or(self.languages.first().map(String::as_str))
+                })
+                .flat_map(Take::lines)
                 .collect();
             lines.sort();
             lines.dedup();
@@ -1019,7 +1101,7 @@ impl Draft {
             .filter(|l| {
                 self.takes
                     .iter()
-                    .any(|t| t.line == Some(line) && self.lang_of(t) == Some(*l))
+                    .any(|t| t.says(line) && self.lang_of(t) == Some(*l))
             })
             .collect()
     }
@@ -1043,7 +1125,7 @@ impl Draft {
     /// is on it, in any language.
     pub fn remove_combo(&mut self, n: u32) -> bool {
         let line = Line::Combo(n);
-        if self.takes.iter().any(|t| t.line == Some(line))
+        if self.takes.iter().any(|t| t.says(line))
             || self.scripts.iter().any(|s| s.line == line)
         {
             return false;
@@ -1092,7 +1174,7 @@ impl Draft {
     pub fn takes_of(&self, line: Line) -> impl Iterator<Item = &Take> {
         self.takes
             .iter()
-            .filter(move |t| t.line == Some(line) && self.working(t.lang.as_deref()))
+            .filter(move |t| t.says(line) && self.working(t.lang.as_deref()))
     }
 
     /// The takes not sorted yet, in the language worked in.
@@ -1107,7 +1189,7 @@ impl Draft {
     pub fn lines(&self) -> Vec<Line> {
         let mut lines: BTreeSet<Line> = listed().into_iter().collect();
         lines.extend(self.combos.iter().map(|&n| Line::Combo(n)));
-        lines.extend(self.takes.iter().filter_map(|t| t.line));
+        lines.extend(self.takes.iter().flat_map(Take::lines));
         lines.extend(self.scripts.iter().map(|s| s.line));
         lines.into_iter().collect()
     }
@@ -1163,8 +1245,10 @@ impl Draft {
             Sound::Read(m) if m.clipped => notes.push(Note::Clipped),
             _ => {}
         }
-        if let (Some(limit), Some(seconds)) = (take.line.and_then(limit), self.seconds(take))
-            && seconds > limit
+        if let (Some(limit), Some(seconds)) = (
+            take.lines().filter_map(limit).reduce(f64::min),
+            self.seconds(take),
+        ) && seconds > limit
         {
             notes.push(Note::TooLong { seconds, limit });
         }
@@ -1241,20 +1325,31 @@ impl Draft {
     /// itself in an `announcer.ini`: two languages or more, or what only
     /// a script says ([`Draft::scripted`]).
     pub fn declares(&self) -> bool {
-        self.languages.len() > 1 || self.scripted()
+        self.written_languages().len() > 1 || self.scripted()
     }
 
     /// Whether its export needs a script (`announcer.lua`): a take written
-    /// carries tags.
+    /// carries tags, or is said for several lines.
     pub fn scripted(&self) -> bool {
         self.takes
             .iter()
-            .any(|t| exported(t) && !t.tags.is_empty())
+            .any(|t| exported(t) && (!t.tags.is_empty() || t.shared()))
     }
 
-    /// The language folder `take` is written in, where the pack has them
-    /// (a declared pack of named languages).
-    fn language_folder<'a>(&'a self, take: &'a Take) -> Option<&'a str> {
+    /// The languages its export offers: those with a take written, in
+    /// the draft's order (a language added and not recorded yet is not
+    /// offered).
+    pub fn written_languages(&self) -> Vec<&str> {
+        self.languages
+            .iter()
+            .map(String::as_str)
+            .filter(|l| self.takes.iter().any(|t| exported(t) && self.lang_of(t) == Some(*l)))
+            .collect()
+    }
+
+    /// The language `take` is written in, where the pack declares its
+    /// languages (a declared pack's).
+    fn written_lang<'a>(&'a self, take: &'a Take) -> Option<&'a str> {
         if self.declares() {
             self.lang_of(take)
         } else {
@@ -1270,12 +1365,16 @@ impl Draft {
     /// pack's `announcer.ini` ([`Draft::declaration`]).
     pub fn export(&self) -> Export {
         let folder = self.folder_name();
-        let mut by_line: BTreeMap<(Option<&str>, Line), Vec<&Take>> = BTreeMap::new();
+        // By its folder: a language's (where declared) and a line's, or
+        // `shared/` (`None`) for a take said for several lines.
+        let mut by_line: BTreeMap<(Option<&str>, Option<Line>), Vec<&Take>> = BTreeMap::new();
         for t in self.takes.iter().filter(|t| exported(t)) {
-            by_line
-                .entry((self.language_folder(t), t.line.expect("exported")))
-                .or_default()
-                .push(t);
+            let place = if t.shared() {
+                (None, None)
+            } else {
+                (self.written_lang(t), t.line)
+            };
+            by_line.entry(place).or_default().push(t);
         }
         let mut entries = Vec::new();
         for ((lang, line), takes) in by_line {
@@ -1296,9 +1395,12 @@ impl Draft {
                     file = format!("{base} {n}.{ext}");
                     n += 1;
                 }
-                let path = match lang {
-                    Some(lang) => format!("Announcers/{folder}/{lang}/{}/{file}", line.folder()),
-                    None => format!("Announcers/{folder}/{}/{file}", line.folder()),
+                let path = match (lang, line) {
+                    (_, None) => format!("Announcers/{folder}/{SHARED}/{file}"),
+                    (Some(lang), Some(line)) => {
+                        format!("Announcers/{folder}/{lang}/{}/{file}", line.folder())
+                    }
+                    (None, Some(line)) => format!("Announcers/{folder}/{}/{file}", line.folder()),
                 };
                 entries.push(Entry {
                     path,
@@ -1350,6 +1452,13 @@ impl Draft {
                 continue;
             };
             let mut fields = Vec::new();
+            if t.shared() {
+                let events: Vec<String> = t.lines().map(Line::folder).collect();
+                fields.push(format!("events = {}", lua_list(&events)));
+                if let Some(lang) = self.written_lang(t).filter(|_| !self.languages.is_empty()) {
+                    fields.push(format!("lang = {}", lua_string(lang)));
+                }
+            }
             if !t.tags.is_empty() {
                 fields.push(format!("tags = {}", lua_list(&t.tags)));
             }
@@ -1385,20 +1494,18 @@ impl Draft {
             lua += &format!(
                 "pack:tag({}, {{ label = {}, default = {} }})\n",
                 lua_string(&s.tag),
-                lua_string(&one_line(&s.label)),
+                lua_string(&s.label_written()),
                 s.default
             );
         }
-        if !self.languages.is_empty() {
-            let mixed = if self.mixed && self.languages.len() > 1 {
+        let languages: Vec<String> = self.written_languages().into_iter().map(String::from).collect();
+        if !languages.is_empty() {
+            let mixed = if self.mixed && languages.len() > 1 {
                 ", { mixed = true }"
             } else {
                 ""
             };
-            lua += &format!(
-                "pack:languages({}{mixed})\n",
-                lua_list(&self.languages)
-            );
+            lua += &format!("pack:languages({}{mixed})\n", lua_list(&languages));
         }
         lua += "return pack\n";
         lua
@@ -1415,12 +1522,13 @@ impl Draft {
         if !name.is_empty() {
             ini += &format!("Name={name}\n");
         }
-        if !self.languages.is_empty() {
-            let labels: Vec<&str> = self.languages.iter().map(|l| language_name(l)).collect();
+        let languages = self.written_languages();
+        if !languages.is_empty() {
+            let labels: Vec<&str> = languages.iter().map(|l| language_name(l)).collect();
             ini += "\n[Parameters]\nList=Language\n\n[Parameter Language]\nType=Language\n";
-            ini += &format!("Languages={}\n", self.languages.join(","));
+            ini += &format!("Languages={}\n", languages.join(","));
             ini += &format!("Labels={}\n", labels.join(","));
-            if self.mixed && self.languages.len() > 1 {
+            if self.mixed && languages.len() > 1 {
                 ini += "Mixed=1\n";
             }
         }

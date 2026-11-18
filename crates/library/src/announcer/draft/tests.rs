@@ -976,3 +976,76 @@ fn tags_are_written_in_a_script_the_game_runs() {
     assert_eq!(off.lines["gameplay ready"].len(), 1);
     let _ = ready;
 }
+
+/// A take said for several lines: one sound, listed under each line,
+/// written once in `shared/` with a script naming its lines and its
+/// language; read back, the game says it for each line.
+#[test]
+fn a_take_on_several_lines_is_written_once() {
+    let mut d = Draft {
+        name: "Shared".into(),
+        tidy: false,
+        ..Draft::default()
+    };
+    d.add_language("en");
+    let awesome = d.add("awesome.mp3", 9, MP3);
+    d.set_line(awesome, Some(Line::Combo(100)));
+    assert!(!d.share(awesome, Line::Combo(100)));
+    assert!(d.share(awesome, Line::Cheer));
+    assert!(d.share(awesome, Line::Combo(64)));
+    assert!(d.combos.contains(&64));
+    let cheer = d.add("evaluation cheer.mp3", 9, MP3);
+    d.add_language("ja");
+    let ja = d.add("gameplay 100 combo.mp3", 9, MP3);
+    d.working = Some("en".into());
+    assert_eq!(
+        d.takes_of(Line::Cheer).map(|t| t.id).collect::<Vec<_>>(),
+        [awesome, cheer]
+    );
+    assert_eq!(d.languages_of(Line::Cheer), ["en"]);
+    assert!(!d.remove_combo(64), "said for it");
+    assert!(d.unshare(awesome, Line::Combo(64)) && !d.unshare(awesome, Line::Combo(64)));
+    assert!(d.scripted() && d.declares());
+    let export = d.export();
+    let paths: Vec<&str> = export.entries.iter().map(|e| e.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "Announcers/Shared/shared/awesome.mp3",
+            "Announcers/Shared/en/evaluation cheer/evaluation cheer.mp3",
+            "Announcers/Shared/ja/gameplay 100 combo/gameplay 100 combo.mp3",
+        ]
+    );
+    let script = export.text(crate::announcer::script::SCRIPT).unwrap();
+    assert!(
+        script.contains(
+            "  [\"shared/awesome.mp3\"] = { events = { \"gameplay 100 combo\", \"evaluation cheer\" }, lang = \"en\" },\n"
+        ),
+        "{script}"
+    );
+    assert!(script.ends_with("pack:languages({ \"en\", \"ja\" })\nreturn pack\n"), "{script}");
+    let kept = read_back(&d);
+    let (pool, refused) = kept.pool_with(&Default::default(), "en");
+    assert_eq!(refused, None);
+    let shared = pool
+        .takes
+        .iter()
+        .find(|t| t.file.as_str() == "shared/awesome.mp3")
+        .unwrap();
+    assert_eq!(shared.events, [Line::Combo(100), Line::Cheer]);
+    assert_eq!(shared.lang.as_deref(), Some("en"));
+    let en = kept.resolve(&Default::default(), "en");
+    assert_eq!(en.lines["gameplay 100 combo"], [crate::path::RelPathBuf::from("shared/awesome.mp3")]);
+    assert_eq!(en.lines["evaluation cheer"].len(), 2);
+    let ja_lines = kept.resolve(&Default::default(), "ja");
+    assert!(!ja_lines.lines.contains_key("evaluation cheer"));
+    let _ = ja;
+    // Moved onto a line it is said for besides: that line once, the one
+    // it left no more.
+    d.set_line(awesome, Some(Line::Cheer));
+    assert!(d.take(awesome).unwrap().also.is_empty());
+    d.share(awesome, Line::Ready);
+    // Unsorted, it is said for none of them.
+    d.set_line(awesome, None);
+    assert!(d.take(awesome).unwrap().also.is_empty());
+}

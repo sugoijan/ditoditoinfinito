@@ -324,6 +324,10 @@ fn take_blocks(draft: &Draft, view: &View, t: &Take, sorted: bool, out: &mut Vec
         detail: None,
         actions: icons,
     });
+    if !t.also.is_empty() {
+        let names: Vec<String> = t.also.iter().map(|l| name(*l).to_string()).collect();
+        out.push(Block::Muted(m::take_also(names.join(", ")).into()));
+    }
     if !t.tags.is_empty() {
         out.push(Block::Muted(m::take_tags(t.tags.join(", ")).into()));
     }
@@ -335,6 +339,9 @@ fn take_blocks(draft: &Draft, view: &View, t: &Take, sorted: bool, out: &mut Vec
             m::take_which_line()
         },
     )];
+    if sorted {
+        actions.push(Action::new(format!("also:{}", t.id), m::take_also_button()));
+    }
     actions.push(Action::new(format!("tags:{}", t.id), m::take_tags_button()));
     actions.push(Action::new(format!("remove:{}", t.id), m::take_remove()));
     out.push(Block::Actions(actions));
@@ -346,6 +353,37 @@ fn take_blocks(draft: &Draft, view: &View, t: &Take, sorted: bool, out: &mut Vec
     for n in draft.notes(t) {
         out.push(Block::Note(note_text(&n).into()));
     }
+}
+
+/// A take said for `line` besides its own, in `line`'s zone: its name
+/// with its buttons (heard in `line`'s scene), the line it was recorded
+/// for, and a button taking it off this one.
+fn shared_blocks(view: &View, t: &Take, line: Line, out: &mut Vec<Block>) {
+    let folder = line.folder();
+    let mut icons = vec![play_button(
+        view,
+        &format!("take:{}", t.id),
+        format!("play:{}", t.id),
+    )];
+    if hearable(line) && matches!(t.sound, Sound::Read(_)) {
+        icons.push(Action::icon(format!("hear-shared:{}:{folder}", t.id), Icon::Eye));
+    }
+    let mut name_of: String = t.file_name().chars().take(32).collect();
+    if t.file_name().chars().count() > 32 {
+        name_of.push('…');
+    }
+    out.push(Block::Entry {
+        text: m::take_shared_name(&name_of).into(),
+        detail: None,
+        actions: icons,
+    });
+    if let Some(own) = t.line {
+        out.push(Block::Muted(m::take_shared(name(own)).into()));
+    }
+    out.push(Block::Actions(vec![Action::new(
+        format!("unshare:{}:{folder}", t.id),
+        m::take_unshare(),
+    )]));
 }
 
 /// A text line's blocks: its words to write, and its buttons.
@@ -431,7 +469,11 @@ fn line_zone(
         });
     }
     for t in takes {
-        take_blocks(draft, view, t, true, &mut left);
+        if t.line == Some(line) {
+            take_blocks(draft, view, t, true, &mut left);
+        } else {
+            shared_blocks(view, t, line, &mut left);
+        }
     }
     let scripts: Vec<&Script> = draft.scripts_of(line).collect();
     let written = !scripts.is_empty();
@@ -820,6 +862,14 @@ pub enum Act {
     Mixed,
     /// Take `id`'s tags, chosen in a dialog ([`tags_dialog`]).
     Tags(u64),
+    /// Take `id` said for another line too, chosen in a dialog
+    /// ([`also_picker`]).
+    Also(u64),
+    /// Take `id` no longer said for `line` besides its own.
+    Unshare(u64, Line),
+    /// Hear take `id` in the scene of `line`, which it is said for
+    /// besides its own.
+    HearShared(u64, Line),
     /// The draft's tag `i` ([`Draft::tags`]) made switchable or not.
     Switchable(usize),
     /// The draft's tag `i`'s switch's first state turned over.
@@ -858,6 +908,16 @@ pub fn act(id: &str) -> Option<Act> {
                 "remove-combo" => Act::RemoveCombo(rest.parse().ok()?),
                 "language" => Act::Language(rest.parse().ok()?),
                 "tags" => Act::Tags(take(rest)?),
+                "also" => Act::Also(take(rest)?),
+                "unshare" | "hear-shared" => {
+                    let (id, folder) = rest.split_once(':')?;
+                    let (id, line) = (take(id)?, Line::parse(folder)?);
+                    if kind == "unshare" {
+                        Act::Unshare(id, line)
+                    } else {
+                        Act::HearShared(id, line)
+                    }
+                }
                 "switchable" => Act::Switchable(rest.parse().ok()?),
                 "tag-default" => Act::TagDefault(rest.parse().ok()?),
                 "remove-language" => Act::RemoveLanguage(rest.parse().ok()?),
@@ -965,6 +1025,12 @@ pub fn apply(act: Act, draft: &mut Draft, view: &mut View) -> Option<Applied> {
         }
         Act::Mixed => {
             draft.mixed = !draft.mixed;
+            Applied::Draft
+        }
+        Act::Unshare(id, line) => {
+            if !draft.unshare(id, line) {
+                return None;
+            }
             Applied::Draft
         }
         Act::Switchable(i) => {
@@ -1087,6 +1153,26 @@ pub fn in_gesture(a: Act) -> bool {
             | Act::Mixed
             | Act::Switchable(_)
             | Act::TagDefault(_)
+            | Act::Unshare(..)
+    )
+}
+
+/// The dialog of a take's Also for…: the lines it is not said for yet, in
+/// the page's order, by name and place.
+pub fn also_picker(env: Env, draft: &Draft, take: u64, on_pick: LineFn) -> Option<ActionsDialog> {
+    let t = draft.take(take)?;
+    let p = picker(draft, take)?;
+    let items: Vec<(String, String)> = p
+        .items
+        .into_iter()
+        .filter(|(folder, _)| Line::parse(folder).is_some_and(|l| !t.says(l)))
+        .collect();
+    let pick: PickFn = Rc::new(move |id: &str, cx: &mut Cx| {
+        on_pick(take, Line::parse(id), cx);
+    });
+    Some(
+        ActionsDialog::new(env, &m::also_title(), items, pick)
+            .with_note(&m::also_note(t.file_name())),
     )
 }
 
@@ -1707,6 +1793,56 @@ mod tests {
         d.add_language("ja");
         d.working = Some("en".into());
         assert!(page(&d).contains("Switched off, “Restart” has no recording left in English: “Ready” is said in its place."));
+    }
+
+    /// A take on several lines: its own zone says where else it is said
+    /// and offers more; each other line's lists it with its eye and a way
+    /// off; the picker offers only lines it is not said for.
+    #[test]
+    fn a_take_is_said_for_other_lines_too() {
+        ddi_l10n::set_language("en");
+        let mut d = Draft::default();
+        let mut v = View::default();
+        let id = add_read(&mut d, "gameplay 100 combo.wav");
+        let zone = |d: &Draft, line: Line| {
+            let ex = BTreeMap::new();
+            format!("{:?}", line_zone(d, &View::default(), line, &ex))
+        };
+        assert!(zone(&d, Line::Combo(100)).contains(&format!("\"also:{id}\", label: \"Also for…\"")));
+        assert_eq!(act(&format!("also:{id}")), Some(Act::Also(id)));
+        assert!(in_gesture(Act::Also(id)));
+        let items = |d: &Draft| -> Vec<String> {
+            also_picker(crate::screens::test_kit::env(), d, id, Rc::new(|_, _, _| {}))
+                .unwrap()
+                .items()
+                .iter()
+                .map(|(f, _)| f.clone())
+                .collect()
+        };
+        assert!(items(&d).contains(&"evaluation cheer".to_string()));
+        assert!(!items(&d).contains(&"gameplay 100 combo".to_string()));
+        assert!(!items(&d).contains(&"unsorted".to_string()));
+        assert!(d.share(id, Line::Cheer));
+        assert!(!items(&d).contains(&"evaluation cheer".to_string()));
+        assert!(zone(&d, Line::Combo(100)).contains("Also said for: Cheer."));
+        let cheer = zone(&d, Line::Cheer);
+        assert!(cheer.contains("gameplay 100 combo.wav (shared)"), "{cheer}");
+        assert!(cheer.contains("Recorded for “100 combo”, said for this line too."));
+        assert!(cheer.contains(&format!("\"hear-shared:{id}:evaluation cheer\"")));
+        assert!(cheer.contains(&format!("\"unshare:{id}:evaluation cheer\"")));
+        // Not its own: no Move…, no Remove there.
+        assert!(!cheer.contains(&format!("\"remove:{id}\"")));
+        assert!(!cheer.contains(&format!("\"move:{id}\"")));
+        assert_eq!(
+            act(&format!("hear-shared:{id}:evaluation cheer")),
+            Some(Act::HearShared(id, Line::Cheer))
+        );
+        let off = Act::Unshare(id, Line::Cheer);
+        assert_eq!(act(&format!("unshare:{id}:evaluation cheer")), Some(off));
+        assert!(!in_gesture(off) && in_gesture(Act::HearShared(id, Line::Cheer)));
+        assert_eq!(apply(off, &mut d, &mut v), Some(Applied::Draft));
+        assert_eq!(apply(off, &mut d, &mut v), None);
+        assert!(!zone(&d, Line::Cheer).contains("(shared)"));
     }
 
     fn zones(doc: &PageDoc) -> Vec<String> {

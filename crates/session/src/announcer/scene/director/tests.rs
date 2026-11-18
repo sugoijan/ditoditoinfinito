@@ -695,3 +695,41 @@ fn the_draft_as_a_voice_speaks_the_language_worked_in_and_tags_at_first() {
     assert_eq!(voice_of(&draft, None), [1.0, 1.0, 1.0]);
     assert_eq!(voice_of(&draft, Some(rude)), [2.0, 2.0, 2.0]);
 }
+
+/// A take said for two lines is one sound of each, and the scene's voice
+/// follows the game's rule: never the same take twice in a row through
+/// the two of them.
+#[test]
+fn a_shared_take_is_not_said_twice_in_a_row_through_two_lines() {
+    let mut draft = Draft::default();
+    let mut decoded = HashMap::new();
+    let shared = draft.add("awesome.wav", 10, b"RIFF");
+    draft.set_line(shared, Some(Line::Combo(100)));
+    draft.share(shared, Line::Cheer);
+    decoded.insert(shared, 1.0);
+    for (name, line, len) in [("hundred.wav", Line::Combo(100), 2.0), ("cheer.wav", Line::Cheer, 3.0)] {
+        let id = draft.add(name, 10, b"RIFF");
+        draft.set_line(id, Some(line));
+        decoded.insert(id, len);
+    }
+    let (mut voice, _, _) = draft_voice(
+        &draft,
+        |_| true,
+        &HashMap::new(),
+        None,
+        &decoded,
+        |_, s: &f64| Some(*s),
+        |s| (*s, 0.0),
+    );
+    assert_eq!(voice.next(Line::Combo(100)).unwrap().1, &1.0, "the shared one first");
+    assert_eq!(voice.next(Line::Cheer).unwrap().1, &3.0, "not it again");
+    assert_eq!(voice.next(Line::Cheer).unwrap().1, &1.0);
+    // Its own scene's eye in the cheer's zone hears it there.
+    let act = ddi_ui::screens::studio::Act::HearShared(shared, Line::Cheer);
+    assert_eq!(
+        hear_of(act, &draft, &BTreeMap::new()),
+        Some((Line::Cheer, Some(Pin::Take(shared))))
+    );
+    let not = ddi_ui::screens::studio::Act::HearShared(shared, Line::Ready);
+    assert_eq!(hear_of(not, &draft, &BTreeMap::new()), None);
+}

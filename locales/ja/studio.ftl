@@ -103,6 +103,19 @@ studio-tag-new-title = 新しいタグ
 studio-tag-new-note = 1語で：英小文字、数字、- と _（24文字まで）。
 studio-tag-not-a-word = 英小文字、数字、- と _ だけを使ってください（24文字まで）。
 
+studio-take-also = ほかのセリフでも使用：{ $lines }。
+
+studio-take-also-button = ほかのセリフにも…
+
+studio-take-shared-name = { $file }（共有）
+
+studio-take-shared = 「{ $line }」用の録音を、このセリフでも使います。
+
+studio-take-unshare = このセリフでは使わない
+
+studio-also-title = ほかのセリフにも使う
+studio-also-note = { $file }は1つのまま保存され、選んだセリフそれぞれで使われます。
+
 studio-advanced = 詳細設定
 
 studio-import-zip = ZIPからパックをインポート…

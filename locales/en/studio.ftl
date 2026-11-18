@@ -211,6 +211,36 @@ studio-tag-new-title = New tag
 studio-tag-new-note = One word: letters a to z, digits, - and _ (24 at most).
 studio-tag-not-a-word = Use only letters a to z, digits, - and _ (24 at most).
 
+## A recording said for several lines (kept once, listed under each).
+
+# Under a recording's name: the other lines it is said for.
+# Variables:
+#   $lines (String) - the lines' names, apart by commas
+studio-take-also = Also said for: { $lines }.
+
+# A recording's button opening the list of lines to say it for too.
+studio-take-also-button = Also for…
+
+# A recording said for this line besides its own, in this line's zone:
+# its name (a file name, data).
+# Variables:
+#   $file (String) - the recording's file name
+studio-take-shared-name = { $file } (shared)
+
+# Under it: the line it was recorded for.
+# Variables:
+#   $line (String) - that line's name
+studio-take-shared = Recorded for “{ $line }”, said for this line too.
+
+# Its button: no longer said for this line.
+studio-take-unshare = Not for this line
+
+# The dialog of Also for…: its title and note.
+studio-also-title = Also say it for…
+# Variables:
+#   $file (String) - the recording's file name
+studio-also-note = { $file } is kept once and said for each line it is on.
+
 ## Advanced: a fold (its label about 16 letters) holding the credits, the
 ## imports and three switches, each a button and a sentence under it.
 

@@ -255,6 +255,28 @@ pub fn call<H: StudioHost>(host: &Rc<H>, call: PageCall, cx: &mut Cx) -> Option<
             cx.overlay(dialog, true);
             None
         }
+        Act::Also(id) => {
+            let weak = Rc::downgrade(host);
+            let picker = studio::also_picker(
+                host.env()?,
+                &host.state().draft.borrow(),
+                id,
+                Rc::new(move |id, line, _cx| {
+                    let Some(h) = weak.upgrade() else {
+                        return;
+                    };
+                    let Some(line) = line else {
+                        return;
+                    };
+                    if h.state().draft.borrow_mut().share(id, line) {
+                        draft_changed(&*h);
+                        h.show();
+                    }
+                }),
+            )?;
+            cx.overlay(picker, true);
+            None
+        }
         Act::Tags(id) => {
             let weak = Rc::downgrade(host);
             let dialog = studio::tags_dialog(
@@ -304,9 +326,7 @@ fn toggle_tag<H: StudioHost>(host: &H, id: u64, tag: &str) -> bool {
 
 /// Take `id` put on `line` (`None`: unsorted).
 pub fn set_line<H: StudioHost>(host: &H, id: u64, line: Option<Line>) {
-    if let Some(t) = host.state().draft.borrow_mut().take_mut(id) {
-        t.line = line;
-    }
+    host.state().draft.borrow_mut().set_line(id, line);
     host.stop();
     draft_changed(host);
     host.show();
@@ -350,9 +370,10 @@ pub fn act<H: StudioHost>(host: &Rc<H>, act: Act) -> Option<PageDoc> {
         | Act::RemoveLanguage(_)
         | Act::Mixed
         | Act::Switchable(_)
-        | Act::TagDefault(_) => false,
+        | Act::TagDefault(_)
+        | Act::Unshare(..) => false,
         // (The dialogs': [`call`]'s.)
-        Act::Move(_) | Act::AddCombo | Act::AddLanguage | Act::Tags(_) => false,
+        Act::Move(_) | Act::AddCombo | Act::AddLanguage | Act::Tags(_) | Act::Also(_) => false,
         Act::Add(line) => {
             host.pick_recordings(line, None);
             false
@@ -382,7 +403,7 @@ pub fn act<H: StudioHost>(host: &Rc<H>, act: Act) -> Option<PageDoc> {
         Act::Export => host.export(),
         Act::Save => host.save_zip(),
         Act::UseInGame => host.use_in_game(),
-        Act::Hear(_) | Act::HearTake(_) | Act::HearExample(..) => {
+        Act::Hear(_) | Act::HearTake(_) | Act::HearExample(..) | Act::HearShared(..) => {
             host.hear(act);
             false
         }
