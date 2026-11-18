@@ -52,6 +52,7 @@ pub mod plays;
 pub mod preview;
 pub mod preview_movie;
 pub mod quit;
+pub mod ratings;
 pub mod room;
 pub mod share;
 pub mod shell;

@@ -166,7 +166,7 @@ pub(crate) fn gen_songs(check: bool) -> Result<()> {
                     })
                 })
                 .collect::<Result<_>>()?;
-        entries.push(summarize(
+        let mut entry = summarize(
             EntryMeta {
                 id: id.clone(),
                 title: p.title.clone(),
@@ -182,7 +182,16 @@ pub(crate) fn gen_songs(check: bool) -> Result<()> {
                 credit: p.credit.clone(),
             },
             &song,
-        ));
+        );
+        // Their MSD, for the option that shows it (`docs/plans/msd-ratings.md`).
+        for c in &mut entry.charts {
+            c.msd = song
+                .charts
+                .get(c.index)
+                .and_then(|chart| ddi_msd::chart::chart_msd(&song, chart))
+                .map(|v| v.map(|x| (x * 100.0).round() / 100.0));
+        }
+        entries.push(entry);
     }
     let manifest = Manifest { songs: entries };
     let json = serde_json::to_string_pretty(&manifest)? + "\n";

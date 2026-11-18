@@ -28,6 +28,7 @@ pub mod event;
 pub mod gesture;
 pub mod graph;
 pub mod heart;
+pub mod radar;
 pub mod hit;
 pub mod keycaps;
 pub mod look;

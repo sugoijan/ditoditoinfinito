@@ -255,6 +255,13 @@ pub struct ChartInfo {
     /// song's ([`ManifestEntry::music_for`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub music: Option<RelPathBuf>,
+    /// Its MSD (`ddi_msd`, `docs/plans/msd-ratings.md`): the overall
+    /// rating and the seven skillsets at rate 1.0, to the hundredth.
+    /// Written for the bundled songs by `xtask gen-songs`; imported and
+    /// library charts are rated in the background and kept apart
+    /// (`ddi_ui::state::ratings`). `None` for a chart without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub msd: Option<[f32; 8]>,
 }
 
 impl ChartInfo {
@@ -277,6 +284,7 @@ impl ChartInfo {
             digest,
             excessive: None,
             music: None,
+            msd: None,
         }
     }
 }

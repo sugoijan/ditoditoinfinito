@@ -294,6 +294,45 @@ pub fn chart_shown(c: &ChartEntry) -> UiText {
     chart_text(c, name.trim_end())
 }
 
+/// How much of a chart's number shows where it is the song's while Chart
+/// ratings shows MSD: quietly fainter, its color still its difficulty's.
+const FAINT: f32 = 0.55;
+
+/// A chart's number (`name` in `a`) fainter where it is the song's own
+/// while Chart ratings shows MSD, plain otherwise.
+fn faint(a: &mut Actor, name: &str, songs: bool) {
+    if let Some(p) = part(a, name) {
+        call(p, "diffusealpha", &[if songs { FAINT } else { 1.0 }]);
+    }
+}
+
+/// The chart ratings as song select last showed them
+/// (`crate::state::ratings`): the options, the ratings' generation, and
+/// when the screen last showed new ones.
+#[derive(Clone, Copy, Debug, Default)]
+struct RatingsShown {
+    msd: bool,
+    radar: bool,
+    generation: u64,
+    refreshed: f64,
+    /// The song list offered for rating (its data's address).
+    offered: usize,
+}
+
+/// The skill radar's room from the banner's edges, and its width in its
+/// height (room for the labels beside the shape).
+const RADAR_INSET: f32 = 8.0;
+const RADAR_ASPECT: f32 = 1.5;
+
+/// Whether the song side has room for the skill radar over its banner:
+/// the wide layout's (a phone's and a room's short side have none).
+fn radar_fits(l: &Layout) -> bool {
+    !l.compact && !l.chips && l.banner >= 140.0
+}
+
+/// How often new ratings are shown, seconds (they come a few at a time).
+const RATINGS_REFRESH: f64 = 0.3;
+
 /// Text read from a song's files (its title, artist, a chart's name):
 /// data, none where there is none.
 fn data(s: &str) -> String {
@@ -646,11 +685,16 @@ impl ListModel for Wheel<'_> {
                 for (k, &d) in Difficulty::ALL[..5].iter().enumerate() {
                     let chart = charts.iter().find(|c| c.difficulty == d);
                     let meter = chart.map(|c| c.meter);
-                    set_text(
-                        item,
-                        &format!("Meter{k}"),
-                        &meter.map(|m| m.to_string()).unwrap_or_default(),
-                    );
+                    // Its MSD in the song's number's place where Chart
+                    // ratings shows it (`crate::state::ratings`).
+                    let shown = chart.map(|c| match c.msd() {
+                        Some(_) => c.meter_text(),
+                        None => c.meter.to_string(),
+                    });
+                    set_text(item, &format!("Meter{k}"), &shown.unwrap_or_default());
+                    if crate::state::ratings::ever_shown() {
+                        faint(item, &format!("Meter{k}"), chart.is_some_and(|c| c.meter_is_songs()));
+                    }
                     // The best's lamp under the meter.
                     if let Some(l) = part(item, &format!("Lamp{k}")) {
                         let lamp = chart.and_then(|c| c.best.as_ref()).map(|b| b.lamp.as_str());
@@ -750,6 +794,10 @@ pub struct SelectScreen {
     /// Each song of the data is a favorite (empty where favorites do not
     /// apply: a share, a room's follower).
     favorite: Vec<bool>,
+    /// The chart ratings as last shown (`crate::state::ratings`).
+    ratings: RatingsShown,
+    /// The pointer is on the skill radar: its numbers listed.
+    radar_hover: bool,
     items: Vec<Item>,
     list: List,
     search: SearchField,
@@ -894,6 +942,8 @@ impl SelectScreen {
             matches: None,
             match_count: 0,
             favorite: Vec::new(),
+            ratings: RatingsShown::default(),
+            radar_hover: false,
             items: Vec::new(),
             search,
             volume: Volume::new("Volume", crate::state::settings::Settings::load().volume),
@@ -1436,6 +1486,137 @@ impl SelectScreen {
         }
     }
 
+    /// New chart ratings, or their options changed: the numbers (and the
+    /// radar) shown again, the songs without them offered for rating.
+    fn follow_ratings(&mut self, now: f64) {
+        use crate::state::ratings;
+        let (msd, radar) = (ratings::msd_shown(), ratings::radar_shown());
+        let generation = ratings::generation();
+        // A new song list: its songs offered.
+        let data = Rc::as_ptr(&self.data) as usize;
+        if data != self.ratings.offered && ratings::wanted() {
+            self.ratings.offered = data;
+            self.offer_ratings();
+        }
+        let r = &mut self.ratings;
+        let changed = (msd, radar) != (r.msd, r.radar);
+        if !changed && (generation == r.generation || now - r.refreshed < RATINGS_REFRESH) {
+            return;
+        }
+        r.msd = msd;
+        r.radar = radar;
+        r.generation = generation;
+        r.refreshed = now;
+        if changed {
+            self.offer_ratings();
+        }
+        self.left_dirty = true;
+        let model = wheel_model!(self);
+        self.list.reload(&model);
+    }
+
+    /// The songs whose four-lane charts have no rating yet, for rating
+    /// in the background (where either option is On).
+    fn offer_ratings(&self) {
+        use crate::state::ratings::{self, Job};
+        if !ratings::wanted() {
+            return;
+        }
+        let jobs = self.data.songs.iter().filter_map(|song| {
+            if song.id.starts_with("shared:") {
+                return None;
+            }
+            let charts: Vec<usize> = song
+                .charts
+                .iter()
+                .filter(|c| ddi_msd::chart::four_keys(&c.style) && c.rating().is_none())
+                .map(|c| c.index)
+                .collect();
+            (!charts.is_empty()).then(|| Job {
+                song: song.id.clone(),
+                charts,
+            })
+        });
+        ratings::offer(jobs);
+    }
+
+    /// The skill radar of the chart picked, where the option is On and it
+    /// has MSD; the numbers listed while the pointer is on it.
+    fn fill_radar(&self, root: &mut Actor) {
+        use ddi_l10n::msg::select as m;
+        let Some(slot) = hit::find_mut(root, "RadarSlot") else {
+            return;
+        };
+        let values = if crate::state::ratings::radar_shown() {
+            let (charts, pick) = self.charts();
+            pick.and_then(|p| charts[p].rating())
+        } else {
+            None
+        };
+        let Some(v) = values else {
+            slot.kind = Kind::Frame(Vec::new());
+            return;
+        };
+        let labels: [String; crate::radar::SKILLS] = [
+            m::radar_stream(),
+            m::radar_jumpstream(),
+            m::radar_handstream(),
+            m::radar_stamina(),
+            m::radar_jackspeed(),
+            m::radar_chordjack(),
+            m::radar_technical(),
+        ]
+        .map(String::from);
+        let list: Option<Vec<(String, String)>> = self.radar_hover.then(|| {
+            let full = [
+                m::radar_stream_full(),
+                m::radar_jumpstream_full(),
+                m::radar_handstream_full(),
+                m::radar_stamina_full(),
+                m::radar_jackspeed_full(),
+                m::radar_chordjack_full(),
+                m::radar_technical_full(),
+            ];
+            let number = |x: f32| UiText::data(format!("{x:.1}")).into();
+            std::iter::once((m::radar_overall().into(), number(v[0])))
+                .chain(
+                    full.into_iter()
+                        .zip(&v[1..])
+                        .map(|(name, &x)| (name.into(), number(x))),
+                )
+                .collect()
+        });
+        let l = self.layout;
+        let h = l.banner - 2.0 * RADAR_INSET;
+        let w = (h * RADAR_ASPECT).min(l.song[2] * 0.45);
+        let mut radar = crate::radar::radar(&self.env, "Radar", &v, [w, h], &labels, list.as_deref());
+        call(
+            &mut radar,
+            "xy",
+            &[l.song[2] - RADAR_INSET - w / 2.0, RADAR_INSET + h / 2.0],
+        );
+        slot.kind = Kind::Frame(vec![radar]);
+    }
+
+    /// The song shown and its neighbours in the list rated first.
+    fn rate_first(&self) {
+        let Some(sel) = self.list.selected() else {
+            return;
+        };
+        let near = |i: usize| match self.items.get(i) {
+            Some(Item::Song(s)) => self.data.songs.get(*s).map(|e| e.id.as_str()),
+            _ => None,
+        };
+        let mut ids: Vec<&str> = near(sel).into_iter().collect();
+        for d in 1..=6 {
+            ids.extend(near(sel + d));
+            if let Some(i) = sel.checked_sub(d) {
+                ids.extend(near(i));
+            }
+        }
+        crate::state::ratings::first(&ids);
+    }
+
     fn reload(&mut self) {
         self.cancel_navigation();
         let model = wheel_model!(self);
@@ -1585,6 +1766,11 @@ impl SelectScreen {
             kbd = right(kbd, sw, l.tabs_y - sy + 16.0);
             song.push(kbd);
             song.push(frame("Ladder", Vec::new()));
+            // The skill radar over the banner's right end, where the
+            // banner is tall enough for one (`fill_radar`).
+            if radar_fits(&l) {
+                song.push(frame("RadarSlot", Vec::new()));
+            }
         }
         let mut song = frame("Song", song);
         call(&mut song, "xy", &[sx, sy]);
@@ -1777,6 +1963,9 @@ impl SelectScreen {
             return;
         }
         self.publish_dirty = true;
+        if crate::state::ratings::wanted() {
+            self.rate_first();
+        }
         self.fill_info(root, cx);
         self.fill_tabs(root);
         self.fill_charts(root);
@@ -2030,7 +2219,7 @@ impl SelectScreen {
                 let c = charts[first + k];
                 // Its meter; a named chart without one by its name (cut
                 // to the button; the play button says it whole).
-                let by_name = c.named() && c.meter == 0;
+                let by_name = c.named() && c.meter == 0 && c.msd().is_none();
                 let shown: String = if by_name {
                     chart_text(c, &c.label()).into()
                 } else {
@@ -2048,6 +2237,9 @@ impl SelectScreen {
                     look::ellipsized(m, cell - 8.0);
                 }
                 crate::widgets::play(&mut b, c.difficulty.name());
+                if crate::state::ratings::ever_shown() {
+                    faint(&mut b, "Meter", c.meter_is_songs());
+                }
                 crate::widgets::play(
                     &mut b,
                     match (c.version, c.assisted()) {
@@ -2179,9 +2371,14 @@ impl SelectScreen {
             if let Some(version) = c.version {
                 notes = format!("{} · {notes}", version_name(version));
             }
+            // Its MSD in the number's place: the song's own number said
+            // in the line, never lost.
+            if c.msd().is_some() {
+                notes = format!("{} · {notes}", msg::chart_song_meter(c.meter));
+            }
             set_text(&mut r, "Notes", &notes);
             set_text(&mut r, "Subtitle", &notes);
-            set_text(&mut r, "Meter", &c.meter_text());
+            set_text(&mut r, "Meter", &c.meter_text_fine());
             // The best: grade, score, lamp (the ruleset's readouts);
             // marked while it waits to be worked out again.
             match &c.best {
@@ -2204,6 +2401,9 @@ impl SelectScreen {
                 }
             }
             crate::widgets::play(&mut r, c.difficulty.name());
+            if crate::state::ratings::ever_shown() {
+                faint(&mut r, "Meter", c.meter_is_songs());
+            }
             crate::widgets::play(
                 &mut r,
                 if Some(first + k) == pick {
@@ -2231,6 +2431,8 @@ impl SelectScreen {
         if let Some(f) = hit::find_mut(root, "Ladder") {
             f.kind = Kind::Frame(children);
         }
+        // The chart picked's skill radar (the wide layout's alone).
+        self.fill_radar(root);
     }
 
     /// The ladder's window for `len` charts with `pick` chosen: its
@@ -3827,7 +4029,13 @@ impl Screen for SelectScreen {
     }
 
     fn wake_at(&self) -> Option<f64> {
-        self.room_wake_at()
+        // New chart ratings to show (at most every RATINGS_REFRESH).
+        let ratings = (crate::state::ratings::generation() != self.ratings.generation)
+            .then_some(self.ratings.refreshed + RATINGS_REFRESH);
+        match (self.room_wake_at(), ratings) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     fn animating(&self) -> bool {
@@ -3858,6 +4066,7 @@ impl Screen for SelectScreen {
             return;
         }
         self.live.tick(root, "Wordmark", &self.env, cx);
+        self.follow_ratings(cx.time());
         self.volume.update(cx.time(), root, self.reduced);
         let events = self.navigation.advance(cx.time());
         self.apply_navigation(events, root, cx);
@@ -4006,6 +4215,14 @@ impl Screen for SelectScreen {
             }
             _ => input,
         };
+        // The pointer on the skill radar lists its numbers.
+        if let Input::Hover { target } = input {
+            let over = target.as_ref().is_some_and(|t| t.within("Radar"));
+            if over != self.radar_hover {
+                self.radar_hover = over;
+                self.fill_radar(root);
+            }
+        }
         if matches!(
             input,
             Input::Menu { .. }

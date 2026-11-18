@@ -270,6 +270,7 @@ fn generate(root: &Path) -> Result<RustCredits> {
     let mut web = tree(root, "ddi", &["wasm32-unknown-unknown"])?;
     web.extend(tree(root, "ddi-opus-worker", &["wasm32-unknown-unknown"])?);
     web.extend(tree(root, "ddi-svg-worker", &["wasm32-unknown-unknown"])?);
+    web.extend(tree(root, "ddi-msd-worker", &["wasm32-unknown-unknown"])?);
     let mut desktop = tree(root, "ddi", DESKTOP_TARGETS)?;
     // The video decoder helper ships beside the game (`video/helper`).
     desktop.extend(tree(root, "ddi-video-helper", DESKTOP_TARGETS)?);

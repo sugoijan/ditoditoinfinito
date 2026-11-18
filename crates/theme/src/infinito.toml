@@ -66,6 +66,13 @@ numbers_weight = 800
 # an outline in a quiet light grey where the song is not one.
 "Heart" = "#f2476b"
 "Heart.Empty" = "#b3aca5"
+# The chart's skill radar on song select (`ddi_ui::radar`): a translucent
+# panel over the banner's right end, quiet rings and spokes, the shape a
+# cool cyan of its own (none of the difficulties', lamps' or accent's).
+"Radar.Panel" = "#0a090dd4"
+"Radar.Grid" = "#3a3542"
+"Radar.Fill" = "#5fd0ff52"
+"Radar.Line" = "#5fd0ff"
 # A battle's attacks in the play (`attack_colors`): the line from the
 # power bar to the opponent attacked (or from the attacker to the
 # warning) and the outline around that opponent's miniature, and the

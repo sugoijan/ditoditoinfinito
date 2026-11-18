@@ -2426,6 +2426,8 @@ fn publish_now(h: &Host) {
         names.push("ClearSearch".into());
         // Song select's heart for the song shown.
         names.push("Favorite".into());
+        // Song select's skill radar (a rated chart, Skill radar On).
+        names.push("Radar".into());
         // Song select's quick volume and its slider.
         names.extend(["Volume", "Volume.Popup"].map(str::to_string));
         if st.screen == "start" {

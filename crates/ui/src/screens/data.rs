@@ -153,13 +153,45 @@ impl ChartEntry {
     }
 
     /// Its meter as shown: none for a named chart of meter 0 (as the old
-    /// song list had it).
+    /// song list had it); its MSD, whole, where Chart ratings shows MSD
+    /// and it has one (`crate::state::ratings`).
     pub fn meter_text(&self) -> String {
-        if self.named() && self.meter == 0 {
+        if let Some(msd) = self.msd() {
+            format!("{}", msd.round() as i64)
+        } else if self.named() && self.meter == 0 {
             String::new()
         } else {
             self.meter.to_string()
         }
+    }
+
+    /// Its meter as its row shows it: its MSD to a tenth where shown.
+    pub fn meter_text_fine(&self) -> String {
+        match self.msd() {
+            Some(msd) => format!("{msd:.1}"),
+            None => self.meter_text(),
+        }
+    }
+
+    /// Its eight MSD numbers (overall, then the seven skillsets), where
+    /// either ratings option is On and it has them.
+    pub fn rating(&self) -> Option<crate::state::ratings::Values> {
+        self.digest.and_then(crate::state::ratings::get)
+    }
+
+    /// Its MSD in its number's place: where Chart ratings shows MSD and it
+    /// has one.
+    pub fn msd(&self) -> Option<f32> {
+        if !crate::state::ratings::msd_shown() {
+            return None;
+        }
+        self.rating().map(|v| v[0])
+    }
+
+    /// Whether its number is the song's where Chart ratings shows MSD (a
+    /// chart not rated yet, or not four lanes): drawn fainter.
+    pub fn meter_is_songs(&self) -> bool {
+        crate::state::ratings::msd_shown() && self.msd().is_none()
     }
 }
 

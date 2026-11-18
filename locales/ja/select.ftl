@@ -62,6 +62,22 @@ select-no-charts-hint = 上の点灯しているスタイルに譜面があり�
 select-chart-notes = { $notes }ノーツ
 
 select-chart-notes-by = { $notes }ノーツ · 譜面作者：{ $credit }
+select-chart-song-meter = 曲 { $meter }
+select-radar-stream = ストリーム
+select-radar-jumpstream = ジャンプ
+select-radar-handstream = ハンド
+select-radar-stamina = スタミナ
+select-radar-jackspeed = 縦連
+select-radar-chordjack = 同時縦連
+select-radar-technical = 技巧
+select-radar-stream-full = ストリーム
+select-radar-jumpstream-full = ジャンプストリーム
+select-radar-handstream-full = ハンドストリーム
+select-radar-stamina-full = スタミナ
+select-radar-jackspeed-full = 縦連の速さ
+select-radar-chordjack-full = 同時押し縦連
+select-radar-technical-full = テクニカル
+select-radar-overall = MSD
 
 select-version-without-onigiri = おにぎりなし
 

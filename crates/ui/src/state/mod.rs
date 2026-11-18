@@ -11,6 +11,7 @@ pub mod favorites;
 pub mod history;
 pub mod online;
 pub mod place;
+pub mod ratings;
 pub mod room;
 pub mod select_view;
 pub mod settings;

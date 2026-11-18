@@ -2901,6 +2901,11 @@ impl GameCanvas {
                             layout: layout.id.clone(),
                             difficulty: ddi_chart::Difficulty::from_name(&c.difficulty)?,
                             meter: c.meter,
+                            msd: c
+                                .digest
+                                .and_then(ddi_ui::state::ratings::get)
+                                .filter(|_| ddi_ui::state::ratings::msd_shown())
+                                .map(|v| v[0]),
                             style: layout.name.clone(),
                         })
                     });
@@ -3386,9 +3391,10 @@ impl GameCanvas {
         let settings = Settings::load();
         let played = song.song.charts.get(chart);
         let chart_line = match played {
-            Some(c) => ddi_ui::screens::prompt::chart_line(
+            Some(c) => ddi_ui::screens::prompt::chart_line_rated(
                 c.difficulty,
                 c.meter,
+                ddi_ui::state::ratings::shown_msd(&song.song, chart),
                 &ddi_ui::screens::data::style_name(&layout.id, &layout.name),
             ),
             None => layout.name.clone(),

@@ -585,6 +585,20 @@ options-cursor-size-description = Artwork size in logical pixels; the system cur
 options-start-countdown = Start countdown
 options-start-countdown-description = A song chosen in song select starts by itself after this long. Enter (or Start) starts it at once, any other key or a tap waits.
 
+# What a chart's number shows on song select, the start prompt and the
+# results (Options → Display, under Menus): the number the song's file
+# gives it, or MSD, a rating the game computes from the chart's notes.
+# "MSD" is the rating's own name (Etterna's calculator's): keep it.
+options-chart-ratings = Chart ratings
+options-chart-ratings-from-song = From the song
+options-chart-ratings-msd = MSD
+options-chart-ratings-description = MSD is a rating computed from the chart's patterns for keyboard play at normal speed, after Etterna's calculator. Four-lane charts show it once rated (in the background, never during a play); others keep the song's number, fainter.
+
+# Song select's small radar of the chart's seven MSD skills (Options →
+# Display, under Menus).
+options-skill-radar = Skill radar
+options-skill-radar-description = On song select, a small radar of the chart's seven MSD skills (stream, jumpstream, handstream, stamina, jacks, chordjacks, technical), each as a share of its overall rating. Point at it to see the numbers. Only four-lane charts have one.
+
 options-graphics = Graphics
 options-graphics-auto = Automatic
 

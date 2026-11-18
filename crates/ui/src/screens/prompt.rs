@@ -440,6 +440,9 @@ pub struct PromptChart {
     pub layout: String,
     pub difficulty: ddi_chart::Difficulty,
     pub meter: u32,
+    /// Its MSD in the number's place, where Chart ratings shows it
+    /// (`crate::state::ratings::shown_msd`).
+    pub msd: Option<f32>,
     /// Its layout's name.
     pub style: String,
 }
@@ -452,6 +455,7 @@ impl PromptChart {
             layout: c.layout.clone(),
             difficulty: c.difficulty,
             meter: c.meter,
+            msd: crate::state::ratings::shown_msd(song, chart),
             style: song.layout_of(c).map(|l| l.name).unwrap_or_default(),
         })
     }
@@ -620,9 +624,10 @@ impl PromptInfo {
         let options = settings.play_options(None);
         let (chart, difficulty) = chart.map_or_else(Default::default, |c| {
             (
-                chart_line(
+                chart_line_rated(
                     c.difficulty,
                     c.meter,
+                    c.msd,
                     &super::data::style_name(&c.layout, &c.style),
                 ),
                 c.difficulty.name().to_string(),
@@ -656,7 +661,22 @@ impl PromptInfo {
 /// names are never translated) and its style as shown (the caller's,
 /// `super::data::style_name`).
 pub fn chart_line(difficulty: ddi_chart::Difficulty, meter: u32, style: &str) -> String {
-    let difficulty = UiText::data(format!("{} {meter}", difficulty.name()));
+    chart_line_rated(difficulty, meter, None, style)
+}
+
+/// [`chart_line`] with the chart's MSD, to a tenth, in its number's place
+/// where Chart ratings shows it (`crate::state::ratings::shown_msd`).
+pub fn chart_line_rated(
+    difficulty: ddi_chart::Difficulty,
+    meter: u32,
+    msd: Option<f32>,
+    style: &str,
+) -> String {
+    let number = match msd {
+        Some(m) => format!("{m:.1}"),
+        None => meter.to_string(),
+    };
+    let difficulty = UiText::data(format!("{} {number}", difficulty.name()));
     format!("{difficulty} · {style}")
 }
 
@@ -2533,6 +2553,7 @@ mod tests {
                     layout: layout.into(),
                     difficulty: ddi_chart::Difficulty::Medium,
                     meter: 5,
+                    msd: None,
                     style: layout.into(),
                 }),
                 &settings,
@@ -2562,6 +2583,7 @@ mod tests {
                 layout: "dance-single".into(),
                 difficulty: ddi_chart::Difficulty::Hard,
                 meter: 9,
+                msd: None,
                 style: style.clone(),
             })
         );

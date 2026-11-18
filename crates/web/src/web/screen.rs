@@ -684,6 +684,7 @@ pub(crate) fn debug_into(obj: &js_sys::Object) {
     // select's announcer lines.
     crate::history::debug_into(obj);
     crate::announcers::debug_into(obj);
+    crate::ratings::debug_into(obj);
     let set = |o: &js_sys::Object, k: &str, v: JsValue| {
         let _ = js_sys::Reflect::set(o, &JsValue::from_str(k), &v);
     };

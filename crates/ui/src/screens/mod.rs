@@ -72,6 +72,8 @@ pub mod import_report;
 mod l10n_tests;
 #[cfg(test)]
 mod favorites_tests;
+#[cfg(test)]
+mod ratings_tests;
 pub mod numbers;
 pub mod online;
 pub mod online_home;

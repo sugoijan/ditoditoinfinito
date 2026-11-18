@@ -219,6 +219,7 @@ fn song_entry<'a>(
             .charts
             .iter()
             .filter(|c| shows(entry, c, settings))
+            .inspect(|c| remember_rating(c))
             .map(|c| ChartEntry {
                 style: c.layout.clone(),
                 difficulty: difficulty(&c.difficulty),
@@ -240,6 +241,15 @@ fn song_entry<'a>(
     }
 }
 
+/// A bundled chart's MSD from its manifest, known by its digest for the
+/// session (`crate::state::ratings`), so every screen finds it as it finds
+/// a rated one.
+fn remember_rating(c: &ddi_library::manifest::ChartInfo) {
+    if let (Some(d), Some(v)) = (c.digest, c.msd) {
+        crate::state::ratings::remember(d, v);
+    }
+}
+
 /// A song's entry as listed with nothing of the player's (no pack, no
 /// bests, every chart): an online room's shared song, read from its share
 /// (`crate::state::room::picked_of`).
@@ -253,6 +263,7 @@ pub fn plain_song_entry(entry: &ManifestEntry) -> SongEntry {
         charts: entry
             .charts
             .iter()
+            .inspect(|c| remember_rating(c))
             .map(|c| ChartEntry {
                 style: c.layout.clone(),
                 difficulty: difficulty(&c.difficulty),

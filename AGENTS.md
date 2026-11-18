@@ -312,8 +312,9 @@ Rust and the browser are implementation details, not advertised features.
   decision 9): a worker Trunk builds beside the app (`site/index.html`,
   `data-type="worker"`; `xtask stage-opus`, a step of `xtask
   post-build` (Trunk's one post-build hook: the favicon, `stage-video`,
-  `stage-opus`, `stage-svg`, `check-boot`, in that order, since three
-  of them rewrite index.html and Trunk runs a stage's hooks at once),
+  `stage-opus`, `stage-svg`, `stage-msd`, `check-boot`, in that order,
+  since four of them rewrite index.html and Trunk runs a stage's hooks at
+  once),
   names its files by their hash and tells the page in index.html's
   `ddi-opus-worker` meta), started by `crates/web/src/web/opus.rs` only when the
   browser cannot decode an Ogg Opus file (the module compiled once a
@@ -332,6 +333,14 @@ Rust and the browser are implementation details, not advertised features.
   the release profile; started by `crates/web/src/web/svg.rs`, a few at
   once, ended once idle; the browser draws an SVG only where none starts.
   Empty natively.
+- `crates/msd-worker/` chart ratings on the web (`ddi-msd-worker`,
+  `docs/plans/msd-ratings.md`): a worker Trunk builds beside the app
+  (`xtask stage-msd`, index.html's `ddi-msd-worker` meta) that parses an
+  imported or shared song's simfile as the library does and rates its
+  four-lane charts (`ddi_msd`); started by `crates/web/src/ratings.rs`
+  with the first song to rate while a ratings option is On, fed one song
+  at a time, none during a play, ended after 10 s idle;
+  `__DDI_DEBUG.ratings`. Empty natively.
 - `crates/library/` song library logic shared by the app and xtask: pack scanning
   (which file is the chart, music, banner), a sans-IO zip reader, the manifest
   entry type, and the import's core (`scan.rs`: a song's entry, its files
@@ -456,6 +465,20 @@ Rust and the browser are implementation details, not advertised features.
   distinct until the screen resolves it. Standard-controller binding has
   explicit Capture and navigation phases; raw devices keep guided learning.
   `screens/numbers.rs` supplies controller-editable numeric/compound forms;
+  `crates/ui/src/radar.rs` a chart's skill radar (MSD's seven skillsets
+  as shares of its overall, drawn from quads: the fill seven triangles
+  cut by turned frame clips; the theme's `Radar.*` colors), shown over
+  song select's banner for a rated chart with Options → Display's Skill
+  radar On; `crate::state::ratings` the chart ratings' state
+  (`docs/plans/msd-ratings.md`: Chart ratings and Skill radar, both Off
+  by default and then doing nothing; the bundled songs' MSD from their
+  manifest, `ChartInfo::msd`; the rest rated in the background by a
+  shell, desktop's `crate::ratings` thread, the web's worker, one song at
+  a time, never during a play, `set_playing`; kept by chart digest and
+  calculator version under `ddi.msd.v1`; `ChartEntry::meter_text` and
+  `chart_line_rated` show MSD in the number's place, the song's own
+  fainter where a chart has none; everything that decides by a chart's
+  meter keeps the song's);
   `crates/ui/src/stars.rs` a CPU's level as five stars (levels 1 to 5
   silver from the left over empty outlines, 6 to 10 gold over silver;
   vector shapes, never a glyph or a number: the look's `Stars` component
@@ -2235,7 +2258,8 @@ read their state from `__DDI_DEBUG.ui.theme` (published after every
 frame and event where a test drives the page, `navigator.webdriver`;
 otherwise at most a second late, and at once when a screen or dialog
 comes or goes). The testing parameters (`gfx`, `auto`, `bias`,
-`slow`, `perf`, `lang`, and the multiplayer ones, `mprules`,
+`slow`, `perf`, `lang`, `msdslow` (chart ratings a song every MS,
+`crate::ratings`), and the multiplayer ones, `mprules`,
 `mpwatchlink`, `mpattacks`, `mpcpus`, `mpdevmines`, `mpfakeseat`,
 `mpfakeend`, `mpfakematch`, `mpfakeroom`, `mpfakeready`, `mpfakelive`) take effect given in the address the page loads on, on any
 route (`#/select?perf=1`, `#/mp?mpcpus=16`, `#/options?lang=ja`;

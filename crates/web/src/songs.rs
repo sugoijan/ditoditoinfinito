@@ -1046,6 +1046,44 @@ pub(crate) async fn find_by_digest(digests: &[ddi_chart::ChartDigest]) -> Option
         .map(|e| e.id.clone())
 }
 
+/// An imported song's simfile, its text and extension, for the rating
+/// worker (`crate::ratings`): a Dancing☆Onigiri work, an FFR level or a
+/// share's song is none (their charts keep their own numbers).
+pub(crate) async fn chart_text(id: &str) -> Result<(String, String), String> {
+    let shared = crate::share::parse_song_id(id).is_some();
+    if !is_imported_id(id) && !shared {
+        return Err("not an imported song".into());
+    }
+    // A kept folder the browser asks again for is not read here.
+    let found = find_song(id)
+        .await
+        .map_err(|_| "the song could not be read".to_string())?;
+    let entry = &found.entry;
+    let ext = entry
+        .chart
+        .as_str()
+        .rsplit('.')
+        .next()
+        .unwrap_or("sm")
+        .to_ascii_lowercase();
+    if ext != "sm" && ext != "ssc" {
+        return Err("not a simfile".into());
+    }
+    // A room's song is a share's, read from it.
+    if let Some(url) = crate::share::file_url(&entry.id, entry.chart.as_str()) {
+        let bytes = fetch_bytes(&url).await?;
+        return Ok((String::from_utf8_lossy(&bytes).into_owned(), ext));
+    }
+    let record = found.record.as_ref().ok_or("the stored song went missing")?;
+    let db = Db::open().await.map_err(|e| e.to_string())?;
+    let blob = song_file(&db, record, &entry.chart)
+        .await
+        .map_err(|_| "its chart could not be read".to_string())?;
+    let bytes = blob_bytes(&blob).await?;
+    // Stored chart bytes are already UTF-8 (decoded at import).
+    Ok((String::from_utf8_lossy(&bytes).into_owned(), ext))
+}
+
 /// A song's charts alone, without its music or art (judging a stored
 /// play again, `crate::history`).
 pub(crate) async fn load_chart(id: &str) -> Result<Song, LoadError> {

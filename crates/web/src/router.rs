@@ -130,6 +130,7 @@ fn lang_switch(hash: &str) {
         if tag.is_empty() {
             ddi_l10n::unforce();
             crate::settings::Settings::load().choose_language();
+            crate::ratings::kick();
         } else if !ddi_l10n::force(tag) {
             web_sys::console::warn_1(&format!("lang={tag}: no such language").into());
         }

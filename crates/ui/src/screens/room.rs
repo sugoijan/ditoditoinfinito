@@ -1395,6 +1395,15 @@ pub fn pick_rows(r: &RoomClient) -> Vec<PickRow> {
                 .or_else(|| card.map(|c| c.title.clone()))
                 .or_else(|| st.content.as_ref().map(|_| m::host_song().into()));
             // The chart's own words (its difficulty, or an edit's name).
+            // Its MSD where shown, once this device has it (rated first).
+            if let Some(p) = picked {
+                crate::state::ratings::want_first(
+                    &p.song.id,
+                    p.chart.index,
+                    p.chart.digest,
+                    &p.chart.style,
+                );
+            }
             let chart: Option<String> = picked
                 .map(|p| {
                     UiText::data(format!("{} {}", p.chart.label(), p.chart.meter_text())).into()

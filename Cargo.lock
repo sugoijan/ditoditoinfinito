@@ -1308,6 +1308,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ddi-msd-worker"
+version = "0.1.0"
+dependencies = [
+ "ddi-chart",
+ "ddi-msd",
+ "js-sys",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "ddi-noteskin"
 version = "0.1.0"
 dependencies = [
@@ -1455,6 +1466,7 @@ dependencies = [
  "ddi-engine",
  "ddi-l10n",
  "ddi-library",
+ "ddi-msd",
  "ddi-noteskin",
  "ddi-platform",
  "ddi-room",
@@ -7710,6 +7722,7 @@ dependencies = [
  "ddi-icon",
  "ddi-l10n",
  "ddi-library",
+ "ddi-msd",
  "ddi-noteskin",
  "ddi-platform",
  "fluent-syntax",

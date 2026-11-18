@@ -433,6 +433,11 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
         crate::star_colors(),
         ["Star.Gold", "Star.Silver", "Star.Empty"].map(|n| theme.color(n).unwrap())
     );
+    // The skill radar's colors (song select with its option On; the
+    // walk's settings have it Off).
+    for n in ["Radar.Panel", "Radar.Grid", "Radar.Fill", "Radar.Line"] {
+        assert!(theme.color(n).is_some(), "{n}");
+    }
     // A battle's attack colors (the play's lines of who attacks whom).
     assert_eq!(
         crate::attack_colors(),

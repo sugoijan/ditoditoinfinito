@@ -24,6 +24,7 @@ ddi-danoni-export = { path = "tools/danoni-dump/rust", default-features = false 
 ddi-importer-protocol = { path = "crates/importer-protocol" }
 ddi-video-protocol = { path = "video/protocol" }
 ddi-chart = { path = "crates/chart" }
+ddi-msd = { path = "crates/msd" }
 ddi-engine = { path = "crates/engine" }
 ddi-render = { path = "crates/render" }
 ddi-platform = { path = "crates/platform" }

@@ -227,9 +227,9 @@ const LOAD_KEY: &str = "ddi.load";
 /// The most a frame may be made to burn, ms.
 const MOST_LOAD_MS: f64 = 50.0;
 
-/// An address's `perf` parameter, and the testing aid `load=MS` (each
-/// play frame burns that much main thread, `load=0` none), kept for the
-/// tab.
+/// An address's `perf` parameter, and the testing aids `load=MS` (each
+/// play frame burns that much main thread, `load=0` none) and
+/// `msdslow=MS` (chart ratings a song every MS), kept for the tab.
 pub(crate) fn note_address(query: &str) {
     for kv in query.split('&') {
         let Some(s) = storage() else {
@@ -243,6 +243,12 @@ pub(crate) fn note_address(query: &str) {
                     s.remove_item(STORAGE_KEY)
                 };
             }
+            Some(("msdslow", value)) => {
+                let _ = match value.parse::<f64>() {
+                    Ok(ms) if ms > 0.0 => s.set_item(MSD_SLOW_KEY, &ms.min(5_000.0).to_string()),
+                    _ => s.remove_item(MSD_SLOW_KEY),
+                };
+            }
             Some(("load", value)) => {
                 let _ = match value.parse::<f64>() {
                     Ok(ms) if ms > 0.0 => s.set_item(LOAD_KEY, &ms.min(MOST_LOAD_MS).to_string()),
@@ -252,6 +258,19 @@ pub(crate) fn note_address(query: &str) {
             _ => {}
         }
     }
+}
+
+/// The tab's spacing of chart ratings ([`msd_slow_ms`]).
+const MSD_SLOW_KEY: &str = "ddi.msdslow";
+
+/// A TESTING AID: the time between two songs rated in the background
+/// (`msdslow=MS`, `crate::ratings`), so that a test can start a play while
+/// rating is under way; 0 without it (each song at once after the last).
+pub(crate) fn msd_slow_ms() -> u32 {
+    storage()
+        .and_then(|s| s.get_item(MSD_SLOW_KEY).ok().flatten())
+        .and_then(|v| v.parse::<f64>().ok())
+        .map_or(0, |v| v as u32)
 }
 
 /// A TESTING AID: the main-thread time each play frame burns on purpose

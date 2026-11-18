@@ -63,6 +63,8 @@ mod preview;
 #[cfg(target_arch = "wasm32")]
 mod preview_movie;
 #[cfg(target_arch = "wasm32")]
+mod ratings;
+#[cfg(target_arch = "wasm32")]
 mod replay;
 #[cfg(target_arch = "wasm32")]
 mod room;
@@ -121,6 +123,7 @@ pub fn start() {
         .unwrap_or_default();
     ddi_l10n::set_system_languages(languages);
     settings::Settings::load().choose_language();
+    ratings::kick();
     // The app's canvas and device, made once for every route.
     web::screen::boot();
     // The theme's faces, which the first screen waits for (`app::start`).

@@ -47,6 +47,22 @@ const OLD_BUNDLED_ANNOUNCERS: [&str; 2] = [
 /// Announcers whose values are kept, at most.
 const MAX_ANNOUNCERS_WITH_PARAMS: usize = 64;
 
+/// What a chart's number is ([`Settings::chart_ratings`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChartRatings {
+    /// The number the song's file gives it.
+    #[default]
+    FromSong,
+    /// MSD where the chart has one (four lanes), else the song's.
+    Msd,
+}
+
+impl ChartRatings {
+    fn is_default(&self) -> bool {
+        *self == ChartRatings::FromSong
+    }
+}
+
 /// The start prompt's countdowns Options offers, seconds (0: off).
 pub const START_COUNTDOWNS: [f32; 4] = [0.0, 3.0, 5.0, 10.0];
 
@@ -297,6 +313,19 @@ pub struct Settings {
     /// lacks it: a stage then prepares no hand at all
     /// ([`Self::dancing_hand_in`]).
     pub dancing_hand_multiplayer: bool,
+    /// What a chart's number is (Options → Display): the song's own, or
+    /// a rating of the game's (MSD for now, `docs/plans/msd-ratings.md`)
+    /// where the chart has one. The song's by default; left out of the
+    /// stored settings at its default, so they read and write as before.
+    #[serde(
+        deserialize_with = "ddi_engine::lenient",
+        skip_serializing_if = "ChartRatings::is_default"
+    )]
+    pub chart_ratings: ChartRatings,
+    /// Song select's skill radar for the chart in focus (Options →
+    /// Display): Off by default, and left out of the stored settings then.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub skill_radar: bool,
     /// How many of a multiplayer stage's opponents have a field beside
     /// the play ([`OpponentFields`]): every one that fits, by default.
     #[serde(deserialize_with = "ddi_engine::lenient")]
@@ -737,6 +766,8 @@ impl Default for Settings {
             ghost: false,
             dancing_hand: true,
             dancing_hand_multiplayer: false,
+            chart_ratings: ChartRatings::FromSong,
+            skill_radar: false,
             opponent_fields: OpponentFields::default(),
             hand_layout: HandLayout::default(),
             hand_frame_width: 50,
@@ -1351,7 +1382,14 @@ impl Settings {
     /// judgment words as they choose ([`Settings::judgment_words`]).
     pub fn choose_language(&self) -> &'static ddi_l10n::Language {
         ddi_l10n::judgments::set_words(self.judgment_words.words());
+        self.show_ratings();
         ddi_l10n::choose(self.language.as_deref())
+    }
+
+    /// Tells the screens what the chart ratings options show
+    /// ([`crate::state::ratings::set_mode`]).
+    pub fn show_ratings(&self) {
+        crate::state::ratings::set_mode(self.chart_ratings == ChartRatings::Msd, self.skill_radar);
     }
 
     pub fn rules(&self) -> RuleChoice {

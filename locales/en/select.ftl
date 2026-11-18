@@ -164,6 +164,34 @@ select-chart-notes-by = { $notes ->
    *[other] { $notes } notes · steps by { $credit }
 }
 
+# A chart's row in the ladder, while Chart ratings shows MSD (a rating the
+# game computes) in the number's place: the number the song's own file
+# gives it, before its notes. Short.
+# Variables:
+#   $meter (Number) - the song's own number for the chart
+select-chart-song-meter = Song { $meter }
+
+# The skill radar on song select (Options → Display → Skill radar): the
+# seven skills of the chart's MSD, each spoke's short label (a word or
+# two, under 11 letters), and the list of numbers shown while the pointer
+# is on it ("Stream 24.1", one a line, under the overall).
+select-radar-stream = Stream
+select-radar-jumpstream = Jumps
+select-radar-handstream = Hands
+select-radar-stamina = Stamina
+select-radar-jackspeed = Jacks
+select-radar-chordjack = Chordjacks
+select-radar-technical = Tech
+select-radar-stream-full = Stream
+select-radar-jumpstream-full = Jumpstream
+select-radar-handstream-full = Handstream
+select-radar-stamina-full = Stamina
+select-radar-jackspeed-full = Jack speed
+select-radar-chordjack-full = Chordjack
+select-radar-technical-full = Technical
+# The radar's list's first line, beside the chart's overall MSD number.
+select-radar-overall = MSD
+
 # A chart version the game makes from another (Options → Notes →
 # Simplify and Convert), marked before its notes in the ladder and after
 # its chart in the plays' title. A short tag, about 20 letters each.

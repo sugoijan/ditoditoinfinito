@@ -117,6 +117,14 @@ enum Commands {
         #[arg(long)]
         dest: Option<PathBuf>,
     },
+    /// The same for the chart rating worker (`msd-worker.js` and
+    /// `msd-worker_bg.wasm`, `crates/web/src/ratings.rs`).
+    #[command(name = "stage-msd")]
+    StageMsd {
+        /// The site's folder (default: $TRUNK_STAGING_DIR).
+        #[arg(long)]
+        dest: Option<PathBuf>,
+    },
     /// Check the built index.html draws its loader from its own first
     /// bytes: within the first round trip compressed, with nothing the
     /// first paint waits for fetched (`xtask/src/boot_check.rs`). Trunk
@@ -135,7 +143,8 @@ enum Commands {
         dest: Option<PathBuf>,
     },
     /// Everything Trunk runs after a build, in order: the web favicon,
-    /// `stage-video`, `stage-opus`, `stage-svg`, then `check-boot` (Trunk
+    /// `stage-video`, `stage-opus`, `stage-svg`, `stage-msd`, then
+    /// `check-boot` (Trunk
     /// runs a stage's hooks at once, and three of these rewrite
     /// index.html: one hook keeps them apart).
     #[command(name = "post-build")]
@@ -629,6 +638,7 @@ fn main() -> Result<()> {
         Commands::StageVideo { dest } => stage_video(dest),
         Commands::StageOpus { dest } => stage_worker(dest, "opus-worker"),
         Commands::StageSvg { dest } => stage_worker(dest, "svg-worker"),
+        Commands::StageMsd { dest } => stage_worker(dest, "msd-worker"),
         Commands::MinifyBoot { release } => boot_minify::minify_boot(release.then_some(true)),
         Commands::CheckBoot { dest } => boot_check::check_boot(dest),
         Commands::PostBuild { dest } => post_build(dest),
@@ -642,6 +652,7 @@ fn post_build(dest: Option<PathBuf>) -> Result<()> {
     stage_video(Some(dest.clone()))?;
     stage_worker(Some(dest.clone()), "opus-worker")?;
     stage_worker(Some(dest.clone()), "svg-worker")?;
+    stage_worker(Some(dest.clone()), "msd-worker")?;
     boot_check::check_boot(Some(dest))
 }
 
@@ -656,8 +667,8 @@ fn staging_dir(dest: Option<PathBuf>, cmd: &str) -> Result<PathBuf> {
     }
 }
 
-/// `stage-opus`, `stage-svg`: a worker's `<name>.js` and `<name>_bg.wasm`
-/// (`opus-worker`, `svg-worker`) renamed to `<name>-<hash>.js` and
+/// `stage-opus`, `stage-svg`, `stage-msd`: a worker's `<name>.js` and
+/// `<name>_bg.wasm` (`opus-worker`, `svg-worker`, `msd-worker`) renamed to `<name>-<hash>.js` and
 /// `<name>-<hash>_bg.wasm` (FNV-1a of both), and `<meta name="ddi-<name>"
 /// content="<name>-<hash>">` in index.html, which the web shell reads
 /// (`crates/web/src/web/opus.rs`, `svg.rs`).

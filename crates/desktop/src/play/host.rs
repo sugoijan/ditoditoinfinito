@@ -21,7 +21,7 @@ use ddi_ui::screens::Env;
 use ddi_ui::screens::data::SongEntry;
 use ddi_ui::screens::prompt::{
     Badge, PromptChart, PromptChoice, PromptFn, PromptInfo, PromptScreen, PromptState, PromptStep,
-    SharedPrompt, chart_line,
+    SharedPrompt, chart_line_rated,
 };
 use ddi_ui::screens::prompt_options::{PlayOptions, PlayOverrides};
 use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen};
@@ -2431,9 +2431,10 @@ impl Host {
             ruleset: &rules,
             layout: &layout,
             song: song_entry,
-            chart: chart_line(
+            chart: chart_line_rated(
                 c.difficulty,
                 c.meter,
+                ddi_ui::state::ratings::shown_msd(&song, chart),
                 &ddi_ui::screens::data::style_name(&layout.id, &layout.name),
             ),
             song_id: r.request.song.clone(),

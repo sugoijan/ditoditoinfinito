@@ -256,6 +256,8 @@ pub struct Shell {
     /// A close request left a stage's play: asked about once its results
     /// are up ([`Shell::ask_after_play`]).
     close_after_play: bool,
+    /// Chart ratings made in the background (`crate::ratings`).
+    ratings: crate::ratings::Ratings,
     /// What the shell does last as it quits, before the process ends with
     /// the window still open (`Shell::exit`): the lines printed at exit.
     pub on_exit: Option<OnExit>,
@@ -430,6 +432,7 @@ impl Shell {
             quitting: false,
             quit_ready: false,
             close_after_play: false,
+            ratings: Default::default(),
             on_exit: None,
             theme,
             loaded: false,
@@ -1115,6 +1118,9 @@ impl Shell {
             // Stale plays worked out again (song select's bests follow
             // in the poll), never during a play.
             songs.rework(self.play.playing(), !self.play.idle());
+            // Chart ratings, never started during a play.
+            self.ratings
+                .poll(self.play.playing(), songs.wake.borrow().as_ref());
             songs.poll(&mut self.ui);
             // `--edit`: the editor once the library has the song.
             if let Some((env, _)) = &self.theme

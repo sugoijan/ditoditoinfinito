@@ -30,7 +30,7 @@ use super::options::CALIBRATE;
 use crate::state::bind::Bound;
 use crate::state::settings::{
     BUILT_IN_ANNOUNCER, BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, GeneratedBackground,
-    Graphics, INFINITO, OpponentFields, PadBindings, Palette, ParamValue, ReducedMotion, START_COUNTDOWNS,
+    ChartRatings, Graphics, INFINITO, OpponentFields, PadBindings, Palette, ParamValue, ReducedMotion, START_COUNTDOWNS,
     JudgmentWords, ScoreDisplay, Settings, VideoMode, slider_to_volume, volume_to_slider,
 };
 use ddi_l10n::UiText;
@@ -1355,6 +1355,20 @@ impl OptionsModel {
                     m::start_countdown_description(),
                 ),
                 choice(
+                    "chart_ratings",
+                    m::chart_ratings(),
+                    labels(&CHART_RATINGS),
+                    pos(&CHART_RATINGS, s.chart_ratings),
+                    m::chart_ratings_description(),
+                ),
+                choice(
+                    "skill_radar",
+                    m::skill_radar(),
+                    on_off(),
+                    s.skill_radar as usize,
+                    m::skill_radar_description(),
+                ),
+                choice(
                     "graphics",
                     m::graphics(),
                     labels(&GRAPHICS),
@@ -2193,6 +2207,14 @@ impl OptionsModel {
             "dancing_hand" => s.dancing_hand = on,
             "dancing_hand_multiplayer" => s.dancing_hand_multiplayer = on,
             "opponent_fields" => s.opponent_fields = at(&OPPONENT_FIELDS, i),
+            "chart_ratings" => {
+                s.chart_ratings = at(&CHART_RATINGS, i);
+                s.show_ratings();
+            }
+            "skill_radar" => {
+                s.skill_radar = on;
+                s.show_ratings();
+            }
             "receptor_snap" => s.receptor_snap = on,
             "lyrics" => s.lyrics = on,
             "random_movies" => s.random_movies = on,
@@ -3226,6 +3248,11 @@ const CURSORS: [Labeled<CursorStyle>; 3] = [
     (CursorStyle::InfinitoArrow, m::cursor_infinito),
     (CursorStyle::System, m::cursor_system),
 ];
+const CHART_RATINGS: [Labeled<ChartRatings>; 2] = [
+    (ChartRatings::FromSong, m::chart_ratings_from_song),
+    (ChartRatings::Msd, m::chart_ratings_msd),
+];
+
 const OPPONENT_FIELDS: [Labeled<OpponentFields>; 2] = [
     (OpponentFields::AsManyAsFit, m::opponent_fields_all),
     (OpponentFields::UpToEight, m::opponent_fields_eight),

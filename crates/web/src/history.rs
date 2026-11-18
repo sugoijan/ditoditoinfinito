@@ -328,6 +328,8 @@ pub(crate) fn rejudge(rules: &ddi_ui::state::settings::RuleChoice) {
 
 /// A song's play is on (re-working waits) or over (it goes on).
 pub(crate) fn set_playing(on: bool) {
+    // Chart ratings wait too (`crate::ratings`).
+    ddi_ui::state::ratings::set_playing(on);
     if let Some(ms) = REWORKER.with(|r| r.borrow_mut().set_playing(on)) {
         schedule(ms);
     }
