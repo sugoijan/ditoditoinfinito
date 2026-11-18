@@ -572,6 +572,14 @@ pub fn invite_in(text: &str) -> Option<String> {
     valid_invite(token).then(|| token.to_string())
 }
 
+/// Whether `text` is a room's page address (`…#/mp/room/<id>`), which
+/// admits nobody (feedback round AA: shared in an invite link's place).
+pub fn room_address(text: &str) -> bool {
+    text.trim()
+        .split_once("/mp/room/")
+        .is_some_and(|(_, id)| !id.is_empty())
+}
+
 /// The room id of an invite.
 pub fn room_of(invite: &str) -> Option<&str> {
     invite.split_once('.').map(|(room, _)| room)
@@ -646,6 +654,10 @@ mod tests {
         assert_eq!(invite_in(&format!("{link}?mp=1")).as_deref(), Some(INVITE));
         assert_eq!(invite_in(&format!("  {link}\n")).as_deref(), Some(INVITE));
         assert_eq!(invite_in("Room000001.short"), None);
+        // A room's page address is no invite, and is told as what it is.
+        let page = "https://example.com/ddi/#/mp/room/Room000001";
+        assert_eq!(invite_in(page), None);
+        assert!(room_address(page) && !room_address(&link) && !room_address(INVITE));
         assert_eq!(invite_in("https://example.com/#/mp/join/x.y"), None);
         assert_eq!(room_of(INVITE), Some("Room000001"));
         let aud = audience_link("https://sugoijan.dev/ditoditoinfinito/", INVITE);

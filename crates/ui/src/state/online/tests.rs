@@ -520,6 +520,9 @@ pub(crate) mod room {
                 (Method::Post, "/rooms/Room000001/join") if s.borrow().admit_join(model).is_err() => {
                     err(409, ddi_room::UPDATE_REQUIRED)
                 }
+                (Method::Get, "/me") if s.borrow().signed_out(&identity) => {
+                    err(401, "signed_out")
+                }
                 (Method::Get, "/me") => ok(&me_of(who)),
                 (Method::Get, "/rooms/Room000001") => ok(
                     r#"{"room_id":"Room000001","name":"After Hours","revision":1,"phase":"lobby","admission":"open","participant":1}"#,
@@ -530,6 +533,7 @@ pub(crate) mod room {
                     match s.borrow_mut().ticket_bounded(&identity) {
                         Ok(body) => ok(&body),
                         Err((429, code)) => err(429, code),
+                        Err((401, code)) => err(401, code),
                         Err(_) => err(403, "not_a_member"),
                     }
                 }
@@ -1362,6 +1366,11 @@ pub(crate) mod room {
         let online = person(&server, "alice");
         let mut alice = client(&server, online.clone(), "alice", 1_000);
         tick(&clock, &mut [&mut alice], 400);
+        // The session gone (feedback round AA: a 4401 alone asks for a
+        // ticket first, and only a refused one ends the link).
+        server
+            .borrow_mut()
+            .sign_out(&ddi_room::Identity::new("dev:alice"));
         server.borrow_mut().fault(
             ddi_room::ParticipantId(1),
             Fault::Close(ddi_room::online::close::SIGN_IN_AGAIN),
@@ -1380,6 +1389,9 @@ pub(crate) mod room {
             ))
         );
         // Back, signed in: the same row, connected again.
+        server
+            .borrow_mut()
+            .sign_in(&ddi_room::Identity::new("dev:alice"));
         online
             .borrow_mut()
             .returned(Dest::Room("Room000001".into()));
@@ -1394,6 +1406,119 @@ pub(crate) mod room {
         assert_eq!(alice.link_state(), LinkState::Reconnecting { attempt: 1 });
         tick(&clock, &mut [&mut alice], 800);
         assert_eq!(alice.link_state(), LinkState::Connected);
+    }
+
+    /// Feedback round AA: a first-time player opens a room's page address
+    /// (shared in place of its invite link) signed out. They are asked to
+    /// sign in to enter it, never told their sign-in "ended"; signed in,
+    /// they are told they are not in the room, never that they "left";
+    /// either way the room's More offers the multiplayer home.
+    #[test]
+    fn a_rooms_address_opened_by_someone_never_in_it_says_so() {
+        use crate::screens::room::{more_items, status};
+        let status_text = |r: &crate::state::room::RoomClient| String::from(status(r));
+        let clock = ManualClock::new(1_000);
+        let server = FakeServer::hosted(
+            "Room000001",
+            Identity::new("dev:alice"),
+            "alice",
+            RoomPolicy::default(),
+            clock.clone(),
+        )
+        .shared();
+        server
+            .borrow_mut()
+            .sign_out(&ddi_room::Identity::new("dev:eve"));
+        let online = person(&server, "eve");
+        let mut eve = client(&server, online.clone(), "eve", 1_000);
+        tick(&clock, &mut [&mut eve], 400);
+        assert_eq!(eve.link_state(), LinkState::SignInToEnter);
+        assert_eq!(status_text(&eve), "Sign in to enter this room.");
+        // Its notice, once, from the second ask (the screen says the
+        // line first).
+        assert!(!eve.take_opened_elsewhere());
+        assert!(eve.take_opened_elsewhere());
+        assert!(!eve.take_opened_elsewhere());
+        let items = more_items(&eve, false);
+        let labels: Vec<&str> = items.iter().map(|(_, l)| l.as_str()).collect();
+        assert!(labels.contains(&"Sign in with Twitch"), "{labels:?}");
+        assert!(labels.contains(&"Multiplayer home"), "{labels:?}");
+        assert!(!labels.contains(&"Sign in again"), "{labels:?}");
+        // Sign in: back to the room's address, then not a member.
+        eve.sign_in_again();
+        assert_eq!(
+            online.borrow_mut().take_redirect(),
+            Some(Redirect::Page(
+                "/auth/twitch/login?return=%2Fmp%2Froom%2FRoom000001".into()
+            ))
+        );
+        server
+            .borrow_mut()
+            .sign_in(&ddi_room::Identity::new("dev:eve"));
+        online
+            .borrow_mut()
+            .returned(Dest::Room("Room000001".into()));
+        tick(&clock, &mut [&mut eve], 400);
+        tick(&clock, &mut [&mut eve], 400);
+        assert_eq!(eve.link_state(), LinkState::NotAMember);
+        assert_eq!(
+            status_text(&eve),
+            "You're not in this room. Ask its host for the invite link."
+        );
+        assert!(!eve.take_opened_elsewhere());
+        assert!(eve.take_opened_elsewhere(), "its own notice");
+        let items = more_items(&eve, false);
+        assert!(items.iter().any(|(id, l)| id == "leave" && l == "Multiplayer home"));
+        assert_eq!(server.borrow().state().members.len(), 1, "nobody let in");
+        // Then the invite link, joined: the shell's kept client of that
+        // room, which never reached it, is made anew, and the room is in.
+        let kept = crate::state::online::Kept::new();
+        let eve = Rc::new(RefCell::new(eve));
+        kept.room_or("Room000001", || eve.clone());
+        server
+            .borrow_mut()
+            .join(ddi_room::Identity::new("dev:eve"), "eve", Intent::Play)
+            .unwrap();
+        let again = kept.room_or("Room000001", || {
+            Rc::new(RefCell::new(client(&server, online.clone(), "eve", 3_000)))
+        });
+        assert!(!Rc::ptr_eq(&again, &eve), "a fresh link");
+        tick(&clock, &mut [&mut again.borrow_mut()], 400);
+        assert_eq!(again.borrow().link_state(), LinkState::Connected);
+    }
+
+    /// Feedback round AA: the room closed the socket 4401 at the expiry
+    /// its ticket carried while the person's session was good (re-signed
+    /// since): a ticket asked again at once is granted and the room comes
+    /// back, never "Your sign-in ended" nor a sign-in page.
+    #[test]
+    fn a_4401_with_the_session_still_good_reconnects() {
+        let clock = ManualClock::new(1_000);
+        let server = FakeServer::hosted(
+            "Room000001",
+            Identity::new("dev:alice"),
+            "alice",
+            RoomPolicy::default(),
+            clock.clone(),
+        )
+        .shared();
+        let online = person(&server, "alice");
+        let mut alice = client(&server, online.clone(), "alice", 1_000);
+        tick(&clock, &mut [&mut alice], 400);
+        assert_eq!(alice.link_state(), LinkState::Connected);
+        server.borrow_mut().fault(
+            ddi_room::ParticipantId(1),
+            Fault::Close(ddi_room::online::close::SIGN_IN_AGAIN),
+        );
+        let mut seen = Vec::new();
+        for _ in 0..8 {
+            tick(&clock, &mut [&mut alice], 100);
+            seen.push(alice.link_state());
+        }
+        assert!(!seen.contains(&LinkState::SignInAgain), "{seen:?}");
+        assert_eq!(alice.link_state(), LinkState::Connected);
+        assert_eq!(online.borrow_mut().take_redirect(), None);
+        assert_eq!(server.borrow().state().members.len(), 1);
     }
 
     /// The review's gap 4 (round M), changed by round P1b (the

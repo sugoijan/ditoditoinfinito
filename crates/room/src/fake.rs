@@ -199,6 +199,9 @@ pub struct FakeServer {
     /// The identities whose sessions are administrators' now
     /// ([`FakeServer::set_admin`]).
     admins: std::collections::BTreeSet<Identity>,
+    /// The identities whose sessions ended ([`FakeServer::sign_out`]):
+    /// their tickets refused 401 as the server refuses them.
+    signed_out: std::collections::BTreeSet<Identity>,
 }
 
 /// The server's bounds on one member (`../ddi-server`'s `room.rs`,
@@ -321,6 +324,7 @@ impl FakeServer {
             bounds: None,
             tickets_issued: BTreeMap::new(),
             admins: Default::default(),
+            signed_out: Default::default(),
             audience,
             room_name,
         }
@@ -539,6 +543,9 @@ impl FakeServer {
     /// too_many_tickets` for one more than it allows in a minute; the
     /// refused asks are not counted, as the server's are not).
     pub fn ticket_bounded(&mut self, identity: &Identity) -> Result<String, (u16, &'static str)> {
+        if self.signed_out(identity) {
+            return Err((401, "session_expired"));
+        }
         let refusal = |r: Rejection| match r {
             Rejection::RoomClosed => (410, "room_closed"),
             _ => (403, "not_a_member"),
@@ -564,6 +571,25 @@ impl FakeServer {
             issued.push_back(now);
         }
         self.ticket_answer(identity).map_err(refusal)
+    }
+
+    /// `identity`'s session ended (expired, signed out in another tab,
+    /// cookies cleared): the server's ticket route answers `401
+    /// session_expired` ([`FakeServer::ticket_bounded`], the HTTP's
+    /// `answer_http`) until [`FakeServer::sign_in`]. The room itself
+    /// never knows (its sockets close 4401 only by a fault here).
+    pub fn sign_out(&mut self, identity: &Identity) {
+        self.signed_out.insert(identity.clone());
+    }
+
+    /// `identity` signed in again.
+    pub fn sign_in(&mut self, identity: &Identity) {
+        self.signed_out.remove(identity);
+    }
+
+    /// Whether `identity`'s session ended ([`FakeServer::sign_out`]).
+    pub fn signed_out(&self, identity: &Identity) -> bool {
+        self.signed_out.contains(identity)
     }
 
     pub fn ticket(&mut self, identity: &Identity) -> Result<String, Rejection> {

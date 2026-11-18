@@ -601,6 +601,14 @@ pub fn status_line(r: &RoomClient) -> UiText {
     }
 }
 
+/// Nobody but this player (and CPUs) is in the room.
+fn alone(r: &RoomClient) -> bool {
+    let s = r.state();
+    !s.members
+        .values()
+        .any(|m| m.id != r.me() && !m.left && !m.is_cpu())
+}
+
 /// The number of the stage the room's status line is about (being
 /// chosen, gathered or counted down), from 1.
 fn line_stage(r: &RoomClient) -> Option<usize> {
@@ -618,6 +626,10 @@ fn phase_status(r: &RoomClient) -> UiText {
             LinkState::Joining => return m::link_joining(),
             LinkState::Reconnecting { .. } => return m::link_reconnecting(),
             LinkState::SignInAgain => return m::link_sign_in_again(),
+            // Never signed in here, or never a member (feedback round
+            // AA): said as it is, never "Your sign-in ended".
+            LinkState::SignInToEnter => return m::link_sign_in_to_enter(),
+            LinkState::NotAMember => return m::link_not_a_member(),
             // Closed by the server's operator: said as it is.
             LinkState::Closed
                 if r.state().closed == Some(ddi_room::Closure::ByAdministrator) =>
@@ -665,6 +677,9 @@ fn phase_status(r: &RoomClient) -> UiText {
     let picker = follows(r);
     match &s.phase {
         Phase::Lobby => match picker {
+            // An online room's host alone (feedback round AA): the way
+            // to bring people in, which the page's address is not.
+            _ if host && r.is_online() && alone(r) => m::status_alone_invite(),
             _ if host => m::status_pick_first(),
             Follows::Named(name) => m::status_picker_first(name),
             Follows::Nobody(text) => text,
@@ -1449,6 +1464,25 @@ fn mark_short(mark: &StageMark) -> String {
 /// online room's invite, sign-in and sharing, and leaving.
 pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
     let mut items = Vec::new();
+    // An online room's links first, the invite link at the top
+    // (feedback round AA: a host shared the page's own address, which
+    // lets nobody in).
+    if r.is_online() {
+        if r.invite_link().is_some() {
+            items.push(("copy".to_string(), m::copy_invite().into()));
+        }
+        // The watch-only link is kept but hidden (the maintainer,
+        // 2026-11-13): its Copy only under the hidden option
+        // (`Settings::multiplayer_watch_link`).
+        if r.watch_invite_link().is_some()
+            && crate::state::settings::Settings::cached().multiplayer_watch_link
+        {
+            items.push((MORE_COPY_WATCH.to_string(), m::copy_watch_invite().into()));
+        }
+        if r.audience_invite_link().is_some() {
+            items.push((MORE_COPY_AUDIENCE.to_string(), m::copy_audience_invite().into()));
+        }
+    }
     // Rules: a phone's here, a wide screen's a footer link. Players
     // everywhere (a wide screen's button went: the panel beside the song,
     // L, and here).
@@ -1473,25 +1507,14 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
         if r.link_state() == LinkState::SignInAgain {
             items.push(("signin".to_string(), m::sign_in_again().into()));
         }
+        if r.link_state() == LinkState::SignInToEnter {
+            items.push(("signin".to_string(), m::sign_in().into()));
+        }
         if r.link_state() == LinkState::UpdateRequired && r.on_web() {
             items.push((MORE_RELOAD.to_string(), m::update_reload_button().into()));
         }
         if r.link_state() == LinkState::OpenedElsewhere {
             items.push((MORE_USE_HERE.to_string(), m::use_this_device().into()));
-        }
-        if r.invite_link().is_some() {
-            items.push(("copy".to_string(), m::copy_invite().into()));
-        }
-        // The watch-only link is kept but hidden (the maintainer,
-        // 2026-11-13): its Copy only under the hidden option
-        // (`Settings::multiplayer_watch_link`).
-        if r.watch_invite_link().is_some()
-            && crate::state::settings::Settings::cached().multiplayer_watch_link
-        {
-            items.push((MORE_COPY_WATCH.to_string(), m::copy_watch_invite().into()));
-        }
-        if r.audience_invite_link().is_some() {
-            items.push((MORE_COPY_AUDIENCE.to_string(), m::copy_audience_invite().into()));
         }
         if r.may_replace_invite() {
             items.push((MORE_REPLACE_INVITE.to_string(), m::replace_invite().into()));
@@ -1506,7 +1529,17 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
             items.push((RETRY_LOAD.to_string(), m::retry_download().into()));
         }
     }
-    items.push(("leave".to_string(), m::leave().into()));
+    // Never in the room (feedback round AA): its way out is the home.
+    let never_in = matches!(
+        r.link_state(),
+        LinkState::SignInToEnter | LinkState::NotAMember
+    );
+    let leave = if never_in {
+        m::multiplayer_home()
+    } else {
+        m::leave()
+    };
+    items.push(("leave".to_string(), leave.into()));
     items
 }
 
@@ -1550,7 +1583,58 @@ pub const MORE_USE_HERE: &str = "usehere";
 /// same way). The layer's name, for tests.
 pub const OPENED_ELSEWHERE: &str = "room-opened-elsewhere";
 
+/// The notice on a room's page opened by someone never in the room
+/// (feedback round AA): not signed in ([`LinkState::SignInToEnter`]), or
+/// signed in and no member ([`LinkState::NotAMember`]).
+pub const NEVER_IN: &str = "room-never-in";
+
+/// The notice a link's end asks the person to act on, once each time
+/// (`RoomClient::take_opened_elsewhere`): the room opened on another
+/// device (round P1b), or a room's page opened by someone never in it
+/// (feedback round AA): sign in, or go to the multiplayer home.
 pub fn tell_opened_elsewhere(env: &Env, room: &SharedRoom, cx: &mut Cx) {
+    let state = room.borrow().link_state();
+    let home: super::dialog::ConfirmFn = Rc::new(|cx| {
+        cx.broadcast(
+            crate::Message::new(LEAVE_CONFIRMED)
+                .with("Action", crate::message::Param::Str(LeaveBy::More.id().into())),
+        )
+    });
+    match state {
+        LinkState::SignInToEnter => {
+            let room = room.clone();
+            cx.overlay(
+                super::dialog::ConfirmDialog::new(
+                    env.clone(),
+                    &m::link_sign_in_to_enter(),
+                    &m::sign_in_to_enter_body(),
+                    &m::sign_in(),
+                    Rc::new(move |_| room.borrow_mut().sign_in_again()),
+                )
+                .with_answer(&m::multiplayer_home(), home)
+                .with_no(&m::opened_elsewhere_not_now())
+                .named(NEVER_IN),
+                true,
+            );
+            return;
+        }
+        LinkState::NotAMember => {
+            cx.overlay(
+                super::dialog::ConfirmDialog::new(
+                    env.clone(),
+                    &m::link_not_a_member(),
+                    &m::not_a_member_body(),
+                    &m::multiplayer_home(),
+                    home,
+                )
+                .with_no(&common::close())
+                .named(NEVER_IN),
+                true,
+            );
+            return;
+        }
+        _ => {}
+    }
     let room = room.clone();
     cx.overlay(
         super::dialog::ConfirmDialog::new(

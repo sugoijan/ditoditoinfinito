@@ -63,6 +63,11 @@ impl Client {
     fn pump(&mut self) {
         if self.link.wants_ticket() {
             self.link.ticket_asked();
+            if self.server.borrow().signed_out(&self.who) {
+                // As the server's ticket route answers a session gone.
+                self.link.ticket(Err(TicketProblem::SignedOut));
+                return;
+            }
             let t = self.server.borrow_mut().ticket(&self.who);
             self.link.ticket(t.map_err(|r| match r {
                 Rejection::RoomClosed => TicketProblem::RoomClosed,
@@ -908,13 +913,16 @@ fn a_gap_asks_for_the_room_once_and_mends() {
 fn sign_in_again_room_closed_and_left_end_the_link() {
     let clock = ManualClock::new(1_000);
     let (server, mut alice, mut bob) = two(&clock);
-    // 4401: no retry, no ticket, until the person signs in again.
+    // 4401 with the session gone: one ticket asked, refused 401; then no
+    // retry, no ticket, until the person signs in again.
+    server.borrow_mut().sign_out(&Identity::new("dev:bob"));
     server.borrow_mut().fault(
         ParticipantId(2),
         Fault::Close(ddi_room::online::close::SIGN_IN_AGAIN),
     );
     pump_all(&mut [&mut alice, &mut bob]);
     assert_eq!(bob.link.link(), LinkState::SignInAgain);
+    server.borrow_mut().sign_in(&Identity::new("dev:bob"));
     assert_eq!(bob.link.connection(), Connection::Disconnected);
     clock.advance(60_000);
     assert!(!bob.link.wants_ticket());
@@ -936,6 +944,9 @@ fn sign_in_again_room_closed_and_left_end_the_link() {
     bob.link.ticket_asked();
     bob.link.ticket(Err(TicketProblem::SignedOut));
     assert_eq!(bob.link.link(), LinkState::SignInAgain);
+    bob.link.restart();
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(bob.link.link(), LinkState::Connected);
 
     // 4410: the room closed.
     server.borrow_mut().fault(
@@ -946,6 +957,77 @@ fn sign_in_again_room_closed_and_left_end_the_link() {
     assert_eq!(alice.link.link(), LinkState::Closed);
     clock.advance(60_000);
     assert!(!alice.link.wants_ticket());
+}
+
+/// Feedback round AA: the room closes a socket 4401 at the expiry its
+/// ticket carried, which may be older than the session the person holds
+/// (re-signed since). A 4401 asks for a ticket once: granted, the link
+/// reconnects as after any lost socket (Reconnecting, never "sign in
+/// again"), the same member, what waited sent; a second 4401 within a
+/// minute of that check ends the link, and one later than that checks
+/// again.
+#[test]
+fn a_socket_closed_for_its_session_asks_for_a_ticket_before_it_ends() {
+    let clock = ManualClock::new(1_000);
+    let (server, mut alice, mut bob) = two(&clock);
+    let bob_id = ParticipantId(2);
+    server
+        .borrow_mut()
+        .fault(bob_id, Fault::Close(ddi_room::online::close::SIGN_IN_AGAIN));
+    bob.pump();
+    assert_eq!(bob.link.link(), LinkState::Reconnecting { attempt: 1 });
+    assert!(bob.link.wants_ticket(), "a ticket at once, no backoff");
+    let queued = bob.send(Command::SetIntent {
+        intent: Intent::Watch,
+    });
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(bob.link.link(), LinkState::Connected);
+    assert_eq!(bob.answer(queued), Some(&None));
+    assert_eq!(server.borrow().state().members.len(), 2, "no second row");
+    // Again within the minute: the session is taken as gone.
+    clock.advance(30_000);
+    server
+        .borrow_mut()
+        .fault(bob_id, Fault::Close(ddi_room::online::close::SIGN_IN_AGAIN));
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(bob.link.link(), LinkState::SignInAgain);
+    assert!(!bob.link.wants_ticket());
+    // Signed in again; a 4401 more than a minute after the last check
+    // asks again.
+    bob.link.restart();
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(bob.link.link(), LinkState::Connected);
+    clock.advance(31_000);
+    server
+        .borrow_mut()
+        .fault(bob_id, Fault::Close(ddi_room::online::close::SIGN_IN_AGAIN));
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(bob.link.link(), LinkState::Connected);
+}
+
+/// Feedback round AA: a link refused its first ticket never had the room:
+/// signed out, it says so ([`LinkState::SignInToEnter`], never "sign in
+/// again"); signed in and no member, [`LinkState::NotAMember`] (never
+/// "left"). Both end the link; signing in starts it over.
+#[test]
+fn a_link_refused_before_it_reached_the_room_says_it_never_did() {
+    let clock = ManualClock::new(1_000);
+    let server = hosted(&clock).shared();
+    let mut eve = Client::new(&server, &clock, "dev:eve");
+    server.borrow_mut().sign_out(&Identity::new("dev:eve"));
+    pump_all(&mut [&mut eve]);
+    assert_eq!(eve.link.link(), LinkState::SignInToEnter);
+    assert!(eve.link.link().ended());
+    assert_eq!(eve.link.connection(), Connection::Disconnected);
+    clock.advance(60_000);
+    assert!(!eve.link.wants_ticket());
+    // Signed in: still no member.
+    server.borrow_mut().sign_in(&Identity::new("dev:eve"));
+    eve.link.restart();
+    pump_all(&mut [&mut eve]);
+    assert_eq!(eve.link.link(), LinkState::NotAMember);
+    assert!(eve.link.link().ended());
+    assert_eq!(server.borrow().state().members.len(), 1);
 }
 
 #[test]

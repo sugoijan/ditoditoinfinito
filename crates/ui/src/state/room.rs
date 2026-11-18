@@ -1321,9 +1321,13 @@ pub struct RoomClient {
     /// this member watches ([`WATCH_MUSIC_V0`]'s rule; fixed as its order
     /// is handed over).
     watch_music: crate::state::audience::MusicDelays,
-    /// The notice that the room was opened on another device was shown
+    /// The link's end whose notice was shown last
     /// (`take_opened_elsewhere`): once each time it happens.
-    elsewhere_told: std::cell::Cell<bool>,
+    elsewhere_told: std::cell::Cell<Option<LinkState>>,
+    /// The never-in end (`LinkState::SignInToEnter`, `NotAMember`) last
+    /// asked about, its notice told from the next ask
+    /// (`take_opened_elsewhere`).
+    never_in_seen: std::cell::Cell<Option<LinkState>>,
     /// Round P1b: each stage's song's downloads tried again so far (by
     /// stage and readiness), the jobs waiting to be tried again (when),
     /// and the job whose retries were spent, kept for Retry.
@@ -1923,7 +1927,8 @@ impl RoomClient {
             details: BTreeMap::new(),
             summaries: BTreeMap::new(),
             asking: Rc::default(),
-            elsewhere_told: std::cell::Cell::new(false),
+            elsewhere_told: std::cell::Cell::new(None),
+            never_in_seen: std::cell::Cell::new(None),
             load_tries: BTreeMap::new(),
             retrying: Vec::new(),
             failed_jobs: BTreeMap::new(),
@@ -2415,16 +2420,38 @@ impl RoomClient {
     /// (`LinkState::OpenedElsewhere`); it joins again.
     pub fn use_this_device(&mut self) {
         if self.online_link_mut().is_some_and(|l| l.use_this_device()) {
-            self.elsewhere_told.set(false);
+            self.elsewhere_told.set(None);
             self.version += 1;
         }
     }
 
-    /// Whether the notice that the room was opened on another device is
-    /// still to be shown (once each time it happens): taken by the screen
-    /// that shows it.
+    /// Whether a notice of the link's end that the person acts on is
+    /// still to be shown (once each time it happens): the room opened on
+    /// another device (round P1b), or a room's page opened by someone
+    /// not signed in or no member of it (feedback round AA,
+    /// [`LinkState::SignInToEnter`], [`LinkState::NotAMember`]). Taken
+    /// by the screen that shows it (`screens::room::tell_opened_elsewhere`
+    /// says which).
     pub fn take_opened_elsewhere(&self) -> bool {
-        self.link_state() == LinkState::OpenedElsewhere && !self.elsewhere_told.replace(true)
+        let state = self.link_state();
+        let never_in = matches!(state, LinkState::SignInToEnter | LinkState::NotAMember);
+        if state != LinkState::OpenedElsewhere && !never_in {
+            if !state.ended() {
+                // The link went on (signed in, joining again): its next
+                // end is told anew.
+                self.elsewhere_told.set(None);
+                self.never_in_seen.set(None);
+            }
+            return false;
+        }
+        // A link that never reached the room is told from the next ask
+        // on: the screen that asks says the line first (the room's song
+        // select's joining line is set in the frame it ended, after this
+        // ask).
+        if never_in && self.never_in_seen.replace(Some(state)) != Some(state) {
+            return false;
+        }
+        self.elsewhere_told.replace(Some(state)) != Some(state)
     }
 
     pub fn asking_leave(&self) -> Rc<std::cell::Cell<bool>> {

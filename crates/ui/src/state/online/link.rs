@@ -232,8 +232,9 @@ impl OnlineLink {
         std::mem::take(&mut self.grants)
     }
 
-    /// Sign in again after the room's socket said the session ended: the
-    /// page returns to this room.
+    /// Sign in after the room's socket said the session ended, or at a
+    /// room's address opened signed out ([`LinkState::SignInToEnter`]):
+    /// the page returns to this room.
     pub fn sign_in_again(&mut self) {
         self.online
             .borrow_mut()
@@ -271,7 +272,10 @@ impl OnlineLink {
         let epoch = self.online.borrow().epoch();
         if epoch != self.epoch {
             self.epoch = epoch;
-            if self.authority.link() == LinkState::SignInAgain {
+            if matches!(
+                self.authority.link(),
+                LinkState::SignInAgain | LinkState::SignInToEnter
+            ) {
                 self.authority.restart();
                 changed = true;
             }

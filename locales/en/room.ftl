@@ -973,6 +973,10 @@ room-invite-go = Open invite
 # Under the invite field when what was pasted is not an invite.
 room-invite-not-one = That isn't an invite link.
 
+# Under the invite field when what was pasted is a room's page address
+# (…#/mp/room/…) rather than its invite link (feedback round AA).
+room-invite-room-address = That's a room's page address, not its invite link. Ask the room's host for the invite link.
+
 # Desktop, while signing in: the browser is open on Twitch's page.
 room-sign-in-waiting = Finish signing in with Twitch in your browser, then come back here.
 
@@ -1136,6 +1140,28 @@ room-server-updating = The server is being updated. Try again in a moment.
 # The status line after leaving.
 room-link-left = You left this room.
 
+# Feedback round AA: the status line, and the notice's title, on a room's
+# page opened by someone not signed in here (the room's page address
+# shared in place of its invite link, or a reload after the sign-in
+# ended): never "Your sign-in ended", which is for a session that did
+# exist. Signing in returns to the room where they are its member.
+room-link-sign-in-to-enter = Sign in to enter this room.
+
+# The notice's text under that title.
+room-sign-in-to-enter-body = Rooms are entered with their invite link. If you're already in this room, sign in with Twitch to return to it; if not, ask its host for the invite link.
+
+# The status line, and the notice's title, on a room's page opened by
+# someone signed in who never joined it (no invite link): the page's
+# address lets nobody in.
+room-link-not-a-member = You're not in this room. Ask its host for the invite link.
+
+# The notice's text under that title.
+room-not-a-member-body = A room's page address doesn't let anyone in; its invite link does. Ask the host to send it to you (the room's More, Copy invite link).
+
+# A button (those notices', and More's item in Leave room's place there)
+# that goes to the multiplayer home (about 16 letters).
+room-multiplayer-home = Multiplayer home
+
 # Under a person's name in the players' column (about 16 letters each).
 room-role-host = Host
 room-role-co-host = Co-host
@@ -1229,6 +1255,11 @@ room-joined-to-watch = The room is full: you're watching. Choose Play when a pla
 # The status line over the list (the host's) or at the top of the room's
 # panel (the others'): one line.
 room-status-pick-first = Pick a song to start the match.
+
+# The status line of an online room's host while nobody else is in the
+# room and no song is picked yet: the way to bring people in (feedback
+# round AA: a host shared the page's own address, which lets nobody in).
+room-status-alone-invite = Pick a song to start the match. To bring people in, share the invite link from More, not this page's address.
 
 # Variables:
 #   $number (Number) - the stage, from 1

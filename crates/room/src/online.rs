@@ -146,13 +146,27 @@ pub enum LinkState {
     Reconnecting {
         attempt: u32,
     },
-    /// The session ended (4401, or a ticket refused as signed out): only
-    /// signing in again mends it, never a retry.
+    /// The session ended: a ticket refused as signed out (401), or a
+    /// second 4401 within [`SIGN_IN_RECHECK_MS`] of the reconnect the
+    /// first one led to (a 4401 alone only asks for a ticket again:
+    /// feedback round AA). Only signing in again mends it, never a retry.
     SignInAgain,
     /// The room closed (4410, or the room gone when asking a ticket).
     Closed,
     /// Left the room (4000), or no member any more.
     Left,
+    /// Refused a ticket as signed out (401) before this link ever reached
+    /// the room: the person was never signed in here (a room's page
+    /// address opened by someone without a session; feedback round AA:
+    /// a first-time player shown the room's address instead of its
+    /// invite link was told their sign-in "ended"). Signing in mends it
+    /// as [`LinkState::SignInAgain`] does ([`OnlineAuthority::restart`]).
+    SignInToEnter,
+    /// Refused a ticket as no member (403) before this link ever reached
+    /// the room: signed in, but never joined it (only its invite link
+    /// admits). Where the link had reached the room, it is
+    /// [`LinkState::Left`].
+    NotAMember,
     /// The room was opened on another device of the same person (4429:
     /// the server keeps four sockets a person and closed this one, the
     /// oldest, for a newer one): this device stops until its person asks
@@ -179,6 +193,8 @@ impl LinkState {
         matches!(
             self,
             Self::SignInAgain
+                | Self::SignInToEnter
+                | Self::NotAMember
                 | Self::Closed
                 | Self::Left
                 | Self::UpdateRequired
@@ -346,6 +362,14 @@ impl KeepAlive {
 /// How long a resync's answer may take before a later gap asks again.
 const RESYNC_AGAIN_MS: u64 = 2_000;
 
+/// A socket closed 4401 asks for a ticket once before the link ends:
+/// the room closes a socket at the expiry its ticket carried, which may
+/// be older than the session the person holds now (a cookie re-signed
+/// since, a sign-in in another tab), and a ticket granted proves the
+/// session good, so the link reconnects as after any lost socket. A
+/// second 4401 within this long of that check ends it (no loop).
+pub const SIGN_IN_RECHECK_MS: u64 = 60_000;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Ticket {
     /// Wanted from this time on (the reconnect's wait).
@@ -381,6 +405,15 @@ pub struct OnlineAuthority<T: Transport, C: Clock> {
     keep: KeepAlive,
     /// The sockets' fates for the usage report (`crate::client_stats`).
     stats: Tracker,
+    /// When a 4401 last led to a ticket asked again
+    /// ([`SIGN_IN_RECHECK_MS`]).
+    sign_in_checked: Option<u64>,
+    /// A socket of this link has had the room (its first snapshot): a
+    /// ticket refused later ends it as a session or a membership that
+    /// ended ([`LinkState::SignInAgain`], [`LinkState::Left`]), before
+    /// as one that never was ([`LinkState::SignInToEnter`],
+    /// [`LinkState::NotAMember`]).
+    reached: bool,
 }
 
 impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
@@ -404,6 +437,8 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
             keepalive: KEEPALIVE_V0,
             keep: KeepAlive::default(),
             stats: Tracker::default(),
+            sign_in_checked: None,
+            reached: false,
         }
     }
 
@@ -577,8 +612,10 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
                 self.stats.opening(self.clock.now().0, self.keep.counts().0);
                 self.transport.open(&self.room, &ticket);
             }
-            Err(TicketProblem::SignedOut) => self.end(LinkState::SignInAgain),
-            Err(TicketProblem::NotAMember) => self.end(LinkState::Left),
+            Err(TicketProblem::SignedOut) if self.reached => self.end(LinkState::SignInAgain),
+            Err(TicketProblem::SignedOut) => self.end(LinkState::SignInToEnter),
+            Err(TicketProblem::NotAMember) if self.reached => self.end(LinkState::Left),
+            Err(TicketProblem::NotAMember) => self.end(LinkState::NotAMember),
             Err(TicketProblem::RoomClosed) => self.end(LinkState::Closed),
             Err(TicketProblem::UpdateRequired) => self.end(LinkState::UpdateRequired),
             Err(TicketProblem::ServerBehind) => {
@@ -622,6 +659,8 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
         self.synced = false;
         self.live.closed();
         self.resyncing = None;
+        // A sign-in since: a 4401 asks for a ticket again.
+        self.sign_in_checked = None;
         self.ticket = Ticket::Wanted {
             at: self.clock.now().0,
         };
@@ -638,6 +677,24 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
         self.synced = false;
         self.live.closed();
         self.ticket = Ticket::Used;
+    }
+
+    /// The socket closed 4401: the session it opened with expired. A
+    /// ticket asked again at once tells whether the person's session is
+    /// still good (a reconnect, the link Reconnecting meanwhile) or not
+    /// (refused 401: [`LinkState::SignInAgain`]); a second 4401 within
+    /// [`SIGN_IN_RECHECK_MS`] of that check ends the link as before.
+    fn sign_in_closed(&mut self, now: u64) {
+        if self
+            .sign_in_checked
+            .is_some_and(|at| now.saturating_sub(at) < SIGN_IN_RECHECK_MS)
+        {
+            self.end(LinkState::SignInAgain);
+            return;
+        }
+        self.sign_in_checked = Some(now);
+        self.retry_later();
+        self.ticket = Ticket::Wanted { at: now };
     }
 
     fn retry_later(&mut self) {
@@ -688,6 +745,7 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
                     // The socket's first: connected, and what was not
                     // answered goes again under its own sequence number.
                     self.synced = true;
+                    self.reached = true;
                     self.stats.synced();
                     self.link = LinkState::Connected;
                     for e in self.unanswered.clone() {
@@ -781,7 +839,7 @@ impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
                     }
                     self.socket_ended(Ending::Closed(code));
                     match code {
-                        close::SIGN_IN_AGAIN => self.end(LinkState::SignInAgain),
+                        close::SIGN_IN_AGAIN => self.sign_in_closed(now),
                         close::ROOM_CLOSED => self.end(LinkState::Closed),
                         close::LEFT => self.end(LinkState::Left),
                         close::OPENED_ELSEWHERE => self.end(LinkState::OpenedElsewhere),
@@ -821,6 +879,8 @@ impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
                 Connection::Reconnecting
             }
             LinkState::SignInAgain
+            | LinkState::SignInToEnter
+            | LinkState::NotAMember
             | LinkState::Closed
             | LinkState::Left
             | LinkState::UpdateRequired

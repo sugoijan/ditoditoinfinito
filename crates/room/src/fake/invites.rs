@@ -263,6 +263,9 @@ impl FakeServer {
                     room.name
                 ),
             ),
+            ("POST", p) if p == format!("{rooms}/ticket") && self.signed_out(&identity) => {
+                error(401, "session_expired")
+            }
             ("POST", p) if p == format!("{rooms}/ticket") => match self.ticket_answer(&identity) {
                 Ok(body) => (200, body),
                 Err(_) => error(403, "not_a_member"),

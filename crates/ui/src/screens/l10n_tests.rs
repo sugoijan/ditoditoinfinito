@@ -1935,6 +1935,11 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     step(100);
     shown(&mut ha, found);
     shown(&mut hb, found);
+    // The session gone (feedback round AA: a 4401 alone asks for a
+    // ticket first, and only a refused one ends the link).
+    server
+        .borrow_mut()
+        .sign_out(&ddi_room::Identity::new("dev:alice"));
     server.borrow_mut().fault(
         ParticipantId(1),
         Fault::Close(ddi_room::online::close::SIGN_IN_AGAIN),
@@ -1967,6 +1972,48 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     );
     step(1_000);
     shown(&mut hb, found);
+    // Feedback round AA: a room's address opened by someone never in it,
+    // signed out (the notice, More), then signed in and no member; and
+    // Join by link given a room's address.
+    {
+        let eve_id = Identity::new("dev:eve");
+        server.borrow_mut().sign_out(&eve_id);
+        let eve_online = person(&server, "eve");
+        let eve = Rc::new(std::cell::RefCell::new(client(
+            &server,
+            eve_online.clone(),
+            "eve",
+            1_000,
+        )));
+        let mut he = harness();
+        he.push(sample::room_screen(env, eve.clone()));
+        for _ in 0..2 {
+            tick(&clock, &mut [&mut eve.borrow_mut()], 400);
+            shown(&mut he, found);
+        }
+        assert_eq!(super::test_kit::top(&he), super::room::NEVER_IN);
+        he.tap(PointerKind::Mouse, "Cancel");
+        he.run(0.3);
+        he.tap(PointerKind::Mouse, "More");
+        shown(&mut he, found);
+        he.key("Escape", "Escape");
+        server.borrow_mut().sign_in(&eve_id);
+        eve_online
+            .borrow_mut()
+            .returned(crate::state::online::Dest::Room("Room000001".into()));
+        for _ in 0..3 {
+            tick(&clock, &mut [&mut eve.borrow_mut()], 400);
+            shown(&mut he, found);
+        }
+        assert_eq!(eve.borrow().link_state(), ddi_room::LinkState::NotAMember);
+        checked(
+            vec![
+                ddi_l10n::msg::room::invite_room_address().into(),
+                ddi_l10n::msg::room::status_alone_invite().into(),
+            ],
+            found,
+        );
+    }
     // Round D1's sentences: why a room could not be made (the operator's
     // switches and caps, another reason), a room its operator closed (a
     // member's status line, an audience seat's), an account's joins.

@@ -57,11 +57,24 @@ impl Kept {
     /// left first (told, its socket closed: review3 web-1, never a member
     /// who is gone but still joined).
     pub fn room_or(&self, id: &str, make: impl FnOnce() -> SharedRoom) -> SharedRoom {
+        // A link that never reached the room is no room to go back to:
+        // one opened at the room's address before its invite was joined
+        // (feedback round AA: not signed in, or no member then) is made
+        // anew, so the join enters the room rather than its old refusal.
+        let never_in = |r: &SharedRoom| {
+            r.try_borrow().is_ok_and(|r| {
+                matches!(
+                    r.link_state(),
+                    ddi_room::LinkState::SignInToEnter | ddi_room::LinkState::NotAMember
+                )
+            })
+        };
         let kept = self
             .room
             .borrow()
             .as_ref()
             .filter(|(i, _)| i == id)
+            .filter(|(_, r)| !never_in(r))
             .map(|(_, r)| r.clone());
         if let Some(r) = kept {
             return r;

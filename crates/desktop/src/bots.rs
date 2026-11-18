@@ -974,6 +974,14 @@ impl Bot {
                 self.say("the session ended; leaving");
                 self.done = true;
             }
+            LinkState::SignInToEnter => {
+                self.say("not signed in; leaving");
+                self.done = true;
+            }
+            LinkState::NotAMember => {
+                self.say("not a member of this room; leaving");
+                self.done = true;
+            }
             LinkState::Closed => {
                 self.say("the room closed");
                 self.done = true;

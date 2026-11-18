@@ -434,6 +434,7 @@ room-invite-field-hint = 招待リンクを貼り付け
 room-invite-go = 招待を開く
 
 room-invite-not-one = 招待リンクではありません。
+room-invite-room-address = これはルームのページのアドレスで、招待リンクではありません。ホストに招待リンクをもらってください。
 
 room-sign-in-waiting = ブラウザでTwitchのサインインを済ませてから、ここに戻ってください。
 
@@ -515,6 +516,11 @@ room-update-reload-button = 再読み込み
 room-server-updating = サーバーを更新しています。しばらくしてからもう一度お試しください。
 
 room-link-left = このルームから退出しました。
+room-link-sign-in-to-enter = このルームに入るにはサインインしてください。
+room-sign-in-to-enter-body = ルームには招待リンクから入ります。すでにこのルームのメンバーなら、Twitchでサインインすると戻れます。そうでなければ、ホストに招待リンクをもらってください。
+room-link-not-a-member = あなたはこのルームのメンバーではありません。ホストに招待リンクをもらってください。
+room-not-a-member-body = ルームのページのアドレスでは入れません。入るには招待リンクが必要です。ホストに送ってもらってください（ルームの「その他」→「招待リンクをコピー」）。
+room-multiplayer-home = マルチプレイのホーム
 
 room-role-host = ホスト
 room-role-co-host = 共同ホスト
@@ -560,6 +566,7 @@ room-joined-to-watch = プレイヤーの席が埋まっているため、観戦
 ## The match flow (M7b).
 
 room-status-pick-first = 曲を選んで対戦を始めましょう。
+room-status-alone-invite = 曲を選んで対戦を始めましょう。人を呼ぶには、このページのアドレスではなく「その他」から招待リンクを共有してください。
 
 room-status-pick-next = ステージ{ $number }の曲を選んでください。
 

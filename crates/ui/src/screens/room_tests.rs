@@ -2488,6 +2488,11 @@ fn an_online_room_shows_the_host_and_the_follower_and_its_link() {
     hb.run(0.3);
     assert_eq!(view(&eb).online.unwrap().link, "connected");
     // 4401: Sign in again, offered in More.
+    // The session gone (feedback round AA: a 4401 alone asks for a
+    // ticket first, and only a refused one ends the link).
+    server
+        .borrow_mut()
+        .sign_out(&ddi_room::Identity::new("dev:alice"));
     server.borrow_mut().fault(
         ParticipantId(1),
         Fault::Close(ddi_room::online::close::SIGN_IN_AGAIN),
@@ -3494,9 +3499,10 @@ fn practice_is_known_from_its_first_frame() {
     }
 }
 
-/// A link that ends before the room is known (not a member any more, the
-/// room closed, the sign-in ended) says so where the joining line is:
-/// never "Joining the room…" for good.
+/// A link that ends before the room is known (not a member, the room
+/// closed, the sign-in ended) says so where the joining line is: never
+/// "Joining the room…" for good. Since feedback round AA a person who was
+/// never in the room is told that, with its notice, never "You left".
 #[test]
 fn a_room_that_cannot_be_joined_says_why() {
     use crate::state::online::tests::room::{client, person};
@@ -3510,10 +3516,14 @@ fn a_room_that_cannot_be_joined_says_why() {
     let env = env();
     let mut h = online_select(&env, &dave, songs_of(&["Delta One"]), &Orders::default());
     frames(&t.clock, &[&dave], &mut h, 1.5, &[]);
+    assert_eq!(super::test_kit::top(&h), super::room::NEVER_IN);
+    h.tap(PointerKind::Mouse, "Cancel");
+    frames(&t.clock, &[&dave], &mut h, 0.5, &[]);
     assert!(no_view(&h), "{:?}", h.texts());
-    assert_eq!(said(&h, "RoomJoining"), "You left this room.");
+    let never = "You're not in this room. Ask its host for the invite link.";
+    assert_eq!(said(&h, "RoomJoining"), never);
     assert_eq!(alpha(&h, "RoomJoining"), 1.0);
-    assert_eq!(view(&env).status, "You left this room.");
+    assert_eq!(view(&env).status, never);
 }
 
 fn role_of(v: &super::room::RoomView, id: u64) -> String {

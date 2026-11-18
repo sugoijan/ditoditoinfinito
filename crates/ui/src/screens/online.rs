@@ -161,7 +161,14 @@ fn join_doc(draft: &Draft) -> PageDoc {
         Block::Actions(vec![Action::new("invite-open", m::invite_go()).primary()]),
     ];
     if draft.not_one {
-        blocks.push(Block::Note(m::invite_not_one().into()));
+        // A room's page address (feedback round AA): it lets nobody in,
+        // and the person is told whose link they need.
+        let text = if api::room_address(&draft.invite) {
+            m::invite_room_address()
+        } else {
+            m::invite_not_one()
+        };
+        blocks.push(Block::Note(text.into()));
     }
     PageDoc {
         title: PageTitle::new(m::join_title(), m::join_heading()),
