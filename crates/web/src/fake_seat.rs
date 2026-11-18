@@ -260,17 +260,17 @@ pub(crate) fn online(server: &SharedFake, who: Option<&'static str>) -> SharedOn
 
 /// A member's scripted stream: every tap of the chart, every `miss`th
 /// missed.
-struct Script {
+pub(crate) struct Script {
     moments: Vec<Moment>,
     end_ms: i64,
     sent: usize,
-    ended: bool,
+    pub(crate) ended: bool,
 }
 
 impl Script {
     /// How the member performed, as their device would say it for the
     /// stage's Standings: counted from what the script sent.
-    fn detail(&self) -> ddi_room::RunDetail {
+    pub(crate) fn detail(&self) -> ddi_room::RunDetail {
         let sent = &self.moments[..self.sent];
         let missed = sent
             .iter()
@@ -289,7 +289,7 @@ impl Script {
         }
     }
 
-    fn new(song: &ddi_chart::Song, chart: usize, miss: u32, cut: Option<f64>) -> Script {
+    pub(crate) fn new(song: &ddi_chart::Song, chart: usize, miss: u32, cut: Option<f64>) -> Script {
         let c = &song.charts[chart];
         let timing = c.timing(song);
         let (mut combo, mut life, mut k, mut score) = (0u32, 1_000_000i64, 0u32, 0i64);
@@ -337,7 +337,7 @@ impl Script {
         }
     }
 
-    fn stream(&mut self, room: &SharedRoom, stage: StageId, now: i64) {
+    pub(crate) fn stream(&mut self, room: &SharedRoom, stage: StageId, now: i64) {
         if self.ended {
             return;
         }

@@ -1313,6 +1313,14 @@ room-sat-out-then-chosen = Choose Play to play the next one.
 #   $number (Number) - the stage, from 1
 room-status-waiting-next-match = Stage { $number } is being played. You joined during this match and play from the next one.
 
+# On the room's status line and a stage's Ready card, for a player who
+# was not in the stage when it started but may still enter it (round
+# P1b's late entry: within a few seconds of the song's start, where the
+# room plays live). Ready then plays it from where the song is.
+# Variables:
+#   $number (Number) - the stage, from 1
+room-status-enter-late = Stage { $number } has started. Press Ready now to play it from here.
+
 room-status-pick-new-match = Match over. Pick a song to start the next match.
 
 room-status-stopped-pick = Match stopped. Pick a song to start the next match.

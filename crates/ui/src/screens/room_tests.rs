@@ -1563,6 +1563,16 @@ fn a_member_who_missed_the_window_may_still_ready_within_the_late_join() {
         );
         assert!(bob.borrow().may_enter_late(stage), "{press}");
         assert!(has(&hb, "Ready"), "{press}: {:?}", hb.texts());
+        // Round Y3: the card says Ready still enters, never that he is
+        // watching (it said "You weren't ready when stage 1 started.
+        // You're watching this stage…" beside the Ready it offered).
+        let line = |hb: &Harness| hb.texts().join(" | ");
+        assert!(
+            line(&hb).contains("Stage 1 has started. Press Ready now to play it from here."),
+            "{press}: {}",
+            line(&hb)
+        );
+        assert!(!line(&hb).contains("watching this stage"), "{}", line(&hb));
         assert!(!seen.borrow().contains(&PromptChoice::Start));
         if press {
             hb.key("Enter", "Enter");

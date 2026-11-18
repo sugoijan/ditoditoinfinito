@@ -706,6 +706,12 @@ fn phase_status(r: &RoomClient) -> UiText {
         Phase::Stage { stage } | Phase::SongCompletion { stage } => {
             let n = number_of(r, *stage);
             match s.participation(r.me()) {
+                // Not in it yet, and Ready still enters (the late join,
+                // round P1b): said so, never "you're watching" while the
+                // Ready card offers it (round Y3).
+                Some(Participation::SittingOut { .. }) if r.may_enter_late(*stage) => {
+                    m::status_enter_late(n)
+                }
                 Some(Participation::SittingOut { reason, .. }) => {
                     sat_out_status(r, *stage, reason)
                 }

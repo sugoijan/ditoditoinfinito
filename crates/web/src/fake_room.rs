@@ -12,12 +12,26 @@
 //! stages: three seconds into a stage's play she reports her run (so the
 //! stage is decided once the player's own play ended or was left), and S
 //! seconds after the first stage's results she picks the second (the
-//! notice over a stage's results, decisions round D4). The player
-//! ("you", signed in as the fake room's `dev:you`) is a real member's
-//! client over the fake room's socket: the room's song select, the pages
-//! over it, the kept room run under them, the notice, the stage's prompt
-//! and its play are the real ones; only the server is not, and the song
-//! is read as the bundled one instead of from a share.
+//! notice over a stage's results, decisions round D4). A second scripted
+//! member, bob, readies at once and reports as she does (where the room
+//! plays live, he streams the chart's taps instead, every ninth missed, so
+//! that the stage goes on to the song's end), so that a Ready
+//! window that runs out starts the stage without a player who was not
+//! ready (a start needs two: round Y3; before, it was canceled below the
+//! minimum and nobody ever sat a stage out here). The player ("you",
+//! signed in as the fake room's `dev:you`) is a real member's client over
+//! the fake room's socket: the room's song select, the pages over it, the
+//! kept room run under them, the notice, the stage's prompt and its play
+//! are the real ones; only the server is not, and the song is read as the
+//! bundled one instead of from a share. What a real room may do to the
+//! player, asked for in the address too (round Y3): `mpfakefail=N`, the
+//! player's first N downloads of a stage's song fail (`LoadProblem::Download`:
+//! its retries, then the Retry beside the status line); `mpfakeslow=S`,
+//! each takes S seconds (still loading at the window's end); and
+//! `mpfakeelsewhere=S`, S seconds after a pick the server closes the
+//! player's socket 4429, as when a fifth device of theirs opens the room
+//! (the notice and Use this device; the room's reconnect grace 5 s here,
+//! so that a member gone that long is away and sits a stage out as such).
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -38,6 +52,15 @@ thread_local! {
     static READY_AFTER: Cell<f64> = const { Cell::new(0.0) };
     /// Asked for (`mpfakelive=1`): the room plays live.
     static LIVE: Cell<bool> = const { Cell::new(false) };
+    /// Asked for (`mpfakefail=N`): the player's downloads of a stage's
+    /// song still to fail.
+    static FAILS: Cell<u32> = const { Cell::new(0) };
+    /// Asked for (`mpfakeslow=S`): how long each of those downloads takes,
+    /// seconds.
+    static SLOW: Cell<f64> = const { Cell::new(0.0) };
+    /// Asked for (`mpfakeelsewhere=S`): how long after a pick the server
+    /// closes the player's socket 4429, seconds.
+    static ELSEWHERE: Cell<Option<f64>> = const { Cell::new(None) };
     static FAKE: RefCell<Option<Rc<RefCell<Fake>>>> = const { RefCell::new(None) };
 }
 
@@ -61,6 +84,28 @@ pub(crate) fn live() {
     LIVE.set(true);
 }
 
+/// The player's first `n` downloads of a stage's song fail
+/// (`mpfakefail=N`).
+pub(crate) fn fail_downloads(n: u32) {
+    FAILS.set(n);
+}
+
+/// Each of the player's downloads of a stage's song takes `seconds`
+/// (`mpfakeslow=S`).
+pub(crate) fn slow_downloads(seconds: f64) {
+    SLOW.set(seconds.max(0.0));
+}
+
+/// `seconds` after a pick the server closes the player's socket 4429, a
+/// fifth device of theirs opening the room (`mpfakeelsewhere=S`).
+pub(crate) fn opened_elsewhere(seconds: f64) {
+    ELSEWHERE.set(Some(seconds.max(0.0)));
+}
+
+/// The reconnect grace the fake server gives where it closes the player's
+/// socket (the real one's is 30 s): a member gone that long is away.
+const GRACE_MS: u64 = 5_000;
+
 /// Whether the fake room was asked for.
 pub(crate) fn on() -> bool {
     WANTED.get().is_some()
@@ -74,19 +119,27 @@ fn now_ms() -> u64 {
 struct Fake {
     clock: ManualClock,
     server: SharedFake,
-    /// The scripted owner's client.
+    /// The scripted owner's client, and the other scripted member's.
     alice: SharedRoom,
+    bob: SharedRoom,
     /// The player's online state and client.
     you: SharedOnline,
     member: Option<SharedRoom>,
     /// When the player's client was first seen connected.
     connected_at: Option<u64>,
     picked: bool,
-    /// When alice readies for the stage she has ([`READY_AFTER`]).
-    ready_at: Option<u64>,
-    /// The stage alice saw begin and when, and whether she reported her
+    /// When alice and bob ready for the stage they have (alice:
+    /// [`READY_AFTER`]; bob at once).
+    ready_at: [Option<u64>; 2],
+    /// The stage each saw begin and when, and whether they reported their
     /// run for it.
-    playing: Option<(ddi_room::StageId, u64, bool)>,
+    playing: [Option<(ddi_room::StageId, u64, bool)>; 2],
+    /// When the last pick was seen (alice's), and whether the player's
+    /// socket was closed for it ([`ELSEWHERE`]).
+    picked_at: Option<(ddi_room::StageId, u64, bool)>,
+    /// The song, once read, and bob's stream of a live stage.
+    song: Rc<RefCell<Option<Rc<ddi_chart::Song>>>>,
+    stream: Option<(ddi_room::StageId, ddi_room::Millis, crate::fake_seat::Script)>,
     /// When the first stage was seen decided, and whether the second was
     /// picked.
     decided_at: Option<u64>,
@@ -113,26 +166,39 @@ fn fake() -> Rc<RefCell<Fake>> {
     )
     .shared();
     server.borrow_mut().set_room_name("Fake room (testing)");
+    if ELSEWHERE.get().is_some() {
+        server.borrow_mut().set_grace(Some(GRACE_MS));
+    }
+    let _ = server
+        .borrow_mut()
+        .join(Identity::new("dev:bob"), "bob", Intent::Play);
     let _ = server
         .borrow_mut()
         .join(Identity::new("dev:you"), "you", Intent::Play);
-    let alice = Rc::new(RefCell::new(RoomClient::online(
-        online(&server, Some("alice")),
-        ROOM,
-        Box::new(FakeSocket::new(server.clone())),
-        ClientId::new("alice-fake"),
-        now,
-    )));
+    let scripted = |who: &'static str| {
+        Rc::new(RefCell::new(RoomClient::online(
+            online(&server, Some(who)),
+            ROOM,
+            Box::new(FakeSocket::new(server.clone())),
+            ClientId::new(format!("{who}-fake")),
+            now,
+        )))
+    };
+    let (alice, bob) = (scripted("alice"), scripted("bob"));
     let fake = Rc::new(RefCell::new(Fake {
         clock,
         server: server.clone(),
         alice,
+        bob,
         you: online(&server, Some("you")),
         member: None,
         connected_at: None,
         picked: false,
-        ready_at: None,
-        playing: None,
+        ready_at: [None; 2],
+        playing: [None; 2],
+        picked_at: None,
+        song: Rc::default(),
+        stream: None,
         decided_at: None,
         picked_again: false,
         _pump: None,
@@ -171,9 +237,27 @@ pub(crate) fn member() -> SharedRoom {
 }
 
 /// A stage's song for the player's client: read as the bundled song (the
-/// fake room's share is nothing to fetch).
+/// fake room's share is nothing to fetch), after [`SLOW`] seconds, the
+/// first [`FAILS`] times failing as a download does.
 pub(crate) fn prepare(room: SharedRoom, job: LoadJob) {
+    prepare_as(room, job, true);
+}
+
+/// [`prepare`], with the player's faults where `player` (a scripted
+/// follower has none).
+fn prepare_as(room: SharedRoom, job: LoadJob, player: bool) {
     wasm_bindgen_futures::spawn_local(async move {
+        let slow = if player { SLOW.get() } else { 0.0 };
+        if slow > 0.0 {
+            gloo::timers::future::TimeoutFuture::new((slow * 1_000.0) as u32).await;
+        }
+        if player && FAILS.get() > 0 {
+            FAILS.set(FAILS.get() - 1);
+            web_sys::console::log_1(&"fake room: the song's download fails (mpfakefail)".into());
+            room.borrow_mut()
+                .finish_shared_load_live(&job, Err(ddi_ui::state::room::LoadProblem::Download));
+            return;
+        }
         let result = match crate::songs::load_chart(SONG).await {
             Ok(song) => prepare_stage(&job, &song, &mut |e| {
                 web_sys::console::warn_1(&format!("fake room: {e}").into())
@@ -195,11 +279,154 @@ pub(crate) fn prepare(room: SharedRoom, job: LoadJob) {
 }
 
 impl Fake {
+    /// Scripted member `i`'s (0 alice, 1 bob) side of a stage: their song
+    /// loaded (to play live where the room does), Ready ([`READY_AFTER`]
+    /// for alice, at once for bob), their run reported three seconds
+    /// into the stage's play.
+    fn script(&mut self, i: usize, who: &SharedRoom, now: u64) {
+        let Ok(mut a) = who.try_borrow_mut() else {
+            return;
+        };
+        for job in a.take_load_jobs() {
+            // A follower reads the stage's song from the room's share.
+            if job.share.is_some() && i > 0 {
+                prepare_as(who.clone(), job, false);
+                continue;
+            }
+            if job.live.is_none() {
+                a.finish_load(&job, Ok(()));
+                continue;
+            }
+            // Live: the stage prepared to play live, from the song.
+            let who = who.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = match crate::songs::load_chart(SONG).await {
+                    Ok(song) => prepare_stage(&job, &song, &mut |_| {}).map(|p| p.live),
+                    Err(_) => Err(ddi_ui::state::room::LoadProblem::Unreadable),
+                };
+                who.borrow_mut().finish_load_live(&job, result);
+            });
+        }
+        if a.take_stage_order().is_some() {
+            let after = if i == 0 { READY_AFTER.get() } else { 0.0 };
+            self.ready_at[i] = Some(now + (after * 1_000.0) as u64);
+        }
+        if self.ready_at[i].is_some_and(|at| now >= at) {
+            self.ready_at[i] = None;
+            let _ = a.set_ready(true);
+        }
+        // Bob in a live stage: his stream, then his run as his device
+        // would report it.
+        if i == 1 && LIVE.get() {
+            drop(a);
+            self.stream_bob(who);
+            return;
+        }
+        // Alice in a live stage is a no-show: she reports nothing (round
+        // Y3: her finished run three seconds in set the song's end there,
+        // so the room ended the song a minute later without the player's
+        // own report, and the Standings had no score or life for them).
+        if LIVE.get() {
+            return;
+        }
+        if let ddi_room::Phase::Stage { stage } = a.state().phase {
+            let (seen, at, reported) = self.playing[i].unwrap_or((stage, now, false));
+            let (at, reported) = if seen == stage { (at, reported) } else { (now, false) };
+            let report = !reported && now >= at + 3_000;
+            if report {
+                let run = ddi_room::Run::Live {
+                    life: 0.8,
+                    score: 0,
+                    steps: 0,
+                };
+                let _ = a.report_run(stage, run, None);
+            }
+            self.playing[i] = Some((stage, at, reported || report));
+        }
+    }
+
+    /// Bob's stream of the live stage he is in (the chart's taps, every
+    /// ninth missed), and his run reported once it ended.
+    fn stream_bob(&mut self, bob: &SharedRoom) {
+        let started = {
+            let b = bob.borrow();
+            let stage = match b.state().phase {
+                ddi_room::Phase::Countdown { stage, .. } | ddi_room::Phase::Stage { stage } => Some(stage),
+                _ => None,
+            };
+            stage
+                .filter(|s| b.stage_started(*s) && b.in_stage(*s))
+                .and_then(|s| Some((s, b.song_zero_at(s)?)))
+        };
+        if let Some((stage, zero)) = started
+            && self.stream.as_ref().is_none_or(|(s, _, _)| *s != stage)
+            && let Some(song) = self.song.borrow().clone()
+        {
+            let chart = (0..song.charts.len())
+                .find(|&c| song.charts[c].layout == "dance-single")
+                .unwrap_or(0);
+            self.stream = Some((stage, zero, crate::fake_seat::Script::new(&song, chart, 9, None)));
+        }
+        let Some((stage, zero, script)) = self.stream.as_mut() else {
+            return;
+        };
+        if script.ended {
+            return;
+        }
+        let t = bob
+            .borrow()
+            .room_now()
+            .map_or(0, |n| n.0 as i64 - zero.0 as i64);
+        script.stream(bob, *stage, t);
+        if script.ended {
+            let d = script.detail();
+            let run = ddi_room::Run::Live {
+                life: f64::from(d.life_ppm) / 1e6,
+                score: d.score.unwrap_or(0),
+                steps: 0,
+            };
+            let _ = bob.borrow_mut().report_run(*stage, run, Some(d));
+        }
+    }
+
+    /// [`ELSEWHERE`] seconds after each pick, the player's socket closed
+    /// 4429 by the server, as when a fifth device of theirs opens the
+    /// room.
+    fn elsewhere(&mut self, now: u64) {
+        let Some(after) = ELSEWHERE.get() else {
+            return;
+        };
+        let stage = self.alice.try_borrow().ok().and_then(|a| a.state().upcoming_stage());
+        let Some(stage) = stage else {
+            return;
+        };
+        let (seen, at, closed) = self.picked_at.unwrap_or((stage, now, false));
+        let (at, closed) = if seen == stage { (at, closed) } else { (now, false) };
+        let close = !closed && now >= at + (after * 1_000.0) as u64;
+        if close {
+            let you = self
+                .server
+                .borrow()
+                .state()
+                .member_by_identity(&Identity::new("dev:you"))
+                .map(|m| m.id);
+            if let Some(you) = you {
+                web_sys::console::log_1(&"fake room: the player's socket closed 4429 (mpfakeelsewhere)".into());
+                self.server
+                    .borrow_mut()
+                    .fault(you, ddi_room::fake::Fault::Close(4429));
+            }
+        }
+        self.picked_at = Some((stage, at, closed || close));
+    }
+
     fn pump(&mut self) {
         let now = now_ms();
         self.clock.set(now.max(self.clock.now().0));
-        if let Ok(mut a) = self.alice.try_borrow_mut() {
-            a.tick(now);
+        for who in [&self.alice, &self.bob] {
+            if let Ok(mut a) = who.try_borrow_mut() {
+                a.tick(now);
+            }
         }
         self.server.borrow_mut().pump();
         let connected = self.member.as_ref().is_some_and(|m| {
@@ -216,6 +443,7 @@ impl Fake {
         if due && !self.picked {
             self.picked = true;
             let alice = self.alice.clone();
+            let kept = self.song.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let Ok(song) = crate::songs::load_chart(SONG).await else {
                     return;
@@ -224,6 +452,7 @@ impl Fake {
                     .find(|&c| song.charts[c].layout == "dance-single")
                     .unwrap_or(0);
                 let e = entry(&song, chart);
+                *kept.borrow_mut() = Some(Rc::new(song));
                 let mut a = alice.borrow_mut();
                 // A match of two stages.
                 let mut rules = a.rules().clone();
@@ -237,58 +466,30 @@ impl Fake {
         if !self.picked {
             return;
         }
-        // Alice's own side of the stage: her upload answered as the
-        // server would, her song loaded, her Ready.
-        let Ok(mut a) = self.alice.try_borrow_mut() else {
+        self.elsewhere(now);
+        // Alice's upload answered as the server would.
+        if let Ok(mut a) = self.alice.try_borrow_mut() {
+            for j in a.take_upload_jobs() {
+                let _ = self.server.borrow_mut().authority(Command::SetContentStatus {
+                    stage: j.stage,
+                    status: ContentStatus::Available,
+                    share: Some("abc12345".into()),
+                });
+                a.upload_finished(j.stage, Ok("abc12345".into()));
+            }
+        }
+        // Each scripted member's own side of the stage: the song loaded,
+        // Ready, the run reported.
+        for (i, who) in [self.alice.clone(), self.bob.clone()].into_iter().enumerate() {
+            self.script(i, &who, now);
+        }
+        let Ok(a) = self.alice.try_borrow() else {
             return;
         };
-        for j in a.take_upload_jobs() {
-            let _ = self.server.borrow_mut().authority(Command::SetContentStatus {
-                stage: j.stage,
-                status: ContentStatus::Available,
-                share: Some("abc12345".into()),
-            });
-            a.upload_finished(j.stage, Ok("abc12345".into()));
-        }
-        for job in a.take_load_jobs() {
-            if job.live.is_none() {
-                a.finish_load(&job, Ok(()));
-                continue;
-            }
-            // Live: her stage prepared to play live, from the song.
-            let alice = self.alice.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let result = match crate::songs::load_chart(SONG).await {
-                    Ok(song) => prepare_stage(&job, &song, &mut |_| {}).map(|p| p.live),
-                    Err(_) => Err(ddi_ui::state::room::LoadProblem::Unreadable),
-                };
-                alice.borrow_mut().finish_load_live(&job, result);
-            });
-        }
-        if a.take_stage_order().is_some() {
-            self.ready_at = Some(now + (READY_AFTER.get() * 1_000.0) as u64);
-        }
-        if self.ready_at.is_some_and(|at| now >= at) {
-            self.ready_at = None;
-            let _ = a.set_ready(true);
-        }
-        // Her run, three seconds into the stage's play.
-        if let ddi_room::Phase::Stage { stage } = a.state().phase {
-            let (seen, at, reported) = self.playing.unwrap_or((stage, now, false));
-            let (at, reported) = if seen == stage { (at, reported) } else { (now, false) };
-            let report = !reported && now >= at + 3_000;
-            if report {
-                let run = ddi_room::Run::Live {
-                    life: 0.8,
-                    score: 0,
-                    steps: 0,
-                };
-                let _ = a.report_run(stage, run, None);
-            }
-            self.playing = Some((stage, at, reported || report));
-        }
         // The second stage, S seconds after the first was decided.
-        if matches!(a.state().phase, ddi_room::Phase::Intermission { .. }) && !self.picked_again {
+        let intermission = matches!(a.state().phase, ddi_room::Phase::Intermission { .. });
+        drop(a);
+        if intermission && !self.picked_again {
             let decided = *self.decided_at.get_or_insert(now);
             let after = (WANTED.get().unwrap_or(0.0) * 1_000.0) as u64;
             if now >= decided + after {

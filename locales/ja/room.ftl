@@ -58,6 +58,8 @@ room-status-countdown-soon = まもなくステージ { $number } が始まり�
 
 room-status-playing = ステージ { $number } をプレイ中です。
 
+room-status-enter-late = ステージ{ $number }が始まりました。今すぐ準備OKにすると途中から参加できます。
+
 room-status-preparing = ステージ { $number } の曲を準備しています…
 
 ## Refusals.

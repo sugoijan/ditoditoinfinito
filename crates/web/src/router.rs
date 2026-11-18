@@ -175,7 +175,8 @@ fn share_switch(hash: &str) {
 /// (`Settings::multiplayer_rules_first`), and `mpwatchlink=1`, More's Copy
 /// watch-only link (`Settings::multiplayer_watch_link`); TESTING ONLY,
 /// `mpfakeseat=1` (`mpfakeend=S`, `mpfakematch=STAGES,CUT,WAIT`) and
-/// `mpfakeroom=S` (`mpfakeready=R`, `mpfakelive=1`). Each
+/// `mpfakeroom=S` (`mpfakeready=R`, `mpfakelive=1`, `mpfakefail=N`,
+/// `mpfakeslow=S`, `mpfakeelsewhere=S`). Each
 /// address is read once.
 fn multiplayer_params(hash: &str, at_load: bool) {
     let (path, Some(query)) = split_hash(hash) else {
@@ -249,6 +250,20 @@ fn multiplayer_params(hash: &str, at_load: bool) {
     // the streams).
     if param("mpfakelive").as_deref() == Some("1") {
         crate::fake_room::live();
+    }
+    // `mpfakefail=N`, the player's first N downloads of a stage's song
+    // fail (its retries, then the Retry beside the status line);
+    // `mpfakeslow=S`, each takes S seconds; `mpfakeelsewhere=S`, S seconds
+    // after a pick the server closes the player's socket 4429 (a fifth
+    // device of theirs: the notice and Use this device; away after 5 s).
+    if let Some(n) = param("mpfakefail").and_then(|s| s.parse::<u32>().ok()) {
+        crate::fake_room::fail_downloads(n);
+    }
+    if let Some(s) = param("mpfakeslow").and_then(|s| s.parse::<f64>().ok()) {
+        crate::fake_room::slow_downloads(s);
+    }
+    if let Some(s) = param("mpfakeelsewhere").and_then(|s| s.parse::<f64>().ok()) {
+        crate::fake_room::opened_elsewhere(s);
     }
     let flag = |key: &str| match param(key).as_deref() {
         Some("1") => Some(true),
