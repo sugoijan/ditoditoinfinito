@@ -3602,6 +3602,22 @@ mod tests {
             h.key("ArrowUp", "ArrowUp");
         }
         assert_eq!(h.ui.focused(), Some("Opt.speed"));
+        // Above the top row, the music's volume; Down back to the row.
+        h.key("ArrowUp", "ArrowUp");
+        assert_eq!(h.ui.focused(), Some(VOLUME));
+        h.key("Escape", "Escape");
+        assert_eq!(h.ui.focused(), Some("Start"), "Back from the volume: to Start");
+        for _ in 0..7 {
+            h.key("ArrowUp", "ArrowUp");
+        }
+        assert_eq!(h.ui.focused(), Some(VOLUME));
+        assert!(seen.borrow().is_empty(), "{:?}", seen.borrow());
+        // (Down steps it there; Back leaves it.)
+        h.key("Escape", "Escape");
+        for _ in 0..6 {
+            h.key("ArrowUp", "ArrowUp");
+        }
+        assert_eq!(h.ui.focused(), Some("Opt.speed"));
         h.key("ArrowRight", "ArrowRight");
         h.run(0.05);
         assert_eq!(view().options[0], "speed=×2.75");
