@@ -787,7 +787,7 @@ pub fn prompt_screen(env: &Env, step: super::prompt::PromptStep) -> super::promp
                 layout: "dance-single".into(),
                 difficulty: ddi_chart::Difficulty::Hard,
                 meter: 13,
-                msd: None,
+                rating: None,
                 style: "Single".into(),
             }),
             &played,

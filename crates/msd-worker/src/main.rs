@@ -1,17 +1,23 @@
 //! The web's chart rating worker (`docs/plans/msd-ratings.md`): an
 //! imported song's simfile parsed as the library parses it (its generated
-//! versions added, `ddi_chart`) and the four-lane charts asked for rated
-//! (`ddi_msd`), off the page's thread. The page starts one only while a
+//! versions added, `ddi_chart`), the four-lane charts asked for rated
+//! (`ddi_msd`) and the original Single charts asked for estimated
+//! (`ddi_rating`, "The DDI estimate as a source"), off the page's thread. The page starts one only while a
 //! chart ratings option wants ratings, sends it a song at a time and never
 //! during a play (`crates/web/src/ratings.rs`).
 //!
 //! Protocol (the page's boot script loads this module from the compiled
 //! `WebAssembly.Module` the page sends): the worker says `{ready: true}`
-//! once it listens; the page sends `{id, text, ext, charts}` (the simfile's
-//! text and extension, the charts' places in the parsed song); the worker
-//! answers `{id, rated, ms}`, `rated` an array of `[index, digest, values]`
-//! (the digest 32 hex digits, `values` the eight numbers or `null`), or
-//! `{id, error}`. `ms` is the time it took.
+//! once it listens; the page sends `{id, text, ext, charts, estimates}` (the
+//! simfile's text and extension, the places in the parsed song of the
+//! charts to rate and of those to estimate); the worker answers `{id,
+//! rated, estimated, ms, estimateMs}`, `rated` an array of `[index, digest,
+//! values]` (the digest 32 hex digits, `values` the eight numbers or
+//! `null`), `estimated` one of `[index, digest, estimate]` (`estimate` the
+//! estimator's own JSON, which the page reads with
+//! `ddi_library::manifest::ChartEstimate::from_rating_json`, or `null`), or
+//! `{id, error}`. `ms` is the time it all took, `estimateMs` the
+//! estimates'.
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
@@ -31,10 +37,15 @@ fn main() {
         let id = get("id").unwrap_or(JsValue::UNDEFINED);
         let text = get("text").and_then(|t| t.as_string()).unwrap_or_default();
         let ext = get("ext").and_then(|t| t.as_string()).unwrap_or_default();
-        let charts: Vec<usize> = get("charts")
-            .map(|c| Array::from(&c))
-            .map(|a| a.iter().filter_map(|v| v.as_f64()).map(|v| v as usize).collect())
-            .unwrap_or_default();
+        let places = |k: &str| -> Vec<usize> {
+            get(k)
+                .filter(|c| c.is_object())
+                .map(|c| Array::from(&c))
+                .map(|a| a.iter().filter_map(|v| v.as_f64()).map(|v| v as usize).collect())
+                .unwrap_or_default()
+        };
+        let charts = places("charts");
+        let estimates = places("estimates");
         let began = js_sys::Date::now();
         let msg = Object::new();
         set(&msg, "id", &id);
@@ -64,6 +75,26 @@ fn main() {
                     rated.push(&entry);
                 }
                 set(&msg, "rated", &rated);
+                let estimated = Array::new();
+                let began = js_sys::Date::now();
+                for index in estimates {
+                    if index >= song.charts.len() {
+                        continue;
+                    }
+                    let entry = Array::new();
+                    entry.push(&JsValue::from(index as f64));
+                    entry.push(&JsValue::from_str(&song.chart_digest(index).to_string()));
+                    match ddi_rating::estimate(&song, index)
+                        .ok()
+                        .and_then(|e| serde_json::to_string(&e).ok())
+                    {
+                        Some(json) => entry.push(&JsValue::from_str(&json)),
+                        None => entry.push(&JsValue::NULL),
+                    };
+                    estimated.push(&entry);
+                }
+                set(&msg, "estimated", &estimated);
+                set(&msg, "estimateMs", &JsValue::from(js_sys::Date::now() - began));
             }
             Err(e) => set(&msg, "error", &JsValue::from_str(&e.to_string())),
         }

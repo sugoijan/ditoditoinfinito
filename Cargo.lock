@@ -1313,7 +1313,9 @@ version = "0.1.0"
 dependencies = [
  "ddi-chart",
  "ddi-msd",
+ "ddi-rating",
  "js-sys",
+ "serde_json",
  "wasm-bindgen",
  "web-sys",
 ]
@@ -1480,6 +1482,7 @@ dependencies = [
  "ddi-msd",
  "ddi-noteskin",
  "ddi-platform",
+ "ddi-rating",
  "ddi-room",
  "serde",
  "serde_json",
@@ -7736,6 +7739,7 @@ dependencies = [
  "ddi-msd",
  "ddi-noteskin",
  "ddi-platform",
+ "ddi-rating",
  "fluent-syntax",
  "intl_pluralrules",
  "miniz_oxide 0.9.1",

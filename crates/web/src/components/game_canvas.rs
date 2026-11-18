@@ -2903,11 +2903,12 @@ impl GameCanvas {
                             layout: layout.id.clone(),
                             difficulty: ddi_chart::Difficulty::from_name(&c.difficulty)?,
                             meter: c.meter,
-                            msd: c
-                                .digest
-                                .and_then(ddi_ui::state::ratings::get)
-                                .filter(|_| ddi_ui::state::ratings::msd_shown())
-                                .map(|v| v[0]),
+                            rating: ddi_ui::state::ratings::shown(
+                                c.digest,
+                                &c.layout,
+                                c.derivation.is_none(),
+                            )
+                            .map(|r| r.fine()),
                             style: layout.name.clone(),
                         })
                     });
@@ -3396,7 +3397,7 @@ impl GameCanvas {
             Some(c) => ddi_ui::screens::prompt::chart_line_rated(
                 c.difficulty,
                 c.meter,
-                ddi_ui::state::ratings::shown_msd(&song.song, chart),
+                ddi_ui::state::ratings::shown_number(&song.song, chart),
                 &ddi_ui::screens::data::style_name(&layout.id, &layout.name),
             ),
             None => layout.name.clone(),

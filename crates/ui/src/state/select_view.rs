@@ -248,6 +248,10 @@ fn remember_rating(c: &ddi_library::manifest::ChartInfo) {
     if let (Some(d), Some(v)) = (c.digest, c.msd) {
         crate::state::ratings::remember(d, v);
     }
+    // Its DDI estimate (round Z2), the same way.
+    if let (Some(d), Some(e)) = (c.digest, &c.estimate) {
+        crate::state::ratings::remember_estimate(d, e.clone());
+    }
 }
 
 /// A song's entry as listed with nothing of the player's (no pack, no

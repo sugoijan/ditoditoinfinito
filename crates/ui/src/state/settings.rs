@@ -55,6 +55,13 @@ pub enum ChartRatings {
     FromSong,
     /// MSD where the chart has one (four lanes), else the song's.
     Msd,
+    /// The DDI estimate where the chart has one (an original Single chart
+    /// inside what the estimate is qualified for), else the song's (a try
+    /// since round Z2, `docs/plans/msd-ratings.md`). Stored as
+    /// `"Estimate"`; a build before it reads that as an unknown value,
+    /// `ddi_engine::lenient`'s default, the song's number (and keeps that
+    /// once it saves the settings).
+    Estimate,
 }
 
 impl ChartRatings {
@@ -1397,7 +1404,13 @@ impl Settings {
     /// Tells the screens what the chart ratings options show
     /// ([`crate::state::ratings::set_mode`]).
     pub fn show_ratings(&self) {
-        crate::state::ratings::set_mode(self.chart_ratings == ChartRatings::Msd, self.skill_radar);
+        use crate::state::ratings::Source;
+        let source = match self.chart_ratings {
+            ChartRatings::FromSong => Source::Song,
+            ChartRatings::Msd => Source::Msd,
+            ChartRatings::Estimate => Source::Estimate,
+        };
+        crate::state::ratings::set_mode(source, self.skill_radar);
     }
 
     pub fn rules(&self) -> RuleChoice {

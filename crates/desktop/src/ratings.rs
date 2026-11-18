@@ -54,7 +54,7 @@ fn spawn(
                 // A chart that cannot be read or panics is no rating.
                 let rated = std::panic::catch_unwind(|| {
                     crate::play::load::read_chart(&job.song)
-                        .map(|song| ratings::rate_song(&song, &job.charts))
+                        .map(|song| ratings::rate_song(&song, &job.charts, &job.estimates))
                         .unwrap_or_default()
                 })
                 .unwrap_or_default();

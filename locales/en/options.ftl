@@ -587,19 +587,23 @@ options-start-countdown-description = A song chosen in song select starts by its
 
 # What a chart's number shows on song select, the start prompt and the
 # results (Options → Display, under Menus): the number the song's file
-# gives it, or MSD, a rating the game computes from the chart's notes.
-# "MSD" is the rating's own name (Etterna's calculator's): keep it.
+# gives it, MSD, a rating the game computes from the chart's notes, or
+# the DDI estimate, the game's own estimate (DDI is the game's ruleset's
+# name), experimental. "MSD" is the rating's own name (Etterna's
+# calculator's): keep it.
 options-chart-ratings = Chart ratings
 options-chart-ratings-from-song = From the song
 options-chart-ratings-msd = MSD
-options-chart-ratings-description = MSD is a rating computed from the chart's patterns for keyboard play at normal speed, after Etterna's calculator. Four-lane charts show it once rated (in the background, never during a play); others keep the song's number, fainter.
+options-chart-ratings-estimate = DDI estimate
+options-chart-ratings-description = MSD rates a four-lane chart's patterns for keyboard play, after Etterna's calculator. The DDI estimate is our own, experimental, for Single charts. Both are made in the background; charts without one keep the song's number, fainter.
 
-# Song select's radar of the chart's seven MSD skills (Options →
-# Display, under Menus). On, it replaces the list of the style's charts
-# on song select's left side on wide screens (not on a phone, not in a
+# Song select's radar of the chart's skills (Options → Display, under
+# Menus): MSD's seven, or the DDI estimate's eight where Chart ratings
+# shows the estimate. On, it replaces the list of the style's charts on
+# song select's left side on wide screens (not on a phone, not in a
 # multiplayer room).
 options-skill-radar = Skill radar
-options-skill-radar-description = On wide screens, song select's list of charts becomes a row of buttons and a radar of the chosen chart's seven MSD skills with their numbers, each a share of its overall rating. Only four-lane charts have one.
+options-skill-radar-description = On wide screens, song select's list of charts becomes a row of buttons and a radar of the chosen chart's skills with their numbers: MSD's, or the DDI estimate's where Chart ratings shows it.
 
 options-graphics = Graphics
 options-graphics-auto = Automatic

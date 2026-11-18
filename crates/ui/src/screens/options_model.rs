@@ -3275,9 +3275,10 @@ const CURSORS: [Labeled<CursorStyle>; 3] = [
     (CursorStyle::InfinitoArrow, m::cursor_infinito),
     (CursorStyle::System, m::cursor_system),
 ];
-const CHART_RATINGS: [Labeled<ChartRatings>; 2] = [
+const CHART_RATINGS: [Labeled<ChartRatings>; 3] = [
     (ChartRatings::FromSong, m::chart_ratings_from_song),
     (ChartRatings::Msd, m::chart_ratings_msd),
+    (ChartRatings::Estimate, m::chart_ratings_estimate),
 ];
 
 const OPPONENT_FIELDS: [Labeled<OpponentFields>; 2] = [

@@ -53,7 +53,7 @@ fn rated_sample() -> ddi_ui::screens::data::SelectData {
         }) else {
             continue;
         };
-        let rated = ratings::rate_song(&song, &[i]);
+        let rated = ratings::rate_song(&song, &[i], &[]);
         let d = ddi_chart::ChartDigest(0x5eed_0000 + k as u128);
         c.digest = Some(d);
         ratings::remember(d, rated[0].values.expect("rated"));
@@ -64,7 +64,7 @@ fn rated_sample() -> ddi_ui::screens::data::SelectData {
 /// The labels' and the caption's boxes (virtual pixels) as drawn, which
 /// must not overlap, and stay inside the radar.
 fn radar_boxes(ui: &Ui) -> Vec<(String, [f32; 4])> {
-    let mut out: Vec<(String, [f32; 4])> = (0..7)
+    let mut out: Vec<(String, [f32; 4])> = (0..8)
         .filter_map(|k| ui.bounds_of("Radar", &format!("Label{k}")).map(|b| (format!("Label{k}"), b)))
         .collect();
     out.extend(ui.bounds_of("Radar", "Caption").map(|b| ("Caption".to_string(), b)));
@@ -72,8 +72,12 @@ fn radar_boxes(ui: &Ui) -> Vec<(String, [f32; 4])> {
 }
 
 fn assert_apart(ui: &Ui, what: &str) {
+    assert_apart_n(ui, what, 7);
+}
+
+fn assert_apart_n(ui: &Ui, what: &str, spokes: usize) {
     let boxes = radar_boxes(ui);
-    assert_eq!(boxes.len(), 8, "{what}: every label and the caption");
+    assert_eq!(boxes.len(), spokes + 1, "{what}: every label and the caption");
     let panel = ui.bounds_of("Radar", "Panel").expect("the radar's panel");
     for (i, (a, ra)) in boxes.iter().enumerate() {
         assert!(
@@ -103,7 +107,7 @@ fn msd_numbers_and_the_skill_radar_draw_in_the_theme() {
     ] {
         assert!(ddi_l10n::force(lang), "{lang}");
         ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
-        ratings::set_mode(true, true);
+        ratings::set_mode(ddi_ui::state::ratings::Source::Msd, true);
         let css = [size[0] as f32, size[1] as f32];
         let look = Rc::new(ddi_theme::Infinito::new());
         let env = Env::new(look.clone(), Rc::new(|s: &str| s.to_string()));
@@ -184,6 +188,129 @@ fn msd_numbers_and_the_skill_radar_draw_in_the_theme() {
             keep("ratings-unrated", size, lang, &p);
         }
     }
-    ratings::set_mode(false, false);
+    ratings::set_mode(ddi_ui::state::ratings::Source::Song, false);
+    ddi_l10n::unforce();
+}
+
+/// A synthetic Single chart: `rows` repeated to `n`, 16 a measure, at
+/// `bpm` (the coordinator's pattern study's, `rating-anchor-patterns.rs`).
+fn pattern(bpm: u32, rows: &[&str], n: usize) -> ddi_chart::Song {
+    let mut r: Vec<&str> = rows.iter().cycle().take(n).copied().collect();
+    r.resize(n.next_multiple_of(16), "0000");
+    let measures: Vec<String> = r.chunks(16).map(|c| c.join("\n")).collect();
+    let text = format!("#BPMS:0={bpm};#NOTES:dance-single::Hard:13::{};", measures.join(",\n"));
+    ddi_chart::formats::sm::parse_sm(&text).expect("parsed")
+}
+
+/// Round Z2: song select under "Chart ratings: DDI estimate" with the
+/// radar On, drawn in the theme: a bundled chart whose skills stand out,
+/// a stream's and a jacks' pattern chart, a flat chart (in words), one
+/// outside what the estimate was studied on (in words), a Double chart;
+/// eight spokes, their labels apart as the platform measures them; at
+/// 1280×720 in English and Japanese.
+#[test]
+fn the_ddi_estimate_s_radar_draws_in_the_theme() {
+    use ddi_ui::screens::data::{ChartEntry, SongEntry};
+    const RND: [&str; 12] = [
+        "1000", "0010", "0100", "0001", "0100", "1000", "0001", "0010", "1000", "0001", "0100", "0010",
+    ];
+    const JACK: [&str; 16] = [
+        "1000", "1000", "1000", "1000", "0010", "0010", "0010", "0010", "0100", "0100", "0100", "0100",
+        "0001", "0001", "0001", "0001",
+    ];
+    let mut pictures = common::gpu::Pictures::new();
+    for lang in ["en", "ja"] {
+        assert!(ddi_l10n::force(lang), "{lang}");
+        ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+        ratings::set_mode(ratings::Source::Estimate, true);
+        // The bundled song as the sample has it, its Single charts with
+        // their real estimates.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs/into-my-dream");
+        let file = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|e| e == "ssc" || e == "sm"))
+            .unwrap();
+        let ext = file.extension().unwrap().to_str().unwrap().to_string();
+        let song = ddi_library::scan::parse_simfile(&std::fs::read_to_string(&file).unwrap(), &ext).unwrap();
+        let mut data = sample::select();
+        let entry = data.songs.iter_mut().find(|s| s.id == "into-my-dream").unwrap();
+        for c in entry.charts.iter_mut().filter(|c| c.style == "dance-single") {
+            let Some(i) = (0..song.charts.len()).find(|&i| {
+                let r = &song.charts[i];
+                r.layout == "dance-single" && r.difficulty == c.difficulty && r.meter == c.meter
+            }) else {
+                continue;
+            };
+            let d = song.chart_digest(i);
+            c.digest = Some(d);
+            c.version = None;
+            if let Some(e) = ratings::estimate_chart(&song, i) {
+                ratings::remember_estimate(d, e);
+            }
+        }
+        // The pattern charts, a song each.
+        let mut add = |id: &str, title: &str, song: ddi_chart::Song| {
+            let d = song.chart_digest(0);
+            let e = ratings::estimate_chart(&song, 0).expect("estimated");
+            ratings::remember_estimate(d, e);
+            let mut c = ChartEntry::of_song(&song, 0).unwrap();
+            c.digest = Some(d);
+            data.songs.insert(
+                0,
+                SongEntry {
+                    id: id.into(),
+                    title: title.into(),
+                    artist: "Synthetic".into(),
+                    bpm_text: "150".into(),
+                    length: 60.0,
+                    charts: vec![c],
+                    ..SongEntry::default()
+                },
+            );
+        };
+        add("z-stream", "Stream pattern", pattern(150, &RND, 600));
+        add("z-jacks", "Jack pattern", pattern(130, &JACK, 480));
+        add("z-slow", "Quarter notes", pattern(70, &["1000", "0000", "0000", "0000", "0100", "0000", "0000", "0000"], 600));
+        add("z-long", "Long stream", pattern(120, &RND, 1100));
+        let look = Rc::new(ddi_theme::Infinito::new());
+        let env = Env::new(look.clone(), Rc::new(|s: &str| s.to_string()));
+        env.reduced_motion.set(true);
+        let size = [1280u32, 720u32];
+        for (id, scene, want) in [
+            ("into-my-dream", "estimate-relevant", "shown"),
+            ("z-stream", "estimate-stream", "shown"),
+            ("z-jacks", "estimate-jacks", "shown"),
+            ("z-slow", "estimate-flat", "flat"),
+            ("z-long", "estimate-outside", "outside"),
+        ] {
+            let mut ui = Ui::new(ddi_ui::screens::DESIGN, ddi_ui::TextMode::Own, false);
+            ui.set_focus_ring(false);
+            ui.push(SelectScreen::new(
+                env.clone(),
+                data.clone(),
+                Some(id),
+                Rc::new(|_, _, _, _| {}),
+                Rc::new(|_, _| {}),
+            ));
+            ui.handle(UiEvent::Resize {
+                size: [1280.0, 720.0],
+                ratio: 1.0,
+            });
+            common::ui::frames(&mut ui, 1.0);
+            let shot = pictures.draw(&mut ui, size);
+            let st = env.state.borrow().clone();
+            assert_eq!(st.song_id, id);
+            assert_eq!(st.radar, want, "{scene} {lang}: {:?}", st.chart);
+            if want == "shown" {
+                assert_apart_n(&ui, &format!("{scene} {lang}"), 8);
+            }
+            if let Some(p) = shot {
+                keep(scene, size, lang, &p);
+            }
+        }
+    }
+    ratings::set_mode(ratings::Source::Song, false);
     ddi_l10n::unforce();
 }

@@ -18,6 +18,8 @@ path = "src/main.rs"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ddi-chart.workspace = true
 ddi-msd.workspace = true
+ddi-rating.workspace = true
+serde_json.workspace = true
 wasm-bindgen.workspace = true
 js-sys.workspace = true
 web-sys = { workspace = true, features = ["DedicatedWorkerGlobalScope", "MessageEvent"] }

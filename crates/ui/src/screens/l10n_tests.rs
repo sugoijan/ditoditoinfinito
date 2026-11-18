@@ -479,7 +479,7 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     // lanes).
     {
         use crate::state::ratings;
-        ratings::set_mode(true, true);
+        ratings::set_mode(crate::state::ratings::Source::Msd, true);
         let mut data = sample::select();
         let song = &mut data.songs[0];
         for c in &mut song.charts {
@@ -503,7 +503,7 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         }
         h.key("Tab", "Tab");
         shown(&mut h, found);
-        ratings::set_mode(false, false);
+        ratings::set_mode(crate::state::ratings::Source::Song, false);
     }
     // Typing a search, then what it found.
     let mut h = harness();

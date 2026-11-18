@@ -262,6 +262,85 @@ pub struct ChartInfo {
     /// (`ddi_ui::state::ratings`). `None` for a chart without one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub msd: Option<[f32; 8]>,
+    /// Its DDI estimate (`ddi_rating`, `docs/plans/msd-ratings.md`, "The
+    /// DDI estimate as a source"): written for the bundled songs' original
+    /// Single charts by `xtask gen-songs`, as [`ChartEstimate`] keeps it;
+    /// others are estimated in the background. `None` for a chart without
+    /// one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimate: Option<ChartEstimate>,
+}
+
+/// What the game keeps of a chart's DDI estimate (`ddi_rating::Estimate`,
+/// read through its JSON, [`ChartEstimate::from_rating_json`], so nothing
+/// here depends on the estimator): the decimal to the hundredth and the
+/// level shown, whether each is qualified (the number to 1,200 source
+/// notes, `within_scalar_domain`; the profile to 900,
+/// `within_studied_domain`), and the skill radar's profile by
+/// [`PROFILE_RULE`] where the profile is qualified.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChartEstimate {
+    pub decimal: f32,
+    pub level: u8,
+    #[serde(default)]
+    pub scalar: bool,
+    #[serde(default)]
+    pub studied: bool,
+    /// Each skill's cost in percentage points of Accuracy at the chart's
+    /// matched level, to the hundredth, never below zero
+    /// ([`matched_profile`]; `ddi_engine::cpu::SKILL_NAMES`' order).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<[f32; 8]>,
+}
+
+/// How a DDI estimate's profile is read (`docs/plans/msd-ratings.md`, "The
+/// DDI estimate as a source"): kept with the estimator's and the scale's
+/// names, a new rule forgets what an older one made.
+pub const PROFILE_RULE: &str = "matched-level-profile-v0";
+
+/// The skill profile of a chart estimated at `decimal` (1 to 19) from the
+/// estimator's `means` (a row a CPU level, 1 to 10: the balanced Accuracy,
+/// then the eight skills' costs in percentage points): the CPU level
+/// matched to the chart's own estimate, `clamp(decimal / 19 × 10, 1, 10)`,
+/// each cost the two rows' about it interpolated there, a negative cost
+/// taken as zero ([`PROFILE_RULE`]). Where the calibrated readout anchors
+/// every chart at level 10, where it costs a CPU almost nothing, this one
+/// reads a chart where the CPUs of its own difficulty play it.
+pub fn matched_profile(decimal: f64, means: &[[f64; 9]; 10]) -> [f64; 8] {
+    let x = (decimal / 19.0 * 10.0).clamp(1.0, 10.0) - 1.0;
+    let i = x.floor() as usize;
+    let f = x - i as f64;
+    let j = (i + 1).min(9);
+    std::array::from_fn(|a| (means[i][a + 1] * (1.0 - f) + means[j][a + 1] * f).max(0.0))
+}
+
+impl ChartEstimate {
+    /// From `ddi_rating::Estimate` as JSON (its `Serialize`): the
+    /// decimal, the level, the two domains, and where the profile is
+    /// qualified [`matched_profile`] of its `means`. `None` where it does
+    /// not read as one.
+    pub fn from_rating_json(json: &str) -> Option<ChartEstimate> {
+        #[derive(Deserialize)]
+        struct Estimate {
+            decimal: f64,
+            level: u8,
+            within_scalar_domain: bool,
+            within_studied_domain: bool,
+            means: [[f64; 9]; 10],
+        }
+        let e: Estimate = serde_json::from_str(json).ok()?;
+        let hundredth = |x: f64| ((x * 100.0).round() / 100.0) as f32;
+        let profile = e
+            .within_studied_domain
+            .then(|| matched_profile(e.decimal, &e.means).map(hundredth));
+        Some(ChartEstimate {
+            decimal: hundredth(e.decimal),
+            level: e.level,
+            scalar: e.within_scalar_domain,
+            studied: e.within_studied_domain,
+            profile,
+        })
+    }
 }
 
 impl ChartInfo {
@@ -285,6 +364,7 @@ impl ChartInfo {
             excessive: None,
             music: None,
             msd: None,
+            estimate: None,
         }
     }
 }

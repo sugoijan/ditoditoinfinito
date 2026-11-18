@@ -2442,7 +2442,7 @@ impl Host {
             chart: chart_line_rated(
                 c.difficulty,
                 c.meter,
-                ddi_ui::state::ratings::shown_msd(&song, chart),
+                ddi_ui::state::ratings::shown_number(&song, chart),
                 &ddi_ui::screens::data::style_name(&layout.id, &layout.name),
             ),
             song_id: r.request.song.clone(),

@@ -89,7 +89,7 @@ fn fresh() -> Rc<MemoryStore> {
 #[test]
 fn with_both_options_off_nothing_is_rated_read_or_written() {
     let _store = fresh();
-    ratings::set_mode(false, false);
+    ratings::set_mode(crate::state::ratings::Source::Song, false);
     let data = songs();
     let hard = data.songs[0].charts[1].clone();
     let mut h = select(data);
@@ -108,7 +108,7 @@ fn with_both_options_off_nothing_is_rated_read_or_written() {
 fn msd_takes_the_numbers_place_and_the_rest_wait_for_rating() {
     let _store = fresh();
     // The ladder's rows (the radar Off: its side has none).
-    ratings::set_mode(true, false);
+    ratings::set_mode(crate::state::ratings::Source::Msd, false);
     // Song 0's Hard rated, the rest not yet.
     let mut v = [21.37f32, 22.0, 15.0, 14.0, 20.5, 12.0, 13.0, 18.0];
     ratings::done(
@@ -117,6 +117,7 @@ fn msd_takes_the_numbers_place_and_the_rest_wait_for_rating() {
             index: 1,
             digest: ddi_chart::ChartDigest(1),
             values: Some(v),
+            ..Default::default()
         }],
     );
     let data = songs();
@@ -144,6 +145,7 @@ fn msd_takes_the_numbers_place_and_the_rest_wait_for_rating() {
             index: 0,
             digest: ddi_chart::ChartDigest(0),
             values: Some(v),
+            ..Default::default()
         }],
     );
     h.run(0.6);
@@ -155,13 +157,14 @@ fn msd_takes_the_numbers_place_and_the_rest_wait_for_rating() {
 #[test]
 fn the_radar_shows_for_a_rated_chart_with_its_option_on() {
     let _store = fresh();
-    ratings::set_mode(false, true);
+    ratings::set_mode(crate::state::ratings::Source::Song, true);
     ratings::done(
         "s0",
         vec![ratings::Rated {
             index: 1,
             digest: ddi_chart::ChartDigest(1),
             values: Some([20.0, 20.0, 15.0, 14.0, 18.0, 12.0, 13.0, 18.0]),
+            ..Default::default()
         }],
     );
     let data = songs();
@@ -183,7 +186,7 @@ fn the_radar_shows_for_a_rated_chart_with_its_option_on() {
     assert!(h.ui.bounds("Radar").is_some());
     // The numbers stay the song's with Chart ratings on the song's.
     assert_eq!(hard.meter_text(), "9");
-    ratings::set_mode(false, false);
+    ratings::set_mode(crate::state::ratings::Source::Song, false);
     h.run(0.6);
     assert!(h.ui.bounds("Radar").is_none());
     assert!(h.ui.actor("Ladder.Row0").is_some(), "the ladder again");
@@ -212,13 +215,14 @@ fn song_select_with_the_radar_off_draws_as_pinned() {
     for msd in [false, true] {
         for size in [[1280.0, 720.0], [1024.0, 768.0], [1440.0, 810.0]] {
             let _store = fresh();
-            ratings::set_mode(msd, false);
+            ratings::set_mode(if msd { crate::state::ratings::Source::Msd } else { crate::state::ratings::Source::Song }, false);
             ratings::done(
                 "s0",
                 vec![ratings::Rated {
                     index: 1,
                     digest: ddi_chart::ChartDigest(1),
                     values: Some([21.37, 22.0, 15.0, 14.0, 20.5, 12.0, 13.0, 18.0]),
+                    ..Default::default()
                 }],
             );
             let mut h = Harness::new(DESIGN, size, 1.0, TextMode::Own);
@@ -238,7 +242,7 @@ fn song_select_with_the_radar_off_draws_as_pinned() {
             got.push(hash(&h));
         }
     }
-    ratings::set_mode(false, false);
+    ratings::set_mode(crate::state::ratings::Source::Song, false);
     assert_eq!(got, OFF_PINNED, "{got:?}");
 }
 
@@ -284,13 +288,14 @@ fn the_radar_shows_at_every_wide_size() {
         ("1280x720 window 133%", [962.0, 459.0], false),
     ] {
         let _store = fresh();
-        ratings::set_mode(false, true);
+        ratings::set_mode(crate::state::ratings::Source::Song, true);
         ratings::done(
             "s0",
             vec![ratings::Rated {
                 index: 1,
                 digest: ddi_chart::ChartDigest(1),
                 values: Some([20.0, 20.0, 15.0, 14.0, 18.0, 12.0, 13.0, 18.0]),
+                ..Default::default()
             }],
         );
         let e = env();
@@ -304,7 +309,7 @@ fn the_radar_shows_at_every_wide_size() {
         assert_eq!(radar_said(&e), if wide { "shown" } else { "phone" }, "{name}");
         assert!(h.ui.actor("Ladder.Row0").is_none(), "{name}: no ladder");
     }
-    ratings::set_mode(false, false);
+    ratings::set_mode(crate::state::ratings::Source::Song, false);
 }
 
 /// Round Z1, the label rule: at every size the radar's side gives it on a
@@ -338,28 +343,41 @@ fn the_radar_s_labels_never_overlap() {
             m::radar_technical(),
         ]
         .map(String::from);
-        let overall: String = m::radar_overall().into();
-        let words = Words {
-            full: &full,
-            short: &short,
-            overall: &overall,
-        };
-        let numbers: [String; 8] = std::array::from_fn(|k| radar::number(28.0 + k as f32 * 1.11));
-        for h in [191.0, 208.0, 271.0, 320.0] {
-            let size = [338.0, h];
-            let p = radar::place(size, &words, &numbers);
-            let what = format!("{lang} {size:?}: {p:?}");
-            assert!(p.radius >= 40.0, "{what}");
-            let mut all = p.labels.to_vec();
-            all.push(p.caption);
-            for (i, a) in all.iter().enumerate() {
-                assert!(
-                    a[0] >= -169.0 && a[2] <= 169.0 && a[1] >= -h / 2.0 && a[3] <= h / 2.0,
-                    "{what}: {i} outside"
-                );
-                assert!(!radar::meets_shape(*a, p.radius), "{what}: {i} on the shape");
-                for (j, b) in all.iter().enumerate().skip(i + 1) {
-                    assert!(!overlap(*a, *b), "{what}: {i} and {j} overlap");
+        // MSD's seven, and the DDI estimate's eight (Evasion the eighth).
+        for spokes in [7usize, 8] {
+            let mut full = full.to_vec();
+            let mut short = short.to_vec();
+            let overall: String = if spokes == 8 {
+                full.push(m::radar_evasion_full().into());
+                short.push(m::radar_evasion().into());
+                m::radar_estimate_overall().into()
+            } else {
+                m::radar_overall().into()
+            };
+            let words = Words {
+                full: &full,
+                short: &short,
+                overall: &overall,
+            };
+            let numbers: Vec<String> =
+                (0..=spokes).map(|k| radar::number(28.0 + k as f32 * 1.11)).collect();
+            for h in [191.0, 208.0, 271.0, 320.0] {
+                let size = [338.0, h];
+                let p = radar::place(size, &words, &numbers);
+                let what = format!("{lang} {spokes} {size:?}: {p:?}");
+                assert!(p.radius >= 40.0, "{what}");
+                assert_eq!(p.labels.len(), spokes);
+                let mut all = p.labels.to_vec();
+                all.push(p.caption);
+                for (i, a) in all.iter().enumerate() {
+                    assert!(
+                        a[0] >= -169.0 && a[2] <= 169.0 && a[1] >= -h / 2.0 && a[3] <= h / 2.0,
+                        "{what}: {i} outside"
+                    );
+                    assert!(!radar::meets_shape(*a, p.radius, spokes), "{what}: {i} on the shape");
+                    for (j, b) in all.iter().enumerate().skip(i + 1) {
+                        assert!(!overlap(*a, *b), "{what}: {i} and {j} overlap");
+                    }
                 }
             }
         }
@@ -375,7 +393,7 @@ fn the_radar_s_labels_never_overlap() {
 #[test]
 fn the_chart_buttons_pick_and_the_radar_follows() {
     let _store = fresh();
-    ratings::set_mode(true, true);
+    ratings::set_mode(crate::state::ratings::Source::Msd, true);
     let v = |x: f32| [x, x, x - 4.0, x - 6.0, x - 1.0, x - 8.0, x - 7.0, x - 2.0];
     ratings::done(
         "s0",
@@ -384,11 +402,13 @@ fn the_chart_buttons_pick_and_the_radar_follows() {
                 index: 0,
                 digest: ddi_chart::ChartDigest(0),
                 values: Some(v(12.0)),
+                ..Default::default()
             },
             ratings::Rated {
                 index: 1,
                 digest: ddi_chart::ChartDigest(1),
                 values: Some(v(21.0)),
+                ..Default::default()
             },
         ],
     );
@@ -441,7 +461,7 @@ fn the_chart_buttons_pick_and_the_radar_follows() {
     let a = shape(&h);
     h.run(0.05);
     assert_eq!(a, shape(&h), "at once");
-    ratings::set_mode(false, false);
+    ratings::set_mode(crate::state::ratings::Source::Song, false);
 }
 
 /// Round Z1: a chart not four lanes says so in the radar's place, with its
@@ -449,7 +469,7 @@ fn the_chart_buttons_pick_and_the_radar_follows() {
 #[test]
 fn a_chart_of_another_layout_says_it_has_no_rating() {
     let _store = fresh();
-    ratings::set_mode(false, true);
+    ratings::set_mode(crate::state::ratings::Source::Song, true);
     let mut data = songs();
     for c in &mut data.songs[0].charts {
         c.style = "dance-double".into();
@@ -460,7 +480,7 @@ fn a_chart_of_another_layout_says_it_has_no_rating() {
     assert!(h.ui.bounds("RadarNote").is_some());
     assert!(h.texts().iter().any(|t| t == "No rating for this layout"), "{:?}", h.texts());
     assert!(h.texts().iter().any(|t| t == "300 notes"));
-    ratings::set_mode(false, false);
+    ratings::set_mode(crate::state::ratings::Source::Song, false);
 }
 
 /// Round Z1: on the radar's side every chart of the style has its button
@@ -469,7 +489,7 @@ fn a_chart_of_another_layout_says_it_has_no_rating() {
 #[test]
 fn every_chart_keeps_its_button_on_the_radar_s_side() {
     let _store = fresh();
-    ratings::set_mode(false, true);
+    ratings::set_mode(crate::state::ratings::Source::Song, true);
     let mut data = songs();
     data.songs[0].charts = [
         Difficulty::Beginner,
@@ -500,5 +520,140 @@ fn every_chart_keeps_its_button_on_the_radar_s_side() {
         assert_eq!(e.state.borrow().screen, "select", "nothing played");
     }
     assert!(h.ui.bounds("Chart6").is_none());
-    ratings::set_mode(false, false);
+    ratings::set_mode(crate::state::ratings::Source::Song, false);
+}
+
+/// Round Z2: the three choices' numbers on the bundled songs' charts, by
+/// the calculators' own values (nothing copied): the song's own; MSD,
+/// whole, on four lanes; the DDI estimate's level on original Single
+/// charts whose number it qualifies, the song's elsewhere (fainter).
+#[test]
+fn the_three_choices_number_the_bundled_charts() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs");
+    let mut dirs: Vec<_> = std::fs::read_dir(&root).unwrap().flatten().map(|e| e.path()).collect();
+    dirs.sort();
+    let mut checked = 0;
+    for dir in dirs.iter().filter(|d| d.is_dir()) {
+        let Some(file) = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).find(|p| {
+            p.extension().is_some_and(|e| e == "ssc" || e == "sm")
+        }) else {
+            continue;
+        };
+        let ext = file.extension().unwrap().to_str().unwrap().to_string();
+        let song =
+            ddi_library::scan::parse_simfile(&std::fs::read_to_string(&file).unwrap(), &ext).unwrap();
+        let _store = fresh();
+        let mut entries = Vec::new();
+        for index in 0..song.charts.len() {
+            let mut c = ChartEntry::of_song(&song, index).unwrap();
+            let digest = song.chart_digest(index);
+            c.digest = Some(digest);
+            if let Some(v) = ratings::rate_song(&song, &[index], &[])[0].values {
+                ratings::remember(digest, v);
+            }
+            if let Some(e) = ratings::estimate_chart(&song, index) {
+                ratings::remember_estimate(digest, e);
+            }
+            entries.push((index, c));
+        }
+        for (index, c) in &entries {
+            let chart = &song.charts[*index];
+            let what = format!("{} chart {index} ({} {})", dir.display(), chart.layout, chart.meter);
+            ratings::set_mode(ratings::Source::Song, false);
+            assert_eq!(c.meter_text(), c.meter_text_fine());
+            assert!(!c.meter_is_songs());
+            ratings::set_mode(ratings::Source::Msd, false);
+            let msd = ddi_msd::chart::four_keys(&chart.layout)
+                .then(|| ddi_msd::chart::chart_msd(&song, chart))
+                .flatten();
+            match msd {
+                Some(v) => assert_eq!(c.meter_text(), format!("{}", ((v[0] * 100.0).round() / 100.0).round() as i64), "{what}"),
+                None => assert!(c.meter_is_songs(), "{what}"),
+            }
+            ratings::set_mode(ratings::Source::Estimate, false);
+            let est = ddi_rating::estimate(&song, *index).ok().filter(|e| e.within_scalar_domain);
+            match est {
+                Some(e) => {
+                    assert_eq!(c.meter_text(), e.level.to_string(), "{what}");
+                    assert_eq!(
+                        c.shown_rating().unwrap().detail(),
+                        format!("{:.1}", (e.decimal * 100.0).round() / 100.0),
+                        "{what}"
+                    );
+                    checked += 1;
+                }
+                None => assert!(c.meter_is_songs(), "{what}: the song's, fainter"),
+            }
+        }
+    }
+    assert!(checked >= 15, "{checked} estimated");
+    ratings::set_mode(ratings::Source::Song, false);
+}
+
+/// Round Z2: under the DDI estimate the radar's side draws each state: an
+/// eight-spoke profile (its numbers each spoke's cost), a flat one in
+/// words, one outside what the estimate was studied on, one waiting, and
+/// a chart that is not Single.
+#[test]
+fn the_estimate_s_radar_draws_each_state() {
+    use ddi_library::manifest::ChartEstimate;
+    let _store = fresh();
+    ratings::set_mode(ratings::Source::Estimate, true);
+    let est = |decimal: f32, profile: Option<[f32; 8]>, studied: bool| ChartEstimate {
+        decimal,
+        level: decimal.round() as u8,
+        scalar: true,
+        studied,
+        profile,
+    };
+    // Song 0: Medium with a profile, Hard flat; song 1: Medium outside,
+    // Hard waiting.
+    ratings::remember_estimate(
+        ddi_chart::ChartDigest(0),
+        est(9.44, Some([2.86, 0.0, 0.0, 1.45, 12.29, 0.0, 0.0, 0.0]), true),
+    );
+    ratings::remember_estimate(ddi_chart::ChartDigest(1), est(3.0, Some([0.1, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0]), true));
+    ratings::remember_estimate(ddi_chart::ChartDigest(10), est(18.2, None, false));
+    let mut data = songs();
+    // Song 2: Double.
+    for c in &mut data.songs[2].charts {
+        c.style = "dance-double".into();
+    }
+    let (mut h, e) = select_at(data, [1280.0, 720.0]);
+    let said = |e: &Env| e.state.borrow().radar.clone();
+    // Song 0's Hard (chosen first): flat.
+    assert_eq!(said(&e), "flat");
+    assert!(h.texts().iter().any(|t| t == "No skill stands out on this chart"), "{:?}", h.texts());
+    assert_eq!(e.state.borrow().chart.as_deref(), Some("Hard 9"));
+    h.tap(PointerKind::Mouse, "Chart0");
+    h.run(0.6);
+    assert_eq!(said(&e), "shown");
+    for k in 0..8 {
+        assert!(h.ui.bounds_of("Radar", &format!("Label{k}")).is_some(), "spoke {k}");
+    }
+    assert!(h.ui.bounds_of("Radar", "Label8").is_none());
+    let texts = h.texts();
+    for want in ["12.3", "2.9", "1.5", "0.0", "Jack speed", "Evasion", "DDI", "9.4", "Skill costs, in points of Accuracy"] {
+        assert!(texts.iter().any(|t| t == want), "{want} in {texts:?}");
+    }
+    // The estimate's level in the button, the decimal in the detail.
+    assert_eq!(e.state.borrow().chart.as_deref(), Some("Medium 6"));
+    h.key("ArrowDown", "ArrowDown");
+    h.run(0.6);
+    // Song 1's Medium (the difficulty chosen last): outside; its Hard
+    // waiting (its song offered, nothing rates it here).
+    assert_eq!(said(&e), "outside");
+    assert!(h.texts().iter().any(|t| t == "Outside what the estimate was studied on"));
+    h.tap(PointerKind::Mouse, "Chart1");
+    h.run(0.6);
+    assert_eq!(said(&e), "rating");
+    assert!(h.texts().iter().any(|t| t == "Rating this chart…"));
+    h.key("ArrowDown", "ArrowDown");
+    h.run(0.6);
+    h.key("Tab", "Tab");
+    h.run(0.6);
+    if e.state.borrow().radar == "no-layout" {
+        assert!(h.texts().iter().any(|t| t == "The DDI estimate is for Single charts"));
+    }
+    ratings::set_mode(ratings::Source::Song, false);
 }

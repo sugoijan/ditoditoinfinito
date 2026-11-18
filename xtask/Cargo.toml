@@ -27,6 +27,7 @@ ddi-chart.workspace = true
 ddi-library.workspace = true
 # The bundled songs' MSD, written into their manifest (`gen-songs`).
 ddi-msd.workspace = true
+ddi-rating.workspace = true
 ddi-noteskin.workspace = true
 ddi-platform.workspace = true
 swc_ecma_minifier = "63"

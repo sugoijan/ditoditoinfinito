@@ -440,9 +440,10 @@ pub struct PromptChart {
     pub layout: String,
     pub difficulty: ddi_chart::Difficulty,
     pub meter: u32,
-    /// Its MSD in the number's place, where Chart ratings shows it
-    /// (`crate::state::ratings::shown_msd`).
-    pub msd: Option<f32>,
+    /// The game's rating in the number's place, where Chart ratings shows
+    /// one (MSD to a tenth, the DDI estimate's level:
+    /// `crate::state::ratings::shown_number`).
+    pub rating: Option<String>,
     /// Its layout's name.
     pub style: String,
 }
@@ -455,7 +456,7 @@ impl PromptChart {
             layout: c.layout.clone(),
             difficulty: c.difficulty,
             meter: c.meter,
-            msd: crate::state::ratings::shown_msd(song, chart),
+            rating: crate::state::ratings::shown_number(song, chart),
             style: song.layout_of(c).map(|l| l.name).unwrap_or_default(),
         })
     }
@@ -627,7 +628,7 @@ impl PromptInfo {
                 chart_line_rated(
                     c.difficulty,
                     c.meter,
-                    c.msd,
+                    c.rating,
                     &super::data::style_name(&c.layout, &c.style),
                 ),
                 c.difficulty.name().to_string(),
@@ -664,18 +665,15 @@ pub fn chart_line(difficulty: ddi_chart::Difficulty, meter: u32, style: &str) ->
     chart_line_rated(difficulty, meter, None, style)
 }
 
-/// [`chart_line`] with the chart's MSD, to a tenth, in its number's place
-/// where Chart ratings shows it (`crate::state::ratings::shown_msd`).
+/// [`chart_line`] with the game's rating in its number's place where
+/// Chart ratings shows one (`crate::state::ratings::shown_number`).
 pub fn chart_line_rated(
     difficulty: ddi_chart::Difficulty,
     meter: u32,
-    msd: Option<f32>,
+    rating: Option<String>,
     style: &str,
 ) -> String {
-    let number = match msd {
-        Some(m) => format!("{m:.1}"),
-        None => meter.to_string(),
-    };
+    let number = rating.unwrap_or_else(|| meter.to_string());
     let difficulty = UiText::data(format!("{} {number}", difficulty.name()));
     format!("{difficulty} · {style}")
 }
@@ -2553,7 +2551,7 @@ mod tests {
                     layout: layout.into(),
                     difficulty: ddi_chart::Difficulty::Medium,
                     meter: 5,
-                    msd: None,
+                    rating: None,
                     style: layout.into(),
                 }),
                 &settings,
@@ -2583,7 +2581,7 @@ mod tests {
                 layout: "dance-single".into(),
                 difficulty: ddi_chart::Difficulty::Hard,
                 meter: 9,
-                msd: None,
+                rating: None,
                 style: style.clone(),
             })
         );

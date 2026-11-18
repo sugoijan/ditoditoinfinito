@@ -17,6 +17,7 @@ ddi-l10n.workspace = true
 ddi-library.workspace = true
 # Chart ratings (`state::ratings`): MSD's calculator, its version, a chart's rows.
 ddi-msd.workspace = true
+ddi-rating.workspace = true
 ddi-noteskin.workspace = true
 ddi-platform.workspace = true
 ddi-room.workspace = true

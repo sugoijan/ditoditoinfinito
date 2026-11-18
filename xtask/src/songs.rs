@@ -183,13 +183,21 @@ pub(crate) fn gen_songs(check: bool) -> Result<()> {
             },
             &song,
         );
-        // Their MSD, for the option that shows it (`docs/plans/msd-ratings.md`).
+        // Their MSD and their DDI estimate, for the option that shows them
+        // (`docs/plans/msd-ratings.md`): the estimate for original Single
+        // charts, read as the game keeps it (the estimator's JSON through
+        // `ChartEstimate::from_rating_json`, as the shells read it).
         for c in &mut entry.charts {
             c.msd = song
                 .charts
                 .get(c.index)
                 .and_then(|chart| ddi_msd::chart::chart_msd(&song, chart))
                 .map(|v| v.map(|x| (x * 100.0).round() / 100.0));
+            c.estimate = (c.layout == "dance-single" && c.derivation.is_none())
+                .then(|| ddi_rating::estimate(&song, c.index).ok())
+                .flatten()
+                .and_then(|e| serde_json::to_string(&e).ok())
+                .and_then(|json| ddi_library::manifest::ChartEstimate::from_rating_json(&json));
         }
         entries.push(entry);
     }

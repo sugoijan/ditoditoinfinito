@@ -69,6 +69,9 @@ struct State {
     /// Songs the worker rated, and its time doing so, ms.
     songs: u32,
     ms: f64,
+    /// Charts the worker estimated, and its time doing so, ms.
+    estimated: u32,
+    estimate_ms: f64,
 }
 
 thread_local! {
@@ -143,9 +146,12 @@ fn rate(job: Job) {
             // play reads it, its four-lane charts (generated versions
             // among them) written as a simfile the worker reads, their
             // numbers put back by their own digests.
+            // Its charts to estimate (originals alone) written with them.
             Err(_) => match crate::songs::load_chart(&job.song).await {
                 Ok(song) => {
-                    let (text, written) = ratings::rating_simfile(&song, &job.charts);
+                    let mut all = job.charts.clone();
+                    all.extend(job.estimates.iter().filter(|i| !job.charts.contains(i)));
+                    let (text, written) = ratings::rating_simfile(&song, &all);
                     STATE.with_borrow_mut(|s| s.written = Some(written));
                     Ok((text, "ssc".to_string()))
                 }
@@ -159,10 +165,21 @@ fn rate(job: Job) {
                 return;
             }
         };
-        let charts_asked: Vec<usize> = match STATE.with_borrow(|s| s.written.as_ref().map(Vec::len)) {
-            Some(n) => (0..n).collect(),
-            None => job.charts.clone(),
-        };
+        // Written anew: each asked by its place in what was written.
+        let (charts_asked, estimates_asked): (Vec<usize>, Vec<usize>) =
+            match STATE.with_borrow(|s| s.written.clone()) {
+                Some(w) => {
+                    let at = |want: &[usize]| -> Vec<usize> {
+                        w.iter()
+                            .enumerate()
+                            .filter(|(_, (index, _))| want.contains(index))
+                            .map(|(k, _)| k)
+                            .collect()
+                    };
+                    (at(&job.charts), at(&job.estimates))
+                }
+                None => (job.charts.clone(), job.estimates.clone()),
+            };
         let msg = Object::new();
         let set = |k: &str, v: &JsValue| {
             let _ = Reflect::set(&msg, &JsValue::from_str(k), v);
@@ -170,11 +187,15 @@ fn rate(job: Job) {
         set("id", &JsValue::from(id));
         set("text", &JsValue::from_str(&text));
         set("ext", &JsValue::from_str(&ext));
-        let charts = Array::new();
-        for c in &charts_asked {
-            charts.push(&JsValue::from(*c as f64));
-        }
-        set("charts", &charts);
+        let places = |asked: &[usize]| {
+            let a = Array::new();
+            for c in asked {
+                a.push(&JsValue::from(*c as f64));
+            }
+            a
+        };
+        set("charts", &places(&charts_asked));
+        set("estimates", &places(&estimates_asked));
         if let Err(e) = ensure_worker().await {
             STATE.with_borrow_mut(|s| s.broken = Some(e));
             finish(id, Vec::new());
@@ -319,10 +340,46 @@ fn heard(data: JsValue) {
             s.ms += ms;
         });
     }
-    let rated = get("rated")
-        .map(|r| Array::from(&r))
-        .map(|a| a.iter().filter_map(|e| rated_of(&Array::from(&e))).collect())
-        .unwrap_or_default();
+    let entries = |k: &str| -> Vec<Array> {
+        get(k)
+            .filter(|r| r.is_object())
+            .map(|r| Array::from(&r).iter().map(|e| Array::from(&e)).collect())
+            .unwrap_or_default()
+    };
+    let mut rated: Vec<Rated> = entries("rated").iter().filter_map(rated_of).collect();
+    // The estimates: the estimator's JSON read as the game keeps it.
+    let estimated = entries("estimated");
+    if let Some(ms) = get("estimateMs").and_then(|v| v.as_f64()) {
+        STATE.with_borrow_mut(|s| {
+            s.estimated += estimated.len() as u32;
+            s.estimate_ms += ms;
+        });
+    }
+    for e in &estimated {
+        let (Some(index), Some(digest)) = (
+            e.get(0).as_f64().map(|v| v as usize),
+            e.get(1).as_string().and_then(|d| d.parse().ok()),
+        ) else {
+            continue;
+        };
+        let estimate = e
+            .get(2)
+            .as_string()
+            .and_then(|json| ratings::ChartEstimate::from_rating_json(&json));
+        match rated.iter_mut().find(|r| r.index == index) {
+            Some(r) => {
+                r.estimated = true;
+                r.estimate = estimate;
+            }
+            None => rated.push(Rated {
+                index,
+                digest,
+                estimated: true,
+                estimate,
+                ..Rated::default()
+            }),
+        }
+    }
     finish(id, rated);
     // The next song at once (spaced out by the testing aid `msdslow`).
     if ratings::wanted()
@@ -352,6 +409,7 @@ fn rated_of(e: &Array) -> Option<Rated> {
         index,
         digest,
         values,
+        ..Rated::default()
     })
 }
 
@@ -374,10 +432,21 @@ pub(crate) fn debug_into(obj: &Object) {
     );
     set("rated", (st.rated as f64).into());
     set("known", (st.known as f64).into());
+    set("estimates", (st.estimates as f64).into());
+    set(
+        "source",
+        JsValue::from_str(match ratings::source() {
+            ratings::Source::Song => "song",
+            ratings::Source::Msd => "msd",
+            ratings::Source::Estimate => "estimate",
+        }),
+    );
     STATE.with_borrow(|s| {
         set("worker", s.worker.is_some().into());
         set("workerSongs", f64::from(s.songs).into());
         set("workerMs", s.ms.into());
+        set("workerEstimated", f64::from(s.estimated).into());
+        set("workerEstimateMs", s.estimate_ms.into());
         set(
             "broken",
             s.broken

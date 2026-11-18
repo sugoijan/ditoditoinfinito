@@ -2494,7 +2494,7 @@ fn song_select_with_the_radar_off_draws_in_the_theme_as_pinned() {
     let first = data.songs[0].clone();
     let mut got = Vec::new();
     for msd in [false, true] {
-        ratings::set_mode(msd, false);
+        ratings::set_mode(if msd { ddi_ui::state::ratings::Source::Msd } else { ddi_ui::state::ratings::Source::Song }, false);
         for c in first.charts.iter().filter(|c| c.style == "dance-single").take(3) {
             let m = 10.0 + c.index as f32;
             ratings::remember(c.digest.unwrap(), [m, m, m - 2.0, m - 4.0, m - 1.0, m - 6.0, m - 5.0, m - 3.0]);
@@ -2525,7 +2525,7 @@ fn song_select_with_the_radar_off_draws_in_the_theme_as_pinned() {
             got.push(hash(&h));
         }
     }
-    ratings::set_mode(false, false);
+    ratings::set_mode(ddi_ui::state::ratings::Source::Song, false);
     assert_eq!(got, THEME_OFF_PINNED, "{got:?}");
 }
 

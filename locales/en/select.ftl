@@ -208,6 +208,29 @@ select-radar-rating = Rating this chart…
 select-radar-no-layout = No rating for this layout
 # The same place: the chart could not be rated.
 select-radar-none = No rating for this chart
+# The skill radar under Chart ratings: DDI estimate (the game's own
+# estimate, experimental): its eighth spoke, the skill of avoiding mines
+# (short and full, as the others).
+select-radar-evasion = Evasion
+select-radar-evasion-full = Evasion
+# Its caption's word, before the chart's estimate ("DDI 14.3"; DDI is the
+# game's ruleset's name: keep it).
+select-radar-estimate-overall = DDI
+# A line beside the radar, under the chart's lines: its spokes' numbers
+# are how many points of Accuracy each skill costs a CPU of the chart's
+# level. Short.
+select-radar-estimate-unit = Skill costs, in points of Accuracy
+# In the radar's place where no skill stands out on the chart (its costs
+# are all small).
+select-radar-flat = No skill stands out on this chart
+# In the radar's place where the chart is longer or otherwise outside the
+# charts the estimate was studied on.
+select-radar-outside = Outside what the estimate was studied on
+# In the radar's place under the DDI estimate where the chart is not an
+# original Single chart.
+select-radar-estimate-layout = The DDI estimate is for Single charts
+# In the radar's place under the DDI estimate where none could be made.
+select-radar-estimate-none = No estimate for this chart
 
 # A chart version the game makes from another (Options → Notes →
 # Simplify and Convert), marked before its notes in the ladder and after

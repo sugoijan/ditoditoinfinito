@@ -24,7 +24,8 @@ use ddi_actor::{Actor, Rgba};
 use crate::look::{call, quad};
 use crate::screens::{Env, frame};
 
-/// The seven skillsets.
+/// MSD's seven skillsets (a radar takes as many spokes as it is given:
+/// the DDI estimate's eight, `ddi_engine::cpu::SKILL_NAMES`).
 pub const SKILLS: usize = 7;
 
 /// A plain look's colors: the panel, the rings and spokes, the fill, the
@@ -49,20 +50,24 @@ pub fn shares(values: &[f32; 8]) -> [f32; SKILLS] {
     out
 }
 
-/// The direction of spoke `k`: the first straight up, then clockwise.
-pub fn direction(k: usize) -> [f32; 2] {
-    let a = -FRAC_PI_2 + TAU * k as f32 / SKILLS as f32;
+/// The direction of spoke `k` of `n`: the first straight up, then
+/// clockwise.
+pub fn direction(k: usize, n: usize) -> [f32; 2] {
+    let a = -FRAC_PI_2 + TAU * k as f32 / n.max(1) as f32;
     [a.cos(), a.sin()]
 }
 
-/// The shape's corners for `shares` on a radar of `radius` around the
-/// origin.
-pub fn corners(shares: &[f32; SKILLS], radius: f32) -> [[f32; 2]; SKILLS] {
-    std::array::from_fn(|k| {
-        let [x, y] = direction(k);
-        let r = shares[k] * radius;
-        [x * r, y * r]
-    })
+/// The shape's corners for `shares` (a spoke each) on a radar of `radius`
+/// around the origin.
+pub fn corners(shares: &[f32], radius: f32) -> Vec<[f32; 2]> {
+    let n = shares.len();
+    (0..n)
+        .map(|k| {
+            let [x, y] = direction(k, n);
+            let r = shares[k].clamp(0.0, 1.0) * radius;
+            [x * r, y * r]
+        })
+        .collect()
 }
 
 fn angle(v: [f32; 2]) -> f32 {
@@ -142,33 +147,34 @@ fn sector(a: [f32; 2], b: [f32; 2], color: Rgba) -> Option<Actor> {
 /// `colors` (panel unused here): rings, spokes, the filled shape of
 /// `shares` (each skillset's share of the overall, [`shares`]; a morph's
 /// on its way) and its outline. A frame named `Shape`, never hit.
-pub fn shape(shares: &[f32; SKILLS], radius: f32, colors: [Rgba; 4]) -> Actor {
+pub fn shape(shares: &[f32], radius: f32, colors: [Rgba; 4]) -> Actor {
     let [_, grid, fill, line] = colors;
+    let n = shares.len();
     let thin = (radius / 60.0).max(1.0);
     let mut parts = Vec::new();
-    // The rings, a quarter of the overall apart, and the spokes.
+    // The rings, a quarter of the outer ring apart, and the spokes.
     for ring in 1..=4 {
         let r = radius * ring as f32 / 4.0;
-        for k in 0..SKILLS {
-            let [x0, y0] = direction(k);
-            let [x1, y1] = direction((k + 1) % SKILLS);
+        for k in 0..n {
+            let [x0, y0] = direction(k, n);
+            let [x1, y1] = direction((k + 1) % n, n);
             parts.push(bar([x0 * r, y0 * r], [x1 * r, y1 * r], thin, grid));
         }
     }
-    for k in 0..SKILLS {
-        let [x, y] = direction(k);
+    for k in 0..n {
+        let [x, y] = direction(k, n);
         parts.push(bar([0.0, 0.0], [x * radius, y * radius], thin, grid));
     }
     // The shape: filled, then outlined, with a dot at each corner.
     let points = corners(shares, radius);
-    for k in 0..SKILLS {
-        if let Some(s) = sector(points[k], points[(k + 1) % SKILLS], fill) {
+    for k in 0..n {
+        if let Some(s) = sector(points[k], points[(k + 1) % n], fill) {
             parts.push(s);
         }
     }
     let stroke = (radius / 30.0).max(1.5);
-    for k in 0..SKILLS {
-        parts.push(bar(points[k], points[(k + 1) % SKILLS], stroke, line));
+    for k in 0..n {
+        parts.push(bar(points[k], points[(k + 1) % n], stroke, line));
     }
     for p in points {
         let mut dot = quad("", [stroke * 2.2, stroke * 2.2], line);
@@ -211,11 +217,12 @@ fn line(size: f32) -> f32 {
 }
 
 /// What the radar says round its shape: each spoke's full and short name
-/// (Stream first), and the word before the overall's number ("MSD").
+/// (a name each, as many as the spokes, Stream first), and the word before
+/// the caption's number ("MSD").
 #[derive(Clone, Copy, Debug)]
 pub struct Words<'a> {
-    pub full: &'a [String; SKILLS],
-    pub short: &'a [String; SKILLS],
+    pub full: &'a [String],
+    pub short: &'a [String],
     pub overall: &'a str,
 }
 
@@ -236,7 +243,7 @@ pub struct Placed {
     pub text: f32,
     /// The full names (else the short ones).
     pub full: bool,
-    pub labels: [Rect; SKILLS],
+    pub labels: Vec<Rect>,
     pub caption: Rect,
 }
 
@@ -252,7 +259,8 @@ pub struct Placed {
 /// caption) overlapping, the text one pixel smaller, down to 9 px; the
 /// shape's radius is whatever the labels leave it, never under
 /// [`MIN_RADIUS`]. Nothing is cut and nothing overlaps.
-pub fn place(size: [f32; 2], words: &Words, numbers: &[String; 8]) -> Placed {
+/// `numbers` is the caption's number, then a spoke's each.
+pub fn place(size: [f32; 2], words: &Words, numbers: &[String]) -> Placed {
     let mut text = (size[1] / 16.0).clamp(9.0, 13.0).floor();
     while text >= 9.0 {
         let full = fit(size, text, words.full, words.overall, numbers);
@@ -287,9 +295,9 @@ impl Placed {
 fn fit(
     size: [f32; 2],
     text: f32,
-    names: &[String; SKILLS],
+    names: &[String],
     overall: &str,
-    numbers: &[String; 8],
+    numbers: &[String],
 ) -> Option<Placed> {
     let mut r = (size[0].min(size[1]) / 2.0).floor();
     while r >= MIN_RADIUS {
@@ -316,25 +324,27 @@ fn fits(size: [f32; 2], p: &Placed) -> bool {
     let mut all: Vec<Rect> = p.labels.to_vec();
     all.push(p.caption);
     all.iter().enumerate().all(|(i, a)| {
-        inside(a) && !meets_shape(*a, p.radius) && all[i + 1..].iter().all(|b| !overlap(*a, *b))
+        inside(a)
+            && !meets_shape(*a, p.radius, p.labels.len())
+            && all[i + 1..].iter().all(|b| !overlap(*a, *b))
     })
 }
 
-/// Whether a rectangle reaches into the shape's heptagon (its corners at
-/// the radius).
-pub fn meets_shape(r: Rect, radius: f32) -> bool {
-    // The heptagon's corners; a rectangle meets it where a corner of the
+/// Whether a rectangle reaches into the shape's polygon of `n` corners
+/// (at the radius).
+pub fn meets_shape(r: Rect, radius: f32, n: usize) -> bool {
+    // The polygon's corners; a rectangle meets it where a corner of the
     // rectangle is inside it or a corner of it is inside the rectangle.
-    let pts: Vec<[f32; 2]> = (0..SKILLS)
+    let pts: Vec<[f32; 2]> = (0..n)
         .map(|k| {
-            let [x, y] = direction(k);
+            let [x, y] = direction(k, n);
             [x * radius, y * radius]
         })
         .collect();
     let inside_poly = |p: [f32; 2]| {
-        (0..SKILLS).all(|k| {
+        (0..n).all(|k| {
             let a = pts[k];
-            let b = pts[(k + 1) % SKILLS];
+            let b = pts[(k + 1) % n];
             (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) >= 0.0
         })
     };
@@ -349,14 +359,15 @@ pub fn meets_shape(r: Rect, radius: f32) -> bool {
 fn layout_at(
     size: [f32; 2],
     text: f32,
-    names: &[String; SKILLS],
+    names: &[String],
     overall: &str,
-    numbers: &[String; 8],
+    numbers: &[String],
     radius: f32,
 ) -> Placed {
     let gap = text * 0.5;
-    let labels = std::array::from_fn(|k| {
-        let [dx, dy] = direction(k);
+    let n = names.len();
+    let labels = (0..n).map(|k| {
+        let [dx, dy] = direction(k, n);
         let tw = width_of(&names[k], text).max(width_of(&numbers[k + 1], text + NUMBER_UP));
         let th = line(text) + line(text + NUMBER_UP);
         let [ax, ay] = [dx * (radius + gap), dy * (radius + gap)];
@@ -375,7 +386,7 @@ fn layout_at(
             ay - th / 2.0
         };
         [x0, y0, x0 + tw, y0 + th]
-    });
+    }).collect();
     let m = pad(size);
     let [w, h] = size;
     let cap_w = width_of(overall, text) + text * 0.5 + width_of(&numbers[0], text + 4.0);
@@ -390,29 +401,29 @@ fn layout_at(
 }
 
 /// The radar component, `size` (width, height), named `name`, its middle
-/// at the origin: a translucent panel, the shape (`shares`, which may be
-/// a morph's on its way to `values`' own), each spoke's name and number
-/// round it, the overall's caption ("MSD 24.3") in its upper left corner;
-/// laid out by [`place`]. Drawn only: the panel is named `Panel`, each
+/// at the origin: a translucent panel, the shape (`shares`, a spoke each,
+/// which may be a morph's on its way), each spoke's name and number round
+/// it (`numbers[k + 1]`), the caption ("MSD 24.3": `words.overall` and
+/// `numbers[0]`) in its upper left corner; laid out by [`place`]. Drawn only: the panel is named `Panel`, each
 /// label `Label<k>` (its parts `Name` and `Number`), the caption `Caption`.
 pub fn radar(
     env: &Env,
     name: &str,
-    values: &[f32; 8],
-    shares: &[f32; SKILLS],
+    numbers: &[String],
+    shares: &[f32],
     size: [f32; 2],
     words: &Words,
 ) -> Actor {
     let [w, h] = size;
     let colors = colors(env);
-    let numbers: [String; 8] = std::array::from_fn(|k| number(values[k]));
-    let p = place(size, words, &numbers);
+    let n = shares.len();
+    let p = place(size, words, numbers);
     let mut panel = quad("Panel", [w, h], colors[0]);
     call(&mut panel, "cornerradius", &[h.min(w) * 0.06]);
     let mut parts = vec![panel, shape(shares, p.radius, colors)];
     let names = if p.full { words.full } else { words.short };
     for (k, rect) in p.labels.iter().enumerate() {
-        let [dx, _] = direction(k);
+        let [dx, _] = direction(k, n);
         let (align, x) = if dx > 0.25 {
             (0.0, rect[0])
         } else if dx < -0.25 {
@@ -476,11 +487,13 @@ mod tests {
         assert_eq!(s[2], 1.0, "capped at the overall");
         assert_eq!(s[3], 0.0);
         assert_eq!(shares(&[0.0; 8]), [0.0; SKILLS]);
-        let up = direction(0);
+        let up = direction(0, SKILLS);
         assert!(up[0].abs() < 1e-6 && (up[1] + 1.0).abs() < 1e-6);
         // The second spoke to the right of the first (clockwise on a
         // screen, y down).
-        assert!(direction(1)[0] > 0.0);
+        assert!(direction(1, SKILLS)[0] > 0.0);
+        // Eight spokes: the third straight to the right.
+        assert!((direction(2, 8)[0] - 1.0).abs() < 1e-6);
         let c = corners(&s, 10.0);
         assert!((c[0][1] + 10.0).abs() < 1e-4);
     }

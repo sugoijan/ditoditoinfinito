@@ -25,6 +25,7 @@ ddi-importer-protocol = { path = "crates/importer-protocol" }
 ddi-video-protocol = { path = "video/protocol" }
 ddi-chart = { path = "crates/chart" }
 ddi-msd = { path = "crates/msd" }
+ddi-rating = { path = "crates/rating" }
 ddi-engine = { path = "crates/engine" }
 ddi-render = { path = "crates/render" }
 ddi-platform = { path = "crates/platform" }
@@ -130,6 +131,9 @@ opt-level = 3
 opt-level = 3
 # Rates charts (MSD) in the background, in a worker on the web.
 [profile.release.package.ddi-msd]
+opt-level = 3
+# Estimates charts (the DDI estimate) there too.
+[profile.release.package.ddi-rating]
 opt-level = 3
 
 # Native release builds (`cargo run --profile desktop`): `release` is

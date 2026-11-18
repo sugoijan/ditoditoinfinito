@@ -153,11 +153,12 @@ impl ChartEntry {
     }
 
     /// Its meter as shown: none for a named chart of meter 0 (as the old
-    /// song list had it); its MSD, whole, where Chart ratings shows MSD
-    /// and it has one (`crate::state::ratings`).
+    /// song list had it); the game's rating, whole, where Chart ratings
+    /// shows one and it has it (MSD, or the DDI estimate's level:
+    /// `crate::state::ratings::shown`).
     pub fn meter_text(&self) -> String {
-        if let Some(msd) = self.msd() {
-            format!("{}", msd.round() as i64)
+        if let Some(r) = self.shown_rating() {
+            r.whole()
         } else if self.named() && self.meter == 0 {
             String::new()
         } else {
@@ -165,33 +166,33 @@ impl ChartEntry {
         }
     }
 
-    /// Its meter as its row shows it: its MSD to a tenth where shown.
+    /// Its meter as its row shows it: MSD to a tenth, the estimate's
+    /// level, where shown.
     pub fn meter_text_fine(&self) -> String {
-        match self.msd() {
-            Some(msd) => format!("{msd:.1}"),
+        match self.shown_rating() {
+            Some(r) => r.fine(),
             None => self.meter_text(),
         }
     }
 
     /// Its eight MSD numbers (overall, then the seven skillsets), where
-    /// either ratings option is On and it has them.
+    /// MSD is made and it has them.
     pub fn rating(&self) -> Option<crate::state::ratings::Values> {
         self.digest.and_then(crate::state::ratings::get)
     }
 
-    /// Its MSD in its number's place: where Chart ratings shows MSD and it
-    /// has one.
-    pub fn msd(&self) -> Option<f32> {
-        if !crate::state::ratings::msd_shown() {
-            return None;
-        }
-        self.rating().map(|v| v[0])
+    /// The game's rating in its number's place, where Chart ratings shows
+    /// one and it has it.
+    pub fn shown_rating(&self) -> Option<crate::state::ratings::Shown> {
+        crate::state::ratings::shown(self.digest, &self.style, self.version.is_none())
     }
 
-    /// Whether its number is the song's where Chart ratings shows MSD (a
-    /// chart not rated yet, or not four lanes): drawn fainter.
+    /// Whether its number is the song's where Chart ratings shows a rating
+    /// of the game's (a chart not rated yet, or that has none): drawn
+    /// fainter.
     pub fn meter_is_songs(&self) -> bool {
-        crate::state::ratings::msd_shown() && self.msd().is_none()
+        crate::state::ratings::source() != crate::state::ratings::Source::Song
+            && self.shown_rating().is_none()
     }
 }
 

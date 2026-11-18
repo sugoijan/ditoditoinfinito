@@ -311,7 +311,7 @@ fn faint(a: &mut Actor, name: &str, songs: bool) {
 /// when the screen last showed new ones.
 #[derive(Clone, Copy, Debug, Default)]
 struct RatingsShown {
-    msd: bool,
+    source: crate::state::ratings::Source,
     radar: bool,
     generation: u64,
     refreshed: f64,
@@ -713,8 +713,8 @@ impl ListModel for Wheel<'_> {
                     let meter = chart.map(|c| c.meter);
                     // Its MSD in the song's number's place where Chart
                     // ratings shows it (`crate::state::ratings`).
-                    let shown = chart.map(|c| match c.msd() {
-                        Some(_) => c.meter_text(),
+                    let shown = chart.map(|c| match c.shown_rating() {
+                        Some(r) => r.whole(),
                         None => c.meter.to_string(),
                     });
                     set_text(item, &format!("Meter{k}"), &shown.unwrap_or_default());
@@ -825,8 +825,8 @@ pub struct SelectScreen {
     /// The skillsets' shares the radar's shape shows now, and its morph
     /// to another chart's on the way (when it began, from, to); `None`
     /// where it shows none.
-    radar_drawn: Option<[f32; crate::radar::SKILLS]>,
-    radar_morph: Option<(f64, [f32; crate::radar::SKILLS], [f32; crate::radar::SKILLS])>,
+    radar_drawn: Option<Vec<f32>>,
+    radar_morph: Option<(f64, Vec<f32>, Vec<f32>)>,
     /// The screen's clock at its last update, seconds.
     now: f64,
     items: Vec<Item>,
@@ -1523,7 +1523,7 @@ impl SelectScreen {
     /// radar) shown again, the songs without them offered for rating.
     fn follow_ratings(&mut self, now: f64) {
         use crate::state::ratings;
-        let (msd, radar) = (ratings::msd_shown(), ratings::radar_shown());
+        let (source, radar) = (ratings::source(), ratings::radar_shown());
         let generation = ratings::generation();
         // A new song list: its songs offered.
         let data = Rc::as_ptr(&self.data) as usize;
@@ -1532,11 +1532,11 @@ impl SelectScreen {
             self.offer_ratings();
         }
         let r = &mut self.ratings;
-        let changed = (msd, radar) != (r.msd, r.radar);
+        let changed = (source, radar) != (r.source, r.radar);
         if !changed && (generation == r.generation || now - r.refreshed < RATINGS_REFRESH) {
             return;
         }
-        r.msd = msd;
+        r.source = source;
         r.radar = radar;
         r.generation = generation;
         r.refreshed = now;
@@ -1559,15 +1559,27 @@ impl SelectScreen {
             if song.id.starts_with("shared:") {
                 return None;
             }
+            let msd = ratings::wants_msd();
+            let est = ratings::wants_estimate();
             let charts: Vec<usize> = song
                 .charts
                 .iter()
-                .filter(|c| ddi_msd::chart::four_keys(&c.style) && c.rating().is_none())
+                .filter(|c| msd && ddi_msd::chart::four_keys(&c.style) && c.rating().is_none())
                 .map(|c| c.index)
                 .collect();
-            (!charts.is_empty()).then(|| Job {
+            let estimates: Vec<usize> = song
+                .charts
+                .iter()
+                .filter(|c| {
+                    est && ratings::estimable(&c.style, c.version.is_none())
+                        && c.digest.and_then(ratings::estimate).is_none()
+                })
+                .map(|c| c.index)
+                .collect();
+            (!charts.is_empty() || !estimates.is_empty()).then(|| Job {
                 song: song.id.clone(),
                 charts,
+                estimates,
             })
         });
         ratings::offer(jobs);
@@ -1638,7 +1650,10 @@ impl SelectScreen {
         let mut label = env.text("Card.Label", &data(&c.label().to_uppercase()), 14.0, 700, &color);
         look::ellipsized(&mut label, cw);
         out.push(left(label, 0.0, top + 9.0));
-        let mut meter = env.numbers("Card.Meter", &c.meter_text_fine(), 30.0, &color);
+        // The game's rating in detail (the estimate's decimal), else as
+        // its row showed it.
+        let detail = c.shown_rating().map_or_else(|| c.meter_text_fine(), |r| r.detail());
+        let mut meter = env.numbers("Card.Meter", &detail, 30.0, &color);
         if crate::state::ratings::ever_shown() {
             call(&mut meter, "diffusealpha", &[if c.meter_is_songs() { FAINT } else { 1.0 }]);
         }
@@ -1647,7 +1662,7 @@ impl SelectScreen {
         // The song's own number where MSD takes its place, and a generated
         // version's kind, on one line.
         let mut first: Vec<String> = Vec::new();
-        if c.msd().is_some() {
+        if c.shown_rating().is_some() {
             first.push(msg::chart_song_meter(c.meter).into());
         }
         if let Some(version) = c.version {
@@ -1659,6 +1674,10 @@ impl SelectScreen {
         lines.push(msg::chart_notes(c.notes).into());
         if !c.credit.is_empty() {
             lines.push(msg::chart_steps_by(&c.credit).into());
+        }
+        // The DDI estimate's radar: what its numbers are.
+        if matches!(self.radar_standing(), Some(crate::state::ratings::Standing::Profile(_))) {
+            lines.push(msg::radar_estimate_unit().into());
         }
         let mut y = top + 64.0;
         for (i, line) in lines.iter().enumerate() {
@@ -1697,24 +1716,46 @@ impl SelectScreen {
     /// there is none (`crate::state::ratings::standing`); its shape morphs
     /// from the chart before's (at once under reduced motion).
     fn fill_radar(&mut self, root: &mut Actor) {
-        use crate::radar::SKILLS;
         use crate::state::ratings::Standing;
         use ddi_l10n::msg::select as m;
         let (_, [x, y, w, h]) = self.radar_area();
         let standing = self.radar_standing();
-        let radar = match standing {
-            Some(Standing::Rated(v)) => {
-                let to = crate::radar::shares(&v);
-                let current = self.radar_shape_now();
-                if self.reduced || current == Some(to) {
+        // The spokes' numbers (the caption's first), their shares, and
+        // the words: MSD's seven skillsets, or the DDI estimate's eight
+        // skills' costs at the chart's matched level, as shares of its
+        // largest.
+        let shape: Option<(Vec<String>, Vec<f32>, String)> = match standing {
+            Some(Standing::Rated(v)) => Some((
+                v.iter().map(|x| crate::radar::number(*x)).collect(),
+                crate::radar::shares(&v).to_vec(),
+                m::radar_overall().into(),
+            )),
+            Some(Standing::Profile(p)) => {
+                let most = p.iter().copied().fold(0.0f32, f32::max).max(1e-6);
+                let decimal = self.chosen_estimate().map_or(0.0, |e| e.decimal);
+                Some((
+                    std::iter::once(crate::radar::number(decimal))
+                        .chain(p.iter().map(|c| crate::radar::number(*c)))
+                        .collect(),
+                    p.iter().map(|c| c / most).collect(),
+                    m::radar_estimate_overall().into(),
+                ))
+            }
+            _ => None,
+        };
+        let radar = match (standing, shape) {
+            (_, Some((numbers, to, overall))) => {
+                let current = self.radar_shape_now().filter(|c| c.len() == to.len());
+                if self.reduced || current.as_ref() == Some(&to) {
                     self.radar_morph = None;
-                    self.radar_drawn = Some(to);
-                } else if self.radar_morph.is_none_or(|(_, _, t)| t != to) {
-                    self.radar_morph = Some((self.now, current.unwrap_or([0.0; SKILLS]), to));
+                    self.radar_drawn = Some(to.clone());
+                } else if self.radar_morph.as_ref().is_none_or(|(_, _, t)| *t != to) {
+                    let from = current.unwrap_or_else(|| vec![0.0; to.len()]);
+                    self.radar_morph = Some((self.now, from, to.clone()));
                 }
-                let drawn = self.radar_shape_now().unwrap_or(to);
-                self.radar_drawn = Some(drawn);
-                let full = [
+                let drawn = self.radar_shape_now().filter(|d| d.len() == to.len()).unwrap_or(to);
+                self.radar_drawn = Some(drawn.clone());
+                let mut full: Vec<String> = [
                     m::radar_stream_full(),
                     m::radar_jumpstream_full(),
                     m::radar_handstream_full(),
@@ -1723,8 +1764,9 @@ impl SelectScreen {
                     m::radar_chordjack_full(),
                     m::radar_technical_full(),
                 ]
-                .map(String::from);
-                let short = [
+                .map(String::from)
+                .to_vec();
+                let mut short: Vec<String> = [
                     m::radar_stream(),
                     m::radar_jumpstream(),
                     m::radar_handstream(),
@@ -1733,27 +1775,37 @@ impl SelectScreen {
                     m::radar_chordjack(),
                     m::radar_technical(),
                 ]
-                .map(String::from);
-                let overall: String = m::radar_overall().into();
+                .map(String::from)
+                .to_vec();
+                // The estimate's eighth: Evasion (`ddi_engine::cpu::SKILL_NAMES`).
+                if drawn.len() == 8 {
+                    full.push(m::radar_evasion_full().into());
+                    short.push(m::radar_evasion().into());
+                }
                 let words = crate::radar::Words {
                     full: &full,
                     short: &short,
                     overall: &overall,
                 };
-                Some(crate::radar::radar(&self.env, "Radar", &v, &drawn, [w, h], &words))
+                Some(crate::radar::radar(&self.env, "Radar", &numbers, &drawn, [w, h], &words))
             }
-            Some(other) => {
+            (Some(other), None) => {
                 self.radar_drawn = None;
                 self.radar_morph = None;
+                let estimate = crate::state::ratings::source() == crate::state::ratings::Source::Estimate;
                 let line: String = match other {
                     Standing::Rating => m::radar_rating(),
+                    Standing::Flat => m::radar_flat(),
+                    Standing::Outside => m::radar_outside(),
+                    Standing::NoLayout if estimate => m::radar_estimate_layout(),
                     Standing::NoLayout => m::radar_no_layout(),
+                    _ if estimate => m::radar_estimate_none(),
                     _ => m::radar_none(),
                 }
                 .into();
                 Some(crate::radar::note(&self.env, "RadarNote", [w, h], &line))
             }
-            None => {
+            (None, None) => {
                 self.radar_drawn = None;
                 self.radar_morph = None;
                 None
@@ -1772,6 +1824,16 @@ impl SelectScreen {
         }
     }
 
+    /// The chosen chart's DDI estimate, where shown and made.
+    fn chosen_estimate(&self) -> Option<crate::state::ratings::ChartEstimate> {
+        let (charts, pick) = self.charts();
+        charts
+            .get(pick?)?
+            .digest
+            .and_then(crate::state::ratings::estimate)
+            .flatten()
+    }
+
     /// The chosen chart's rating as the radar's side shows it (`None`: no
     /// chart chosen, or no radar's side).
     fn radar_standing(&self) -> Option<crate::state::ratings::Standing> {
@@ -1781,19 +1843,24 @@ impl SelectScreen {
         let song = self.song()?;
         let (charts, pick) = self.charts();
         let c = charts.get(pick?)?;
-        Some(crate::state::ratings::standing(&song.id, c.digest, &c.style))
+        Some(crate::state::ratings::standing(
+            &song.id,
+            c.digest,
+            &c.style,
+            c.version.is_none(),
+        ))
     }
 
     /// The radar's shape now: on its morph's way, or as drawn.
-    fn radar_shape_now(&self) -> Option<[f32; crate::radar::SKILLS]> {
-        match self.radar_morph {
+    fn radar_shape_now(&self) -> Option<Vec<f32>> {
+        match &self.radar_morph {
             Some((start, from, to)) => {
                 let t = ((self.now - start) / RADAR_MORPH).clamp(0.0, 1.0) as f32;
                 // Eased out (cubic).
                 let e = 1.0 - (1.0 - t).powi(3);
-                Some(std::array::from_fn(|k| from[k] + (to[k] - from[k]) * e))
+                Some(from.iter().zip(to).map(|(f, t)| f + (t - f) * e).collect())
             }
-            None => self.radar_drawn,
+            None => self.radar_drawn.clone(),
         }
     }
 
@@ -1803,7 +1870,9 @@ impl SelectScreen {
         use crate::state::ratings::Standing;
         if self.layout.radar {
             return match self.radar_standing() {
-                Some(Standing::Rated(_)) => "shown",
+                Some(Standing::Rated(_) | Standing::Profile(_)) => "shown",
+                Some(Standing::Flat) => "flat",
+                Some(Standing::Outside) => "outside",
                 Some(Standing::Rating) => "rating",
                 Some(Standing::NoLayout) => "no-layout",
                 Some(Standing::Unrated) => "unrated",
@@ -2552,7 +2621,7 @@ impl SelectScreen {
             }
             // Its MSD in the number's place: the song's own number said
             // in the line, never lost.
-            if c.msd().is_some() {
+            if c.shown_rating().is_some() {
                 notes = format!("{} · {notes}", msg::chart_song_meter(c.meter));
             }
             set_text(&mut r, "Notes", &notes);
@@ -2637,7 +2706,7 @@ impl SelectScreen {
             let c = charts[first + k];
             // Its meter; a named chart without one by its name (cut
             // to the button; the play button says it whole).
-            let by_name = c.named() && c.meter == 0 && c.msd().is_none();
+            let by_name = c.named() && c.meter == 0 && c.shown_rating().is_none();
             let shown: String = if by_name {
                 chart_text(c, &c.label()).into()
             } else {
@@ -4404,7 +4473,7 @@ impl Screen for SelectScreen {
         }
         self.show(root, cx);
         // The radar's shape on its way to the chart chosen's.
-        if let Some((start, _, to)) = self.radar_morph {
+        if let Some((start, _, to)) = self.radar_morph.clone() {
             self.fill_radar(root);
             if self.now - start >= RADAR_MORPH {
                 self.radar_morph = None;

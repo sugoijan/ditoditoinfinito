@@ -1408,6 +1408,7 @@ pub fn pick_rows(r: &RoomClient) -> Vec<PickRow> {
                     p.chart.index,
                     p.chart.digest,
                     &p.chart.style,
+                    p.chart.version.is_none(),
                 );
             }
             let chart: Option<String> = picked
