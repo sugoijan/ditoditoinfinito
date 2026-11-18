@@ -227,6 +227,16 @@ impl Preview {
     pub fn preload_pending(&self) -> bool {
         !self.preload_ready && self.runtime_error.is_none()
     }
+
+    /// Whether the play's start waits for the hand now: its preload
+    /// pending (`preload_pending`) while the play is `seen`. A page hidden
+    /// or a window covered draws no frame for it to be readied on, so a
+    /// start there (a room's stage, which starts and runs unseen) never
+    /// waits for it: the play begins, and the hand, behind, rests, as a
+    /// hand that falls behind does; never the other way round (round Y3).
+    pub fn holds_start(&self, seen: bool) -> bool {
+        seen && self.preload_pending()
+    }
     /// Bounded cooperative CPU work, then an off-screen first GPU frame. The
     /// prompt may release playback only after that texture has been submitted.
     pub fn preload_work(
@@ -711,6 +721,34 @@ pub fn gameplay_look() -> PlayLook {
 #[cfg(test)]
 mod preload_tests {
     use super::*;
+
+    /// Round Y3: a play started in sight waits for the hand's preload,
+    /// one started unseen (a room's stage on a hidden page or a covered
+    /// window: no frame to ready it on) never does; without the hand,
+    /// neither waits.
+    #[test]
+    fn a_start_unseen_never_waits_for_the_hand() {
+        let song = ddi_chart::formats::sm::parse_sm(
+            "#TITLE:T;#OFFSET:0;#BPMS:0=120;#NOTES:dance-single::Medium:5:0,0,0,0,0:\n1000\n0100\n0010\n0001,\n1000\n0100\n0010\n0001;",
+        )
+        .unwrap();
+        let settings = ddi_ui::state::settings::Settings::default();
+        assert!(settings.dancing_hand_in("dance-single", false));
+        let config = ddi_session::play::SessionConfig::from_settings(&settings, true, None);
+        let mut p = Preview::default();
+        p.preload(&song, 0.0, 0, &settings, &config);
+        assert!(p.preload_pending(), "readied on frames, none yet");
+        assert!(p.holds_start(true), "in sight: the start waits");
+        assert!(!p.holds_start(false), "unseen: it never waits");
+        // Without the hand: nothing to wait for either way.
+        let off = ddi_ui::state::settings::Settings {
+            dancing_hand: false,
+            ..Default::default()
+        };
+        let mut q = Preview::default();
+        q.preload(&song, 0.0, 0, &off, &config);
+        assert!(!q.holds_start(true) && !q.holds_start(false));
+    }
 
     #[test]
     fn a_stage_puts_the_hand_behind_the_field_and_only_a_stage() {

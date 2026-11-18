@@ -2010,11 +2010,13 @@ impl GameCanvas {
             w.push("noteskin");
         }
 
+        // A hidden page draws no frame to ready the hand on: its play
+        // never waits for it (`Preview::holds_start`).
         if self
             .game
             .borrow()
             .as_ref()
-            .is_some_and(|g| g.dance.preload_pending())
+            .is_some_and(|g| g.dance.holds_start(!page_hidden()))
         {
             w.push("dancing hand");
         }

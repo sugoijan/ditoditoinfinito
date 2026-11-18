@@ -427,6 +427,55 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
 /// the room's start, is judged on unseen to its end, and the room hears
 /// it played; shown again, the results are there. Never ready by itself:
 /// a player not ready is left alone.
+/// Round Y3: with Options → Display's "Dancing hand in multiplayer" On,
+/// a stage started while the window is hidden starts its play at once,
+/// as without the hand: the play never waits for the hand, which is
+/// readied on frames and rests until the window is seen again (as when
+/// it falls behind). Never the other way round: the hand's readiness
+/// still holds a play started in sight.
+#[test]
+fn a_hidden_windows_stage_starts_without_waiting_for_the_dancing_hand() {
+    common::indexes();
+    let settings = ddi_ui::state::settings::Settings {
+        dancing_hand_multiplayer: true,
+        ..Default::default()
+    };
+    assert!(settings.dancing_hand_in("dance-single", true), "the hand plays in a stage");
+    settings.save();
+    let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
+    let mut host = Host::new(Rc::default(), None);
+    let clock = common::rig::fake_clock(&mut host);
+    let draws = common::rig::Draws::here(&mut host, SIZE);
+    let room = common::practice::open(&mut ui, &env, &host);
+    let entry = common::practice::song_entry("beatucada", "Beatucada", CHART, Difficulty::Hard);
+    room.borrow_mut().pick(&entry, &entry.charts[0]).unwrap();
+    ui.update(0.1);
+    let stage = room.borrow().state().upcoming_stage().unwrap();
+    let mut request = host.requested.borrow_mut().take().expect("the stage asked for");
+    request.auto = true;
+    *host.requested.borrow_mut() = Some(request);
+    draws.wait_prompt(&mut host, &mut ui, &env);
+    ui.update(0.5);
+    assert_eq!(top(&ui), "play-prompt");
+    // Ready, then hidden at once: the hand never readied in sight.
+    key(&mut ui, "Enter", "Enter");
+    ui.update(0.02);
+    assert!(room.borrow().ready());
+    let t0 = room.borrow().now_ms();
+    let mut started = None;
+    for s in 1..=8 {
+        ui.set_wall_ms(t0 + s * 1_000);
+        let now = clock.fetch_add(1_000_000_000, Ordering::SeqCst) + 1_000_000_000;
+        host.step_unseen(HostTime(now as f64 / 1e9), &mut ui, &env, draws.dev(), 48_000);
+        if host.playing() {
+            started = Some(s);
+            break;
+        }
+    }
+    assert!(room.borrow().stage_started(stage), "the room started it");
+    assert_eq!(started, Some(3), "the play starts at the unseen step after the start");
+}
+
 #[test]
 fn a_ready_players_hidden_window_starts_the_stage_and_plays_it_unseen() {
     common::indexes();

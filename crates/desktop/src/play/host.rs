@@ -331,6 +331,9 @@ pub struct Host {
     prompt_seen: u64,
     /// The window's display, for the offsets' profile.
     pub display: Option<DeviceFingerprint>,
+    /// This poll is an unseen step's ([`Host::step_unseen`]): nothing
+    /// waits for what only frames ready (the dancing hand).
+    unseen: bool,
     /// The display's refresh rate as the OS says it, until frames have
     /// measured it.
     pub refresh_hint: Option<f64>,
@@ -396,6 +399,7 @@ impl Default for Host {
             devices: Rc::default(),
             prompt_seen: 0,
             display: None,
+            unseen: false,
             refresh_hint: None,
             watcher: crate::devices::Watcher::default(),
             menu: None,
@@ -1554,7 +1558,9 @@ impl Host {
             (!images_done, "pictures"),
             (scripts, "scripts"),
             (!sound, "audio"),
-            (view.dance.preload_pending(), "dancing hand"),
+            // A covered window draws no frame: its play never waits
+            // for the hand (`Preview::holds_start`).
+            (view.dance.holds_start(!self.unseen), "dancing hand"),
         ]
         .into_iter()
         .filter(|(w, _)| *w)
@@ -1853,7 +1859,9 @@ impl Host {
     ) {
         if self.prompts_unseen() {
             ui.step_unseen();
+            self.unseen = true;
             self.poll(ui, env, dev, rate);
+            self.unseen = false;
         }
         if self.plays_on_unseen() {
             self.play_frame(None, now, ui, env);
