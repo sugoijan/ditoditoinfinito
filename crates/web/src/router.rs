@@ -499,6 +499,14 @@ thread_local! {
     /// return, a pop, a hash change, a dialog's marker.
     static GENERATION: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static SAVED: std::cell::RefCell<Option<Saved>> = const { std::cell::RefCell::new(None) };
+    /// When the view is written (`ddi_ui::back_stack::ViewSaves`: four
+    /// times a second at most), what is held back meanwhile, and the
+    /// page's going away, which writes it.
+    static SAVES: std::cell::RefCell<ddi_ui::back_stack::ViewSaves> =
+        std::cell::RefCell::new(Default::default());
+    static HELD: std::cell::RefCell<Option<Saved>> = const { std::cell::RefCell::new(None) };
+    static ON_HIDE: std::cell::RefCell<Option<gloo::events::EventListener>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// The history's entry may be another now: the next [`save_view`] writes.
@@ -507,8 +515,20 @@ pub(crate) fn history_changed() {
 }
 
 /// Keeps the focus and Options' place in the history's entry, written
-/// only when they changed or the entry did (called every frame).
-pub(crate) fn save_view(focus: Option<&str>, theme: Option<&ddi_ui::screens::ThemeState>) {
+/// only when they changed or the entry did (called every frame), and four
+/// times a second at most (round Y3: Firefox refuses a page's history
+/// changes past about 200 in 10 s, which a key held down a long page
+/// reached): what changes meanwhile is held and written at the first
+/// frame it may be, so the view at rest is always written; `must`, at
+/// once (before a navigation, a dialog's entry pushed); never while a
+/// `go` of ours is on its way (`busy`, `ddi_ui::back_stack::Entries`); and
+/// what is held when the page goes away.
+pub(crate) fn save_view(
+    focus: Option<&str>,
+    theme: Option<&ddi_ui::screens::ThemeState>,
+    busy: bool,
+    must: bool,
+) {
     let options = theme
         .filter(|t| t.screen == "options")
         .map(|t| (t.section.clone(), t.option_id.clone(), t.scroll));
@@ -518,8 +538,33 @@ pub(crate) fn save_view(focus: Option<&str>, theme: Option<&ddi_ui::screens::The
         options,
     );
     if SAVED.with_borrow(|s| s.as_ref() == Some(&now)) {
+        HELD.with_borrow_mut(|h| *h = None);
         return;
     }
+    let t = web_sys::window()
+        .and_then(|w| w.performance())
+        .map_or(0.0, |p| p.now() / 1000.0);
+    if !SAVES.with_borrow_mut(|s| s.may_write(t, busy, must)) {
+        HELD.with_borrow_mut(|h| *h = Some(now));
+        ON_HIDE.with_borrow_mut(|l| {
+            if l.is_none()
+                && let Some(w) = web_sys::window()
+            {
+                *l = Some(gloo::events::EventListener::new(&w, "pagehide", |_| {
+                    if let Some(held) = HELD.with_borrow_mut(Option::take) {
+                        write_view(held);
+                    }
+                }));
+            }
+        });
+        return;
+    }
+    HELD.with_borrow_mut(|h| *h = None);
+    write_view(now);
+}
+
+/// [`save_view`]'s write of `now` into the history's entry.
+fn write_view(now: Saved) {
     let Some(history) = web_sys::window().and_then(|w| w.history().ok()) else {
         return;
     };

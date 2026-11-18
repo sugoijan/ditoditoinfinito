@@ -157,6 +157,88 @@ impl Entries {
     }
 }
 
+/// How often the shell writes the view (the focus, Options' place) into
+/// the history's entry, at most, seconds ([`ViewSaves`]): browsers bound
+/// a page's history changes (Firefox about 200 in 10 s, then "Too many
+/// attempts to navigate or modify history" and the change dropped; a key
+/// held down a long page moved the focus 30 times a second, a change
+/// each, round Y3), so four a second at most.
+pub const VIEW_SAVE_GAP: f64 = 0.25;
+
+/// When the shell writes the view into the history's entry (`replaceState`,
+/// the web's `router::save_view`, called every frame): never while a `go`
+/// of ours is on its way ([`Entries::busy`]: nothing may touch the history
+/// then); at once where it must be in the entry now (before a navigation,
+/// a dialog's entry pushed, the page going away); else at most once a
+/// [`VIEW_SAVE_GAP`], a change held back written at the first frame past
+/// it, so that the view at rest is always written.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ViewSaves {
+    /// When the view was last written (the shell's clock, seconds).
+    last: Option<f64>,
+}
+
+impl ViewSaves {
+    /// Whether a view that changed may be written at `now`; `busy`, a
+    /// `go` of ours on its way; `must`, it must be in the entry now.
+    pub fn may_write(&mut self, now: f64, busy: bool, must: bool) -> bool {
+        if busy {
+            return false;
+        }
+        let due = must || self.last.is_none_or(|t| now - t >= VIEW_SAVE_GAP || now < t);
+        if due {
+            self.last = Some(now);
+        }
+        due
+    }
+}
+
+#[cfg(test)]
+mod view_save_tests {
+    use super::*;
+
+    /// Round Y3: the focus moving 30 times a second for 15 s (a key held
+    /// down a long page) writes the view at most four times a second, far
+    /// under Firefox's bound, and once more as the focus comes to rest;
+    /// a navigation's or a dialog's write comes at once; nothing while a
+    /// `go` of ours is on its way, the change written once it has come.
+    #[test]
+    fn the_view_is_written_four_times_a_second_at_most_and_always_at_rest() {
+        let mut saves = ViewSaves::default();
+        // The shell's frames at 60 Hz; the view changes at 30 Hz, and
+        // what is held back is written at the first frame it may be.
+        let (mut writes, mut pending, mut last_written) = (0, false, 0.0);
+        let mut in_ten = std::collections::VecDeque::new();
+        for frame in 0..(17 * 60) {
+            let now = f64::from(frame) / 60.0;
+            if now < 15.0 && frame % 2 == 0 {
+                pending = true;
+            }
+            if pending && saves.may_write(now, false, false) {
+                writes += 1;
+                pending = false;
+                last_written = now;
+                in_ten.push_back(now);
+                while in_ten.front().is_some_and(|t| now - t > 10.0) {
+                    in_ten.pop_front();
+                }
+                assert!(in_ten.len() <= 41, "{} in 10 s", in_ten.len());
+            }
+        }
+        assert!(writes <= 15 * 4 + 1, "{writes}");
+        assert!(!pending, "the view at rest was written");
+        assert!(last_written >= 15.0 - 1.0 / 30.0 && last_written < 15.0 + VIEW_SAVE_GAP);
+        // A navigation's write: at once, whatever the last.
+        assert!(saves.may_write(20.0, false, false));
+        assert!(!saves.may_write(20.1, false, false));
+        assert!(saves.may_write(20.1, false, true));
+        // A `go` of ours on its way: nothing, even a must; then at once.
+        assert!(!saves.may_write(30.0, true, true));
+        assert!(!saves.may_write(30.5, true, false));
+        assert!(saves.may_write(30.6, false, false));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

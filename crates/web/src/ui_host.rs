@@ -1729,6 +1729,8 @@ impl Host {
                         crate::router::save_view(
                             self.ui.focused(),
                             Some(&theme.env.state.borrow()),
+                            self.entries.busy(),
+                            true,
                         );
                     }
                     if matches!(crate::router::Route::current(), crate::router::Route::Songs) {
@@ -1905,6 +1907,12 @@ impl Host {
         let depth = ddi_ui::back_stack::depth(&self.ui.layers())
             + usize::from(self.ui.guards_leaving());
         let step = self.entries.sync(depth, now);
+        // The view held back written into the entry being left first.
+        if !step.push.is_empty()
+            && let Some(theme) = &self.theme
+        {
+            crate::router::save_view(self.ui.focused(), Some(&theme.env.state.borrow()), false, true);
+        }
         for mark in step.push {
             let marker = crate::router::history_state();
             let _ =
@@ -1985,7 +1993,12 @@ impl Host {
         if !self.embedded
             && let Some(theme) = &self.theme
         {
-            crate::router::save_view(self.ui.focused(), Some(&theme.env.state.borrow()));
+            crate::router::save_view(
+                self.ui.focused(),
+                Some(&theme.env.state.borrow()),
+                self.entries.busy(),
+                false,
+            );
         }
         let frame_requests = self.ui.take_requests();
         self.run(frame_requests);
