@@ -227,7 +227,7 @@ mod view_save_tests {
         }
         assert!(writes <= 15 * 4 + 1, "{writes}");
         assert!(!pending, "the view at rest was written");
-        assert!(last_written >= 15.0 - 1.0 / 30.0 && last_written < 15.0 + VIEW_SAVE_GAP);
+        assert!((15.0 - 1.0 / 30.0..15.0 + VIEW_SAVE_GAP).contains(&last_written));
         // A navigation's write: at once, whatever the last.
         assert!(saves.may_write(20.0, false, false));
         assert!(!saves.may_write(20.1, false, false));
