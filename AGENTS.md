@@ -475,9 +475,12 @@ Rust and the browser are implementation details, not advertised features.
   `screens/numbers.rs` supplies controller-editable numeric/compound forms;
   `crates/ui/src/radar.rs` a chart's skill radar (MSD's seven skillsets
   as shares of its overall, drawn from quads: the fill seven triangles
-  cut by turned frame clips; the theme's `Radar.*` colors), shown over
-  song select's banner for a rated chart with Options → Display's Skill
-  radar On; `crate::state::ratings` the chart ratings' state
+  cut by turned frame clips; the theme's `Radar.*` colors; each spoke's
+  name and number round it by `radar::place`'s label rule), with Options
+  → Display's Skill radar On in the wide layout's chart ladder's place
+  under a row of chart buttons (`fill_radar_side`; a line in its place
+  where the chart has none, `ratings::Standing`; a phone's and a room's
+  short side show none); `crate::state::ratings` the chart ratings' state
   (`docs/plans/msd-ratings.md`: Chart ratings and Skill radar, both Off
   by default and then doing nothing; the bundled songs' MSD from their
   manifest, `ChartInfo::msd`; the rest rated in the background by a

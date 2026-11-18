@@ -49,8 +49,9 @@ a score goal; the listing is rate 1.0, goal 93%.
   (naming the rating's own source, as a ruleset's is named; AGENTS.md's
   rule keeps other games out of public copy, not out of an attribution).
   `Settings::show_ratings` tells `ddi_ui::state::ratings` (at each
-  `choose_language`, at boot and on every web route, and when the rows
-  change).
+  `choose_language`, at boot, and when Options' rows change); the web's
+  rating loop is looked for again on every route (`ratings::kick` from
+  `App::show`, round Z1).
 - **What is rated, where, and when** (`ddi_ui::state::ratings`): the
   bundled songs' four-lane charts at build time (`xtask gen-songs` writes
   `ChartInfo::msd`, an additive manifest field, to the hundredth; read by
@@ -105,17 +106,15 @@ a score goal; the listing is rate 1.0, goal 93%.
   the Adaptive ladder, the CPUs' eligibility, the announcer's hard-chart
   comment, the editor and the room's content card (agreed between peers)
   keep reading the song's number.
-- **The radar** (`ddi_ui::radar`, song select's `fill_radar`): the seven
-  skillsets, Stream at the top then clockwise, each as a share of the
-  chart's overall (the outer ring is the overall, rings a quarter apart),
-  so shapes compare as profiles while the number says how hard; drawn from
-  quads (rings and spokes as thin bars, the fill as seven triangles cut by
-  two turned frame clips each, the outline over it), in the theme's
-  `Radar.*` colors, with short labels. It overlays the banner's right end
-  (1.5 times as wide as tall, 8 px in) in the wide layout, for a rated chart
-  only, so nothing moves when it comes or goes; a phone's and a room's
-  short side have no room and show none. With the pointer on it the eight
-  numbers are listed in its place.
+- **The radar** (`ddi_ui::radar`): the seven skillsets, Stream at the top
+  then clockwise, each as a share of the chart's overall (the outer ring
+  is the overall, rings a quarter apart), so shapes compare as profiles
+  while the numbers say how hard; drawn from quads (rings and spokes as
+  thin bars, the fill as seven triangles cut by two turned frame clips
+  each, the outline over it), in the theme's `Radar.*` colors. Where it
+  goes since round Z1: below (until then it overlaid the banner's right
+  end, for a rated chart alone, with short labels and its numbers only
+  under the pointer).
 - **In a room**: ratings are each device's own (nothing is sent; the room
   model's revision is untouched). The picked chart's song is rated first
   where it has none (`want_first`), so a follower sees its MSD once their
@@ -138,5 +137,130 @@ the phone upright without a radar, and both Off: nothing wanted, stored
 or fetched. The rating worker is 296 kB of wasm; the page's first bytes
 are unchanged but for its meta tag (25 bytes gzipped).
 
-Not done: the radar's numbers on keyboard focus (hover only); MSD at other
-rates (the listing's 1.0 only).
+Not done: MSD at other rates (the listing's 1.0 only).
+
+## Round Z1 (2026-11-18): the radar in the chart ladder's place
+
+The maintainer, after turning the option On in the released build: "I've
+turned the skill radar on but I can't see it. I think it should replace
+the difficulty selector on the left side and simplify it to something
+similar to the difficulty selector of the multiplayer host."
+
+**Why it was not seen** (reproduced on the build before, headless Chrome
+and Firefox, and desktop's library through `tests/ratings_library.rs`):
+
+- **The web never rated an imported song when the option was turned On
+  in Options** (a defect, fixed): the rating worker's loop was started
+  only at the page's load (`ratings::kick`) and when `lang=` was cleared,
+  never on a route, though this plan said "on every web route". A fresh
+  profile, a scratch pack of ten songs imported, Options → Display → Skill
+  radar On, back to song select: `wanted` true, `pending` 10, `rated` 0
+  and no worker for as long as the page stayed (12 s watched), so no
+  imported song ever had a radar until a reload (after which all 30
+  charts were rated in 26 ms of the worker's time and the radar showed).
+  The bundled songs' charts, rated at build time, showed theirs. Fixed by
+  `kick` on every route (`App::show`); the walk now sees the radar come
+  on an imported song without a reload.
+- **The size never hid it on a wide screen**: the radar's test was the
+  banner's height, which the wide layout keeps at 175 at every size, so
+  it showed at every size tried (CSS pixels: 1280×720, 1366×768,
+  1440×900, 1536×864, 1920×1080, 1680×1050, 1024×768, a 1440×900 Mac's
+  browser window with its toolbars at 100, 110 and 125%, a 1280×800
+  one's at 125%, a 1280×720 one's at 125% (1024×488), a 1470×956 one at
+  100%), 162×108 CSS pixels at its smallest over the banner. Only the
+  compact layout (under 480 CSS pixels high, a 1280×720 window at 133%:
+  962×459) had none, saying nothing. Desktop's default window is
+  1280×720 logical: wide.
+- **A chart without a rating had none, saying nothing**: one not rated
+  yet (a library song on desktop is rated within 0.1 s of song select
+  showing it, the shown song first; an imported one on the web as fast,
+  once the worker runs), one that cannot be (not four lanes: Double,
+  Pump, Dancing☆Onigiri's other layouts), one the calculator skipped.
+- Chart ratings "From the song" with the radar On: the bundled songs'
+  numbers are read and the background rating runs (the radar alone
+  wants ratings). Turned On under song select (desktop's Options over
+  it): the radar came within 0.12 s.
+
+Most likely what the maintainer met: in Firefox, the option turned On in
+Options and song select's imported songs looked at, which were never
+rated in that session; on a bundled song the radar was there, small, over
+the banner, and easy to take for part of its art; on desktop it showed.
+
+**The layout with "Skill radar: On"** (the wide layout on both shells;
+`Layout::radar`, `fill_radar_side`):
+
+- The ladder goes. Where its rows were: **one row of chart buttons**, the
+  multiplayer host's (`chart_buttons`, the look's `ChartButton`: the
+  difficulty's color, its number, the song's or the MSD as Chart ratings
+  says, the song's fainter where MSD shows and the chart has none, the
+  lamp under it, a version's dot) across the song's side, a place for
+  each of the style's charts (five places at least, eight at most, as the
+  ladder showed eight rows; past eight a window round the chosen one, as
+  the ladder scrolled), the chosen one marked; a pointer or a tap picks (a
+  tap on the chosen one plays, as a row's did; a room's five-place window
+  scrolling with the chosen chart would have put it under the next press,
+  so the radar's side gives every chart its place); the keyboard's and a controller's chart gestures are the
+  ladder's (twice Up or Left an easier chart, twice Down or Right a
+  harder one); the buttons and the style tabs are the side's focusables.
+- Under it, left: **the chosen chart's lines**, what its row said: its
+  difficulty (or an Edit's name), its number as the row had it (MSD to a
+  tenth), "Song N" where MSD takes the number's place, a generated
+  version's kind, its notes, "Steps by …" (a line of its own, so less of a
+  long credit is cut than the row cut), its best's grade, score (with "…"
+  while it waits to be judged again) and lamp. The other charts' lines
+  are a press away.
+- Right: **the radar**, the rest of the row's width (338 at the design's
+  1280) and the rest of the height down to the footer (191 at 16:9, 271 at
+  16:10, 320 at most on 4:3), its overall in its upper left corner ("MSD
+  24.3") and each spoke's name over its number, always drawn. **The label
+  rule** (`radar::place`): text a sixteenth of the radar's height, 9 to
+  13 px (the numbers 2 px larger); each label beyond its spoke's end, away
+  from the middle (right of a spoke going right, left of one going left,
+  above one going up, below one going down, centered otherwise); the full
+  names (Jumpstream, Jack speed…) where the shape keeps at least
+  four-fifths of the radius the short names (Jumps, Jacks…) leave it, else
+  the short names; where neither fits inside the radar with no two labels
+  (or a label and the caption, or a label and the shape) meeting, the
+  text a pixel smaller, to 9 px; the radius is what the labels leave.
+  Nothing is cut and nothing overlaps
+  (`the_radar_s_labels_never_overlap` over English, Japanese, `qps-ploc`
+  and `qps-wide`; desktop's `ratings_offscreen` measures the drawn
+  labels with the platform's text at three window sizes).
+- **No rating**: one quiet line in the radar's place, the chart's lines
+  beside it: "Rating this chart…" while its song waits or is being rated
+  (it is rated first, and the radar comes by itself), "No rating for this
+  layout" (not four lanes), "No rating for this chart" (the calculator
+  skipped it, or nothing rates it: a share's song).
+  `ddi_ui::state::ratings::standing`.
+- **Motion**: another chart's shape morphs from the last one's in 0.22 s,
+  eased out; one coming where there was none grows from the middle; at
+  once under reduced motion. The labels' numbers change at once.
+- **Where not**: a room's host and followers keep their short side (a row
+  of chart buttons beside a small banner, the players under it): at
+  1280×720 it has 244×140 beside the banner, taken by the style button,
+  the buttons and the chart's two lines, and the players panel below, so
+  no radar there. A phone sideways or upright keeps its short side (the
+  style button, the buttons and Play fill its column; upright, a radar
+  would push the list), so none; the option's description says "On wide
+  screens".
+- With "Skill radar: Off", whatever Chart ratings says, song select draws
+  exactly as before (`song_select_with_the_radar_off_draws_as_pinned`
+  and, in the theme, `…_in_the_theme_as_pinned`, recorded on the code
+  before).
+- The option's description now says what it does to the song side.
+- `__DDI_DEBUG.ui.theme.radar` (and `ThemeState::radar`): `shown`, or why
+  not (`rating`, `unrated`, `no-layout`, `no-chart`; `off`, `phone`,
+  `room`).
+
+Checked: `ddi_ui`'s `ratings_tests` (the radar at every size of the list
+above, the buttons by a tap, the keys and a pad, the morph and its
+absence under reduced motion, the lines, no rating for a layout, the Off
+pins), `state::ratings`' `a_chart_stands_rated_rating_or_unrated`, the
+theme's walk and Off pins, the `qps-ploc` walk over the radar's side,
+desktop's `ratings_offscreen` (pictures at 1280×720, 1280×800 and
+1024×768 in English, Japanese and `qps-ploc`, a phone's two) and
+`ratings_library` (a library read in place, rated on the thread, the
+radar coming on a fresh profile and when turned On under song select),
+and in headless Chrome and Firefox on a release build (part 1's sizes,
+the option turned On through Options, the scratch pack rated slowly, a
+practice room's host, Off).

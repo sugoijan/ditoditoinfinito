@@ -308,7 +308,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   (`tools/msd-oracle/`) to the bit on nearly every chart; behind two
   options Off by default, MSD in the numbers' place and a skill radar on
   song select, rated in the background (a worker on the web, a thread on
-  desktop), never during a play, cached by chart digest.
+  desktop), never during a play, cached by chart digest. Round Z1: the
+  radar in the chart ladder's place under a row of chart buttons, its
+  numbers always shown, a line where a chart has none; the web's rating
+  started on every route.
 
 - [The DDI ruleset](ddi-ruleset.md) (2026-11-12): rounds 1 (the
   engine), 2 (the screens: Options' rows, the default with the move

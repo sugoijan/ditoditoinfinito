@@ -242,6 +242,20 @@ follower, what is kept), `crates/ui/src/state/favorites.rs` and
 `crates/desktop/tests/favorites_offscreen.rs` (pictures, wide and on a
 phone, English and Japanese).
 
+## The skill radar's side (2026-11-18, round Z1)
+
+With Options → Display → Skill radar On, the wide layout's song side has
+no chart ladder: a row of chart buttons in its place (the multiplayer
+host's, `chart_buttons`: a place for each of the style's charts, five
+at least and eight at most, a window round the chosen one past eight),
+the chosen chart's lines under it on the left
+and its skill radar on the right (`docs/plans/msd-ratings.md`, "Round
+Z1"). The gestures are the ladder's: Up/Left twice an easier chart,
+Down/Right twice a harder one, Tab the style, a tap on a button picks it
+and a tap on the chosen one plays; the buttons and the style tabs are the
+side's focusables; the footer's hints are unchanged. With it Off, or on a
+phone, or in a room, the song side is as described above.
+
 ## The footer's hints (2026-11-18)
 
 Since the favorites' F a footer could hold more hints than fit beside its
