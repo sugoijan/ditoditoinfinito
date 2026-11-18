@@ -175,3 +175,71 @@ fn the_radar_shows_for_a_rated_chart_with_its_option_on() {
     h.run(0.6);
     assert!(h.ui.bounds("Radar").is_none());
 }
+
+/// With "Skill radar: Off" song select draws exactly as it did before the
+/// radar took the ladder's place (round Z1): a hash of each draw list
+/// (`crate::testing::rounded`), recorded on the code before, at three
+/// sizes, with Chart ratings on the song's and on MSD (a rated chart and
+/// one not rated yet), and after a chart and a song changed by keys.
+#[test]
+fn song_select_with_the_radar_off_draws_as_pinned() {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let hash = |h: &Harness| {
+        let mut s = DefaultHasher::new();
+        crate::testing::rounded(&format!("{:?}", h.drawn)).hash(&mut s);
+        s.finish()
+    };
+    let mut got = Vec::new();
+    for msd in [false, true] {
+        for size in [[1280.0, 720.0], [1024.0, 768.0], [1440.0, 810.0]] {
+            let _store = fresh();
+            ratings::set_mode(msd, false);
+            ratings::done(
+                "s0",
+                vec![ratings::Rated {
+                    index: 1,
+                    digest: ddi_chart::ChartDigest(1),
+                    values: Some([21.37, 22.0, 15.0, 14.0, 20.5, 12.0, 13.0, 18.0]),
+                }],
+            );
+            let mut h = Harness::new(DESIGN, size, 1.0, TextMode::Own);
+            let play: PlayFn = Rc::new(|_, _, _: &Env, _| {});
+            let open: OpenFn = Rc::new(|_, _| {});
+            h.push(SelectScreen::new(env(), songs(), Some("s0"), play, open));
+            h.run(1.0);
+            got.push(hash(&h));
+            // The other chart (twice Up), then the next song.
+            h.key("ArrowUp", "ArrowUp");
+            h.run(0.05);
+            h.key("ArrowUp", "ArrowUp");
+            h.run(1.0);
+            got.push(hash(&h));
+            h.key("ArrowDown", "ArrowDown");
+            h.run(1.0);
+            got.push(hash(&h));
+        }
+    }
+    ratings::set_mode(false, false);
+    assert_eq!(got, OFF_PINNED, "{got:?}");
+}
+
+const OFF_PINNED: [u64; 18] = [
+    9509906775137216922,
+    12502977935626601262,
+    16829067834613889425,
+    17019633511807470159,
+    11812824151733589487,
+    974805639749831228,
+    9509906775137216922,
+    12502977935626601262,
+    16829067834613889425,
+    969422635511668788,
+    9312704301971113282,
+    14148402059163631482,
+    14478074591779853868,
+    10430942526480632923,
+    7515529346645683890,
+    969422635511668788,
+    9312704301971113282,
+    14148402059163631482,
+];

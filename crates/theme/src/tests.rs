@@ -2464,3 +2464,94 @@ fn song_selects_footer_hints_never_overlap() {
         assert!(seen_kinds.contains(k), "never saw {k}: {seen_kinds:?}");
     }
 }
+
+/// With "Skill radar: Off" song select draws in the theme exactly as it
+/// did before the radar took the ladder's place (round Z1): a hash of each
+/// draw list (`ddi_ui::testing::rounded`), recorded on the code before,
+/// over the sample library at three sizes, Chart ratings on the song's and
+/// on MSD (the bundled charts' numbers as the manifest gives them), and
+/// after a chart and a song changed by keys; a phone's sideways too.
+#[test]
+fn song_select_with_the_radar_off_draws_in_the_theme_as_pinned() {
+    use ddi_ui::screens::select::SelectScreen;
+    use ddi_ui::state::ratings;
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let hash = |h: &Harness| {
+        let mut s = DefaultHasher::new();
+        ddi_ui::testing::rounded(&format!("{:?}", h.drawn)).hash(&mut s);
+        s.finish()
+    };
+    assert!(ddi_l10n::force("en"));
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let mut data = sample::select();
+    // A digest each, the first song's Single charts rated.
+    for (s, song) in data.songs.iter_mut().enumerate() {
+        for c in &mut song.charts {
+            c.digest = Some(format!("{:032x}", (s as u128) << 16 | c.index as u128).parse().unwrap());
+        }
+    }
+    let first = data.songs[0].clone();
+    let mut got = Vec::new();
+    for msd in [false, true] {
+        ratings::set_mode(msd, false);
+        for c in first.charts.iter().filter(|c| c.style == "dance-single").take(3) {
+            let m = 10.0 + c.index as f32;
+            ratings::remember(c.digest.unwrap(), [m, m, m - 2.0, m - 4.0, m - 1.0, m - 6.0, m - 5.0, m - 3.0]);
+        }
+        for (size, design) in [
+            ([1280.0, 720.0], DESIGN),
+            ([1024.0, 768.0], DESIGN),
+            ([1440.0, 810.0], DESIGN),
+            ([844.0, 390.0], COMPACT),
+        ] {
+            let mut h = harness(size, design);
+            h.push(SelectScreen::new(
+                env.clone(),
+                data.clone(),
+                Some(&first.id),
+                Rc::new(|_, _, _: &Env, _| {}),
+                Rc::new(|_, _| {}),
+            ));
+            h.run(1.0);
+            got.push(hash(&h));
+            h.key("ArrowUp", "ArrowUp");
+            h.run(0.05);
+            h.key("ArrowUp", "ArrowUp");
+            h.run(1.0);
+            got.push(hash(&h));
+            h.key("ArrowDown", "ArrowDown");
+            h.run(1.0);
+            got.push(hash(&h));
+        }
+    }
+    ratings::set_mode(false, false);
+    assert_eq!(got, THEME_OFF_PINNED, "{got:?}");
+}
+
+const THEME_OFF_PINNED: [u64; 24] = [
+    15725122417511466891,
+    10236960284848904486,
+    10639081228426127218,
+    12667105283059785223,
+    15205999969632810044,
+    1662399774100987532,
+    15725122417511466891,
+    10236960284848904486,
+    10639081228426127218,
+    16831497350810834523,
+    13743372237617181829,
+    1657978566578211068,
+    1137531011077408220,
+    7347686347872387539,
+    4398459285243504126,
+    4017556961955621395,
+    9031551059196086246,
+    5980066501828746578,
+    1137531011077408220,
+    7347686347872387539,
+    4398459285243504126,
+    7662886429544622715,
+    17038983878928361525,
+    8779959774794916449,
+];
