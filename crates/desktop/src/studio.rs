@@ -489,9 +489,12 @@ fn make_pack(
     entries: Vec<PackEntry>,
     to: Packing,
 ) -> Result<Packed, String> {
-    let mut files = Vec::with_capacity(entries.len() + 1);
+    let mut files = Vec::with_capacity(entries.len() + 3);
     for e in entries {
         files.push(entry_bytes(&dir, e)?);
+    }
+    for (path, text) in &export.texts {
+        files.push((path.clone(), text.clone().into_bytes()));
     }
     match to {
         Packing::Zip(path) => {
@@ -1801,6 +1804,25 @@ mod tests {
         assert!(planar(&preview)[1].iter().all(|s| *s == 0.0));
         assert_eq!(source.frames(), 48000);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A draft stored before languages, tags and takes on several lines
+    /// (the library's fixture, as the studio wrote it then) opens from the
+    /// data folder as it was: one language, not named.
+    #[test]
+    fn a_draft_stored_before_this_round_opens_as_it_was() {
+        let dir = scratch("old");
+        let old = include_str!("../../library/src/announcer/draft/old-draft.json");
+        std::fs::write(dir.join("draft.json"), old).unwrap();
+        for id in 1..=5 {
+            std::fs::write(take_path(&dir, id), b"ID3").unwrap();
+        }
+        let (d, status, saves) = open_draft(&dir);
+        assert!(status.is_empty() && saves);
+        assert_eq!(d, serde_json::from_str::<Draft>(old).unwrap());
+        assert_eq!(d.takes.len(), 5);
+        assert!(d.languages.is_empty() && !d.declares());
+        assert!(d.export().texts.is_empty());
     }
 
     #[test]

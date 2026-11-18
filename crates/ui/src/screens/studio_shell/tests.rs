@@ -212,8 +212,9 @@ fn fields_and_dialogs_change_the_draft() {
         let weak = Rc::downgrade(&host);
         Rc::new(move |c, cx| call(&weak.upgrade()?, c, cx))
     };
+    let feed: super::super::page::PageFeed = Rc::default();
     let page = PageScreen::new(host.env.clone(), studio::NAME, doc_of(&*host))
-        .with_shell(shell, Rc::default());
+        .with_shell(shell, feed.clone());
     let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
     h.push(page);
     h.run(0.3);
@@ -237,5 +238,21 @@ fn fields_and_dialogs_change_the_draft() {
         host.state.draft.borrow().take(take).unwrap().line,
         Some(Line::SelectMusicIntro)
     );
+    assert_eq!(host.asked(), ["stop", "forget", "save", "show"]);
+    // Name its language…: the first offered (English) taken.
+    h.run(0.5);
+    *feed.borrow_mut() = Some(doc_of(&*host));
+    h.ui.broadcast(crate::message::Message::new(super::super::page::PAGE_CHANGED));
+    h.run(0.3);
+    let items = host.env.state.borrow().page_items.clone();
+    let at = items
+        .iter()
+        .position(|i| i == "button:add-language")
+        .unwrap_or_else(|| panic!("{items:?}"));
+    h.tap(PointerKind::Mouse, &format!("Item{at}"));
+    h.run(0.3);
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    assert_eq!(host.state.draft.borrow().languages, ["en"]);
     assert_eq!(host.asked(), ["stop", "forget", "save", "show"]);
 }

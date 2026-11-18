@@ -68,6 +68,53 @@ studio-save = Save { $file }
 #   $megabytes (Number) - the most megabytes it keeps (128)
 studio-too-big = The pack is past what the game keeps of an announcer ({ $files } sounds, { $megabytes } MB): the last ones would be left out.
 
+## The draft's languages, under the page's buttons: a sentence, then a
+## row of buttons (one a language, each named in its own language, data),
+## and where there are two or more a switch with a sentence under it.
+
+# Where no language is named yet.
+studio-languages-none = Its recordings are in one language. Name it, or add another, for a pack in several languages.
+
+# Where one is named.
+# Variables:
+#   $language (String) - the language, named in itself ("English", "日本語")
+studio-languages-one = Its recordings are in { $language }. Add another language for a pack in several.
+
+# Where there are two or more: the buttons after it choose the one shown.
+studio-languages-many = Each language has recordings of its own: the page shows the one chosen here.
+
+# Buttons (the dialog they open lists the languages).
+studio-name-language = Name its language…
+studio-add-language = Add a language…
+
+# Takes a language with nothing recorded off the pack.
+# Variables:
+#   $language (String) - the language, named in itself
+studio-remove-language = Remove { $language }
+
+# A switch's button: its name and its state, "on" or "off".
+# Variables:
+#   $state (String) - "on" or "off"
+studio-mixed = { $state ->
+    [on] Mixed languages: on
+   *[off] Mixed languages: off
+}
+
+studio-mixed-description = Lets players choose Mixed too, which takes each line's recordings from every language.
+
+# The language dialog's title and note: naming the language the
+# recordings so far are in, or adding one.
+studio-language-title-name = Which language are they in?
+studio-language-note-name = The language its recordings so far are in.
+studio-language-title-add = Add a language
+studio-language-note-add = Its lines are recorded apart, and the page shows it next.
+
+# In a line's zone, under when it is said, where the pack has two
+# languages or more.
+# Variables:
+#   $languages (String) - the languages with a recording of it, named in themselves, apart by commas
+studio-recorded-in = Recorded in { $languages }.
+
 ## Advanced: a fold (its label about 16 letters) holding the credits, the
 ## imports and three switches, each a button and a sentence under it.
 

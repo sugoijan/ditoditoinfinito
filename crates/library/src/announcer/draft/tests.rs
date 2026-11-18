@@ -306,6 +306,9 @@ fn zip_of(d: &Draft, bytes: &BTreeMap<u64, Vec<u8>>) -> Vec<u8> {
             (e.path.clone(), data)
         })
         .collect();
+    for (path, text) in &export.texts {
+        files.push((path.clone(), text.clone().into_bytes()));
+    }
     files.push(("README.txt".into(), export.readme.into_bytes()));
     crate::zip::write_stored(&files).unwrap()
 }
@@ -656,4 +659,188 @@ fn stadium_is_optional_persisted_and_forces_processing_of_settled_takes() {
     cache.insert(id, opening, input.clone(), input[0].len() * 4);
     assert_eq!(cache.get(id, opening), Some(input));
     assert!(cache.get(id, normal).is_none());
+}
+
+/// FNV-1a over `bytes`: a pin of a file's bytes.
+fn fnv(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| {
+        (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+/// A draft as the studio stored it before it had languages, tags or
+/// takes on several lines (2026-11-18, written by that studio).
+const OLD_DRAFT: &str = include_str!("old-draft.json");
+
+/// A plain draft (one language, no tags, no take on two lines), stored
+/// before this round, opens as it was and exports byte for byte what the
+/// studio exported then: its line folders at the pack's top, no
+/// `announcer.ini`, no script.
+#[test]
+fn a_plain_draft_stored_before_exports_as_it_did() {
+    let d: Draft = serde_json::from_str(OLD_DRAFT).expect("an old draft");
+    assert_eq!(d.name, "Old Voice");
+    assert_eq!(d.takes.len(), 5);
+    assert_eq!(d.scripts.len(), 1);
+    let mut bytes = BTreeMap::new();
+    for t in &d.takes {
+        bytes.insert(t.id, format!("ID3 take {}", t.id).into_bytes());
+    }
+    let export = d.export();
+    let paths: Vec<&str> = export.entries.iter().map(|e| e.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "Announcers/Old Voice/gameplay ready/ready.mp3",
+            "Announcers/Old Voice/gameplay ready/ready 2.mp3",
+            "Announcers/Old Voice/gameplay 100 combo/hundred.mp3",
+            "Announcers/Old Voice/evaluation cheer/cheer.wav",
+        ]
+    );
+    assert!(export.texts.is_empty());
+    let zip = zip_of(&d, &bytes);
+    assert_eq!((zip.len(), fnv(&zip)), (OLD_ZIP_LEN, OLD_ZIP_FNV));
+    // Kept again, it reads as it was: one language, not named.
+    assert!(d.languages.is_empty() && d.working.is_none() && !d.mixed);
+    assert!(d.takes.iter().all(|t| t.lang.is_none()));
+    let again: Draft = serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
+    assert_eq!(again, d);
+    // Its one language named, it is still a plain pack.
+    let mut named = d.clone();
+    assert!(named.add_language("en"));
+    assert!(!named.declares());
+    assert_eq!(named.export(), export);
+}
+
+/// Two languages: each its own takes and text lines, the page working in
+/// one; the pack written with a folder a language and an `announcer.ini`
+/// the game's reader declares it by.
+#[test]
+fn a_draft_of_two_languages_writes_a_folder_a_language() {
+    let mut d = Draft {
+        name: "Two Voices".into(),
+        tidy: false,
+        ..Draft::default()
+    };
+    let ready = d.add("gameplay ready.mp3", 9, MP3);
+    assert!(d.add_language("en"));
+    assert!(!d.add_language("en") && !d.add_language("not a tag"));
+    // Named, the first is worked in still; a second is worked in next.
+    assert_eq!(d.working_language(), Some("en"));
+    assert!(d.add_language("es"));
+    assert_eq!(d.working_language(), Some("es"));
+    assert_eq!(d.takes_of(Line::Ready).count(), 0);
+    let listo = d.add("gameplay ready.mp3", 9, MP3);
+    d.add("evaluation cheer.mp3", 9, MP3);
+    assert_eq!(d.take(listo).unwrap().lang.as_deref(), Some("es"));
+    assert_eq!(d.lang_of(d.take(ready).unwrap()), Some("en"));
+    let es = d.write(Line::Cleared);
+    assert_eq!(d.scripts_of(Line::Cleared).count(), 1);
+    d.working = Some("en".into());
+    assert_eq!(
+        d.takes_of(Line::Ready).map(|t| t.id).collect::<Vec<_>>(),
+        [ready]
+    );
+    assert_eq!(d.scripts_of(Line::Cleared).count(), 0);
+    assert_eq!(d.languages_of(Line::Ready), ["en", "es"]);
+    assert_eq!(d.languages_of(Line::Cheer), ["es"]);
+    // A text line recorded keeps its language; removed, it goes back.
+    let rec = d.add_to(es, "clear.mp3", 9, MP3);
+    assert_eq!(d.take(rec).unwrap().lang.as_deref(), Some("es"));
+    d.remove(rec);
+    assert_eq!(d.scripts[0].lang.as_deref(), Some("es"));
+    // Not removed while it speaks.
+    assert!(!d.remove_language("es"));
+    d.mixed = true;
+    let export = d.export();
+    let paths: Vec<&str> = export.entries.iter().map(|e| e.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "Announcers/Two Voices/en/gameplay ready/gameplay ready.mp3",
+            "Announcers/Two Voices/es/gameplay ready/gameplay ready.mp3",
+            "Announcers/Two Voices/es/evaluation cheer/evaluation cheer.mp3",
+        ]
+    );
+    assert_eq!(
+        export.texts,
+        [(
+            "Announcers/Two Voices/announcer.ini".to_string(),
+            "; announcer.ini, written by Dito Dito Infinito's announcer studio.\n\n\
+             [Announcer]\nName=Two Voices\n\n[Parameters]\nList=Language\n\n\
+             [Parameter Language]\nType=Language\nLanguages=en,es\n\
+             Labels=English,Español\nMixed=1\n"
+                .to_string()
+        )]
+    );
+    // Read as the game reads a pack: one announcer, its two voices.
+    let mut bytes = BTreeMap::new();
+    for t in &d.takes {
+        bytes.insert(t.id, MP3.to_vec());
+    }
+    let read = crate::zip::tests::read_all(&zip_of(&d, &bytes)).unwrap();
+    let files: Vec<(String, u64)> = read
+        .iter()
+        .map(|(e, data)| (e.name.clone(), data.len() as u64))
+        .collect();
+    let found = find_announcers(&files, "root");
+    assert_eq!(found.announcers.len(), 1);
+    let mut kept = found.announcers[0].kept();
+    kept.ini = export.text(crate::announcer::pool::DECLARATION).map(str::to_string);
+    let offered = kept.offered(&Default::default(), "en");
+    assert_eq!(
+        offered.languages,
+        [
+            ("en".to_string(), Some("English".to_string())),
+            ("es".to_string(), Some("Español".to_string()))
+        ]
+    );
+    assert!(offered.mixed);
+    assert_eq!(offered.name("en"), Some("Two Voices"));
+    // Its first language, empty, can go; the other then is the first.
+    d.takes.retain(|t| t.id != ready);
+    assert!(d.remove_language("en"));
+    assert_eq!(d.languages, ["es"]);
+    assert!(!d.mixed && !d.declares());
+}
+
+/// The zip [`a_plain_draft_stored_before_exports_as_it_did`] pins, as
+/// the studio made it before this round.
+const OLD_ZIP_LEN: usize = 946;
+const OLD_ZIP_FNV: u64 = 10_308_506_410_483_160_419;
+
+/// Writes `old-draft.json` (run once, by the studio as it was).
+#[test]
+#[ignore = "writes the old draft's fixture"]
+fn write_the_old_draft() {
+    let mut d = Draft {
+        name: "Old Voice".into(),
+        author: "Someone".into(),
+        license: "CC0".into(),
+        tidy: false,
+        ..Draft::default()
+    };
+    for (source, line, read) in [
+        ("ready.mp3", Some(Line::Ready), true),
+        ("other/ready.mp3", Some(Line::Ready), true),
+        ("hundred.mp3", Some(Line::Combo(100)), true),
+        ("cheer.wav", Some(Line::Cheer), false),
+        ("New Recording.mp3", None, true),
+    ] {
+        let id = d.add(source, 9, if source.ends_with("wav") { b"RIFF\0\0\0\0WAVE" } else { MP3 });
+        let t = d.take_mut(id).unwrap();
+        t.line = line;
+        if read {
+            t.sound = Sound::Read(measure(1.0, 0.1, 0.9));
+        }
+    }
+    let s = d.write(Line::Cleared);
+    *d.words_mut(s).unwrap() = "All clear!".into();
+    d.add_combo(64);
+    let json = serde_json::to_string_pretty(&d).unwrap();
+    std::fs::write(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/src/announcer/draft/old-draft.json"),
+        json + "\n",
+    )
+    .unwrap();
 }

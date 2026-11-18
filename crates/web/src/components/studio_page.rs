@@ -47,7 +47,7 @@ use std::rc::{Rc, Weak};
 use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as ms;
 use ddi_library::announcer::draft::{
-    self, Adopted, Decoded, Draft, HEAD, Sound, Write, install_plan, made_before, takes,
+    self, Adopted, Decoded, Draft, HEAD, Sound, Write, made_before, takes,
 };
 use ddi_library::announcer::examples::Set;
 use ddi_library::announcer::{Bundled, Line, Spoken, tidy};
@@ -133,6 +133,23 @@ pub(crate) struct StudioPage {
 
 /// A take's processed copy: its channels and its rate.
 type Shaped = (Rc<Vec<Vec<f32>>>, u32);
+
+/// A pack made: what the draft exports, and its sounds made by their
+/// paths in the zip.
+struct PackFiles {
+    export: draft::Export,
+    sounds: Vec<(String, Blob)>,
+}
+
+impl PackFiles {
+    /// Each sound's path and size.
+    fn sizes(&self) -> Vec<(String, u64)> {
+        self.sounds
+            .iter()
+            .map(|(p, b)| (p.clone(), b.size() as u64))
+            .collect()
+    }
+}
 
 /// What the page holds, shared by the shell's calls and its tasks.
 struct Studio {
@@ -962,8 +979,8 @@ impl Studio {
         self.changed();
     }
 
-    /// The pack's files: each export entry's, and where it goes.
-    async fn files(&self) -> Result<(String, Vec<(String, Blob)>, String), String> {
+    /// The pack's sounds made: each export entry's, and where it goes.
+    async fn files(&self) -> Result<PackFiles, String> {
         let export = self.state.draft.borrow().export();
         let mut out = Vec::new();
         for e in &export.entries {
@@ -988,7 +1005,10 @@ impl Studio {
             };
             out.push((e.path.clone(), blob));
         }
-        Ok((export.file_name, out, export.readme))
+        Ok(PackFiles {
+            export,
+            sounds: out,
+        })
     }
 
     /// The export made, to save with the next press.
@@ -999,16 +1019,19 @@ impl Studio {
         let began = self.changes.get();
         wasm_bindgen_futures::spawn_local(async move {
             let made = async {
-                let (name, files, readme) = this.files().await?;
-                let mut entries = Vec::with_capacity(files.len() + 1);
-                for (path, blob) in &files {
+                let pack = this.files().await?;
+                let mut entries = Vec::with_capacity(pack.sounds.len() + 3);
+                for (path, blob) in &pack.sounds {
                     entries.push((path.clone(), files::blob_bytes(blob).await?));
                 }
-                entries.push(("README.txt".to_string(), readme.into_bytes()));
+                for (path, text) in &pack.export.texts {
+                    entries.push((path.clone(), text.clone().into_bytes()));
+                }
+                entries.push(("README.txt".to_string(), pack.export.readme.into_bytes()));
                 let zip =
                     ddi_library::zip::write_stored(&entries).ok_or("the pack is too large")?;
                 let blob = files::bytes_blob(&zip, "application/zip")?;
-                Ok::<_, String>((name, blob, files.len()))
+                Ok::<_, String>((pack.export.file_name, blob, pack.sounds.len()))
             }
             .await;
             this.state.view.borrow_mut().busy = false;
@@ -1047,13 +1070,10 @@ impl Studio {
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let stored = async {
-                let (_, files, _) = this.files().await?;
-                let listed: Vec<(String, u64)> = files
-                    .iter()
-                    .map(|(p, b)| (p.clone(), b.size() as u64))
-                    .collect();
-                let plan = install_plan(&listed)?;
-                let sounds: Vec<(String, Blob)> = files
+                let pack = this.files().await?;
+                let plan = pack.export.installed(&pack.sizes())?;
+                let sounds: Vec<(String, Blob)> = pack
+                    .sounds
                     .into_iter()
                     .map(|(p, b)| (plan.inside(&p).to_string(), b))
                     .collect();

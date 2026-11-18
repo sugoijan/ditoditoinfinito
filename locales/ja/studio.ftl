@@ -33,6 +33,31 @@ studio-save = { $file }を保存
 
 studio-too-big = パックが保存できる上限（音声ファイル{ $files }個、{ $megabytes } MB）を超えています。末尾の音声ファイルは除外されます。
 
+studio-languages-none = 録音は1つの言語です。言語を指定するか、別の言語を追加すると、複数言語のパックになります。
+
+studio-languages-one = 録音は{ $language }です。別の言語を追加すると、複数言語のパックになります。
+
+studio-languages-many = 言語ごとに録音が分かれています。ここで選んだ言語の録音が表示されます。
+
+studio-name-language = 言語を指定…
+studio-add-language = 言語を追加…
+
+studio-remove-language = { $language }を削除
+
+studio-mixed = { $state ->
+   *[off] 言語のミックス：オフ
+    [on] 言語のミックス：オン
+}
+
+studio-mixed-description = プレイヤーが「ミックス」も選べるようになります。各セリフの録音をすべての言語から選びます。
+
+studio-language-title-name = 録音の言語は？
+studio-language-note-name = これまでの録音の言語です。
+studio-language-title-add = 言語を追加
+studio-language-note-add = セリフは言語ごとに録音します。追加した言語が表示されます。
+
+studio-recorded-in = 録音のある言語：{ $languages }。
+
 studio-advanced = 詳細設定
 
 studio-import-zip = ZIPからパックをインポート…

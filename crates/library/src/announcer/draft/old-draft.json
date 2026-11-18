@@ -1,0 +1,113 @@
+{
+  "name": "Old Voice",
+  "author": "Someone",
+  "license": "CC0",
+  "tidy": false,
+  "stadium": false,
+  "stepmania": false,
+  "takes": [
+    {
+      "id": 1,
+      "source": "ready.mp3",
+      "bytes": 9,
+      "format": "Mp3",
+      "line": "gameplay ready",
+      "sound": {
+        "Read": {
+          "rate": 48000,
+          "channels": 1,
+          "seconds": 1.0,
+          "clipped": false,
+          "start": 0.1,
+          "end": 0.9,
+          "gain": 1.0
+        }
+      }
+    },
+    {
+      "id": 2,
+      "source": "other/ready.mp3",
+      "bytes": 9,
+      "format": "Mp3",
+      "line": "gameplay ready",
+      "sound": {
+        "Read": {
+          "rate": 48000,
+          "channels": 1,
+          "seconds": 1.0,
+          "clipped": false,
+          "start": 0.1,
+          "end": 0.9,
+          "gain": 1.0
+        }
+      }
+    },
+    {
+      "id": 3,
+      "source": "hundred.mp3",
+      "bytes": 9,
+      "format": "Mp3",
+      "line": "gameplay 100 combo",
+      "sound": {
+        "Read": {
+          "rate": 48000,
+          "channels": 1,
+          "seconds": 1.0,
+          "clipped": false,
+          "start": 0.1,
+          "end": 0.9,
+          "gain": 1.0
+        }
+      }
+    },
+    {
+      "id": 4,
+      "source": "cheer.wav",
+      "bytes": 9,
+      "format": "Wav",
+      "line": "evaluation cheer",
+      "sound": "Unread"
+    },
+    {
+      "id": 5,
+      "source": "New Recording.mp3",
+      "bytes": 9,
+      "format": "Mp3",
+      "line": null,
+      "sound": {
+        "Read": {
+          "rate": 48000,
+          "channels": 1,
+          "seconds": 1.0,
+          "clipped": false,
+          "start": 0.1,
+          "end": 0.9,
+          "gain": 1.0
+        }
+      }
+    }
+  ],
+  "scripts": [
+    {
+      "id": 6,
+      "line": "gameplay cleared",
+      "words": "All clear!"
+    }
+  ],
+  "combos": [
+    64,
+    100,
+    200,
+    300,
+    400,
+    500,
+    600,
+    700,
+    800,
+    900,
+    1000,
+    1500,
+    2000
+  ],
+  "next": 7
+}

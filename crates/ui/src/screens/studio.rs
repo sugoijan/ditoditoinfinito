@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as m;
-use ddi_library::announcer::draft::{Draft, Note, Script, Sound, Take};
+use ddi_library::announcer::draft::{self, Draft, Note, Script, Sound, Take};
 use ddi_library::announcer::examples::{self, Set};
 use ddi_library::announcer::{
     Battle, Bundled, Comment, Grade, Line, OUR_COMBOS, Spoken, past_1000,
@@ -395,6 +395,14 @@ fn line_zone(
     if view.details {
         body.push(Block::Muted(m::line_folder(&folder).into()));
     }
+    // Which languages have it, where there are several.
+    if draft.languages.len() > 1 {
+        let langs = draft.languages_of(line);
+        if !langs.is_empty() {
+            let names: Vec<&str> = langs.iter().map(|l| draft::language_name(l)).collect();
+            body.push(Block::Muted(m::recorded_in(names.join(", ")).into()));
+        }
+    }
     let ex = examples.get(&line).map(Vec::as_slice).unwrap_or_default();
     let mut left = vec![Block::Muted(m::recordings_heading().into())];
     let takes: Vec<&Take> = draft.takes_of(line).collect();
@@ -523,6 +531,47 @@ fn switch(id: &str, label: UiText, does: UiText) -> [Block; 2] {
     ]
 }
 
+/// The draft's languages: what they are, a button for each to work in
+/// (the one worked in marked), one to add a language (to name its first),
+/// one to take off the one worked in while nothing is in it, and Mixed
+/// where there are two or more.
+fn language_blocks(draft: &Draft) -> Vec<Block> {
+    let working = draft.working_language();
+    let mut out = Vec::new();
+    let mut actions = Vec::new();
+    match draft.languages.as_slice() {
+        [] => {
+            out.push(Block::Muted(m::languages_none().into()));
+            actions.push(Action::new("add-language", m::name_language()));
+        }
+        [one] => {
+            out.push(Block::Muted(m::languages_one(draft::language_name(one)).into()));
+            actions.push(Action::new("add-language", m::add_language()));
+        }
+        many => {
+            out.push(Block::Muted(m::languages_many().into()));
+            for (i, l) in many.iter().enumerate() {
+                let a = Action::new(format!("language:{i}"), UiText::data(draft::language_name(l)));
+                actions.push(if Some(l.as_str()) == working { a.primary() } else { a });
+            }
+            actions.push(Action::new("add-language", m::add_language()));
+        }
+    }
+    out.push(Block::Actions(actions));
+    if draft.languages.len() > 1 {
+        if let Some(w) = working.filter(|w| !draft.speaks(w))
+            && let Some(i) = draft.languages.iter().position(|l| l == w)
+        {
+            out.push(Block::Actions(vec![Action::new(
+                format!("remove-language:{i}"),
+                m::remove_language(draft::language_name(w)),
+            )]));
+        }
+        out.extend(switch("mixed", m::mixed(state(draft.mixed)), m::mixed_description()));
+    }
+    out
+}
+
 /// The studio's page, in `platform`'s words on dropping files and on
 /// keeping them.
 pub fn doc(
@@ -553,6 +602,7 @@ pub fn doc(
     if !view.status.is_empty() {
         b.push(Block::Muted(view.status.clone()));
     }
+    b.extend(language_blocks(draft));
     if draft.too_big() {
         b.push(Block::Note(
             m::too_big(
@@ -690,6 +740,15 @@ pub enum Act {
     AddCombo,
     /// Combo line `n` off the page.
     RemoveCombo(u32),
+    /// A language for the draft, chosen in a dialog ([`language_dialog`]):
+    /// its first named, or another.
+    AddLanguage,
+    /// The page works in the draft's language `i`.
+    Language(usize),
+    /// The draft's language `i` off it (nothing being in it).
+    RemoveLanguage(usize),
+    /// Mixed offered or not.
+    Mixed,
 }
 
 /// The press `id` of [`doc`]'s.
@@ -707,6 +766,8 @@ pub fn act(id: &str) -> Option<Act> {
         "save" => Act::Save,
         "use" => Act::UseInGame,
         "add-combo" => Act::AddCombo,
+        "add-language" => Act::AddLanguage,
+        "mixed" => Act::Mixed,
         _ => {
             let (kind, rest) = id.split_once(':')?;
             match kind {
@@ -720,6 +781,8 @@ pub fn act(id: &str) -> Option<Act> {
                 "move" => Act::Move(take(rest)?),
                 "remove" => Act::Remove(take(rest)?),
                 "remove-combo" => Act::RemoveCombo(rest.parse().ok()?),
+                "language" => Act::Language(rest.parse().ok()?),
+                "remove-language" => Act::RemoveLanguage(rest.parse().ok()?),
                 "example" | "hear-example" => {
                     let (folder, i) = rest.rsplit_once(':')?;
                     let (line, i) = (Line::parse(folder)?, i.parse().ok()?);
@@ -764,6 +827,9 @@ pub enum Applied {
     Examples,
     /// Only how the page shows.
     View,
+    /// What the draft keeps of how the page shows (the language worked
+    /// in): the shell keeps it, nothing made of the draft changed.
+    Kept,
 }
 
 /// The presses every shell carries out alike, on the draft and the
@@ -806,6 +872,21 @@ pub fn apply(act: Act, draft: &mut Draft, view: &mut View) -> Option<Applied> {
         }
         Act::Unwrite(id) => {
             draft.unwrite(id)?;
+            Applied::Draft
+        }
+        Act::Language(i) => {
+            draft.working = Some(draft.languages.get(i)?.clone());
+            Applied::Kept
+        }
+        Act::RemoveLanguage(i) => {
+            let tag = draft.languages.get(i)?.clone();
+            if !draft.remove_language(&tag) {
+                return None;
+            }
+            Applied::Draft
+        }
+        Act::Mixed => {
+            draft.mixed = !draft.mixed;
             Applied::Draft
         }
         _ => return None,
@@ -904,7 +985,34 @@ pub fn in_gesture(a: Act) -> bool {
             | Act::RemoveCombo(_)
             | Act::Write(_)
             | Act::Unwrite(_)
+            | Act::Language(_)
+            | Act::RemoveLanguage(_)
+            | Act::Mixed
     )
+}
+
+/// What choosing a language does: `true` where the draft took it.
+pub type LanguageFn = Rc<dyn Fn(&str, &mut Cx) -> bool>;
+
+/// The dialog of Add a language… (or Name its language…, where the draft
+/// has none named): the languages the studio offers that the draft has
+/// not, each named in itself.
+pub fn language_dialog(env: Env, draft: &Draft, on_pick: LanguageFn) -> ActionsDialog {
+    let naming = draft.languages.is_empty();
+    let items: Vec<(String, String)> = draft::LANGUAGES
+        .iter()
+        .filter(|(tag, _)| !draft.languages.iter().any(|l| l == tag))
+        .map(|(tag, name)| (tag.to_string(), name.to_string()))
+        .collect();
+    let pick: PickFn = Rc::new(move |tag: &str, cx: &mut Cx| {
+        on_pick(tag, cx);
+    });
+    let (title, note) = if naming {
+        (m::language_title_name(), m::language_note_name())
+    } else {
+        (m::language_title_add(), m::language_note_add())
+    };
+    ActionsDialog::new(env, &title, items, pick).with_note(&note)
 }
 
 /// What adding combo line `n` does: whether it was not listed already.
@@ -1336,6 +1444,61 @@ mod tests {
         assert_eq!(last.0, "battle match drawn");
         let label = m::picker_line_battle(name(Line::Battle(Battle::MatchDrawn)));
         assert_eq!(last.1, label.to_string());
+    }
+
+    /// The draft's languages on the page: named, added, worked in one
+    /// at a time, each line saying which have it, Mixed where there are
+    /// two, a language with nothing in it taken off.
+    #[test]
+    fn languages_are_named_added_worked_in_and_removed() {
+        ddi_l10n::set_language("en");
+        let page = |d: &Draft| format!("{:?}", doc(d, &View::default(), &BTreeMap::new(), Default::default()).blocks);
+        let mut d = Draft::default();
+        let mut v = View::default();
+        let ready = add_read(&mut d, "gameplay ready.wav");
+        let text = page(&d);
+        assert!(text.contains(&m::languages_none().to_string()));
+        assert!(text.contains("\"add-language\", label: \"Name its language…\""));
+        assert!(!text.contains("\"mixed\"") && !text.contains("Recorded in"));
+        assert_eq!(act("add-language"), Some(Act::AddLanguage));
+        assert!(in_gesture(Act::AddLanguage));
+        let names = |d: &Draft| -> Vec<String> {
+            language_dialog(crate::screens::test_kit::env(), d, Rc::new(|_, _| true))
+                .items()
+                .iter()
+                .map(|(t, _)| t.clone())
+                .collect()
+        };
+        assert_eq!(names(&d)[..2], ["en".to_string(), "ja".to_string()]);
+        assert!(d.add_language("en"));
+        assert!(page(&d).contains("Its recordings are in English."));
+        assert!(!names(&d).contains(&"en".to_string()));
+        assert!(d.add_language("ja"));
+        let text = page(&d);
+        assert!(text.contains("\"language:0\", label: \"English\", primary: false"));
+        assert!(text.contains("\"language:1\", label: \"日本語\", primary: true"));
+        // Nothing in Japanese yet: it can go.
+        assert!(text.contains("\"remove-language:1\", label: \"Remove 日本語\""));
+        assert!(text.contains("Mixed languages: off"));
+        assert!(text.contains("Recorded in English."));
+        // Its take is not shown in Japanese.
+        assert!(!text.contains(&format!("\"play:{ready}\"")));
+        assert_eq!(apply(Act::Language(0), &mut d, &mut v), Some(Applied::Kept));
+        assert_eq!(d.working_language(), Some("en"));
+        let text = page(&d);
+        assert!(text.contains(&format!("\"play:{ready}\"")));
+        assert!(!text.contains("remove-language:0"));
+        assert_eq!(apply(Act::Mixed, &mut d, &mut v), Some(Applied::Draft));
+        assert!(page(&d).contains("Mixed languages: on"));
+        assert_eq!(apply(Act::RemoveLanguage(0), &mut d, &mut v), None);
+        assert_eq!(apply(Act::Language(7), &mut d, &mut v), None);
+        assert_eq!(apply(Act::RemoveLanguage(1), &mut d, &mut v), Some(Applied::Draft));
+        assert_eq!(d.languages, ["en"]);
+        assert!(!d.mixed);
+        for (id, a) in [("language:1", Act::Language(1)), ("remove-language:0", Act::RemoveLanguage(0)), ("mixed", Act::Mixed)] {
+            assert_eq!(act(id), Some(a));
+            assert!(!in_gesture(a));
+        }
     }
 
     fn zones(doc: &PageDoc) -> Vec<String> {

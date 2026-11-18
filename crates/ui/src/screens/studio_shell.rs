@@ -234,6 +234,27 @@ pub fn call<H: StudioHost>(host: &Rc<H>, call: PageCall, cx: &mut Cx) -> Option<
             cx.overlay(dialog, true);
             None
         }
+        Act::AddLanguage => {
+            let weak = Rc::downgrade(host);
+            let dialog = studio::language_dialog(
+                host.env()?,
+                &host.state().draft.borrow(),
+                Rc::new(move |tag, _cx| {
+                    let Some(h) = weak.upgrade() else {
+                        return false;
+                    };
+                    if !h.state().draft.borrow_mut().add_language(tag) {
+                        return false;
+                    }
+                    h.stop();
+                    draft_changed(&*h);
+                    h.show();
+                    true
+                }),
+            );
+            cx.overlay(dialog, true);
+            None
+        }
         a => act(host, a),
     }
 }
@@ -265,6 +286,10 @@ pub fn act<H: StudioHost>(host: &Rc<H>, act: Act) -> Option<PageDoc> {
                 host.publish();
             }
             Applied::View => {}
+            Applied::Kept => {
+                host.save();
+                host.publish();
+            }
         }
         return Some(doc_of(&**host));
     }
@@ -277,9 +302,12 @@ pub fn act<H: StudioHost>(host: &Rc<H>, act: Act) -> Option<PageDoc> {
         | Act::Details
         | Act::RemoveCombo(_)
         | Act::Write(_)
-        | Act::Unwrite(_) => false,
+        | Act::Unwrite(_)
+        | Act::Language(_)
+        | Act::RemoveLanguage(_)
+        | Act::Mixed => false,
         // (The dialogs': [`call`]'s.)
-        Act::Move(_) | Act::AddCombo => false,
+        Act::Move(_) | Act::AddCombo | Act::AddLanguage => false,
         Act::Add(line) => {
             host.pick_recordings(line, None);
             false

@@ -353,6 +353,11 @@ impl ActionsDialog {
         self
     }
 
+    /// Its choices, `(id, label)`.
+    pub fn items(&self) -> &[(String, String)] {
+        &self.items
+    }
+
     fn name(id: &str) -> String {
         format!("Item.{id}")
     }

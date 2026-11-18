@@ -217,6 +217,10 @@ pub struct Take {
     /// ([`Script`]): kept, and shown as its words in a scene.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub words: Option<String>,
+    /// Its language's tag (`None`: the draft's first, [`Draft::lang_of`]);
+    /// drafts stored before languages read none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lang: Option<String>,
 }
 
 impl Take {
@@ -294,6 +298,9 @@ pub struct Script {
     pub id: u64,
     pub line: Line,
     pub words: String,
+    /// Its language, as a take's ([`Take::lang`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lang: Option<String>,
 }
 
 /// An announcer being made.
@@ -319,6 +326,19 @@ pub struct Draft {
     /// [`OUR_COMBOS`] to begin with.
     #[serde(default = "our_combos")]
     pub combos: Vec<u32>,
+    /// The languages the pack speaks, by tag, in the order offered (none:
+    /// one, not named; drafts stored before languages read none). Each
+    /// language's takes are its own; a draft of two or more is written
+    /// with a folder a language and an `announcer.ini` ([`Draft::export`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub languages: Vec<String>,
+    /// Its languages are offered mixed too (`Mixed=1`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mixed: bool,
+    /// The language the page shows and new recordings go in (none, or one
+    /// not listed: the first).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working: Option<String>,
     /// The id the next take gets.
     next: u64,
 }
@@ -339,9 +359,32 @@ impl Default for Draft {
             takes: Vec::new(),
             scripts: Vec::new(),
             combos: our_combos(),
+            languages: Vec::new(),
+            mixed: false,
+            working: None,
             next: 1,
         }
     }
+}
+
+/// The languages the studio offers a pack, each by its tag and named in
+/// itself (data, as the Language row in Options names a pack's languages).
+pub const LANGUAGES: [(&str, &str); 7] = [
+    ("en", "English"),
+    ("ja", "日本語"),
+    ("es", "Español"),
+    ("fr", "Français"),
+    ("de", "Deutsch"),
+    ("it", "Italiano"),
+    ("pt-BR", "Português (Brasil)"),
+];
+
+/// Language `tag` named in itself ([`LANGUAGES`]), else its tag.
+pub fn language_name(tag: &str) -> &str {
+    LANGUAGES
+        .iter()
+        .find(|(t, _)| t.eq_ignore_ascii_case(tag))
+        .map_or(tag, |(_, name)| name)
 }
 
 /// The lines the studio lists however empty: every line the game speaks
@@ -421,6 +464,43 @@ pub struct Export {
     pub entries: Vec<Entry>,
     /// `README.txt` at the zip's root, beside `Announcers/`.
     pub readme: String,
+    /// The pack's text files, by their paths in the zip: its
+    /// `announcer.ini` and `announcer.lua` where the plain layout cannot
+    /// say what the draft does ([`Draft::declares`]; none for a plain
+    /// draft, whose export is StepMania's layout alone).
+    pub texts: Vec<(String, String)>,
+}
+
+impl Export {
+    /// Every file of the pack in the zip but its README, each with its
+    /// size: the sounds' as made (`sizes`, by their paths) and the texts'.
+    pub fn listed(&self, sizes: &[(String, u64)]) -> Vec<(String, u64)> {
+        sizes
+            .iter()
+            .cloned()
+            .chain(self.texts.iter().map(|(p, t)| (p.clone(), t.len() as u64)))
+            .collect()
+    }
+
+    /// The pack as the game's reader takes it, its sounds made with
+    /// `sizes` (by their paths): one announcer, its `announcer.ini` and
+    /// `announcer.lua` read as text ([`Kept::ini`], [`Kept::script`]).
+    pub fn installed(&self, sizes: &[(String, u64)]) -> Result<InstallPlan, String> {
+        let mut plan = install_plan(&self.listed(sizes)).map_err(str::to_string)?;
+        plan.kept.ini = self.text(super::pool::DECLARATION).map(str::to_string);
+        plan.kept.script = self.text(super::script::SCRIPT).map(str::to_string);
+        Ok(plan)
+    }
+
+    /// The text at `path` among [`Export::texts`]: the pack's
+    /// `announcer.ini` (`super::pool::DECLARATION`) or `announcer.lua`
+    /// (`super::script::SCRIPT`), by its file's name.
+    pub fn text(&self, name: &str) -> Option<&str> {
+        self.texts
+            .iter()
+            .find(|(p, _)| RelPath::new(p).file_name() == name)
+            .map(|(_, t)| t.as_str())
+    }
 }
 
 /// The name a file or folder of the pack takes from `name`: no
@@ -642,6 +722,7 @@ impl Draft {
             tidy: None,
             sound: Sound::Unread,
             words: None,
+            lang: self.working_language().map(str::to_string),
         });
         id
     }
@@ -656,21 +737,29 @@ impl Draft {
             if let Some(t) = self.take_mut(id) {
                 t.line = Some(s.line);
                 t.words = Some(s.words);
+                t.lang = s.lang;
             }
         }
         id
     }
 
-    /// A text line on `line`, its words to be written. Its id.
+    /// A text line on `line`, in the language worked in, its words to be
+    /// written. Its id.
     pub fn write(&mut self, line: Line) -> u64 {
-        self.write_with(line, String::new())
+        let lang = self.working_language().map(str::to_string);
+        self.write_with(line, String::new(), lang)
     }
 
-    /// [`Draft::write`] with its `words`.
-    fn write_with(&mut self, line: Line, words: String) -> u64 {
+    /// [`Draft::write`] with its `words`, in `lang`.
+    fn write_with(&mut self, line: Line, words: String, lang: Option<String>) -> u64 {
         let id = self.next;
         self.next += 1;
-        self.scripts.push(Script { id, line, words });
+        self.scripts.push(Script {
+            id,
+            line,
+            words,
+            lang,
+        });
         id
     }
 
@@ -689,9 +778,89 @@ impl Draft {
         self.takes.iter_mut().find(|t| t.id == id)?.words.as_mut()
     }
 
-    /// The text lines on `line`, in the order they were written.
+    /// The text lines on `line` in the language worked in, in the order
+    /// they were written.
     pub fn scripts_of(&self, line: Line) -> impl Iterator<Item = &Script> {
-        self.scripts.iter().filter(move |s| s.line == line)
+        self.scripts
+            .iter()
+            .filter(move |s| s.line == line && self.working(s.lang.as_deref()))
+    }
+
+    /// The language the page works in: [`Draft::working`] where it is one
+    /// of the draft's, else the first (`None`: one, not named).
+    pub fn working_language(&self) -> Option<&str> {
+        self.working
+            .as_deref()
+            .filter(|w| self.languages.iter().any(|l| l == w))
+            .or_else(|| self.languages.first().map(String::as_str))
+    }
+
+    /// Take `t`'s language: its own, else the draft's first.
+    pub fn lang_of<'a>(&'a self, t: &'a Take) -> Option<&'a str> {
+        t.lang
+            .as_deref()
+            .or_else(|| self.languages.first().map(String::as_str))
+    }
+
+    /// Whether something of language `lang` (`None`: the first) is in the
+    /// language worked in.
+    fn working(&self, lang: Option<&str>) -> bool {
+        lang.or_else(|| self.languages.first().map(String::as_str)) == self.working_language()
+    }
+
+    /// Language `tag` listed (the first names the draft's, its takes
+    /// being in it; another becomes the one worked in); whether it was not
+    /// already.
+    pub fn add_language(&mut self, tag: &str) -> bool {
+        if !super::pool::is_language(tag) || self.languages.iter().any(|l| l == tag) {
+            return false;
+        }
+        self.languages.push(tag.to_string());
+        if self.languages.len() > 1 {
+            self.working = Some(tag.to_string());
+        }
+        true
+    }
+
+    /// Whether a take or a text line is in language `tag`.
+    pub fn speaks(&self, tag: &str) -> bool {
+        self.takes.iter().any(|t| self.lang_of(t) == Some(tag))
+            || self.scripts.iter().any(|s| {
+                s.lang
+                    .as_deref()
+                    .or_else(|| self.languages.first().map(String::as_str))
+                    == Some(tag)
+            })
+    }
+
+    /// Language `tag` no longer listed; not while a take or a text line
+    /// is in it.
+    pub fn remove_language(&mut self, tag: &str) -> bool {
+        if self.speaks(tag) {
+            return false;
+        }
+        let before = self.languages.len();
+        self.languages.retain(|l| l != tag);
+        if self.working.as_deref() == Some(tag) {
+            self.working = None;
+        }
+        if self.languages.len() < 2 {
+            self.mixed = false;
+        }
+        self.languages.len() < before
+    }
+
+    /// The languages with a recording on `line`, in the draft's order.
+    pub fn languages_of(&self, line: Line) -> Vec<&str> {
+        self.languages
+            .iter()
+            .map(String::as_str)
+            .filter(|l| {
+                self.takes
+                    .iter()
+                    .any(|t| t.line == Some(line) && self.lang_of(t) == Some(*l))
+            })
+            .collect()
     }
 
     /// Combo line `n` listed (in its place among them); whether it was
@@ -710,10 +879,11 @@ impl Draft {
     }
 
     /// Combo line `n` no longer listed; not while a take or a text line
-    /// is on it.
+    /// is on it, in any language.
     pub fn remove_combo(&mut self, n: u32) -> bool {
-        if self.takes_of(Line::Combo(n)).next().is_some()
-            || self.scripts_of(Line::Combo(n)).next().is_some()
+        let line = Line::Combo(n);
+        if self.takes.iter().any(|t| t.line == Some(line))
+            || self.scripts.iter().any(|s| s.line == line)
         {
             return false;
         }
@@ -736,7 +906,7 @@ impl Draft {
         let i = self.takes.iter().position(|t| t.id == id)?;
         let t = self.takes.remove(i);
         if let (Some(line), Some(words)) = (t.line, &t.words) {
-            self.write_with(line, words.clone());
+            self.write_with(line, words.clone(), t.lang.clone());
         }
         Some(t)
     }
@@ -756,14 +926,19 @@ impl Draft {
         }
     }
 
-    /// The takes on `line`, in the order they came.
+    /// The takes on `line` in the language worked in, in the order they
+    /// came.
     pub fn takes_of(&self, line: Line) -> impl Iterator<Item = &Take> {
-        self.takes.iter().filter(move |t| t.line == Some(line))
+        self.takes
+            .iter()
+            .filter(move |t| t.line == Some(line) && self.working(t.lang.as_deref()))
     }
 
-    /// The takes not sorted yet.
+    /// The takes not sorted yet, in the language worked in.
     pub fn unsorted(&self) -> impl Iterator<Item = &Take> {
-        self.takes.iter().filter(|t| t.line.is_none())
+        self.takes
+            .iter()
+            .filter(|t| t.line.is_none() && self.working(t.lang.as_deref()))
     }
 
     /// Every line the studio shows: [`listed`], the draft's combos, and
@@ -900,21 +1075,40 @@ impl Draft {
             .unwrap_or_else(|| "Announcer".into())
     }
 
+    /// Whether the plain layout (StepMania's: line folders at the pack's
+    /// top) cannot say what the draft does, so that its export declares
+    /// itself in an `announcer.ini`: two languages or more.
+    pub fn declares(&self) -> bool {
+        self.languages.len() > 1
+    }
+
+    /// The language folder `take` is written in, where the pack has them
+    /// (a declared pack of named languages).
+    fn language_folder<'a>(&'a self, take: &'a Take) -> Option<&'a str> {
+        if self.declares() {
+            self.lang_of(take)
+        } else {
+            None
+        }
+    }
+
     /// What an export writes: each sorted take that was read, in
-    /// `Announcers/<Name>/<line folder>/`, named after the file it came
-    /// as (a number added where two would share a name), and a README
-    /// with the name, author and license.
+    /// `Announcers/<Name>/<line folder>/` (a declared pack's under its
+    /// language's folder, `Announcers/<Name>/<tag>/<line folder>/`), named
+    /// after the file it came as (a number added where two would share a
+    /// name), a README with the name, author and license, and a declared
+    /// pack's `announcer.ini` ([`Draft::declaration`]).
     pub fn export(&self) -> Export {
         let folder = self.folder_name();
-        let mut by_line: BTreeMap<Line, Vec<&Take>> = BTreeMap::new();
+        let mut by_line: BTreeMap<(Option<&str>, Line), Vec<&Take>> = BTreeMap::new();
         for t in self.takes.iter().filter(|t| exported(t)) {
             by_line
-                .entry(t.line.expect("exported"))
+                .entry((self.language_folder(t), t.line.expect("exported")))
                 .or_default()
                 .push(t);
         }
         let mut entries = Vec::new();
-        for (line, takes) in by_line {
+        for ((lang, line), takes) in by_line {
             let mut used: BTreeSet<String> = BTreeSet::new();
             for t in takes {
                 let write = self.write_of(t);
@@ -932,12 +1126,23 @@ impl Draft {
                     file = format!("{base} {n}.{ext}");
                     n += 1;
                 }
+                let path = match lang {
+                    Some(lang) => format!("Announcers/{folder}/{lang}/{}/{file}", line.folder()),
+                    None => format!("Announcers/{folder}/{}/{file}", line.folder()),
+                };
                 entries.push(Entry {
-                    path: format!("Announcers/{folder}/{}/{file}", line.folder()),
+                    path,
                     take: t.id,
                     write,
                 });
             }
+        }
+        let mut texts = Vec::new();
+        if self.declares() {
+            texts.push((
+                format!("Announcers/{folder}/{}", super::pool::DECLARATION),
+                self.declaration(),
+            ));
         }
         let mut readme = format!("{folder}\n");
         if !self.author.trim().is_empty() {
@@ -951,8 +1156,43 @@ impl Draft {
             file_name: format!("{folder}.zip"),
             entries,
             readme,
+            texts,
         }
     }
+
+    /// A declared pack's `announcer.ini` (`docs/announcer-lines.md`,
+    /// "Made in the studio"): its name, and its languages, each named in
+    /// itself, offered mixed where the draft says so.
+    pub fn declaration(&self) -> String {
+        let mut ini = String::from(
+            "; announcer.ini, written by Dito Dito Infinito's announcer studio.\n\n[Announcer]\n",
+        );
+        let name = one_line(&self.name);
+        if !name.is_empty() {
+            ini += &format!("Name={name}\n");
+        }
+        if !self.languages.is_empty() {
+            let labels: Vec<&str> = self.languages.iter().map(|l| language_name(l)).collect();
+            ini += "\n[Parameters]\nList=Language\n\n[Parameter Language]\nType=Language\n";
+            ini += &format!("Languages={}\n", self.languages.join(","));
+            ini += &format!("Labels={}\n", labels.join(","));
+            if self.mixed && self.languages.len() > 1 {
+                ini += "Mixed=1\n";
+            }
+        }
+        ini
+    }
+}
+
+/// `text` on one line: no line breaks or other control characters, its
+/// ends trimmed (a name in `announcer.ini`).
+fn one_line(text: &str) -> String {
+    let spaced: String = text
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    // A line ending in `\\` goes on into the next in `.ini` files.
+    spaced.trim().trim_end_matches('\\').trim().to_string()
 }
 
 /// The author and the license an export's README names (`By …`,
