@@ -549,6 +549,7 @@ mod tests {
             48_000.0
         }
         fn master_ramp(&mut self, _: Option<f32>, _: f32, _: Option<f64>, _: f64) {}
+        fn set_volume(&mut self, _: SoundId, _: f32, _: f64) {}
         fn stop_all(&mut self) {
             self.stopped = true;
         }

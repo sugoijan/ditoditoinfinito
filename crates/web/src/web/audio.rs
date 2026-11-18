@@ -927,6 +927,16 @@ impl AudioBackend for WebAudio {
         }
     }
 
+    fn set_volume(&mut self, id: SoundId, volume: f32, seconds: f64) {
+        if let Some(voice) = self.voices.borrow().live.get(&id) {
+            let gain = voice.gain.gain();
+            let now = self.ctx.current_time();
+            let _ = gain.cancel_scheduled_values(now);
+            let _ = gain.set_value_at_time(gain.value(), now);
+            let _ = gain.linear_ramp_to_value_at_time(volume, now + seconds.max(0.005));
+        }
+    }
+
     fn stop_all(&mut self) {
         WebAudio::stop_all(self);
     }

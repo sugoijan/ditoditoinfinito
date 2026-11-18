@@ -65,6 +65,11 @@ pub trait AudioBackend {
     /// fade-out from 1); or, with `at` `None`, from now and the value it
     /// has now, what was scheduled after now cancelled (the fail's fade).
     fn master_ramp(&mut self, from: Option<f32>, to: f32, at: Option<f64>, seconds: f64);
+    /// Moves playing sound `id`'s own gain (its [`Self::play`]'s `volume`)
+    /// from what it is now to `volume` over `seconds`, a ramp without a
+    /// click; nothing for a sound that ended. A play's music when the
+    /// player changes its volume: nothing about when it is heard changes.
+    fn set_volume(&mut self, id: SoundId, volume: f32, seconds: f64);
     /// Stops every sound playing or scheduled.
     fn stop_all(&mut self);
     /// Stops every sound but the voice's ([`Self::play_voice`]): a

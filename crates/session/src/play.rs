@@ -73,6 +73,10 @@ pub fn quit_shown(touch: bool, since_pointer: Option<f64>) -> bool {
     touch || since_pointer.is_some_and(|s| s < QUIT_LINGER)
 }
 
+/// Seconds over which the music moves to a volume changed during a play
+/// ([`PlaySession::set_volume`]): no click, and at once to the ear.
+pub const VOLUME_RAMP: f64 = 0.02;
+
 /// Seconds over which the music stops at a work's `endFrame` (a ramp, not
 /// a click).
 const MUSIC_STOP_FADE: f64 = 0.1;
@@ -433,6 +437,8 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     buffer: A::Buffer,
     /// Music volume the session plays at (0 in the muted calibration).
     volume: f32,
+    /// The music's sound, whose gain follows [`PlaySession::set_volume`].
+    music: Option<ddi_platform::SoundId>,
     inputs: Running<I>,
     input: LaneInput,
     /// Pad controls that act like Escape: `(Gamepad.id, control)`.
@@ -677,6 +683,32 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     /// The music's volume.
     pub fn volume(&self) -> f32 {
         self.volume
+    }
+
+    /// Whether the music's volume may change during this play (the play's
+    /// own control, `ddi_shell::play_volume`): not in calibration, whose
+    /// click track is left as it is.
+    pub fn volume_adjustable(&self) -> bool {
+        self.calibration.is_none()
+    }
+
+    /// The music's volume changed during the play (the setting the
+    /// player moved with the play's control): the music moves to it over
+    /// [`VOLUME_RAMP`] without a click, the claps, mine sounds, scripts'
+    /// sounds and the announcer's next lines (its share of the music's,
+    /// `Settings::voice_volume`) play at it. Presentation only: the audio
+    /// clock, the judging and the play's log never hear of it.
+    pub fn set_volume(&mut self, volume: f32, voice_share: f32) {
+        let volume = volume.clamp(0.0, 1.0);
+        if !self.volume_adjustable() || volume == self.volume {
+            return;
+        }
+        self.volume = volume;
+        if let Some(id) = self.music {
+            self.audio.set_volume(id, volume, VOLUME_RAMP);
+        }
+        self.sounds.set_volume(volume);
+        self.announcer.set_volume(volume * voice_share);
     }
 
     /// Plays `buffer` now on the play's sound, at the music's volume (a
@@ -926,7 +958,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .filter(|m| m.is_finite() && *m >= song_offset && *m < duration)
             .unwrap_or(song_offset);
         let music_ctx = start_ctx + (music_offset - song_offset);
-        audio
+        let music = audio
             .play(&buffer, music_ctx, music_offset, config.volume)
             .map_err(|e| e.to_string())?;
         if song_offset > 0.0 {
@@ -999,6 +1031,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let lanes = layout.lanes.len();
         Ok(PlaySession {
             volume: config.volume,
+            music: Some(music),
             player,
             layout,
             rules,

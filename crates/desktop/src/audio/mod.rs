@@ -327,6 +327,26 @@ impl Audio {
         });
     }
 
+    /// Sound `id`'s gain moves from what it is now to `value` over
+    /// `seconds`, what was scheduled for it from now cancelled (a play's
+    /// music when its volume changes: no click).
+    pub fn gain_to(&mut self, id: SoundId, value: f32, seconds: f64) {
+        let now = self.context_time();
+        let (start, end) = (self.frame(now), self.frame(now + seconds.max(0.005)));
+        self.send(Command::CancelGain { id, from: start });
+        self.send(Command::Gain {
+            id,
+            event: Event::Hold { at: start },
+        });
+        self.send(Command::Gain {
+            id,
+            event: Event::Ramp {
+                end,
+                value: mixer::gain(value),
+            },
+        });
+    }
+
     /// Stops sound `id` at context time `at`, or at once (with a 5 ms
     /// fade).
     pub fn stop_at(&mut self, id: SoundId, at: Option<f64>) {
@@ -656,6 +676,10 @@ impl AudioBackend for Audio {
                 }));
             }
         }
+    }
+
+    fn set_volume(&mut self, id: SoundId, volume: f32, seconds: f64) {
+        self.gain_to(id, volume, seconds);
     }
 
     fn stop_all(&mut self) {

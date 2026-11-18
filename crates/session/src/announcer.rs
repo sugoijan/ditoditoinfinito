@@ -728,6 +728,13 @@ impl<B> Announcer<B> {
         self.ended
     }
 
+    /// The voice's gain from now on (the music's volume changed during
+    /// the play: the voice is its share of it); a line being said keeps
+    /// its own.
+    pub fn set_volume(&mut self, volume: f32) {
+        self.volume = volume;
+    }
+
     /// The sounds to speak with, decoded as they come.
     pub fn set_voice(&mut self, voice: SharedVoice<B>) {
         self.voice = Some(voice);

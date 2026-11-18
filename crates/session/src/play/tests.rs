@@ -31,6 +31,8 @@ struct FakeAudio {
     voiced: Vec<(f64, f64, f32)>,
     /// `stop_music` calls.
     music_stopped: u32,
+    /// `set_volume` calls: the sound, its gain, over how long.
+    volumes: Vec<(SoundId, f32, f64)>,
 }
 
 const EPOCH: f64 = 7.5;
@@ -47,6 +49,7 @@ impl FakeAudio {
             stopped: 0,
             voiced: Vec::new(),
             music_stopped: 0,
+            volumes: Vec::new(),
         }
     }
 }
@@ -67,7 +70,7 @@ impl AudioBackend for FakeAudio {
     fn play(&mut self, b: &f64, at: f64, offset: f64, volume: f32) -> Result<SoundId, String> {
         self.played.push((at, offset, volume));
         self.sounds.push((*b, self.now().context_time));
-        Ok(1)
+        Ok(self.played.len() as SoundId)
     }
     fn duration(&self, b: &f64) -> f64 {
         *b
@@ -81,6 +84,9 @@ impl AudioBackend for FakeAudio {
     }
     fn master_ramp(&mut self, from: Option<f32>, to: f32, at: Option<f64>, seconds: f64) {
         self.ramps.push((from, to, at, seconds));
+    }
+    fn set_volume(&mut self, id: SoundId, volume: f32, seconds: f64) {
+        self.volumes.push((id, volume, seconds));
     }
     fn stop_all(&mut self) {
         self.stopped += 1;
@@ -2485,3 +2491,76 @@ fn cpu_timestamps_do_not_pick_up_slewed_clock_drift() {
 }
 
 mod stage;
+
+/// The music's volume changed during a play (round AB, the play's own
+/// control): the music's gain ramps there, the claps and the announcer
+/// follow, and nothing else hears of it: the same presses judge the same,
+/// into the same log, with the music started at the same instant.
+#[test]
+fn a_volume_changed_during_a_play_judges_the_same_from_the_same_presses() {
+    let song = bundled("beatucada");
+    let settings = Settings::default();
+    let play = |changes: &[(f64, f32)]| {
+        let clock: Clock = Rc::new(RefCell::new(100.0));
+        let mut inputs = FakeInputs::new(&clock);
+        // Presses on no beat in particular, so that every tier and a miss
+        // may come of them.
+        let keys = ["ArrowLeft", "ArrowDown", "ArrowUp", "ArrowRight"];
+        for i in 0..160 {
+            let at = 101.0 + f64::from(i) * 0.193;
+            let key = keys[(i * 7 % 4) as usize];
+            inputs.key(at, key, true);
+            inputs.key(at + 0.06, key, false);
+        }
+        let config = SessionConfig::from_settings(&settings, false, None);
+        let mut s = PlaySession::start(
+            &song,
+            1,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.012),
+            110.0,
+            inputs,
+        )
+        .unwrap();
+        let mut changes = changes.iter().peekable();
+        let end = loop {
+            *clock.borrow_mut() += 1.0 / 60.0;
+            let now = *clock.borrow();
+            while let Some((_, v)) = changes.next_if(|(t, _)| *t <= now) {
+                s.set_volume(*v, 0.5);
+            }
+            let (_, event) = s.tick(HostTime(now));
+            if let Some(e) = event {
+                break e;
+            }
+            assert!(now < 400.0, "no end");
+        };
+        let SessionEvent::Finished { results, facts, .. } = end else {
+            panic!("not finished");
+        };
+        let audio = s.audio();
+        let taps = s.player.tally().taps;
+        assert!(taps.iter().filter(|&&n| n > 0).count() >= 2, "{taps:?}");
+        (
+            format!("{results:?}"),
+            format!("{:?}", facts.log),
+            audio.played[0],
+            audio.volumes.clone(),
+            s.volume(),
+        )
+    };
+    let quiet = play(&[]);
+    let moved = play(&[(103.0, 0.0), (106.5, 1.0), (110.25, 0.3), (110.3, 0.3)]);
+    assert_eq!(quiet.0, moved.0, "the same results");
+    assert_eq!(quiet.1, moved.1, "the same log");
+    assert_eq!(quiet.2, moved.2, "the music started alike");
+    assert!(quiet.3.is_empty());
+    // The music (the first sound) moved each time it changed, over the
+    // ramp; the same value twice is no change.
+    assert_eq!(
+        moved.3,
+        [(1, 0.0, VOLUME_RAMP), (1, 1.0, VOLUME_RAMP), (1, 0.3, VOLUME_RAMP)]
+    );
+    assert_eq!((quiet.4, moved.4), (settings.volume, 0.3));
+}

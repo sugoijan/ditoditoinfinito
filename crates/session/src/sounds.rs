@@ -201,6 +201,12 @@ impl<B> EventSounds<B> {
         }
     }
 
+    /// The gain of the sounds played from now on (the music's volume
+    /// changed during the play).
+    pub fn set_volume(&mut self, volume: f32) {
+        self.volume = volume;
+    }
+
     /// No sounds at all (calibration: nothing may cue the player).
     pub fn none() -> EventSounds<B> {
         EventSounds {
