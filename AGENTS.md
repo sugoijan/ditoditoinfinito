@@ -1216,6 +1216,10 @@ Rust and the browser are implementation details, not advertised features.
   a separate native application consuming our loader and field renderer as Git
   dependencies (`docs/plans/noteskin-authoring.md`). Its own repository contains
   the editor hosts, MCP bridge, local development patches and authoring tests.
+- `crates/rating/` estimates teacher-v1 keyboard difficulty at 1× in one pass.
+  `ddi_rating::estimate` takes an imported dance-single chart and returns its
+  1–19 estimate, score curve and calibrated skill profiles. See the crate's
+  README for the JSON command, model identity and qualification limits.
 - `crates/msd/` MSD (`ddi-msd`, `docs/plans/msd-ratings.md`): Etterna's
   chart difficulty calculator, MinaCalc version 527 (etternagame/etterna
   `2d706147`, MIT, its notice in each translated file), translated file for

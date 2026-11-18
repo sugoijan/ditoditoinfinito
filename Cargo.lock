@@ -1352,6 +1352,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ddi-rating"
+version = "0.1.0"
+dependencies = [
+ "ddi-chart",
+ "ddi-engine",
+ "ddi-library",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ddi-render"
 version = "0.1.0"
 dependencies = [

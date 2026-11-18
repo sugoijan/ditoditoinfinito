@@ -1,0 +1,19 @@
+[package]
+name = "ddi-rating"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Single-pass teacher-v1 chart difficulty and skill estimates"
+publish = false
+
+[dependencies]
+ddi-chart.workspace = true
+ddi-engine.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+ddi-library.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,16 @@
+# ddi-rating
+
+Estimate the whole-chart difficulty of an original dance-single chart under DDI Normal Practice at 1×. The shared Rust entry point is `ddi_rating::estimate(&song, chart_index)`. It embeds the model and works on native and WebAssembly targets. No simulations or external model files are required.
+
+Print an estimate as JSON using a zero-based chart index:
+
+```sh
+cargo run --release -p ddi-rating --example estimate -- assets/songs/beatucada/Beatucada.ssc 5
+```
+
+- `decimal` and `level` give the nonlinear 1–19 estimate and its rounded display value. The mapping uses balanced Accuracy at ten CPU levels, normalized hold/roll losses against a fixed easy reference, and heads per second.
+- `means` has one row per CPU level, from 1 to 10. Each row contains balanced raw Accuracy followed by eight estimated changes in percentage points from reducing a single skill to 0.75. The axes follow `ddi_engine::cpu::SKILL_NAMES`.
+- `expected` gives calibrated crossings for 90%, 95% and 98% expected Accuracy. Its `profile` gives the radar at a uniquely resolved 95% level. `conservative` repeats the readout with wider bounds that account for the simulation teacher's batch uncertainty. Keep missing profiles, signed costs, per-spoke intervals and statuses visible to callers. Handstream bounds are unavailable for charts containing a three- or four-key head.
+- `within_studied_domain` covers 48+ playable heads, at most 900 source notes, 15–180 seconds and zero lifts. Outside this range, numeric estimates are extrapolations and both calibrated readouts are absent. The extractor accepts at most 8,192 source notes. The scale estimates keyboard-simulated performance on DDR-style singles. It does not establish a pad feasibility threshold.
+
+The primary `single-pass-rating-v1` weights are seed 20261102, fit against teacher-v1 revision `49a79082`. The embedded file contains the normalization and affine parameters as 13,826 little-endian float32 values from the frozen model (source JSON SHA-256 `ee1178a81ea2df953a5a3a91cb9daa6915298e55a9acfe78e53d37693b6ffacf`). The `ddi-ddr19-prototype-v1` scale uses the frozen primary knots and pooled reference (source JSON SHA-256 `17cc130894670dd5ac0ac92904e402d96cf377060f3c9cc3decc6be1e95095de`).
