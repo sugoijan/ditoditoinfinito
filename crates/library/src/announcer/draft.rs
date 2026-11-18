@@ -221,6 +221,10 @@ pub struct Take {
     /// drafts stored before languages read none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
+    /// Words of the author's own on it (`super::script::is_tag`): a tag
+    /// players may switch off ([`Switch`]) leaves it out when off.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 impl Take {
@@ -235,6 +239,34 @@ impl Take {
             _ => None,
         }
     }
+}
+
+/// A tag players may switch off: a row under the announcer in Options
+/// once the pack is used (`pack:tag` in its script).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Switch {
+    pub tag: String,
+    /// What Options calls it (the author's words).
+    pub label: String,
+    /// Its recordings are said until a player switches it off (`false`:
+    /// not until switched on).
+    pub default: bool,
+}
+
+/// Tags the studio suggests: plain words for how a recording sounds, any
+/// pack may use (the author's own words are as good).
+pub const SUGGESTED_TAGS: [&str; 4] = ["calm", "excited", "short", "long"];
+
+/// A line a tag switched off would leave with no recording
+/// ([`Draft::silenced`]): in which language, and what speaks instead.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Silenced {
+    pub line: Line,
+    /// Its language, where the draft has two or more.
+    pub lang: Option<String>,
+    /// The line said in its place (its fallback with a recording left),
+    /// if any.
+    pub instead: Option<Line>,
 }
 
 /// The processing selected for one original take. Also a cache key: moving
@@ -339,6 +371,9 @@ pub struct Draft {
     /// not listed: the first).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working: Option<String>,
+    /// The tags players may switch off, in the order made switchable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub switches: Vec<Switch>,
     /// The id the next take gets.
     next: u64,
 }
@@ -362,6 +397,7 @@ impl Default for Draft {
             languages: Vec::new(),
             mixed: false,
             working: None,
+            switches: Vec::new(),
             next: 1,
         }
     }
@@ -723,6 +759,7 @@ impl Draft {
             sound: Sound::Unread,
             words: None,
             lang: self.working_language().map(str::to_string),
+            tags: Vec::new(),
         });
         id
     }
@@ -848,6 +885,130 @@ impl Draft {
             self.mixed = false;
         }
         self.languages.len() < before
+    }
+
+    /// Every tag on a take or made switchable, sorted.
+    pub fn tags(&self) -> Vec<String> {
+        let mut tags: BTreeSet<String> = self.takes.iter().flat_map(|t| t.tags.clone()).collect();
+        tags.extend(self.switches.iter().map(|s| s.tag.clone()));
+        tags.into_iter().collect()
+    }
+
+    /// The takes tag `tag` is on.
+    pub fn tagged(&self, tag: &str) -> usize {
+        self.takes
+            .iter()
+            .filter(|t| t.tags.iter().any(|g| g == tag))
+            .count()
+    }
+
+    /// Tag `tag` put on take `id`, or taken off it where it was on;
+    /// whether it is on now. Not a tag's name, or past
+    /// `super::script::MAX_TAGS` on it: nothing.
+    pub fn toggle_tag(&mut self, id: u64, tag: &str) -> Option<bool> {
+        if !super::script::is_tag(tag) {
+            return None;
+        }
+        let t = self.take_mut(id)?;
+        if let Some(i) = t.tags.iter().position(|g| g == tag) {
+            t.tags.remove(i);
+            return Some(false);
+        }
+        if t.tags.len() >= super::script::MAX_TAGS {
+            return None;
+        }
+        t.tags.push(tag.to_string());
+        Some(true)
+    }
+
+    /// Whether `take` is said in the game before a player switches
+    /// anything: none of its tags is a switch off at first.
+    pub fn said_at_first(&self, take: &Take) -> bool {
+        !take
+            .tags
+            .iter()
+            .any(|g| self.switch_of(g).is_some_and(|s| !s.default))
+    }
+
+    /// Tag `tag`'s switch, where players may switch it off.
+    pub fn switch_of(&self, tag: &str) -> Option<&Switch> {
+        self.switches.iter().find(|s| s.tag == tag)
+    }
+
+    /// Tag `tag` made switchable (On at first, named by itself), or no
+    /// longer; whether it is now.
+    pub fn toggle_switch(&mut self, tag: &str) -> bool {
+        if let Some(i) = self.switches.iter().position(|s| s.tag == tag) {
+            self.switches.remove(i);
+            return false;
+        }
+        if !super::script::is_tag(tag) || self.switches.len() >= super::script::MAX_TAGS {
+            return false;
+        }
+        self.switches.push(Switch {
+            tag: tag.to_string(),
+            label: tag.to_string(),
+            default: true,
+        });
+        true
+    }
+
+    /// Tag `tag`'s switch's first state turned over.
+    pub fn toggle_default(&mut self, tag: &str) -> bool {
+        match self.switches.iter_mut().find(|s| s.tag == tag) {
+            Some(s) => {
+                s.default = !s.default;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The languages a take may be in, each (`None`: one, not named).
+    fn each_language(&self) -> Vec<Option<&str>> {
+        if self.languages.is_empty() {
+            vec![None]
+        } else {
+            self.languages.iter().map(|l| Some(l.as_str())).collect()
+        }
+    }
+
+    /// The takes said for `line` in language `lang` (`None`: the first).
+    fn said_in<'a>(&'a self, line: Line, lang: Option<&'a str>) -> impl Iterator<Item = &'a Take> {
+        let lang = lang.or_else(|| self.languages.first().map(String::as_str));
+        self.takes
+            .iter()
+            .filter(move |t| exported(t) && t.line == Some(line) && self.lang_of(t) == lang)
+    }
+
+    /// The lines tag `tag` switched off would leave with no recording, in
+    /// each language, and what is said in their place then (as a pack
+    /// lacking the line: its fallback with a recording left, or nothing).
+    pub fn silenced(&self, tag: &str) -> Vec<Silenced> {
+        let has = |t: &Take| t.tags.iter().any(|g| g == tag);
+        let mut out = Vec::new();
+        for lang in self.each_language() {
+            let mut lines: Vec<Line> = self
+                .takes
+                .iter()
+                .filter(|t| exported(t) && self.lang_of(t) == lang.or(self.languages.first().map(String::as_str)))
+                .filter_map(|t| t.line)
+                .collect();
+            lines.sort();
+            lines.dedup();
+            for line in lines {
+                let left = |l: Line| self.said_in(l, lang).any(|t| !has(t));
+                if left(line) {
+                    continue;
+                }
+                out.push(Silenced {
+                    line,
+                    lang: lang.filter(|_| self.languages.len() > 1).map(str::to_string),
+                    instead: line.chain().into_iter().skip(1).find(|l| left(*l)),
+                });
+            }
+        }
+        out
     }
 
     /// The languages with a recording on `line`, in the draft's order.
@@ -1077,9 +1238,18 @@ impl Draft {
 
     /// Whether the plain layout (StepMania's: line folders at the pack's
     /// top) cannot say what the draft does, so that its export declares
-    /// itself in an `announcer.ini`: two languages or more.
+    /// itself in an `announcer.ini`: two languages or more, or what only
+    /// a script says ([`Draft::scripted`]).
     pub fn declares(&self) -> bool {
-        self.languages.len() > 1
+        self.languages.len() > 1 || self.scripted()
+    }
+
+    /// Whether its export needs a script (`announcer.lua`): a take written
+    /// carries tags.
+    pub fn scripted(&self) -> bool {
+        self.takes
+            .iter()
+            .any(|t| exported(t) && !t.tags.is_empty())
     }
 
     /// The language folder `take` is written in, where the pack has them
@@ -1144,6 +1314,13 @@ impl Draft {
                 self.declaration(),
             ));
         }
+        if self.scripted() {
+            let base = format!("Announcers/{folder}/");
+            texts.push((
+                format!("{base}{}", super::script::SCRIPT),
+                self.script(&entries, &base),
+            ));
+        }
         let mut readme = format!("{folder}\n");
         if !self.author.trim().is_empty() {
             readme += &format!("By {}\n", self.author.trim());
@@ -1158,6 +1335,73 @@ impl Draft {
             readme,
             texts,
         }
+    }
+
+    /// A pack's `announcer.lua` (`docs/announcer-lines.md`, "Made in the
+    /// studio"), in the documented API alone and the same for the same
+    /// draft: every sound taken (its folder's line, in its language
+    /// folder's language), those with more to say listed by their paths
+    /// in the pack (`base` cut from `entries`' paths), then the tags
+    /// players may switch off and the languages offered.
+    fn script(&self, entries: &[Entry], base: &str) -> String {
+        let mut listed: Vec<(String, String)> = Vec::new();
+        for e in entries {
+            let Some(t) = self.take(e.take) else {
+                continue;
+            };
+            let mut fields = Vec::new();
+            if !t.tags.is_empty() {
+                fields.push(format!("tags = {}", lua_list(&t.tags)));
+            }
+            if !fields.is_empty() {
+                let inside = e.path.strip_prefix(base).unwrap_or(&e.path);
+                listed.push((inside.to_string(), fields.join(", ")));
+            }
+        }
+        listed.sort();
+        let mut lua = String::from(
+            "-- announcer.lua, written by Dito Dito Infinito's announcer studio.\n\
+             -- Run once as the pack is chosen, it says what each recording may be\n\
+             -- said for (\"A script\" in the game's docs/announcer-lines.md): a\n\
+             -- recording in a line's folder is said for that line, in its language\n\
+             -- folder's language; those listed say more of themselves.\n\
+             local pack = Announcer.pack()\n\n\
+             local listed = {\n",
+        );
+        for (file, fields) in &listed {
+            lua += &format!("  [{}] = {{ {fields} }},\n", lua_string(file));
+        }
+        lua += "}\n\nfor _, file in ipairs(Announcer.files()) do\n  pack:take(file, listed[file])\nend\n";
+        let carried = |tag: &str| {
+            self.takes
+                .iter()
+                .any(|t| exported(t) && t.tags.iter().any(|g| g == tag))
+        };
+        let switches: Vec<&Switch> = self.switches.iter().filter(|s| carried(&s.tag)).collect();
+        if !switches.is_empty() {
+            lua += "\n";
+        }
+        for s in switches {
+            lua += &format!(
+                "pack:tag({}, {{ label = {}, default = {} }})\n",
+                lua_string(&s.tag),
+                lua_string(&one_line(&s.label)),
+                s.default
+            );
+        }
+        if !self.languages.is_empty() {
+            let mixed = if self.mixed && self.languages.len() > 1 {
+                ", { mixed = true }"
+            } else {
+                ""
+            };
+            lua += &format!(
+                "pack:languages({}{mixed})\n",
+                lua_list(&self.languages)
+            );
+        }
+        lua += "return pack\n";
+        lua
     }
 
     /// A declared pack's `announcer.ini` (`docs/announcer-lines.md`,
@@ -1182,6 +1426,30 @@ impl Draft {
         }
         ini
     }
+}
+
+/// `text` as a Lua string, quoted: `"` and `\\` escaped, control
+/// characters as their decimal escapes.
+fn lua_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if c.is_ascii_control() => out.push_str(&format!("\\{:03}", c as u32)),
+            c if c.is_control() => out.push(' '),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// `items` as a Lua list of strings: `{ "a", "b" }`.
+fn lua_list(items: &[String]) -> String {
+    let quoted: Vec<String> = items.iter().map(|i| lua_string(i)).collect();
+    format!("{{ {} }}", quoted.join(", "))
 }
 
 /// `text` on one line: no line breaks or other control characters, its

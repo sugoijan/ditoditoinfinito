@@ -166,8 +166,9 @@ pub fn set_host(now: fn() -> f64, seed: u64) {
     SEED.store(seed, Ordering::Relaxed);
 }
 
-/// Whether `s` is a tag's name.
-fn is_tag(s: &str) -> bool {
+/// Whether `s` is a tag's name: letters, digits, `_` and `-`, at most
+/// [`MAX_TAG_NAME`].
+pub fn is_tag(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= MAX_TAG_NAME
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')

@@ -115,6 +115,102 @@ studio-language-note-add = Its lines are recorded apart, and the page shows it n
 #   $languages (String) - the languages with a recording of it, named in themselves, apart by commas
 studio-recorded-in = Recorded in { $languages }.
 
+## Tags: words of the author's own on recordings (data, never translated:
+## letters a to z, digits, - and _), in a fold of their own, and each
+## recording's.
+
+# Under a recording's name: its tags.
+# Variables:
+#   $tags (String) - its tags, apart by commas (data)
+studio-take-tags = Tags: { $tags }
+
+# A recording's button opening its tags' dialog.
+studio-take-tags-button = Tags…
+
+# The fold's label (about 16 letters).
+# Variables:
+#   $count (Number) - how many tags the pack uses
+studio-tags = Tags ({ $count })
+
+studio-tags-help = Tags are words of your own on recordings. A tag players may switch off becomes a row under your announcer in Options, Sound.
+
+# Under a tag's name.
+# Variables:
+#   $count (Number) - how many recordings carry it
+studio-tag-used = { $count ->
+    [one] On one recording.
+   *[other] On { $count } recordings.
+}
+
+# A switch's button: whether players may switch the tag off.
+# Variables:
+#   $state (String) - "on" or "off"
+studio-tag-switchable = { $state ->
+    [on] Players can switch it off: yes
+   *[off] Players can switch it off: no
+}
+
+# A field: the tag's name in Options (label about 12 letters).
+studio-tag-label = In Options
+studio-tag-label-hint = Its name there
+
+# A switch's button: whether the tag's recordings are said until a
+# player switches it off (on), or not until switched on (off).
+# Variables:
+#   $state (String) - "on" or "off"
+studio-tag-default = { $state ->
+    [on] At first: on
+   *[off] At first: off
+}
+
+studio-tag-default-description = On: its recordings are said until a player switches it off. Off: not until a player switches it on.
+
+# What switching the tag off would do to a line all of whose recordings
+# carry it: what the game says in its place.
+# Variables:
+#   $line (String) - the line's name
+#   $instead (String) - the line said in its place
+studio-tag-off-instead = Switched off, “{ $line }” has no recording left: “{ $instead }” is said in its place.
+# Variables:
+#   $line (String) - the line's name
+studio-tag-off-silent = Switched off, “{ $line }” has no recording left: the game says nothing then.
+# A multiplayer battle's line.
+# Variables:
+#   $line (String) - the line's name
+studio-tag-off-shown = Switched off, “{ $line }” has no recording left: the game only shows the moment on screen.
+
+# The same, for one of the pack's languages.
+# Variables:
+#   $line (String) - the line's name
+#   $instead (String) - the line said in its place
+#   $language (String) - the language, named in itself
+studio-tag-off-instead-in = Switched off, “{ $line }” has no recording left in { $language }: “{ $instead }” is said in its place.
+# Variables:
+#   $line (String) - the line's name
+#   $language (String) - the language, named in itself
+studio-tag-off-silent-in = Switched off, “{ $line }” has no recording left in { $language }: the game says nothing then.
+# Variables:
+#   $line (String) - the line's name
+#   $language (String) - the language, named in itself
+studio-tag-off-shown-in = Switched off, “{ $line }” has no recording left in { $language }: the game only shows the moment on screen.
+
+# The tags dialog's title.
+# Variables:
+#   $file (String) - the recording's file name
+studio-tags-title = Tags of { $file }
+studio-tags-note = A press puts a tag on the recording, or takes it off. The words after yours are suggestions.
+
+# A tag the recording has, in the dialog's list (a dot before it, as
+# other lists mark what is chosen; keep the dot).
+# Variables:
+#   $tag (String) - the tag (data)
+studio-tag-on = ● { $tag }
+
+studio-tag-new = New tag…
+studio-tag-new-title = New tag
+studio-tag-new-note = One word: letters a to z, digits, - and _ (24 at most).
+studio-tag-not-a-word = Use only letters a to z, digits, - and _ (24 at most).
+
 ## Advanced: a fold (its label about 16 letters) holding the credits, the
 ## imports and three switches, each a button and a sentence under it.
 

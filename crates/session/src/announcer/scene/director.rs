@@ -401,6 +401,10 @@ pub fn draft_voice<S>(
             && takes.iter().any(|t| t.id == id)
         {
             takes.retain(|t| t.id == id);
+        } else {
+            // As a player hears the pack before switching anything: a take
+            // whose tag is off at first is not said.
+            takes.retain(|t| draft.said_at_first(t));
         }
         if takes.is_empty() {
             continue;

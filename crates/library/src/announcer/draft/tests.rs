@@ -844,3 +844,135 @@ fn write_the_old_draft() {
     )
     .unwrap();
 }
+
+/// `d`'s export read back as the game reads a pack: its announcer, with
+/// its `announcer.ini` and `announcer.lua` as text.
+fn read_back(d: &Draft) -> crate::announcer::Kept {
+    let export = d.export();
+    let mut bytes = BTreeMap::new();
+    for t in &d.takes {
+        bytes.insert(t.id, MP3.to_vec());
+    }
+    let read = crate::zip::tests::read_all(&zip_of(d, &bytes)).unwrap();
+    let files: Vec<(String, u64)> = read
+        .iter()
+        .map(|(e, data)| (e.name.clone(), data.len() as u64))
+        .collect();
+    let found = find_announcers(&files, "root");
+    assert_eq!(found.announcers.len(), 1, "{files:?}");
+    assert_eq!(found.announcers[0].report.ignored, 0, "{files:?}");
+    let mut kept = found.announcers[0].kept();
+    kept.ini = export.text(crate::announcer::pool::DECLARATION).map(str::to_string);
+    kept.script = export.text(crate::announcer::script::SCRIPT).map(str::to_string);
+    kept
+}
+
+/// Tags: words on takes, one made switchable with a label and a first
+/// state; the pack written with a readable script the game's reader
+/// runs, its switch a row, a line with every take tagged going silent
+/// when switched off (what the page says beforehand).
+#[test]
+fn tags_are_written_in_a_script_the_game_runs() {
+    use crate::announcer::pool::Tag;
+    use ddi_noteskin::params::Value;
+    let mut d = Draft {
+        name: "Tagged \"One\"".into(),
+        tidy: false,
+        ..Draft::default()
+    };
+    let ready = d.add("gameplay ready.mp3", 9, MP3);
+    let calm = d.add("gameplay here we go normal.mp3", 9, MP3);
+    let loud = d.add("gameplay here we go normal 2.mp3", 9, MP3);
+    let hundred = d.add("gameplay 100 combo.mp3", 9, MP3);
+    assert_eq!(d.toggle_tag(calm, "calm"), Some(true));
+    assert_eq!(d.toggle_tag(hundred, "rude"), Some(true));
+    assert_eq!(d.toggle_tag(loud, "not a tag"), None);
+    assert_eq!(d.toggle_tag(loud, "calm"), Some(true));
+    assert_eq!(d.toggle_tag(loud, "calm"), Some(false));
+    assert_eq!(d.tags(), ["calm", "rude"]);
+    assert_eq!(d.tagged("calm"), 1);
+    assert!(d.toggle_switch("rude"));
+    assert!(d.toggle_default("rude"));
+    d.switches[0].label = "Rude \\ words\n".into();
+    assert!(d.declares() && d.scripted());
+    // Switched off, the 100 combo has nothing left: More combo has none
+    // either, so it says nothing; here we go keeps its other take.
+    assert_eq!(
+        d.silenced("rude"),
+        [Silenced {
+            line: Line::Combo(100),
+            lang: None,
+            instead: None
+        }]
+    );
+    assert!(d.silenced("calm").is_empty());
+    // Restart's only take tagged: Ready is said in its place.
+    let restart = d.add("gameplay restart.mp3", 9, MP3);
+    d.toggle_tag(restart, "rude");
+    assert!(d.silenced("rude").contains(&Silenced {
+        line: Line::Restart,
+        lang: None,
+        instead: Some(Line::Ready)
+    }));
+    d.remove(restart);
+    let export = d.export();
+    assert_eq!(
+        export.text(crate::announcer::script::SCRIPT),
+        Some(
+            "-- announcer.lua, written by Dito Dito Infinito's announcer studio.\n\
+             -- Run once as the pack is chosen, it says what each recording may be\n\
+             -- said for (\"A script\" in the game's docs/announcer-lines.md): a\n\
+             -- recording in a line's folder is said for that line, in its language\n\
+             -- folder's language; those listed say more of themselves.\n\
+             local pack = Announcer.pack()\n\n\
+             local listed = {\n  \
+             [\"gameplay 100 combo/gameplay 100 combo.mp3\"] = { tags = { \"rude\" } },\n  \
+             [\"gameplay here we go normal/gameplay here we go normal.mp3\"] = { tags = { \"calm\" } },\n\
+             }\n\n\
+             for _, file in ipairs(Announcer.files()) do\n  \
+             pack:take(file, listed[file])\nend\n\n\
+             pack:tag(\"rude\", { label = \"Rude \\\\ words\", default = false })\n\
+             return pack\n"
+        )
+    );
+    assert_eq!(
+        export.text(crate::announcer::pool::DECLARATION),
+        Some(
+            "; announcer.ini, written by Dito Dito Infinito's announcer studio.\n\n\
+             [Announcer]\nName=Tagged \"One\"\n"
+        )
+    );
+    // The same draft, the same bytes.
+    assert_eq!(d.export(), export);
+    let kept = read_back(&d);
+    let (pool, refused) = kept.pool_with(&Default::default(), "en");
+    assert_eq!(refused, None);
+    assert_eq!(pool.takes.len(), 4);
+    let tags_of = |file: &str| -> Vec<String> {
+        pool.takes
+            .iter()
+            .find(|t| t.file.as_str().ends_with(file))
+            .unwrap()
+            .tags
+            .clone()
+    };
+    assert_eq!(tags_of("/gameplay 100 combo.mp3"), ["rude"]);
+    assert_eq!(tags_of("/gameplay here we go normal.mp3"), ["calm"]);
+    assert!(tags_of("/gameplay ready.mp3").is_empty());
+    assert_eq!(
+        pool.tags,
+        [Tag {
+            name: "rude".into(),
+            label: "Rude \\ words".into(),
+            default: false
+        }]
+    );
+    // Off at first: the 100 combo is not said; switched on, it is.
+    let off = kept.resolve(&Default::default(), "en");
+    assert!(!off.lines.contains_key("gameplay 100 combo"));
+    let mut values = ddi_noteskin::params::Values::new();
+    values.insert(crate::announcer::pool::tag_value_name("rude"), Value::Bool(true));
+    assert!(kept.resolve(&values, "en").lines.contains_key("gameplay 100 combo"));
+    assert_eq!(off.lines["gameplay ready"].len(), 1);
+    let _ = ready;
+}

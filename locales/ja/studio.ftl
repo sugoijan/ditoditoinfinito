@@ -58,6 +58,51 @@ studio-language-note-add = セリフは言語ごとに録音します。追加�
 
 studio-recorded-in = 録音のある言語：{ $languages }。
 
+studio-take-tags = タグ：{ $tags }
+
+studio-take-tags-button = タグ…
+
+studio-tags = タグ（{ $count }）
+
+studio-tags-help = タグは録音に付ける自分用の単語です。プレイヤーがオフにできるタグは、オプションのサウンドでアナウンサーの下に項目として表示されます。
+
+studio-tag-used = { $count ->
+   *[other] { $count }件の録音に付いています。
+}
+
+studio-tag-switchable = { $state ->
+   *[off] プレイヤーがオフにできる：いいえ
+    [on] プレイヤーがオフにできる：はい
+}
+
+studio-tag-label = オプションでの名前
+studio-tag-label-hint = 表示される名前
+
+studio-tag-default = { $state ->
+   *[off] 最初の状態：オフ
+    [on] 最初の状態：オン
+}
+
+studio-tag-default-description = オン：プレイヤーがオフにするまで、このタグの録音が使われます。オフ：プレイヤーがオンにするまで使われません。
+
+studio-tag-off-instead = オフにすると「{ $line }」の録音がなくなり、代わりに「{ $instead }」が流れます。
+studio-tag-off-silent = オフにすると「{ $line }」の録音がなくなり、その場面では何も流れません。
+studio-tag-off-shown = オフにすると「{ $line }」の録音がなくなり、その場面は画面に表示されるだけになります。
+
+studio-tag-off-instead-in = オフにすると{ $language }の「{ $line }」の録音がなくなり、代わりに「{ $instead }」が流れます。
+studio-tag-off-silent-in = オフにすると{ $language }の「{ $line }」の録音がなくなり、その場面では何も流れません。
+studio-tag-off-shown-in = オフにすると{ $language }の「{ $line }」の録音がなくなり、その場面は画面に表示されるだけになります。
+
+studio-tags-title = { $file }のタグ
+studio-tags-note = 選ぶとタグを付けたり外したりできます。自分のタグの後に並ぶのはおすすめの単語です。
+
+studio-tag-on = ● { $tag }
+
+studio-tag-new = 新しいタグ…
+studio-tag-new-title = 新しいタグ
+studio-tag-new-note = 1語で：英小文字、数字、- と _（24文字まで）。
+studio-tag-not-a-word = 英小文字、数字、- と _ だけを使ってください（24文字まで）。
+
 studio-advanced = 詳細設定
 
 studio-import-zip = ZIPからパックをインポート…

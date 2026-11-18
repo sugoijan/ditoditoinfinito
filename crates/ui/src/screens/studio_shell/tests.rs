@@ -255,4 +255,20 @@ fn fields_and_dialogs_change_the_draft() {
     h.run(0.3);
     assert_eq!(host.state.draft.borrow().languages, ["en"]);
     assert_eq!(host.asked(), ["stop", "forget", "save", "show"]);
+    // Tags…: the first tag offered (a suggestion) put on the take, then
+    // a tag typed (not a word first).
+    *feed.borrow_mut() = Some(doc_of(&*host));
+    h.ui.broadcast(crate::message::Message::new(super::super::page::PAGE_CHANGED));
+    h.run(0.3);
+    let items = host.env.state.borrow().page_items.clone();
+    let at = items
+        .iter()
+        .position(|i| *i == format!("button:tags:{take}"))
+        .unwrap_or_else(|| panic!("{items:?}"));
+    h.tap(PointerKind::Mouse, &format!("Item{at}"));
+    h.run(0.3);
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    assert_eq!(host.state.draft.borrow().take(take).unwrap().tags, ["calm"]);
+    assert_eq!(host.asked(), ["forget", "save", "show"]);
 }

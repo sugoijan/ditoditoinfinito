@@ -654,3 +654,44 @@ fn the_draft_as_a_voice_takes_each_lines_next_recording_first() {
     assert_eq!(words(1).get(&Line::Ready), None, "the other's: none");
     assert_eq!(words(0).get(&Line::Cleared), None);
 }
+
+/// A scene says the draft as a player would hear the pack before
+/// switching anything: in the language the page works in, a take whose
+/// tag is off at first left out unless it is the one pinned.
+#[test]
+fn the_draft_as_a_voice_speaks_the_language_worked_in_and_tags_at_first() {
+    let mut draft = Draft::default();
+    let mut decoded = HashMap::new();
+    let mut add = |draft: &mut Draft, name: &str, len: f64| {
+        let id = draft.add(name, 10, b"RIFF");
+        draft.take_mut(id).unwrap().line = Some(Line::Ready);
+        decoded.insert(id, len);
+        id
+    };
+    draft.add_language("en");
+    add(&mut draft, "en.wav", 1.0);
+    let rude = add(&mut draft, "rude.wav", 2.0);
+    draft.toggle_tag(rude, "rude");
+    draft.toggle_switch("rude");
+    draft.toggle_default("rude");
+    draft.add_language("ja");
+    add(&mut draft, "ja.wav", 3.0);
+    let voice_of = |draft: &Draft, pinned: Option<u64>| {
+        let (mut voice, _, _) = draft_voice(
+            draft,
+            |_| true,
+            &HashMap::new(),
+            pinned,
+            &decoded,
+            |_, s: &f64| Some(*s),
+            |s| (*s, 0.0),
+        );
+        (0..3)
+            .filter_map(|_| voice.next(Line::Ready).map(|(_, s)| *s))
+            .collect::<Vec<f64>>()
+    };
+    assert_eq!(voice_of(&draft, None), [3.0, 3.0, 3.0]);
+    draft.working = Some("en".into());
+    assert_eq!(voice_of(&draft, None), [1.0, 1.0, 1.0]);
+    assert_eq!(voice_of(&draft, Some(rude)), [2.0, 2.0, 2.0]);
+}

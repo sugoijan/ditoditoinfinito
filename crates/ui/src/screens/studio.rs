@@ -324,6 +324,9 @@ fn take_blocks(draft: &Draft, view: &View, t: &Take, sorted: bool, out: &mut Vec
         detail: None,
         actions: icons,
     });
+    if !t.tags.is_empty() {
+        out.push(Block::Muted(m::take_tags(t.tags.join(", ")).into()));
+    }
     let mut actions = vec![Action::new(
         format!("move:{}", t.id),
         if sorted {
@@ -332,6 +335,7 @@ fn take_blocks(draft: &Draft, view: &View, t: &Take, sorted: bool, out: &mut Vec
             m::take_which_line()
         },
     )];
+    actions.push(Action::new(format!("tags:{}", t.id), m::take_tags_button()));
     actions.push(Action::new(format!("remove:{}", t.id), m::take_remove()));
     out.push(Block::Actions(actions));
     if view.details
@@ -572,6 +576,63 @@ fn language_blocks(draft: &Draft) -> Vec<Block> {
     out
 }
 
+/// What a line a tag switched off would leave silent comes to.
+fn silenced_text(s: &draft::Silenced) -> UiText {
+    let line = name(s.line);
+    let instead = s.instead.map(name);
+    let shown = matches!(s.line, Line::Battle(_));
+    match &s.lang {
+        None => match (instead, shown) {
+            (Some(i), _) => m::tag_off_instead(line, i),
+            (None, true) => m::tag_off_shown(line),
+            (None, false) => m::tag_off_silent(line),
+        },
+        Some(lang) => {
+            let lang = draft::language_name(lang).to_string();
+            match (instead, shown) {
+                (Some(i), _) => m::tag_off_instead_in(line, i, lang),
+                (None, true) => m::tag_off_shown_in(line, lang),
+                (None, false) => m::tag_off_silent_in(line, lang),
+            }
+        }
+    }
+}
+
+/// The tags' fold: what tags are for, then each tag (data) with how
+/// many recordings it is on and whether players may switch it off; a
+/// switchable one with its name in Options, its first state, and the
+/// lines it would leave with no recording when off.
+fn tag_blocks(draft: &Draft, tags: &[String]) -> Vec<Block> {
+    let mut out = vec![Block::Muted(m::tags_help().into())];
+    for (i, tag) in tags.iter().enumerate() {
+        out.push(Block::Subheading(UiText::data(tag).into()));
+        out.push(Block::Muted(m::tag_used(draft.tagged(tag)).into()));
+        let switch = draft.switch_of(tag);
+        out.push(Block::Actions(vec![Action::new(
+            format!("switchable:{i}"),
+            m::tag_switchable(state(switch.is_some())),
+        )]));
+        let Some(switch) = switch else {
+            continue;
+        };
+        out.push(Block::Field {
+            id: format!("tag-label:{tag}"),
+            label: m::tag_label().into(),
+            value: switch.label.clone(),
+            hint: m::tag_label_hint().into(),
+        });
+        out.extend(self::switch(
+            &format!("tag-default:{i}"),
+            m::tag_default(state(switch.default)),
+            m::tag_default_description(),
+        ));
+        for s in draft.silenced(tag) {
+            out.push(Block::Note(silenced_text(&s).into()));
+        }
+    }
+    out
+}
+
 /// The studio's page, in `platform`'s words on dropping files and on
 /// keeping them.
 pub fn doc(
@@ -656,6 +717,14 @@ pub fn doc(
         label: m::advanced().into(),
         body: advanced,
     });
+    let tags = draft.tags();
+    if !tags.is_empty() {
+        b.push(Block::Fold {
+            id: "tags".into(),
+            label: m::tags(tags.len()).into(),
+            body: tag_blocks(draft, &tags),
+        });
+    }
     let unsorted: Vec<&Take> = draft.unsorted().collect();
     if !unsorted.is_empty() {
         let mut body = vec![
@@ -749,6 +818,12 @@ pub enum Act {
     RemoveLanguage(usize),
     /// Mixed offered or not.
     Mixed,
+    /// Take `id`'s tags, chosen in a dialog ([`tags_dialog`]).
+    Tags(u64),
+    /// The draft's tag `i` ([`Draft::tags`]) made switchable or not.
+    Switchable(usize),
+    /// The draft's tag `i`'s switch's first state turned over.
+    TagDefault(usize),
 }
 
 /// The press `id` of [`doc`]'s.
@@ -782,6 +857,9 @@ pub fn act(id: &str) -> Option<Act> {
                 "remove" => Act::Remove(take(rest)?),
                 "remove-combo" => Act::RemoveCombo(rest.parse().ok()?),
                 "language" => Act::Language(rest.parse().ok()?),
+                "tags" => Act::Tags(take(rest)?),
+                "switchable" => Act::Switchable(rest.parse().ok()?),
+                "tag-default" => Act::TagDefault(rest.parse().ok()?),
                 "remove-language" => Act::RemoveLanguage(rest.parse().ok()?),
                 "example" | "hear-example" => {
                     let (folder, i) = rest.rsplit_once(':')?;
@@ -889,6 +967,18 @@ pub fn apply(act: Act, draft: &mut Draft, view: &mut View) -> Option<Applied> {
             draft.mixed = !draft.mixed;
             Applied::Draft
         }
+        Act::Switchable(i) => {
+            let tag = draft.tags().into_iter().nth(i)?;
+            draft.toggle_switch(&tag);
+            Applied::Draft
+        }
+        Act::TagDefault(i) => {
+            let tag = draft.tags().into_iter().nth(i)?;
+            if !draft.toggle_default(&tag) {
+                return None;
+            }
+            Applied::Draft
+        }
         _ => return None,
     })
 }
@@ -896,6 +986,13 @@ pub fn apply(act: Act, draft: &mut Draft, view: &mut View) -> Option<Applied> {
 /// What a field's press says: the draft's field it is (a text line's
 /// or a take's words, `words:<id>`).
 pub fn set_field(draft: &mut Draft, id: &str, text: &str) -> bool {
+    if let Some(tag) = id.strip_prefix("tag-label:") {
+        let Some(s) = draft.switches.iter_mut().find(|s| s.tag == tag) else {
+            return false;
+        };
+        s.label = text.to_string();
+        return true;
+    }
     let to = match id {
         "name" => &mut draft.name,
         "author" => &mut draft.author,
@@ -988,7 +1085,60 @@ pub fn in_gesture(a: Act) -> bool {
             | Act::Language(_)
             | Act::RemoveLanguage(_)
             | Act::Mixed
+            | Act::Switchable(_)
+            | Act::TagDefault(_)
     )
+}
+
+/// What choosing a tag of a take does (`Some(tag)`; `None`: New tag…).
+pub type TagFn = Rc<dyn Fn(Option<&str>, &mut Cx)>;
+
+/// The dialog of a take's Tags…: the tags the draft uses, then those the
+/// studio suggests, each marked where the take has it (a press puts it on
+/// or takes it off), then New tag…
+pub fn tags_dialog(env: Env, draft: &Draft, take: u64, on_pick: TagFn) -> Option<ActionsDialog> {
+    let t = draft.take(take)?;
+    let mut tags = draft.tags();
+    for s in draft::SUGGESTED_TAGS {
+        if !tags.iter().any(|t| t == s) {
+            tags.push(s.to_string());
+        }
+    }
+    let mut items: Vec<(String, String)> = tags
+        .into_iter()
+        .map(|tag| {
+            let label = if t.tags.contains(&tag) {
+                m::tag_on(&tag).into()
+            } else {
+                tag.clone()
+            };
+            (format!("tag:{tag}"), label)
+        })
+        .collect();
+    items.push(("new".into(), m::tag_new().into()));
+    let pick: PickFn = Rc::new(move |id: &str, cx: &mut Cx| {
+        on_pick(id.strip_prefix("tag:"), cx);
+    });
+    Some(
+        ActionsDialog::new(env, &m::tags_title(t.file_name()), items, pick)
+            .with_note(&m::tags_note()),
+    )
+}
+
+/// What a tag typed does: whether the take took it.
+pub type NewTagFn = Rc<dyn Fn(&str, &mut Cx) -> bool>;
+
+/// The dialog of New tag…: a word typed (letters a to z, digits, `-` and
+/// `_`), put on the take.
+pub fn new_tag_dialog(env: Env, on_add: NewTagFn) -> ValueDialog {
+    let submit: SubmitFn = Rc::new(move |text: &str, cx: &mut Cx| {
+        let tag = text.trim().to_ascii_lowercase();
+        if !ddi_library::announcer::script::is_tag(&tag) || !on_add(&tag, cx) {
+            return Err(m::tag_not_a_word().to_string());
+        }
+        Ok(())
+    });
+    ValueDialog::new(env, &m::tag_new_title(), &m::tag_new_note(), "", submit)
 }
 
 /// What choosing a language does: `true` where the draft took it.
@@ -1499,6 +1649,64 @@ mod tests {
             assert_eq!(act(id), Some(a));
             assert!(!in_gesture(a));
         }
+    }
+
+    /// Tags on the page: a take's own and its button, the tags' fold with
+    /// each tag switchable, its name in Options and first state, and the
+    /// lines it would leave silent; the dialog marking the take's tags
+    /// before the suggested ones.
+    #[test]
+    fn tags_are_put_on_takes_and_made_switchable() {
+        ddi_l10n::set_language("en");
+        let page = |d: &Draft| format!("{:?}", doc(d, &View::default(), &BTreeMap::new(), Default::default()).blocks);
+        let mut d = Draft::default();
+        let mut v = View::default();
+        let restart = add_read(&mut d, "gameplay restart.wav");
+        add_read(&mut d, "gameplay ready.wav");
+        let text = page(&d);
+        assert!(text.contains(&format!("\"tags:{restart}\", label: \"Tags…\"")));
+        assert!(!text.contains("id: \"tags\""));
+        assert_eq!(act(&format!("tags:{restart}")), Some(Act::Tags(restart)));
+        assert!(in_gesture(Act::Tags(restart)));
+        let items = |d: &Draft| -> Vec<(String, String)> {
+            tags_dialog(crate::screens::test_kit::env(), d, restart, Rc::new(|_, _| {}))
+                .unwrap()
+                .items()
+                .to_vec()
+        };
+        assert_eq!(items(&d)[0], ("tag:calm".to_string(), "calm".to_string()));
+        assert_eq!(items(&d).last().unwrap().0, "new");
+        d.toggle_tag(restart, "rude");
+        // The take's own first, marked; the suggestions after.
+        assert_eq!(items(&d)[0], ("tag:rude".to_string(), "● rude".to_string()));
+        assert_eq!(items(&d)[1].0, "tag:calm");
+        let text = page(&d);
+        assert!(text.contains("Muted(\"Tags: rude\")"));
+        assert!(text.contains("id: \"tags\", label: \"Tags (1)\""));
+        assert!(text.contains("On one recording."));
+        assert!(text.contains("\"switchable:0\", label: \"Players can switch it off: no\""));
+        assert!(!text.contains("tag-label:rude"));
+        assert_eq!(apply(Act::Switchable(0), &mut d, &mut v), Some(Applied::Draft));
+        let text = page(&d);
+        assert!(text.contains("Players can switch it off: yes"));
+        assert!(text.contains("id: \"tag-label:rude\", label: \"In Options\", value: \"rude\""));
+        assert!(text.contains("At first: on"));
+        assert!(text.contains("Switched off, “Restart” has no recording left: “Ready” is said in its place."));
+        assert!(set_field(&mut d, "tag-label:rude", "Rude words"));
+        assert!(!set_field(&mut d, "tag-label:calm", "Calm"));
+        assert_eq!(d.switches[0].label, "Rude words");
+        assert_eq!(apply(Act::TagDefault(0), &mut d, &mut v), Some(Applied::Draft));
+        assert!(!d.switches[0].default);
+        assert_eq!(apply(Act::TagDefault(3), &mut d, &mut v), None);
+        for (id, a) in [("switchable:2", Act::Switchable(2)), ("tag-default:1", Act::TagDefault(1))] {
+            assert_eq!(act(id), Some(a));
+            assert!(!in_gesture(a));
+        }
+        // In one of two languages, it says which.
+        d.add_language("en");
+        d.add_language("ja");
+        d.working = Some("en".into());
+        assert!(page(&d).contains("Switched off, “Restart” has no recording left in English: “Ready” is said in its place."));
     }
 
     fn zones(doc: &PageDoc) -> Vec<String> {

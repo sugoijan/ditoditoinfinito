@@ -255,8 +255,51 @@ pub fn call<H: StudioHost>(host: &Rc<H>, call: PageCall, cx: &mut Cx) -> Option<
             cx.overlay(dialog, true);
             None
         }
+        Act::Tags(id) => {
+            let weak = Rc::downgrade(host);
+            let dialog = studio::tags_dialog(
+                host.env()?,
+                &host.state().draft.borrow(),
+                id,
+                Rc::new(move |tag, cx| {
+                    let Some(h) = weak.upgrade() else {
+                        return;
+                    };
+                    match tag {
+                        Some(tag) => {
+                            toggle_tag(&*h, id, tag);
+                        }
+                        None => {
+                            let Some(env) = h.env() else {
+                                return;
+                            };
+                            let weak = Rc::downgrade(&h);
+                            let typed = studio::new_tag_dialog(
+                                env,
+                                Rc::new(move |tag, _cx| {
+                                    weak.upgrade().is_some_and(|h| toggle_tag(&*h, id, tag))
+                                }),
+                            );
+                            cx.overlay(typed, true);
+                        }
+                    }
+                }),
+            )?;
+            cx.overlay(dialog, true);
+            None
+        }
         a => act(host, a),
     }
+}
+
+/// Tag `tag` put on take `id`, or taken off it; whether it did.
+fn toggle_tag<H: StudioHost>(host: &H, id: u64, tag: &str) -> bool {
+    if host.state().draft.borrow_mut().toggle_tag(id, tag).is_none() {
+        return false;
+    }
+    draft_changed(host);
+    host.show();
+    true
 }
 
 /// Take `id` put on `line` (`None`: unsorted).
@@ -305,9 +348,11 @@ pub fn act<H: StudioHost>(host: &Rc<H>, act: Act) -> Option<PageDoc> {
         | Act::Unwrite(_)
         | Act::Language(_)
         | Act::RemoveLanguage(_)
-        | Act::Mixed => false,
+        | Act::Mixed
+        | Act::Switchable(_)
+        | Act::TagDefault(_) => false,
         // (The dialogs': [`call`]'s.)
-        Act::Move(_) | Act::AddCombo | Act::AddLanguage => false,
+        Act::Move(_) | Act::AddCombo | Act::AddLanguage | Act::Tags(_) => false,
         Act::Add(line) => {
             host.pick_recordings(line, None);
             false
