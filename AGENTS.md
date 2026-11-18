@@ -367,7 +367,11 @@ Rust and the browser are implementation details, not advertised features.
   when it speaks and what it falls back to, for pack authors:
   `docs/announcer-lines.md`; the announcer studio's drafts, takes
   matched to lines by name, their notes, the text lines planned and
-  the export's plan, `announcer/draft.rs`, tidied by `announcer/tidy.rs`,
+  the export's plan (languages, tags, takes said for several lines:
+  the plain layout where it says it all, else a folder a language, an
+  `announcer.ini` and a script, read back through the pool before it
+  is offered, `Draft::check`; a scripted pack read into a draft,
+  `read_pack`), `announcer/draft.rs`, tidied by `announcer/tidy.rs`,
   the one leveler, which our packs' sounds are made through too (`xtask
   announcer tidy`): the ends cut and faded, then `tidy::LEVELING`'s
   chain, `announcer-level-v3` (a phase rotator, a compressor against
@@ -430,7 +434,9 @@ Rust and the browser are implementation details, not advertised features.
   calibration's menu and the credits (`page.rs`: headings, text,
   links, buttons, rows of buttons, folds, fields, notes and zones a
   shell finds under a drop, `Zone.<id>`, lit by `PAGE_TARGET`), the
-  announcer studio's page made from its draft (`studio.rs`) and the
+  announcer studio's page made from its draft (`studio.rs`; what each
+  press does, the same for both shells over each one's `StudioHost`,
+  `studio_shell.rs`) and the
   frame its scenes are shown in (`stage.rs`: a chrome drawing the
   screens under it smaller, `Screen::stage`; `Ui::mark` rings what a
   screen names, `Screen::spot`), the app's notices as the UI's

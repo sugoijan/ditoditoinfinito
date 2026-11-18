@@ -3,7 +3,10 @@
 Status: steps 1 and 2 done 2026-11-06 (the draft; the screen on the web), step 3
 2026-11-07 (the scenes on song select and the results), step 4 2026-11-08
 (the scenes in play, on the web), step 5 2026-11-08 (desktop), step 6
-2026-11-08 (the encoder): done. A screen for someone recording an announcer in
+2026-11-08 (the encoder): done; since 2026-11-18 the page's logic is one
+for both shells and the studio makes packs in several languages, with
+tags and recordings said for several lines ("Packs as pools", the last
+section). A screen for someone recording an announcer in
 an app of their own:
 
 - Their recordings come in through a picker or by dropping them.
@@ -807,3 +810,192 @@ buffers match the native `xtask announcer stadium` samples exactly on the
 sample difference 0.000034). Native tests also check the common preview/WAV
 path and an Opus export's duration/channels/finite unclipped samples.
 Screenshots and browser recordings are in `target/scratch/announcer-rust/`.
+
+
+## Packs as pools (2026-11-18)
+
+Packs became pools of takes that a pack's script builds at load
+(`announcers.md`, "Pools of takes" and "A pack's script"); this round
+taught the studio to make them (the proposal's stage 3), after giving
+both shells one page logic.
+
+### One page logic for both shells
+
+The page's state and what each press does were written twice, once in
+the web's page and once in desktop's, and had drifted (the web let an
+export go on a field's edit, desktop had no export to let go). They are
+`ddi_ui::screens::studio_shell` now, as Options' shell is
+(`options_shell.rs`):
+
+- **`StudioState`**: the draft and the view, the examples, the page as
+  it is now (`doc`); a recording picked taken in on its line or in its
+  text line's place, where the draft has room (`take_in`), a pack made
+  before adopted (`adopt`); what the page says after an import
+  (`added_status`).
+- **`call` and `act`**: every press, field and dialog (Which line?, Move…,
+  Add a combo line…, and this round's own) against a **`StudioHost`**,
+  what only a platform does: keeping the draft and recordings, its
+  pickers, playing a sound, making the pack's files, hearing a line in its
+  scene, showing the page again, the web's debug state.
+- **The scenes' line tables** moved into the director
+  (`director::draft_lines`, `example_lines`), the same for both shells.
+- **What stayed in each shell, and why:** decoding (the browser's
+  offline context; desktop's decoder thread), the store (IndexedDB;
+  files written on a thread), the pickers (inputs clicked in the press;
+  `rfd` dialogs), the drop (web only), playing (a context made in the
+  press; the preview's player), making the pack (async tasks and the
+  browser's Opus encoder; a thread and `rusty-opus`), the scenes' voices
+  (awaited on the web, polled on desktop) and the web's debug state. Each
+  is a different runtime, not a different decision.
+- The two shells' studio files lost 537 lines and gained 337 (each
+  one's `StudioHost`): the web's page 1,971 → 1,873 lines, desktop's
+  1,944 → 1,842; the shared module is 321 lines and its tests 241. The
+  web's `type_complexity` warning went with a type of its own.
+
+Checked: the studio's tests on both shells unchanged and passing
+(`crates/desktop/tests/studio.rs`, `studio_draft.rs`), the shared page's
+on a fake platform (`studio_shell/tests.rs`: each press's draft change and
+what it asks of the platform, the dialogs through a harness), the web's
+page in headless Chrome and Firefox as before.
+
+### Languages
+
+- **The draft's languages** (`Draft::languages`, tags in the order
+  offered; none: one, not named). The page shows them under its buttons:
+  Name its language… where none is named, then a button for each (the one
+  worked in lit) and Add a language… (`draft::LANGUAGES`: English, 日本語,
+  Español, Français, Deutsch, Italiano, Português (Brasil), each named in
+  itself); a language with nothing in it can be removed.
+- **Each language's takes are its own** (`Take::lang`, none: the first).
+  The page works in one at a time (`Draft::working`, kept with the draft):
+  its lines show that language's recordings and text lines, new ones go
+  in it, and each line says which languages have it ("Recorded in
+  English, 日本語.").
+- **Mixed languages: on/off** where there are two, with one sentence of
+  what it does (Mixed lets players take each line's recordings from every
+  language).
+- **Written:** one language (named or not) with no tags and no shared
+  takes is the plain StepMania layout as before, byte for byte (a test
+  pins an old draft's zip, `a_plain_draft_stored_before_exports_as_it_did`).
+  Two or more languages with recordings: `Announcers/<Name>/<tag>/<line
+  folder>/`, and an `announcer.ini` naming the pack and declaring the
+  languages written (those with recordings), each named in itself
+  (`Labels=`), and `Mixed=1` where on. A language added and not recorded
+  yet is not offered.
+- **Scenes** speak the language worked in.
+
+### Tags
+
+- **A recording's Tags…** opens a list: the tags the draft uses, then four
+  suggestions (`draft::SUGGESTED_TAGS`: calm, excited, short, long; plain
+  words for how a recording sounds, which any pack may use), each marked
+  where the recording has it (a press puts it on or takes it off), and New
+  tag…, a word typed (letters a to z, digits, `-`, `_`; what the game's
+  script reader takes). The suggestions avoid words that judge content; a
+  pack's own "profanity" is the author's to type.
+- **The Tags fold** lists each tag with how many recordings carry it and
+  "Players can switch it off: yes/no". Switchable, it has its name in
+  Options (a field) and its first state (At first: on/off), and the page
+  says which lines it would leave with no recording when switched off and
+  what the game says then (the line's fallback with a recording left,
+  nothing, or the battle's moment on screen), in each language where
+  there are several (`Draft::silenced`).
+- **Written** in `announcer.lua` (a script is needed: the plain layout
+  cannot say tags), each tagged recording listed with its tags, each
+  switch a `pack:tag`; in Options the switch is a row under the announcer
+  ("Rude words: On / Off"), its label the author's.
+- **Scenes** say the pack as a player hears it before switching anything:
+  a recording whose tag is off at first is left out, unless it is the one
+  pressed beside.
+
+### A recording on several lines
+
+- **Also for…** on a recording lists the lines it is not said for yet;
+  chosen, it is said for that line too (`Take::also`): one sound, listed
+  in each line's zone, "(shared)" and "Recorded for “100 combo”, said for
+  this line too." with Not for this line in the others. Moved, it keeps
+  them; unsorted, it is said for none.
+- **Written** once, in the pack's `shared/` folder, and listed in the
+  script with its lines and its language.
+- **Scenes** follow the game's rule: the voice is told each sound's take
+  (`Voice::add_from`), so a take said for two lines is never said twice in
+  a row through them; its eye in another line's zone hears it in that
+  line's scene.
+
+### The export checked by the game's reader
+
+Before a zip is offered or an announcer is added to the game, the pack is
+read back through the game's own reader (`Draft::check`: the scan,
+`announcer.ini`, the script run by `ddi_lua` as a player's game runs it,
+the pool) and compared with the draft: every take with its lines,
+language, tags and a weight of 1, the languages and Mixed, the switches.
+A difference is a mistake of the studio's, never the author's: nothing is
+written and the page says so ("The game would not read this pack as the
+studio made it (…). This is a mistake in the studio…"), desktop's log
+too. The script is written in the documented API alone, readable, the
+same bytes for the same draft:
+
+```lua
+-- announcer.lua, written by Dito Dito Infinito's announcer studio.
+-- (four lines saying what it does)
+local pack = Announcer.pack()
+
+local listed = {
+  ["en/evaluation cheer/damn.opus"] = { tags = { "rude" } },
+  ["shared/awesome.opus"] = { events = { "gameplay 100 combo", "evaluation cheer" }, lang = "en" },
+}
+
+for _, file in ipairs(Announcer.files()) do
+  pack:take(file, listed[file])
+end
+
+pack:tag("rude", { label = "Rude words", default = true })
+pack:languages({ "en", "ja" }, { mixed = true })
+return pack
+```
+
+### Importing a pack with a script
+
+Advanced's imports read a pack with an `announcer.ini` or an
+`announcer.lua` through its pool (`draft::read_pack`: its script run as
+the game runs it): each sound on its line and the lines it is said for
+besides, in its language, with its tags; the pack's languages, Mixed and
+switches into the draft. What the draft cannot carry over is said under
+the page's status (`draft::Lost`): the script itself (the studio writes
+its own from what it read), a script that stopped (its folders read
+instead), its own settings (read at their defaults), a script choosing by
+the game's language (read as for English), weights (each recording as
+likely as any other), recordings said in every language (put in the
+first) and sounds taken in two languages (kept in the first). A pack the
+studio exported comes back as it was: exported again, the same
+`announcer.ini` and script (desktop's `studio_pools.rs`).
+
+### Old drafts
+
+A draft stored before this round reads as one language not named, no
+tags, no shared recordings, and exports as it did: the library's fixture
+`draft/old-draft.json` (written by the studio as it was) on both shells'
+storage (desktop's `open_draft` test; the web's draft in IndexedDB in the
+browser walk).
+
+### Checked
+
+Library (`draft/tests.rs`: two languages, tags, shared, the reader's
+check refusing a broken script, other languages and a missing take, a
+scripted pack read into a draft and the same pack made again, the old
+draft's zip pinned), the page (`studio.rs` and `studio_shell/tests.rs`,
+the qps-ploc walk with the new dialogs and notes), the director (the
+language worked in, tags at first, a shared take not twice in a row),
+desktop (`tests/studio_pools.rs`: two languages, Mixed, a switch and a
+shared take exported, checked, used in the game and read in place by
+desktop's announcers, then the zip imported again and exported the same),
+and headless Chrome and Firefox (a draft in two languages with a typed
+switchable tag and a shared recording made in the page, heard in the
+cheer's and the 100 combo's scenes, exported and used in the game;
+Options → Sound showing Language at Mixed and the tag's row; an
+autoplayed play speaking from it; a plain draft in a fresh profile
+exported as before).
+
+Not taken: weights in the page; a tag's name in each language; the
+examples following the language worked in (they keep their own switch).
+

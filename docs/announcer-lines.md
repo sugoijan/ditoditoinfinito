@@ -48,9 +48,10 @@ Announcers/
   −1 dBFS; the announcer studio tidies recordings to the same level.
 
 To make one from recordings of your own, the game's announcer studio
-(on the web, Options → Sound → Your own announcer) puts each recording
-on its line, lets you hear it where the game says it and exports the
-pack.
+(Options → Sound → Your own announcer) puts each recording on its line,
+lets you hear it where the game says it and exports the pack, in several
+languages, with tags and recordings said for several lines where you
+want them ("Made in the studio", below).
 
 To use one on the web, add it with Add songs (a folder, a `.zip` or a
 `.smzip`) and choose it under Options, Sound. On desktop, put it in the
@@ -160,6 +161,79 @@ return pack
   takes, 16 tags. A script that stops, or names a file the pack lacks or
   a line the game does not know, is refused whole: the pack's folders
   speak instead, and Options says "Its script stopped".
+
+## Made in the studio
+
+The announcer studio (Options → Sound → Your own announcer) writes the
+plain layout above while it can, and an `announcer.ini` and a script only
+where that cannot say what the pack does. What it writes for each thing,
+for an announcer named "My Voice":
+
+- **One language, no tags, no recording on two lines:** the line folders
+  at the pack's top, as StepMania reads them; no `announcer.ini`, no
+  script.
+
+  ```
+  Announcers/My Voice/gameplay ready/ready.opus
+  Announcers/My Voice/evaluation cheer/cheer.opus
+  README.txt
+  ```
+
+- **Two languages or more:** a folder a language, and an `announcer.ini`
+  declaring them, each named in itself, Mixed where it is turned on (the
+  languages with recordings only):
+
+  ```
+  Announcers/My Voice/announcer.ini
+  Announcers/My Voice/en/gameplay ready/ready.opus
+  Announcers/My Voice/ja/gameplay ready/ready.opus
+  ```
+
+  ```ini
+  ; announcer.ini, written by Dito Dito Infinito's announcer studio.
+
+  [Announcer]
+  Name=My Voice
+
+  [Parameters]
+  List=Language
+
+  [Parameter Language]
+  Type=Language
+  Languages=en,ja
+  Labels=English,日本語
+  Mixed=1
+  ```
+
+- **Tags, and a recording said for several lines:** an `announcer.lua`
+  besides, listing the recordings that say more of themselves by their
+  paths in the pack (every other one is its folder's line, in its
+  language folder's language), then the tags players may switch off and
+  the languages. A recording on several lines is written once, in
+  `shared/`:
+
+  ```lua
+  local pack = Announcer.pack()
+
+  local listed = {
+    ["en/evaluation cheer/damn.opus"] = { tags = { "rude" } },
+    ["shared/awesome.opus"] = { events = { "gameplay 100 combo", "evaluation cheer" }, lang = "en" },
+  }
+
+  for _, file in ipairs(Announcer.files()) do
+    pack:take(file, listed[file])
+  end
+
+  pack:tag("rude", { label = "Rude words", default = true })
+  pack:languages({ "en", "ja" }, { mixed = true })
+  return pack
+  ```
+
+  You may edit it by hand afterwards: it uses only what "A script" above
+  describes. The studio writes the same bytes for the same pack, and reads
+  a pack like this back into a draft (Advanced → Import a pack), saying
+  what it cannot keep (a script of your own is not kept as written; its
+  results are).
 
 ## The lines
 

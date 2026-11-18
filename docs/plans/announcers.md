@@ -1322,11 +1322,11 @@ return pack
   `xtask gen-announcers` refuses a bundled script that stops or leaves a
   line out. The web's index carries the script's text; desktop reads it
   in place, folders and zips.
-- **Not built** (the proposal's later stages): the studio writing
-  multi-language packs, tags per take or a take on several lines (it
-  writes plain layouts, which read through the pool as before); scripts
-  told the game's moments during a play; a game-wide switch for
-  well-known tags; "how often"; Opus copies of the built-in for the web.
+- **Not built** (the proposal's later stages): scripts told the game's
+  moments during a play; a game-wide switch for well-known tags; "how
+  often"; Opus copies of the built-in for the web. The studio writing
+  multi-language packs, tags and a take on several lines came on
+  2026-11-18 ("The studio makes pools", below).
 
 
 ## A line ends where its voice ends (2026-11-17)
@@ -1420,3 +1420,34 @@ voiced end when the pack is made or loaded."
   stage with attacks, a battle line after a combo line's voice, the
   stage's win after the full combo's and (Chrome) a step's line after
   an attack line's voice, each over the tail before it.
+
+
+## The studio makes pools (2026-11-18)
+
+The proposal's stage 3, in `docs/plans/announcer-studio.md` ("Packs as
+pools"): the announcer studio makes what packs allow, in the format the
+game's reader takes and checked by it.
+
+- **Languages:** a draft's languages, each with its own recordings,
+  written as a folder a language beside an `announcer.ini` declaring them
+  (`Languages=`, `Labels=` each named in itself, `Mixed=1` where the
+  author turns Mixed on). One language with no tags and no shared
+  recordings stays StepMania's plain layout, byte for byte as before.
+- **Tags:** words on recordings; a tag made switchable, with its label
+  and first state, is a `pack:tag` in the written `announcer.lua`, so a
+  row under the announcer in Options → Sound.
+- **A recording on several lines:** written once in `shared/`, listed in
+  the script with its lines (`events`) and its language (`lang`).
+- **The script the studio writes** uses the documented API alone
+  (`Announcer.pack`, `Announcer.files`, `pack:take`, `pack:tag`,
+  `pack:languages`), is readable and editable by hand, and is the same
+  bytes for the same draft.
+- **Every export is read back** through the scan, the declaration, the
+  script and the pool (`ddi_library::announcer::draft::Draft::check`)
+  and compared with the draft before it is saved or used; a pack the
+  reader takes otherwise is the studio's mistake, refused and said.
+- **Importing a scripted pack** into the studio reads its pool
+  (`draft::read_pack`) and says what the draft cannot carry over.
+- Nothing about how the game reads or speaks a pack changed: the pool,
+  the script host, the Options rows and the voice are stages 1 and 2's.
+

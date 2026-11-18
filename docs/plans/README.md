@@ -373,7 +373,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
 - [Announcer studio](announcer-studio.md) (2026-11-06): done (the draft;
   the web's page at `#/announcer`; the scenes on song select and the
   results, 2026-11-07; the scenes in play, desktop and the encoder,
-  2026-11-08);
+  2026-11-08; one page logic for both shells, and packs in several
+  languages with tags and recordings said for several lines, written
+  with an `announcer.ini` and a script and checked by the game's reader,
+  2026-11-18);
   web first, for authors who only play the game. They record with their own
   app; the recordings are picked or dropped onto their lines, with
   examples in English and Japanese, tidied, and each line heard in a
