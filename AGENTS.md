@@ -337,7 +337,9 @@ Rust and the browser are implementation details, not advertised features.
   `docs/plans/msd-ratings.md`): a worker Trunk builds beside the app
   (`xtask stage-msd`, index.html's `ddi-msd-worker` meta) that parses an
   imported or shared song's simfile as the library does and rates its
-  four-lane charts (`ddi_msd`); started by `crates/web/src/ratings.rs`
+  four-lane charts (`ddi_msd`) and estimates its original Single charts
+  (`ddi_rating`, answering with the estimator's JSON, read by
+  `ChartEstimate::from_rating_json`); started by `crates/web/src/ratings.rs`
   with the first song to rate while a ratings option is On, fed one song
   at a time, none during a play, ended after 10 s idle;
   `__DDI_DEBUG.ratings`. Empty natively.
@@ -480,10 +482,14 @@ Rust and the browser are implementation details, not advertised features.
   → Display's Skill radar On in the wide layout's chart ladder's place
   under a row of chart buttons (`fill_radar_side`; a line in its place
   where the chart has none, `ratings::Standing`; a phone's and a room's
-  short side show none); `crate::state::ratings` the chart ratings' state
-  (`docs/plans/msd-ratings.md`: Chart ratings and Skill radar, both Off
-  by default and then doing nothing; the bundled songs' MSD from their
-  manifest, `ChartInfo::msd`; the rest rated in the background by a
+  short side show none; MSD's seven skillsets, or under the DDI estimate
+  its eight skills' costs at the chart's matched level,
+  `ddi_library::manifest::matched_profile`); `crate::state::ratings` the
+  chart ratings' state (`docs/plans/msd-ratings.md`: Chart ratings, the
+  song's, MSD or the DDI estimate, `ratings::Source`, and Skill radar,
+  both Off by default and then doing nothing; the bundled songs' MSD and
+  estimates from their manifest, `ChartInfo::msd`, `ChartInfo::estimate`,
+  the estimates kept under `ddi.estimate.v1`; the rest rated in the background by a
   shell, desktop's `crate::ratings` thread, the web's worker, one song at
   a time, never during a play, `set_playing`; kept by chart digest and
   calculator version under `ddi.msd.v1`; `ChartEntry::meter_text` and

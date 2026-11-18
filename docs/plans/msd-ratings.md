@@ -264,3 +264,95 @@ radar coming on a fresh profile and when turned On under song select),
 and in headless Chrome and Firefox on a release build (part 1's sizes,
 the option turned On through Options, the scratch pack rated slowly, a
 practice room's host, Off).
+
+## Round Z2 (2026-11-18): the DDI estimate as a source
+
+The maintainer, after cherry-picking the single-pass estimator
+(`crates/rating`, `ddi_rating::estimate`): "Please take a look and let's
+try to use that for the ratings and skill radar." A try: MSD stays as it
+is and nothing is removed.
+
+- **Options → Display → Chart ratings** has a third choice, "DDI
+  estimate" (`ChartRatings::Estimate`, stored `"Estimate"`; a build
+  before it reads that as an unknown value, `ddi_engine::lenient`'s
+  default, the song's numbers, and keeps that once it saves the
+  settings). Its description: our own estimate, experimental, for Single
+  charts. `ddi_ui::state::ratings::Source` carries the choice.
+- **The number**: an original `dance-single` chart's `Estimate::level`
+  (1 to 19) where the estimate qualifies it (`within_scalar_domain`: 48+
+  playable heads, at most 1,200 source notes, 15 to 180 s, no lifts),
+  wherever MSD's number shows, whole everywhere (a ladder row and the
+  prompt too, where MSD shows a tenth); its decimal to a tenth in the
+  radar's side's detail. Elsewhere (not Single, a generated version,
+  outside the domain, an error) the song's number, fainter, as MSD's
+  rule. Everything that decides by a chart's meter keeps the song's.
+  `ratings::shown`, `Shown`.
+- **Making them**: the same machinery as MSD's, only while the choice is
+  the estimate: song select offers its songs' original Single charts
+  without one (`Job::estimates`), one song at a time, never during a
+  play; desktop's thread (`ratings::rate_song`), the web's existing
+  worker (`ddi-msd-worker`, no new worker and no new meta), which now
+  carries the estimator (and the engine's code it runs) and answers each
+  chart with the estimator's own JSON; the bundled songs' at build time
+  (`xtask gen-songs`, `ChartInfo::estimate`, additive). Read everywhere
+  by one function, `ddi_library::manifest::ChartEstimate::from_rating_json`
+  (the build, desktop's thread, and the page reading the worker's
+  answer). Kept by chart digest under `ddi.estimate.v1`, beside
+  `ddi.msd.v1`, with `ddi_rating::ESTIMATOR`, `SCALE` and the profile's
+  rule's name (`PROFILE_RULE`): a new one forgets them. A chart 39
+  characters (digest, decimal and level, flags), 71 with a profile (its
+  eight costs); a chart estimated without result kept as such, so it is
+  not estimated again.
+- **The radar** follows Chart ratings: under the DDI estimate the
+  estimate's eight skills (`ddi_engine::cpu::SKILL_NAMES`, Evasion the
+  eighth: the radar takes as many spokes as it is given); under MSD and
+  under the song's numbers, MSD's seven, as before.
+- **The profile drawn** (the maintainer chose it, "Let's try your idea
+  for fixing the radar", over the estimator's calibrated
+  `expected.profile`, which anchors every chart at CPU level 10 where a
+  chart costs a CPU almost nothing: present for about a quarter of
+  charts, half of those flat): `matched-level-profile-v0`
+  (`ddi_library::manifest::matched_profile`), from `Estimate::decimal`
+  and `Estimate::means` alone, where `within_studied_domain` (to 900
+  source notes): the CPU level matched to the chart's own estimate,
+  `clamp(decimal / 19 × 10, 1, 10)`, each skill's cost the two rows of
+  `means` about it interpolated there, a negative cost as zero. The
+  spokes are the costs as shares of the chart's largest (the shape only,
+  as MSD's are shares of its overall); each spoke's number is its cost in
+  points of Accuracy to a tenth; the caption is "DDI" and the decimal; a
+  line beside it says what the numbers are. Where the costs sum to under
+  half a point (`ratings::FLAT_PP`): "No skill stands out on this
+  chart"; outside the studied domain: "Outside what the estimate was
+  studied on"; a chart that is not an original Single chart: "The DDI
+  estimate is for Single charts"; none made: "No estimate for this
+  chart"; on its way: "Rating this chart…". Round Z1's layout, label rule,
+  motion and tests apply to both sources.
+- **Limits of the try**, from the coordinator's study of synthetic pattern
+  charts and the tests here (`the_matched_level_profile_reads_patterns`):
+  a stream's largest spokes are Stream and Stamina, jacks' JackSpeed,
+  jumpstream's and handstream's own skills stand out against a stream's
+  (by share: on handstream Stamina is still the largest cost);
+  chordjacks read as Jumpstream with Stamina, the Chordjack spoke barely
+  moving; Technical never moves.
+- **Measured** (release build, 2026-11-18): the worker's wasm went from
+  295,735 to 502,669 bytes (117,106 to 227,893 gzipped; the app's own
+  wasm 14,388,263 to 14,418,184, the estimator not linked into it); the
+  worker estimated a scratch pack's 21 charts (the bundled songs copied
+  with their offsets moved, and synthetic patterns) in 58 ms in Chrome
+  and 55 ms in Firefox, about 2.7 ms a chart; every one equal to the
+  native estimator's to the hundredth (decimal, level, both domains and
+  the eight costs). Of the bundled songs' 19 original Single charts, 18
+  have a number (one Beginner chart is short of 48 heads), 18 a profile,
+  12 a shape (6 easy charts are flat).
+
+Checked: `state::ratings`' tests (the record kept and read back, a new
+estimator's or rule's names forgetting them, waiting for a play, the
+matched level on its scale, the pattern charts), `ratings_tests`
+(`the_three_choices_number_the_bundled_charts` against the calculators'
+own values, `the_estimate_s_radar_draws_each_state`, the label rule over
+eight spokes in four languages, the Off pins unmoved), desktop's
+`ratings_offscreen` (`the_ddi_estimate_s_radar_draws_in_the_theme`:
+pictures, eight labels apart as the platform measures them, English and
+Japanese) and in headless Chrome and Firefox on a release build (each
+choice on Into My Dream, the scratch pack estimated by the worker and
+compared with the native estimator, the pattern songs' radars).
