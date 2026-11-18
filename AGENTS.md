@@ -403,7 +403,9 @@ Rust and the browser are implementation details, not advertised features.
   (`wav.rs`, the platform's writer), and what the shells and the
   private shared-songs Worker agree on without the web's record types
   (`share.rs`: `ddi_share_protocol` re-exported, the time left, the
-  refusals worded, a grant's refusals kept; `docs/plans/shared-songs.md`), the music's analysis a generated
+  refusals worded, a grant's refusals kept, a share's upload sans-IO that
+  both shells' transports drive, `share/upload.rs`;
+  `docs/plans/shared-songs.md`), the music's analysis a generated
   background follows (`music.rs`, made at a play's load; its transform,
   `fft.rs`, the chart editor's too) and those backgrounds' four looks
   with the study's approved values (`generative.rs`: `stands_in`, never

@@ -7,6 +7,9 @@
 
 pub use ddi_share_protocol::*;
 
+mod upload;
+pub use upload::{Step, Told, Upload};
+
 /// How long a share has left at `now` (Unix seconds), in a few words;
 /// `None` when it never expires.
 pub fn expires_in(expires_at: Option<f64>, now: f64) -> Option<String> {

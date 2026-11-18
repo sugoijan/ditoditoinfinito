@@ -22,7 +22,7 @@ use std::sync::Mutex;
 
 use ddi_library::path::RelPathBuf;
 use ddi_library::share::{
-    self as contract, Created, NewShare, ShareDoc, ShareError, ShareFileDoc, ShareSongDoc,
+    self as contract, NewShare, ShareDoc, ShareError, ShareFileDoc, ShareSongDoc,
 };
 use ddi_ui::screens::data::{ShareState, ShareView};
 
@@ -552,18 +552,9 @@ fn listing(
     Ok((listed, these, bytes))
 }
 
-/// A refusal as read from a response: a grant's with its code
-/// (`contract::grant_refusal`), else as the token's.
-fn refused(status: u16, body: Option<&str>, grant: bool) -> ShareError {
-    if grant {
-        contract::grant_refusal(status, body)
-    } else {
-        contract::refusal(status, body)
-    }
-}
-
 /// `songs` made a share at the server with `auth` (`Bearer <token>` or
-/// `Grant <grant>`), each file put, the share finished; its id.
+/// `Grant <grant>`: `grant`, refusals read as a grant's), each file put,
+/// the share finished (`contract::Upload`); its id.
 #[allow(clippy::too_many_arguments)]
 fn send_share(
     pack: &str,
@@ -582,79 +573,61 @@ fn send_share(
         pack_art: false,
     };
     let agent = agent();
-    let base = base();
-    let body = serde_json::to_vec(&new).map_err(ShareError::failed("making the share"))?;
-    let mut resp = agent
-        .post(format!("{base}/s"))
-        .header("Authorization", auth)
-        .header("Content-Type", "application/json")
-        .send(body.as_slice())
-        .map_err(ShareError::failed("making the share"))?;
-    let status = resp.status().as_u16();
-    if status != 201 {
-        return Err(refused(
-            status,
-            resp.body_mut().read_to_string().ok().as_deref(),
-            grant,
-        ));
-    }
-    let answer = |e: &dyn std::fmt::Display| ShareError::Answer(e.to_string());
-    let created: Created =
-        serde_json::from_str(&resp.body_mut().read_to_string().map_err(|e| answer(&e))?)
-            .map_err(|e| answer(&e))?;
-    let id = created.id;
-    for (n, files) in sources.into_iter().enumerate() {
-        for (stored, source) in files {
-            let url = contract::file_url(&base, &id, n, &stored);
-            let len = source.len();
-            let req = agent
-                .put(&url)
-                .header("Authorization", auth)
-                .header("Content-Type", "application/octet-stream")
-                .header("Content-Length", &len.to_string());
-            let sent = match source {
-                Source::File(path, _) => {
-                    let mut file = std::fs::File::open(&path).map_err(|e| {
-                        ShareError::of(stored.clone(), ShareError::failed("reading a file")(e))
-                    })?;
-                    req.send(ureq::SendBody::from_reader(&mut file))
+    let mut up = contract::Upload::new(&base(), &new, None, auth.to_string(), grant)?;
+    let mut sources: Vec<Vec<Option<Source>>> = sources
+        .into_iter()
+        .map(|files| files.into_iter().map(|(_, s)| Some(s)).collect())
+        .collect();
+    loop {
+        let sent = match up.next() {
+            contract::Step::Done(id) => return Ok(id.to_string()),
+            contract::Step::Create { url, body } => agent
+                .post(url)
+                .header("Authorization", up.auth())
+                .header("Content-Type", "application/json")
+                .send(body.as_bytes()),
+            contract::Step::Put {
+                url,
+                song,
+                file,
+                path,
+            } => {
+                let source = sources[song][file].take().expect("each file put once");
+                let req = agent
+                    .put(&url)
+                    .header("Authorization", up.auth())
+                    .header("Content-Type", "application/octet-stream")
+                    .header("Content-Length", &source.len().to_string());
+                match source {
+                    Source::File(file_path, _) => {
+                        let mut file = std::fs::File::open(&file_path).map_err(|e| {
+                            ShareError::of(path, ShareError::failed("reading a file")(e))
+                        })?;
+                        req.send(ureq::SendBody::from_reader(&mut file))
+                    }
+                    Source::Bytes(b) => req.send(b.as_slice()),
                 }
-                Source::Bytes(b) => req.send(b.as_slice()),
-            };
-            let mut resp = sent.map_err(|e| {
-                ShareError::of(stored.clone(), ShareError::failed("sending a file")(e))
-            })?;
-            let status = resp.status().as_u16();
-            if status != 200 {
-                return Err(ShareError::of(
-                    stored,
-                    refused(
-                        status,
-                        resp.body_mut().read_to_string().ok().as_deref(),
-                        grant,
-                    ),
-                ));
             }
-            view.done_bytes += len as f64;
+            contract::Step::Art { url } => agent
+                .put(url)
+                .header("Authorization", up.auth())
+                .send_empty(),
+            contract::Step::Finish { url } => agent
+                .post(url)
+                .header("Authorization", up.auth())
+                .send_empty(),
+        };
+        let mut resp = sent.map_err(|e| up.lost(e))?;
+        let status = resp.status().as_u16();
+        let body = resp.body_mut().read_to_string().ok();
+        up.answered(status, body.as_deref(), &mut |told| {
+            match told {
+                contract::Told::Bytes(b) => view.done_bytes += b,
+                contract::Told::Song => view.done_songs += 1,
+            }
             progress(view);
-        }
-        view.done_songs += 1;
-        progress(view);
+        })?;
     }
-    let mut resp = agent
-        .post(format!("{base}/s/{id}/finish"))
-        .header("Authorization", auth)
-        .send_empty()
-        .map_err(ShareError::failed("finishing the share"))?;
-    let status = resp.status().as_u16();
-    if status != 200 {
-        return Err(refused(
-            status,
-            resp.body_mut().read_to_string().ok().as_deref(),
-            grant,
-        ));
-    }
-    Ok(id)
 }
 
 /// The bytes of a song's file `named`: a folder's file by its path, a

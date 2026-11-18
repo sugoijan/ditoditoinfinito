@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 use wasm_bindgen::JsCast;
 
-use ddi_library::share::{Created, NewShare, ShareDoc, ShareFileDoc, ShareSongDoc};
+use ddi_library::share::{NewShare, ShareDoc, ShareFileDoc, ShareSongDoc};
 use ddi_ui::screens::data::{ShareState, ShareView};
 
 use crate::songs::ImportedSong;
@@ -397,7 +397,7 @@ async fn gather_bundled(id: &str, view: &mut ShareView) -> Result<Gathered, Shar
 
 /// `gathered` made a share at the server with `auth` (`Bearer <token>` or
 /// `Grant <grant>`; `grant`: refusals read as a grant's), each file put,
-/// the share finished; its id.
+/// the share finished (`ddi_library::share::Upload`); its id.
 async fn send_share(
     pack: &str,
     expires: &str,
@@ -407,6 +407,8 @@ async fn send_share(
     view: &mut ShareView,
     tell: &dyn Fn(&ShareView),
 ) -> Result<String, ShareError> {
+    use ddi_library::share::{Step, Told, Upload};
+    use gloo::net::http::Request;
     let Gathered { songs, blobs, art } = gathered;
     let new = NewShare {
         pack: pack.to_string(),
@@ -414,44 +416,36 @@ async fn send_share(
         songs,
         pack_art: art.is_some(),
     };
-    let base = base();
-    let made = gloo::net::http::Request::post(&format!("{base}/s"))
-        .header("Authorization", auth)
-        .json(&new)
-        .map_err(ShareError::failed("making the share"))?
-        .send()
-        .await
-        .map_err(ShareError::failed("making the share"))?;
-    let created: Created = checked(made, grant)
-        .await?
-        .json()
-        .await
-        .map_err(|e| ShareError::Answer(e.to_string()))?;
-    let id = created.id;
-    for (n, files) in blobs.into_iter().enumerate() {
-        for (path, blob) in files {
-            let url = ddi_library::share::file_url(&base, &id, n, &path);
-            put(&url, auth, grant, &blob)
-                .await
-                .map_err(|e| ShareError::of(path.clone(), e))?;
-            view.done_bytes += blob.size();
+    let art_bytes = art.as_ref().map(|a| a.size());
+    let mut up = Upload::new(&base(), &new, art_bytes, auth.to_string(), grant)?;
+    loop {
+        let request = match up.next() {
+            Step::Done(id) => return Ok(id.to_string()),
+            Step::Create { url, body } => Request::post(&url)
+                .header("Authorization", up.auth())
+                .header("Content-Type", "application/json")
+                .body(body),
+            Step::Put { url, song, file, .. } => Request::put(&url)
+                .header("Authorization", up.auth())
+                .body(&blobs[song][file].1),
+            Step::Art { url } => Request::put(&url)
+                .header("Authorization", up.auth())
+                .body(art.as_ref().expect("the art comes")),
+            Step::Finish { url } => Request::post(&url)
+                .header("Authorization", up.auth())
+                .build(),
+        };
+        let request = request.map_err(|e| up.lost(e))?;
+        let resp = request.send().await.map_err(|e| up.lost(e))?;
+        let body = resp.text().await.ok();
+        up.answered(resp.status(), body.as_deref(), &mut |told| {
+            match told {
+                Told::Bytes(b) => view.done_bytes += b,
+                Told::Song => view.done_songs += 1,
+            }
             tell(view);
-        }
-        view.done_songs += 1;
-        tell(view);
+        })?;
     }
-    if let Some(a) = art {
-        put(&format!("{base}/s/{id}/art"), auth, grant, &a).await?;
-        view.done_bytes += a.size();
-        tell(view);
-    }
-    let finished = gloo::net::http::Request::post(&format!("{base}/s/{id}/finish"))
-        .header("Authorization", auth)
-        .send()
-        .await
-        .map_err(ShareError::failed("finishing the share"))?;
-    checked(finished, grant).await?;
-    Ok(id)
 }
 
 /// An online room's stage song (M5d) uploaded as the room's share under
@@ -488,18 +482,6 @@ pub(crate) async fn upload_room(
     view.error = result.as_ref().err().cloned();
     publish_upload(&view);
     result
-}
-
-/// One file's bytes to the Worker.
-async fn put(url: &str, auth: &str, grant: bool, blob: &web_sys::Blob) -> Result<(), ShareError> {
-    let r = gloo::net::http::Request::put(url)
-        .header("Authorization", auth)
-        .body(blob)
-        .map_err(ShareError::failed("sending a file"))?
-        .send()
-        .await
-        .map_err(ShareError::failed("sending a file"))?;
-    checked(r, grant).await.map(|_| ())
 }
 
 /// A response that is not a success, as an error with the server's body
