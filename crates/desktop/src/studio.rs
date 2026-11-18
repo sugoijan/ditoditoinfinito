@@ -20,7 +20,7 @@
 //!   on to [`crate::play::host`], which shows the real play in the frame.
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
@@ -31,12 +31,12 @@ use std::time::{Duration, Instant};
 use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as ms;
 use ddi_library::announcer::draft::{
-    self, Adopted, DRAFT_MAX_BYTES, Decoded, Draft, Export, HEAD, Sound as Read, TAKE_MAX_BYTES,
+    self, Adopted, Decoded, Draft, Export, HEAD, Sound as Read, TAKE_MAX_BYTES,
     Take, Write, install_plan, made_before, takes,
 };
 use ddi_library::announcer::examples::Set;
 use ddi_library::announcer::tidy;
-use ddi_library::announcer::{Bundled, Line, MAX_FILES, OUR_COMBOS, Spoken};
+use ddi_library::announcer::{Bundled, Line, Spoken};
 use ddi_library::path::RelPath;
 use ddi_library::scan::Reader;
 use ddi_platform::SoundId;
@@ -51,7 +51,8 @@ use ddi_ui::message::Message;
 use ddi_ui::screens::Env;
 use ddi_ui::screens::errors::error_text;
 use ddi_ui::screens::page::{PAGE_CHANGED, PageCall, PageDoc, PageFeed, PageScreen, PageShell};
-use ddi_ui::screens::studio::{self, Act, Applied, Example, View};
+use ddi_ui::screens::studio::{self, Act};
+use ddi_ui::screens::studio_shell::{self, StudioHost, StudioState};
 use ddi_ui::state::settings::Settings;
 use ddi_ui::{Cx, MenuAction, Ui, UiRequest};
 
@@ -553,8 +554,8 @@ struct Waiting {
 
 /// The page, its draft and its work under way.
 pub struct Studio {
-    draft: RefCell<Draft>,
-    view: RefCell<View>,
+    /// The draft and what the page shows of it (`ddi_ui`'s, both shells').
+    state: StudioState,
     env: Env,
     sound: SharedPlayer,
     /// A play asked for (a line said in play's).
@@ -574,7 +575,6 @@ pub struct Studio {
     example: RefCell<Option<ExampleRead>>,
     /// Ours, each with where its sounds are.
     ours: RefCell<Vec<(Bundled, DiskAnnouncer)>>,
-    examples: RefCell<BTreeMap<Line, Vec<Example>>>,
     /// Our packs' sounds a scene took, decoded (by pack and path).
     example_sounds: RefCell<HashMap<String, Sound>>,
     director: Rc<Director<Scenes>>,
@@ -618,15 +618,9 @@ impl Studio {
     ) -> Rc<Studio> {
         let dir = folder().unwrap_or_else(|| std::env::temp_dir().join("ddi-studio"));
         let (draft, status, saves) = open_draft(&dir);
-        let examples = studio::remembered_set();
         let (decode, results) = decoder();
         let studio = Rc::new_cyclic(|me: &Weak<Studio>| Studio {
-            draft: RefCell::new(draft),
-            view: RefCell::new(View {
-                examples,
-                status,
-                ..View::default()
-            }),
+            state: StudioState::new(draft, status),
             env: env.clone(),
             sound,
             play,
@@ -641,7 +635,6 @@ impl Studio {
             packing: RefCell::default(),
             example: RefCell::default(),
             ours: RefCell::new(ours()),
-            examples: RefCell::default(),
             example_sounds: RefCell::default(),
             director: Director::new(Scenes(me.clone())),
             waiting: RefCell::default(),
@@ -697,17 +690,17 @@ impl Studio {
 
     /// The draft as it is.
     pub fn draft(&self) -> Draft {
-        self.draft.borrow().clone()
+        self.state.draft.borrow().clone()
     }
 
     /// What the page says it is doing, or did.
     pub fn status(&self) -> String {
-        self.view.borrow().status.clone()
+        self.state.view.borrow().status.clone()
     }
 
     /// What plays (`take:<id>`, `example:<folder>:<i>`).
     pub fn playing(&self) -> Option<String> {
-        self.view.borrow().playing.clone()
+        self.state.view.borrow().playing.clone()
     }
 
     /// The scene showing.
@@ -751,16 +744,11 @@ impl Studio {
     }
 
     fn doc(&self) -> PageDoc {
-        studio::doc(
-            &self.draft.borrow(),
-            &self.view.borrow(),
-            &self.examples.borrow(),
-            self.env.platform,
-        )
+        self.state.doc(self.env.platform)
     }
 
     fn set_status(&self, text: impl Into<String>) {
-        self.view.borrow_mut().status = text.into();
+        self.state.view.borrow_mut().status = text.into();
         self.dirty.set(true);
     }
 
@@ -768,7 +756,7 @@ impl Studio {
     /// aside, [`open_draft`]).
     fn save(&self) {
         if self.saves
-            && let Ok(json) = serde_json::to_string(&*self.draft.borrow())
+            && let Ok(json) = serde_json::to_string(&*self.state.draft.borrow())
         {
             self.store.send(Job::Draft(json));
         }
@@ -787,9 +775,8 @@ impl Studio {
     }
 
     fn refresh_examples(&self) {
-        let set = self.view.borrow().examples;
-        let ours = self.pack_of(set).map(|(b, _)| b);
-        *self.examples.borrow_mut() = studio::examples(set, ours.as_ref());
+        let ours = self.example_pack(self.state.set());
+        self.state.refresh_examples(ours.as_ref());
     }
 
     /// Picked files added: read on a thread, each on `line` when given
@@ -822,7 +809,7 @@ impl Studio {
 
     /// Take `id` decoded from `from`.
     fn decode_take(&self, id: u64, from: Bytes) {
-        let extension = self.draft.borrow().take(id).and_then(Self::extension_of);
+        let extension = self.state.draft.borrow().take(id).and_then(Self::extension_of);
         if self.decoding.borrow_mut().insert(id) {
             let _ = self.decode.send(DecodeJob {
                 id,
@@ -835,6 +822,7 @@ impl Studio {
     /// The takes not read yet (an import stopped halfway), decoded.
     fn decode_pending(&self) {
         let ids: Vec<u64> = self
+            .state
             .draft
             .borrow()
             .takes
@@ -873,7 +861,7 @@ impl Studio {
         }
         self.playing_end.borrow_mut().take();
         self.example.borrow_mut().take();
-        self.view.borrow_mut().playing = None;
+        self.state.view.borrow_mut().playing = None;
         self.dirty.set(true);
     }
 
@@ -888,7 +876,7 @@ impl Studio {
                 .play_voice_sound(sound, at, settings.announcer_volume)
         };
         self.playing.set(Some(id));
-        self.view.borrow_mut().playing = Some(key);
+        self.state.view.borrow_mut().playing = Some(key);
         self.dirty.set(true);
         let weak = Rc::downgrade(self);
         let timer = Scenes(weak.clone()).timer(
@@ -905,7 +893,7 @@ impl Studio {
     /// Take `id` played as it will be in the pack (again: stopped).
     fn play_take(self: &Rc<Self>, id: u64) {
         let key = format!("take:{id}");
-        if self.view.borrow().playing.as_deref() == Some(&key) {
+        if self.state.view.borrow().playing.as_deref() == Some(&key) {
             return self.stop();
         }
         self.stop();
@@ -915,7 +903,7 @@ impl Studio {
             return;
         };
         let processing = {
-            let d = self.draft.borrow();
+            let d = self.state.draft.borrow();
             d.take(id).map(|t| d.processing(t)).unwrap_or_default()
         };
         self.speak(key, &self.processed(id, &sound, processing));
@@ -924,17 +912,18 @@ impl Studio {
     /// Our example `i` of `line` played.
     fn play_example(self: &Rc<Self>, line: Line, i: usize) {
         let key = format!("example:{}:{i}", line.folder());
-        if self.view.borrow().playing.as_deref() == Some(&key) {
+        if self.state.view.borrow().playing.as_deref() == Some(&key) {
             return self.stop();
         }
         self.stop();
         let path = self
+            .state
             .examples
             .borrow()
             .get(&line)
             .and_then(|e| e.get(i))
             .and_then(|e| e.sound.clone());
-        let pack = self.pack_of(self.view.borrow().examples);
+        let pack = self.pack_of(self.state.view.borrow().examples);
         let (Some(path), Some((_, a))) = (path, pack) else {
             return;
         };
@@ -944,7 +933,7 @@ impl Studio {
 
     /// The pack's entries, for its thread.
     fn pack_entries(&self, export: &Export) -> Vec<PackEntry> {
-        let draft = self.draft.borrow();
+        let draft = self.state.draft.borrow();
         let decoded = self.decoded.borrow();
         export
             .entries
@@ -965,27 +954,21 @@ impl Studio {
 
     /// The pack made and put where it goes, on a thread.
     fn pack(&self, to: Packing) {
-        let export = self.draft.borrow().export();
+        let export = self.state.draft.borrow().export();
         let entries = self.pack_entries(&export);
         let dir = self.store.dir.clone();
         let rx = crate::os::background("ddi-studio-pack", None, move || {
             make_pack(dir, export, entries, to)
         });
         *self.packing.borrow_mut() = Some(rx);
-        self.view.borrow_mut().busy = true;
-    }
-
-    fn remove(&self, id: u64) {
-        self.draft.borrow_mut().remove(id);
-        self.decoded.borrow_mut().remove(id);
-        self.store.send(Job::Remove(id));
-        self.save();
+        self.state.view.borrow_mut().busy = true;
     }
 
     /// What `f` keeps of the draft's lines, decoded or being: those not
     /// asked for yet (the page opened again) are, here.
     fn ask_lines(&self, which: &dyn Fn(Line) -> bool) {
         let ids: Vec<u64> = self
+            .state
             .draft
             .borrow()
             .takes
@@ -1004,6 +987,7 @@ impl Studio {
     fn lines_ready(&self, which: &dyn Fn(Line) -> bool) -> bool {
         let decoding = self.decoding.borrow();
         !self
+            .state
             .draft
             .borrow()
             .takes
@@ -1013,7 +997,7 @@ impl Studio {
 
     /// The draft as a voice for the lines `which` keeps.
     fn staged_voice(&self, which: impl Fn(Line) -> bool) -> Voiced<Sound> {
-        let draft = self.draft.borrow();
+        let draft = self.state.draft.borrow();
         director::draft_voice(
             &draft,
             which,
@@ -1083,14 +1067,14 @@ impl Studio {
     /// has something to say for the line, else by our pack of the
     /// examples chosen; `pin`, the recording or example pressed beside,
     /// said for it.
-    fn hear(self: &Rc<Self>, line: Line, pin: Option<Pin>) {
+    fn hear_line(self: &Rc<Self>, line: Line, pin: Option<Pin>) {
         if self.director.busy() {
             return;
         }
         self.stop();
         let said =
             self.director
-                .hearing(line, pin, &self.draft.borrow(), self.view.borrow().examples);
+                .hearing(line, pin, &self.state.draft.borrow(), self.state.view.borrow().examples);
         match line.spoken() {
             Spoken::Menu => self.menu_scene(line, said),
             Spoken::Results => self.results_scene(line, said),
@@ -1105,8 +1089,8 @@ impl Studio {
         let Some((n, scene)) = self.director.begin_menu(line, said) else {
             return;
         };
-        let which = |l: Line| l.spoken() == Spoken::Menu;
-        let menu: Vec<Line> = Line::all().into_iter().filter(|l| which(*l)).collect();
+        let menu = director::example_lines(Spoken::Menu);
+        let which = director::draft_lines(Spoken::Menu);
         self.with_voice(n, said, which, &menu, move |s, voiced| {
             s.director.show_menu(n, scene, voiced);
         });
@@ -1115,12 +1099,12 @@ impl Studio {
     fn results_scene(self: &Rc<Self>, line: Line, said: Said) {
         let Some((n, scene)) = self
             .director
-            .begin_results(line, said, &self.draft.borrow())
+            .begin_results(line, said, &self.state.draft.borrow())
         else {
             return;
         };
         let lines = director::results_said_lines(&scene);
-        let which = |l: Line| l.spoken() == Spoken::Results;
+        let which = director::draft_lines(Spoken::Results);
         self.with_voice(n, said, which, &lines, move |s, voiced| {
             s.director.show_results(n, scene, voiced);
         });
@@ -1136,13 +1120,9 @@ impl Studio {
             return self.set_status(ms::status_no_play());
         };
         let n = self.director.begin_play(line, said);
-        let which = |l: Line| matches!(l.spoken(), Spoken::Play | Spoken::Results);
+        let which = director::draft_lines(Spoken::Play);
         // Our packs' combos past 1000 too (an example's voice).
-        let lines: Vec<Line> = Line::all()
-            .into_iter()
-            .chain(OUR_COMBOS.map(Line::Combo))
-            .filter(|l| which(*l))
-            .collect();
+        let lines = director::example_lines(Spoken::Play);
         self.with_voice(n, said, which, &lines, move |s, voiced| {
             let (voice, lengths, words) = voiced;
             let heard = s.heard_in_play.clone();
@@ -1161,178 +1141,20 @@ impl Studio {
         });
     }
 
-    /// A press on the page, inside its handler.
+    /// A press on the page, inside its handler (`ddi_ui`'s, both
+    /// shells').
     fn call(self: &Rc<Self>, call: PageCall, cx: &mut Cx) -> Option<PageDoc> {
-        let id = match call {
-            PageCall::Leave => {
-                self.stop();
-                self.left.set(true);
-                cx.close(true);
-                return None;
-            }
-            PageCall::Field { id, text } => {
-                if studio::set_field(&mut self.draft.borrow_mut(), &id, &text) {
-                    self.save();
-                }
-                return None;
-            }
-            PageCall::Button(id) => id,
-        };
-        match studio::act(&id)? {
-            Act::Move(id) => {
-                // Heard as its line is chosen.
-                if self.view.borrow().playing.as_deref() != Some(&format!("take:{id}")) {
-                    self.play_take(id);
-                }
-                let weak = Rc::downgrade(self);
-                let picker = studio::line_picker(
-                    self.env.clone(),
-                    &self.draft.borrow(),
-                    id,
-                    Rc::new(move |id, line, _cx| {
-                        let Some(s) = weak.upgrade() else {
-                            return;
-                        };
-                        s.set_line(id, line);
-                    }),
-                )?;
-                cx.overlay(picker, true);
-                None
-            }
-            Act::AddCombo => {
-                let weak = Rc::downgrade(self);
-                let dialog = studio::combo_dialog(
-                    self.env.clone(),
-                    Rc::new(move |n, _cx| {
-                        let Some(s) = weak.upgrade() else {
-                            return true;
-                        };
-                        if !s.draft.borrow_mut().add_combo(n) {
-                            return false;
-                        }
-                        s.save();
-                        s.dirty.set(true);
-                        true
-                    }),
-                );
-                cx.overlay(dialog, true);
-                None
-            }
-            act => self.act(act),
-        }
+        studio_shell::call(self, call, cx)
     }
 
     /// Take `id` put on `line` (`None`: unsorted).
     pub fn set_line(&self, id: u64, line: Option<Line>) {
-        if let Some(t) = self.draft.borrow_mut().take_mut(id) {
-            t.line = line;
-        }
-        self.stop();
-        self.save();
-        self.dirty.set(true);
+        studio_shell::set_line(self, id, line);
     }
 
     /// What a press asks: the page again where it shows at once.
     pub fn act(self: &Rc<Self>, act: Act) -> Option<PageDoc> {
-        let applied = studio::apply(
-            act,
-            &mut self.draft.borrow_mut(),
-            &mut self.view.borrow_mut(),
-        );
-        if let Some(applied) = applied {
-            match applied {
-                Applied::Draft => {
-                    self.stop();
-                    self.save();
-                }
-                Applied::Examples => self.refresh_examples(),
-                Applied::View => {}
-            }
-            return Some(self.doc());
-        }
-        match act {
-            // ([`studio::apply`]'s.)
-            Act::Tidy
-            | Act::Stadium
-            | Act::StepMania
-            | Act::Examples
-            | Act::Details
-            | Act::RemoveCombo(_)
-            | Act::Write(_)
-            | Act::Unwrite(_) => None,
-            Act::Add(line) => {
-                let picked = crate::os::pick_recordings();
-                if !picked.is_empty() {
-                    self.add(picked, Some(line), None);
-                }
-                None
-            }
-            Act::AddTo(id) => {
-                let line = self
-                    .draft
-                    .borrow()
-                    .scripts
-                    .iter()
-                    .find(|s| s.id == id)?
-                    .line;
-                let picked = crate::os::pick_recordings();
-                if !picked.is_empty() {
-                    self.add(picked, Some(line), Some(id));
-                }
-                None
-            }
-            Act::ImportFiles => {
-                let picked = crate::os::pick(false);
-                if !picked.is_empty() {
-                    self.add(picked, None, None);
-                }
-                None
-            }
-            Act::ImportFolder => {
-                let picked = crate::os::pick(true);
-                if !picked.is_empty() {
-                    self.add(picked, None, None);
-                }
-                None
-            }
-            Act::Play(id) => {
-                self.play_take(id);
-                Some(self.doc())
-            }
-            Act::Example(line, i) => {
-                self.play_example(line, i);
-                Some(self.doc())
-            }
-            // (The dialogs': their caller's.)
-            Act::Move(_) | Act::AddCombo => None,
-            Act::Remove(id) => {
-                self.remove(id);
-                Some(self.doc())
-            }
-            Act::Export => {
-                let name = self.draft.borrow().export().file_name;
-                if let Some(path) = crate::os::save_zip(&name) {
-                    self.view.borrow_mut().status = ms::status_exporting().into();
-                    self.pack(Packing::Zip(path));
-                    return Some(self.doc());
-                }
-                None
-            }
-            // Export asks where in its own press.
-            Act::Save => None,
-            Act::UseInGame => {
-                self.view.borrow_mut().status = ms::status_using().into();
-                self.pack(Packing::Game);
-                Some(self.doc())
-            }
-            Act::Hear(_) | Act::HearTake(_) | Act::HearExample(..) => {
-                let hear = director::hear_of(act, &self.draft.borrow(), &self.examples.borrow());
-                if let Some((line, pin)) = hear {
-                    self.hear(line, pin);
-                }
-                None
-            }
-        }
+        studio_shell::act(self, act)
     }
 
     /// What was picked, as it is read.
@@ -1346,26 +1168,15 @@ impl Studio {
                     return true;
                 }
                 match a.rx.try_recv() {
-                    Ok(Arrived::Pack(pack)) => self.draft.borrow_mut().adopt(pack),
-                    Ok(Arrived::File { size, .. }) if !self.draft.borrow().has_room(size) => {
-                        // No room: left out, and no more read.
-                        a.over += 1;
-                        a.full.store(true, Ordering::Relaxed);
-                    }
+                    Ok(Arrived::Pack(pack)) => self.state.draft.borrow_mut().adopt(pack),
                     Ok(Arrived::File { path, size, bytes }) => {
-                        let id = {
-                            let mut d = self.draft.borrow_mut();
-                            let head = &bytes[..bytes.len().min(HEAD)];
-                            let id = match a.script.take() {
-                                Some(s) => d.add_to(s, &path, size, head),
-                                None => d.add(&path, size, head),
-                            };
-                            if let Some(l) = a.line
-                                && let Some(t) = d.take_mut(id)
-                            {
-                                t.line = Some(l);
-                            }
-                            id
+                        let head = &bytes[..bytes.len().min(HEAD)];
+                        let Some(id) = self.state.take_in(&path, size, head, a.line, &mut a.script)
+                        else {
+                            // No room: left out, and no more read.
+                            a.over += 1;
+                            a.full.store(true, Ordering::Relaxed);
+                            continue;
                         };
                         self.store.send(Job::Take(id, bytes.clone()));
                         self.decode_take(id, Bytes::Memory(bytes));
@@ -1380,19 +1191,12 @@ impl Studio {
                     }) => {
                         self.save();
                         let over = a.over + over;
-                        self.set_status(match failed {
-                            Some(e) if a.added == 0 && over == 0 => {
-                                ms::status_files_unreadable(error_text(&e))
-                            }
-                            _ if over > 0 => ms::status_added_some(
-                                a.added,
-                                over,
-                                MAX_FILES,
-                                TAKE_MAX_BYTES >> 20,
-                                DRAFT_MAX_BYTES >> 20,
-                            ),
-                            _ => ms::status_added(a.added, passed),
-                        });
+                        self.set_status(studio_shell::added_status(
+                            a.added,
+                            passed,
+                            over,
+                            failed.as_deref(),
+                        ));
                         return false;
                     }
                     Err(TryRecvError::Empty) => return true,
@@ -1407,7 +1211,7 @@ impl Studio {
         for (id, result) in self.results.try_iter() {
             self.decoding.borrow_mut().remove(&id);
             let was_read = {
-                let d = self.draft.borrow();
+                let d = self.state.draft.borrow();
                 matches!(d.take(id).map(|t| &t.sound), Some(Read::Read(_)))
             };
             let sound = match result {
@@ -1420,7 +1224,7 @@ impl Studio {
                 Err(e) => Read::Unreadable(e),
             };
             // A take read before keeps what it measured.
-            if !was_read && let Some(t) = self.draft.borrow_mut().take_mut(id) {
+            if !was_read && let Some(t) = self.state.draft.borrow_mut().take_mut(id) {
                 t.sound = sound;
                 self.unsaved.set(true);
             }
@@ -1444,7 +1248,7 @@ impl Studio {
             None => return,
         };
         self.packing.borrow_mut().take();
-        self.view.borrow_mut().busy = false;
+        self.state.view.borrow_mut().busy = false;
         match done {
             Ok(Packed::Zip(name)) => {
                 self.set_status(ms::status_saved(&name, self.env.platform.l10n()))
@@ -1457,7 +1261,7 @@ impl Studio {
             }
             Err(e) => {
                 let e = error_text(&e);
-                let exporting = self.view.borrow().status == ms::status_exporting().to_string();
+                let exporting = self.state.view.borrow().status == ms::status_exporting().to_string();
                 self.set_status(if exporting {
                     ms::status_not_exported(e)
                 } else {
@@ -1699,6 +1503,100 @@ fn highest_take(dir: &Path) -> u64 {
         .filter_map(|e| e.file_name().to_str()?.parse::<u64>().ok())
         .max()
         .unwrap_or(0)
+}
+
+/// What the shared page asks of desktop.
+impl StudioHost for Studio {
+    fn state(&self) -> &StudioState {
+        &self.state
+    }
+
+    fn env(&self) -> Option<Env> {
+        Some(self.env.clone())
+    }
+
+    fn example_pack(&self, set: Set) -> Option<Bundled> {
+        self.pack_of(set).map(|(b, _)| b)
+    }
+
+    fn save(&self) {
+        Studio::save(self);
+    }
+
+    fn show(&self) {
+        self.dirty.set(true);
+    }
+
+    fn stop(&self) {
+        Studio::stop(self);
+    }
+
+    fn leave(&self, cx: &mut Cx) {
+        Studio::stop(self);
+        self.left.set(true);
+        cx.close(true);
+    }
+
+    fn pick_recordings(self: &Rc<Self>, line: Line, script: Option<u64>) {
+        let picked = crate::os::pick_recordings();
+        if !picked.is_empty() {
+            self.add(picked, Some(line), script);
+        }
+    }
+
+    fn pick_pack(self: &Rc<Self>, folder: bool) {
+        let picked = crate::os::pick(folder);
+        if !picked.is_empty() {
+            self.add(picked, None, None);
+        }
+    }
+
+    fn play_take(self: &Rc<Self>, id: u64) -> bool {
+        Studio::play_take(self, id);
+        true
+    }
+
+    fn play_example(self: &Rc<Self>, line: Line, i: usize) -> bool {
+        Studio::play_example(self, line, i);
+        true
+    }
+
+    fn removed(&self, id: u64) {
+        self.decoded.borrow_mut().remove(id);
+        self.store.send(Job::Remove(id));
+    }
+
+    fn export(self: &Rc<Self>) -> bool {
+        let name = self.state.draft.borrow().export().file_name;
+        let Some(path) = crate::os::save_zip(&name) else {
+            return false;
+        };
+        self.state.view.borrow_mut().status = ms::status_exporting().into();
+        self.pack(Packing::Zip(path));
+        true
+    }
+
+    /// Export asks where in its own press.
+    fn save_zip(self: &Rc<Self>) -> bool {
+        false
+    }
+
+    fn use_in_game(self: &Rc<Self>) -> bool {
+        self.state.view.borrow_mut().status = ms::status_using().into();
+        self.pack(Packing::Game);
+        true
+    }
+
+    fn hear(self: &Rc<Self>, act: Act) {
+        let hear = director::hear_of(
+            act,
+            &self.state.draft.borrow(),
+            &self.state.examples.borrow(),
+        );
+        if let Some((line, pin)) = hear {
+            self.hear_line(line, pin);
+        }
+    }
 }
 
 /// What the director asks of the page.

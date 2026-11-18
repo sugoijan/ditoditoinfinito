@@ -41,17 +41,16 @@
 //! the last one's (`heard`).
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
 use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as ms;
 use ddi_library::announcer::draft::{
-    self, Adopted, DRAFT_MAX_BYTES, Decoded, Draft, HEAD, Sound, TAKE_MAX_BYTES, Write,
-    install_plan, made_before, takes,
+    self, Adopted, Decoded, Draft, HEAD, Sound, Write, install_plan, made_before, takes,
 };
 use ddi_library::announcer::examples::Set;
-use ddi_library::announcer::{Bundled, Line, MAX_FILES, OUR_COMBOS, Spoken, tidy};
+use ddi_library::announcer::{Bundled, Line, Spoken, tidy};
 use ddi_platform::AudioBackend;
 use ddi_session::announcer::scene::director::{
     self, Director, Pin, Said, SceneHost, StagedVoice, Timer, UiFn, Voiced,
@@ -61,7 +60,8 @@ use ddi_ui::event::{MenuEvent, UiEvent};
 use ddi_ui::message::{Message, Param};
 use ddi_ui::screens::errors::error_text;
 use ddi_ui::screens::page::{PAGE_CHANGED, PAGE_TARGET, PageCall, PageFeed, PageScreen, PageShell};
-use ddi_ui::screens::studio::{self, Act, Applied, Example, View};
+use ddi_ui::screens::studio::{self, Act};
+use ddi_ui::screens::studio_shell::{self, StudioHost, StudioState};
 use ddi_ui::{Cx, MenuAction, UiRequest};
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::render::{AnimationFrame, request_animation_frame};
@@ -131,21 +131,23 @@ pub(crate) struct StudioPage {
     studio: Rc<Studio>,
 }
 
+/// A take's processed copy: its channels and its rate.
+type Shaped = (Rc<Vec<Vec<f32>>>, u32);
+
 /// What the page holds, shared by the shell's calls and its tasks.
 struct Studio {
-    draft: RefCell<Draft>,
-    view: RefCell<View>,
+    /// The draft and what the page shows of it (`ddi_ui`'s, both shells').
+    state: StudioState,
     /// The recordings' files, by take.
     blobs: RefCell<HashMap<u64, Blob>>,
     /// Their sound, once decoded: the last ones, bounded
     /// ([`Decoded`]); one let go is decoded again when it is wanted
     /// ([`Studio::buffer`]).
     decoded: RefCell<Decoded<AudioBuffer>>,
-    processed: RefCell<ddi_library::announcer::draft::Processed<(Rc<Vec<Vec<f32>>>, u32)>>,
+    processed: RefCell<draft::Processed<Shaped>>,
     decoding: Cell<bool>,
     /// Ours, from the bundled index: each set's pack.
     ours: RefCell<Vec<Bundled>>,
-    examples: RefCell<BTreeMap<Line, Vec<Example>>>,
     feed: PageFeed,
     host: RefCell<Option<Weak<RefCell<Host>>>>,
     env: RefCell<Option<ddi_ui::screens::Env>>,
@@ -203,19 +205,13 @@ fn buffer_bytes(b: &AudioBuffer) -> usize {
 
 impl Studio {
     fn new() -> Rc<Studio> {
-        let examples = studio::remembered_set();
         let studio = Rc::new_cyclic(|me: &Weak<Studio>| Studio {
-            draft: RefCell::new(Draft::default()),
-            view: RefCell::new(View {
-                examples,
-                ..View::default()
-            }),
+            state: StudioState::new(Draft::default(), String::new()),
             blobs: RefCell::default(),
             decoded: RefCell::new(KEPT.with_borrow_mut(|k| std::mem::take(&mut k.decoded))),
             processed: RefCell::default(),
             decoding: Cell::new(false),
             ours: RefCell::default(),
-            examples: RefCell::default(),
             feed: Rc::new(RefCell::new(None)),
             host: RefCell::new(None),
             env: RefCell::new(None),
@@ -250,12 +246,7 @@ impl Studio {
     }
 
     fn doc(&self) -> ddi_ui::screens::page::PageDoc {
-        studio::doc(
-            &self.draft.borrow(),
-            &self.view.borrow(),
-            &self.examples.borrow(),
-            ddi_ui::screens::data::Platform::Web,
-        )
+        self.state.doc(ddi_ui::screens::data::Platform::Web)
     }
 
     fn weak_host(&self) -> Option<Weak<RefCell<Host>>> {
@@ -288,7 +279,7 @@ impl Studio {
     }
 
     fn status(&self, text: impl Into<String>) {
-        self.view.borrow_mut().status = text.into();
+        self.state.view.borrow_mut().status = text.into();
         self.send();
     }
 
@@ -323,7 +314,7 @@ impl Studio {
             let _ = Reflect::set(o, &k.into(), &v);
         };
         let o = js_sys::Object::new();
-        let draft = self.draft.borrow();
+        let draft = self.state.draft.borrow();
         let takes = js_sys::Array::new();
         for t in &draft.takes {
             let x = js_sys::Object::new();
@@ -376,7 +367,7 @@ impl Studio {
         set(&o, "license", draft.license.as_str().into());
         set(&o, "tidy", draft.tidy.into());
         set(&o, "stadium", draft.stadium.into());
-        let view = self.view.borrow();
+        let view = self.state.view.borrow();
         set(&o, "status", view.status.as_str().into());
         set(
             &o,
@@ -463,7 +454,7 @@ impl Studio {
         if !self.loaded.get() || self.sealed.get() || self.gone.get() {
             return;
         }
-        let Ok(json) = serde_json::to_string(&*self.draft.borrow()) else {
+        let Ok(json) = serde_json::to_string(&*self.state.draft.borrow()) else {
             return;
         };
         let me = self.me.clone();
@@ -541,10 +532,10 @@ impl Studio {
                 }
                 // A take whose file is gone is gone.
                 draft.takes.retain(|t| blobs.contains_key(&t.id));
-                *self.draft.borrow_mut() = draft;
+                *self.state.draft.borrow_mut() = draft;
                 *self.blobs.borrow_mut() = blobs;
             }
-            self.draft.borrow_mut().start_past(highest);
+            self.state.draft.borrow_mut().start_past(highest);
             Ok::<_, String>(aside)
         }
         .await;
@@ -581,9 +572,8 @@ impl Studio {
     }
 
     fn refresh_examples(&self) {
-        let set = self.view.borrow().examples;
-        let ours = self.pack_of(set);
-        *self.examples.borrow_mut() = studio::examples(set, ours.as_ref());
+        self.state
+            .refresh_examples(self.pack_of(self.state.set()).as_ref());
     }
 
     /// Picked or dropped files added: zips opened, what is no recording
@@ -634,7 +624,7 @@ impl Studio {
                     None => None,
                 };
                 readme = path;
-                this.draft
+                this.state.draft
                     .borrow_mut()
                     .adopt(Adopted::new(name, text.as_deref()));
             }
@@ -652,22 +642,12 @@ impl Studio {
                 }
                 // Too large to be a recording, or the draft is full: a
                 // folder of songs picked by mistake stops here.
-                if !this.draft.borrow().has_room(blob.size() as u64) {
+                let Some(id) =
+                    this.state
+                        .take_in(&path, blob.size() as u64, &head, line, &mut script)
+                else {
                     over += 1;
                     continue;
-                }
-                let id = {
-                    let mut d = this.draft.borrow_mut();
-                    let id = match script.take() {
-                        Some(s) => d.add_to(s, &path, blob.size() as u64, &head),
-                        None => d.add(&path, blob.size() as u64, &head),
-                    };
-                    if let Some(l) = line
-                        && let Some(t) = d.take_mut(id)
-                    {
-                        t.line = Some(l);
-                    }
-                    id
                 };
                 writes.push(idb::Write::Put {
                     store: idb::FILES,
@@ -685,14 +665,7 @@ impl Studio {
             let stored = async { Db::open().await?.write(writes).await }.await;
             this.forget_export();
             let said = match stored {
-                Ok(_) if over > 0 => ms::status_added_some(
-                    added,
-                    over,
-                    MAX_FILES,
-                    TAKE_MAX_BYTES >> 20,
-                    DRAFT_MAX_BYTES >> 20,
-                ),
-                Ok(_) => ms::status_added(added, passed),
+                Ok(_) => studio_shell::added_status(added, passed, over, None),
                 Err(e) => ms::status_added_unkept(
                     added,
                     passed,
@@ -728,6 +701,7 @@ impl Studio {
                     break;
                 }
                 let next = this
+                    .state
                     .draft
                     .borrow()
                     .takes
@@ -747,7 +721,7 @@ impl Studio {
                     }
                     Err(e) => Sound::Unreadable(e),
                 };
-                if let Some(t) = this.draft.borrow_mut().take_mut(id) {
+                if let Some(t) = this.state.draft.borrow_mut().take_mut(id) {
                     t.sound = sound;
                 }
                 any = true;
@@ -792,7 +766,7 @@ impl Studio {
 
     async fn stadium_ready(&self) -> Result<(), String> {
         use ddi_library::announcer::stadium;
-        if !self.draft.borrow().stadium || stadium::loaded() {
+        if !self.state.draft.borrow().stadium || stadium::loaded() {
             return Ok(());
         }
         let eq = crate::songs::fetch_bytes(&format!(
@@ -814,7 +788,7 @@ impl Studio {
         let buffer = self.buffer(id).await?;
         self.stadium_ready().await?;
         let mut key = {
-            let d = self.draft.borrow();
+            let d = self.state.draft.borrow();
             d.take(id).map(|t| d.processing(t)).unwrap_or_default()
         };
         if !tidied {
@@ -854,7 +828,7 @@ impl Studio {
         let audio = match WebAudio::new() {
             Ok(a) => a,
             Err(e) => {
-                self.view.borrow_mut().status = ms::status_no_sound(error_text(&e)).into();
+                self.state.view.borrow_mut().status = ms::status_no_sound(error_text(&e)).into();
                 return None;
             }
         };
@@ -865,14 +839,14 @@ impl Studio {
         *self.sound.borrow_mut() = Some(audio.clone());
         let n = self.plays.get() + 1;
         self.plays.set(n);
-        self.view.borrow_mut().playing = Some(playing);
+        self.state.view.borrow_mut().playing = Some(playing);
         self.changed();
         Some((audio, n))
     }
 
     fn stop(&self) {
         self.sound.borrow_mut().take();
-        self.view.borrow_mut().playing = None;
+        self.state.view.borrow_mut().playing = None;
         self.changed();
     }
 
@@ -907,7 +881,7 @@ impl Studio {
     /// Take `id` played as it will be in the pack (again: stopped).
     fn play(self: &Rc<Self>, id: u64) {
         let key = format!("take:{id}");
-        if self.view.borrow().playing.as_deref() == Some(&key) {
+        if self.state.view.borrow().playing.as_deref() == Some(&key) {
             self.stop();
             self.send();
             return;
@@ -921,7 +895,7 @@ impl Studio {
         let running = audio.borrow().decoder();
         wasm_bindgen_futures::spawn_local(async move {
             let tidied = {
-                let d = this.draft.borrow();
+                let d = this.state.draft.borrow();
                 d.take(id).is_some_and(|t| d.tidies(t))
             };
             let pcm = this.pcm(id, tidied).await;
@@ -940,18 +914,19 @@ impl Studio {
     /// Our example `i` of `line` played.
     fn example(self: &Rc<Self>, line: Line, i: usize) {
         let key = format!("example:{}:{i}", line.folder());
-        if self.view.borrow().playing.as_deref() == Some(&key) {
+        if self.state.view.borrow().playing.as_deref() == Some(&key) {
             self.stop();
             self.send();
             return;
         }
         let path = self
+            .state
             .examples
             .borrow()
             .get(&line)
             .and_then(|e| e.get(i))
             .and_then(|e| e.sound.clone());
-        let pack = self.pack_of(self.view.borrow().examples);
+        let pack = self.pack_of(self.state.view.borrow().examples);
         let (Some(path), Some(pack)) = (path, pack) else {
             return;
         };
@@ -983,13 +958,13 @@ impl Studio {
     fn forget_export(&self) {
         self.changes.set(self.changes.get() + 1);
         self.zip.borrow_mut().take();
-        self.view.borrow_mut().ready = None;
+        self.state.view.borrow_mut().ready = None;
         self.changed();
     }
 
     /// The pack's files: each export entry's, and where it goes.
     async fn files(&self) -> Result<(String, Vec<(String, Blob)>, String), String> {
-        let export = self.draft.borrow().export();
+        let export = self.state.draft.borrow().export();
         let mut out = Vec::new();
         for e in &export.entries {
             let blob = match e.write {
@@ -1018,7 +993,7 @@ impl Studio {
 
     /// The export made, to save with the next press.
     fn export(self: &Rc<Self>) {
-        self.view.borrow_mut().busy = true;
+        self.state.view.borrow_mut().busy = true;
         self.status(ms::status_exporting());
         let this = self.clone();
         let began = self.changes.get();
@@ -1036,7 +1011,7 @@ impl Studio {
                 Ok::<_, String>((name, blob, files.len()))
             }
             .await;
-            this.view.borrow_mut().busy = false;
+            this.state.view.borrow_mut().busy = false;
             match made {
                 // The draft changed while it was made: it is not the
                 // draft's pack, and is not offered as such.
@@ -1045,7 +1020,7 @@ impl Studio {
                 }
                 Ok((name, blob, n)) => {
                     *this.zip.borrow_mut() = Some((name.clone(), blob));
-                    this.view.borrow_mut().ready = Some(name.clone());
+                    this.state.view.borrow_mut().ready = Some(name.clone());
                     this.status(ms::status_exported(&name, n));
                 }
                 Err(e) => this.status(ms::status_not_exported(error_text(&e))),
@@ -1058,7 +1033,7 @@ impl Studio {
         let Some((name, blob)) = self.zip.borrow().clone() else {
             return;
         };
-        self.view.borrow_mut().status = match files::save_blob(&blob, &name) {
+        self.state.view.borrow_mut().status = match files::save_blob(&blob, &name) {
             Ok(()) => ms::status_saved(&name, ddi_ui::screens::data::Platform::Web.l10n()),
             Err(_) => ms::status_not_saved(),
         }
@@ -1067,7 +1042,7 @@ impl Studio {
 
     /// The pack stored as an imported announcer, to choose under Options.
     fn use_in_game(self: &Rc<Self>) {
-        self.view.borrow_mut().busy = true;
+        self.state.view.borrow_mut().busy = true;
         self.status(ms::status_using());
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
@@ -1087,34 +1062,10 @@ impl Studio {
                 Ok::<_, String>(plan.kept.name)
             }
             .await;
-            this.view.borrow_mut().busy = false;
+            this.state.view.borrow_mut().busy = false;
             match stored {
                 Ok(name) => this.status(ms::status_used(name)),
                 Err(e) => this.status(ms::status_not_used(error_text(&e))),
-            }
-        });
-    }
-
-    fn remove(&self, id: u64) {
-        self.draft.borrow_mut().remove(id);
-        self.blobs.borrow_mut().remove(&id);
-        self.decoded.borrow_mut().remove(id);
-        self.forget_export();
-        self.save();
-        let me = self.me.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            let removed = async {
-                Db::open()
-                    .await?
-                    .write(vec![idb::Write::Delete {
-                        store: idb::FILES,
-                        key: take_key(id),
-                    }])
-                    .await
-            }
-            .await;
-            if let (Err(e), Some(s)) = (removed, me.upgrade()) {
-                s.status(ms::status_draft_unkept(error_text(&e)));
             }
         });
     }
@@ -1125,7 +1076,7 @@ impl Studio {
         let p = ui_host::virtual_point(&host, client);
         let h = host.borrow();
         let mut ids = vec!["unsorted".to_string()];
-        ids.extend(self.draft.borrow().lines().iter().map(|l| l.folder()));
+        ids.extend(self.state.draft.borrow().lines().iter().map(|l| l.folder()));
         ids.into_iter().find(|id| {
             h.ui.visible_bounds(&format!("Zone.{id}"))
                 .is_some_and(|b| p[0] >= b[0] && p[0] <= b[2] && p[1] >= b[1] && p[1] <= b[3])
@@ -1152,6 +1103,7 @@ impl Studio {
     /// them; one that cannot be is left out.
     async fn decode_lines(&self, which: impl Fn(Line) -> bool) -> Result<(), String> {
         let ids: Vec<u64> = self
+            .state
             .draft
             .borrow()
             .takes
@@ -1175,7 +1127,7 @@ impl Studio {
         which: impl Fn(Line) -> bool,
         make: impl Fn(Vec<Vec<f32>>, u32) -> Option<AudioBuffer>,
     ) -> Voiced<AudioBuffer> {
-        let draft = self.draft.borrow();
+        let draft = self.state.draft.borrow();
         director::draft_voice(
             &draft,
             which,
@@ -1194,14 +1146,14 @@ impl Studio {
     /// said by the draft where it has something to say for the line, else
     /// by our pack of the examples chosen; `pin`, the recording or example
     /// pressed beside, said for it.
-    fn hear(self: &Rc<Self>, line: Line, pin: Option<Pin>) {
+    fn hear_line(self: &Rc<Self>, line: Line, pin: Option<Pin>) {
         if self.director.busy() {
             return;
         }
         self.stop();
         let said =
             self.director
-                .hearing(line, pin, &self.draft.borrow(), self.view.borrow().examples);
+                .hearing(line, pin, &self.state.draft.borrow(), self.state.view.borrow().examples);
         match line.spoken() {
             Spoken::Menu => self.menu_scene(line, said),
             Spoken::Results => self.results_scene(line, said),
@@ -1239,14 +1191,10 @@ impl Studio {
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
             // Our packs' combos past 1000 too (an example's voice).
-            let lines: Vec<Line> = Line::all()
-                .into_iter()
-                .chain(OUR_COMBOS.map(Line::Combo))
-                .filter(|l| matches!(l.spoken(), Spoken::Play | Spoken::Results))
-                .collect();
+            let lines = director::example_lines(Spoken::Play);
             let voiced = match said {
                 Said::Draft => {
-                    let which = |l: Line| matches!(l.spoken(), Spoken::Play | Spoken::Results);
+                    let which = director::draft_lines(Spoken::Play);
                     if let Err(e) = this.decode_lines(which).await {
                         this.director
                             .give_up(n, ms::status_unplayable(error_text(&e)));
@@ -1366,13 +1314,10 @@ impl Studio {
         };
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            let menu: Vec<Line> = Line::all()
-                .into_iter()
-                .filter(|l| l.spoken() == Spoken::Menu)
-                .collect();
+            let menu = director::example_lines(Spoken::Menu);
             let voiced = match said {
                 Said::Draft => {
-                    let which = |l: Line| l.spoken() == Spoken::Menu;
+                    let which = director::draft_lines(Spoken::Menu);
                     if let Err(e) = this.decode_lines(which).await {
                         this.director
                             .give_up(n, ms::status_unplayable(error_text(&e)));
@@ -1399,7 +1344,7 @@ impl Studio {
     fn results_scene(self: &Rc<Self>, line: Line, said: Said) {
         let Some((n, scene)) = self
             .director
-            .begin_results(line, said, &self.draft.borrow())
+            .begin_results(line, said, &self.state.draft.borrow())
         else {
             return;
         };
@@ -1407,7 +1352,7 @@ impl Studio {
         wasm_bindgen_futures::spawn_local(async move {
             let voiced = match said {
                 Said::Draft => {
-                    let which = |l: Line| l.spoken() == Spoken::Results;
+                    let which = director::draft_lines(Spoken::Results);
                     if let Err(e) = this.decode_lines(which).await {
                         this.director
                             .give_up(n, ms::status_unplayable(error_text(&e)));
@@ -1439,180 +1384,137 @@ impl Studio {
         });
     }
 
-    /// A press on the page, inside its handler.
+    /// A press on the page, inside its handler (`ddi_ui`'s, both
+    /// shells').
     fn call(
         self: &Rc<Self>,
         call: PageCall,
         cx: &mut Cx,
     ) -> Option<ddi_ui::screens::page::PageDoc> {
-        let id = match call {
-            PageCall::Leave => {
-                self.stop();
-                cx.request(UiRequest::Back);
-                return None;
-            }
-            PageCall::Field { id, text } => {
-                if studio::set_field(&mut self.draft.borrow_mut(), &id, &text) {
-                    self.forget_export();
-                    self.save();
-                    self.publish();
-                }
-                return None;
-            }
-            PageCall::Button(id) => id,
-        };
-        let act = studio::act(&id)?;
-        let applied = studio::apply(
-            act,
-            &mut self.draft.borrow_mut(),
-            &mut self.view.borrow_mut(),
-        );
-        if let Some(applied) = applied {
-            match applied {
-                Applied::Draft => {
-                    self.stop();
-                    self.forget_export();
-                    self.save();
-                    self.publish();
-                }
-                Applied::Examples => {
-                    self.refresh_examples();
-                    self.publish();
-                }
-                Applied::View => {}
-            }
-            return Some(self.doc());
+        studio_shell::call(self, call, cx)
+    }
+
+    /// The files picker clicked for what it picks (`accept`), the next
+    /// pick going on `line` (the first in text line `script`'s place).
+    fn pick(&self, accept: &str, line: Option<Line>, script: Option<u64>) {
+        self.pick_line.set(line);
+        self.pick_script.set(script);
+        if let Some(i) = self.files_input.borrow().as_ref() {
+            let _ = i.set_attribute("accept", accept);
+            i.click();
         }
-        match act {
-            // ([`studio::apply`]'s.)
-            Act::Tidy
-            | Act::Stadium
-            | Act::StepMania
-            | Act::Examples
-            | Act::Details
-            | Act::RemoveCombo(_)
-            | Act::Write(_)
-            | Act::Unwrite(_) => None,
-            Act::Add(_) | Act::AddTo(_) => {
-                let (line, script) = match act {
-                    Act::AddTo(id) => {
-                        let line = self
-                            .draft
-                            .borrow()
-                            .scripts
-                            .iter()
-                            .find(|s| s.id == id)?
-                            .line;
-                        (line, Some(id))
-                    }
-                    Act::Add(line) => (line, None),
-                    _ => return None,
-                };
-                self.pick_line.set(Some(line));
-                self.pick_script.set(script);
-                if let Some(i) = self.files_input.borrow().as_ref() {
-                    let _ = i.set_attribute("accept", RECORDING_TYPES);
-                    i.click();
-                }
-                None
+    }
+}
+
+/// What the shared page asks of the web.
+impl StudioHost for Studio {
+    fn state(&self) -> &StudioState {
+        &self.state
+    }
+
+    fn env(&self) -> Option<ddi_ui::screens::Env> {
+        self.env.borrow().clone()
+    }
+
+    fn example_pack(&self, set: Set) -> Option<Bundled> {
+        self.pack_of(set)
+    }
+
+    fn save(&self) {
+        Studio::save(self);
+    }
+
+    fn show(&self) {
+        self.send();
+    }
+
+    fn publish(&self) {
+        Studio::publish(self);
+    }
+
+    fn forget_export(&self) {
+        Studio::forget_export(self);
+    }
+
+    fn stop(&self) {
+        Studio::stop(self);
+    }
+
+    fn leave(&self, cx: &mut Cx) {
+        Studio::stop(self);
+        cx.request(UiRequest::Back);
+    }
+
+    fn pick_recordings(self: &Rc<Self>, line: Line, script: Option<u64>) {
+        self.pick(RECORDING_TYPES, Some(line), script);
+    }
+
+    fn pick_pack(self: &Rc<Self>, folder: bool) {
+        if !folder {
+            return self.pick(PACK_TYPES, None, None);
+        }
+        self.pick_line.set(None);
+        self.pick_script.set(None);
+        if let Some(i) = self.folder_input.borrow().as_ref() {
+            i.click();
+        }
+    }
+
+    fn play_take(self: &Rc<Self>, id: u64) -> bool {
+        self.play(id);
+        false
+    }
+
+    fn play_example(self: &Rc<Self>, line: Line, i: usize) -> bool {
+        self.example(line, i);
+        false
+    }
+
+    fn removed(&self, id: u64) {
+        self.blobs.borrow_mut().remove(&id);
+        self.decoded.borrow_mut().remove(id);
+        let me = self.me.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let removed = async {
+                Db::open()
+                    .await?
+                    .write(vec![idb::Write::Delete {
+                        store: idb::FILES,
+                        key: take_key(id),
+                    }])
+                    .await
             }
-            Act::ImportFiles => {
-                self.pick_line.set(None);
-                self.pick_script.set(None);
-                if let Some(i) = self.files_input.borrow().as_ref() {
-                    let _ = i.set_attribute("accept", PACK_TYPES);
-                    i.click();
-                }
-                None
+            .await;
+            if let (Err(e), Some(s)) = (removed, me.upgrade()) {
+                s.status(ms::status_draft_unkept(error_text(&e)));
             }
-            Act::ImportFolder => {
-                self.pick_line.set(None);
-                self.pick_script.set(None);
-                if let Some(i) = self.folder_input.borrow().as_ref() {
-                    i.click();
-                }
-                None
-            }
-            Act::Play(id) => {
-                self.play(id);
-                None
-            }
-            Act::Example(line, i) => {
-                self.example(line, i);
-                None
-            }
-            Act::Move(id) => {
-                // Heard as its line is chosen.
-                if self.view.borrow().playing.as_deref() != Some(&format!("take:{id}")) {
-                    self.play(id);
-                }
-                let env = self.env.borrow().clone()?;
-                let weak = Rc::downgrade(self);
-                let picker = studio::line_picker(
-                    env,
-                    &self.draft.borrow(),
-                    id,
-                    Rc::new(move |id, line, _cx| {
-                        let Some(s) = weak.upgrade() else {
-                            return;
-                        };
-                        if let Some(t) = s.draft.borrow_mut().take_mut(id) {
-                            t.line = line;
-                        }
-                        s.stop();
-                        s.forget_export();
-                        s.save();
-                        s.send();
-                    }),
-                )?;
-                cx.overlay(picker, true);
-                None
-            }
-            Act::Remove(id) => {
-                self.remove(id);
-                self.publish();
-                Some(self.doc())
-            }
-            Act::AddCombo => {
-                let env = self.env.borrow().clone()?;
-                let weak = Rc::downgrade(self);
-                let dialog = studio::combo_dialog(
-                    env,
-                    Rc::new(move |n, _cx| {
-                        let Some(s) = weak.upgrade() else {
-                            return true;
-                        };
-                        if !s.draft.borrow_mut().add_combo(n) {
-                            return false;
-                        }
-                        s.save();
-                        s.send();
-                        true
-                    }),
-                );
-                cx.overlay(dialog, true);
-                None
-            }
-            Act::Export => {
-                self.export();
-                None
-            }
-            Act::Save => {
-                self.save_zip();
-                self.publish();
-                Some(self.doc())
-            }
-            Act::UseInGame => {
-                self.use_in_game();
-                None
-            }
-            Act::Hear(_) | Act::HearTake(_) | Act::HearExample(..) => {
-                let hear = director::hear_of(act, &self.draft.borrow(), &self.examples.borrow());
-                if let Some((line, pin)) = hear {
-                    self.hear(line, pin);
-                }
-                None
-            }
+        });
+    }
+
+    fn export(self: &Rc<Self>) -> bool {
+        Studio::export(self);
+        false
+    }
+
+    fn save_zip(self: &Rc<Self>) -> bool {
+        Studio::save_zip(self);
+        Studio::publish(self);
+        true
+    }
+
+    fn use_in_game(self: &Rc<Self>) -> bool {
+        Studio::use_in_game(self);
+        false
+    }
+
+    fn hear(self: &Rc<Self>, act: Act) {
+        let hear = director::hear_of(
+            act,
+            &self.state.draft.borrow(),
+            &self.state.examples.borrow(),
+        );
+        if let Some((line, pin)) = hear {
+            self.hear_line(line, pin);
         }
     }
 }
@@ -1761,7 +1663,7 @@ impl SceneHost for WebScenes {
 
     fn heard(&self, status: UiText, line: Line, spoken: Vec<String>, said: Said) {
         if let Some(s) = self.0.upgrade() {
-            s.view.borrow_mut().status = status.into();
+            s.state.view.borrow_mut().status = status.into();
             *s.heard.borrow_mut() = Some((line, spoken, said.key()));
             s.send();
         }

@@ -21,7 +21,7 @@ use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as ms;
 use ddi_library::announcer::draft::{Draft, Take};
 use ddi_library::announcer::examples::Set;
-use ddi_library::announcer::{Bundled, Line};
+use ddi_library::announcer::{Bundled, Line, OUR_COMBOS, Spoken};
 use ddi_platform::AudioBackend;
 use ddi_platform::storage;
 use ddi_ui::message::{Message, Param};
@@ -424,6 +424,31 @@ pub fn draft_voice<S>(
         }
     }
     (voice, lengths, words)
+}
+
+/// The draft's lines a scene of a line spoken where `spoken` says is
+/// voiced with: song select's for its scenes, the results' for theirs,
+/// a play's and its results' for a scene in play (which goes on into
+/// them).
+pub fn draft_lines(spoken: Spoken) -> fn(Line) -> bool {
+    match spoken {
+        Spoken::Menu => |l| l.spoken() == Spoken::Menu,
+        Spoken::Results => |l| l.spoken() == Spoken::Results,
+        Spoken::Play | Spoken::Battle => |l| matches!(l.spoken(), Spoken::Play | Spoken::Results),
+    }
+}
+
+/// The lines our pack of examples says in a scene of song select
+/// (`Spoken::Menu`) or in play (the play's and its results', our packs'
+/// combos past 1000 too); the results' are their scene's own
+/// ([`results_said_lines`]).
+pub fn example_lines(spoken: Spoken) -> Vec<Line> {
+    let which = draft_lines(spoken);
+    Line::all()
+        .into_iter()
+        .chain(OUR_COMBOS.map(Line::Combo))
+        .filter(|l| which(*l))
+        .collect()
 }
 
 /// The lines the results of `scene` may say, the cheer too.

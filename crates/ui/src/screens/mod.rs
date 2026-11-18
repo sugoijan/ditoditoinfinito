@@ -107,6 +107,7 @@ mod select_navigation;
 pub mod stage;
 pub mod start;
 pub mod studio;
+pub mod studio_shell;
 #[cfg(test)]
 mod test_kit;
 #[cfg(test)]
