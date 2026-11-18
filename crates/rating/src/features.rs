@@ -30,7 +30,8 @@ pub(super) struct Chart {
     pub rows: Vec<Row>,
     pub mines: usize,
     pub duration: f64,
-    pub studied: bool,
+    pub scalar_studied: bool,
+    pub readouts_studied: bool,
     pub units: f64,
     pub heads: f64,
 }
@@ -237,15 +238,17 @@ pub(super) fn extract(song: &Song, index: usize) -> Result<Chart, String> {
     if demands.next().is_some() || total_heads == 0. {
         return Err("chart has inconsistent or empty head rows".into());
     }
+    let scalar_studied = total_heads >= 48.
+        && chart.notes.len() <= 1200
+        && (15.0..=180.).contains(&duration)
+        && !lifts;
     Ok(Chart {
         rows,
         mines: plan.counts().2,
         duration,
         heads: total_heads,
         units: total_units,
-        studied: total_heads >= 48.
-            && chart.notes.len() <= 900
-            && (15.0..=180.).contains(&duration)
-            && !lifts,
+        scalar_studied,
+        readouts_studied: scalar_studied && chart.notes.len() <= 900,
     })
 }

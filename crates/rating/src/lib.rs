@@ -24,8 +24,11 @@ pub struct Estimate {
     /// The decimal estimate and its round-half-up display level.
     pub decimal: f64,
     pub level: u8,
-    /// The original qualification covered 48+ heads, up to 900 source notes,
-    /// 15–180 seconds and no lifts. Outside it, only extrapolated numbers are returned.
+    /// Qualification for `decimal` and `level`: 48+ heads, at most 1,200
+    /// source notes, 15–180 seconds and no lifts.
+    pub within_scalar_domain: bool,
+    /// Qualification for the score curve and skill readouts: the scalar
+    /// conditions with at most 900 source notes.
     pub within_studied_domain: bool,
     /// At balanced CPU levels 1–10: mean raw Accuracy, then eight skill costs
     /// (balanced minus weakened Accuracy in percentage points, SKILL_NAMES order).
@@ -182,14 +185,15 @@ pub fn estimate(song: &Song, index: usize) -> Result<Estimate, String> {
     let three_keys = chart.rows.iter().any(|r| r.heads >= 3.);
     let calibrated = |widths| {
         chart
-            .studied
+            .readouts_studied
             .then(|| readout(&means, widths, chart.mines > 0, three_keys))
     };
     Ok(Estimate {
         estimator: ESTIMATOR,
         scale: SCALE,
         chart_digest: song.chart_digest(index),
-        within_studied_domain: chart.studied,
+        within_scalar_domain: chart.scalar_studied,
+        within_studied_domain: chart.readouts_studied,
         decimal,
         level: decimal.round() as u8,
         expected: calibrated(&coefficients::EXPECTED),
@@ -202,6 +206,33 @@ pub fn estimate(song: &Song, index: usize) -> Result<Estimate, String> {
 mod tests {
     use super::*;
     use ddi_chart::formats::sm::{parse_sm, parse_ssc};
+
+    #[test]
+    fn scalar_and_skill_qualification_have_separate_note_limits() {
+        for (notes, bpm, last_note, scalar, readouts) in [
+            (900, 120, "1000", true, true),
+            (901, 120, "1000", true, false),
+            (1200, 120, "1000", true, false),
+            (1201, 120, "1000", false, false),
+            (901, 60, "1000", false, false), // over 180 seconds
+            (901, 120, "L000", false, false),
+        ] {
+            let mut rows = vec!["1000"; notes];
+            rows[notes - 1] = last_note;
+            rows.resize(notes.next_multiple_of(16), "0000");
+            let measures: Vec<_> = rows.chunks(16).map(|rows| rows.join("\n")).collect();
+            let song = parse_sm(&format!(
+                "#BPMS:0={bpm};#NOTES:dance-single::Hard:1::{};",
+                measures.join(",\n")
+            ))
+            .unwrap();
+            let estimate = estimate(&song, 0).unwrap();
+            assert_eq!(estimate.within_scalar_domain, scalar);
+            assert_eq!(estimate.within_studied_domain, readouts);
+            assert_eq!(estimate.expected.is_some(), readouts);
+            assert_eq!(estimate.conservative.is_some(), readouts);
+        }
+    }
 
     #[test]
     fn bundled_chart_matches_the_frozen_scalar_curve_and_radar() {
@@ -233,6 +264,7 @@ mod tests {
             parse_sm("#BPMS:0=120;#NOTES:dance-single::Easy:1::1000\n0100\n0010\n000L;").unwrap();
         let r = estimate(&song, 0).unwrap();
         assert!(!r.within_studied_domain);
+        assert!(!r.within_scalar_domain);
         assert!(r.expected.is_none() && r.conservative.is_none());
         assert!((r.decimal - 5.51752514).abs() < 1e-5);
         // A unique 95% crossing does not qualify Handstream on three-key rows.
