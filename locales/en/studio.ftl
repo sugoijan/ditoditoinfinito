@@ -241,6 +241,33 @@ studio-also-title = Also say it for…
 #   $file (String) - the recording's file name
 studio-also-note = { $file } is kept once and said for each line it is on.
 
+## A pack made before with an announcer.ini or a script, imported: what
+## the draft could not carry over, each a note under the page's status.
+
+# Its script stopped (an error, or it named something the pack lacks).
+# Variables:
+#   $error (String) - why, as the game said it (data)
+studio-lost-refused = Its script could not run ({ $error }): its recordings were read from their folders.
+studio-lost-script = Its script is not kept as written: the studio writes its own from what it read.
+# Variables:
+#   $names (String) - the settings' names, as the pack names them (data)
+studio-lost-settings = Its own settings ({ $names }) are not kept: its recordings were read as at their defaults.
+studio-lost-by-language = Its script chooses recordings by the game's language: they were read as for English.
+studio-lost-weights = How likely it makes some recordings is not kept: each is as likely as any other.
+# Variables:
+#   $count (Number) - how many recordings
+#   $language (String) - the language they were put in, named in itself
+studio-lost-every-language = { $count ->
+    [one] One recording said in every language was put in { $language }.
+   *[other] { $count } recordings said in every language were put in { $language }.
+}
+# Variables:
+#   $count (Number) - how many recordings
+studio-lost-two-languages = { $count ->
+    [one] One recording taken in two languages was kept in the first.
+   *[other] { $count } recordings taken in two languages were kept in the first.
+}
+
 ## Advanced: a fold (its label about 16 letters) holding the credits, the
 ## imports and three switches, each a button and a sentence under it.
 

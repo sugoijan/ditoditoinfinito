@@ -462,6 +462,7 @@ fn a_pack_made_before_gives_what_the_draft_has_not() {
         name: "Name".into(),
         by: Some("Someone".into()),
         license: None,
+        ..Adopted::default()
     });
     assert_eq!(
         (draft.name.as_str(), draft.author.as_str()),
@@ -472,6 +473,7 @@ fn a_pack_made_before_gives_what_the_draft_has_not() {
         name: "Other".into(),
         by: Some("Another".into()),
         license: Some("CC0".into()),
+        ..Adopted::default()
     });
     assert_eq!(
         (
@@ -1095,4 +1097,117 @@ fn an_export_is_checked_by_the_games_reader() {
     let mut fewer = e.clone();
     fewer.entries.pop();
     assert!(d.check(&fewer, &sizes(&fewer)).is_err());
+}
+
+/// A pack made before with an `announcer.ini` and a script imported into
+/// a draft: its pool read as the game reads it (languages, Mixed, tags,
+/// switches, a sound said for several lines), and what the draft cannot
+/// carry over said.
+#[test]
+fn a_scripted_pack_is_read_into_a_draft() {
+    // The studio's own export first: read back as it was made.
+    let mut d = Draft {
+        name: "Round Trip".into(),
+        tidy: false,
+        ..Draft::default()
+    };
+    d.add_language("en");
+    let awesome = d.add("awesome.mp3", 9, MP3);
+    d.set_line(awesome, Some(Line::Combo(100)));
+    d.share(awesome, Line::Cheer);
+    let damn = d.add("evaluation cheer.mp3", 9, MP3);
+    d.toggle_tag(damn, "rude");
+    d.toggle_switch("rude");
+    d.switches[0].label = "Rude words".into();
+    d.add_language("ja");
+    d.add("gameplay ready.mp3", 9, MP3);
+    d.mixed = true;
+    let export = d.export();
+    let listed: Vec<(String, u64)> = export
+        .listed(&export.entries.iter().map(|e| (format!("Zip/{}", e.path), 9)).collect::<Vec<_>>())
+        .into_iter()
+        .map(|(p, n)| if p.starts_with("Zip/") { (p, n) } else { (format!("Zip/{p}"), n) })
+        .collect();
+    let m = made(&listed).expect("one pack");
+    assert_eq!(m.name, "Round Trip");
+    assert_eq!(m.ini.as_deref(), Some("Zip/Announcers/Round Trip/announcer.ini"));
+    assert!(m.is_text("Zip/Announcers/Round Trip/announcer.lua"));
+    let plan = read_pack(
+        &listed,
+        export.text(crate::announcer::pool::DECLARATION),
+        export.text(crate::announcer::script::SCRIPT),
+    )
+    .expect("a declared pack");
+    assert_eq!(plan.languages, ["en", "ja"]);
+    assert!(plan.mixed);
+    assert_eq!(plan.switches, d.switches);
+    assert_eq!(plan.lost, [Lost::Script]);
+    assert_eq!(
+        plan.takes["Zip/Announcers/Round Trip/shared/awesome.mp3"],
+        Planned {
+            line: Line::Combo(100),
+            also: vec![Line::Cheer],
+            lang: Some("en".into()),
+            tags: Vec::new()
+        }
+    );
+    assert_eq!(
+        plan.takes["Zip/Announcers/Round Trip/en/evaluation cheer/evaluation cheer.mp3"].tags,
+        ["rude"]
+    );
+    assert_eq!(
+        plan.takes["Zip/Announcers/Round Trip/ja/gameplay ready/gameplay ready.mp3"].lang.as_deref(),
+        Some("ja")
+    );
+    // Into a new draft, each sound in its place: the same pack again.
+    let mut again = Draft {
+        tidy: false,
+        ..Draft::default()
+    };
+    again.adopt(Adopted::new(m.name.clone(), None).with_plan(Some(plan.clone())));
+    for e in &export.entries {
+        let path = format!("Zip/{}", e.path);
+        let id = again.add(&path, 9, MP3);
+        again.place(id, &plan.takes[&path]);
+    }
+    assert_eq!(again.languages, d.languages);
+    assert_eq!(again.export().texts, export.texts);
+    // A plain pack has no plan: its folders say.
+    assert_eq!(read_pack(&pack_files("Name/"), None, None), None);
+    // What a hand-written script does that the draft cannot keep.
+    let files: Vec<(String, u64)> = [
+        "P/announcer.ini",
+        "P/announcer.lua",
+        "P/en/gameplay ready/a.ogg",
+        "P/gameplay cleared/b.ogg",
+        "P/ja/gameplay ready/c.ogg",
+    ]
+    .iter()
+    .map(|p| (p.to_string(), 1))
+    .collect();
+    let ini = "[Parameters]\nList=Language,Mood\n[Parameter Language]\nType=Language\nLanguages=en,ja\n\
+               [Parameter Mood]\nType=Choice\nChoices=Calm,Loud\nDefault=Calm\n";
+    let lua = "local pack = Announcer.pack()\n\
+               for _, f in ipairs(Announcer.files()) do\n\
+                 if Announcer.language() == 'ja' or f:sub(1, 3) ~= 'ja/' then\n\
+                   pack:take(f, { weight = 2 })\n\
+                 end\n\
+               end\n\
+               pack:take('P/x', {})\n\
+               return pack\n";
+    let plan = read_pack(&files, Some(ini), Some(lua)).unwrap();
+    assert!(matches!(plan.lost[0], Lost::Refused(_)), "{:?}", plan.lost);
+    let lua = lua.replace("pack:take('P/x', {})\n", "");
+    let plan = read_pack(&files, Some(ini), Some(&lua)).unwrap();
+    assert_eq!(
+        plan.lost,
+        [
+            Lost::Script,
+            Lost::ByGameLanguage,
+            Lost::Settings(vec!["Mood".into()]),
+            Lost::Weights,
+            Lost::EveryLanguage(1, "en".into()),
+        ]
+    );
+    assert_eq!(plan.takes["P/gameplay cleared/b.ogg"].lang.as_deref(), Some("en"));
 }

@@ -174,12 +174,14 @@ fn recordings_are_taken_in_on_their_line() {
     state.draft.borrow_mut().scripts[0].words = "Get ready!".into();
     let mut first = Some(script);
     let a = state
-        .take_in("New Recording 1.m4a", 10, b"", Some(Line::Ready), &mut first)
+        .take_in("New Recording 1.m4a", 10, b"", Some(Line::Ready), &mut first, None)
         .unwrap();
     let b = state
-        .take_in("New Recording 2.m4a", 10, b"", Some(Line::Ready), &mut first)
+        .take_in("New Recording 2.m4a", 10, b"", Some(Line::Ready), &mut first, None)
         .unwrap();
-    let named = state.take_in("evaluation aa.mp3", 10, MP3, None, &mut None).unwrap();
+    let named = state
+        .take_in("evaluation aa.mp3", 10, MP3, None, &mut None, None)
+        .unwrap();
     let d = state.draft.borrow();
     assert_eq!(d.take(a).unwrap().words.as_deref(), Some("Get ready!"));
     assert_eq!(d.take(b).unwrap().words, None);
@@ -191,7 +193,10 @@ fn recordings_are_taken_in_on_their_line() {
     assert!(d.scripts.is_empty());
     drop(d);
     // A file too large to be a recording is left out.
-    assert_eq!(state.take_in("song.wav", u64::MAX, b"RIFF", None, &mut None), None);
+    assert_eq!(
+        state.take_in("song.wav", u64::MAX, b"RIFF", None, &mut None, None),
+        None
+    );
     assert_eq!(added_status(3, 1, 0, None).to_string(), m::status_added(3, 1).to_string());
     assert!(added_status(2, 0, 1, None).contains("1 was left out"));
     assert!(
@@ -271,4 +276,62 @@ fn fields_and_dialogs_change_the_draft() {
     h.run(0.3);
     assert_eq!(host.state.draft.borrow().take(take).unwrap().tags, ["calm"]);
     assert_eq!(host.asked(), ["forget", "save", "show"]);
+}
+
+/// A pack made before with a script, picked: its pool's places taken by
+/// its sounds, its languages and switches by the draft, and what it says
+/// that the draft cannot carry over shown under the status.
+#[test]
+fn a_scripted_pack_picked_goes_where_its_pool_puts_it() {
+    use ddi_library::announcer::draft::{Adopted, Lost, PackPlan, Planned, Switch};
+    ddi_l10n::set_language("en");
+    let state = StudioState::new(Draft::default(), String::new());
+    let mut plan = PackPlan {
+        languages: vec!["en".into(), "ja".into()],
+        mixed: true,
+        switches: vec![Switch {
+            tag: "rude".into(),
+            label: "Rude".into(),
+            default: false,
+        }],
+        lost: vec![Lost::Script, Lost::Weights],
+        ..PackPlan::default()
+    };
+    plan.takes.insert(
+        "P/shared/a.ogg".into(),
+        Planned {
+            line: Line::Combo(100),
+            also: vec![Line::Cheer],
+            lang: Some("ja".into()),
+            tags: vec!["rude".into()],
+        },
+    );
+    let got = state.adopt(Adopted::new("P".into(), None).with_plan(Some(plan.clone())));
+    assert_eq!(got.as_ref(), Some(&plan));
+    {
+        let d = state.draft.borrow();
+        assert_eq!(d.name, "P");
+        assert_eq!(d.languages, ["en", "ja"]);
+        assert!(d.mixed && d.switch_of("rude").is_some());
+    }
+    assert_eq!(
+        state.view.borrow().lost,
+        [
+            m::lost_script().to_string(),
+            m::lost_weights().to_string()
+        ]
+    );
+    assert!(format!("{:?}", state.doc(Default::default()).blocks).contains(&m::lost_weights().to_string()));
+    let id = state
+        .take_in("P/shared/a.ogg", 9, b"OggS", None, &mut None, got.as_ref())
+        .unwrap();
+    let other = state
+        .take_in("P/evaluation cheer/b.ogg", 9, b"OggS", None, &mut None, got.as_ref())
+        .unwrap();
+    let d = state.draft.borrow();
+    let t = d.take(id).unwrap();
+    assert_eq!((t.line, t.also.clone()), (Some(Line::Combo(100)), vec![Line::Cheer]));
+    assert_eq!((t.lang.as_deref(), t.tags.clone()), (Some("ja"), vec!["rude".to_string()]));
+    // Not in its pool: by its folder, as before.
+    assert_eq!(d.take(other).unwrap().line, Some(Line::Cheer));
 }

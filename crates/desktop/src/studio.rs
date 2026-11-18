@@ -32,7 +32,7 @@ use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as ms;
 use ddi_library::announcer::draft::{
     self, Adopted, Decoded, Draft, Export, HEAD, Sound as Read, TAKE_MAX_BYTES,
-    Take, Write, install_plan, made_before, takes,
+    Take, Write, install_plan, takes,
 };
 use ddi_library::announcer::examples::Set;
 use ddi_library::announcer::tidy;
@@ -269,6 +269,8 @@ struct Adding {
     line: Option<Line>,
     /// The text line the first is recorded for.
     script: Option<u64>,
+    /// A declared pack's pool, where one was picked: where its sounds go.
+    plan: Option<draft::PackPlan>,
     added: usize,
     /// Recordings left out: the draft had no room for them.
     over: usize,
@@ -346,21 +348,26 @@ fn read_picked(picked: Vec<PathBuf>, tx: SyncSender<Arrived>, full: Arc<AtomicBo
     };
     // A pack made before: its name, and the credits its README gives.
     let names: Vec<(String, u64)> = listed.iter().map(|(p, s, _)| (p.clone(), *s)).collect();
-    let mut readme = None;
-    if let Some((name, path)) = made_before(&names) {
-        let text = path
-            .as_deref()
-            .and_then(|r| listed.iter().find(|(p, ..)| p == r))
-            .and_then(|(_, _, s)| read(s).ok())
-            .map(|b| String::from_utf8_lossy(&b).into_owned());
-        readme = path;
-        let _ = tx.send(Arrived::Pack(Adopted::new(name, text.as_deref())));
+    // A declared pack's pool, its `announcer.ini` and script run as the
+    // game runs them.
+    let pack = draft::made(&names);
+    if let Some(m) = &pack {
+        let text = |path: &Option<String>| {
+            path.as_deref()
+                .and_then(|r| listed.iter().find(|(p, ..)| p == r))
+                .and_then(|(_, _, s)| read(s).ok())
+                .map(|b| String::from_utf8_lossy(&b).into_owned())
+        };
+        let (ini, script) = (text(&m.ini), text(&m.script));
+        let plan = draft::read_pack(&names, ini.as_deref(), script.as_deref());
+        let adopted = Adopted::new(m.name.clone(), text(&m.readme).as_deref()).with_plan(plan);
+        let _ = tx.send(Arrived::Pack(adopted));
     }
     let mut passed = 0;
     let mut over = 0;
     for (path, size, source) in &listed {
         if !takes(path, &head(source)) {
-            if readme.as_deref() != Some(path.as_str()) {
+            if !pack.as_ref().is_some_and(|m| m.is_text(path)) {
                 passed += 1;
             }
             continue;
@@ -806,6 +813,7 @@ impl Studio {
     /// (else by its name), the first in text line `script`'s place when
     /// given.
     fn add(&self, picked: Vec<PathBuf>, line: Option<Line>, script: Option<u64>) {
+        self.state.view.borrow_mut().lost.clear();
         self.set_status(ms::status_adding(picked.len()));
         let (tx, rx) = mpsc::sync_channel(READ_AHEAD);
         let full = Arc::new(AtomicBool::new(false));
@@ -817,6 +825,7 @@ impl Studio {
             rx,
             line,
             script,
+            plan: None,
             added: 0,
             over: 0,
             full,
@@ -1192,10 +1201,13 @@ impl Studio {
                     return true;
                 }
                 match a.rx.try_recv() {
-                    Ok(Arrived::Pack(pack)) => self.state.draft.borrow_mut().adopt(pack),
+                    Ok(Arrived::Pack(pack)) => a.plan = self.state.adopt(pack),
                     Ok(Arrived::File { path, size, bytes }) => {
                         let head = &bytes[..bytes.len().min(HEAD)];
-                        let Some(id) = self.state.take_in(&path, size, head, a.line, &mut a.script)
+                        let plan = a.plan.as_ref();
+                        let Some(id) =
+                            self.state
+                                .take_in(&path, size, head, a.line, &mut a.script, plan)
                         else {
                             // No room: left out, and no more read.
                             a.over += 1;

@@ -59,12 +59,205 @@ pub fn readme_path<'a>(paths: impl IntoIterator<Item = &'a str>) -> Option<&'a s
 /// announcer in them, and the path of the README that may say who made
 /// it. `None` for files that are not a single pack.
 pub fn made_before(listed: &[(String, u64)]) -> Option<(String, Option<String>)> {
+    made(listed).map(|m| (m.name, m.readme))
+}
+
+/// A pack made before among an import's files ([`made`]): its name, and
+/// the paths of its README, its `announcer.ini` and its `announcer.lua`,
+/// which the shells read as text.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Made {
+    pub name: String,
+    pub readme: Option<String>,
+    pub ini: Option<String>,
+    pub script: Option<String>,
+}
+
+impl Made {
+    /// Whether `path` is one of its text files (passed over as a file
+    /// that is no recording, without saying so).
+    pub fn is_text(&self, path: &str) -> bool {
+        [&self.readme, &self.ini, &self.script]
+            .iter()
+            .any(|p| p.as_deref() == Some(path))
+    }
+}
+
+/// A pack made before among `listed` (paths and sizes): the one
+/// announcer in them, with its texts' paths ([`Made`]).
+pub fn made(listed: &[(String, u64)]) -> Option<Made> {
     let found = find_announcers(listed, "");
     let [announcer] = found.announcers.as_slice() else {
         return None;
     };
-    let readme = readme_path(listed.iter().map(|(p, _)| p.as_str())).map(str::to_string);
-    Some((announcer.name.clone(), readme))
+    Some(Made {
+        name: announcer.name.clone(),
+        readme: readme_path(listed.iter().map(|(p, _)| p.as_str())).map(str::to_string),
+        ini: announcer.declaration.as_ref().map(ToString::to_string),
+        script: announcer.script.as_ref().map(ToString::to_string),
+    })
+}
+
+/// Where an imported pack's sound goes in the draft ([`PackPlan`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Planned {
+    pub line: Line,
+    /// The lines it is said for besides ([`Take::also`]).
+    pub also: Vec<Line>,
+    pub lang: Option<String>,
+    pub tags: Vec<String>,
+}
+
+/// What a pack made before says that the draft cannot carry over
+/// ([`PackPlan::lost`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Lost {
+    /// Its script was refused (its folders read instead): why.
+    Refused(String),
+    /// Its script itself: the studio writes one of its own from what it
+    /// read.
+    Script,
+    /// Its own settings (parameters but its Language), read at their
+    /// defaults: their names.
+    Settings(Vec<String>),
+    /// Its script chooses its recordings by the game's language: read as
+    /// for English.
+    ByGameLanguage,
+    /// How likely some recordings are (their weights): each as any other.
+    Weights,
+    /// Recordings said in every language, put in the first (how many,
+    /// and that language).
+    EveryLanguage(usize, String),
+    /// Sounds taken in two languages, kept in the first (how many).
+    TwoLanguages(usize),
+}
+
+/// A pack made before as its pool reads it (`super::pool`, its script
+/// run where it has one): each sound's place, the languages, Mixed and
+/// the switches, and what the draft cannot carry over.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PackPlan {
+    /// By each sound's path among the files listed.
+    pub takes: BTreeMap<String, Planned>,
+    pub languages: Vec<String>,
+    pub mixed: bool,
+    pub switches: Vec<Switch>,
+    pub lost: Vec<Lost>,
+}
+
+/// A declared pack among `listed` (paths and sizes) read through the
+/// game's pool, with its `announcer.ini` (`ini`) and `announcer.lua`
+/// (`script`) texts: `None` for a plain pack (neither), whose folders say
+/// what each sound is ([`match_line`]), or files that are not one pack.
+pub fn read_pack(
+    listed: &[(String, u64)],
+    ini: Option<&str>,
+    script: Option<&str>,
+) -> Option<PackPlan> {
+    if ini.is_none() && script.is_none() {
+        return None;
+    }
+    let found = find_announcers(listed, "");
+    let [a] = found.announcers.as_slice() else {
+        return None;
+    };
+    let mut kept = a.kept();
+    kept.ini = ini.map(str::to_string);
+    kept.script = script.map(str::to_string);
+    let values = ddi_noteskin::params::Values::new();
+    let (pool, refused) = kept.pool_with(&values, super::pool::FALLBACK_LANGUAGE);
+    let mut plan = PackPlan {
+        languages: pool.languages.clone(),
+        mixed: pool.mixed,
+        switches: pool
+            .tags
+            .iter()
+            .map(|t| Switch {
+                tag: t.name.clone(),
+                label: t.label.clone(),
+                default: t.default,
+            })
+            .collect(),
+        ..PackPlan::default()
+    };
+    match refused {
+        Some(why) => plan.lost.push(Lost::Refused(why)),
+        None if script.is_some() => {
+            plan.lost.push(Lost::Script);
+            if kept.pool_with(&values, "ja").0 != pool {
+                plan.lost.push(Lost::ByGameLanguage);
+            }
+        }
+        None => {}
+    }
+    let settings: Vec<String> = kept
+        .declaration()
+        .parameters
+        .iter()
+        .map(|p| p.name.clone())
+        .collect();
+    if !settings.is_empty() {
+        plan.lost.push(Lost::Settings(settings));
+    }
+    let (mut weights, mut every, mut two) = (false, 0, 0);
+    for t in &pool.takes {
+        let path = if a.dir.as_str().is_empty() {
+            t.file.to_string()
+        } else {
+            format!("{}/{}", a.dir, t.file)
+        };
+        weights |= t.weight != 1.0;
+        let lang = match (&t.lang, plan.languages.first()) {
+            (None, Some(first)) => {
+                every += 1;
+                Some(first.clone())
+            }
+            (lang, _) => lang.clone(),
+        };
+        let Some((&first, rest)) = t.events.split_first() else {
+            continue;
+        };
+        match plan.takes.get_mut(&path) {
+            Some(p) => {
+                for &l in &t.events {
+                    if p.line != l && !p.also.contains(&l) {
+                        p.also.push(l);
+                    }
+                }
+                for g in &t.tags {
+                    if !p.tags.contains(g) {
+                        p.tags.push(g.clone());
+                    }
+                }
+                if p.lang != lang {
+                    two += 1;
+                }
+            }
+            None => {
+                plan.takes.insert(
+                    path,
+                    Planned {
+                        line: first,
+                        also: rest.to_vec(),
+                        lang,
+                        tags: t.tags.clone(),
+                    },
+                );
+            }
+        }
+    }
+    if weights {
+        plan.lost.push(Lost::Weights);
+    }
+    if every > 0
+        && let Some(first) = plan.languages.first()
+    {
+        plan.lost.push(Lost::EveryLanguage(every, first.clone()));
+    }
+    if two > 0 {
+        plan.lost.push(Lost::TwoLanguages(two));
+    }
+    Some(plan)
 }
 
 /// What a pack made before says of itself ([`Draft::adopt`]).
@@ -73,13 +266,25 @@ pub struct Adopted {
     pub name: String,
     pub by: Option<String>,
     pub license: Option<String>,
+    /// A declared pack's pool, as the draft takes it ([`read_pack`]).
+    pub plan: Option<PackPlan>,
 }
 
 impl Adopted {
     /// The pack `name`, with what `readme`'s text credits.
     pub fn new(name: String, readme: Option<&str>) -> Adopted {
         let (by, license) = readme.map(readme_credits).unwrap_or_default();
-        Adopted { name, by, license }
+        Adopted {
+            name,
+            by,
+            license,
+            plan: None,
+        }
+    }
+
+    /// With a declared pack's pool ([`read_pack`]).
+    pub fn with_plan(self, plan: Option<PackPlan>) -> Adopted {
+        Adopted { plan, ..self }
     }
 }
 
@@ -1016,6 +1221,24 @@ impl Draft {
         }
     }
 
+    /// Take `id` placed as a pack made before has it ([`PackPlan`]): its
+    /// line and those it is said for besides (combo lines listed), its
+    /// language and its tags.
+    pub fn place(&mut self, id: u64, planned: &Planned) {
+        for l in std::iter::once(&planned.line).chain(&planned.also) {
+            if let Line::Combo(n) = l {
+                self.add_combo(*n);
+            }
+        }
+        let Some(t) = self.take_mut(id) else {
+            return;
+        };
+        t.line = Some(planned.line);
+        t.also = planned.also.clone();
+        t.lang = planned.lang.clone();
+        t.tags = planned.tags.clone();
+    }
+
     /// Take `id` said for `line` too (a combo line listed if it was not);
     /// whether it was not already. Not for a take not on a line yet.
     pub fn share(&mut self, id: u64, line: Line) -> bool {
@@ -1167,8 +1390,21 @@ impl Draft {
     }
 
     /// What a pack made before says of itself, where the draft says
-    /// nothing yet.
+    /// nothing yet: its name and credits; a declared pack's languages
+    /// (those the draft lacks after its own; a draft of no language named
+    /// takes the pack's, its takes in the first), Mixed and switches.
     pub fn adopt(&mut self, pack: Adopted) {
+        if let Some(plan) = &pack.plan {
+            for l in &plan.languages {
+                self.add_language(l);
+            }
+            self.mixed |= plan.mixed && self.languages.len() > 1;
+            for s in &plan.switches {
+                if self.switch_of(&s.tag).is_none() {
+                    self.switches.push(s.clone());
+                }
+            }
+        }
         let empty = |field: &str| field.trim().is_empty();
         if empty(&self.name) {
             self.name = pack.name;

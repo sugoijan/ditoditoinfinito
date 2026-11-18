@@ -13,7 +13,7 @@ use std::rc::Rc;
 
 use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as m;
-use ddi_library::announcer::draft::{DRAFT_MAX_BYTES, Draft, TAKE_MAX_BYTES};
+use ddi_library::announcer::draft::{Adopted, DRAFT_MAX_BYTES, Draft, PackPlan, TAKE_MAX_BYTES};
 use ddi_library::announcer::examples::Set;
 use ddi_library::announcer::{Bundled, Line, MAX_FILES};
 
@@ -68,11 +68,26 @@ impl StudioState {
         self.view.borrow().examples
     }
 
+    /// What a pack made before says of itself taken in ([`Draft::adopt`]),
+    /// what it says that the draft cannot carry over shown; its pool,
+    /// where it is a declared pack, for its sounds ([`StudioState::take_in`]).
+    pub fn adopt(&self, pack: Adopted) -> Option<PackPlan> {
+        let plan = pack.plan.clone();
+        self.view.borrow_mut().lost = plan
+            .iter()
+            .flat_map(|p| &p.lost)
+            .map(|l| studio::lost_text(l).into())
+            .collect();
+        self.draft.borrow_mut().adopt(pack);
+        plan
+    }
+
     /// A recording picked or dropped, taken in: `path` its name (its path
     /// in a folder or zip added), `size` its bytes and `head` its first
-    /// ones; on `line` where given (else by its name), the first in text
-    /// line `script`'s place where given (taken). Its id, or `None` where
-    /// the draft has no room for it ([`Draft::has_room`]).
+    /// ones; on `line` where given (else where a declared pack's pool
+    /// puts it, `plan`, else by its name), the first in text line
+    /// `script`'s place where given (taken). Its id, or `None` where the
+    /// draft has no room for it ([`Draft::has_room`]).
     pub fn take_in(
         &self,
         path: &str,
@@ -80,6 +95,7 @@ impl StudioState {
         head: &[u8],
         line: Option<Line>,
         script: &mut Option<u64>,
+        plan: Option<&PackPlan>,
     ) -> Option<u64> {
         let mut d = self.draft.borrow_mut();
         if !d.has_room(size) {
@@ -89,6 +105,9 @@ impl StudioState {
             Some(s) => d.add_to(s, path, size, head),
             None => d.add(path, size, head),
         };
+        if let Some(p) = plan.and_then(|p| p.takes.get(path)) {
+            d.place(id, p);
+        }
         if let Some(l) = line
             && let Some(t) = d.take_mut(id)
         {

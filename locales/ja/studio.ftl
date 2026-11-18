@@ -116,6 +116,18 @@ studio-take-unshare = このセリフでは使わない
 studio-also-title = ほかのセリフにも使う
 studio-also-note = { $file }は1つのまま保存され、選んだセリフそれぞれで使われます。
 
+studio-lost-refused = スクリプトを実行できませんでした（{ $error }）。録音はフォルダーから読み込みました。
+studio-lost-script = スクリプトはそのままでは保存されません。読み込んだ内容から、スタジオが新しく書き出します。
+studio-lost-settings = パック独自の設定（{ $names }）は引き継がれません。録音は既定の設定で読み込みました。
+studio-lost-by-language = スクリプトがゲームの言語で録音を選んでいます。英語の場合として読み込みました。
+studio-lost-weights = 一部の録音の出やすさは引き継がれません。どの録音も同じ確率で使われます。
+studio-lost-every-language = { $count ->
+   *[other] すべての言語で使われる録音{ $count }件を、{ $language }に入れました。
+}
+studio-lost-two-languages = { $count ->
+   *[other] 2つの言語で使われている録音{ $count }件は、最初の言語に入れました。
+}
+
 studio-advanced = 詳細設定
 
 studio-import-zip = ZIPからパックをインポート…

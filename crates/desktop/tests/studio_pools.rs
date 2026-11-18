@@ -187,5 +187,46 @@ fn the_studio_makes_a_pack_in_two_languages_with_a_tag_and_a_shared_take() {
     let mut mixed = Values::new();
     mixed.insert("Language".into(), Value::Text("mixed".into()));
     assert_eq!(kept.resolve(&mixed, "en").lines["gameplay ready"].len(), 2);
+
+    // The zip imported again into an emptied draft (Advanced's Import a
+    // pack from a zip…): its pool read through its script, the same pack
+    // made again.
+    let (lua_before, ini_before) = (lua, text("announcer.ini"));
+    for t in studio.draft().takes {
+        studio.act(Act::Remove(t.id));
+    }
+    studio.edit(|d| {
+        d.name.clear();
+        d.languages.clear();
+        d.working = None;
+        d.mixed = false;
+        d.switches.clear();
+    });
+    ddi_desktop::os::inject_picked(vec![zip.clone()]);
+    studio.act(Act::ImportFiles);
+    t.settled();
+    let back = studio.draft();
+    assert_eq!(back.name, "Pool Voice");
+    assert_eq!(back.languages, ["en", "ja"]);
+    assert!(back.mixed);
+    assert_eq!(back.takes.len(), 5, "{:?}", studio.status());
+    let shared = back.takes.iter().find(|t| t.source.ends_with("awesome.opus")).unwrap();
+    assert_eq!(shared.also, [Line::Cheer]);
+    let again = dir.join("out/again.zip");
+    ddi_desktop::os::inject_saved(Some(again.clone()));
+    studio.act(Act::Export);
+    t.settled();
+    let read = ZipReader::open(&again, &ddi_desktop::library::legacy_text).unwrap();
+    let text = |name: &str| {
+        let mut bytes = Vec::new();
+        read.extract_to(
+            read.names.iter().find(|n| n.to_string().ends_with(name)).unwrap(),
+            &mut bytes,
+        )
+        .unwrap();
+        String::from_utf8(bytes).unwrap()
+    };
+    assert_eq!(text("announcer.lua"), lua_before);
+    assert_eq!(text("announcer.ini"), ini_before);
     let _ = std::fs::remove_dir_all(&dir);
 }

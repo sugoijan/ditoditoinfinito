@@ -47,6 +47,9 @@ pub struct View {
     pub ready: Option<String>,
     /// An export or Use in the game under way.
     pub busy: bool,
+    /// What the pack imported last says that the draft could not carry
+    /// over ([`lost_text`]), shown under the status.
+    pub lost: Vec<String>,
 }
 
 /// An example of a line.
@@ -618,8 +621,23 @@ fn language_blocks(draft: &Draft) -> Vec<Block> {
     out
 }
 
+/// What a pack imported says that the draft could not carry over, in a
+/// sentence.
+pub fn lost_text(lost: &draft::Lost) -> UiText {
+    use draft::Lost;
+    match lost {
+        Lost::Refused(why) => m::lost_refused(super::errors::error_text(why)),
+        Lost::Script => m::lost_script(),
+        Lost::Settings(names) => m::lost_settings(UiText::data(names.join(", "))),
+        Lost::ByGameLanguage => m::lost_by_language(),
+        Lost::Weights => m::lost_weights(),
+        Lost::EveryLanguage(n, lang) => m::lost_every_language(*n, draft::language_name(lang)),
+        Lost::TwoLanguages(n) => m::lost_two_languages(*n),
+    }
+}
+
 /// What a line a tag switched off would leave silent comes to.
-fn silenced_text(s: &draft::Silenced) -> UiText {
+pub fn silenced_text(s: &draft::Silenced) -> UiText {
     let line = name(s.line);
     let instead = s.instead.map(name);
     let shown = matches!(s.line, Line::Battle(_));
@@ -704,6 +722,9 @@ pub fn doc(
     b.push(Block::Actions(actions));
     if !view.status.is_empty() {
         b.push(Block::Muted(view.status.clone()));
+    }
+    for l in &view.lost {
+        b.push(Block::Note(l.clone()));
     }
     b.extend(language_blocks(draft));
     if draft.too_big() {
@@ -1196,7 +1217,7 @@ pub fn tags_dialog(env: Env, draft: &Draft, take: u64, on_pick: TagFn) -> Option
             let label = if t.tags.contains(&tag) {
                 m::tag_on(&tag).into()
             } else {
-                tag.clone()
+                UiText::data(&tag).into()
             };
             (format!("tag:{tag}"), label)
         })
@@ -1238,7 +1259,7 @@ pub fn language_dialog(env: Env, draft: &Draft, on_pick: LanguageFn) -> ActionsD
     let items: Vec<(String, String)> = draft::LANGUAGES
         .iter()
         .filter(|(tag, _)| !draft.languages.iter().any(|l| l == tag))
-        .map(|(tag, name)| (tag.to_string(), name.to_string()))
+        .map(|(tag, name)| (tag.to_string(), UiText::data(*name).into()))
         .collect();
     let pick: PickFn = Rc::new(move |tag: &str, cx: &mut Cx| {
         on_pick(tag, cx);

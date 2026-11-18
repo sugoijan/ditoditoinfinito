@@ -294,6 +294,72 @@ fn studio_texts() -> Vec<String> {
         out.extend(p.items.into_iter().map(|(_, label)| label));
         out.push(p.note.into());
     }
+    // The dialogs of languages, tags and lines said too, what an import
+    // could not carry over, what a tag switched off silences, and the
+    // reader's refusal.
+    {
+        use ddi_library::announcer::draft::{Lost, Silenced};
+        let env = super::test_kit::env();
+        let take = draft.takes[0].id;
+        for d in [&Draft::default(), &draft] {
+            let p = studio::language_dialog(env.clone(), d, std::rc::Rc::new(|_, _| true));
+            out.extend(p.items().iter().map(|(_, l)| l.clone()));
+        }
+        let p = studio::tags_dialog(env.clone(), &draft, take, std::rc::Rc::new(|_, _| {}))
+            .expect("a take");
+        out.extend(p.items().iter().map(|(_, l)| l.clone()));
+        let p = studio::also_picker(env.clone(), &draft, take, std::rc::Rc::new(|_, _, _| {}))
+            .expect("a take");
+        out.extend(p.items().iter().map(|(_, l)| l.clone()));
+        let m = || ddi_l10n::msg::studio::status_unread(ddi_l10n::UiText::data("a.ogg"));
+        out.push(m().into());
+        for t in [
+            ddi_l10n::msg::studio::language_title_name(),
+            ddi_l10n::msg::studio::language_note_name(),
+            ddi_l10n::msg::studio::language_title_add(),
+            ddi_l10n::msg::studio::language_note_add(),
+            ddi_l10n::msg::studio::tags_title("a.ogg"),
+            ddi_l10n::msg::studio::tags_note(),
+            ddi_l10n::msg::studio::tag_new_title(),
+            ddi_l10n::msg::studio::tag_new_note(),
+            ddi_l10n::msg::studio::tag_not_a_word(),
+            ddi_l10n::msg::studio::also_title(),
+            ddi_l10n::msg::studio::also_note("a.ogg"),
+        ] {
+            out.push(t.into());
+        }
+        for l in [
+            Lost::Refused("no".into()),
+            Lost::Script,
+            Lost::Settings(vec!["Mood".into()]),
+            Lost::ByGameLanguage,
+            Lost::Weights,
+            Lost::EveryLanguage(1, "en".into()),
+            Lost::EveryLanguage(3, "ja".into()),
+            Lost::TwoLanguages(2),
+        ] {
+            out.push(studio::lost_text(&l).into());
+        }
+        let mut tagged = draft.clone();
+        let restart = tagged.add("gameplay restart.mp3", 1, b"ID3");
+        tagged.toggle_tag(restart, "calm");
+        let battle = tagged.add("battle stage won.mp3", 1, b"ID3");
+        tagged.toggle_tag(battle, "calm");
+        for lang in [None, Some("en".to_string())] {
+            for (line, instead) in [
+                (Line::Restart, Some(Line::Ready)),
+                (Line::Restart, None),
+                (Line::Battle(ddi_library::announcer::Battle::StageWon), None),
+            ] {
+                let s = Silenced {
+                    line,
+                    lang: lang.clone(),
+                    instead,
+                };
+                out.push(studio::silenced_text(&s).into());
+            }
+        }
+    }
     let empty = Draft::default();
     // A pack's own counts too, and what the combo dialog says.
     out.push(ddi_l10n::msg::studio::combo_not_a_count().into());

@@ -47,7 +47,7 @@ use std::rc::{Rc, Weak};
 use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as ms;
 use ddi_library::announcer::draft::{
-    self, Adopted, Decoded, Draft, HEAD, Sound, Write, made_before, takes,
+    self, Adopted, Decoded, Draft, HEAD, Sound, Write, takes,
 };
 use ddi_library::announcer::examples::Set;
 use ddi_library::announcer::{Bundled, Line, Spoken, tidy};
@@ -636,6 +636,7 @@ impl Studio {
                 }
             }
             let count = picked.len();
+            this.state.view.borrow_mut().lost.clear();
             this.status(ms::status_adding(count));
             let mut files: Vec<(String, Blob)> = Vec::new();
             for p in picked {
@@ -651,27 +652,32 @@ impl Studio {
                 }
             }
             // A pack made before: its name, and the credits its README
-            // gives, where the draft has none.
+            // gives, where the draft has none; a declared pack's pool, its
+            // `announcer.ini` and script run as the game runs them.
             let listed: Vec<(String, u64)> = files
                 .iter()
                 .map(|(p, b)| (p.clone(), b.size() as u64))
                 .collect();
-            let mut readme = None;
-            if let Some((name, path)) = made_before(&listed) {
-                let blob = path
+            let pack = draft::made(&listed);
+            let mut plan = None;
+            if let Some(m) = &pack {
+                let text = async |path: &Option<String>| match path
                     .as_ref()
-                    .and_then(|r| files.iter().find(|(p, _)| p == r));
-                let text = match blob {
+                    .and_then(|r| files.iter().find(|(p, _)| p == r))
+                {
                     Some((_, blob)) => wasm_bindgen_futures::JsFuture::from(blob.text())
                         .await
                         .ok()
                         .and_then(|t| t.as_string()),
                     None => None,
                 };
-                readme = path;
-                this.state.draft
-                    .borrow_mut()
-                    .adopt(Adopted::new(name, text.as_deref()));
+                let readme = text(&m.readme).await;
+                let ini = text(&m.ini).await;
+                let script = text(&m.script).await;
+                let read = draft::read_pack(&listed, ini.as_deref(), script.as_deref());
+                plan = this.state.adopt(
+                    Adopted::new(m.name.clone(), readme.as_deref()).with_plan(read),
+                );
             }
             let mut writes = Vec::new();
             let mut added = 0;
@@ -680,16 +686,17 @@ impl Studio {
             for (path, blob) in files {
                 let head = head_of(&blob).await.unwrap_or_default();
                 if !takes(&path, &head) {
-                    if readme.as_deref() != Some(path.as_str()) {
+                    if !pack.as_ref().is_some_and(|m| m.is_text(&path)) {
                         passed += 1;
                     }
                     continue;
                 }
                 // Too large to be a recording, or the draft is full: a
                 // folder of songs picked by mistake stops here.
+                let size = blob.size() as u64;
                 let Some(id) =
                     this.state
-                        .take_in(&path, blob.size() as u64, &head, line, &mut script)
+                        .take_in(&path, size, &head, line, &mut script, plan.as_ref())
                 else {
                     over += 1;
                     continue;

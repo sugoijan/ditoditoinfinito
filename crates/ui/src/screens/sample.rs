@@ -704,6 +704,15 @@ pub fn studio() -> (
     let script = d.write(Line::Ready);
     *d.words_mut(script).expect("written") = "Get ready!".into();
     d.take_mut(hot).expect("added").words = Some("So hot!".into());
+    // Two languages, mixed; a tag players may switch off; a take said
+    // for a second line.
+    d.add_language("en");
+    d.add_language("ja");
+    d.working = Some("en".into());
+    d.mixed = true;
+    d.toggle_tag(ready, "calm");
+    d.toggle_switch("calm");
+    d.share(hot, Line::Cheer);
     let view = super::studio::View {
         examples: Set::English,
         details: true,
@@ -711,6 +720,9 @@ pub fn studio() -> (
         status: ddi_l10n::msg::studio::status_added(9, 1).into(),
         ready: Some("Announcer.zip".into()),
         busy: false,
+        lost: vec![
+            super::studio::lost_text(&ddi_library::announcer::draft::Lost::Script).into(),
+        ],
     };
     let mut kept = Kept {
         name: Set::English.pack().into(),
