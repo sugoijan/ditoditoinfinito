@@ -257,3 +257,32 @@ else under the diagram filling the card; Page Up and Page Down scroll
 them a column at a time, as do the wheel and the mark under them. What
 the card holds and its focus order are unchanged; a solo play's prompt is
 not changed.
+
+## The music's volume (round AB, 2026-11-19)
+
+A player who muted the music on song select met a silent play with no way
+back short of Options, which a room's stage does not leave room for. Every
+card but a calibration's (`PromptState::without_volume`; its click track
+plays at the music's level and is left as it is) has song select's quick
+volume (`ddi_ui::widgets::volume`, the same component) in its top right
+corner, the classic part's on a room's Ready card, beside the players: the
+song's title is cut shorter for it, nothing else moves (the buttons, the
+countdown, the rows). While the music is muted or at zero, one quiet line
+left of it says "Music is muted" (`prompt-music-muted`).
+
+- The pointer as on song select: the mouse over it shows its slider, a
+  click mutes or brings the level back (the level the last mute kept, the
+  game's, `kept_level`), a tap shows it and the next tap mutes, a press
+  or drag along the slider sets it, the wheel steps it; a press elsewhere
+  while a tap holds it open only closes it (its tap starts nothing).
+- Keys and controllers: it is never the first focus; Up from the top row
+  (from the buttons where there are no rows) reaches it, Up and Down (and
+  the menu's Previous and Next) step it by 5%, Start mutes or brings the
+  level back, Back takes the focus back to Start without leaving.
+- None of it is a choice the countdown hears: the countdown runs on
+  (the direction that brought the focus there stops it, as any does).
+- The level is the Music volume setting, kept when it settles; the play
+  reads it as it starts (the web reads it again then), and song select
+  shows it, and tells its preview, when the player is back.
+- `ui.theme.prompt.volume` (percent, null without the control) and
+  `musicMuted` for tests.

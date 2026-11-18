@@ -63,3 +63,58 @@ Validation (2026-10-29):
 Reproduce captures by setting `DDI_HUD_SNAPSHOTS` to a scratch directory
 when running `play_hud_offscreen`. Native runs use an isolated `DDI_HOME`
 and the repository's memory watchdog, without a window or audio device.
+
+## The music's volume (round AB, 2026-11-19)
+
+In a multiplayer test a player muted the music with song select's quick
+volume and then could not unmute it at the Ready card or during the play.
+The start prompt and the Ready card have the quick volume since
+(`docs/plans/start-prompt.md`, "The music's volume"); a play has a
+pointer-only one beside its quit button (`ddi_shell::play_volume`), for
+the mouse and touch screens alike and no keys or controller (the
+maintainer, 2026-11-19: "it's enough to have a pointer only control (near
+the close button) for both touch and mouse"; the play's keys are its
+lanes').
+
+- **Where and when.** The quit button's size, beside it toward the
+  screen's middle (below a quit button in the top half, above one in the
+  bottom half: away from the receptors' row the quit button already
+  avoids), shown exactly when the quit button shows: throughout on a
+  touch screen, for two seconds after the mouse moved, in replays and
+  watched stages too; never in calibration (its click track is left as
+  it is). Drawn by the play's 2D pass over everything: a dark disc with a
+  light rim as the quit button is, the speaker of `ui/volume.svg` in
+  shapes (crossed out when muted, one to three waves).
+- **What a press does.** A press on the button opens its slider (a plate
+  of the quick volume's popup colors, `ddi_theme::volume_colors`: track,
+  fill, knob and the level in percent), along the same way from the
+  button where it fits, else beside it; a press on the button with the
+  slider open mutes, or brings back the level the last mute kept
+  (`ddi_ui::widgets::volume::kept_level`, the game's, so a mute on song
+  select is undone here); a press or a drag along the slider sets the
+  level, the music following as it moves, the setting kept when let go.
+  The slider closes with the buttons, after three seconds untouched
+  (`play_volume::IDLE`), and at a press elsewhere, which goes on to do
+  what it does (a lane's press presses the lane).
+- **What it never touches.** The shells hit-test it from where the frame
+  drew it (`Drawn::volume_at`) as they hit-test the quit button, before
+  the quit button and the lanes, and hand its edges to
+  `PlayView::volume_edges` at the next frame, never to the play's inputs:
+  nothing of it is in the play's log. `play_volume::apply` calls
+  `PlaySession::set_volume`, which ramps the music's own gain over 20 ms
+  (`VOLUME_RAMP`, `AudioBackend::set_volume`: the web's gain node,
+  desktop's mixer voice), and plays the claps, mine sounds, scripts'
+  sounds and the announcer's next lines (its share of the music's) at
+  it; the audio clock, the offsets and the judging do not hear of it
+  (`a_volume_changed_during_a_play_judges_the_same_from_the_same_presses`:
+  the same presses judge the same into the same log).
+- **No keep-out of its own.** The miniatures' slots keep clear of the quit
+  button's place, not of this button: a keep-out for it moved the stage's
+  layouts (eight fields to seven on a 360×640 phone, 28 to 26 px lanes for
+  eight at 1280×720), so it is drawn over a miniature while it shows.
+- **Tests.** `ddi_shell::play_volume`'s own (its place at several quit
+  buttons, presses, drags, closing), the session's above, desktop's
+  `play_volume` offscreen test (the prompt's control and the play's
+  through `Shell::play_pointer`), and the web's
+  `__DDI_DEBUG.playVolume` (`percent`, `open`, `button`, `plate`,
+  `volume`, `musicGain`: the music's gain node now).

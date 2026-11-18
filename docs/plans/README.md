@@ -393,7 +393,8 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   to the shared renderer and checked offscreen. Life trails, Iosevka type,
   combo tiers and still title watermark. The life gauge four lanes wide
   over the field and filling from the middle out, on a curve, since
-  2026-11-06.
+  2026-11-06. The music's volume beside the quit button, pointer only,
+  since 2026-11-19 (round AB).
 
 - [Pump layouts](pump.md) (2026-10-13): done (ticked holds 2026-10-14,
   pump skins 2026-10-16, every bundled skin's own center 2026-10-22).
@@ -561,7 +562,8 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   Reverse, Turn, Appearance, Lane cover, the noteskin; Save as default).
   Controls preview added 2026-10-27: the chart's receptors and primary
   bindings above the modifiers, a brief looping press demo, with auto-start
-  taking priority.
+  taking priority. The music's volume in the card's corner, saying when
+  the music is muted, since 2026-11-19 (round AB).
 - [Start menu and returning between screens](start-menu.md) (2026-10-20):
   implemented 2026-10-21. Singleplayer entry, a future Multiplayer hint, caller-relative
   Options, silent return from song select and desktop Quit. Animated Dosis

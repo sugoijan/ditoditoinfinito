@@ -110,12 +110,20 @@ then one to three waves) and a vertical slider drops under it while the
 mouse is over either, while it has the focus, or after a tap (touch has
 no hover: the slider stays until a press elsewhere). A press on the icon
 while the slider shows mutes, or brings back the level from before the
-mute (the default level when muted since the start), so a mouse's click
+mute (the level the last mute kept anywhere, song select's, the start
+prompt's or the play's, `kept_level`; the default level when muted since
+the game started), so a mouse's click
 always mutes and a touch's first tap only shows. With the focus, Up and
 Down step it by 5%, Start mutes and Back returns to the list; a wheel
 over it steps it too. It is the setting Options calls Music volume: the
 preview follows at once (`SelectCall::Volume`), the settings keep it
-when a drag is released. The compact layout has none.
+when a drag is released. The compact layout has none (a phone's player
+reaches the volume on the start prompt and in the play instead,
+`docs/plans/start-prompt.md`, "The music's volume", and
+`docs/plans/play-hud.md`). A room's follower, who has no search, keeps the
+quick volume in its place (round AB, 2026-11-19). Back on top of a screen
+that changed the level (Options, the prompt, a play), it shows the new
+level and tells the preview (`SelectCall::Volume`).
 While typing, a keyboard's keys stay the field's (its arrows still move
 through the suggestions or browse the songs found), so these rows only
 change what a controller does. A browser starts typing only inside a key

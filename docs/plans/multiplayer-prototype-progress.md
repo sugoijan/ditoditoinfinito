@@ -12164,6 +12164,23 @@ stage traces and the pins of drawn output unchanged.
   the default policy live and moving those tests and the fake room, not
   a bounded removal.
 
+## Round AB: the music's volume at the Ready card and in a stage (2026-11-19)
+
+Found in a test with other players: muted on song select (the quick
+volume's mute is the Music volume setting at 0), the stage's play was
+silent (the music, and with it the claps, mine sounds and the announcer,
+which play at its level or a share of it) and nothing on the Ready card or
+in the play could change it; Options was out of reach without leaving the
+stage. A room's follower did have the quick volume on a desktop-sized song
+select (in the search's row, the search hidden); on a phone's compact
+layout nobody has it. Now the start prompt and the Ready card carry the
+same quick volume in the card's corner with "Music is muted" beside it
+while muted (`docs/plans/start-prompt.md`, "The music's volume"), and a
+stage's play (a watched one too) has a pointer-only volume beside the quit
+button (`docs/plans/play-hud.md`, "The music's volume"); the Ready card's
+change is that control and its line alone. No room model revision: nothing
+peers agree on changed.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

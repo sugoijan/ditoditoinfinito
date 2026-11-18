@@ -458,6 +458,10 @@ Rust and the browser are implementation details, not advertised features.
   the built-in arrows on the way; on the web one preview outlives the pages.
   Modifiers sit below
   the diagram on the same card, without tabs or instructional copy;
+  song select's quick volume sits in the card's top right corner (every
+  card but a calibration's, `PromptState::without_volume`), "Music is
+  muted" beside it while the music is muted or at zero, never the first
+  focus nor heard by the countdown (round AB);
   a watched stage's prompt has neither (`PromptInfo::watched`, set by
   `set_watched_stage`: the card, the watching line and the buttons);
   auto-start always takes priority. Its countdown fills the Start button's
