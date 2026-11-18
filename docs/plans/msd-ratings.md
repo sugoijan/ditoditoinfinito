@@ -316,14 +316,11 @@ is and nothing is removed.
   and `Estimate::means` alone, where `within_studied_domain` (to 900
   source notes): the CPU level matched to the chart's own estimate,
   `clamp(decimal / 19 × 10, 1, 10)`, each skill's cost the two rows of
-  `means` about it interpolated there, a negative cost as zero. The
-  spokes are the costs as shares of the chart's largest (the shape only,
-  as MSD's are shares of its overall); each spoke's number is its cost in
-  points of Accuracy to a tenth; the caption is "DDI" and the decimal; a
-  line beside it says what the numbers are. Where the costs sum to under
-  half a point (`ratings::FLAT_PP`): "No skill stands out on this
-  chart"; outside the studied domain: "Outside what the estimate was
-  studied on"; a chart that is not an original Single chart: "The DDI
+  `means` about it interpolated there, a negative cost as zero. Each
+  spoke's number is its cost in points of Accuracy to a tenth; the
+  caption is "DDI" and the decimal; a line beside it says what the
+  numbers are. How the spokes are drawn: round Z3 below. Outside the
+  studied domain: "Outside what the estimate was studied on"; a chart that is not an original Single chart: "The DDI
   estimate is for Single charts"; none made: "No estimate for this
   chart"; on its way: "Rating this chart…". Round Z1's layout, label rule,
   motion and tests apply to both sources.
@@ -334,6 +331,27 @@ is and nothing is removed.
   (by share: on handstream Stamina is still the largest cost);
   chordjacks read as Jumpstream with Stamina, the Chordjack spoke barely
   moving; Technical never moves.
+- **Round Z3 (2026-11-19): a floor for every skill, the whole shape
+  growing with the difficulty.** The maintainer, the shape having read as
+  a thin spike (most costs are zero): "What if we set a minimum value of
+  1 for each skill and grow everything proportionally to the difficulty?
+  That way if no skill stands out it will just be an octagon with size
+  that varies with difficulty." Drawing only (nothing estimated, kept or
+  cached changes; MSD's radar draws as before, `msd_s_shape_draws_as_pinned`):
+  each skill's value is `1 + e`, `e = cost / (cost + 2)` (`COST_HALF`, 2
+  points: a typical chart's Stream cost), absolute rather than a share of
+  the chart's largest; a spoke is `base(decimal) × (1 + e × 0.6)` of the
+  radius (`GROWTH` 0.6: a standout reaches at most six tenths past the
+  base, a bulge rather than a spike, and leaves the base room to grow
+  2.8 times), `base` rising linearly from 0.22 at 1 (`BASE_AT_1`: about
+  14 px at 1280 × 720, still a clear octagon inside its labels) to
+  `1 / 1.6` = 0.625 at 19 (`BASE_AT_19`, so the longest spoke there can
+  be ends at the outer ring, where the labels begin);
+  `crate::radar::estimate_spokes`. A chart with no costs is a regular
+  octagon whose size says its difficulty; a standout bulges past it. The
+  rings behind it mark difficulties: the base octagon at 5, 10 and 15,
+  then the outer ring (`estimate_rings`). The "No skill stands out"
+  line and its state are gone.
 - **Measured** (release build, 2026-11-18): the worker's wasm went from
   295,735 to 502,669 bytes (117,106 to 227,893 gzipped; the app's own
   wasm 14,388,263 to 14,418,184, the estimator not linked into it); the
@@ -342,8 +360,9 @@ is and nothing is removed.
   and 55 ms in Firefox, about 2.7 ms a chart; every one equal to the
   native estimator's to the hundredth (decimal, level, both domains and
   the eight costs). Of the bundled songs' 19 original Single charts, 18
-  have a number (one Beginner chart is short of 48 heads), 18 a profile,
-  12 a shape (6 easy charts are flat).
+  have a number (one Beginner chart is short of 48 heads) and 18 a
+  profile (12 with a skill standing out, 6 easy ones flat: since round Z3
+  each drawn, the flat ones as small regular octagons).
 
 Checked: `state::ratings`' tests (the record kept and read back, a new
 estimator's or rule's names forgetting them, waiting for a play, the
