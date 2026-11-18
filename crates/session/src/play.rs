@@ -275,6 +275,39 @@ impl SessionConfig {
         Ok((rules, options))
     }
 
+    /// Refused before anything starts: a stage played other than from its
+    /// start, live; a solo CPU's play other than on an untransformed 4K
+    /// chart at 1× (`layout` the chart's), or with presses it cannot play.
+    fn refuse(&self, layout: &Layout) -> Result<(), String> {
+        let cpu = self.cpu.is_some();
+        if self.opponents.is_some()
+            && (cpu
+                || self.replay.is_some()
+                || self.calibration.is_some()
+                || self.staging.is_some()
+                || self.start.is_some())
+        {
+            return Err("a stage is played from its start, live".into());
+        }
+        if let Some(script) = &self.cpu {
+            if self.replay.is_some()
+                || self.calibration.is_some()
+                || self.staging.is_some()
+                || self.start.is_some()
+                || self.auto_pad
+                || layout.lanes.len() != 4
+                || self.options.transform != Default::default()
+                || self.options.clock.rate != 1.0
+            {
+                return Err("CPU requires an untransformed 4K chart at 1×".into());
+            }
+            // A tap-only copy's presses (`cpu-play-v0`), or the chart's
+            // own (`cpu-play-v1`: holds kept, rolls re-tapped, lifts).
+            ddi_engine::cpu::validate_any_script(script)?;
+        }
+        Ok(())
+    }
+
     /// Calibration test `mode` instead of a song: the plain chart is
     /// measured (its ruleset, no turn, no removed notes, a steady speed);
     /// the sound-only test hides the notes, the arrows-only one is muted.
@@ -700,33 +733,11 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         // a replay plays by the rules it was played by.
         let (mut ruleset, options) = config.player_spec(song, chart_index, settings)?;
         let cpu = config.cpu.is_some();
-        if config.opponents.is_some()
-            && (cpu
-                || config.replay.is_some()
-                || config.calibration.is_some()
-                || config.staging.is_some()
-                || config.start.is_some())
-        {
-            return Err("a stage is played from its start, live".into());
-        }
+        config.refuse(&layout)?;
         if cpu {
             // A CPU demonstration completes the song even if its gauge empties.
             // Timing windows, note matching, scoring and the gauge stay unchanged.
             ruleset.fail = ddi_engine::FailPolicy::Off;
-            if config.replay.is_some()
-                || config.calibration.is_some()
-                || config.staging.is_some()
-                || config.start.is_some()
-                || config.auto_pad
-                || layout.lanes.len() != 4
-                || config.options.transform != Default::default()
-                || config.options.clock.rate != 1.0
-            {
-                return Err("CPU requires an untransformed 4K chart at 1×".into());
-            }
-            // A tap-only copy's presses (`cpu-play-v0`), or the chart's
-            // own (`cpu-play-v1`: holds kept, rolls re-tapped, lifts).
-            ddi_engine::cpu::validate_any_script(config.cpu.as_ref().unwrap())?;
         }
         let staging = config.staging.clone().filter(|_| config.replay.is_none());
         // A watched stage: nothing of the session's own player is played
@@ -946,110 +957,28 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             }
             _ => player.start(start_ctx, song_offset),
         }
-        // A stage's CPU opponents, on the same song and rules, from the
-        // same second.
-        let mut battle = match config.opponents.take() {
-            Some(setup) => {
-                // How far ahead the player reads: the attacks' leads
-                // (only a battle with attacks needs it).
-                let horizon = if setup.battle.attacks() {
-                    player.reading_horizon()
-                } else {
-                    0.0
-                };
-                let b = Battle::new(
-                    setup,
-                    song,
-                    chart_index,
-                    player.ruleset(),
-                    song_offset,
-                    horizon,
-                    &ladder,
-                )?;
-                Some(match config.live.take() {
-                    Some(handle) => b.with_live(handle, player.ruleset().judge.lock),
-                    None => b,
-                })
-            }
-            None => None,
-        };
-        // Later than a live stage's late join: forfeited at once, the
-        // stage watched from where the room has it.
-        let late_watch = live_start.is_some_and(|l| l.late)
-            && battle
-                .as_mut()
-                .is_some_and(|b| b.forfeit_now(song_offset, &player));
-        if late_watch {
-            player.quit_at(song_offset);
-        }
-        // DEVELOPMENT ONLY: a section of battle shocks in the stage's
-        // play and each CPU's (`--mp-dev-mines`, `mpdevmines=`).
-        if let Some(b) = battle.as_mut()
-            && let Some(beat) = b.setup().dev_mines_at_beat
-        {
-            let seed = b.setup().stage.0;
-            // None fit from there: none (the debug state says so).
-            if let Some(section) =
-                crate::battle::dev_shocks(&mut player, song, chart_index, beat, seed)
-            {
-                b.dev_shocks(&section, song_offset);
-            }
-        }
-        // The announcer, on the music's timeline: its first note is the
-        // first judged one the play reaches.
-        let first_note = player
-            .judge()
-            .notes()
-            .iter()
-            .filter(|n| n.judgeable && n.seconds >= song_offset)
-            .map(|n| n.seconds)
-            .reduce(f64::min);
+        let (battle, late_watch) = stage_battle(
+            &mut config,
+            &mut player,
+            song,
+            chart_index,
+            song_offset,
+            &ladder,
+            live_start,
+        )?;
         let timing = Timing {
             start: start_ctx,
             offset: song_offset,
             rate: player.clock().options().rate,
         };
-        let announcer = Announcer::new(
-            config.calibration.is_none(),
-            config.voice_volume,
-            config
-                .prior
-                .filter(|_| config.replay.is_none() && !auto_play),
+        let announcer = announcer_for(
+            &config,
             timing,
-            first_note,
+            &player,
+            battle.as_ref(),
+            staging.as_ref(),
+            auto_play,
         );
-        let announcer = if config.restart {
-            announcer.restarted()
-        } else {
-            announcer
-        };
-        // A stage's voice: opened by the battle, its routine left out.
-        let announcer = match &battle {
-            Some(b) => announcer
-                .in_stage(b.setup().opening(), BATTLE_VOICE_V3)
-                .results_say(
-                    // (`Battle::end_event`: a stage ranked on this
-                    // device, for one who competes in it.)
-                    !b.setup().remote() && b.competes(),
-                    b.setup().number >= b.setup().of,
-                ),
-            None => announcer,
-        };
-        // A staged play has danced already where a note came before its
-        // start (no ready, no here we go), its combo and comment gap given.
-        let announcer = match &staging {
-            Some(s) => {
-                let danced = player
-                    .judge()
-                    .notes()
-                    .iter()
-                    .any(|n| n.judgeable && n.seconds < song_offset);
-                announcer
-                    .staged(danced, player.combo(), s.since)
-                    .for_example(s.example)
-            }
-            None => announcer,
-        };
         // Nothing may cue the player in calibration; a watcher has no notes
         // of their own to clap or step on.
         let sounds = if config.calibration.is_some() || spectating {
@@ -2460,6 +2389,135 @@ type PadControls = Vec<(String, String)>;
 
 /// The Back and Start controls of every pad `controls` keeps and every
 /// one `connected` (a standard one without saved bindings: its defaults).
+/// A stage's CPU opponents, on the same song and rules as `player`, from
+/// the same second (`song_offset`), its ladder `ladder`; a live stage's
+/// handle given to it, a late join past its bound forfeited at once (and
+/// so watched: the second value), the development switch's shocks put
+/// in. None where `config` plays no stage.
+fn stage_battle(
+    config: &mut SessionConfig,
+    player: &mut Player,
+    song: &Song,
+    chart_index: usize,
+    song_offset: f64,
+    ladder: &[ddi_engine::cpu::PlannedRung],
+    live_start: Option<crate::battle::live::LiveStart>,
+) -> Result<(Option<Battle>, bool), String> {
+    let mut battle = match config.opponents.take() {
+        Some(setup) => {
+            // How far ahead the player reads: the attacks' leads
+            // (only a battle with attacks needs it).
+            let horizon = if setup.battle.attacks() {
+                player.reading_horizon()
+            } else {
+                0.0
+            };
+            let b = Battle::new(
+                setup,
+                song,
+                chart_index,
+                player.ruleset(),
+                song_offset,
+                horizon,
+                ladder,
+            )?;
+            Some(match config.live.take() {
+                Some(handle) => b.with_live(handle, player.ruleset().judge.lock),
+                None => b,
+            })
+        }
+        None => None,
+    };
+    // Later than a live stage's late join: forfeited at once, the
+    // stage watched from where the room has it.
+    let late_watch = live_start.is_some_and(|l| l.late)
+        && battle
+            .as_mut()
+            .is_some_and(|b| b.forfeit_now(song_offset, player));
+    if late_watch {
+        player.quit_at(song_offset);
+    }
+    // DEVELOPMENT ONLY: a section of battle shocks in the stage's
+    // play and each CPU's (`--mp-dev-mines`, `mpdevmines=`).
+    if let Some(b) = battle.as_mut()
+        && let Some(beat) = b.setup().dev_mines_at_beat
+    {
+        let seed = b.setup().stage.0;
+        // None fit from there: none (the debug state says so).
+        if let Some(section) =
+            crate::battle::dev_shocks(player, song, chart_index, beat, seed)
+        {
+            b.dev_shocks(&section, song_offset);
+        }
+    }
+    Ok((battle, late_watch))
+}
+
+/// The play's announcer on the music's `timing` (its first note the first
+/// judged one `player` reaches): a stage's voice where `battle` plays one,
+/// a staged play's where `staging` stages one, no player's past (`Prior`)
+/// for a replay or an autoplayed play.
+fn announcer_for<B>(
+    config: &SessionConfig,
+    timing: Timing,
+    player: &Player,
+    battle: Option<&Battle>,
+    staging: Option<&Staging>,
+    auto_play: bool,
+) -> Announcer<B> {
+    let song_offset = timing.offset;
+    // The announcer, on the music's timeline: its first note is the
+    // first judged one the play reaches.
+    let first_note = player
+        .judge()
+        .notes()
+        .iter()
+        .filter(|n| n.judgeable && n.seconds >= song_offset)
+        .map(|n| n.seconds)
+        .reduce(f64::min);
+    let announcer = Announcer::new(
+        config.calibration.is_none(),
+        config.voice_volume,
+        config
+            .prior
+            .filter(|_| config.replay.is_none() && !auto_play),
+        timing,
+        first_note,
+    );
+    let announcer = if config.restart {
+        announcer.restarted()
+    } else {
+        announcer
+    };
+    // A stage's voice: opened by the battle, its routine left out.
+    let announcer = match battle {
+        Some(b) => announcer
+            .in_stage(b.setup().opening(), BATTLE_VOICE_V3)
+            .results_say(
+                // (`Battle::end_event`: a stage ranked on this
+                // device, for one who competes in it.)
+                !b.setup().remote() && b.competes(),
+                b.setup().number >= b.setup().of,
+            ),
+        None => announcer,
+    };
+    // A staged play has danced already where a note came before its
+    // start (no ready, no here we go), its combo and comment gap given.
+    match staging {
+        Some(s) => {
+            let danced = player
+                .judge()
+                .notes()
+                .iter()
+                .any(|n| n.judgeable && n.seconds < song_offset);
+            announcer
+                .staged(danced, player.combo(), s.since)
+                .for_example(s.example)
+        }
+        None => announcer,
+    }
+}
+
 fn pad_controls(
     controls: &ControlBindings,
     connected: &[ConnectedPad],
