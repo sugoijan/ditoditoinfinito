@@ -2274,7 +2274,7 @@ impl GameCanvas {
         }
         let watched = ctx.props().watch.is_some();
         config.session.opponents = ctx.props().room_stage.as_deref().map(|order| {
-            let mut setup = ddi_session::battle::StageSetup::of(order);
+            let mut setup = order.setup.clone();
             // The policy the player has as the play starts (it may have
             // changed on the stage's prompt since the order was made); an
             // audience's has none.

@@ -714,7 +714,7 @@ fn adaptive_cost_of_72_cpus() {
             stage: StageId(3),
             number: 1,
             of: 1,
-            battle: BattlePreset::GaugeAttacksV0,
+            battle: ddi_room::BattlePreset::GaugeAttacksV0,
             rules,
             me: ParticipantId(1),
             targeting: Targeting::Spread,

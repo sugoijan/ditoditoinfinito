@@ -414,7 +414,7 @@ fn session_for(
     let settings = Settings::default();
     let mut config = SessionConfig::from_settings(&settings, true, None);
     config.auto_bias = bias;
-    config.opponents = Some(StageSetup::of(order));
+    config.opponents = Some(order.setup.clone());
     config.live = Some(r.handle(i));
     PlaySession::start(
         song,
@@ -1143,7 +1143,7 @@ fn person_among_bots(latency: Option<Latency>, person: usize, speed: f64, seed: 
     assert!(r.rooms[0].borrow().stage_started(stage));
     let order = orders[person].clone().unwrap();
     let mut config = SessionConfig::from_settings(&settings, true, None);
-    config.opponents = Some(StageSetup::of(&order));
+    config.opponents = Some(order.setup.clone());
     config.live = Some(r.handle(person));
     let mut plays = vec![
         PlaySession::start(
@@ -1761,7 +1761,7 @@ fn the_audience_watches_a_live_stage_behind_the_room_with_the_members_fields() {
     assert!(delay > 0.0 && delay <= 2.0);
     let settings = Settings::default();
     let mut config = SessionConfig::from_settings(&settings, true, None);
-    config.opponents = Some(StageSetup::of(&order));
+    config.opponents = Some(order.setup.clone());
     let host = r.host.clone();
     config.live = Some(crate::battle::live::LiveHandle {
         room: aud.clone(),
@@ -2045,7 +2045,7 @@ fn an_audience_seat_that_arrives_part_way_sees_the_stage_as_it_stands() {
     let order = aud.borrow_mut().watch_now().expect("Watch hands the stage over");
     let settings = Settings::default();
     let mut config = SessionConfig::from_settings(&settings, true, None);
-    config.opponents = Some(StageSetup::of(&order));
+    config.opponents = Some(order.setup.clone());
     let host = r.host.clone();
     config.live = Some(crate::battle::live::LiveHandle {
         room: aud.clone(),
@@ -2167,7 +2167,7 @@ fn a_seat_part_way_draws_each_competitor_on_their_chart_and_one_who_left_as_left
     let order = aud.borrow_mut().watch_now().expect("Watch hands the stage over");
     let settings = Settings::default();
     let mut config = SessionConfig::from_settings(&settings, true, None);
-    config.opponents = Some(StageSetup::of(&order));
+    config.opponents = Some(order.setup.clone());
     let host = r.host.clone();
     config.live = Some(crate::battle::live::LiveHandle {
         room: aud.clone(),
@@ -2246,7 +2246,7 @@ fn an_audience_seat_that_watches_again_sees_the_stage_as_it_stands() {
     let start = |order: &StageOrder| {
         let settings = Settings::default();
         let mut config = SessionConfig::from_settings(&settings, true, None);
-        config.opponents = Some(StageSetup::of(order));
+        config.opponents = Some(order.setup.clone());
         let host = r.host.clone();
         config.live = Some(crate::battle::live::LiveHandle {
             room: aud.clone(),
@@ -2379,7 +2379,7 @@ fn a_seat_closed_during_a_watched_stage_stops_its_view_and_says_why() {
     let zero = r.rooms[0].borrow().song_zero_at(order.stage).unwrap();
     let settings = Settings::default();
     let mut config = SessionConfig::from_settings(&settings, true, None);
-    config.opponents = Some(StageSetup::of(&order));
+    config.opponents = Some(order.setup.clone());
     let host = r.host.clone();
     config.live = Some(crate::battle::live::LiveHandle {
         room: aud.clone(),
@@ -2660,7 +2660,7 @@ fn the_audience_watches_seventy_three_players_through_the_session() {
     assert_eq!(order.live.as_ref().unwrap().people.len(), N);
     let settings = Settings::default();
     let mut config = SessionConfig::from_settings(&settings, true, None);
-    config.opponents = Some(StageSetup::of(&order));
+    config.opponents = Some(order.setup.clone());
     let host = r.host.clone();
     config.live = Some(crate::battle::live::LiveHandle {
         room: aud.clone(),
@@ -3047,7 +3047,7 @@ fn a_seat_part_way_works_a_percent_out_against_the_competitors_rung() {
     let order = aud.borrow_mut().watch_now().expect("Watch hands the stage over");
     let settings = Settings::default();
     let mut config = SessionConfig::from_settings(&settings, true, None);
-    config.opponents = Some(StageSetup::of(&order));
+    config.opponents = Some(order.setup.clone());
     let host = r.host.clone();
     config.live = Some(crate::battle::live::LiveHandle {
         room: aud.clone(),
@@ -3638,7 +3638,7 @@ fn watched_delays(late: f64, seconds: f64) -> Vec<f64> {
     }
     let settings = Settings::default();
     let mut config = SessionConfig::from_settings(&settings, true, None);
-    config.opponents = Some(StageSetup::of(&order));
+    config.opponents = Some(order.setup.clone());
     let host = r.host.clone();
     config.live = Some(crate::battle::live::LiveHandle {
         room: aud.clone(),

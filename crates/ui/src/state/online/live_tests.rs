@@ -194,7 +194,7 @@ fn the_picker_offers_the_plan_and_every_device_compares_it_before_loaded() {
     // The stage's order carries it, and the others of the stage.
     let order = all[1].take_stage_order().expect("Bob's prompt");
     assert_eq!(order.battle, ddi_room::BattlePreset::GaugeAttacksV0);
-    let live = order.live.expect("played live");
+    let live = order.setup.live.expect("played live");
     assert_eq!(live.prep, Some(plan));
     assert_eq!(live.people.len(), 2);
     assert!(all[2].take_stage_order().is_none(), "Carol sits it out");

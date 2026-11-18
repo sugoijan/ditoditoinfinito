@@ -227,7 +227,7 @@ impl Request {
             config.calibrate(mode);
         }
         if let Some(order) = &self.stage {
-            let mut setup = ddi_session::battle::StageSetup::of(order);
+            let mut setup = order.setup.clone();
             // The policy the player has as the play starts (it may have
             // changed on the stage's prompt since the order was made).
             if let Some(room) = &self.stage_room {

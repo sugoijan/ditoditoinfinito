@@ -57,87 +57,13 @@ use ddi_library::announcer::{Battle as Event, SURVIVOR_MILESTONES};
 use ddi_room::attacks::{AttackEvent, RosterSeat, SETTLEMENT, Settling, StageRoster};
 pub use ddi_room::attacks::{BlockReason, Targeting};
 use ddi_room::battle::decided;
-use ddi_room::{BattlePreset, Entrant, Finisher, ParticipantId, Run, RunDetail, StageId};
+use ddi_room::{Entrant, Finisher, ParticipantId, Run, RunDetail, StageId};
 pub use ddi_ui::state::room::StageRules;
 pub use ddi_ui::state::room::AttackSummary;
+pub use ddi_ui::state::room::StageSetup;
 use ddi_ui::state::room::{
-    CpuSeat, LiveOrder, MatchEnd, Refusal, RoomClient, StageOrder, run_detail,
+    CpuSeat, MatchEnd, Refusal, RoomClient, StageOrder, run_detail,
 };
-
-/// What a session needs to play a stage: which, under what battle, who
-/// the local player is and the CPUs committed to it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct StageSetup {
-    pub stage: StageId,
-    /// The stage's number, from 1, and the match's stages.
-    pub number: u16,
-    pub of: u16,
-    pub battle: BattlePreset,
-    /// The match's rules a stage is judged by (D0: DDI, its difficulty
-    /// and Boos): the play's, the CPUs' and the bots' ([`stage_ruleset`]).
-    pub rules: StageRules,
-    pub me: ParticipantId,
-    /// The local player's attack policy as the stage begins (their
-    /// member's, chosen before it: the room's players panel, the stage's
-    /// prompt); changed in play by [`Battle::set_targeting`].
-    pub targeting: Targeting,
-    pub cpus: Vec<CpuSeat>,
-    /// DEVELOPMENT ONLY: a section of battle shocks put into the local
-    /// player's play from this beat on (`--mp-dev-mines`, `mpdevmines=`).
-    pub dev_mines_at_beat: Option<u32>,
-    /// Other people starting the stage on their own devices (an online
-    /// room's): the room decides it from everyone's reports.
-    pub others: u16,
-    /// The local player is not in the stage: they watch it (`watch-v0`,
-    /// `StageOrder::watching`). `me` is then nobody's seat: the CPUs
-    /// alone are its competitors, judged on the song clock as ever, and
-    /// nothing of the session's own player is judged.
-    pub watching: bool,
-    /// An online room plays the stage live
-    /// (`docs/plans/multiplayer-online-play.md`, [`live`]): the other
-    /// competitors' plays are streamed to this one and its attacks are
-    /// the room's (a play given its room's client, `Battle::with_live`).
-    pub live: Option<LiveOrder>,
-}
-
-impl StageSetup {
-    /// The stage's opening event: the match's beginning on its first stage
-    /// (a one-stage match's too: one opening, never stacked), its last
-    /// stage's, else a stage's.
-    pub fn opening(&self) -> Event {
-        if self.number <= 1 {
-            Event::MatchBegin
-        } else if self.number >= self.of {
-            Event::FinalStage
-        } else {
-            Event::StageBegin
-        }
-    }
-
-    pub fn of(order: &StageOrder) -> StageSetup {
-        StageSetup {
-            stage: order.stage,
-            number: order.number,
-            of: order.of,
-            battle: order.battle,
-            rules: order.rules.clone(),
-            dev_mines_at_beat: order.dev_mines_at_beat,
-            me: order.me,
-            targeting: order.targeting,
-            cpus: order.cpus.clone(),
-            others: order.others,
-            watching: order.watching,
-            live: order.live.clone(),
-        }
-    }
-
-    /// Decided by the room from everyone's reports, never on this device:
-    /// other people play it on their own devices, or the room plays it
-    /// live (its CPUs too, `ddi_room::live::cpus`).
-    pub fn remote(&self) -> bool {
-        self.others > 0 || self.live.is_some()
-    }
-}
 
 /// The policies in the order a press cycles them (D8), and each one's
 /// number in a play's log (`ddi_engine::history::PolicyChange`).
@@ -2824,7 +2750,7 @@ pub fn leave_prompt(room: &mut RoomClient, order: &StageOrder, song: Option<&Son
     let rules = stage_ruleset(&order.rules);
     let outcome = song
         .filter(|s| s.charts.get(chart).is_some())
-        .map(|song| forfeit(StageSetup::of(order), song, chart, &rules));
+        .map(|song| forfeit(order.setup.clone(), song, chart, &rules));
     match outcome {
         Some(Ok(o)) => LeftPrompt::Forfeited(report_outcome(room, o).taken),
         other => {

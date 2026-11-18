@@ -4,7 +4,6 @@
 //! room, a whole match from its first stage to the next match's lobby.
 
 use super::*;
-use crate::battle::StageSetup;
 use ddi_room::{Finish, MatchRules, Phase, Points};
 use ddi_ui::screens::data::{ChartEntry, Difficulty, SongEntry};
 use ddi_ui::state::room::{RoomClient, StageOrder, check_chart};
@@ -126,7 +125,7 @@ fn play(
         inputs.key(at, code, pressed);
     }
     let mut config = SessionConfig::from_settings(settings, auto, None);
-    config.opponents = Some(StageSetup::of(order));
+    config.opponents = Some(order.setup.clone());
     if !settings.stepmania.is_default() {
         config.stage_rules = Some(rules_of(settings, order, song));
     }
@@ -323,7 +322,7 @@ fn a_stage_is_never_a_replay_a_test_or_the_cpu_demo() {
     let order = begin(&song, &mut room, &mut now);
     let clock: Clock = Rc::new(RefCell::new(0.0));
     let mut config = SessionConfig::from_settings(&settings, false, None);
-    config.opponents = Some(StageSetup::of(&order));
+    config.opponents = Some(order.setup.clone());
     config.cpu = Some(Vec::new());
     assert!(
         PlaySession::start(
@@ -341,7 +340,7 @@ fn a_stage_is_never_a_replay_a_test_or_the_cpu_demo() {
     let mut config = SessionConfig::from_settings(&settings, false, None);
     config.options.clock.rate = 1.5;
     config.options.transform.turn = ddi_engine::Turn::Mirror;
-    config.opponents = Some(StageSetup::of(&order));
+    config.opponents = Some(order.setup.clone());
     let (rules, options) = config.player_spec(&song, CHART, &settings).unwrap();
     assert_eq!(options.clock.rate, 1.0);
     assert_eq!(options.transform, Default::default());
@@ -372,7 +371,7 @@ fn play_voiced(
 ) -> (PlaySession<FakeAudio, FakeInputs>, Vec<String>) {
     let clock: Clock = Rc::new(RefCell::new(0.0));
     let mut config = SessionConfig::from_settings(settings, auto, None);
-    config.opponents = Some(StageSetup::of(order));
+    config.opponents = Some(order.setup.clone());
     if !settings.stepmania.is_default() {
         config.stage_rules = Some(rules_of(settings, order, song));
     }
@@ -765,7 +764,7 @@ fn an_online_stage_is_never_decided_here_and_reports_the_players_own_run() {
     };
     assert!(life > 0.5 && score > 0, "{life} {score}");
     assert_eq!(ids(&outcome), vec![vec![(order.me.0, Finish::Survived)]]);
-    let setup = StageSetup::of(&order);
+    let setup = order.setup.clone();
     assert!(setup.remote());
     let battle = crate::battle::Battle::new(
         setup,
@@ -970,7 +969,7 @@ fn play_at(song: &Song, order: &StageOrder, fps: f64) -> PlaySession<FakeAudio, 
     let clock: Clock = Rc::new(RefCell::new(0.0));
     let settings = Settings::default();
     let mut config = SessionConfig::from_settings(&settings, true, None);
-    config.opponents = Some(StageSetup::of(order));
+    config.opponents = Some(order.setup.clone());
     let mut s = PlaySession::start(
         song,
         order.chart.index,
@@ -1159,7 +1158,7 @@ fn replayed(
         rules.fresh(),
         *s.player.options(),
     );
-    let ladder = crate::battle::stage_ladder(song, order.chart.index, &StageSetup::of(order));
+    let ladder = crate::battle::stage_ladder(song, order.chart.index, &order.setup.clone());
     for r in &ladder {
         if r.up {
             human.add_rung_up(song, r.chart).unwrap();
@@ -1169,7 +1168,7 @@ fn replayed(
     }
     human.start(0.0, log.start);
     let mut battle = crate::battle::Battle::new(
-        StageSetup::of(order),
+        order.setup.clone(),
         song,
         order.chart.index,
         &rules,
@@ -1437,7 +1436,7 @@ fn play_with(
 ) -> PlaySession<FakeAudio, FakeInputs> {
     let clock: Clock = Rc::new(RefCell::new(0.0));
     let mut config = SessionConfig::from_settings(settings, true, None);
-    config.opponents = Some(StageSetup::of(order));
+    config.opponents = Some(order.setup.clone());
     let mut inputs = FakeInputs::new(&clock);
     inputs.pads.push(ConnectedPad {
         vendor_product: None,
@@ -1529,7 +1528,7 @@ fn a_policy_changed_in_play_applies_from_the_next_checkpoint_at_any_frame_rate_a
                 AttackEvent::Retargeted {
                     participant,
                     targeting,
-                } if *participant == order.me => Some((c.at_us, *targeting)),
+                } if *participant == order.setup.me => Some((c.at_us, *targeting)),
                 _ => None,
             })
         })
@@ -1669,7 +1668,7 @@ fn shift_cycles_the_policy_tab_still_does_and_a_lane_s_shift_plays_the_lane() {
     let at_end = |settings: &Settings, edges: &[(f64, DeviceId, &str, bool)]| {
         let clock: Clock = Rc::new(RefCell::new(0.0));
         let mut config = SessionConfig::from_settings(settings, true, None);
-        config.opponents = Some(StageSetup::of(&order));
+        config.opponents = Some(order.setup.clone());
         let mut inputs = FakeInputs::new(&clock);
         inputs.pads.push(ConnectedPad {
             vendor_product: None,
@@ -1732,7 +1731,7 @@ fn the_player_s_attacks_are_links_while_they_last() {
     let clock: Clock = Rc::new(RefCell::new(0.0));
     let settings = Settings::default();
     let mut config = SessionConfig::from_settings(&settings, true, None);
-    config.opponents = Some(StageSetup::of(&order));
+    config.opponents = Some(order.setup.clone());
     let mut s = PlaySession::start(
         &song,
         order.chart.index,
@@ -1858,7 +1857,7 @@ fn the_player_s_attack_moments_are_told_in_the_status_line() {
     let clock: Clock = Rc::new(RefCell::new(0.0));
     let settings = Settings::default();
     let mut config = SessionConfig::from_settings(&settings, true, None);
-    config.opponents = Some(StageSetup::of(&order));
+    config.opponents = Some(order.setup.clone());
     let mut s = PlaySession::start(
         &song,
         order.chart.index,
@@ -1971,7 +1970,7 @@ fn attacks_voiced(
     let clock: Clock = Rc::new(RefCell::new(0.0));
     let settings = Settings::default();
     let mut config = SessionConfig::from_settings(&settings, true, None);
-    config.opponents = Some(StageSetup::of(order));
+    config.opponents = Some(order.setup.clone());
     let mut s = PlaySession::start(
         song,
         order.chart.index,
@@ -2454,7 +2453,7 @@ fn the_player_gone_the_cpus_and_their_attacks_are_played_out() {
     assert_eq!(ids(&outcome).iter().flatten().count(), 5);
     // Left at the prompt: the same CPUs played out with attacks.
     let f = crate::battle::forfeit(
-        StageSetup::of(&order),
+        order.setup.clone(),
         &song,
         LONG,
         &rules_of(&settings, &order, &song),
@@ -2506,7 +2505,7 @@ fn stage_session_with(
         inputs.key(at, code, pressed);
     }
     let mut config = SessionConfig::from_settings(&settings, auto, None);
-    config.opponents = Some(StageSetup::of(order));
+    config.opponents = Some(order.setup.clone());
     let s = PlaySession::start(
         song,
         order.chart.index,
@@ -2704,7 +2703,7 @@ fn a_watched_stage_runs_its_cpus_to_its_settlement_at_any_frame_rate() {
         assert_eq!(ids(&at_once), ranking);
         // A watched stage left at its prompt: the CPUs alone, ranked.
         let prompt = crate::battle::forfeit(
-            StageSetup::of(&order),
+            order.setup.clone(),
             &song,
             LONG,
             &rules_of(&settings, &order, &song),
@@ -2750,7 +2749,7 @@ fn a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely() {
     let order = begin_watching(&song, &mut practice, &mut now, LONG);
     let clock: Clock = Rc::new(RefCell::new(0.0));
     let mut config = SessionConfig::from_settings(&settings, false, None);
-    config.opponents = Some(StageSetup::of(&order));
+    config.opponents = Some(order.setup.clone());
     config.stage_rules = Some(rules_of(&settings, &order, &song));
     let mut s = PlaySession::start(
         &song,
@@ -3127,7 +3126,7 @@ fn a_reported_stage_keeps_the_played_policy_where_it_had_attacks() {
         // Left at its prompt, its policy changed meanwhile (as a play
         // changes it): the cheapest outcome of the stage.
         let mut outcome = crate::battle::forfeit(
-            StageSetup::of(&order),
+            order.setup.clone(),
             &song,
             CHART,
             &rules_of(&settings, &order, &song),

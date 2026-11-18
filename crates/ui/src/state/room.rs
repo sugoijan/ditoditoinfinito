@@ -580,36 +580,31 @@ pub struct StageDue {
     pub watching: bool,
 }
 
-/// A stage to play now, handed to the shell once its countdown is over
-/// ([`RoomClient::take_stage_order`]): the library song and chart, the
-/// stage's place in the match, the battle, the local player and the CPUs
-/// committed to it.
+/// What a session needs to play a stage (`ddi_session::battle`): which,
+/// under what battle, who the local player is and the CPUs committed to
+/// it. The part of a [`StageOrder`] that is the play's.
 #[derive(Clone, Debug, PartialEq)]
-pub struct StageOrder {
+pub struct StageSetup {
     pub stage: StageId,
     /// The stage's number, from 1, and the match's stages.
     pub number: u16,
     pub of: u16,
-    pub song: SongEntry,
-    pub chart: ChartEntry,
     pub battle: BattlePreset,
-    /// Attacks can be played in the stage's room (CPU practice): its
-    /// prompt then says where the match has none.
-    pub attacks_offered: bool,
-    /// The room offers Adaptive charts ([`RoomClient::adaptive_offered`]):
-    /// its prompt says the charts rule only where it does.
-    pub adaptive_offered: bool,
-    /// The match's rules the stage is judged by, everyone's (D0), played
-    /// in place of the player's own.
+    /// The match's rules the stage is judged by, everyone's (D0: DDI, its
+    /// difficulty and Boos), played in place of the player's own: the
+    /// play's, the CPUs' and the bots' (`ddi_session::battle::stage_ruleset`).
     pub rules: StageRules,
     pub me: ParticipantId,
-    /// The local player's attack policy as the order was made (their
-    /// member's, `RoomClient::my_targeting`): the shells give the play the
-    /// one they have as it starts (it may change on the stage's prompt).
+    /// The local player's attack policy as the stage begins (their
+    /// member's, `RoomClient::my_targeting`, chosen before it: the room's
+    /// players panel, the stage's prompt; the shells give the play the
+    /// one they have as it starts); changed in play by
+    /// `ddi_session::battle::Battle::set_targeting`.
     pub targeting: ddi_room::attacks::Targeting,
     pub cpus: Vec<CpuSeat>,
     /// DEVELOPMENT ONLY: a section of battle shocks put into the local
-    /// player's play from this beat on ([`Development::mines_at_beat`]).
+    /// player's play from this beat on ([`Development::mines_at_beat`]:
+    /// `--mp-dev-mines`, `mpdevmines=`).
     pub dev_mines_at_beat: Option<u32>,
     /// Other people starting it, each on their own device (an online
     /// room's): the stage is decided by the room from everyone's reports,
@@ -617,15 +612,71 @@ pub struct StageOrder {
     /// the play in this prototype.
     pub others: u16,
     /// The local player is not in the stage: they watch it
-    /// ([`RoomClient::watches`]: CPU practice, the CPUs' plays judged on
-    /// this device). `me` is then nobody's seat in it.
+    /// ([`RoomClient::watches`]; `watch-v0`). `me` is then nobody's seat
+    /// in it: the CPUs alone are its competitors, judged on the song
+    /// clock as ever, and nothing of the session's own player is judged.
     pub watching: bool,
     /// An online room that plays the stage live
     /// (`docs/plans/multiplayer-online-play.md`): what this device worked
     /// out for it and who else plays it. Its song starts at the room's
-    /// instant ([`RoomClient::song_zero_in`]), its plays are streamed and
-    /// its attacks are the room's.
+    /// instant ([`RoomClient::song_zero_in`]), the other competitors'
+    /// plays are streamed to this one and its attacks are the room's (a
+    /// play given its room's client, `ddi_session::battle::Battle::with_live`).
     pub live: Option<LiveOrder>,
+}
+
+impl StageSetup {
+    /// The stage's opening event: the match's beginning on its first stage
+    /// (a one-stage match's too: one opening, never stacked), its last
+    /// stage's, else a stage's.
+    pub fn opening(&self) -> ddi_library::announcer::Battle {
+        use ddi_library::announcer::Battle as Event;
+        if self.number <= 1 {
+            Event::MatchBegin
+        } else if self.number >= self.of {
+            Event::FinalStage
+        } else {
+            Event::StageBegin
+        }
+    }
+
+    /// Decided by the room from everyone's reports, never on this device:
+    /// other people play it on their own devices, or the room plays it
+    /// live (its CPUs too, `ddi_room::live::cpus`).
+    pub fn remote(&self) -> bool {
+        self.others > 0 || self.live.is_some()
+    }
+}
+
+/// A stage to play now, handed to the shell once its countdown is over
+/// ([`RoomClient::take_stage_order`]): the play's [`StageSetup`] (read
+/// through the order: `order.me`), the library song and chart, and what
+/// its prompt says of the room.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StageOrder {
+    pub setup: StageSetup,
+    pub song: SongEntry,
+    pub chart: ChartEntry,
+    /// Attacks can be played in the stage's room (CPU practice): its
+    /// prompt then says where the match has none.
+    pub attacks_offered: bool,
+    /// The room offers Adaptive charts ([`RoomClient::adaptive_offered`]):
+    /// its prompt says the charts rule only where it does.
+    pub adaptive_offered: bool,
+}
+
+impl std::ops::Deref for StageOrder {
+    type Target = StageSetup;
+
+    fn deref(&self) -> &StageSetup {
+        &self.setup
+    }
+}
+
+impl std::ops::DerefMut for StageOrder {
+    fn deref_mut(&mut self) -> &mut StageSetup {
+        &mut self.setup
+    }
 }
 
 /// A stage an online room plays live, as its order carries it.
@@ -4075,44 +4126,46 @@ impl RoomClient {
             })
             .collect();
         let order = StageOrder {
-            stage,
-            number: u16::try_from(index + 1).unwrap_or(u16::MAX),
-            of: u16::try_from(m.stages.len()).unwrap_or(u16::MAX),
+            setup: StageSetup {
+                stage,
+                number: u16::try_from(index + 1).unwrap_or(u16::MAX),
+                of: u16::try_from(m.stages.len()).unwrap_or(u16::MAX),
+                // What is really played: attacks only where they are
+                // offered (never a rule that silently does nothing).
+                battle: BattlePreset::with_attacks(self.attacks_played(&m.rules_for(stage))),
+                rules: StageRules::of_stage(m, stage),
+                dev_mines_at_beat: development().mines_at_beat,
+                me: self.me,
+                targeting: self.my_targeting(),
+                cpus,
+                others: u16::try_from(
+                    field
+                        .iter()
+                        .filter(|id| **id != self.me)
+                        .filter(|id| s.member(**id).is_some_and(|m| !m.is_cpu()))
+                        .count(),
+                )
+                .unwrap_or(u16::MAX),
+                watching: !self.in_stage(stage),
+                live: self.plays_live().then(|| LiveOrder {
+                    seed: st.content.as_ref().map(|c| {
+                        ddi_room::live::plan::seed_for(&s.room, stage, &c.id.chart)
+                    }),
+                    prep: self.live_preps.get(&stage).cloned(),
+                    people: field
+                        .iter()
+                        .filter(|id| **id != self.me)
+                        .filter_map(|id| match &s.member(*id)?.kind {
+                            MemberKind::Human { name, .. } => Some((*id, name.clone())),
+                            MemberKind::Cpu { .. } => None,
+                        })
+                        .collect(),
+                }),
+            },
             song: picked.song,
             chart: picked.chart,
-            // What is really played: attacks only where they are
-            // offered (never a rule that silently does nothing).
-            battle: BattlePreset::with_attacks(self.attacks_played(&m.rules_for(stage))),
             attacks_offered: self.attacks_offered(),
             adaptive_offered: self.adaptive_offered(),
-            rules: StageRules::of_stage(m, stage),
-            dev_mines_at_beat: development().mines_at_beat,
-            me: self.me,
-            targeting: self.my_targeting(),
-            cpus,
-            others: u16::try_from(
-                field
-                    .iter()
-                    .filter(|id| **id != self.me)
-                    .filter(|id| s.member(**id).is_some_and(|m| !m.is_cpu()))
-                    .count(),
-            )
-            .unwrap_or(u16::MAX),
-            watching: !self.in_stage(stage),
-            live: self.plays_live().then(|| LiveOrder {
-                seed: st.content.as_ref().map(|c| {
-                    ddi_room::live::plan::seed_for(&s.room, stage, &c.id.chart)
-                }),
-                prep: self.live_preps.get(&stage).cloned(),
-                people: field
-                    .iter()
-                    .filter(|id| **id != self.me)
-                    .filter_map(|id| match &s.member(*id)?.kind {
-                        MemberKind::Human { name, .. } => Some((*id, name.clone())),
-                        MemberKind::Cpu { .. } => None,
-                    })
-                    .collect(),
-            }),
         };
         self.launched.insert(stage);
         // A live stage this member watches: its music delayed to match the

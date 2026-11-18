@@ -296,7 +296,7 @@ fn practice_on(
         inputs.key(at, code, pressed);
     }
     let mut config = SessionConfig::from_settings(settings, auto, None);
-    config.opponents = Some(StageSetup::of(&order));
+    config.opponents = Some(order.setup.clone());
     if !settings.stepmania.is_default() {
         config.stage_rules = Some(rules_of(settings, &order, song));
     }
@@ -323,7 +323,7 @@ fn practice_on(
     }
     // The same stage left at its prompt.
     let left = crate::battle::forfeit(
-        StageSetup::of(&order),
+        order.setup.clone(),
         song,
         order.chart.index,
         &rules_of(settings, &order, song),
@@ -465,7 +465,7 @@ fn the_player_s_links_and_the_watchers_agree_on_who_is_out() {
         let order = begin_at(&song, &mut room, &mut now, LONG);
         let clock: Clock = Rc::new(RefCell::new(0.0));
         let mut config = SessionConfig::from_settings(&settings, auto, None);
-        config.opponents = Some(StageSetup::of(&order));
+        config.opponents = Some(order.setup.clone());
         config.stage_rules = Some(rules_of(&settings, &order, &song));
         let mut s = PlaySession::start(
             &song,

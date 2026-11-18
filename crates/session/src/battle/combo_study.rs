@@ -1094,7 +1094,7 @@ fn stages(cands: &[Cand]) {
                 let mut setup =
                     super::study::cpu_practice(seed, &levels, rules, None, Targeting::Spread);
                 if !attacks {
-                    setup.battle = BattlePreset::GaugeSurvivalV0;
+                    setup.battle = ddi_room::BattlePreset::GaugeSurvivalV0;
                 }
                 let b = super::played_out_forfeit(setup, song, *chart, &ruleset).unwrap();
                 let table = &ruleset.judge;

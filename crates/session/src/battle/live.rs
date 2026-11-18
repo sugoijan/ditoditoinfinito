@@ -1807,7 +1807,7 @@ impl LivePlay {
             None,
         );
         let mut log = vec![play.describe()];
-        let setup = crate::battle::StageSetup::of(order);
+        let setup = order.setup.clone();
         let ruleset = crate::battle::stage_ruleset(&order.rules);
         let ladder = crate::battle::stage_ladder(song, chart, &setup);
         let checkpoints = prep

@@ -36,7 +36,7 @@ use super::online::SharedOnline;
 use super::online::api::{self, AudienceTicketDoc, Problem};
 use super::room::{
     CpuSeat, LiveAsk, LiveOrder, LivePrep, LiveRoom, LoadJob, LoadProblem, Picked, SeatEnd, StageOrder,
-    StageRules, StageTable, TableSource, ranking_of,
+    StageRules, StageSetup, StageTable, TableSource, ranking_of,
 };
 
 /// How far behind the room's song time an audience device plays a
@@ -906,26 +906,28 @@ impl AudienceClient {
             ddi_room::live::plan::seed_for(&RoomId::new(self.room.clone()), stage, c)
         });
         let order = StageOrder {
-            stage,
-            number: u16::try_from(index + 1).unwrap_or(u16::MAX),
-            of: u16::try_from(v.stages.len()).unwrap_or(u16::MAX),
+            setup: StageSetup {
+                stage,
+                number: u16::try_from(index + 1).unwrap_or(u16::MAX),
+                of: u16::try_from(v.stages.len()).unwrap_or(u16::MAX),
+                battle: ddi_room::BattlePreset::with_attacks(attacks),
+                rules: self.stage_rules_of(Some(stage)),
+                me: AUDIENCE_ME,
+                targeting: Default::default(),
+                cpus,
+                dev_mines_at_beat: None,
+                others: u16::try_from(people.len()).unwrap_or(u16::MAX),
+                watching: true,
+                live: Some(LiveOrder {
+                    prep,
+                    people,
+                    seed,
+                }),
+            },
             song: prepared.picked.song,
             chart: prepared.picked.chart,
-            battle: ddi_room::BattlePreset::with_attacks(attacks),
             attacks_offered: true,
             adaptive_offered: true,
-            rules: self.stage_rules_of(Some(stage)),
-            me: AUDIENCE_ME,
-            targeting: Default::default(),
-            cpus,
-            dev_mines_at_beat: None,
-            others: u16::try_from(people.len()).unwrap_or(u16::MAX),
-            watching: true,
-            live: Some(LiveOrder {
-                prep,
-                people,
-                seed,
-            }),
         };
         self.launched.insert(stage);
         // The music's delay for it, from what the stage watched last

@@ -46,7 +46,7 @@ use ddi_room::{
     Capability, ClientId, Connection, Intent, LinkState, ParticipantId, Phase, PhaseKind, Run,
     StageId,
 };
-use ddi_session::battle::{Rung, StageRules, StageSetup};
+use ddi_session::battle::{Rung, StageRules};
 
 use crate::clock::now_ms;
 use ddi_ui::screens::data::{ChartEntry, SongEntry};
@@ -561,7 +561,7 @@ impl StagePlay {
         now_ms: u64,
     ) -> Result<StagePlay, String> {
         // Its ladder where the stage's charts adapt, as everyone's CPUs.
-        let ladder = ddi_session::battle::stage_ladder(song, chart, &StageSetup::of(order));
+        let ladder = ddi_session::battle::stage_ladder(song, chart, &order.setup.clone());
         let mut opponent = cpu_for(song, chart, &order.rules, &ladder, profile, seed)?;
         opponent.start(0.0);
         Ok(StagePlay {
@@ -1951,22 +1951,24 @@ mod tests {
 
     fn order(rules: ddi_session::battle::StageRules) -> StageOrder {
         StageOrder {
-            stage: StageId(3),
-            number: 1,
-            of: 2,
+            setup: ddi_ui::state::room::StageSetup {
+                stage: StageId(3),
+                number: 1,
+                of: 2,
+                battle: ddi_room::BattlePreset::GaugeSurvivalV0,
+                rules,
+                dev_mines_at_beat: None,
+                me: ddi_room::ParticipantId(2),
+                targeting: Default::default(),
+                cpus: Vec::new(),
+                others: 0,
+                watching: false,
+                live: None,
+            },
             song: SongEntry::default(),
             chart: ChartEntry::default(),
-            battle: ddi_room::BattlePreset::GaugeSurvivalV0,
             attacks_offered: false,
             adaptive_offered: true,
-            rules,
-            dev_mines_at_beat: None,
-            me: ddi_room::ParticipantId(2),
-            targeting: Default::default(),
-            cpus: Vec::new(),
-            others: 0,
-            watching: false,
-            live: None,
         }
     }
 
@@ -2054,10 +2056,8 @@ mod tests {
                     .is_some_and(|l| l.lanes.len() == 4 && l.players == 1)
             })
             .unwrap();
-        let order = StageOrder {
-            others: 3,
-            ..order(Default::default())
-        };
+        let mut order = order(Default::default());
+        order.others = 3;
         let profile = Profile {
             name: "T".into(),
             level: 9,
