@@ -571,6 +571,11 @@ pub struct Battle {
     /// fields draw it, its name and whether it is above the stage's
     /// chart; empty where the charts are as picked.
     rungs: Vec<Rung>,
+    /// The stage's chart's notes and each rung's as DDI's totals count
+    /// them, in an online stage whose charts adapt: what each remote
+    /// competitor's percent is worked out against as they step
+    /// (`live::Shown`, round Y3); empty otherwise.
+    counted: Vec<Rc<live::Counted>>,
 }
 
 /// A rung of the stage's ladder as the battle shows it.
@@ -859,6 +864,14 @@ impl Battle {
             )
         });
         let own = feed::FieldFeed::new(&track, 1.0, feed::LOCAL_DELAY);
+        let counted = if online && !rungs.is_empty() && ruleset.is_ddi() {
+            std::iter::once(chart)
+                .chain(rungs.iter().map(|r| r.chart))
+                .map(|c| Rc::new(live::Counted::of(song, c, ruleset)))
+                .collect()
+        } else {
+            Vec::new()
+        };
         // A device watching an online stage with CPUs and attacks makes
         // the stage's plan itself (a player's comes with its preparation).
         let cpu_plan = match (&setup.live, setup.battle.attacks() && !seats.is_empty()) {
@@ -909,6 +922,7 @@ impl Battle {
             outs_told: Vec::new(),
             remote_live: None,
             rungs,
+            counted,
         })
     }
 
@@ -1080,6 +1094,7 @@ impl Battle {
         if let Some(l) = self.remote_live.as_mut() {
             l.set_most(most, max);
             l.set_rungs(self.rungs.iter().map(|r| (Rc::clone(&r.track), r.up)).collect());
+            l.set_counted(self.counted.clone());
             self.log.push(l.describe());
             if !self.seats.is_empty() {
                 self.log.push(format!(

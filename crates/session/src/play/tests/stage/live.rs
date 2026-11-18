@@ -2889,6 +2889,217 @@ fn a_live_stage_steps_up_and_the_others_fields_follow() {
     }
 }
 
+/// Round Y3: under Adaptive charts a remote competitor's percent is
+/// worked out against what they were shown, the most and the full combo's
+/// part taken again at each of their steps as their own play takes them
+/// (`ddi::DdiScore::restep`), never against the stage's chart. Bob misses
+/// everything (his life runs out: a step down), then plays every note
+/// (steps up); at each frame of his that Alice's view of his field has,
+/// its percent is the one his own HUD showed then, exactly (before, it
+/// was read against Hard's notes all along, and the moments of one of
+/// his frames could show it before the frame's every W0 was counted).
+#[test]
+fn a_remote_percent_follows_the_competitors_steps_exactly() {
+    let song = bundled("beatucada");
+    const HARD: usize = 5;
+    let r = Room::new(&[("alice", Intent::Play), ("bob", Intent::Play)], None);
+    r.run(1.0);
+    let mut rules = r.rooms[0].borrow().rules().clone();
+    rules.charts = ddi_room::Charts::Adaptive;
+    r.rooms[0].borrow_mut().save_rules(rules).unwrap();
+    r.run(1.0);
+    let orders = pick_and_ready(&r, &song, true, HARD);
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 5.0]);
+    // Bob's own view after each frame: his sum, combo and percent.
+    let mut own: Vec<(i64, u32, i64)> = Vec::new();
+    let mut cured = false;
+    let _ = play_out(&r, &mut plays, 200.0, |_, plays| {
+        let bob = &mut plays[1];
+        if !cured && !bob.player.steps().is_empty() {
+            // From his first step down on he plays every note.
+            cured = true;
+            let notes = bob.player.judge().notes().to_vec();
+            let from = bob.player.steps()[0].boundary - bob.player.ruleset().judge.max_early();
+            let a = bob.auto.as_mut().unwrap();
+            a.bias = 0.0;
+            let fresh: Vec<_> = ddi_engine::autoplay::script(&notes, 0.0)
+                .into_iter()
+                .filter(|p| p.press >= from)
+                .collect();
+            a.events.truncate(a.next);
+            a.events.extend(fresh);
+        }
+        let d = bob.player.ruleset().score.view().ddi.unwrap();
+        own.push((d.score, bob.player.combo(), d.percent));
+    });
+    let steps = plays[1].player.steps().to_vec();
+    assert!(steps.iter().any(|s| !s.up) && steps.iter().any(|s| s.up), "{steps:?}");
+    // Alice's view of Bob's field: each moment of one of his frames (they
+    // carry his frame's sum and combo) says his percent as the frame left
+    // it, whatever order his song clock's shift puts them in.
+    let feed = plays[0].battle().unwrap().feeds().next().unwrap();
+    let moments = feed.moments();
+    let mut checked = [0usize; 3];
+    let mut first_step = None;
+    for m in moments {
+        let d = m.score.ddi.unwrap();
+        if matches!(m.kind, crate::battle::feed::MomentKind::Step(_)) && first_step.is_none() {
+            first_step = Some(m.at);
+        }
+        if matches!(m.kind, crate::battle::feed::MomentKind::Mark | crate::battle::feed::MomentKind::Left) {
+            continue;
+        }
+        let theirs: Vec<i64> = own
+            .iter()
+            .filter(|(sum, combo, _)| *sum == d.score && *combo == m.combo)
+            .map(|o| o.2)
+            .collect();
+        assert!(!theirs.is_empty(), "no frame of Bob's with sum {} combo {}", d.score, m.combo);
+        assert!(theirs.contains(&d.percent), "at {:.2}: seen {:?} his own {theirs:?}", m.at, d);
+        let phase = match first_step {
+            None => 0,
+            Some(_) if m.at < steps.iter().find(|s| s.up).unwrap().at => 1,
+            Some(_) => 2,
+        };
+        checked[phase] += 1;
+    }
+    assert!(checked.iter().all(|&n| n >= 3), "frames checked before, after the step down and after the step up: {checked:?}");
+    // His last percent, as his own play ended it.
+    let last = moments.iter().rev().find(|m| !matches!(m.kind, crate::battle::feed::MomentKind::Mark)).unwrap();
+    let mine = plays[1].player.ruleset().score.view().ddi.unwrap();
+    assert_eq!(last.score.ddi.unwrap().percent, mine.percent);
+}
+
+/// [`a_remote_percent_follows_the_competitors_steps_exactly`] for a seat
+/// of the audience that comes part-way, after Bob's step down: the
+/// snapshot's word on his step puts his field on his rung, and the totals
+/// his percent is worked out against are his own from then on, exactly
+/// (the most and the full combo's part). His percent itself only nearly:
+/// a snapshot tells his sum alone, not the W0s and the combo part of what
+/// came before the seat (that would need the stream to say more).
+#[test]
+fn a_seat_part_way_works_a_percent_out_against_the_competitors_rung() {
+    let song = bundled("beatucada");
+    const HARD: usize = 5;
+    let r = Room::under(
+        &[("alice", Intent::Play), ("bob", Intent::Play)],
+        None,
+        &[],
+        RoomPolicy::default().with_live().with_audience(),
+    );
+    for _ in 0..10 {
+        r.run(0.5);
+        if r.rooms.iter().all(|x| x.borrow().room_now().is_some()) {
+            break;
+        }
+    }
+    let mut rules = r.rooms[0].borrow().rules().clone();
+    rules.charts = ddi_room::Charts::Adaptive;
+    r.rooms[0].borrow_mut().save_rules(rules).unwrap();
+    r.run(1.0);
+    let orders = pick_and_ready(&r, &song, true, HARD);
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 5.0]);
+    let bob = orders[1].as_ref().unwrap().me;
+    let mut own: Vec<(i64, u32, i64, i64, i64)> = Vec::new();
+    let mut cured = false;
+    let mut each = |plays: &mut [PlaySession<FakeAudio, FakeInputs>]| {
+        let b = &mut plays[1];
+        if !cured && !b.player.steps().is_empty() {
+            cured = true;
+            let notes = b.player.judge().notes().to_vec();
+            let from = b.player.steps()[0].boundary - b.player.ruleset().judge.max_early();
+            let a = b.auto.as_mut().unwrap();
+            a.bias = 0.0;
+            let fresh: Vec<_> = ddi_engine::autoplay::script(&notes, 0.0)
+                .into_iter()
+                .filter(|p| p.press >= from)
+                .collect();
+            a.events.truncate(a.next);
+            a.events.extend(fresh);
+        }
+        let d = b.player.ruleset().score.view().ddi.unwrap();
+        own.push((d.score, b.player.combo(), d.percent, d.most, d.max));
+    };
+    let began = *r.host.borrow();
+    while *r.host.borrow() - began < 16.0 {
+        let _ = play_out(&r, &mut plays, 0.25, |_, plays| each(plays));
+    }
+    assert_eq!(plays[1].player.steps().len(), 1, "Bob stepped down, not yet up");
+    let aud = audience_seat(&r, "dora", None);
+    let tick_aud = || aud.borrow_mut().tick(wall(*r.host.borrow()));
+    let e = entry_at(&song, HARD);
+    let _ = play_out(&r, &mut plays, 4.0, |_, plays| {
+        each(plays);
+        tick_aud();
+        let jobs = aud.borrow_mut().take_load_jobs();
+        for job in jobs {
+            let prepared = prepare_stage(&job, &song, &mut |e| panic!("{e}")).unwrap();
+            let picked = Picked {
+                song: SongEntry {
+                    id: job.song.clone(),
+                    ..e.clone()
+                },
+                chart: e.charts[0].clone(),
+            };
+            aud.borrow_mut().finish_load(&job, Ok((picked, prepared.live)));
+        }
+    });
+    let order = aud.borrow_mut().watch_now().expect("Watch hands the stage over");
+    let settings = Settings::default();
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.opponents = Some(StageSetup::of(&order));
+    let host = r.host.clone();
+    config.live = Some(crate::battle::live::LiveHandle {
+        room: aud.clone(),
+        wall_ms: Rc::new(move || wall(*host.borrow())),
+    });
+    let mut watched = PlaySession::start(
+        &song,
+        order.chart.index,
+        &settings,
+        config,
+        FakeAudio::new(&r.host, 0.02),
+        110.0,
+        FakeInputs::new(&r.host),
+    )
+    .unwrap();
+    let mut done = false;
+    for _ in 0..(60 * 120) {
+        r.step(1.0 / 60.0, false);
+        let host = *r.host.borrow();
+        let mut over = true;
+        for p in plays.iter_mut() {
+            over &= p.tick(HostTime(host)).1.is_some() || p.player.finished();
+        }
+        each(&mut plays);
+        let _ = watched.tick(HostTime(host));
+        if over {
+            done = true;
+            break;
+        }
+    }
+    assert!(done || plays[1].player.steps().iter().any(|s| s.up), "on past a step up");
+    let b = watched.battle().unwrap();
+    let at = b.views().iter().position(|v| v.participant == bob).unwrap();
+    let feed = b.feeds().nth(at).unwrap();
+    let (mut checked, mut worst) = (0usize, 0i64);
+    for m in feed.moments() {
+        if matches!(m.kind, crate::battle::feed::MomentKind::Mark | crate::battle::feed::MomentKind::Left) {
+            continue;
+        }
+        let d = m.score.ddi.unwrap();
+        let theirs: Vec<&(i64, u32, i64, i64, i64)> =
+            own.iter().filter(|o| o.0 == d.score && o.1 == m.combo).collect();
+        let Some(o) = theirs.last() else { continue };
+        assert_eq!((d.most, d.max), (o.3, o.4), "at {:.2}: the totals he was shown", m.at);
+        worst = worst.max((d.percent - o.2).abs());
+        checked += 1;
+    }
+    assert!(checked >= 20, "{checked} of his frames read by the seat");
+    eprintln!("a seat part-way: {checked} frames, the percent within {worst} hundredths of his own");
+    assert!(worst <= 5, "{worst}");
+}
+
 /// A running live match's rules changed from its next stage on
 /// (2026-11-13) while its first stage loads, after that stage's battle
 /// plan was worked out: the change lands on stage 2, never on the stage

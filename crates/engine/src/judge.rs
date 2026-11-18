@@ -740,6 +740,14 @@ impl Judge {
         self.notes.iter().filter(|n| self.is_step(n)).count() as u32
     }
 
+    /// Whether note `i` is one of the steps [`Judge::judged_note_count`]
+    /// counts (a judgeable tap-like note; a hold's head where the table
+    /// judges it): what a device works another's totals out from
+    /// (`ddi_session::battle::live`).
+    pub fn counts_as_step(&self, i: usize) -> bool {
+        self.notes.get(i).is_some_and(|n| self.is_step(n))
+    }
+
     /// Judgeable holds and rolls.
     pub fn hold_count(&self) -> u32 {
         self.notes

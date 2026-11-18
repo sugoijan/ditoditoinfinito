@@ -171,6 +171,174 @@ pub(crate) struct RemoteSeat {
     pub steps: u8,
     /// The rung it stepped from at its last step.
     steps_from: u8,
+    /// The notes its play counts its most and its full combo's part over
+    /// as it steps on the ladder (where the charts adapt): what its
+    /// percent is worked out against ([`Shown`]).
+    shown: Option<Shown>,
+}
+
+/// A chart's notes as DDI's totals count them (`ddi::DdiScore`'s most:
+/// 50 a step and a hold unit; its full combo's part over the steps): each
+/// judgeable note's tick, lane and end, whether it is a step
+/// (`Judge::counts_as_step`) and its hold units. Mines and fakes count
+/// for nothing and are left out.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Counted {
+    notes: Vec<CountedNote>,
+    /// How long after its second a tap not hit is judged missed.
+    miss_after: f64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CountedNote {
+    tick: Tick,
+    lane: u8,
+    end: Tick,
+    /// When it is over (its end's second, a tap's own).
+    end_seconds: f64,
+    step: bool,
+    units: u32,
+}
+
+impl Counted {
+    /// Chart `chart` of `song` under `ruleset` (DDI's), as a play of it
+    /// is given it.
+    pub(crate) fn of(song: &ddi_chart::Song, chart: usize, ruleset: &ddi_engine::rules::Ruleset) -> Counted {
+        let p = Player::new(song, chart, ruleset.fresh(), Default::default());
+        let judge = p.judge();
+        let notes = judge
+            .notes()
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.judgeable && n.note.kind != ddi_chart::NoteKind::Mine)
+            .map(|(i, n)| CountedNote {
+                tick: n.note.tick,
+                lane: n.note.lane,
+                end: n.note.end_tick(),
+                end_seconds: n.end_seconds,
+                step: judge.counts_as_step(i),
+                units: if n.note.kind.is_long() {
+                    ddi_engine::rules::ddi::hold_units(n.end_seconds - n.seconds)
+                } else {
+                    0
+                },
+            })
+            .collect();
+        Counted {
+            notes,
+            miss_after: ruleset.judge.miss_after(),
+        }
+    }
+}
+
+/// The stage's ladder as a remote field steps on it: each rung's chart as
+/// the fields draw it and whether it is above the stage's, and the stage's
+/// chart's notes and each rung's as DDI's totals count them.
+type Ladder<'a> = (&'a [(Rc<feed::TapTrack>, bool)], &'a [Rc<Counted>]);
+
+/// Where a counted note of a remote competitor's play stands, as its
+/// stream told it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Told {
+    Pending,
+    /// A hold's or a roll's head hit: judged once its end is told.
+    Held,
+    Judged,
+}
+
+/// The notes a remote competitor's play counts its totals over, followed
+/// through its steps as the engine makes them (`Player::step_down`,
+/// `step_up`): a step down keeps the notes judged by its moment (their
+/// moments came before the step's in the stream) and takes the rest
+/// away, a step up keeps the notes before its boundary; the next rung's
+/// notes from the boundary come in (a step up's not in a lane a kept hold
+/// still runs in). Its most and full combo's part are then what its own
+/// play shows (`ddi::DdiScore::restep`), so its percent is worked out
+/// exactly (round Y3). A field followed from part-way (a snapshot's step)
+/// has not been told which notes were judged before: those before the
+/// step's moment are taken as judged there.
+#[derive(Clone, Debug)]
+pub(crate) struct Shown {
+    notes: Vec<(CountedNote, Told)>,
+    miss_after: f64,
+}
+
+impl Shown {
+    fn new(chart: &Counted) -> Shown {
+        Shown {
+            notes: chart.notes.iter().map(|n| (*n, Told::Pending)).collect(),
+            miss_after: chart.miss_after,
+        }
+    }
+
+    /// Its most and its full combo's part now.
+    fn totals(&self) -> (i64, i64) {
+        let steps = self.notes.iter().filter(|(n, _)| n.step).count() as u32;
+        let units: i64 = self.notes.iter().map(|(n, _)| i64::from(n.units)).sum();
+        let most = ddi_engine::rules::ddi::MOST_TAP_POINTS * i64::from(steps)
+            + ddi_engine::rules::ddi::UNIT_POINTS * units;
+        (most, ddi_engine::rules::ddi::full_combo_points(steps))
+    }
+
+    /// A moment of its stream judged the note at `tick` in `lane`: a tap
+    /// (`missed`: a miss), or a hold's end (`end`).
+    fn told(&mut self, tick: Tick, lane: u8, missed: bool, end: bool) {
+        let Some((n, told)) = self
+            .notes
+            .iter_mut()
+            .find(|(n, t)| n.tick == tick && n.lane == lane && *t != Told::Judged)
+        else {
+            return;
+        };
+        *told = if n.units > 0 && !missed && !end {
+            Told::Held
+        } else {
+            Told::Judged
+        };
+    }
+
+    /// Everything over by song second `at` taken as judged (a field
+    /// followed from part-way): a hold at its end, a tap once it would be
+    /// missed (a step down follows misses).
+    fn judged_before(&mut self, at: f64) {
+        let miss_after = self.miss_after;
+        for (n, t) in &mut self.notes {
+            let over = if n.units > 0 { n.end_seconds } else { n.end_seconds + miss_after };
+            if over < at {
+                *t = Told::Judged;
+            }
+        }
+    }
+
+    /// A step down to `next`'s notes from `tick` on.
+    fn step_down(&mut self, next: &Counted, tick: Tick) {
+        self.notes.retain(|(_, t)| *t == Told::Judged);
+        self.notes
+            .extend(next.notes.iter().filter(|n| n.tick >= tick).map(|n| (*n, Told::Pending)));
+    }
+
+    /// A step up to `next`'s notes from `tick` on.
+    fn step_up(&mut self, next: &Counted, tick: Tick) {
+        self.notes.retain(|(n, t)| n.tick < tick || *t == Told::Judged);
+        let mut busy: Vec<Tick> = Vec::new();
+        for (n, _) in &self.notes {
+            if n.units > 0 && n.end >= tick {
+                let l = usize::from(n.lane);
+                if busy.len() <= l {
+                    busy.resize(l + 1, Tick(i64::MIN));
+                }
+                busy[l] = busy[l].max(n.end);
+            }
+        }
+        self.notes.extend(
+            next.notes
+                .iter()
+                .filter(|n| {
+                    n.tick >= tick && busy.get(usize::from(n.lane)).is_none_or(|&end| n.tick > end)
+                })
+                .map(|n| (*n, Told::Pending)),
+        );
+    }
 }
 
 impl RemoteSeat {
@@ -182,7 +350,7 @@ impl RemoteSeat {
     fn step(
         &mut self,
         track: &Rc<feed::TapTrack>,
-        rungs: &[(Rc<feed::TapTrack>, bool)],
+        (rungs, counted): Ladder<'_>,
         rung: u8,
         at: f64,
         tick: Tick,
@@ -200,6 +368,7 @@ impl RemoteSeat {
         if self.feed.steps().any(|(a, _, to)| to == rung && (a - at).abs() < 0.5) {
             return;
         }
+        let before = self.steps;
         self.steps = rung;
         let boundary = track.seconds_at(tick);
         // Back to the stage's chart: up where it came from a rung below
@@ -212,6 +381,46 @@ impl RemoteSeat {
                     .is_some_and(|f| !f.1));
         self.steps_from = rung;
         self.feed.step(r, (at, boundary, tick), rung, up);
+        // What its play counts from here (round Y3): up or down by the
+        // ladder's places, whatever the rungs' side of the stage.
+        if let (Some(shown), Some(next)) = (self.shown.as_mut(), counted.get(usize::from(rung))) {
+            let below = rungs.iter().filter(|r| !r.1).count();
+            let level = |r: u8| ddi_engine::ladder::level_of(below, r);
+            if level(rung) > level(before) {
+                shown.step_up(next, tick);
+            } else {
+                shown.step_down(next, tick);
+            }
+        }
+    }
+
+    /// Its most and its full combo's part where its steps are followed,
+    /// else `stage`'s (the stage's chart's).
+    fn totals(&self, stage: (Option<i64>, i64)) -> (Option<i64>, i64) {
+        match (&self.shown, stage.0) {
+            (Some(s), Some(_)) => {
+                let (most, max) = s.totals();
+                (Some(most), max)
+            }
+            _ => stage,
+        }
+    }
+
+    /// A moment of its stream, for the notes counted ([`Shown::told`]).
+    fn count(&mut self, m: &Moment) {
+        let Some(shown) = self.shown.as_mut() else {
+            return;
+        };
+        match m.kind {
+            MomentKind::Tap { tier, .. } => shown.told(
+                Tick(m.tick),
+                m.lane,
+                Judgement::from_index(tier.into()).is_none_or(Judgement::is_miss),
+                false,
+            ),
+            MomentKind::HoldEnd { .. } => shown.told(Tick(m.tick), m.lane, false, true),
+            _ => {}
+        }
     }
 
     /// A snapshot's word on the chart it is on (its last step,
@@ -225,9 +434,21 @@ impl RemoteSeat {
     fn step_status(
         &mut self,
         track: &Rc<feed::TapTrack>,
-        rungs: &[(Rc<feed::TapTrack>, bool)],
+        (rungs, counted): Ladder<'_>,
         step: ddi_room::live::StepStatus,
     ) {
+        // Followed from part-way: what it was given before the step is
+        // taken as judged by the step's moment (its moments before it
+        // were never read here), its notes as the rung it stepped from.
+        if self.feed.steps().next().is_none()
+            && let Some(shown) = self.shown.as_mut()
+        {
+            if let Some(from) = counted.get(usize::from(step.from)).filter(|_| step.from != 0) {
+                *shown = Shown::new(from);
+            }
+            let at = (i64::from(step.at_ms) * 1_000 - self.shift_us) as f64 / 1e6;
+            shown.judged_before(at);
+        }
         if self.feed.steps().next().is_none()
             && step.from != 0
             && let Some((r, _)) = rungs.get(usize::from(step.from) - 1)
@@ -241,7 +462,7 @@ impl RemoteSeat {
             self.steps_from = step.from;
         }
         let at = (i64::from(step.at_ms) * 1_000 - self.shift_us) as f64 / 1e6;
-        self.step(track, rungs, step.rung, at, Tick(step.tick));
+        self.step(track, (rungs, counted), step.rung, at, Tick(step.tick));
     }
 
     /// Out of the stage (its gauge, or a forfeit).
@@ -479,6 +700,9 @@ pub(crate) struct Live {
     /// whether it is above the stage's), where the charts adapt, and the
     /// local play's steps streamed so far.
     rungs: Vec<(Rc<feed::TapTrack>, bool)>,
+    /// The stage's chart's and each rung's notes as DDI's totals count
+    /// them, where the charts adapt ([`Shown`]).
+    counted: Vec<Rc<Counted>>,
     steps_sent: usize,
     /// The checkpoints whose news came in a snapshot (it carries their
     /// commitments, not their records): those whose deadline had passed
@@ -674,6 +898,7 @@ fn remote_seat(
         shifts: VecDeque::new(),
         steps: 0,
         steps_from: 0,
+        shown: None,
     }
 }
 
@@ -769,6 +994,7 @@ impl Live {
             said_off: false,
             seat_end: None,
             rungs: Vec::new(),
+            counted: Vec::new(),
             steps_sent: 0,
             snapshot_known: 0,
             cpu_lead_us,
@@ -796,8 +1022,9 @@ impl Live {
             .partition(|(p, _)| lineup.contains(p));
         self.late = still;
         for (p, name) in entered {
-            self.seats
-                .push(remote_seat(p, &name, &self.track, delay, self.lock));
+            let mut seat = remote_seat(p, &name, &self.track, delay, self.lock);
+            seat.shown = self.counted.first().map(|c| Shown::new(c));
+            self.seats.push(seat);
         }
     }
 
@@ -825,6 +1052,19 @@ impl Live {
     /// a remote field draws once its stream says it stepped.
     pub(crate) fn set_rungs(&mut self, rungs: Vec<(Rc<feed::TapTrack>, bool)>) {
         self.rungs = rungs;
+    }
+
+    /// The stage's chart's notes and each rung's (`counted[0]` the
+    /// stage's), as DDI's totals count them, where the charts adapt: each
+    /// remote competitor's most and full combo's part are followed
+    /// through their steps from them ([`Shown`]).
+    pub(crate) fn set_counted(&mut self, counted: Vec<Rc<Counted>>) {
+        if let Some(stage) = counted.first() {
+            for seat in &mut self.seats {
+                seat.shown = Some(Shown::new(stage));
+            }
+        }
+        self.counted = counted;
     }
 
     /// This frame's song time `t` (this play's judged song second, on its
@@ -1152,17 +1392,21 @@ impl Live {
                                         out: false,
                                         offset: 0.0,
                                         w0: None,
-                                        score: seat_view(c.score, seat.w0s, seat.combo_part, self.most, self.max),
+                                        score: {
+                                            let (most, max) = seat.totals((self.most, self.max));
+                                            seat_view(c.score, seat.w0s, seat.combo_part, most, max)
+                                        },
                                     },
                                 );
                             }
                             // The chart of the ladder it is on, where
                             // this field has not followed its steps.
                             if let Some(step) = c.step {
-                                seat.step_status(track, &self.rungs, step);
+                                seat.step_status(track, (&self.rungs, &self.counted), step);
                             }
                             if let Some(end) = c.end {
-                                Self::ended(seat, track, end, (self.most, self.max), &mut got);
+                                let totals = seat.totals((self.most, self.max));
+                                Self::ended(seat, track, end, totals, &mut got);
                             }
                         }
                     }
@@ -1245,6 +1489,20 @@ impl Live {
                 self.delay.sample(room_now as f64 / 1_000.0, micros_s(room_now - before) * 1_000.0);
             }
             seat.through_us = Some(seat.through_us.map_or(e.through_us, |x| x.max(e.through_us)));
+            // Its moments of one of its frames carry that frame's sum and
+            // combo: they are shown with its score as that frame left it
+            // (every W0, every step of it counted), whatever order its
+            // song clock's shift puts them in on the field.
+            let mut run: Vec<feed::Moment> = Vec::new();
+            let mut run_of = None;
+            let flush = |seat: &mut RemoteSeat, run: &mut Vec<feed::Moment>, stage: (Option<i64>, i64)| {
+                let (most, max) = seat.totals(stage);
+                let view = seat_view(seat.score, seat.w0s, seat.combo_part, most, max);
+                for mut fm in run.drain(..) {
+                    fm.score = view;
+                    seat.feed.push(track, fm);
+                }
+            };
             for m in &e.moments {
                 if let MomentKind::Refused { attack } = m.kind {
                     // The views take its shocks off that field.
@@ -1253,6 +1511,10 @@ impl Live {
                     }
                     continue;
                 }
+                if run_of.is_some_and(|k| k != (m.score, m.combo)) {
+                    flush(seat, &mut run, (self.most, self.max));
+                }
+                run_of = Some((m.score, m.combo));
                 seat.score = m.score;
                 if let MomentKind::Tap { w0: true, .. } = m.kind {
                     seat.w0s += 1;
@@ -1273,22 +1535,23 @@ impl Live {
                         i64::from(m.at_ms) * 1_000 - i64::from(offset_ms) * 1_000 - note_us,
                     );
                 }
-                let mut fm = feed_moment(
-                    m,
-                    false,
-                    seat_view(m.score, seat.w0s, seat.combo_part, self.most, self.max),
-                );
+                seat.count(m);
                 // Back on its own song clock, where its notes are.
-                fm.at -= seat.shift_us as f64 / 1e6;
+                let at = f64::from(m.at_ms) / 1_000.0 - seat.shift_us as f64 / 1e6;
                 // A step: its field draws the rung's chart from the
-                // boundary (the stage's again for rung 0).
+                // boundary (the stage's again for rung 0), and its totals
+                // are taken again, as its play takes them.
                 if let MomentKind::Step { rung } = m.kind {
-                    seat.step(track, &self.rungs, rung, fm.at, Tick(m.tick));
+                    seat.step(track, (&self.rungs, &self.counted), rung, at, Tick(m.tick));
                 }
-                seat.feed.push(track, fm);
+                let mut fm = feed_moment(m, false, ScoreView::default());
+                fm.at = at;
+                run.push(fm);
             }
+            flush(seat, &mut run, (self.most, self.max));
             if let Some(end) = e.end {
-                Self::ended(seat, track, end, (self.most, self.max), got);
+                let totals = seat.totals((self.most, self.max));
+                Self::ended(seat, track, end, totals, got);
             }
         }
         for c in &f.commitments {
