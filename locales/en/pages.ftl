@@ -413,7 +413,7 @@ pages-credits-rust-notice-for = for { $crates }
 pages-privacy = Privacy
 
 # The note's first paragraph.
-pages-privacy-intro = This note says what { -game-name } and its online server keep about you, and for how long. Last changed on November 17, 2026.
+pages-privacy-intro = This note says what { -game-name } and its online server keep about you, and for how long. Last changed on November 18, 2026.
 
 # A heading inside the note.
 pages-privacy-alone-heading = Playing alone
@@ -438,7 +438,7 @@ pages-privacy-sign-in = Online rooms need you to sign in with Twitch (watching a
 # A heading inside the note.
 pages-privacy-rooms-heading = Rooms
 
-pages-privacy-rooms = A room keeps what its members see: its name, each member's display name and Twitch user id (so they can come back), their roles, the songs picked (title, artist and chart) and the results of its matches. A room is deleted when it ends: two minutes after its last member's connection closed, after a week without activity, when its host leaves and it is not passed on, or when the server's administrators close it. After that, only a note that it ended (its id, when and why) is kept for a week, so that its links can say the room is closed. While a room is open, the server's administrators can see it listed with its name, its members' display names and how many people are in it.
+pages-privacy-rooms = A room keeps what its members see: its name, each member's display name and Twitch user id (so they can come back), their roles, the songs picked (title, artist and chart) and the results of its matches. A room is deleted when it ends: two minutes after its last member's connection closed, after a week without activity, when its host leaves and it is not passed on, or when the server's administrators close it. After that, only a note that it ended (its id, when and why) is kept for a week, so that its links can say the room is closed; its session log, described below, is kept apart and names nobody. While a room is open, the server's administrators can see it listed with its name, its members' display names and how many people are in it.
 
 # A heading inside the note.
 pages-privacy-songs-heading = Songs
@@ -486,6 +486,28 @@ pages-privacy-stats-kept = These totals contain no names, accounts, addresses, r
 pages-privacy-stats-game = { $platform ->
     [web] While you are in an online room, the game also tells our server a few things for these totals, each time its connection to the room opens: that it is the game in a browser; your system (such as Windows, macOS, Android or iOS); whether your device is a phone, a tablet or a computer; whether the game draws with WebGPU or WebGL2; whether the screen is a touch screen; the game's version; how many times it has connected to the room and how many tries this connection took; and how its previous connection to the room ended (closed or dropped, and with which code), how long that connection lasted, how long the page was in the background while it lasted, whether its keep-alive messages were answered, and the round trip to our server. Each of these is one value from a fixed list or a range, never a name, an account, an address, a room or a song. The server adds them to the totals and keeps nothing else of them. To turn this off, set Options → Data → Send usage statistics to Off: the game then sends none of it, and the server's own counts above go on. Watching with an audience sends none of it.
    *[desktop] While you are in an online room, the app also tells our server a few things for these totals, each time its connection to the room opens: that it is the app; your system (Windows, macOS or Linux); whether it draws with Metal, Vulkan, DirectX 12 or OpenGL; the game's version; how many times it has connected to the room and how many tries this connection took; and how its previous connection to the room ended (closed or dropped, and with which code), how long that connection lasted, how long the window was hidden while it lasted, and the round trip to our server. Each of these is one value from a fixed list or a range, never a name, an account, an address, a room or a song. The server adds them to the totals and keeps nothing else of them. To turn this off, set Options → Data → Send usage statistics to Off: the app then sends none of it, and the server's own counts above go on. Watching with an audience sends none of it.
+}
+
+# A heading inside the note (the stats proposal's step 3: what a room's
+# session log keeps, by seat numbers alone, for 14 days).
+pages-privacy-sessions-heading = A room's session log
+
+# Send usage statistics is the Options row (options-usage-stats), named
+# as it reads there.
+pages-privacy-sessions = So that problems in a room can be understood afterwards (for example, why people lost their connection), each room keeps a short log of its session: when each connection opened and closed and with which code, when someone was away and whether they came back, each seat's role and whether it played or watched, the kind of device and browser of each seat as in the totals above, how long songs took to upload and to load, who was ready, who sat a stage out and why, how runs ended, and when someone was turned away (a full room, for example). It names nobody: each person is only a seat number that means something inside that room alone, and the log holds no names, accounts, addresses, room name or id, or song titles. Bots and the game's computer players are marked as such. If you turned Send usage statistics off, it has only what our server saw by itself. The room keeps the log while it is open; when the room ends, our server keeps it for 14 days for its administrators to read, then deletes it.
+
+# A heading inside the note (the stats proposal's step 4: the web game's
+# own error reports).
+pages-privacy-errors-heading = Error reports
+
+# Send error reports is the Options row (options-error-reports), named as
+# it reads there; Global Privacy Control is a browser setting, named as
+# browsers name it.
+# Variables:
+#   $platform (String) - web or desktop (the app sends none)
+pages-privacy-errors = { $platform ->
+    [web] When the game itself goes wrong in your browser (a crash, a failure in its code that nothing caught, a graphics device lost or missing, or a page that cannot start the game), it sends our server a short report holding at most the kind of error, the kind of screen you were on (such as song select or a play, never the page's address), the game's version, your system, the kind of device, the graphics it uses and the error's message. The game takes out of the message file paths (but where in the game's program the error happened), web and email addresses, network addresses, quoted text, long numbers, ids and any letters beyond English, and cuts it to 300 characters. A message can still hold an ordinary English word, such as a word of a song's title that the game's own message did not quote. Our server reads the kind of browser and device from your browser's User-Agent, as for the totals, and drops it; it takes the same things out of the message again and drops a report that still holds any of them. It counts reports in the daily totals by kind, version, screen, browser, device and graphics, and keeps one example message of each distinct error for 30 days after it was last seen. To stop floods, it counts the reports from one network for a minute by the daily mark described above, only in its memory. The game sends at most five reports a visit and never the same error twice in one visit. To turn this off, set Options → Data → Send error reports to Off. If your browser sends the Global Privacy Control signal, the game sends no error reports whatever that option says. The app on a computer sends no error reports.
+   *[desktop] The app sends no error reports.
 }
 
 # A heading inside the note.
