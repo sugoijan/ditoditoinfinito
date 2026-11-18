@@ -242,6 +242,23 @@ follower, what is kept), `crates/ui/src/state/favorites.rs` and
 `crates/desktop/tests/favorites_offscreen.rs` (pictures, wide and on a
 phone, English and Japanese).
 
+## The footer's hints (2026-11-18)
+
+Since the favorites' F a footer could hold more hints than fit beside its
+links ("Favorite" ran under "Manage…" on an imported song at 1280×720).
+The footer (`ddi_ui::screens::footer_hints`) now never lets them meet:
+where the hints and the note do not fit before the links, the hints with
+a rank leave, the highest first (`FooterHint::drop`), then the note is
+cut with an ellipsis, then hints without a rank leave from the end (the
+first kept). Song select's order (`footer_drop`): the editor's E first,
+then the plays' P, a room's players' L, Delete's managing, the heart's F,
+the style's Tab, the search's /; the song's and the chart's arrows,
+Enter, Escape and a room's T stay. Checked by the theme's
+`song_selects_footer_hints_never_overlap` (the real look, English,
+Japanese and `qps-ploc`, 1280×720, 1024×576 and a phone sideways, which
+has no footer; a bundled song, an imported one, a pack's header, the
+Favorites pack, with and without P and E, a practice room's picker).
+
 ## Verification
 
 Pure recognizer/motion tests cover singles, isolated and opposite pairs,

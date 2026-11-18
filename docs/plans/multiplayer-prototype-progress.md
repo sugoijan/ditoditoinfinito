@@ -12001,6 +12001,85 @@ keeps changes (plays, bests, settings); a kept practice roster's levels
 read as before.
 
 
+## Round Y3: what earlier rounds found and left (2026-11-18)
+
+Seven things earlier rounds found and did not fix, each reproduced first as
+a test that failed on the code as it stood. Nothing judged, decided or
+stored moves; no room model revision (still 14); the CPUs' fixture and
+`pinned.txt` unchanged.
+
+- **A press right after Ready.** In CPU practice no press is lost (its
+  room answers inside the press: tested,
+  `presses_in_one_frame_after_ready_all_count`); the loss is an online
+  room's: until the room answered the Ready (its round trip), a second
+  press read as a second Ready, never the first of taking it back, and
+  one right after taking it back as a second take-back. The prompt now
+  reads what the player asked last (`RoomClient::ready_as_asked`, cleared
+  by the room's answer): `a_press_within_the_rooms_round_trip_after_ready_is_never_lost`.
+- **A remote percent under Adaptive charts** is worked out against the
+  notes the competitor was given (`live::Shown`: each step down keeps the
+  notes judged by its moment, a step up those before its boundary, the
+  next rung's from the boundary, as the engine's `Player::step_down` and
+  `step_up`), and every moment of one of their frames shows the score as
+  that frame left it (a frame's moments were each shown with the W0s
+  counted up to them, and the field's order by its song clock's shift
+  could show an earlier one last).
+  `a_remote_percent_follows_the_competitors_steps_exactly` (every frame
+  of a competitor who steps down, then up twice, exactly);
+  `a_seat_part_way_works_a_percent_out_against_the_competitors_rung` (an
+  audience seat after the step: the most and the full combo's part
+  exactly; the percent within a hundredth of a percent, since a snapshot
+  says the sum alone, not the W0s and the combo part before the seat).
+  `live_pinned.txt`'s digests moved (the views' percent of the remote
+  people, who step in those stages; outcomes and what was told unchanged).
+- **Hidden pages.** A stage's play started hidden no longer waits for
+  the dancing hand (`dance::Preview::holds_start`: only in sight; the hand
+  rests): measured in Chrome and Firefox, the play began hidden at the
+  room's start (it began only once shown before). An audience seat's page
+  hidden is stepped by its own timer and at once by its socket
+  (`crate::room::AudienceUnseen`, `Screen::unseen` for `AudienceScreen`,
+  a lost socket's reconnect hurried, `AudienceClient::hurry`; desktop's
+  covered window steps it too): a stage picked while hidden has its song
+  read hidden (the request seen 11 to 12 s after hiding, the pick at 10 s;
+  none before the fix). `a_hidden_audience_page_keeps_its_seat_and_readies_the_stage`.
+- **The fake rooms** (TESTING ONLY): a Ready window ran out but a room of
+  two canceled the start below the minimum, so nobody sat out; bob, a
+  second scripted member, readies at once (live, he streams the chart).
+  `mpfakefail=N`, `mpfakeslow=S` and `mpfakeelsewhere=S` (4429) added. In
+  the live fake room alice reported a finished run three seconds in,
+  which set the song's end there: the room ended the song a minute later
+  without the player's report, refused (`WrongPhase`), and the Standings
+  had no score or life for them; she reports nothing now (a no-show).
+  Walked in headless Chrome and Firefox (pictures and states in the
+  round's scratch folder): each sit-out sentence with what comes next
+  (not ready, still loading, couldn't be loaded; live: "…watching this
+  stage…"), Retry beside the status line and its load, the 4429 notice
+  and Use this device, a late entry at 2 s (in) and past 5 s (watching).
+  Found and fixed: during the late join the Ready card said "You weren't
+  ready… You're watching this stage" beside the Ready that entered; it
+  says "Stage 1 has started. Press Ready now to play it from here." now
+  (`room-status-enter-late`, Japanese a draft). Found, not fixed: a
+  member past the late join is handed the stage as their own play's
+  forfeit ("Left the stage" over their dimmed field) rather than as a
+  spectator; with everyone else ready a failed download's Retry has no
+  window to show in (the stage starts at once); back by Use this device
+  after the room went on, the status line says "Not possible at this
+  point of the match." (a refusal of something the stopped page had
+  asked). Not seen on a screen: the "connection lost" sentence (the page
+  stopped by 4429 shows the room as it stood; by its return the fake
+  room's three-second stages had ended the match, both sat out).
+- **Song select's footer** drops its least important hints in a stated
+  order where they would run under its links (`docs/plans/song-navigation.md`,
+  "The footer's hints"); `song_selects_footer_hints_never_overlap`.
+- **Firefox's history bound**: the view (the focus, Options' place) is
+  written into the history's entry four times a second at most and
+  always once at rest, at once before a navigation or a dialog's entry,
+  when the page goes away, and never while a `go` of ours awaits its pop
+  (`ddi_ui::back_stack::ViewSaves`). Firefox, Up and Down held in turn on
+  Options for 15 s: 46 writes (one a row before), no "Too many attempts";
+  Back and forward kept song select's focus.
+- **Ratings of works and FFR levels** on the web: `docs/plans/msd-ratings.md`.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
