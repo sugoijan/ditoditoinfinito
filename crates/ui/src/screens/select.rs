@@ -4523,10 +4523,11 @@ impl Screen for SelectScreen {
         if back_on_top {
             self.publish_dirty = true;
             self.room_republish();
-            // Options may have moved the volume meanwhile.
-            if !self.layout.compact {
-                let gain = crate::state::settings::Settings::load().volume;
-                self.volume.set_gain(gain, root);
+            // Options, the start prompt or the play may have moved the
+            // volume meanwhile: shown, and the preview told.
+            let gain = crate::state::settings::Settings::load().volume;
+            if self.volume.set_gain(gain, root) {
+                self.call(SelectCall::Volume(gain), cx);
             }
         }
         // Only the rows change while the list glides.

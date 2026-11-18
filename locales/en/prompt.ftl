@@ -27,6 +27,12 @@ prompt-save-as-default = Save as default
 # defaults.
 prompt-saved-as-default = Saved as default
 
+# On the card's top line, left of the music's volume button (its icon
+# crossed out), while the music's volume is muted or at zero: the song
+# will play silent unless the player turns it up. 13 px, quiet; the
+# song's title is cut shorter beside it.
+prompt-music-muted = Music is muted
+
 ## The controls diagram on the card: each lane's receptor with the key or
 ## the controller's button that plays it under it (a cell 48-72 px wide).
 

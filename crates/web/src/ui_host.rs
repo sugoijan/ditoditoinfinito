@@ -2690,6 +2690,12 @@ fn publish_now(h: &Host) {
                     p.countdown.map_or(JsValue::NULL, |s| s.into()),
                 );
                 set(&v, "countdownState", p.countdown_state.as_str().into());
+                set(
+                    &v,
+                    "volume",
+                    p.volume.map_or(JsValue::NULL, |v| f64::from(v).into()),
+                );
+                set(&v, "musicMuted", p.music_muted.into());
                 set(&v, "options", strings(&p.options));
                 set(&v, "optionsDiffer", p.options_differ.into());
                 set(&v, "bindings", strings(&p.bindings));

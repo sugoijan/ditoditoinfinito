@@ -834,6 +834,11 @@ impl Component for GameCanvas {
         }
         // Start at once: the song loads behind it.
         prompt_state.borrow_mut().set_step(PromptStep::Ready);
+        // Calibration's click track is left as it is: no music's volume on
+        // its card.
+        if matches!(ctx.props().source, SongSource::Calibration(_)) {
+            prompt_state.borrow_mut().set_without_volume(true);
+        }
         // Song select's context, for this play (not a replay's).
         let early_audio = match &ctx.props().source {
             SongSource::Song { id, chart } if ctx.props().replay.is_none() => {
@@ -2260,6 +2265,12 @@ impl GameCanvas {
         let auto = ctx.props().auto && !online;
         let mut config =
             SessionConfig::from_settings(&self.settings, auto, self.devices.clone());
+        // The music's volume as kept now: the prompt's control (or a play
+        // before this restart) may have moved it since the settings were
+        // read.
+        let volume = Settings::cached().volume;
+        config.session.volume = volume;
+        config.session.voice_volume = volume * self.settings.announcer_volume;
         let chart = match &ctx.props().source {
             SongSource::Song { chart, .. } => *chart,
             SongSource::Calibration(mode) => {

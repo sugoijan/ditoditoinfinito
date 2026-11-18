@@ -25,8 +25,15 @@
 //! geometry and progress live in `ddi_actor::background`; this is visual
 //! time only and never delays the synchronous audio gesture.
 //!
-//! Components: `Dialog` (the card, `Panel`'s fallback), `PlayButton` and
-//! `Button`; colors `Play.Field` (the play's own, under the picture),
+//! The music's volume sits in the card's top right corner on every card
+//! but a calibration's (the quick volume, [`crate::widgets::volume`], the
+//! same component as song select's), with a quiet "Music is muted" left
+//! of it while the music is muted or at zero, so that nobody starts a
+//! song in silence without knowing (`docs/plans/start-prompt.md`, "The
+//! music's volume").
+//!
+//! Components: `Dialog` (the card, `Panel`'s fallback), `PlayButton`,
+//! `Button` and `Volume`; colors `Play.Field` (the play's own, under the picture),
 //! `Text`, `Muted`, `Faint`, `Accent`, `Danger`,
 //! `Difficulty.<name>`; metric `Prompt.Width` (the card's), and
 //! `Backdrop.Side` for the cached Gaussian-blurred copy.
@@ -235,6 +242,10 @@ pub struct PromptView {
     /// The quiet line suggesting calibrating or not
     /// ([`PromptInfo::timing`]; none where the play's purpose has none).
     pub timing: Option<String>,
+    /// The music's volume control's level in percent while the card has
+    /// it, and whether its "Music is muted" line shows.
+    pub volume: Option<u32>,
+    pub music_muted: bool,
 }
 
 /// What the shell shows; `version` goes up with every change.
@@ -280,6 +291,9 @@ pub struct PromptState {
     pub options: Vec<super::data::OptionDef>,
     pub options_differ: bool,
     pub options_saved: bool,
+    /// No music's volume on the card (a calibration's prompt: its click
+    /// track is left as it is).
+    pub without_volume: bool,
     pub version: u64,
 }
 
@@ -350,6 +364,14 @@ impl PromptState {
         let seconds = seconds.filter(|s| *s > 0.0);
         if self.countdown != seconds {
             self.countdown = seconds;
+            self.version += 1;
+        }
+    }
+
+    /// See [`PromptState::without_volume`].
+    pub fn set_without_volume(&mut self, without: bool) {
+        if self.without_volume != without {
+            self.without_volume = without;
             self.version += 1;
         }
     }
@@ -755,7 +777,19 @@ pub struct PromptScreen {
     view_dirty: bool,
     /// A multiplayer room's stage (M7b, `prompt_room.rs`): Start is Ready.
     room: Option<room_mode::PromptRoom>,
+    /// The music's volume (`Settings::volume`), in the card's corner.
+    volume: crate::widgets::volume::Volume,
+    /// The card built has it, and whether its muted line.
+    volume_built: std::cell::Cell<bool>,
+    built_muted: std::cell::Cell<bool>,
+    /// Up or Down pressed with the volume focused: its held key's repeats
+    /// step it (those of the press that brought the focus there do not).
+    volume_keys: bool,
 }
+
+/// The music's volume's name, and its button's side.
+const VOLUME: &str = "Volume";
+const VOLUME_SIZE: f32 = 36.0;
 
 /// Where the countdown is (`docs/plans/start-prompt.md`).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -902,6 +936,15 @@ impl PromptScreen {
             keys_active: None,
             view_dirty: true,
             room: None,
+            volume: {
+                let gain = crate::state::settings::Settings::load().volume;
+                let mut v = crate::widgets::volume::Volume::new(VOLUME, gain);
+                v.size = [VOLUME_SIZE, VOLUME_SIZE];
+                v
+            },
+            volume_built: std::cell::Cell::new(false),
+            built_muted: std::cell::Cell::new(false),
+            volume_keys: false,
         }
     }
 
@@ -928,7 +971,119 @@ impl PromptScreen {
                 .iter()
                 .chain(&self.controls)
                 .any(|b| t.within(b))
+                || (self.volume_built.get() && t.within(VOLUME))
         })
+    }
+
+    /// Whether `state`'s card has the music's volume: every card but a
+    /// calibration's.
+    fn volume_shown(state: &PromptState) -> bool {
+        !state.without_volume
+    }
+
+    /// The music's volume's part of an input: its hover, focus, presses,
+    /// wheel and keys (none of them a choice the countdown hears); `None`:
+    /// not its. With the focus, Up and Down (and the menu's pair, Previous
+    /// and Next) step it, Start mutes or brings the level back, Back takes
+    /// the focus back to the first button (as song select's Back from its
+    /// volume goes back to the list).
+    fn volume_input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Option<Handled> {
+        if !self.volume_built.get() {
+            return None;
+        }
+        let focused = cx.focused() == Some(VOLUME);
+        if !focused {
+            self.volume_keys = false;
+        }
+        let mapped;
+        let input = match input {
+            Input::Menu {
+                action: MenuAction::Back,
+                ..
+            } if focused => {
+                if let Some(first) = self.buttons.first() {
+                    cx.focus(first.clone());
+                }
+                return Some(Handled::Yes);
+            }
+            Input::Menu { repeat: true, .. } if focused && !self.volume_keys => {
+                return Some(Handled::Yes);
+            }
+            Input::Menu {
+                action: action @ (MenuAction::Previous | MenuAction::Next),
+                repeat,
+            } if focused => {
+                mapped = Input::Menu {
+                    action: if *action == MenuAction::Next {
+                        MenuAction::Up
+                    } else {
+                        MenuAction::Down
+                    },
+                    repeat: *repeat,
+                };
+                &mapped
+            }
+            Input::Activate { name } if name == VOLUME => {
+                if let Some(c) = self.volume.toggle_mute(root) {
+                    self.volume_changed(c, root, cx);
+                }
+                return Some(Handled::Yes);
+            }
+            i => i,
+        };
+        if focused
+            && let Input::Menu {
+                action: MenuAction::Up | MenuAction::Down,
+                repeat: false,
+            } = input
+        {
+            self.volume_keys = true;
+        }
+        let pinned = self.volume.pinned();
+        let reduced = self.env.reduced();
+        let (handled, change) = self.volume.input(input, root, cx, reduced);
+        if let Some(c) = change {
+            self.volume_changed(c, root, cx);
+        }
+        // A press elsewhere that closed what a tap opened is only that:
+        // its tap starts nothing.
+        if pinned
+            && !self.volume.pinned()
+            && handled == Handled::No
+            && matches!(
+                input,
+                Input::Pointer {
+                    gesture: Gesture::Press,
+                    ..
+                }
+            )
+        {
+            self.swallow_tap = true;
+            return Some(Handled::Yes);
+        }
+        (handled == Handled::Yes).then_some(Handled::Yes)
+    }
+
+    /// The music's volume moved: kept once it settles (the play reads it
+    /// as it starts); the muted line comes or goes with it.
+    fn volume_changed(
+        &mut self,
+        c: crate::widgets::volume::VolumeChange,
+        root: &mut Actor,
+        cx: &mut Cx,
+    ) {
+        if !c.commit {
+            return;
+        }
+        let mut s = crate::state::settings::Settings::load();
+        if s.volume != c.gain {
+            s.volume = c.gain;
+            s.save();
+        }
+        if self.volume.muted() != self.built_muted.get() {
+            self.rebuild(root, cx);
+        }
+        self.view_dirty = true;
     }
 
     /// A play option changed by `by` (Left, Right, ◀ ▶), or cycled (a tap
@@ -1013,6 +1168,7 @@ impl PromptScreen {
         // are), zoomed to the width; else the screen as it is.
         (self.screen, self.zoom, _) = super::compact_fit(&self.env, vp);
         self.preview_size.set(None);
+        self.volume_built.set(false);
         let state = self.state.borrow().clone();
         self.built = state.version;
         self.built_step = Some(std::mem::discriminant(&state.step));
@@ -1151,6 +1307,23 @@ impl PromptScreen {
         let inner = w - 48.0;
         let mut c: Vec<Actor> = Vec::new();
         let mut y = 24.0;
+        // The music's volume in the top right corner (of the classic
+        // part, beside a room's players), and while the music is muted or
+        // at zero its quiet line left of it: the first line (the title)
+        // is cut shorter for them, nothing moves.
+        let volume = Self::volume_shown(state);
+        let muted = volume && self.volume.muted();
+        let muted_text: String = msg::prompt::music_muted().into();
+        let muted_w = if muted {
+            look::mono_width(&muted_text, SMALL).min(inner / 2.0) + 10.0
+        } else {
+            0.0
+        };
+        let corner = if volume { VOLUME_SIZE + 8.0 + muted_w } else { 0.0 };
+        let corner_mid = 24.0 + TITLE * 0.6;
+        let corner_bottom = corner_mid + VOLUME_SIZE / 2.0;
+        // The room a line has: narrower beside the corner.
+        let room_at = |y: f32| if y < corner_bottom { inner - corner } else { inner };
         let line = |c: &mut Vec<Actor>,
                     name: &str,
                     text: &str,
@@ -1158,9 +1331,12 @@ impl PromptScreen {
                     weight: u16,
                     color: &str,
                     y: &mut f32| {
-            for (i, l) in wrap_lines(text, inner, size).into_iter().enumerate() {
+            for (i, l) in wrap_lines(text, room_at(*y), size)
+                .into_iter()
+                .enumerate()
+            {
                 let mut t = env.text(&format!("{name}{i}"), &l, size, weight, color);
-                look::ellipsized(&mut t, inner);
+                look::ellipsized(&mut t, room_at(*y));
                 *y += size * 0.65;
                 c.push(left(t, 24.0, *y));
                 *y += size * 0.65;
@@ -1175,7 +1351,7 @@ impl PromptScreen {
         };
         if !title.is_empty() {
             let mut title = env.text("SongTitle", &title, TITLE, 700, "Text");
-            look::ellipsized(&mut title, inner);
+            look::ellipsized(&mut title, room_at(y));
             y += TITLE * 0.6;
             c.push(left(title, 24.0, y));
             y += TITLE * 0.6 + 4.0;
@@ -1604,6 +1780,21 @@ impl PromptScreen {
             [0.0, 0.0],
         )];
         children.extend(c);
+        // The volume over the rest (its slider drops over the lines).
+        if volume {
+            let x = w - 24.0 - VOLUME_SIZE / 2.0;
+            if muted {
+                let mut t = env.text("MusicMuted", &muted_text, SMALL, 400, "Muted");
+                look::ellipsized(&mut t, muted_w - 10.0);
+                children.push(right(t, x - VOLUME_SIZE / 2.0 - 10.0, corner_mid));
+            }
+            children.push(
+                self.volume
+                    .build_at([x, corner_mid], &*env.look, cx),
+            );
+        }
+        self.volume_built.set(volume);
+        self.built_muted.set(muted);
         let mut card = frame("Prompt", children);
         self.update_countdown_fill(&mut card);
         // Too tall for the screen (a phone sideways, many devices):
@@ -1659,7 +1850,10 @@ impl PromptScreen {
         // The same step (a resize, a line changed): the focus stays; a new
         // one focuses its own first button.
         let keep = focused.filter(|f| {
-            step == Some(before) && (self.buttons.contains(f) || self.controls.contains(f))
+            step == Some(before)
+                && (self.buttons.contains(f)
+                    || self.controls.contains(f)
+                    || (f == VOLUME && self.volume_built.get()))
         });
         if let Some(f) = keep.or_else(|| self.buttons.first().cloned()) {
             cx.focus(f);
@@ -1814,6 +2008,11 @@ impl PromptScreen {
             Countdown::Done => "done",
         };
         let active_lane = self.active_lane();
+        let volume = self
+            .volume_built
+            .get()
+            .then(|| (self.volume.position() * 100.0).round() as u32);
+        let music_muted = self.volume_built.get() && self.built_muted.get();
         // Only these change without a rebuild; the rest is kept as made.
         if !std::mem::take(&mut self.view_dirty)
             && let Some(view) = &mut self.env.state.borrow_mut().prompt
@@ -1829,6 +2028,8 @@ impl PromptScreen {
                 view.waiting.clone_from(&state.waiting);
             }
             view.active_lane = active_lane;
+            view.volume = volume;
+            view.music_muted = music_muted;
             return;
         }
         let view = PromptView {
@@ -1865,6 +2066,8 @@ impl PromptScreen {
                 })
                 .unwrap_or_default(),
             active_lane,
+            volume,
+            music_muted,
         };
         self.env.state.borrow_mut().prompt = Some(view);
     }
@@ -2125,6 +2328,28 @@ impl Screen for PromptScreen {
             f.down = self.buttons.first().cloned();
             out.push(f);
         }
+        // The music's volume above them all: Up from the topmost (never
+        // the first focus), Down back to it.
+        if self.volume_built.get() {
+            let top = rows
+                .first()
+                .copied()
+                .or(save)
+                .or(link)
+                .or(self.buttons.first())
+                .cloned();
+            for f in &mut out {
+                let topmost = Some(&f.name) == top.as_ref();
+                let a_button = top.as_ref().is_some_and(|t| self.buttons.contains(t))
+                    && self.buttons.contains(&f.name);
+                if topmost || a_button {
+                    f.up = Some(VOLUME.into());
+                }
+            }
+            let mut f = Focusable::new(VOLUME);
+            f.down = top;
+            out.push(f);
+        }
         out
     }
 
@@ -2148,6 +2373,7 @@ impl Screen for PromptScreen {
             || (self.countdown == Countdown::Off && (st.countdown.is_some() || st.no_card))
             || st.version != self.built
             || (st.picture.is_some() && self.reveal_time < ddi_actor::background::PROMPT_SECONDS)
+            || self.volume.animating()
     }
 
     fn wake_at(&self) -> Option<f64> {
@@ -2248,6 +2474,7 @@ impl Screen for PromptScreen {
         self.room_update(dt, root, cx);
         self.room_gesture_update(dt, root, cx);
         self.tick_countdown(dt, root, cx);
+        self.volume.update(cx.time(), root, reduced);
         // Built again only while it moves: any other change bumps the
         // version, which builds the whole tree below.
         if moved {
@@ -2326,6 +2553,11 @@ impl Screen for PromptScreen {
                 _ => {}
             }
             return Handled::Yes;
+        }
+        // The music's volume: what it takes is never the countdown's nor
+        // a tap that starts.
+        if let Some(handled) = self.volume_input(input, root, cx) {
+            return handled;
         }
         // A room's players' part: Page Up and Page Down scroll it a
         // column at a time (the wheel and its marks too).
@@ -3484,5 +3716,104 @@ mod tests {
         assert!(state.borrow().reveal > progress);
         h.run(0.3);
         assert_eq!(state.borrow().reveal, 1.0);
+    }
+
+    /// The music's volume (round AB, 2026-11-19): muted on song select,
+    /// the card says so beside its control in the top right corner, which
+    /// never moves the buttons, never takes the first focus nor stops the
+    /// countdown, and unmutes by the mouse, a tap and keys; a calibration's
+    /// card has none.
+    #[test]
+    fn the_music_volume_sits_in_the_cards_corner_and_says_when_it_is_muted() {
+        use crate::state::settings::{DEFAULT_VOLUME, Settings};
+        ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+        let mut s = Settings::load();
+        s.volume = 0.0;
+        s.save();
+        let same = |a: f32, b: f32| (a - b).abs() < 1e-4;
+        // Without it (a calibration's card), for the buttons' places.
+        let plain = SharedPrompt::default();
+        plain.borrow_mut().set_without_volume(true);
+        plain.borrow_mut().set_countdown(Some(3.0));
+        let (h0, _) = prompt(&plain);
+        assert!(h0.ui.actor(VOLUME).is_none());
+        assert_eq!(view().volume, None);
+        let (start0, back0) = (h0.ui.bounds("Start").unwrap(), h0.ui.bounds("Back").unwrap());
+        drop(h0);
+        let (state, mut h, seen) = counting(3.0);
+        let (start, back, card, volume) = (
+            h.ui.bounds("Start").unwrap(),
+            h.ui.bounds("Back").unwrap(),
+            h.ui.bounds("Card").unwrap(),
+            h.ui.bounds("Volume.Button").unwrap(),
+        );
+        assert_eq!((start, back), (start0, back0), "the buttons stay put");
+        // The top right corner.
+        assert!(volume[2] <= card[2] - 20.0 && volume[2] >= card[2] - 30.0, "{volume:?} {card:?}");
+        assert!(volume[1] >= card[1] + 16.0 && volume[3] <= card[1] + 64.0, "{volume:?} {card:?}");
+        let muted: String = msg::prompt::music_muted().into();
+        assert!(h.texts().contains(&muted));
+        let line = h.ui.bounds("MusicMuted").unwrap();
+        assert!(line[2] < volume[0] && line[1] < volume[3] && line[3] > volume[1]);
+        let v = view();
+        assert_eq!((v.volume, v.music_muted), (Some(0), true));
+        assert_eq!(h.ui.focused(), Some("Start"), "never the first focus");
+        // The mouse: over it, the slider; a click unmutes to the default
+        // level, the countdown going on and nothing chosen.
+        h.hover(h.centre("Volume.Button"));
+        h.run(0.1);
+        assert!(h.ui.actor("Volume.Popup").unwrap().visible);
+        h.tap(PointerKind::Mouse, "Volume.Button");
+        h.run(0.1);
+        assert!(same(Settings::load().volume, DEFAULT_VOLUME));
+        assert!(!h.texts().contains(&muted));
+        assert!(!view().music_muted);
+        assert_eq!(view().countdown_state, "running");
+        assert!(seen.borrow().is_empty(), "{:?}", seen.borrow());
+        assert_eq!(h.ui.bounds("Start").unwrap(), start);
+        // And mutes again, the line back.
+        h.tap(PointerKind::Mouse, "Volume.Button");
+        h.run(0.1);
+        assert_eq!(Settings::load().volume, 0.0);
+        assert!(h.texts().contains(&muted));
+        assert_eq!(h.ui.bounds("Start").unwrap(), start);
+        h.hover([200.0, 650.0]);
+        h.run(0.5);
+        assert!(!h.ui.actor("Volume.Popup").unwrap().visible);
+        // Keys: Up from Start reaches it (the countdown hears the Up, as
+        // any direction), Start brings the level back, Up and Down step
+        // it, Back returns to Start without leaving.
+        h.key("ArrowUp", "ArrowUp");
+        h.run(0.1);
+        assert_eq!(h.ui.focused(), Some(VOLUME));
+        assert!(h.ui.actor("Volume.Popup").unwrap().visible);
+        h.key("Enter", "Enter");
+        h.run(0.1);
+        assert!(same(Settings::load().volume, DEFAULT_VOLUME));
+        let at = view().volume.unwrap();
+        h.key("ArrowUp", "ArrowUp");
+        h.run(0.1);
+        assert_eq!(view().volume, Some(at + 5));
+        h.key("ArrowDown", "ArrowDown");
+        h.key("ArrowDown", "ArrowDown");
+        h.run(0.1);
+        assert_eq!(view().volume, Some(at - 5));
+        h.key("Escape", "Escape");
+        h.run(0.1);
+        assert_eq!(h.ui.focused(), Some("Start"));
+        assert!(seen.borrow().is_empty(), "nothing chosen: {:?}", seen.borrow());
+        // A tap: the slider up, nothing started; a tap elsewhere only
+        // closes it; the next one starts.
+        h.tap(PointerKind::Touch, "Volume.Button");
+        h.run(0.1);
+        assert!(h.ui.actor("Volume.Popup").unwrap().visible);
+        assert!(starts(&seen).is_empty());
+        h.tap_at(PointerKind::Touch, [200.0, 650.0]);
+        h.run(0.1);
+        assert!(!h.ui.actor("Volume.Popup").unwrap().visible);
+        assert!(starts(&seen).is_empty());
+        h.tap_at(PointerKind::Touch, [200.0, 650.0]);
+        assert_eq!(starts(&seen).len(), 1);
+        let _ = state;
     }
 }

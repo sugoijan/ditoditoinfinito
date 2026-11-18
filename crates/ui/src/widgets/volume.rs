@@ -11,7 +11,10 @@
 //! slider's track sets it.
 //!
 //! The level is the options' slider position (`volume_to_slider`), in
-//! whole percent as Options shows it; the screen gets the gain.
+//! whole percent as Options shows it; the screen gets the gain. The level
+//! a mute keeps is the game's, not one control's ([`kept_level`]): muted
+//! on song select, the start prompt's control or the play's brings it
+//! back.
 
 use std::cell::Cell;
 
@@ -31,6 +34,31 @@ const LINGER: f64 = 0.3;
 /// A step of Up, Down or a wheel's notch.
 const STEP: f32 = 0.05;
 
+thread_local! {
+    /// The slider position the last mute kept, `0` for none (muted since
+    /// the game started): every quick volume's, song select's, the start
+    /// prompt's and the play's (`ddi_shell::play_volume`).
+    static KEPT: Cell<f32> = const { Cell::new(0.0) };
+}
+
+/// The slider position a mute from `position` keeps for its unmute.
+pub fn keep_level(position: f32) {
+    if position > 0.0 {
+        KEPT.with(|k| k.set(position));
+    }
+}
+
+/// The slider position an unmute brings back: the one the last mute kept,
+/// else the default level's.
+pub fn kept_level() -> f32 {
+    let kept = KEPT.with(Cell::get);
+    if kept > 0.0 {
+        kept
+    } else {
+        volume_to_slider(DEFAULT_VOLUME)
+    }
+}
+
 /// The level changed: the gain, and whether it is kept (`false` while a
 /// drag goes on: the preview follows, the settings wait for the release).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -46,8 +74,6 @@ pub struct Volume {
     pub size: [f32; 2],
     /// The slider position, `0..=1`, in hundredths.
     position: f32,
-    /// The position a mute keeps for its unmute.
-    unmuted: f32,
     open: bool,
     hovered: bool,
     focused: bool,
@@ -68,7 +94,6 @@ impl Volume {
             centre: [0.0; 2],
             size: [40.0, 40.0],
             position: quantized(volume_to_slider(gain)),
-            unmuted: 0.0,
             open: false,
             hovered: false,
             focused: false,
@@ -112,17 +137,31 @@ impl Volume {
         self.left_at.is_some()
     }
 
-    /// The level changed elsewhere (Options): shown again, a mute's
-    /// memory forgotten where it no longer applies.
-    pub fn set_gain(&mut self, gain: f32, root: &mut Actor) {
+    /// Muted, or at zero: the music is not heard.
+    pub fn muted(&self) -> bool {
+        self.position <= 0.0
+    }
+
+    /// The level changed elsewhere (Options, the play's control): shown
+    /// again. Whether it changed.
+    pub fn set_gain(&mut self, gain: f32, root: &mut Actor) -> bool {
         let p = quantized(volume_to_slider(gain));
         if p != self.position {
             self.position = p;
             self.show(root);
+            true
+        } else {
+            false
         }
     }
 
     pub fn build(&self, look: &dyn Look, cx: &mut Cx) -> Actor {
+        self.build_at(self.centre, look, cx)
+    }
+
+    /// [`Volume::build`] with its middle at `centre` (a screen that lays it
+    /// out where it builds it).
+    pub fn build_at(&self, centre: [f32; 2], look: &dyn Look, cx: &mut Cx) -> Actor {
         let spec = Spec::new(self.size, "");
         let mut button = look::component_or(look, "Volume", "Button", &spec);
         button.name = self.button_name();
@@ -150,7 +189,7 @@ impl Volume {
         popup.visible = self.open;
         let mut a = Actor::new(Kind::Frame(vec![button, popup]));
         a.name = self.name.clone();
-        call(&mut a, "xy", &[self.centre[0], self.centre[1]]);
+        call(&mut a, "xy", &[centre[0], centre[1]]);
         self.show_in(&mut a);
         a
     }
@@ -241,19 +280,24 @@ impl Volume {
     }
 
     /// Mutes, or brings back the level the mute kept (the default level
-    /// when there is none: muted since the game started).
+    /// when there is none: muted since the game started; [`kept_level`]).
     pub fn toggle_mute(&mut self, root: &mut Actor) -> Option<VolumeChange> {
         if self.position > 0.0 {
-            self.unmuted = self.position;
+            keep_level(self.position);
             self.set(0.0, true, root)
         } else {
-            let back = if self.unmuted > 0.0 {
-                self.unmuted
-            } else {
-                volume_to_slider(DEFAULT_VOLUME)
-            };
-            self.set(back, true, root)
+            self.set(kept_level(), true, root)
         }
+    }
+
+    /// Whether the slider shows.
+    pub fn open(&self) -> bool {
+        self.open
+    }
+
+    /// Whether the slider is up by a tap (touch), until a press elsewhere.
+    pub fn pinned(&self) -> bool {
+        self.pinned
     }
 
     /// The control's part of an input: whether it took it, and the level
