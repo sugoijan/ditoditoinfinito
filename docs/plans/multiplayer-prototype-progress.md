@@ -11578,7 +11578,101 @@ metrics and what feeds each.
   `pages-privacy-stats-kept`): **a draft for the maintainer's review**,
   Japanese unverified.
 - **Not done**: steps 3 (the per-room session log) and 4 (error reports,
-  Global Privacy Control).
+  Global Privacy Control): built 2026-11-18, the two sections below.
+
+## Usage statistics, step 3: a room's session log (2026-11-18)
+
+The stats proposal's step 3, on the server alone (no change to the game,
+no room model revision): each room keeps a bounded log of its session by
+seat numbers and sends it with its close report; the operator's panel
+shows the rooms of the last 14 days and one as a timeline. Built for the
+question of 2026-11-15's evening (why many people went Away). The server's
+README, "The session log (step 3)", has the events and bounds.
+
+- **What it names**: nobody. A seat is the room's own participant
+  number; the log's id is 16 random hex digits of its own (not the room's
+  id: the proposal allowed the room id as the handle, but nothing needs
+  it, and without it the log cannot be joined with the request logs that
+  carry room ids); every word is from a fixed list and every number
+  bounded, and the index refuses a log outside them whole (the close
+  report itself is still taken: the log rides it as opaque JSON).
+- **What it says**: a seat's sockets (the server's guess of client and
+  browser), their ends (code, who closed, life), tickets, the client's own
+  report where Send usage statistics is on (its kind folded into the
+  seat; the previous socket's fate, time hidden, keep-alive, round trip),
+  Away, back and gone, joins, leaves, roles, play or watch, ready, loads
+  and failures, sit-outs with their reasons, late entries, runs and
+  forfeits; the room's matches, picks, uploads, availability, readiness
+  windows, starts (early or at the deadline), cancels, ends, refusals at
+  its limits and how it closed. Bots and CPUs marked.
+- **Bounds** (provisional, below): 8,000 events and 384 KiB a room, the
+  oldest chunk of 128 dropped past them and counted; 14 days in the
+  index, at most 20,000 logs and 512 MiB in all. A twelve-minute local
+  room of two people, three bots and a CPU took 87 events, 5 KB.
+- **The panel**: a Sessions tab (by day: start, length, people, bots,
+  CPUs, stages, times Away, how it ended, events, size; a session's seats
+  table and its timeline, filtered by seat). What it showed of a local
+  run: "seat 5 (web, ios phone, safari): sat out stage 1: not ready;
+  socket closed 1006 by the client or network after 1-5 min; Away; socket
+  2 opened; back after 0 s; the device says: … the one before dropped
+  with 1006 …, hidden 20-60 s when it ended".
+- **What an Away evening would have shown**: per seat whether the
+  sockets were dropped (1006) or closed by the room, after how long, with
+  the device's word on the time it was hidden and its keep-alive, how
+  long until each came back or not, and which stages they sat out and
+  why.
+- **For a later round (facts only the client knows)**: whether a reload
+  or an app switch ended a socket beyond `fate` and `at_end`; a stage
+  song's download and decode times; how late a play started after song
+  zero; the network type; whether the page was hidden during a stage
+  (today only per socket).
+- **Found on the way**: the index's report reader (the runtime's JSON
+  reader) refuses a map keyed by numbers; the log's seats go as pairs and
+  the index reads reports as text, so a log it cannot take never fails a
+  room's close report (it did once in the local run, which would have
+  kept the room from being buried).
+
+## Usage statistics, step 4: the web's own error reports (2026-11-18)
+
+The stats proposal's step 4. The web game reports its own errors to
+`<api>/stats/error` with `navigator.sendBeacon` (never waited for, never
+sent again): `ddi_room::error_report` (`errors-v1`, shared with the
+server: the kinds, the routes, the report's form and the scrub),
+`crates/web/src/errors.rs` (the panic hook, a rejected promise nobody
+caught, a lost device, the no-GPU page) and `site/boot.js` (a wasm trap,
+the page unable to start the game: a fixed word, never the browser's
+text). The server's README, "Error reports (step 4)", has the endpoint.
+
+- **The switch**: Options → Data → **Send error reports**
+  (`Settings::error_reports`, On by default, the web alone; under Send
+  usage statistics). The browser's Global Privacy Control signal
+  (`navigator.globalPrivacyControl`) turns them off whatever the row
+  says, and the row's description says so then. Off or with the signal,
+  nothing is sent (`ddi_room::error_report::may_send`; checked on a page
+  in headless Chrome with errors forced, the signal set by an init
+  script). The desktop app sends none.
+- **What a report holds**: the kind, the route's kind, the build, the
+  system, the form, the graphics (the loader's: kind and route only) and
+  the message scrubbed (`error_report::scrub`: whitespace flattened;
+  quoted text, URLs, paths but Rust source frames from `crates/`, Cargo's
+  folders or the standard library, email and network addresses, runs of
+  six digits, eight hex characters, mixed ids and any non-ASCII letters
+  out; 300 characters). A table of nasty messages and a run of 4,000 odd
+  strings in its tests; idempotent, so the server refuses any message its
+  own scrub would change.
+- **Limits** (provisional): one a fingerprint and five a session on the
+  page (`sessionStorage`'s `ddi.errors.v1`, shared with the loader across
+  its crash reloads); 20 a minute a network on the server, by the daily
+  mark in the isolate's memory only; bodies over 4 KiB not read; one
+  sample a fingerprint, at most 500, 30 days after last seen.
+- **The panel**: Stats → Errors (by kind and build, by route, by browser
+  and graphics; the samples with their counts and when first and last
+  seen).
+- **`__DDI_TEST_ERROR(kind, message)`** (where automation drives the
+  page): a report as the game makes it, for tests; `window.__DDI_ERRORS`
+  counts the reports sent by kind.
+- **The loader's budget**: `index.html` is 12,397 bytes gzipped of the
+  12,552 allowed with the loader's report in it.
 
 ## The stage voice test's flake (2026-11-17)
 
@@ -11927,6 +12021,8 @@ read as before.
 | `adaptive-v5` (2026-11-16, round P1a; replaces `adaptive-v4`): as `adaptive-v4`, its normal step up after six clean bars with 80% in the three best (v4: eight) | `ddi_engine::ladder::ADAPTIVE_V5`, `ADAPTIVE_NORMAL_BARS_V5` | A player between 80% and 90% steps up two bars sooner; the CPUs barely change | The Beginner picks' outs (as under v4) |
 | RETIRED 2026-11-16 (by `adaptive-v5`): `adaptive-v4` (2026-11-15, round D1; replaces `adaptive-v3`): an early step up after four clean bars with 90% of their taps in the three best judgments (`ADAPTIVE_EARLY_ACCURACY_V4`, `early_best` 3; v3 asked 95% in the two best), or a normal one after eight clean bars with 80% in the three best; back up to a rung whose life ran out sixteen bars by either's accuracy; closed after two run-outs; `ROOM_MODEL_REVISION` 11 | `ddi_engine::ladder::ADAPTIVE_V4`, `Step::early` | A clean four bars steps up even with many W2s (reached in about four kept plays in five, in almost none under v3); nearly every step up a CPU makes is early, a few more fall back (level 5 from Medium: 31% of its steps up, 27%), and on Beginner picks the weak levels go out about twice as often | Whether an early step up should wait longer straight after a step up (the Beginner picks' outs); the 90% |
 | `empty_room_secs` 120 (round D4): a room with no member connected ends two minutes after its last socket closed (or its making); 0 is no limit | the server's `limits::EMPTY_ROOM_SECS`, `RoomCore::alarm` | A host who makes a room and leaves to play later finds it closed (accepted by the maintainer); a reload or a short outage keeps it | Whether two minutes is right once people use it |
+| `session-v1` (2026-11-18, stats step 3): a room's session log, 8,000 events and 384 KiB at most (the oldest 128 dropped past them), kept 14 days, at most 20,000 logs and 512 MiB in the index | the server's `stats::session` (`MAX_EVENTS`, `MAX_BYTES`, `KEEP_DAYS`, `MAX_LOGS`, `MAX_TOTAL_BYTES`) | None for players; the panel's Sessions tab | The bounds once real evenings are seen; 14 days or 7 |
+| `errors-v1` (2026-11-18, stats step 4): the web's error reports, one a fingerprint and five a session from a page, 20 a minute a network at the server, one sample a fingerprint kept 30 days after last seen, at most 500 | `ddi_room::error_report` (`PER_SESSION`, `MAX_MESSAGE`), the server's `errors` (`PER_MINUTE`, `MAX_SAMPLES`, `SAMPLE_DAYS`) | None (nothing shown); Options → Data → Send error reports | The numbers; whether a sample a kind (the brief's wording) or a fingerprint (the proposal's pick 7, built) |
 | `max_rooms_per_owner` 5 (round D1): the rooms one signed-in person owns at once, dormant ones included until their idle end | the server's `limits::ROOMS_PER_OWNER`, `registry::may_create` | The sixth room is refused with a sentence; a host who never leaves their rooms is refused for up to a week | Whether only rooms someone is connected to (or made in the last day) should count, or a new room should end the owner's oldest dormant one |
 | RETIRED 2026-11-15 (by `adaptive-v3`, whose early step up it is): `adaptive-v2` (2026-11-14): a step up also needs 95% of its bars' taps in the two best judgments (`ADAPTIVE_ACCURACY_V2`); a step down's boundary without the extra second (`down_lead` 0) | `ddi_engine::ladder::ADAPTIVE_V2` | Weak players and CPUs stay on their chart unless they play it cleanly; a step down's easier chart comes a bar sooner | The 95%; whether the step up's own second should go too |
 | Opponents' fields default "As many as fit" | `Settings::opponent_fields` | About +0.85 ms main thread (Firefox) and +0.8 ms GPU at 2560×1440 with 72 | Whether the default should follow the room's size or the measured frame time |
