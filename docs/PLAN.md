@@ -585,6 +585,12 @@ chaining and capped accelerating holds. Timings come from the maintainer's
 local calibration tool; both shells share the recognizer, physical release
 routing and list motion (`docs/plans/song-navigation.md`, decision 53).
 
+Favorite songs (2026-11-18): a heart on song select (a click, F, More)
+marks a song, kept per device by its library id, and a Favorites pack at
+the top of the list gathers them, left out while searching; singleplayer
+and a room's picker, never a share (`docs/plans/song-navigation.md`,
+"Favorites").
+
 Additional onigiri-free charts (2026-10-18): Options can expose 5-key →
 Single, 7-key → Solo, 9A → Double and 9B → Techno 8-panel versions alongside
 their originals. Only the generated versions are assisted by this feature;

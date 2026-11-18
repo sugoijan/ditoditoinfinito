@@ -462,6 +462,13 @@ Rust and the browser are implementation details, not advertised features.
   through `stars::stars`/`stars_left`/`stars_right`, sized by a height,
   its colors `Star.Gold`/`Star.Silver`/`Star.Empty`; the play's
   miniatures draw the same geometry, `ddi_shell::opponents::draw_stars`);
+  `crates/ui/src/heart.rs` a song's heart on song select, the same way
+  (two stadiums, each cut at the middle by its own clip, so a faded heart
+  never shows overlaps: the look's `Heart`, `Heart.Empty`); favorite
+  songs (`state/favorites.rs`, `ddi.favorites.v1`, kept apart from the
+  settings by the song's library id) and the Favorites pack at the top
+  of the list (`screens/select_favorites.rs`; place key `favorites`;
+  `docs/plans/song-navigation.md`, "Favorites");
   free-text entry alone may require keyboard/IME. `state/battle_plan.rs`:
   a stage's checkpoints, sections and reading horizon from its chart,
   practice's ledger and an online room's battle plan alike (the picker's

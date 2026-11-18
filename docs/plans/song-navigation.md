@@ -172,6 +172,76 @@ Single alone; a room's style is its own).
 The table of what came back where before this, row by row:
 `docs/plans/multiplayer-prototype-progress.md`, "Feedback round E2".
 
+## Favorites (2026-11-18)
+
+The maintainer: "let's add a 'favorite' feature, so that songs can be
+individually favorited (maybe with a heart icon) and show up in a
+'Favorites' virtual pack at the top of the packs list."
+
+- **A song is a favorite or not**, whatever its charts
+  (`ddi_ui::state::favorites`). A favorite is the song's library id,
+  which both shells give alike: a bundled song's own id, an imported or
+  read-in-place one `ddi_library::pack::song_id` of its pack's name and
+  its folder's, the id the song's offset and the list's place keep too.
+  It survives a restart, a library read again, the chart editor's saves
+  and a pack removed and imported again under the same name; a pack or a
+  song folder renamed is a new song. A share's songs (`shared:<id>:<n>`)
+  are never favorites.
+- **Kept** per device under `ddi.favorites.v1` in local storage (the
+  web's `localStorage`, desktop's `storage.json`), apart from the
+  settings: the ids in the order they were added, about 21 kB at 1,000
+  imported songs. Read once and kept in memory
+  (`ddi_platform::storage::generation` says when another store was
+  installed), written at each change. A favorite whose song is not in
+  the library now is kept, and shows again with its song.
+- **The heart** (`ddi_ui::heart`, the look's `Heart` component, its
+  colors `Heart` and `Heart.Empty`): a vector shape of our own, two
+  stadiums turned an eighth, each cut at the heart's middle by its own
+  clip, so the halves never overlap and a faded heart (a far row, a
+  screen leaving) reads as whole; filled for a favorite, an outline
+  otherwise. On the song's side it sits at the right of the title (the
+  look's `FavoriteSlot` in `SongInfo`, 24 px tall, a phone's and a room's
+  short side 18 px) and is a button (`Favorite`); turned, it pops a fifth
+  of a second (at once under reduced motion). A favorite's row carries a
+  small filled heart over its banner's upper left corner (the look's
+  `Fav`, on a darker heart so it reads on any art); other rows nothing.
+- **Inputs**: a click or a tap on the heart; F (by its physical place,
+  `KeyF`, not while typing a search), its word in the footer on a song's
+  row ("Favorite", "Unfavorite"; a phone's layout has no footer); More's
+  "Add to favorites" or "Remove from favorites", a controller's and a
+  phone's way. A change is at once, asks nothing and says nothing. They
+  act on the song shown (on a pack's header, the song still shown beside
+  it).
+- **The Favorites pack**, a pack of the screen's own at the top of the
+  list, above every pack, while one of its songs is in the library: each
+  favorite once, from whatever pack it lives in (listed there too),
+  sorted as the shells sort a pack's songs (by title, ignoring case). Its
+  header has the heart in the cover's place and its count. It opens,
+  closes, takes the arrows and gestures and keeps its place as a pack
+  does: the place's open pack is `favorites`
+  (`ddi_ui::state::place::FAVORITES_KEY`), so a song opened from it comes
+  back in it; the closed packs the place keeps are real packs alone.
+  Nothing a pack's header offers (Manage, Share…) is offered on its
+  header; a song in it offers its own song's. A song taken out of it
+  while it is open gives the focus to the next of its songs, its header
+  after the last, and, the pack gone, to the first pack's header, nothing
+  open. A library of fewer than ten songs has no packs, so no Favorites
+  pack: its rows' and the song's hearts alone.
+- **Searching** leaves the Favorites pack out: a song shows once, under
+  its own pack, with its heart, so the songs found are the same rows as
+  without favorites; the search cleared, the pack is back as it was.
+- **Where**: singleplayer on both shells, and a room's song select for
+  whoever chooses songs (their own library; More's item first among the
+  room's); a follower's side has no heart and no pack, nor do the
+  shared-songs mode (`#/s/<id>`, `--shared`) and a song that exists only
+  as a room's share.
+
+Checked by `crates/ui/src/screens/favorites_tests.rs` (each input, the
+pack's order, place and emptying, search, a share, a room's picker and
+follower, what is kept), `crates/ui/src/state/favorites.rs` and
+`crates/desktop/tests/favorites_offscreen.rs` (pictures, wide and on a
+phone, English and Japanese).
+
 ## Verification
 
 Pure recognizer/motion tests cover singles, isolated and opposite pairs,
