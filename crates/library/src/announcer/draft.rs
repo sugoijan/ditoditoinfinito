@@ -1395,9 +1395,12 @@ impl Draft {
     /// takes the pack's, its takes in the first), Mixed and switches.
     pub fn adopt(&mut self, pack: Adopted) {
         if let Some(plan) = &pack.plan {
+            // The page goes on working in the language it worked in.
+            let working = self.working.clone();
             for l in &plan.languages {
                 self.add_language(l);
             }
+            self.working = working;
             self.mixed |= plan.mixed && self.languages.len() > 1;
             for s in &plan.switches {
                 if self.switch_of(&s.tag).is_none() {

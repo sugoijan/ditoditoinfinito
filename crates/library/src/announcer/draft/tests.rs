@@ -1171,6 +1171,7 @@ fn a_scripted_pack_is_read_into_a_draft() {
         again.place(id, &plan.takes[&path]);
     }
     assert_eq!(again.languages, d.languages);
+    assert_eq!(again.working_language(), Some("en"), "worked in as before");
     assert_eq!(again.export().texts, export.texts);
     // A plain pack has no plan: its folders say.
     assert_eq!(read_pack(&pack_files("Name/"), None, None), None);
