@@ -135,6 +135,10 @@ impl App {
     /// starting over).
     fn show(&mut self) {
         self.route = Route::current();
+        // Chart ratings looked for on every route (round Z1): an option
+        // turned On in Options (`Settings::show_ratings`) starts them on
+        // the way back, not only at the next load.
+        crate::ratings::kick();
         let losses = crate::web::screen::losses();
         let key = match &self.route {
             Route::Play(_) | Route::CalibrateRun { .. } | Route::MpWatchStage { .. } => {

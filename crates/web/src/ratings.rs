@@ -82,7 +82,9 @@ fn now() -> f64 {
 }
 
 /// Starts looking for songs to rate where an option wants ratings (at
-/// boot, on every route: the settings may have changed).
+/// boot, and on every route, `App::show`: an option turned On in Options
+/// starts them on the way back; before round Z1 only the boot did, and
+/// imported songs were never rated until the page was loaded again).
 pub(crate) fn kick() {
     if !ratings::wanted() {
         return;
