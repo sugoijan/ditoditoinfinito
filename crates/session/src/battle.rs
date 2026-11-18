@@ -2114,16 +2114,22 @@ impl Battle {
     /// out (`docs/plans/multiplayer-ui.md`: a confirmed winner's power
     /// stops).
     pub fn my_power(&self, human: &Player) -> Option<(f32, bool)> {
-        if let Some(l) = self.live_attacks() {
-            return self.me_battling(human).then(|| l.ledger.bar(self.setup.me));
-        }
-        let a = self.attacks.as_ref()?;
-        self.me_battling(human).then(|| a.bar(self.setup.me))
+        let read = self.attack_read()?;
+        self.me_battling(human).then(|| read.bar(self.setup.me))
     }
 
     /// The live stage's part, where it has attacks (the room's ledger).
     fn live_attacks(&self) -> Option<&live::Live> {
         self.remote_live.as_ref().filter(|_| self.setup.battle.attacks())
+    }
+
+    /// Where the stage's attacks are read from, where it has them: the
+    /// room's ledger in a live stage, the local runner otherwise.
+    fn attack_read(&self) -> Option<AttackRead<'_>> {
+        match self.live_attacks() {
+            Some(l) => Some(AttackRead::Live(l)),
+            None => self.attacks.as_ref().map(AttackRead::Local),
+        }
     }
 
     /// The attack against the local player on its way or passing, as its
@@ -2164,50 +2170,23 @@ impl Battle {
 
     fn incoming_of(&self, participant: ParticipantId) -> Option<Incoming> {
         let now = attacks::micros(self.now);
-        if let Some(l) = self.live_attacks() {
-            // Another competitor's field is drawn the view's delay behind
-            // the song: its attack's times are said on the song's clock
-            // where that field shows them.
-            let d = if participant == self.setup.me {
-                0.0
-            } else {
-                l.field_delay_s(participant)
-            };
-            let mut all = l.ledger.incoming(participant, now - attacks::micros(d));
-            let attack = all.next()?;
-            let behind = all.count().min(usize::from(u16::MAX)) as u16;
-            let plan_at = |k: usize| {
-                l.learned
-                    .iter()
-                    .find(|(id, _)| *id == attack.id)
-                    .map_or(k as f64, |(_, t)| *t)
-            };
-            return Some(Incoming {
-                shocks: attack.cells.len().min(usize::from(u8::MAX)) as u8,
-                committed: plan_at(0) + d,
-                first: attack.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6 + d,
-                clear: attack.clear_us as f64 / 1e6 + d,
-                behind,
-            });
-        }
-        let a = self.attacks.as_ref()?;
-        let mut all = a
-            .ledger()
-            .incoming_all(participant)
-            .filter(|x| x.clear_us >= now);
+        let read = self.attack_read()?;
+        // Another competitor's field in a live stage is drawn the view's
+        // delay behind the song: its attack's times are said on the
+        // song's clock where that field shows them.
+        let d = read.delay_s(participant, self.setup.me);
+        let mut all = read.attacks().iter().filter(|x| {
+            x.recipient == participant
+                && x.state == ddi_room::attacks::AttackState::Active
+                && x.clear_us >= now - attacks::micros(d)
+        });
         let attack = all.next()?;
         let behind = all.count().min(usize::from(u16::MAX)) as u16;
-        let committed = a
-            .ledger()
-            .checkpoints_us()
-            .get(attack.checkpoint)
-            .copied()
-            .unwrap_or(0);
         Some(Incoming {
             shocks: attack.cells.len().min(usize::from(u8::MAX)) as u8,
-            committed: committed as f64 / 1e6,
-            first: attack.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6,
-            clear: attack.clear_us as f64 / 1e6,
+            committed: read.committed(attack) + d,
+            first: attack.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6 + d,
+            clear: attack.clear_us as f64 / 1e6 + d,
             behind,
         })
     }
@@ -2313,42 +2292,17 @@ impl Battle {
         };
         // Each attack, when this play learned of it (song seconds) and how
         // far behind the song its recipient's field is drawn (µs).
-        let timed: Vec<(&ddi_room::attacks::Attack, f64, i64)> = if let Some(l) = self.live_attacks() {
-            l.ledger
-                .attacks
-                .iter()
-                .map(|x| {
-                    let learned = l
-                        .learned
-                        .iter()
-                        .find(|(id, _)| *id == x.id)
-                        .map_or(0.0, |(_, t)| *t);
-                    let delay = if x.recipient == me {
-                        0
-                    } else {
-                        attacks::micros(l.field_delay_s(x.recipient))
-                    };
-                    (x, learned, delay)
-                })
-                .collect()
-        } else if let Some(a) = self.attacks.as_ref() {
-            let ledger = a.ledger();
-            ledger
-                .attacks()
-                .iter()
-                .map(|x| {
-                    let committed = ledger.checkpoints_us().get(x.checkpoint).copied().unwrap_or(0) as f64 / 1e6;
-                    let learned = self
-                        .seen
-                        .iter()
-                        .find(|(id, _)| *id == x.id)
-                        .map_or(committed, |(_, t)| *t);
-                    (x, learned, 0)
-                })
-                .collect()
-        } else {
+        let Some(read) = self.attack_read() else {
             return Vec::new();
         };
+        let timed: Vec<(&ddi_room::attacks::Attack, f64, i64)> = read
+            .attacks()
+            .iter()
+            .map(|x| {
+                let learned = read.learned(x, &self.seen);
+                (x, learned, attacks::micros(read.delay_s(x.recipient, me)))
+            })
+            .collect();
         let now = attacks::micros(self.now);
         let live: Vec<&(&ddi_room::attacks::Attack, f64, i64)> = timed
             .iter()
@@ -2381,21 +2335,11 @@ impl Battle {
     /// The local player's full bar waiting, and why (none once out or
     /// after a confirmed win).
     pub fn waiting(&self, human: &Player) -> Option<Waiting> {
-        if let Some(l) = self.live_attacks() {
-            if !self.me_battling(human) {
-                return None;
-            }
-            let me = self.setup.me;
-            return l.ledger.waiting(me).map(|reason| Waiting {
-                targeting: self.policy,
-                reason,
-            });
-        }
-        let a = self.attacks.as_ref()?;
+        let read = self.attack_read()?;
         if !self.me_battling(human) {
             return None;
         }
-        a.waiting(self.setup.me)
+        read.waiting(self.setup.me, self.policy)
             .map(|(targeting, reason)| Waiting { targeting, reason })
     }
 
@@ -2403,9 +2347,7 @@ impl Battle {
     /// battle has attacks: what the label by the power bar says (none
     /// once out or after a confirmed win, as the bar).
     pub fn policy(&self, human: &Player) -> Option<Targeting> {
-        if self.attacks.is_none() && self.live_attacks().is_none() {
-            return None;
-        }
+        self.attack_read()?;
         self.me_battling(human).then_some(self.policy)
     }
 
@@ -2717,44 +2659,23 @@ impl Battle {
     /// included: they were launched), in the order first committed.
     pub fn attack_summary(&self, human: &Player) -> Option<AttackSummary> {
         let me = self.setup.me;
-        if let Some(l) = self.live_attacks() {
-            let mut summary = AttackSummary {
-                shocks: human.results_brief().battle_mines.map_or(0, |b| b.hit),
-                drawn_by_final_attack: self.drawn,
-                ..AttackSummary::default()
-            };
-            for x in &l.ledger.attacks {
-                let (list, other) = if x.sender == me {
-                    (&mut summary.sent, x.recipient)
-                } else if x.recipient == me {
-                    (&mut summary.taken, x.sender)
-                } else {
-                    continue;
-                };
-                match list.iter_mut().find(|(q, _)| *q == other) {
-                    Some((_, n)) => *n += 1,
-                    None => list.push((other, 1)),
-                }
-            }
-            return Some(summary);
-        }
-        let a = self.attacks.as_ref()?;
+        let read = self.attack_read()?;
         let mut summary = AttackSummary {
             shocks: human.results_brief().battle_mines.map_or(0, |b| b.hit),
             drawn_by_final_attack: self.drawn,
             ..AttackSummary::default()
         };
-        let count = |list: &mut Vec<(ParticipantId, u32)>, p: ParticipantId| {
-            match list.iter_mut().find(|(q, _)| *q == p) {
-                Some((_, n)) => *n += 1,
-                None => list.push((p, 1)),
-            }
-        };
-        for x in a.ledger().attacks() {
-            if x.sender == me {
-                count(&mut summary.sent, x.recipient);
+        for x in read.attacks() {
+            let (list, other) = if x.sender == me {
+                (&mut summary.sent, x.recipient)
             } else if x.recipient == me {
-                count(&mut summary.taken, x.sender);
+                (&mut summary.taken, x.sender)
+            } else {
+                continue;
+            };
+            match list.iter_mut().find(|(q, _)| *q == other) {
+                Some((_, n)) => *n += 1,
+                None => list.push((other, 1)),
             }
         }
         Some(summary)
@@ -2987,6 +2908,80 @@ pub fn run_of(out_at: Option<f64>, life: f32, score: &ScoreView, steps: usize) -
             score: score.ddi.as_ref().map_or(0, |d| d.score),
             steps: u8::try_from(steps).unwrap_or(u8::MAX),
         },
+    }
+}
+
+/// Where a stage's attacks are read from ([`Battle::attack_read`]).
+enum AttackRead<'a> {
+    /// A live stage's: the room's ledger as its records said it.
+    Live(&'a live::Live),
+    /// Practice's: the ledger run on this device.
+    Local(&'a attacks::AttackRunner),
+}
+
+impl AttackRead<'_> {
+    /// Every attack committed so far.
+    fn attacks(&self) -> &[ddi_room::attacks::Attack] {
+        match self {
+            AttackRead::Live(l) => &l.ledger.attacks,
+            AttackRead::Local(a) => a.ledger().attacks(),
+        }
+    }
+
+    /// `p`'s bar: its share and whether it is full.
+    fn bar(&self, p: ParticipantId) -> (f32, bool) {
+        match self {
+            AttackRead::Live(l) => l.ledger.bar(p),
+            AttackRead::Local(a) => a.bar(p),
+        }
+    }
+
+    /// When the attack `x` was committed (song seconds): when this
+    /// device learned of it from the room in a live stage, its
+    /// checkpoint's time in practice.
+    fn committed(&self, x: &ddi_room::attacks::Attack) -> f64 {
+        match self {
+            AttackRead::Live(l) => l
+                .learned
+                .iter()
+                .find(|(id, _)| *id == x.id)
+                .map_or(0.0, |(_, t)| *t),
+            AttackRead::Local(a) => {
+                let ledger = a.ledger();
+                ledger.checkpoints_us().get(x.checkpoint).copied().unwrap_or(0) as f64 / 1e6
+            }
+        }
+    }
+
+    /// When this play learned of the attack `x` (song seconds): in
+    /// practice as `seen` says, else its commitment.
+    fn learned(&self, x: &ddi_room::attacks::Attack, seen: &[(u32, f64)]) -> f64 {
+        match self {
+            AttackRead::Live(_) => self.committed(x),
+            AttackRead::Local(_) => seen
+                .iter()
+                .find(|(id, _)| *id == x.id)
+                .map_or_else(|| self.committed(x), |(_, t)| *t),
+        }
+    }
+
+    /// How far behind the song `p`'s field is drawn (seconds): the view's
+    /// delay for another competitor of a live stage, else none.
+    fn delay_s(&self, p: ParticipantId, me: ParticipantId) -> f64 {
+        match self {
+            AttackRead::Live(l) if p != me => l.field_delay_s(p),
+            _ => 0.0,
+        }
+    }
+
+    /// Why `p`'s full bar waits, if it does, with the policy it goes by
+    /// (a live stage's ledger knows none of its own: `policy`, the
+    /// player's).
+    fn waiting(&self, p: ParticipantId, policy: Targeting) -> Option<(Targeting, BlockReason)> {
+        match self {
+            AttackRead::Live(l) => l.ledger.waiting(p).map(|reason| (policy, reason)),
+            AttackRead::Local(a) => a.waiting(p),
+        }
     }
 }
 

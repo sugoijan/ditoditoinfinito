@@ -567,13 +567,6 @@ impl RemoteLedger {
             a.state = state;
         }
     }
-
-    /// The attacks against `p` on their way or passing, from `now_us`.
-    pub fn incoming(&self, p: ParticipantId, now_us: i64) -> impl Iterator<Item = &Attack> {
-        self.attacks.iter().filter(move |a| {
-            a.recipient == p && a.state == AttackState::Active && a.clear_us >= now_us
-        })
-    }
 }
 
 /// Puts an attack's shocks into this device's play (`Player::add_hazards`,
