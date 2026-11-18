@@ -53,6 +53,10 @@ struct State {
     /// The song being read or rated, and its message once read (sent when
     /// the worker is ready).
     busy: Option<(u32, String)>,
+    /// Where the song being rated is no simfile (a Dancing☆Onigiri work,
+    /// an FFR level): its charts as written for the worker, each one's
+    /// place in the song and digest (`ratings::rating_simfile`).
+    written: Option<Vec<(usize, ddi_chart::ChartDigest)>>,
     queued: Option<Object>,
     next: u32,
     /// A tick is scheduled.
@@ -126,17 +130,36 @@ fn rate(job: Job) {
     let id = STATE.with_borrow_mut(|s| {
         s.next = s.next.wrapping_add(1);
         s.busy = Some((s.next, job.song.clone()));
+        s.written = None;
         s.last_busy = now();
         s.next
     });
     wasm_bindgen_futures::spawn_local(async move {
-        let text = crate::songs::chart_text(&job.song).await;
+        let text = match crate::songs::chart_text(&job.song).await {
+            Ok(t) => Ok(t),
+            // A Dancing☆Onigiri work or an FFR level (round Y3): read as a
+            // play reads it, its four-lane charts (generated versions
+            // among them) written as a simfile the worker reads, their
+            // numbers put back by their own digests.
+            Err(_) => match crate::songs::load_chart(&job.song).await {
+                Ok(song) => {
+                    let (text, written) = ratings::rating_simfile(&song, &job.charts);
+                    STATE.with_borrow_mut(|s| s.written = Some(written));
+                    Ok((text, "ssc".to_string()))
+                }
+                Err(e) => Err(e),
+            },
+        };
         let (text, ext) = match text {
             Ok(t) => t,
             Err(_) => {
                 finish(id, Vec::new());
                 return;
             }
+        };
+        let charts_asked: Vec<usize> = match STATE.with_borrow(|s| s.written.as_ref().map(Vec::len)) {
+            Some(n) => (0..n).collect(),
+            None => job.charts.clone(),
         };
         let msg = Object::new();
         let set = |k: &str, v: &JsValue| {
@@ -146,7 +169,7 @@ fn rate(job: Job) {
         set("text", &JsValue::from_str(&text));
         set("ext", &JsValue::from_str(&ext));
         let charts = Array::new();
-        for c in &job.charts {
+        for c in &charts_asked {
             charts.push(&JsValue::from(*c as f64));
         }
         set("charts", &charts);
@@ -178,11 +201,15 @@ fn finish(id: u32, rated: Vec<Rated>) {
             s.busy = None;
             s.queued = None;
             s.last_busy = now();
-            Some(song)
+            Some((song, s.written.take()))
         }
         _ => None,
     });
-    if let Some(song) = song {
+    if let Some((song, written)) = song {
+        let rated = match written {
+            Some(w) => ratings::placed(rated, &w),
+            None => rated,
+        };
         ratings::done(&song, rated);
     }
 }

@@ -437,6 +437,50 @@ pub fn rate_song(song: &ddi_chart::Song, job_charts: &[usize]) -> Vec<Rated> {
         .collect()
 }
 
+/// A song whose own file is no simfile (a Dancing☆Onigiri work, an FFR
+/// level) as one the web's rating worker reads (round Y3: they were never
+/// rated there, the worker reading simfiles alone): charts `charts` of
+/// `song`, read as a play reads it (generated versions included), written
+/// as an `.ssc` of those charts alone (`ddi_chart`'s writer: what is read
+/// is written back equal), and what each of its charts is in `song` (its
+/// place and its digest, which a rating is kept by). The worker's answer
+/// is put back with [`placed`].
+pub fn rating_simfile(song: &ddi_chart::Song, charts: &[usize]) -> (String, Vec<(usize, ChartDigest)>) {
+    let mut alone = song.clone();
+    alone.charts = Vec::new();
+    // Written from the model alone (what the file said is not this file's),
+    // a generated version as a chart of its own (the writer leaves
+    // generated ones out, the reader makes them again).
+    alone.source.unknown_tags.clear();
+    let mut map = Vec::new();
+    for &index in charts {
+        if let Some(c) = song.charts.get(index) {
+            let mut c = c.clone();
+            c.derivation = None;
+            alone.charts.push(c);
+            map.push((index, song.chart_digest(index)));
+        }
+    }
+    (ddi_chart::formats::sm_write::write_ssc(&alone), map)
+}
+
+/// The worker's answer for a [`rating_simfile`]: each of its charts
+/// (numbered as written) put back in its place in the song, by the digest
+/// the song knows it by.
+pub fn placed(rated: Vec<Rated>, map: &[(usize, ChartDigest)]) -> Vec<Rated> {
+    rated
+        .into_iter()
+        .filter_map(|r| {
+            let &(index, digest) = map.get(r.index)?;
+            Some(Rated {
+                index,
+                digest,
+                values: r.values,
+            })
+        })
+        .collect()
+}
+
 /// Forgets the session's queue and what was read (tests).
 #[cfg(test)]
 pub(crate) fn reset() {
@@ -450,6 +494,54 @@ mod tests {
 
     fn digest(n: u128) -> ChartDigest {
         ChartDigest(n)
+    }
+
+    /// Round Y3: a Dancing☆Onigiri work's generated four-lane version
+    /// (Without onigiri, on Single) is rated as any four-lane chart, its
+    /// notes as generated, kept by its own digest: written as the web's
+    /// worker reads it, parsed back there and rated, it gives exactly the
+    /// numbers the song's own chart gives (as desktop rates it, from the
+    /// song as a play reads it).
+    #[test]
+    fn a_works_generated_four_lane_version_rates_as_its_own_chart() {
+        use ddi_chart::formats::danoni::{self, Dos, DosFlags};
+        // Enough notes for every skillset: a stream over the four arrows,
+        // jumps now and then, and the onigiri between.
+        let lane = |k: usize, every: usize, from: usize| {
+            (0..120)
+                .filter(|i| i % every == k)
+                .map(|i| (from + i * 12).to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        let dos = format!(
+            "|musicTitle=Test,Artist|musicUrl=test.ogg|blankFrame=0|difData=5,Hard,3.5\
+             |left_data={}|down_data={}|up_data={}|right_data={}|space_data={}|",
+            lane(0, 4, 60),
+            lane(1, 4, 60),
+            lane(2, 4, 60),
+            lane(3, 4, 60),
+            lane(0, 8, 66),
+        );
+        let mut song = danoni::import(&Dos::parse(&dos, DosFlags::default()))
+            .unwrap()
+            .songs
+            .remove(0);
+        song.add_chart_versions();
+        let four: Vec<usize> = (0..song.charts.len())
+            .filter(|&i| ddi_msd::chart::four_keys(&song.charts[i].layout))
+            .collect();
+        assert!(!four.is_empty(), "a generated four-lane version");
+        assert!(four.iter().all(|&i| song.charts[i].derivation.is_some()));
+        let own = rate_song(&song, &four);
+        assert!(own.iter().all(|r| r.values.is_some_and(|v| v[0] > 0.0)), "{own:?}");
+        // As the web's worker does it.
+        let (text, map) = rating_simfile(&song, &four);
+        let mut read = ddi_chart::formats::sm::parse_simfile(&text, "ssc").unwrap();
+        read.add_chart_versions();
+        let written: Vec<usize> = (0..map.len()).collect();
+        let worker = placed(rate_song(&read, &written), &map);
+        assert_eq!(worker, own);
     }
 
     #[test]

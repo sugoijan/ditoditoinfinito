@@ -67,9 +67,16 @@ a score goal; the listing is rate 1.0, goal 93%.
   SVG one, whose job and lifetime are a skin's), started with the first
   song and ended after 10 s idle; the page reads the stored simfile and
   posts its text, the worker parses it as the library does and rates it
-  (`crate::ratings`). Dancing☆Onigiri works and FFR levels are not rated
-  in the background (their generated four-lane versions keep their songs'
-  numbers); a room's shared song is.
+  (`crate::ratings`). A room's shared song is rated too. Dancing☆Onigiri
+  works and FFR levels (round Y3, 2026-11-18; before, the web's worker read
+  simfiles alone and they kept their songs' numbers): desktop's thread
+  reads them as a play does and rates their four-lane charts (generated
+  versions among them); the web reads the song as a play does on the page
+  and hands the worker those charts written as an `.ssc`
+  (`ratings::rating_simfile`: generated versions as charts of their own,
+  their notes as generated), the numbers put back in their places by each
+  chart's own digest (`ratings::placed`; `a_works_generated_four_lane_version_rates_as_its_own_chart`:
+  the same numbers as rating the song itself).
 - **Paused during play**: nothing is taken from the prompt's Start to the
   results (`ratings::set_playing`: desktop's play stage, the web's
   `history::set_playing`, the same points the reworker yields at), as the
@@ -132,5 +139,4 @@ or fetched. The rating worker is 296 kB of wasm; the page's first bytes
 are unchanged but for its meta tag (25 bytes gzipped).
 
 Not done: the radar's numbers on keyboard focus (hover only); MSD at other
-rates (the listing's 1.0 only); works and FFR levels rated in the
-background.
+rates (the listing's 1.0 only).
