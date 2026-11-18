@@ -276,6 +276,29 @@ fn fields_and_dialogs_change_the_draft() {
     h.run(0.3);
     assert_eq!(host.state.draft.borrow().take(take).unwrap().tags, ["calm"]);
     assert_eq!(host.asked(), ["forget", "save", "show"]);
+    // New tag…: its own dialog over the page, a word typed (not one
+    // first: refused there).
+    h.tap(PointerKind::Mouse, &format!("Item{at}"));
+    h.run(0.3);
+    for _ in 0..4 {
+        h.key("ArrowDown", "ArrowDown");
+    }
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    assert_eq!(
+        h.ui.layers().last().map(|l| l.name.clone()).as_deref(),
+        Some("editor-value"),
+        "{:?}",
+        h.ui.layers()
+    );
+    h.sync("Rude!", [5, 5], None);
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    assert_eq!(host.state.draft.borrow().take(take).unwrap().tags, ["calm"]);
+    h.sync("Rude", [4, 4], None);
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    assert_eq!(host.state.draft.borrow().take(take).unwrap().tags, ["calm", "rude"]);
 }
 
 /// A pack made before with a script, picked: its pool's places taken by

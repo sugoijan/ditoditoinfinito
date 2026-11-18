@@ -321,7 +321,8 @@ pub fn call<H: StudioHost>(host: &Rc<H>, call: PageCall, cx: &mut Cx) -> Option<
                                     weak.upgrade().is_some_and(|h| toggle_tag(&*h, id, tag))
                                 }),
                             );
-                            cx.overlay(typed, true);
+                            // Over the page: the tags' dialog is closing.
+                            cx.overlay_current(typed);
                         }
                     }
                 }),
