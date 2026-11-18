@@ -358,6 +358,13 @@ impl Studio {
         let set = |o: &js_sys::Object, k: &str, v: JsValue| {
             let _ = Reflect::set(o, &k.into(), &v);
         };
+        let strings = |list: &[String]| -> JsValue {
+            let a = js_sys::Array::new();
+            for s in list {
+                a.push(&s.as_str().into());
+            }
+            a.into()
+        };
         let o = js_sys::Object::new();
         let draft = self.state.draft.borrow();
         let takes = js_sys::Array::new();
@@ -395,6 +402,14 @@ impl Studio {
                 "words",
                 t.words.as_deref().map_or(JsValue::NULL, JsValue::from),
             );
+            set(
+                &x,
+                "lang",
+                draft.lang_of(t).map_or(JsValue::NULL, JsValue::from),
+            );
+            set(&x, "tags", strings(&t.tags));
+            let also: Vec<String> = t.also.iter().map(|l| l.folder()).collect();
+            set(&x, "also", strings(&also));
             takes.push(&x);
         }
         set(&o, "takes", takes.into());
@@ -412,6 +427,22 @@ impl Studio {
         set(&o, "license", draft.license.as_str().into());
         set(&o, "tidy", draft.tidy.into());
         set(&o, "stadium", draft.stadium.into());
+        set(&o, "languages", strings(&draft.languages));
+        set(
+            &o,
+            "working",
+            draft.working_language().map_or(JsValue::NULL, JsValue::from),
+        );
+        set(&o, "mixed", draft.mixed.into());
+        let switches = js_sys::Array::new();
+        for sw in &draft.switches {
+            let x = js_sys::Object::new();
+            set(&x, "tag", sw.tag.as_str().into());
+            set(&x, "label", sw.label.as_str().into());
+            set(&x, "default", sw.default.into());
+            switches.push(&x);
+        }
+        set(&o, "switches", switches.into());
         let view = self.state.view.borrow();
         set(&o, "status", view.status.as_str().into());
         set(
@@ -425,6 +456,7 @@ impl Studio {
             view.playing.as_deref().map_or(JsValue::NULL, JsValue::from),
         );
         set(&o, "examples", view.examples.key().into());
+        set(&o, "lost", strings(&view.lost));
         let (by_browser, by_ours) = crate::web::opus::encoded();
         set(&o, "opusByBrowser", by_browser.into());
         set(&o, "opusByOurs", by_ours.into());
