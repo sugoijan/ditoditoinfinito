@@ -442,6 +442,23 @@ impl AudienceClient {
         self.inbox = Some(inbox);
     }
 
+    /// A new ticket for a lost socket asked for at the next
+    /// [`Self::tick`] rather than after the reconnect's wait: a hidden
+    /// page's (its timers may be a minute apart; its socket closing wakes
+    /// it) or one shown again, as a member's room hurries
+    /// (`RoomClient::hurry`). The wait's attempts count on, so a failure
+    /// backs off further. Whether one waited.
+    pub fn hurry(&mut self, now_ms: u64) -> bool {
+        let waits = self.seat.wants_ticket()
+            && self.ticket_req.is_none()
+            && self.refused.is_none()
+            && self.retry_at > now_ms;
+        if waits {
+            self.retry_at = now_ms;
+        }
+        waits
+    }
+
     /// Time passes (the shell's wall ms): answers read, a ticket asked for
     /// where the socket was lost, the socket read and written.
     pub fn tick(&mut self, now_ms: u64) {

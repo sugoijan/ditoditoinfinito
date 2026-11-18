@@ -344,7 +344,9 @@ fn run_kept(page: &RoomPage) {
 /// opened again at once ([`RoomClient::hurry`]: the reconnect's first wait
 /// would be a timer's), at most once in [`HURRY_EVERY_MS`].
 pub(crate) fn wake_hidden(closed: bool) {
-    if !page_hidden() || crate::online::kept_room().is_none() {
+    if !page_hidden()
+        || (crate::online::kept_room().is_none() && crate::online::kept_audience().is_none())
+    {
         return;
     }
     if closed {
@@ -356,7 +358,23 @@ pub(crate) fn wake_hidden(closed: bool) {
     wasm_bindgen_futures::spawn_local(async {
         WAKING.set(false);
         let closed = CLOSED.replace(false);
-        if !page_hidden()
+        if !page_hidden() {
+            return;
+        }
+        // The audience's page (round Y3): its seat's socket woke it; a
+        // lost one replaced at once, then the page stepped unseen.
+        if matches!(room_page(), RoomPage::Audience(_)) {
+            let now = now_ms();
+            if closed && now.saturating_sub(HURRIED_AT.get()) >= HURRY_EVERY_MS {
+                HURRIED_AT.set(now);
+                hurry_audience();
+            }
+            if let Some(step) = UNSEEN_PROMPT.with_borrow(Clone::clone) {
+                step();
+            }
+            return;
+        }
+        if crate::online::kept_room().is_none()
             || !matches!(
                 room_page(),
                 RoomPage::Online(_) | RoomPage::Over | RoomPage::Stage
@@ -376,6 +394,59 @@ pub(crate) fn wake_hidden(closed: bool) {
             hurry_kept();
         }
     });
+}
+
+/// The kept audience seat's reconnect tried at its next run where one
+/// waits (`AudienceClient::hurry`).
+fn hurry_audience() {
+    if let Some(a) = crate::online::kept_audience()
+        && let Ok(mut a) = a.try_borrow_mut()
+    {
+        a.hurry(now_ms());
+    }
+}
+
+/// The audience's page while it is hidden (round Y3): a browser draws no
+/// frame for it, so nothing ran its seat there (its socket unread, a lost
+/// one never replaced, a stage's song never readied). Stepped unseen from
+/// a timer of its own (`ddi_ui`'s `Screen::unseen`: the seat run as a
+/// frame runs it), and at once when its socket brings something or closes
+/// ([`wake_hidden`], a lost socket's reconnect hurried); shown again, a
+/// reconnect that waits is tried at once. As a member's room is run on a
+/// hidden page ([`run_kept`]). Dropped with the page.
+pub(crate) struct AudienceUnseen {
+    _timer: gloo::timers::callback::Interval,
+    _shown: Option<gloo::events::EventListener>,
+}
+
+impl Drop for AudienceUnseen {
+    fn drop(&mut self) {
+        set_unseen_prompt(None);
+    }
+}
+
+/// [`AudienceUnseen`] for the audience's page run by `host`.
+pub(crate) fn audience_unseen(host: &Rc<RefCell<crate::ui_host::Host>>) -> AudienceUnseen {
+    let weak = Rc::downgrade(host);
+    let step: Rc<dyn Fn()> = Rc::new(move || {
+        if page_hidden()
+            && let Some(host) = weak.upgrade()
+        {
+            crate::ui_host::step_unseen(&host);
+        }
+    });
+    set_unseen_prompt(Some(step.clone()));
+    let shown = web_sys::window().and_then(|w| w.document()).map(|d| {
+        gloo::events::EventListener::new(&d, "visibilitychange", |_| {
+            if !page_hidden() {
+                hurry_audience();
+            }
+        })
+    });
+    AudienceUnseen {
+        _timer: gloo::timers::callback::Interval::new(KEPT_PUMP_MS, move || step()),
+        _shown: shown,
+    }
 }
 
 /// The page is shown again: the kept room run at once, and a reconnect

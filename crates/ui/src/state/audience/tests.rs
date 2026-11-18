@@ -1646,3 +1646,112 @@ fn a_controller_scrolls_the_audience_page_s_parts() {
     h.run(0.1);
     assert_eq!(first(&h), top, "and Up scrolls back");
 }
+
+/// Round Y3: the audience's page hidden (no frame: a hidden tab, a covered
+/// window) is still run, from the shell's timer and its socket's events
+/// (`Screen::unseen`, `Ui::step_unseen`), as a member's room is: a stage
+/// picked meanwhile has its song prepared (handed to the shell), and a
+/// socket lost meanwhile is replaced at once where the shell hurries it
+/// (`AudienceClient::hurry`: the socket's close woke the page), not after
+/// the reconnect's wait; seen again, the page shows the stage as it
+/// stands, its song ready.
+#[test]
+fn a_hidden_audience_page_keeps_its_seat_and_readies_the_stage() {
+    use crate::look::Plain;
+    use crate::screens::audience::{AudienceCall, AudienceScreen};
+    use crate::screens::{DESIGN, Env};
+    use crate::state::online::tests::room::song;
+    use crate::testing::Harness;
+    use ddi_room::{Command, ContentStatus};
+    let env = Env::new(
+        Rc::new(Plain),
+        Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
+    );
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let cut = Rc::new(std::cell::Cell::new(false));
+    let online = watcher(&server, "carol");
+    let carol = Rc::new(RefCell::new(AudienceClient::new(
+        online,
+        AUDIENCE_LINK,
+        Box::new(Cuttable {
+            inner: FakeAudienceSocket::new(server.clone()),
+            cut: cut.clone(),
+        }),
+        None,
+        clock.now().0,
+    )));
+    let prepared: Rc<RefCell<Vec<LoadJob>>> = Rc::default();
+    let sink = prepared.clone();
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, crate::TextMode::Own);
+    h.push(AudienceScreen::new(
+        env,
+        carol.clone(),
+        Rc::new(move |call, _| {
+            if let AudienceCall::Prepare(job) = call {
+                sink.borrow_mut().push(job);
+            }
+        }),
+    ));
+    // Seen: frames run the seat.
+    let seen = |ms: u64, h: &mut Harness, alice: &mut RoomClient| {
+        for _ in 0..ms / 50 {
+            clock.advance(50);
+            server.borrow_mut().pump();
+            alice.tick(clock.now().0);
+            h.ui.set_wall_ms(clock.now().0);
+            h.run(0.05);
+        }
+    };
+    // Hidden: no frame, the shell's timer (a second apart) steps it.
+    let hidden = |ms: u64, h: &mut Harness, alice: &mut RoomClient| {
+        for i in 0..ms / 50 {
+            clock.advance(50);
+            server.borrow_mut().pump();
+            alice.tick(clock.now().0);
+            if i % 20 == 19 {
+                h.ui.set_wall_ms(clock.now().0);
+                h.ui.step_unseen();
+            }
+        }
+    };
+    seen(2_000, &mut h, &mut alice);
+    assert_eq!(carol.borrow().state(), SeatState::Watching);
+    // Hidden, the room picks a stage: its song is prepared unseen.
+    hidden(500, &mut h, &mut alice);
+    let s = song();
+    alice.pick(&s, &s.charts[0]).unwrap();
+    let stage = alice.stages()[0].id;
+    server
+        .borrow_mut()
+        .authority(Command::SetContentStatus {
+            stage,
+            status: ContentStatus::Available,
+            share: Some("sharex01".into()),
+        })
+        .unwrap();
+    hidden(3_000, &mut h, &mut alice);
+    assert_eq!(prepared.borrow().len(), 1, "the stage's song prepared while hidden");
+    // The socket lost while hidden: the shell, woken by its close, hurries
+    // the reconnect and steps the page: a new socket at once.
+    cut.set(true);
+    h.ui.set_wall_ms(clock.now().0);
+    h.ui.step_unseen();
+    assert_eq!(carol.borrow().state(), SeatState::Reconnecting);
+    assert!(carol.borrow_mut().hurry(clock.now().0), "a reconnect waited");
+    for _ in 0..4 {
+        clock.advance(20);
+        server.borrow_mut().pump();
+        h.ui.set_wall_ms(clock.now().0);
+        h.ui.step_unseen();
+    }
+    assert_eq!(
+        (carol.borrow().state(), carol.borrow().sockets()),
+        (SeatState::Watching, 2),
+        "a new socket within 80 ms"
+    );
+    // Seen again: the page as the room stands.
+    seen(500, &mut h, &mut alice);
+    assert_eq!(prepared.borrow().len(), 1, "prepared once");
+}

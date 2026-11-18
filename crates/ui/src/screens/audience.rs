@@ -547,6 +547,24 @@ pub struct AudienceScreen {
 }
 
 impl AudienceScreen {
+    /// The seat's run: ticked on the shell's wall clock, its stages'
+    /// songs and a sign-in's redirect handed to the shell.
+    fn run_seat(&mut self, cx: &mut Cx) {
+        let now = cx.wall_ms();
+        let (jobs, redirect) = {
+            let mut a = self.audience.borrow_mut();
+            a.tick(now);
+            let redirect = a.online().borrow_mut().take_redirect();
+            (a.take_load_jobs(), redirect)
+        };
+        for job in jobs {
+            (self.shell)(AudienceCall::Prepare(job), cx);
+        }
+        if let Some(r) = redirect {
+            (self.shell)(AudienceCall::Redirect(r), cx);
+        }
+    }
+
     pub fn new(env: Env, audience: SharedAudience, shell: AudienceShell) -> AudienceScreen {
         AudienceScreen {
             env,
@@ -1114,22 +1132,22 @@ impl crate::screen::Screen for AudienceScreen {
         Some(self.time + 0.1)
     }
 
+    /// A step while the page is hidden (a covered or minimized window):
+    /// the seat run as a frame runs it (its socket read, a lost one's
+    /// ticket asked for, a stage's song prepared), so that it keeps its
+    /// seat and has the stage ready when the page is seen again, as a
+    /// member's room is run on a hidden page (round Y3). A stage the room
+    /// starts meanwhile is handed over once the page is seen (watching
+    /// starts from where the stage is; its music needs the page).
+    fn unseen(&mut self, cx: &mut Cx) {
+        self.run_seat(cx);
+    }
+
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
         self.time = cx.time();
         // The seat's socket and the room's view come while nothing moves.
-        let now = cx.wall_ms();
-        let (jobs, order, redirect) = {
-            let mut a = self.audience.borrow_mut();
-            a.tick(now);
-            let redirect = a.online().borrow_mut().take_redirect();
-            (a.take_load_jobs(), a.take_stage_order(), redirect)
-        };
-        for job in jobs {
-            (self.shell)(AudienceCall::Prepare(job), cx);
-        }
-        if let Some(r) = redirect {
-            (self.shell)(AudienceCall::Redirect(r), cx);
-        }
+        self.run_seat(cx);
+        let order = self.audience.borrow_mut().take_stage_order();
         let changed = {
             let a = self.audience.borrow();
             self.built != Some(a.version())

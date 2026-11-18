@@ -1945,8 +1945,15 @@ impl ApplicationHandler for Shell {
         // A room's stage while the window is hidden: judged on without
         // frames (round P1b), every tenth of a second; and its prompt,
         // which starts the play by itself once the room starts the stage
-        // the player readied for (the maintainer, 2026-11-17).
-        if self.occluded && (self.play.plays_on_unseen() || self.play.prompts_unseen()) {
+        // the player readied for (the maintainer, 2026-11-17); and the
+        // room's audience's page, whose seat is run on the same steps
+        // (round Y3: its socket read, a stage's song readied).
+        let audience = self.occluded
+            && !self.play.prompts_unseen()
+            && self.ui.layers().iter().any(|l| l.name == "audience");
+        if self.occluded
+            && (self.play.plays_on_unseen() || self.play.prompts_unseen() || audience)
+        {
             if let Some(env) = self.theme.as_ref().map(|(e, _)| e.clone()) {
                 let now = crate::clock::now();
                 WALL_ORIGIN.with(|o| {
@@ -1956,6 +1963,9 @@ impl ApplicationHandler for Shell {
                 let rate = self.sound.borrow().audio.sample_rate();
                 let dev = self.target.as_ref().map(Target::device);
                 self.play.step_unseen(now, &mut self.ui, &env, dev, rate);
+                if audience {
+                    self.ui.step_unseen();
+                }
                 self.sync_play_mode();
                 let r = self.ui.take_requests();
                 self.run(r);

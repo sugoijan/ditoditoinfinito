@@ -56,6 +56,8 @@ pub(crate) struct PagePage {
     ui: UiPage,
     feed: PageFeed,
     host: Rc<RefCell<Option<std::rc::Weak<RefCell<Host>>>>>,
+    /// The audience's page run while hidden (`crate::room::AudienceUnseen`).
+    unseen: Option<crate::room::AudienceUnseen>,
 }
 
 impl Component for PagePage {
@@ -72,6 +74,7 @@ impl Component for PagePage {
             ui: UiPage::default(),
             feed: Rc::new(RefCell::new(None)),
             host: Rc::new(RefCell::new(None)),
+            unseen: None,
         }
     }
 
@@ -105,6 +108,7 @@ impl Component for PagePage {
     }
 
     fn destroy(&mut self, _ctx: &Context<Self>) {
+        self.unseen = None;
         self.ui.destroy(&["ui"]);
     }
 }
@@ -196,6 +200,9 @@ impl PagePage {
             return;
         };
         *self.host.borrow_mut() = Some(Rc::downgrade(&started.0));
+        if matches!(which, Which::Audience(_)) {
+            self.unseen = Some(crate::room::audience_unseen(&started.0));
+        }
         // The credits may have come first.
         if self.feed.borrow().is_some() {
             let doc = self.feed.borrow_mut().take().expect("checked");
