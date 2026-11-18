@@ -70,6 +70,13 @@ pub fn attack_colors() -> [Rgba; 2] {
     tunable_colors(["Attack.Line", "Attack.Glow"])
 }
 
+/// The play's music volume's slider (`ddi_shell::play_volume`), as the
+/// quick volume's popup has them: its plate, its track and outline, its
+/// fill, and its knob and percentage.
+pub fn volume_colors() -> [Rgba; 4] {
+    tunable_colors(["Raised", "Line2", "Accent", "Secondary"])
+}
+
 /// DDI's tier colors under the theme's names (`Judgement.Ddi.W0` …
 /// `Judgement.Ddi.Miss`, the Boo's `Judgement.Boo`), from the engine's
 /// one table (`ddi_engine::rules::colors::DDI`) rather than the tunables,

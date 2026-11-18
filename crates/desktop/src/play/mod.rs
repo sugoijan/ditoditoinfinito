@@ -283,6 +283,13 @@ pub struct Feed {
     /// right, bottom).
     pub watch_at: Vec<(Option<usize>, [f32; 4])>,
     pub skip_at: Option<[f32; 4]>,
+    /// Where the music's volume takes a press (logical pixels;
+    /// `ddi_shell::play_volume`), whether a pointer holds it, and its
+    /// edges since the last frame: the play's view's, never the play's
+    /// inputs or log.
+    pub volume_at: Option<ddi_shell::play_volume::VolumeAt>,
+    pub volume_down: bool,
+    pub volume_edges: Vec<ddi_shell::play_volume::Edge>,
     /// The window was hidden or the sound stopped.
     pub interrupted: bool,
     /// The display or the audio device changed.

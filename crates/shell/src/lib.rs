@@ -23,6 +23,8 @@
 //!   draws around them.
 //! - [`battle_cue`]: a battle's incoming attack warning by the receptors
 //!   and the waiting line under the power bar, drawn by the same pass.
+//! - [`play_volume`]: the music's volume beside the play's quit button,
+//!   pointer only, drawn by the same pass.
 //!
 //! Platform-free: built natively and for wasm, with no platform code.
 
@@ -36,6 +38,7 @@ pub mod generative;
 pub mod hand;
 pub mod opponents;
 pub mod play_view;
+pub mod play_volume;
 pub mod rivals;
 pub mod scripted;
 pub mod stage;

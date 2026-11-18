@@ -204,6 +204,9 @@ pub struct View {
     /// the results (`ddi_shell::play_view::Drawn`).
     pub watch_at: Vec<(Option<usize>, [f32; 4])>,
     pub skip_at: Option<[f32; 4]>,
+    /// Where the music's volume takes a press, while it shows
+    /// (`ddi_shell::play_volume`).
+    pub volume_at: Option<ddi_shell::play_volume::VolumeAt>,
     /// The refresh the next frame is for, when the shell's pacing knows
     /// it (`crate::pacing`); else the session predicts it.
     pub present_at: Option<HostTime>,
@@ -250,6 +253,7 @@ impl View {
             policy_at: None,
             watch_at: Vec::new(),
             skip_at: None,
+            volume_at: None,
             present_at: None,
         }
     }
@@ -493,6 +497,23 @@ impl View {
         self.policy_at = drawn.policy_at;
         self.watch_at = drawn.watch_at;
         self.skip_at = drawn.skip_at;
+        self.volume_at = drawn.volume_at;
+    }
+
+    /// The music's volume's pointer edges since the last frame, at host
+    /// time `now`: its level's changes, for the play's sound.
+    pub fn volume_edges(
+        &mut self,
+        edges: Vec<ddi_shell::play_volume::Edge>,
+        now: HostTime,
+    ) -> Vec<ddi_ui::widgets::volume::VolumeChange> {
+        self.view.volume_edges(edges, now.0)
+    }
+
+    /// The music's volume as shown (percent) and whether its slider is
+    /// open, for tests.
+    pub fn volume_shown(&self) -> (u32, bool) {
+        self.view.volume_shown()
     }
 
     /// The lyrics of the play about to start (`None`: none shown); the

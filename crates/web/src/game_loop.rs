@@ -599,6 +599,18 @@ impl GameLoop {
             while now() < until {}
         }
         let host_now = HostTime(time_ms / 1000.0);
+        // The music's volume's presses since the last frame (pointer only,
+        // `ddi_shell::play_volume`): the play's sound follows, its clock,
+        // judging and log never hear of it.
+        let edges = crate::web::touch::take_volume_edges();
+        if !edges.is_empty() {
+            let changes = self.view.volume_edges(edges, host_now.0);
+            if let Some(s) = self.session.as_mut() {
+                for c in changes {
+                    s.change_volume(c);
+                }
+            }
+        }
 
         let mut song_second = f64::NAN;
         let outcome = self.step_session(host_now);
@@ -681,6 +693,8 @@ impl GameLoop {
                 crate::web::touch::set_quit_at(drawn.quit_at);
                 // And where a stage's attack policy label takes a press.
                 crate::web::touch::set_policy_at(drawn.policy_at);
+                // And the music's volume beside the quit button.
+                crate::web::touch::set_volume_at(drawn.volume_at);
                 // And a watched stage's fields and its skip.
                 crate::web::touch::set_watch_at(drawn.watch_at, drawn.skip_at);
                 // The song time of each drawn frame, for tests that read
@@ -954,6 +968,22 @@ impl GameLoop {
             }
             // The assist claps scheduled and the mine sounds played.
             let (claps, mines) = s.event_sounds();
+            // The music's volume beside the quit button (CSS pixels: its
+            // button and its open slider's plate), its level in percent,
+            // whether the slider is open, the session's volume and the
+            // music's own gain node now (`__DDI_DEBUG.playVolume`).
+            let play_volume = {
+                let (percent, open) = self.view.volume_shown();
+                let at = crate::web::touch::volume_at();
+                json!({
+                    "percent": percent,
+                    "open": open,
+                    "button": at.map(|a| a.button),
+                    "plate": at.and_then(|a| a.plate),
+                    "volume": s.volume(),
+                    "musicGain": s.music_gain(),
+                })
+            };
             extend(
                 &mut debug,
                 json!({
@@ -1145,6 +1175,7 @@ impl GameLoop {
                     "audio": s.audio_status(),
                 }),
             );
+            extend(&mut debug, json!({ "playVolume": play_volume }));
             // The best play's ghost: how far ahead of it (percentage
             // points, or points).
             if let Some(d) = s.ghost_delta() {

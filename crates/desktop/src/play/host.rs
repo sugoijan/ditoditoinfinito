@@ -1393,8 +1393,10 @@ impl Host {
             view.set_generated(&loaded, &settings, calibration);
             view.set_noteskin(dev.device, dev.queue, None);
             view.start();
-            // A stage's opponents' names are text: its fonts read now.
-            if r.request.stage.is_some() {
+            // A stage's opponents' names are text, and so is the music's
+            // volume's level beside the quit button (every play but a
+            // calibration's): its fonts read now, on a thread.
+            if r.request.stage.is_some() || !calibration {
                 view.read_text();
             }
             r.view = Some(view);
@@ -1934,6 +1936,15 @@ impl Host {
                 .pointer_at
                 .map(|at| at.elapsed().as_secs_f64());
             v.quit_shown = ddi_session::play::quit_shown(false, since);
+            // The music's volume's presses since the last frame: the
+            // play's sound follows, its clock, judging and log never
+            // hear of it.
+            let edges = std::mem::take(&mut self.feed.borrow_mut().volume_edges);
+            if !edges.is_empty() {
+                for c in v.volume_edges(edges, now) {
+                    ddi_shell::play_volume::apply(&mut play.session, c);
+                }
+            }
             v.draw(
                 dev.device, dev.queue, encoder, view, plain, size, play, **render, now,
             );
@@ -1941,6 +1952,7 @@ impl Host {
             self.feed.borrow_mut().policy_at = v.policy_at;
             self.feed.borrow_mut().watch_at.clone_from(&v.watch_at);
             self.feed.borrow_mut().skip_at = v.skip_at;
+            self.feed.borrow_mut().volume_at = v.volume_at;
             // Where the play showed what its scene can ring.
             if let Some(run) = &r.scene {
                 run.spots.set(ddi_shell::play_spots(v.renderer.hud_spots()));

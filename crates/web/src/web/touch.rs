@@ -23,7 +23,12 @@
 //! control instead, which the play session treats like Escape (hold or
 //! double tap to quit). A press on a multiplayer stage's attack policy
 //! label (any pointer type; [`set_policy_at`]) is the `policy` control,
-//! which cycles the policy. Touch is not a sync-accuracy target: event
+//! which cycles the policy. A press on the music's volume beside the quit
+//! button (any pointer type; [`set_volume_at`],
+//! `ddi_shell::play_volume`) is neither a control nor a lane: its edges
+//! go to the play's view at the next frame ([`take_volume_edges`]),
+//! never to the play's inputs or log; a press elsewhere while its slider
+//! is open also closes it, and goes on. Touch is not a sync-accuracy target: event
 //! timestamps are as good as the browser's touch pipeline.
 
 use std::cell::RefCell;
@@ -35,6 +40,8 @@ use ddi_render::FieldGeometry;
 use gloo::events::{EventListener, EventListenerOptions};
 use wasm_bindgen::JsCast;
 use web_sys::{Element, HtmlCanvasElement, PointerEvent};
+
+use ddi_shell::play_volume::{Edge as VolumeEdge, Phase as VolumePhase, VolumeAt};
 
 use super::clock::PerformanceClock;
 
@@ -63,6 +70,11 @@ thread_local! {
     static WATCH_AT: std::cell::RefCell<WatchFields> =
         const { std::cell::RefCell::new(Vec::new()) };
     static SKIP_AT: std::cell::Cell<Option<[f32; 4]>> = const { std::cell::Cell::new(None) };
+    /// Where the music's volume is drawn now (CSS pixels of the canvas),
+    /// and its pointers' edges since the last frame.
+    static VOLUME_AT: std::cell::Cell<Option<VolumeAt>> = const { std::cell::Cell::new(None) };
+    static VOLUME_EDGES: std::cell::RefCell<Vec<VolumeEdge>> =
+        const { std::cell::RefCell::new(Vec::new()) };
     /// The safe area's insets (top, right, bottom, left, CSS pixels), read
     /// again when the canvas's size changes (a rotation).
     static INSETS: std::cell::Cell<Option<Insets>> = const { std::cell::Cell::new(None) };
@@ -78,7 +90,35 @@ pub(crate) fn set_quit_shown(playing: bool, touch: bool) {
         POLICY_AT.with(|p| p.set(None));
         WATCH_AT.with(|w| w.borrow_mut().clear());
         SKIP_AT.with(|s| s.set(None));
+        VOLUME_AT.with(|v| v.set(None));
+        VOLUME_EDGES.with(|e| e.borrow_mut().clear());
     }
+}
+
+/// Where the play drew the music's volume this frame (CSS pixels), for
+/// the presses on it.
+pub(crate) fn set_volume_at(at: Option<VolumeAt>) {
+    VOLUME_AT.with(|v| v.set(at));
+}
+
+/// Where the music's volume is drawn now (`__DDI_DEBUG.playVolume`).
+pub(crate) fn volume_at() -> Option<VolumeAt> {
+    VOLUME_AT.with(|v| v.get())
+}
+
+/// The music's volume's pointer edges since the last frame, for the play's
+/// view (`ddi_shell::play_view::PlayView::volume_edges`).
+pub(crate) fn take_volume_edges() -> Vec<VolumeEdge> {
+    VOLUME_EDGES.with(|e| std::mem::take(&mut *e.borrow_mut()))
+}
+
+fn volume_edge(phase: VolumePhase, x: f64, y: f64) {
+    VOLUME_EDGES.with(|e| {
+        e.borrow_mut().push(VolumeEdge {
+            phase,
+            pos: [x as f32, y as f32],
+        })
+    });
 }
 
 /// The mouse moved over the play at `now_ms`: the quit button shows a
@@ -195,6 +235,8 @@ enum Hold {
     Cancel,
     /// A stage's attack policy label.
     Policy,
+    /// The music's volume (no control of the play's).
+    Volume,
 }
 
 struct Shared {
@@ -274,6 +316,29 @@ impl TouchLanes {
                             .is_some()
                     };
                     let mut s = shared.borrow_mut();
+                    // The music's volume first: its press is its own (any
+                    // pointer type); one elsewhere closes its slider and
+                    // goes on.
+                    if event.button() == 0
+                        && let Some(at) = VOLUME_AT.with(|v| v.get())
+                    {
+                        let rect = s.canvas.get_bounding_client_rect();
+                        let x = event.client_x() as f64 - rect.left();
+                        let y = event.client_y() as f64 - rect.top();
+                        if at.holds([x as f32, y as f32]) {
+                            event.prevent_default();
+                            let id = event.pointer_id();
+                            if !s.pointers.iter().any(|(p, _)| *p == id) {
+                                let _ = host2.set_pointer_capture(id);
+                                s.pointers.push((id, Hold::Volume));
+                                volume_edge(VolumePhase::Down, x, y);
+                            }
+                            return;
+                        }
+                        if at.plate.is_some() {
+                            volume_edge(VolumePhase::Down, x, y);
+                        }
+                    }
                     let on_quit = QUIT_AT.with(|q| q.get()).is_some_and(|[x, y, r]| {
                         let rect = s.canvas.get_bounding_client_rect();
                         let dx = event.client_x() as f64 - rect.left() - f64::from(x);
@@ -344,6 +409,15 @@ impl TouchLanes {
                 let Some(i) = s.pointers.iter().position(|(p, _)| *p == id) else {
                     return;
                 };
+                if s.pointers[i].1 == Hold::Volume {
+                    let rect = s.canvas.get_bounding_client_rect();
+                    volume_edge(
+                        VolumePhase::Move,
+                        event.client_x() as f64 - rect.left(),
+                        event.client_y() as f64 - rect.top(),
+                    );
+                    return;
+                }
                 let Hold::Lane(old) = s.pointers[i].1 else {
                     return;
                 };
@@ -376,6 +450,20 @@ impl TouchLanes {
                     return;
                 };
                 let (_, hold) = s.pointers.swap_remove(i);
+                if hold == Hold::Volume {
+                    let rect = s.canvas.get_bounding_client_rect();
+                    let phase = if name == "pointerup" {
+                        VolumePhase::Up
+                    } else {
+                        VolumePhase::Cancel
+                    };
+                    volume_edge(
+                        phase,
+                        event.client_x() as f64 - rect.left(),
+                        event.client_y() as f64 - rect.top(),
+                    );
+                    return;
+                }
                 s.release(hold, PerformanceClock::from_dom_ms(event.time_stamp()));
             }));
         }
@@ -465,6 +553,7 @@ impl Shared {
             Hold::Lane(l) => self.lane_count.get_mut(l as usize),
             Hold::Cancel => Some(&mut self.cancel_count),
             Hold::Policy => Some(&mut self.policy_count),
+            Hold::Volume => None,
         }
     }
 
@@ -498,6 +587,7 @@ impl Shared {
             Hold::Lane(l) => format!("lane:{l}"),
             Hold::Cancel => CANCEL_CONTROL.to_string(),
             Hold::Policy => ddi_session::play::TOUCH_POLICY_CONTROL.to_string(),
+            Hold::Volume => return,
         };
         self.queue.push(RawInput {
             device: DeviceId::Touch,
@@ -511,6 +601,10 @@ impl Shared {
     /// Forget every pointer, emitting releases stamped `now`.
     fn release_all(&mut self, now: HostTime) {
         for (_, hold) in std::mem::take(&mut self.pointers) {
+            if hold == Hold::Volume {
+                // A drag cut off keeps the level it reached.
+                volume_edge(VolumePhase::Cancel, 0.0, 0.0);
+            }
             self.release(hold, now);
         }
     }

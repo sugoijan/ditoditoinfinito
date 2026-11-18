@@ -929,7 +929,14 @@ Rust and the browser are implementation details, not advertised features.
   (`battle_cue::draw_chart`, `Battle::chart_line`, `chart_shown`; the
   waiting line then a line lower, or in its place where that would
   reach the receptors, `waiting_below_fits`),
-  `crates/shell/src/battle_cue.rs`; who attacks
+  `crates/shell/src/battle_cue.rs`; the music's volume beside the quit
+  button, pointer only, showing with it (round AB,
+  `crates/shell/src/play_volume.rs`: its button and slider drawn by the
+  2D pass, hit-tested by the shells from `Drawn::volume_at` as the quit
+  button is, its edges handed to `PlayView::volume_edges`, never to the
+  play's inputs; `play_volume::apply` moves the play's sound,
+  `PlaySession::set_volume`, and keeps the setting; no keep-out of its
+  own: the miniatures' slots never moved for it); who attacks
   whom for the player's own attacks, `crates/shell/src/attack_links.rs`
   (`attack-links-v1`): a line in the side space from the field's edge at
   the power bar to the recipient's miniature at its own bar, or from the

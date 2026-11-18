@@ -86,6 +86,20 @@ pub(crate) fn random_seed() -> u64 {
 }
 
 impl PlaySession {
+    /// The music's volume changed by the play's control
+    /// (`ddi_shell::play_volume`): the sound follows, the settings keep
+    /// it once let go.
+    pub(crate) fn change_volume(&mut self, change: ddi_ui::widgets::volume::VolumeChange) {
+        ddi_shell::play_volume::apply(&mut self.core, change);
+    }
+
+    /// The music's own gain now (`__DDI_DEBUG.playVolume.musicGain`).
+    pub(crate) fn music_gain(&self) -> Option<f32> {
+        self.core
+            .music_sound()
+            .and_then(|id| self.core.audio().sound_gain(id))
+    }
+
     /// Audio state for the debug overlay (see [`WebAudio::status_line`]).
     pub(crate) fn audio_status(&self) -> String {
         format!(

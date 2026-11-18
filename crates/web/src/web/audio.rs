@@ -260,6 +260,12 @@ impl WebAudio {
         }
     }
 
+    /// Sound `id`'s own gain now, while it plays (the debug state's: the
+    /// play's music after its volume changed).
+    pub(crate) fn sound_gain(&self, id: SoundId) -> Option<f32> {
+        self.voices.borrow().live.get(&id).map(|v| v.gain.gain().value())
+    }
+
     /// Stops and forgets every sound but the voice's.
     pub(crate) fn stop_music(&mut self) {
         let mut voices = self.voices.borrow_mut();

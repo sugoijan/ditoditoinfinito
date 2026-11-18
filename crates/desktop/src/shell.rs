@@ -1327,12 +1327,57 @@ impl Shell {
     }
 
     /// The primary button or a touch at `pos` (logical pixels, as the
-    /// window's cursor and the play's rects are) while a play runs: its
-    /// quit button, a stage's attack policy label, a watched stage's
-    /// fields and its skip plate, in that order. Whether the play took
-    /// it (else it is the UI's).
+    /// window's cursor and the play's rects are) while a play runs: the
+    /// music's volume, its quit button, a stage's attack policy label, a
+    /// watched stage's fields and its skip plate, in that order. Whether
+    /// the play took it (else it is the UI's).
     pub fn play_pointer(&mut self, phase: PointerPhase, pos: [f32; 2]) -> bool {
-        self.quit_button(phase, pos) || self.policy_label(phase, pos) || self.watch_press(phase, pos)
+        self.play_volume(phase, pos)
+            || self.quit_button(phase, pos)
+            || self.policy_label(phase, pos)
+            || self.watch_press(phase, pos)
+    }
+
+    /// A pointer's edge at `pos` on the music's volume beside the quit
+    /// button (`ddi_shell::play_volume`), or one that began there: handed
+    /// to the play's view at its next frame, never to the play's inputs.
+    /// A press elsewhere while its slider is open closes it and is not
+    /// taken. Whether it was taken.
+    fn play_volume(&mut self, phase: PointerPhase, pos: [f32; 2]) -> bool {
+        use ddi_shell::play_volume::{Edge, Phase};
+        if !self.play.playing() {
+            return false;
+        }
+        let mut feed = self.play.feed.borrow_mut();
+        let edge = |phase| Edge { phase, pos };
+        match phase {
+            PointerPhase::Down => {
+                let Some(at) = feed.volume_at else {
+                    return false;
+                };
+                let held = at.holds(pos);
+                if held || at.plate.is_some() {
+                    feed.volume_edges.push(edge(Phase::Down));
+                }
+                feed.volume_down = held;
+                held
+            }
+            PointerPhase::Move if feed.volume_down => {
+                feed.volume_edges.push(edge(Phase::Move));
+                true
+            }
+            PointerPhase::Up | PointerPhase::Cancel if feed.volume_down => {
+                feed.volume_down = false;
+                let phase = if phase == PointerPhase::Up {
+                    Phase::Up
+                } else {
+                    Phase::Cancel
+                };
+                feed.volume_edges.push(edge(phase));
+                true
+            }
+            _ => false,
+        }
     }
 
     /// A primary press or release at `pos` on a stage's attack policy
@@ -1686,6 +1731,10 @@ impl ApplicationHandler for Shell {
                 self.hide_pointer(false);
                 self.cursor = to_logical(position, self.scale);
                 self.pointer_over_play();
+                // A drag along the play's music volume.
+                if self.play_volume(PointerPhase::Move, self.cursor) {
+                    return;
+                }
                 self.pointer(MOUSE, PointerKind::Mouse, PointerPhase::Move, self.cursor);
             }
             WindowEvent::CursorLeft { .. } => {

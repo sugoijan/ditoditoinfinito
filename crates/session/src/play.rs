@@ -685,6 +685,12 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         self.volume
     }
 
+    /// The music's sound (its gain is what [`PlaySession::set_volume`]
+    /// moves; the shells' debug state reads it).
+    pub fn music_sound(&self) -> Option<ddi_platform::SoundId> {
+        self.music
+    }
+
     /// Whether the music's volume may change during this play (the play's
     /// own control, `ddi_shell::play_volume`): not in calibration, whose
     /// click track is left as it is.

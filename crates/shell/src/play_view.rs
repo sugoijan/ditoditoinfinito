@@ -276,6 +276,10 @@ pub struct Drawn {
     /// shell sends `ddi_session::play::TOUCH_POLICY_CONTROL` for a press
     /// there.
     pub policy_at: Option<[f32; 4]>,
+    /// Where the music's volume takes a press, while it shows (with the
+    /// quit button): the shell hands its edges to
+    /// [`PlayView::volume_edges`], never to the play.
+    pub volume_at: Option<crate::play_volume::VolumeAt>,
     /// A watched stage's fields a tap or a click follows (logical
     /// pixels: left, top, right, bottom), each with the seat it follows
     /// (none: back to every field): the shell sends
@@ -499,6 +503,8 @@ pub struct PlayView<H: PlayHost> {
     /// Where the last frame put the opponents' miniatures, if it did,
     /// and whether a battle's moment was shown in their status line.
     fields_drawn: Option<crate::opponents::Fields>,
+    /// The music's volume beside the quit button (`crate::play_volume`).
+    volume: crate::play_volume::PlayVolume,
     fields_cue: bool,
     /// "Last standing" or "Stage won" as the last frame's status line
     /// said it.
@@ -607,6 +613,7 @@ impl<H: PlayHost> PlayView<H> {
             ladder_drawn: None,
             minis_drawn: 0,
             fields_drawn: None,
+            volume: Default::default(),
             fields_cue: false,
             standing_drawn: None,
             fields_score: Default::default(),
@@ -1283,6 +1290,13 @@ impl<H: PlayHost> PlayView<H> {
             ddi_render::scene::quit_button(&geo, &session.layout, screen.ratio, insets)
         });
         self.renderer.set_quit_button(quit);
+        // The music's volume beside it, while it shows (none in
+        // calibration, whose click track is left as it is).
+        let volume_place = quit
+            .filter(|_| session.volume_adjustable())
+            .map(|q| crate::play_volume::place(q, [w, h], screen.ratio));
+        self.volume
+            .frame(volume_place, screen.ratio, session.volume(), moment.now.0);
         // The lyrics at this frame's time, over the field's middle, clear
         // of the HUD's gauge and score and of the quit button.
         let lyrics = self
@@ -1370,6 +1384,7 @@ impl<H: PlayHost> PlayView<H> {
             let [x, y, r] = quit_place;
             [x - r, y - r, x + r, y + r]
         });
+
         // What a line of who attacks whom keeps clear of besides the band
         // and the miniatures (`crate::attack_links`): the HUD and the
         // quit button's place (the warning's is where one ends).
@@ -2150,7 +2165,7 @@ impl<H: PlayHost> PlayView<H> {
                 || a.followed.is_some()
         });
         self.plate_drawn = None;
-        if lyrics.is_some() || shown.is_some() || attack_shown {
+        if lyrics.is_some() || shown.is_some() || attack_shown || volume_place.is_some() {
             let place = (&geo, span, screen.ratio);
             self.draw_overlay((device, queue, encoder), target, place, lyrics, shown, attack);
         } else {
@@ -2161,9 +2176,30 @@ impl<H: PlayHost> PlayView<H> {
             song_time: frame.song_time,
             quit_at: quit.map(|b| b.map(|v| v / screen.ratio)),
             policy_at,
+            volume_at: self.volume.at(),
             watch_at,
             skip_at,
         }
+    }
+
+    /// The pointer's edges on the music's volume since the last frame
+    /// (`Drawn::volume_at`), at host second `now`: the level's changes,
+    /// for the shell to hand the play ([`crate::play_volume::apply`]).
+    pub fn volume_edges(
+        &mut self,
+        edges: impl IntoIterator<Item = crate::play_volume::Edge>,
+        now: f64,
+    ) -> Vec<ddi_ui::widgets::volume::VolumeChange> {
+        edges
+            .into_iter()
+            .filter_map(|e| self.volume.pointer(e, now).1)
+            .collect()
+    }
+
+    /// The music's volume as shown, in percent, and whether its slider is
+    /// open (for the shells' debug state).
+    pub fn volume_shown(&self) -> (u32, bool) {
+        (self.volume.percent(), self.volume.open())
     }
 
     /// Draws the lyrics' `lines` and what a stage's opponents' miniatures
@@ -2308,6 +2344,11 @@ impl<H: PlayHost> PlayView<H> {
                     );
                 }
             }
+        }
+        // The music's volume over everything else.
+        {
+            let mut measure = painter.measure(1.0);
+            self.volume.draw(list, &mut measure);
         }
         painter.draw(
             device,
