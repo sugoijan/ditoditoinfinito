@@ -187,6 +187,11 @@ pub struct ThemeState {
     pub chart: Option<String>,
     pub preferred: String,
     pub ladder: Vec<String>,
+    /// Song select's skill radar (round Z1): `shown`, or why not:
+    /// `rating` (on its way), `unrated`, `no-layout` (not four lanes),
+    /// `no-chart`; `off` (the option), `phone` (a compact layout), `room`
+    /// (a room's short side).
+    pub radar: String,
     /// Wheel items, and packs closed.
     pub items: usize,
     pub closed: Vec<String>,

@@ -62,6 +62,7 @@ select-no-charts-hint = 上の点灯しているスタイルに譜面があり�
 select-chart-notes = { $notes }ノーツ
 
 select-chart-notes-by = { $notes }ノーツ · 譜面作者：{ $credit }
+select-chart-steps-by = 譜面作者：{ $credit }
 select-chart-song-meter = 曲 { $meter }
 select-radar-stream = ストリーム
 select-radar-jumpstream = ジャンプ
@@ -78,6 +79,9 @@ select-radar-jackspeed-full = 縦連の速さ
 select-radar-chordjack-full = 同時押し縦連
 select-radar-technical-full = テクニカル
 select-radar-overall = MSD
+select-radar-rating = この譜面のMSDを計算中…
+select-radar-no-layout = このレイアウトはMSDの対象外です
+select-radar-none = この譜面のMSDはありません
 
 select-version-without-onigiri = おにぎりなし
 

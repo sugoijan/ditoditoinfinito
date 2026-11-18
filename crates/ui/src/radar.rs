@@ -3,17 +3,19 @@
 //! Jumpstream, Handstream, Stamina, JackSpeed, Chordjack, Technical), each
 //! spoke's length its skillset as a share of the chart's overall rating
 //! (the outer ring is the overall; the rings a quarter apart), so the
-//! shapes of two charts compare as profiles while the number says how
-//! hard.
+//! shapes of two charts compare as profiles while the numbers say how
+//! hard: each spoke's name and number round it, the overall's in its
+//! corner (since round Z1, in the ladder's place, [`place`]'s label rule).
 //!
 //! A vector shape of our own, as the stars and the heart are, drawn from
 //! quads alone: the rings and spokes as thin rounded bars, the shape's
 //! fill as seven triangles (each a bar along its outer edge, cut to its
 //! wedge by two frames turned along its spokes: clips the 2D pass cuts
 //! with its stencil), its outline as bars over the fill's edges. The
-//! component ([`radar`]) is sized by its side and takes its colors from
-//! the look (`Radar.Panel`, `Radar.Grid`, `Radar.Fill`, `Radar.Line`; a
-//! look without them gets [`COLORS`]).
+//! component ([`radar`]) is sized by its rectangle and takes its colors
+//! from the look (`Radar.Panel`, `Radar.Grid`, `Radar.Fill`, `Radar.Line`;
+//! a look without them gets [`COLORS`]); [`note`] is its place's quiet
+//! line where a chart has none.
 
 use std::f32::consts::{FRAC_PI_2, TAU};
 
@@ -137,9 +139,10 @@ fn sector(a: [f32; 2], b: [f32; 2], color: Rgba) -> Option<Actor> {
 }
 
 /// The radar's shape around the origin, `radius` long spokes, in
-/// `colors` (panel unused here): rings, spokes, the filled shape and its
-/// outline. A frame named `Shape`, never hit.
-pub fn shape(values: &[f32; 8], radius: f32, colors: [Rgba; 4]) -> Actor {
+/// `colors` (panel unused here): rings, spokes, the filled shape of
+/// `shares` (each skillset's share of the overall, [`shares`]; a morph's
+/// on its way) and its outline. A frame named `Shape`, never hit.
+pub fn shape(shares: &[f32; SKILLS], radius: f32, colors: [Rgba; 4]) -> Actor {
     let [_, grid, fill, line] = colors;
     let thin = (radius / 60.0).max(1.0);
     let mut parts = Vec::new();
@@ -157,7 +160,7 @@ pub fn shape(values: &[f32; 8], radius: f32, colors: [Rgba; 4]) -> Actor {
         parts.push(bar([0.0, 0.0], [x * radius, y * radius], thin, grid));
     }
     // The shape: filled, then outlined, with a dot at each corner.
-    let points = corners(&shares(values), radius);
+    let points = corners(shares, radius);
     for k in 0..SKILLS {
         if let Some(s) = sector(points[k], points[(k + 1) % SKILLS], fill) {
             parts.push(s);
@@ -193,86 +196,271 @@ pub fn colors(env: &Env) -> [Rgba; 4] {
 }
 
 /// About how wide `s` is at `size` in the look's text face (Iosevka Term:
-/// half an em a Latin letter, a whole em a CJK one), to keep labels in.
-fn width_of(s: &str, size: f32) -> f32 {
+/// half an em a Latin letter, a whole em a CJK one; a little over, so a
+/// label kept in by it is kept in), to keep labels in and apart.
+pub fn width_of(s: &str, size: f32) -> f32 {
     s.chars()
         .map(|c| if (c as u32) >= 0x2E80 { 1.0 } else { 0.55 })
         .sum::<f32>()
         * size
 }
 
+/// A text's line height at `size`.
+fn line(size: f32) -> f32 {
+    size * 1.3
+}
+
+/// What the radar says round its shape: each spoke's full and short name
+/// (Stream first), and the word before the overall's number ("MSD").
+#[derive(Clone, Copy, Debug)]
+pub struct Words<'a> {
+    pub full: &'a [String; SKILLS],
+    pub short: &'a [String; SKILLS],
+    pub overall: &'a str,
+}
+
+/// A rectangle, `[x0, y0, x1, y1]` from the radar's middle.
+pub type Rect = [f32; 4];
+
+/// Whether two rectangles share any area.
+pub fn overlap(a: Rect, b: Rect) -> bool {
+    a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
+}
+
+/// Where everything of a radar `size` large goes ([`place`]): the shape's
+/// radius, the labels' text size and names, each spoke's label (its name
+/// over its number) and the overall's caption in the upper left corner.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Placed {
+    pub radius: f32,
+    pub text: f32,
+    /// The full names (else the short ones).
+    pub full: bool,
+    pub labels: [Rect; SKILLS],
+    pub caption: Rect,
+}
+
+/// The label rule (`docs/plans/msd-ratings.md`, round Z1): the labels'
+/// text is the radar's size (a sixteenth of its height, 9 to 13 px; the
+/// numbers 2 px larger); a
+/// spoke's label is its skillset's name over its number, put beyond the
+/// spoke's end, away from the middle (right of a spoke going right, left
+/// of one going left, above one going up, below one going down, centered
+/// otherwise); the full names where the shape keeps at least four-fifths
+/// of the radius the short names leave it, else the short names; where
+/// neither fits inside the radar without two labels (or a label and the
+/// caption) overlapping, the text one pixel smaller, down to 9 px; the
+/// shape's radius is whatever the labels leave it, never under
+/// [`MIN_RADIUS`]. Nothing is cut and nothing overlaps.
+pub fn place(size: [f32; 2], words: &Words, numbers: &[String; 8]) -> Placed {
+    let mut text = (size[1] / 16.0).clamp(9.0, 13.0).floor();
+    while text >= 9.0 {
+        let full = fit(size, text, words.full, words.overall, numbers);
+        let short = fit(size, text, words.short, words.overall, numbers);
+        match (full, short) {
+            (Some(f), Some(s)) if f.radius >= (s.radius * 0.8).floor() => return f.named(true),
+            (_, Some(s)) => return s.named(false),
+            (Some(f), None) => return f.named(true),
+            (None, None) => text -= 1.0,
+        }
+    }
+    // Too small for any (no screen lays one out so small): the short
+    // names at the least size, the shape at the least radius.
+    layout_at(size, 9.0, words.short, words.overall, numbers, MIN_RADIUS).named(false)
+}
+
+/// How much larger a label's number is than its name.
+const NUMBER_UP: f32 = 2.0;
+
+/// The least radius the shape is drawn at.
+pub const MIN_RADIUS: f32 = 12.0;
+
+impl Placed {
+    fn named(mut self, full: bool) -> Placed {
+        self.full = full;
+        self
+    }
+}
+
+/// The largest radius at which `names` at `text` fit inside `size`
+/// without overlapping: `None` where none does.
+fn fit(
+    size: [f32; 2],
+    text: f32,
+    names: &[String; SKILLS],
+    overall: &str,
+    numbers: &[String; 8],
+) -> Option<Placed> {
+    let mut r = (size[0].min(size[1]) / 2.0).floor();
+    while r >= MIN_RADIUS {
+        let p = layout_at(size, text, names, overall, numbers, r);
+        if fits(size, &p) {
+            return Some(p);
+        }
+        r -= 1.0;
+    }
+    None
+}
+
+/// The room kept free round the radar's edges.
+fn pad(size: [f32; 2]) -> f32 {
+    (size[1] / 24.0).clamp(4.0, 10.0)
+}
+
+fn fits(size: [f32; 2], p: &Placed) -> bool {
+    let [w, h] = size;
+    let m = pad(size);
+    let inside = |r: &Rect| {
+        r[0] >= -w / 2.0 + m && r[2] <= w / 2.0 - m && r[1] >= -h / 2.0 + m && r[3] <= h / 2.0 - m
+    };
+    let mut all: Vec<Rect> = p.labels.to_vec();
+    all.push(p.caption);
+    all.iter().enumerate().all(|(i, a)| {
+        inside(a) && !meets_shape(*a, p.radius) && all[i + 1..].iter().all(|b| !overlap(*a, *b))
+    })
+}
+
+/// Whether a rectangle reaches into the shape's heptagon (its corners at
+/// the radius).
+pub fn meets_shape(r: Rect, radius: f32) -> bool {
+    // The heptagon's corners; a rectangle meets it where a corner of the
+    // rectangle is inside it or a corner of it is inside the rectangle.
+    let pts: Vec<[f32; 2]> = (0..SKILLS)
+        .map(|k| {
+            let [x, y] = direction(k);
+            [x * radius, y * radius]
+        })
+        .collect();
+    let inside_poly = |p: [f32; 2]| {
+        (0..SKILLS).all(|k| {
+            let a = pts[k];
+            let b = pts[(k + 1) % SKILLS];
+            (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) >= 0.0
+        })
+    };
+    let corners = [[r[0], r[1]], [r[2], r[1]], [r[0], r[3]], [r[2], r[3]]];
+    corners.iter().any(|&c| inside_poly(c))
+        || pts
+            .iter()
+            .any(|p| p[0] > r[0] && p[0] < r[2] && p[1] > r[1] && p[1] < r[3])
+}
+
+/// Everything at `radius`.
+fn layout_at(
+    size: [f32; 2],
+    text: f32,
+    names: &[String; SKILLS],
+    overall: &str,
+    numbers: &[String; 8],
+    radius: f32,
+) -> Placed {
+    let gap = text * 0.5;
+    let labels = std::array::from_fn(|k| {
+        let [dx, dy] = direction(k);
+        let tw = width_of(&names[k], text).max(width_of(&numbers[k + 1], text + NUMBER_UP));
+        let th = line(text) + line(text + NUMBER_UP);
+        let [ax, ay] = [dx * (radius + gap), dy * (radius + gap)];
+        let x0 = if dx > 0.25 {
+            ax
+        } else if dx < -0.25 {
+            ax - tw
+        } else {
+            ax - tw / 2.0
+        };
+        let y0 = if dy < -0.5 {
+            ay - th
+        } else if dy > 0.5 {
+            ay
+        } else {
+            ay - th / 2.0
+        };
+        [x0, y0, x0 + tw, y0 + th]
+    });
+    let m = pad(size);
+    let [w, h] = size;
+    let cap_w = width_of(overall, text) + text * 0.5 + width_of(&numbers[0], text + 4.0);
+    let cap = [-w / 2.0 + m, -h / 2.0 + m, -w / 2.0 + m + cap_w, -h / 2.0 + m + line(text + 4.0)];
+    Placed {
+        radius,
+        text,
+        full: true,
+        labels,
+        caption: cap,
+    }
+}
+
 /// The radar component, `size` (width, height), named `name`, its middle
-/// at the origin: a translucent panel, the shape, each spoke's short label
-/// (`labels`, Stream first); with `list` (the overall's line, then a line
-/// a skillset, each a name and its number) the numbers listed instead,
-/// while the pointer is on it. The panel takes the pointer (the hover);
-/// the rest is drawn only.
+/// at the origin: a translucent panel, the shape (`shares`, which may be
+/// a morph's on its way to `values`' own), each spoke's name and number
+/// round it, the overall's caption ("MSD 24.3") in its upper left corner;
+/// laid out by [`place`]. Drawn only: the panel is named `Panel`, each
+/// label `Label<k>` (its parts `Name` and `Number`), the caption `Caption`.
 pub fn radar(
     env: &Env,
     name: &str,
     values: &[f32; 8],
+    shares: &[f32; SKILLS],
     size: [f32; 2],
-    labels: &[String; SKILLS],
-    list: Option<&[(String, String)]>,
+    words: &Words,
 ) -> Actor {
     let [w, h] = size;
     let colors = colors(env);
-    let corner = h.min(w) * 0.06;
+    let numbers: [String; 8] = std::array::from_fn(|k| number(values[k]));
+    let p = place(size, words, &numbers);
     let mut panel = quad("Panel", [w, h], colors[0]);
-    call(&mut panel, "cornerradius", &[corner]);
-    let mut parts = vec![panel];
-    match list {
-        None => {
-            let label_size = (h / 14.0).clamp(9.0, 12.0);
-            let widest = labels
-                .iter()
-                .map(|l| width_of(l, label_size))
-                .fold(0.0, f32::max);
-            // Room for the labels round the shape: above and below, and
-            // beside it at the sides.
-            let radius = (h / 2.0 - label_size * 1.9)
-                .min(w / 2.0 - widest - label_size * 0.9)
-                .max(8.0);
-            parts.push(shape(values, radius, colors));
-            for (k, label) in labels.iter().enumerate() {
-                let [x, y] = direction(k);
-                let r = radius + label_size * 0.8;
-                let mut t = env.text("", label, label_size, 500, "Secondary");
-                call(&mut t, "xy", &[x * r, y * r + y * label_size * 0.3]);
-                // Right of the middle to the right, left of it to the left.
-                let align = if x > 0.25 {
-                    0.0
-                } else if x < -0.25 {
-                    1.0
-                } else {
-                    0.5
-                };
-                call(&mut t, "halign", &[align]);
-                t.decoration = true;
-                parts.push(t);
-            }
-        }
-        Some(lines) => {
-            let pad = (h / 18.0).clamp(6.0, 10.0);
-            let line_h = (h - 2.0 * pad) / lines.len().max(1) as f32;
-            let text = (line_h * 0.7).clamp(9.0, 13.0);
-            for (i, (label, number)) in lines.iter().enumerate() {
-                let y = -h / 2.0 + pad + line_h * (i as f32 + 0.5);
-                let (color, weight) = if i == 0 { ("Text", 700) } else { ("Secondary", 500) };
-                let mut t = env.text("", label, text, weight, color);
-                crate::look::ellipsized(&mut t, w - 3.0 * pad - text * 2.5);
-                call(&mut t, "xy", &[-w / 2.0 + pad * 1.5, y]);
-                call(&mut t, "halign", &[0.0]);
-                t.decoration = true;
-                let mut n = env.numbers("", number, text, color);
-                call(&mut n, "xy", &[w / 2.0 - pad * 1.5, y]);
-                call(&mut n, "halign", &[1.0]);
-                n.decoration = true;
-                parts.extend([t, n]);
-            }
-        }
+    call(&mut panel, "cornerradius", &[h.min(w) * 0.06]);
+    let mut parts = vec![panel, shape(shares, p.radius, colors)];
+    let names = if p.full { words.full } else { words.short };
+    for (k, rect) in p.labels.iter().enumerate() {
+        let [dx, _] = direction(k);
+        let (align, x) = if dx > 0.25 {
+            (0.0, rect[0])
+        } else if dx < -0.25 {
+            (1.0, rect[2])
+        } else {
+            (0.5, (rect[0] + rect[2]) / 2.0)
+        };
+        let mut n = env.text("Name", &names[k], p.text, 500, "Secondary");
+        call(&mut n, "halign", &[align]);
+        call(&mut n, "xy", &[x, rect[1] + line(p.text) / 2.0]);
+        let mut v = env.numbers("Number", &numbers[k + 1], p.text + NUMBER_UP, "Text");
+        call(&mut v, "halign", &[align]);
+        call(&mut v, "xy", &[x, rect[1] + line(p.text) + line(p.text + NUMBER_UP) / 2.0]);
+        let mut label = frame(&format!("Label{k}"), vec![n, v]);
+        label.decoration = true;
+        parts.push(label);
     }
+    let c = p.caption;
+    let mut word = env.text("Word", words.overall, p.text, 600, "Muted");
+    call(&mut word, "halign", &[0.0]);
+    call(&mut word, "xy", &[c[0], (c[1] + c[3]) / 2.0]);
+    let mut overall = env.numbers("Overall", &numbers[0], p.text + 4.0, "Text");
+    call(&mut overall, "halign", &[0.0]);
+    call(&mut overall, "xy", &[c[0] + width_of(words.overall, p.text) + p.text * 0.5, (c[1] + c[3]) / 2.0]);
+    let mut caption = frame("Caption", vec![word, overall]);
+    caption.decoration = true;
+    parts.push(caption);
     frame(name, parts)
+}
+
+/// A rating as the radar writes it: to a tenth.
+pub fn number(x: f32) -> String {
+    format!("{x:.1}")
+}
+
+/// The radar's place where the chart has no radar: the panel, `size`
+/// large, its middle at the origin, with `line` quietly in its middle (a
+/// rating on its way, or none for the chart). Named `name`; the line is
+/// its `Line`.
+pub fn note(env: &Env, name: &str, size: [f32; 2], line: &str) -> Actor {
+    let [w, h] = size;
+    let colors = colors(env);
+    let mut panel = quad("Panel", [w, h], colors[0]);
+    call(&mut panel, "cornerradius", &[h.min(w) * 0.06]);
+    let mut t = env.text("Line", line, 13.0, 500, "Muted");
+    crate::look::ellipsized(&mut t, w - 24.0);
+    t.decoration = true;
+    frame(name, vec![panel, t])
 }
 
 #[cfg(test)]

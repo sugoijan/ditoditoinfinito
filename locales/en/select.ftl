@@ -164,6 +164,13 @@ select-chart-notes-by = { $notes ->
    *[other] { $notes } notes · steps by { $credit }
 }
 
+# The chosen chart's step artist, a line of its own beside the skill
+# radar on song select (Options → Display → Skill radar On), under its
+# notes.
+# Variables:
+#   $credit (String) - who made the chart's steps, as its file says
+select-chart-steps-by = Steps by { $credit }
+
 # A chart's row in the ladder, while Chart ratings shows MSD (a rating the
 # game computes) in the number's place: the number the song's own file
 # gives it, before its notes. Short.
@@ -189,8 +196,18 @@ select-radar-stamina-full = Stamina
 select-radar-jackspeed-full = Jack speed
 select-radar-chordjack-full = Chordjack
 select-radar-technical-full = Technical
-# The radar's list's first line, beside the chart's overall MSD number.
+# The radar's caption in its upper left corner, before the chart's
+# overall MSD number ("MSD 24.3").
 select-radar-overall = MSD
+# In the skill radar's place on song select (Options → Display → Skill
+# radar On), one quiet line where the chosen chart has no radar: its
+# rating is being made in the background (it then shows by itself).
+select-radar-rating = Rating this chart…
+# The same place: the chart is not four lanes for one player, which MSD
+# does not rate.
+select-radar-no-layout = No rating for this layout
+# The same place: the chart could not be rated.
+select-radar-none = No rating for this chart
 
 # A chart version the game makes from another (Options → Notes →
 # Simplify and Convert), marked before its notes in the ladder and after

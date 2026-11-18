@@ -53,12 +53,18 @@ fn songs() -> SelectData {
 }
 
 fn select(data: SelectData) -> Harness {
-    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    select_at(data, [1280.0, 720.0]).0
+}
+
+/// Song select on `data` at `size`, and its environment (its state).
+fn select_at(data: SelectData, size: [f32; 2]) -> (Harness, Env) {
+    let mut h = Harness::new(DESIGN, size, 1.0, TextMode::Mirror);
     let play: PlayFn = Rc::new(|_, _, _: &Env, _| {});
     let open: OpenFn = Rc::new(|_, _| {});
-    h.push(SelectScreen::new(env(), data, Some("s0"), play, open));
+    let e = env();
+    h.push(SelectScreen::new(e.clone(), data, Some("s0"), play, open));
     h.run(0.6);
-    h
+    (h, e)
 }
 
 /// The ladder's row `k`'s part `part`.
@@ -101,7 +107,8 @@ fn with_both_options_off_nothing_is_rated_read_or_written() {
 #[test]
 fn msd_takes_the_numbers_place_and_the_rest_wait_for_rating() {
     let _store = fresh();
-    ratings::set_mode(true, true);
+    // The ladder's rows (the radar Off: its side has none).
+    ratings::set_mode(true, false);
     // Song 0's Hard rated, the rest not yet.
     let mut v = [21.37f32, 22.0, 15.0, 14.0, 20.5, 12.0, 13.0, 18.0];
     ratings::done(
@@ -159,14 +166,19 @@ fn the_radar_shows_for_a_rated_chart_with_its_option_on() {
     );
     let data = songs();
     let hard = data.songs[0].charts[1].clone();
-    let mut h = select(data);
-    // The Hard picked (the preferred difficulty): rated, its radar.
+    let (mut h, e) = select_at(data, [1280.0, 720.0]);
+    // The Hard picked (the preferred difficulty): rated, its radar, in
+    // the ladder's place (no ladder: a row of chart buttons).
     assert!(h.ui.bounds("Radar").is_some(), "the Hard's radar");
-    // The Medium: not rated, none.
-    h.tap(PointerKind::Mouse, "Ladder.Row0");
+    assert!(h.ui.actor("Ladder.Row0").is_none(), "no ladder");
+    assert_eq!(radar_said(&e), "shown");
+    // The Medium: not rated yet (its song waits), its line instead.
+    h.tap(PointerKind::Mouse, "Chart0");
     h.run(0.5);
     assert!(h.ui.bounds("Radar").is_none());
-    h.tap(PointerKind::Mouse, "Ladder.Row1");
+    assert!(h.ui.bounds("RadarNote").is_some());
+    assert_eq!(radar_said(&e), "rating");
+    h.tap(PointerKind::Mouse, "Chart1");
     h.run(0.5);
     assert!(h.ui.bounds("Radar").is_some());
     // The numbers stay the song's with Chart ratings on the song's.
@@ -174,6 +186,13 @@ fn the_radar_shows_for_a_rated_chart_with_its_option_on() {
     ratings::set_mode(false, false);
     h.run(0.6);
     assert!(h.ui.bounds("Radar").is_none());
+    assert!(h.ui.actor("Ladder.Row0").is_some(), "the ladder again");
+    assert_eq!(radar_said(&e), "off");
+}
+
+/// What the debug view says of the radar.
+fn radar_said(e: &Env) -> String {
+    e.state.borrow().radar.clone()
 }
 
 /// With "Skill radar: Off" song select draws exactly as it did before the
@@ -243,3 +262,203 @@ const OFF_PINNED: [u64; 18] = [
     9312704301971113282,
     14148402059163631482,
 ];
+
+/// Round Z1, part 1's sizes (CSS pixels of a window or a browser's page,
+/// zoomed and with its toolbars): with "Skill radar: On" the radar is on
+/// every wide one, in the ladder's place; a window under 480 CSS pixels
+/// high (the compact layout) has none, and says so.
+#[test]
+fn the_radar_shows_at_every_wide_size() {
+    for (name, size, wide) in [
+        ("1280x720", [1280.0, 720.0], true),
+        ("1366x768", [1366.0, 768.0], true),
+        ("1440x900", [1440.0, 900.0], true),
+        ("1536x864", [1536.0, 864.0], true),
+        ("1920x1080", [1920.0, 1080.0], true),
+        ("16:10", [1680.0, 1050.0], true),
+        ("4:3", [1024.0, 768.0], true),
+        ("1440x900 window", [1440.0, 790.0], true),
+        ("1440x900 window 110%", [1309.0, 718.0], true),
+        ("1440x900 window 125%", [1152.0, 632.0], true),
+        ("1280x720 window 125%", [1024.0, 488.0], true),
+        ("1280x720 window 133%", [962.0, 459.0], false),
+    ] {
+        let _store = fresh();
+        ratings::set_mode(false, true);
+        ratings::done(
+            "s0",
+            vec![ratings::Rated {
+                index: 1,
+                digest: ddi_chart::ChartDigest(1),
+                values: Some([20.0, 20.0, 15.0, 14.0, 18.0, 12.0, 13.0, 18.0]),
+            }],
+        );
+        let e = env();
+        let design = super::design_for(&*e.look, size);
+        let mut h = Harness::new(design, size, 1.0, TextMode::Mirror);
+        let play: PlayFn = Rc::new(|_, _, _: &Env, _| {});
+        let open: OpenFn = Rc::new(|_, _| {});
+        h.push(SelectScreen::new(e.clone(), songs(), Some("s0"), play, open));
+        h.run(0.6);
+        assert_eq!(h.ui.bounds("Radar").is_some(), wide, "{name}");
+        assert_eq!(radar_said(&e), if wide { "shown" } else { "phone" }, "{name}");
+        assert!(h.ui.actor("Ladder.Row0").is_none(), "{name}: no ladder");
+    }
+    ratings::set_mode(false, false);
+}
+
+/// Round Z1, the label rule: at every size the radar's side gives it on a
+/// wide screen (16:9 and wider, 16:10, a window a little taller, 4:3),
+/// in English, Japanese and the long pseudo-language, every label and the
+/// caption inside the radar, apart from each other and from the shape,
+/// and the shape large (a radius of 40 at least).
+#[test]
+fn the_radar_s_labels_never_overlap() {
+    use crate::radar::{self, Words, overlap};
+    use ddi_l10n::msg::select as m;
+    for lang in ["en", "ja", "qps-ploc", "qps-wide"] {
+        assert!(ddi_l10n::force(lang));
+        let full = [
+            m::radar_stream_full(),
+            m::radar_jumpstream_full(),
+            m::radar_handstream_full(),
+            m::radar_stamina_full(),
+            m::radar_jackspeed_full(),
+            m::radar_chordjack_full(),
+            m::radar_technical_full(),
+        ]
+        .map(String::from);
+        let short = [
+            m::radar_stream(),
+            m::radar_jumpstream(),
+            m::radar_handstream(),
+            m::radar_stamina(),
+            m::radar_jackspeed(),
+            m::radar_chordjack(),
+            m::radar_technical(),
+        ]
+        .map(String::from);
+        let overall: String = m::radar_overall().into();
+        let words = Words {
+            full: &full,
+            short: &short,
+            overall: &overall,
+        };
+        let numbers: [String; 8] = std::array::from_fn(|k| radar::number(28.0 + k as f32 * 1.11));
+        for h in [191.0, 208.0, 271.0, 320.0] {
+            let size = [338.0, h];
+            let p = radar::place(size, &words, &numbers);
+            let what = format!("{lang} {size:?}: {p:?}");
+            assert!(p.radius >= 40.0, "{what}");
+            let mut all = p.labels.to_vec();
+            all.push(p.caption);
+            for (i, a) in all.iter().enumerate() {
+                assert!(
+                    a[0] >= -169.0 && a[2] <= 169.0 && a[1] >= -h / 2.0 && a[3] <= h / 2.0,
+                    "{what}: {i} outside"
+                );
+                assert!(!radar::meets_shape(*a, p.radius), "{what}: {i} on the shape");
+                for (j, b) in all.iter().enumerate().skip(i + 1) {
+                    assert!(!overlap(*a, *b), "{what}: {i} and {j} overlap");
+                }
+            }
+        }
+    }
+    ddi_l10n::unforce();
+}
+
+/// Round Z1: the chart buttons are the chart selector on the radar's side:
+/// a tap, the keyboard's twice-Down and a controller's twice-Left change the
+/// chart chosen (the same gestures as the ladder's); the radar's shape
+/// morphs to the new chart's (at once under reduced motion); the chosen
+/// chart's lines say what its row said ("Song 9" where MSD is shown).
+#[test]
+fn the_chart_buttons_pick_and_the_radar_follows() {
+    let _store = fresh();
+    ratings::set_mode(true, true);
+    let v = |x: f32| [x, x, x - 4.0, x - 6.0, x - 1.0, x - 8.0, x - 7.0, x - 2.0];
+    ratings::done(
+        "s0",
+        vec![
+            ratings::Rated {
+                index: 0,
+                digest: ddi_chart::ChartDigest(0),
+                values: Some(v(12.0)),
+            },
+            ratings::Rated {
+                index: 1,
+                digest: ddi_chart::ChartDigest(1),
+                values: Some(v(21.0)),
+            },
+        ],
+    );
+    let (mut h, e) = select_at(songs(), [1280.0, 720.0]);
+    let chart = |e: &Env| e.state.borrow().chart.clone().unwrap_or_default();
+    assert_eq!(chart(&e), "Hard 9");
+    let card = |h: &Harness| -> Vec<String> { h.texts() };
+    assert!(card(&h).iter().any(|t| t == "Song 9"), "{:?}", card(&h));
+    // The radar's shape as drawn now.
+    let shape = |h: &Harness| -> String {
+        let Some(a) = h.ui.actor("Shape") else {
+            return String::new();
+        };
+        let at: Vec<[f32; 3]> = a.children().iter().map(|c| c.current().pos).collect();
+        format!("{at:?}")
+    };
+    // A controller: twice Left (an easier chart), as on the ladder (Up
+    // on the list's first song goes to the search field).
+    for _ in 0..2 {
+        h.pad(crate::MenuAction::Left, true);
+        h.pad(crate::MenuAction::Left, false);
+        h.run(0.05);
+    }
+    h.run(0.6);
+    assert_eq!(chart(&e), "Medium 6");
+    // The keyboard: twice Down (a harder chart).
+    h.key("ArrowDown", "ArrowDown");
+    h.run(0.05);
+    h.key("ArrowDown", "ArrowDown");
+    h.run(0.6);
+    assert_eq!(chart(&e), "Hard 9");
+    // A tap on the Medium's button.
+    h.tap(PointerKind::Mouse, "Chart0");
+    h.run(0.05);
+    assert_eq!(chart(&e), "Medium 6");
+    let a = shape(&h);
+    h.run(0.05);
+    assert_ne!(a, shape(&h), "the shape morphs");
+    h.run(0.5);
+    let a = shape(&h);
+    h.run(0.05);
+    assert_eq!(a, shape(&h), "and settles");
+    assert_eq!(e.state.borrow().song_id, "s0", "the same song");
+    // Reduced motion: no morph.
+    e.reduced_motion.set(true);
+    h.run(0.3);
+    h.tap(PointerKind::Mouse, "Chart1");
+    h.run(0.02);
+    assert_eq!(chart(&e), "Hard 9");
+    let a = shape(&h);
+    h.run(0.05);
+    assert_eq!(a, shape(&h), "at once");
+    ratings::set_mode(false, false);
+}
+
+/// Round Z1: a chart not four lanes says so in the radar's place, with its
+/// lines.
+#[test]
+fn a_chart_of_another_layout_says_it_has_no_rating() {
+    let _store = fresh();
+    ratings::set_mode(false, true);
+    let mut data = songs();
+    for c in &mut data.songs[0].charts {
+        c.style = "dance-double".into();
+    }
+    data.style = Some("dance-double".into());
+    let (h, e) = select_at(data, [1280.0, 720.0]);
+    assert_eq!(radar_said(&e), "no-layout");
+    assert!(h.ui.bounds("RadarNote").is_some());
+    assert!(h.texts().iter().any(|t| t == "No rating for this layout"), "{:?}", h.texts());
+    assert!(h.texts().iter().any(|t| t == "300 notes"));
+    ratings::set_mode(false, false);
+}

@@ -594,10 +594,12 @@ options-chart-ratings-from-song = From the song
 options-chart-ratings-msd = MSD
 options-chart-ratings-description = MSD is a rating computed from the chart's patterns for keyboard play at normal speed, after Etterna's calculator. Four-lane charts show it once rated (in the background, never during a play); others keep the song's number, fainter.
 
-# Song select's small radar of the chart's seven MSD skills (Options →
-# Display, under Menus).
+# Song select's radar of the chart's seven MSD skills (Options →
+# Display, under Menus). On, it replaces the list of the style's charts
+# on song select's left side on wide screens (not on a phone, not in a
+# multiplayer room).
 options-skill-radar = Skill radar
-options-skill-radar-description = On song select, a small radar of the chart's seven MSD skills (stream, jumpstream, handstream, stamina, jacks, chordjacks, technical), each as a share of its overall rating. Point at it to see the numbers. Only four-lane charts have one.
+options-skill-radar-description = On wide screens, song select's list of charts becomes a row of buttons and a radar of the chosen chart's seven MSD skills with their numbers, each a share of its overall rating. Only four-lane charts have one.
 
 options-graphics = Graphics
 options-graphics-auto = Automatic

@@ -319,16 +319,16 @@ struct RatingsShown {
     offered: usize,
 }
 
-/// The skill radar's room from the banner's edges, and its width in its
-/// height (room for the labels beside the shape).
-const RADAR_INSET: f32 = 8.0;
-const RADAR_ASPECT: f32 = 1.5;
-
-/// Whether the song side has room for the skill radar over its banner:
-/// the wide layout's (a phone's and a room's short side have none).
-fn radar_fits(l: &Layout) -> bool {
-    !l.compact && !l.chips && l.banner >= 140.0
-}
+/// The radar side's parts (round Z1): the chart buttons' height, the gap
+/// under them, the chosen chart's lines' column's width and the gap
+/// between it and the radar, and the radar's panel's height at most.
+const RADAR_ROW_H: f32 = 44.0;
+const RADAR_GAP: f32 = 10.0;
+const RADAR_CARD_W: f32 = 210.0;
+const RADAR_CARD_GAP: f32 = 12.0;
+const RADAR_MAX_H: f32 = 320.0;
+/// How long the radar's shape takes to change to another chart's.
+const RADAR_MORPH: f64 = 0.22;
 
 /// How often new ratings are shown, seconds (they come a few at a time).
 const RATINGS_REFRESH: f64 = 0.3;
@@ -407,6 +407,10 @@ struct Layout {
     /// chart buttons (the compact layouts; a room's, whose players take
     /// the room the banner and the ladder had, `Layout::for_room`).
     chips: bool,
+    /// The wide layout with "Skill radar: On" (round Z1): in the ladder's
+    /// place a row of chart buttons, then the chosen chart's lines and its
+    /// radar (`fill_radar_side`).
+    radar: bool,
     /// The song's info's width, and where the short form's style button,
     /// chart buttons and Play go across the song's column: from, wide.
     info_w: f32,
@@ -475,6 +479,7 @@ impl Layout {
             compact: true,
             upright: true,
             chips: true,
+            radar: false,
             info_w: w,
             picker: [0.0, w],
             players: None,
@@ -515,6 +520,7 @@ impl Layout {
                 compact,
                 upright: false,
                 chips: true,
+                radar: false,
                 info_w: 300.0,
                 picker: [0.0, 300.0],
                 players: None,
@@ -551,6 +557,7 @@ impl Layout {
             compact,
             upright: false,
             chips: false,
+            radar: false,
             info_w: m("Select.Song.Width", 560.0),
             picker: [0.0, m("Select.Song.Width", 560.0)],
             players: None,
@@ -815,8 +822,13 @@ pub struct SelectScreen {
     favorite: Vec<bool>,
     /// The chart ratings as last shown (`crate::state::ratings`).
     ratings: RatingsShown,
-    /// The pointer is on the skill radar: its numbers listed.
-    radar_hover: bool,
+    /// The skillsets' shares the radar's shape shows now, and its morph
+    /// to another chart's on the way (when it began, from, to); `None`
+    /// where it shows none.
+    radar_drawn: Option<[f32; crate::radar::SKILLS]>,
+    radar_morph: Option<(f64, [f32; crate::radar::SKILLS], [f32; crate::radar::SKILLS])>,
+    /// The screen's clock at its last update, seconds.
+    now: f64,
     items: Vec<Item>,
     list: List,
     search: SearchField,
@@ -962,7 +974,9 @@ impl SelectScreen {
             match_count: 0,
             favorite: Vec::new(),
             ratings: RatingsShown::default(),
-            radar_hover: false,
+            radar_drawn: None,
+            radar_morph: None,
+            now: 0.0,
             items: Vec::new(),
             search,
             volume: Volume::new("Volume", crate::state::settings::Settings::load().volume),
@@ -1559,62 +1573,250 @@ impl SelectScreen {
         ratings::offer(jobs);
     }
 
-    /// The skill radar of the chart picked, where the option is On and it
-    /// has MSD; the numbers listed while the pointer is on it.
-    fn fill_radar(&self, root: &mut Actor) {
+    /// The skill radar's side (round Z1, "Skill radar: On" in the wide
+    /// layout), in the ladder's place: the chart buttons in a row (as a
+    /// room's short side has them), then the chosen chart's lines on the
+    /// left (what its ladder row said) and its radar on the right, or one
+    /// quiet line in the radar's place where it has none.
+    fn fill_radar_side(
+        &self,
+        root: &mut Actor,
+        charts: &[&ChartEntry],
+        first: usize,
+        n: usize,
+        pick: Option<usize>,
+    ) {
+        let env = self.env.clone();
+        let w = self.layout.song[2];
+        let top = self.layout.ladder[0] - self.layout.song[1];
+        let mut buttons =
+            self.chart_buttons(charts, first, n, pick, [0.0, w], top + RADAR_ROW_H / 2.0, RADAR_ROW_H);
+        let chosen = pick.map(|p| charts[p]);
+        if charts.is_empty() && self.song().is_some() {
+            let none = msg::no_charts(self.style_label());
+            let mut e = env.component(
+                "ChartLadder.Empty",
+                "Panel",
+                &Spec::new([w, 150.0], none.as_str()),
+                "Ladder.Empty",
+                [0.0, top],
+            );
+            set_text(&mut e, "Title", &none);
+            set_text(&mut e, "Hint", &msg::no_charts_hint());
+            buttons.push(e);
+        }
+        if let Some(f) = hit::find_mut(root, "Charts") {
+            f.kind = Kind::Frame(buttons);
+        }
+        let card = chosen.map(|c| self.chart_card(c)).unwrap_or_default();
+        if let Some(f) = hit::find_mut(root, "ChartCard") {
+            f.kind = Kind::Frame(card);
+        }
+    }
+
+    /// The radar's area under the chart buttons: from, wide, high (in the
+    /// song side's frame), and the radar's panel's rect in it.
+    fn radar_area(&self) -> ([f32; 2], [f32; 4]) {
+        let l = &self.layout;
+        let top = l.ladder[0] - l.song[1] + RADAR_ROW_H + RADAR_GAP;
+        let h = l.ladder[1] - RADAR_ROW_H - RADAR_GAP;
+        let x = RADAR_CARD_W + RADAR_CARD_GAP;
+        let rw = l.song[2] - x;
+        ([top, h], [x, top, rw, h.min(RADAR_MAX_H)])
+    }
+
+    /// The chosen chart's lines, left of its radar: its difficulty (or
+    /// name), its number as its ladder row showed it, the song's own
+    /// number where that is MSD, its version, its notes, its step artist
+    /// and its best (grade, score, lamp): nothing its row said is lost.
+    fn chart_card(&self, c: &ChartEntry) -> Vec<Actor> {
+        let env = &self.env;
+        let ([top, _], _) = self.radar_area();
+        let cw = RADAR_CARD_W;
+        let color = format!("Difficulty.{}", c.difficulty.name());
+        let mut out = Vec::new();
+        let mut label = env.text("Card.Label", &data(&c.label().to_uppercase()), 14.0, 700, &color);
+        look::ellipsized(&mut label, cw);
+        out.push(left(label, 0.0, top + 9.0));
+        let mut meter = env.numbers("Card.Meter", &c.meter_text_fine(), 30.0, &color);
+        if crate::state::ratings::ever_shown() {
+            call(&mut meter, "diffusealpha", &[if c.meter_is_songs() { FAINT } else { 1.0 }]);
+        }
+        out.push(left(meter, 0.0, top + 38.0));
+        let mut lines: Vec<String> = Vec::new();
+        // The song's own number where MSD takes its place, and a generated
+        // version's kind, on one line.
+        let mut first: Vec<String> = Vec::new();
+        if c.msd().is_some() {
+            first.push(msg::chart_song_meter(c.meter).into());
+        }
+        if let Some(version) = c.version {
+            first.push(version_name(version).into());
+        }
+        if !first.is_empty() {
+            lines.push(first.join(" · "));
+        }
+        lines.push(msg::chart_notes(c.notes).into());
+        if !c.credit.is_empty() {
+            lines.push(msg::chart_steps_by(&c.credit).into());
+        }
+        let mut y = top + 64.0;
+        for (i, line) in lines.iter().enumerate() {
+            let mut t = env.text(&format!("Card.Line{i}"), line, 12.0, 400, "Muted");
+            look::ellipsized(&mut t, cw);
+            out.push(left(t, 0.0, y));
+            y += 17.0;
+        }
+        // The best: its grade, score and lamp, as the row had them.
+        if let Some(b) = &c.best {
+            y += 6.0;
+            let grade = env.numbers("Card.Grade", &data(&b.grade), 18.0, "Text");
+            let gw = crate::radar::width_of(&b.grade, 18.0) + 10.0;
+            out.push(left(grade, 0.0, y));
+            let score = if b.pending {
+                format!("{} …", b.score)
+            } else {
+                b.score.clone()
+            };
+            let mut s = env.text("Card.Score", &data(&score), 12.0, 400, "Muted");
+            look::ellipsized(&mut s, (cw - gw - 40.0).max(40.0));
+            out.push(left(s, gw, y));
+            let lamp = env.text(
+                "Card.Lamp",
+                &data(&b.lamp_text),
+                11.0,
+                700,
+                &format!("Lamp.{}", b.lamp),
+            );
+            out.push(right(lamp, cw, y));
+        }
+        out
+    }
+
+    /// The chosen chart's skill radar in its place, or the line saying why
+    /// there is none (`crate::state::ratings::standing`); its shape morphs
+    /// from the chart before's (at once under reduced motion).
+    fn fill_radar(&mut self, root: &mut Actor) {
+        use crate::radar::SKILLS;
+        use crate::state::ratings::Standing;
         use ddi_l10n::msg::select as m;
-        let Some(slot) = hit::find_mut(root, "RadarSlot") else {
-            return;
+        let (_, [x, y, w, h]) = self.radar_area();
+        let standing = self.radar_standing();
+        let radar = match standing {
+            Some(Standing::Rated(v)) => {
+                let to = crate::radar::shares(&v);
+                let current = self.radar_shape_now();
+                if self.reduced || current == Some(to) {
+                    self.radar_morph = None;
+                    self.radar_drawn = Some(to);
+                } else if self.radar_morph.is_none_or(|(_, _, t)| t != to) {
+                    self.radar_morph = Some((self.now, current.unwrap_or([0.0; SKILLS]), to));
+                }
+                let drawn = self.radar_shape_now().unwrap_or(to);
+                self.radar_drawn = Some(drawn);
+                let full = [
+                    m::radar_stream_full(),
+                    m::radar_jumpstream_full(),
+                    m::radar_handstream_full(),
+                    m::radar_stamina_full(),
+                    m::radar_jackspeed_full(),
+                    m::radar_chordjack_full(),
+                    m::radar_technical_full(),
+                ]
+                .map(String::from);
+                let short = [
+                    m::radar_stream(),
+                    m::radar_jumpstream(),
+                    m::radar_handstream(),
+                    m::radar_stamina(),
+                    m::radar_jackspeed(),
+                    m::radar_chordjack(),
+                    m::radar_technical(),
+                ]
+                .map(String::from);
+                let overall: String = m::radar_overall().into();
+                let words = crate::radar::Words {
+                    full: &full,
+                    short: &short,
+                    overall: &overall,
+                };
+                Some(crate::radar::radar(&self.env, "Radar", &v, &drawn, [w, h], &words))
+            }
+            Some(other) => {
+                self.radar_drawn = None;
+                self.radar_morph = None;
+                let line: String = match other {
+                    Standing::Rating => m::radar_rating(),
+                    Standing::NoLayout => m::radar_no_layout(),
+                    _ => m::radar_none(),
+                }
+                .into();
+                Some(crate::radar::note(&self.env, "RadarNote", [w, h], &line))
+            }
+            None => {
+                self.radar_drawn = None;
+                self.radar_morph = None;
+                None
+            }
         };
-        let values = if crate::state::ratings::radar_shown() {
-            let (charts, pick) = self.charts();
-            pick.and_then(|p| charts[p].rating())
+        if let Some(slot) = hit::find_mut(root, "RadarSlot") {
+            slot.kind = Kind::Frame(
+                radar
+                    .map(|mut r| {
+                        call(&mut r, "xy", &[x + w / 2.0, y + h / 2.0]);
+                        r
+                    })
+                    .into_iter()
+                    .collect(),
+            );
+        }
+    }
+
+    /// The chosen chart's rating as the radar's side shows it (`None`: no
+    /// chart chosen, or no radar's side).
+    fn radar_standing(&self) -> Option<crate::state::ratings::Standing> {
+        if !self.layout.radar {
+            return None;
+        }
+        let song = self.song()?;
+        let (charts, pick) = self.charts();
+        let c = charts.get(pick?)?;
+        Some(crate::state::ratings::standing(&song.id, c.digest, &c.style))
+    }
+
+    /// The radar's shape now: on its morph's way, or as drawn.
+    fn radar_shape_now(&self) -> Option<[f32; crate::radar::SKILLS]> {
+        match self.radar_morph {
+            Some((start, from, to)) => {
+                let t = ((self.now - start) / RADAR_MORPH).clamp(0.0, 1.0) as f32;
+                // Eased out (cubic).
+                let e = 1.0 - (1.0 - t).powi(3);
+                Some(std::array::from_fn(|k| from[k] + (to[k] - from[k]) * e))
+            }
+            None => self.radar_drawn,
+        }
+    }
+
+    /// What the debug view says of the radar (`ThemeState::radar`): shown,
+    /// or why not.
+    fn radar_said(&self) -> &'static str {
+        use crate::state::ratings::Standing;
+        if self.layout.radar {
+            return match self.radar_standing() {
+                Some(Standing::Rated(_)) => "shown",
+                Some(Standing::Rating) => "rating",
+                Some(Standing::NoLayout) => "no-layout",
+                Some(Standing::Unrated) => "unrated",
+                None => "no-chart",
+            };
+        }
+        if !crate::state::ratings::radar_shown() {
+            "off"
+        } else if self.room.is_some() {
+            "room"
         } else {
-            None
-        };
-        let Some(v) = values else {
-            slot.kind = Kind::Frame(Vec::new());
-            return;
-        };
-        let labels: [String; crate::radar::SKILLS] = [
-            m::radar_stream(),
-            m::radar_jumpstream(),
-            m::radar_handstream(),
-            m::radar_stamina(),
-            m::radar_jackspeed(),
-            m::radar_chordjack(),
-            m::radar_technical(),
-        ]
-        .map(String::from);
-        let list: Option<Vec<(String, String)>> = self.radar_hover.then(|| {
-            let full = [
-                m::radar_stream_full(),
-                m::radar_jumpstream_full(),
-                m::radar_handstream_full(),
-                m::radar_stamina_full(),
-                m::radar_jackspeed_full(),
-                m::radar_chordjack_full(),
-                m::radar_technical_full(),
-            ];
-            let number = |x: f32| UiText::data(format!("{x:.1}")).into();
-            std::iter::once((m::radar_overall().into(), number(v[0])))
-                .chain(
-                    full.into_iter()
-                        .zip(&v[1..])
-                        .map(|(name, &x)| (name.into(), number(x))),
-                )
-                .collect()
-        });
-        let l = self.layout;
-        let h = l.banner - 2.0 * RADAR_INSET;
-        let w = (h * RADAR_ASPECT).min(l.song[2] * 0.45);
-        let mut radar = crate::radar::radar(&self.env, "Radar", &v, [w, h], &labels, list.as_deref());
-        call(
-            &mut radar,
-            "xy",
-            &[l.song[2] - RADAR_INSET - w / 2.0, RADAR_INSET + h / 2.0],
-        );
-        slot.kind = Kind::Frame(vec![radar]);
+            "phone"
+        }
     }
 
     /// The song shown and its neighbours in the list rated first.
@@ -1784,11 +1986,15 @@ impl SelectScreen {
             let mut kbd = env.numbers("TabKey", &UiText::data(TAB_LEGEND), 11.0, "Muted");
             kbd = right(kbd, sw, l.tabs_y - sy + 16.0);
             song.push(kbd);
-            song.push(frame("Ladder", Vec::new()));
-            // The skill radar over the banner's right end, where the
-            // banner is tall enough for one (`fill_radar`).
-            if radar_fits(&l) {
+            if l.radar {
+                // The skill radar's side (round Z1): the chart buttons,
+                // the chosen chart's lines and its radar
+                // (`fill_radar_side`).
+                song.push(frame("Charts", Vec::new()));
+                song.push(frame("ChartCard", Vec::new()));
                 song.push(frame("RadarSlot", Vec::new()));
+            } else {
+                song.push(frame("Ladder", Vec::new()));
             }
         }
         let mut song = frame("Song", song);
@@ -2232,59 +2438,8 @@ impl SelectScreen {
         if self.layout.chips {
             let [px, w] = self.layout.picker;
             let charts_y = self.charts_y();
-            let cell = (w - 4.0 * 5.0) / 5.0;
-            let mut children = Vec::new();
-            for k in 0..n {
-                let c = charts[first + k];
-                // Its meter; a named chart without one by its name (cut
-                // to the button; the play button says it whole).
-                let by_name = c.named() && c.meter == 0 && c.msd().is_none();
-                let shown: String = if by_name {
-                    chart_text(c, &c.label()).into()
-                } else {
-                    data(&c.meter_text())
-                };
-                let mut b = look::component_or(
-                    &*env.look,
-                    "ChartButton",
-                    "Button",
-                    &Spec::new([cell, self.layout.chart_h], shown.clone()),
-                );
-                b.name = format!("Chart{k}");
-                set_text(&mut b, "Meter", &shown);
-                if by_name && let Some(m) = part(&mut b, "Meter") {
-                    look::ellipsized(m, cell - 8.0);
-                }
-                crate::widgets::play(&mut b, c.difficulty.name());
-                if crate::state::ratings::ever_shown() {
-                    faint(&mut b, "Meter", c.meter_is_songs());
-                }
-                crate::widgets::play(
-                    &mut b,
-                    match (c.version, c.assisted()) {
-                        (None, _) => "Original",
-                        (Some(_), true) => "Assisted",
-                        (Some(_), false) => "Converted",
-                    },
-                );
-                let lamp = c.best.as_ref().map_or("None", |b| b.lamp.as_str());
-                crate::widgets::play(&mut b, &format!("Lamp.{lamp}"));
-                crate::widgets::play(
-                    &mut b,
-                    if Some(first + k) == pick {
-                        "Select"
-                    } else {
-                        "Deselect"
-                    },
-                );
-                b.finish_tweening();
-                call(
-                    &mut b,
-                    "xy",
-                    &[px + cell / 2.0 + k as f32 * (cell + 5.0), charts_y],
-                );
-                children.push(b);
-            }
+            let mut children =
+                self.chart_buttons(&charts, first, n, pick, [px, w], charts_y, self.layout.chart_h);
             if charts.is_empty() {
                 let mut t = env.text(
                     "NoChartsText",
@@ -2351,6 +2506,11 @@ impl SelectScreen {
                 None => msg::play_no_charts().into(),
             };
             super::set(root, "Play", "Label", &label);
+            return;
+        }
+        if self.layout.radar {
+            self.fill_radar_side(root, &charts, first, n, pick);
+            self.fill_radar(root);
             return;
         }
         let w = self.layout.song[2];
@@ -2450,15 +2610,86 @@ impl SelectScreen {
         if let Some(f) = hit::find_mut(root, "Ladder") {
             f.kind = Kind::Frame(children);
         }
-        // The chart picked's skill radar (the wide layout's alone).
-        self.fill_radar(root);
+    }
+
+    /// The chart buttons of a short song's side, and of the skill radar's
+    /// (round Z1, the same component and behavior): charts `first` to
+    /// `first + n` of `charts`, `pick` chosen, in a row of five places
+    /// across `[x, w]`, their middles at `y`, `h` tall; each named
+    /// `Chart<k>` (a tap picks it, `activate`).
+    #[allow(clippy::too_many_arguments)]
+    fn chart_buttons(
+        &self,
+        charts: &[&ChartEntry],
+        first: usize,
+        n: usize,
+        pick: Option<usize>,
+        [px, w]: [f32; 2],
+        charts_y: f32,
+        chart_h: f32,
+    ) -> Vec<Actor> {
+        let env = &self.env;
+        let cell = (w - 4.0 * 5.0) / 5.0;
+        let mut children = Vec::new();
+        for k in 0..n {
+            let c = charts[first + k];
+            // Its meter; a named chart without one by its name (cut
+            // to the button; the play button says it whole).
+            let by_name = c.named() && c.meter == 0 && c.msd().is_none();
+            let shown: String = if by_name {
+                chart_text(c, &c.label()).into()
+            } else {
+                data(&c.meter_text())
+            };
+            let mut b = look::component_or(
+                &*env.look,
+                "ChartButton",
+                "Button",
+                &Spec::new([cell, chart_h], shown.clone()),
+            );
+            b.name = format!("Chart{k}");
+            set_text(&mut b, "Meter", &shown);
+            if by_name && let Some(m) = part(&mut b, "Meter") {
+                look::ellipsized(m, cell - 8.0);
+            }
+            crate::widgets::play(&mut b, c.difficulty.name());
+            if crate::state::ratings::ever_shown() {
+                faint(&mut b, "Meter", c.meter_is_songs());
+            }
+            crate::widgets::play(
+                &mut b,
+                match (c.version, c.assisted()) {
+                    (None, _) => "Original",
+                    (Some(_), true) => "Assisted",
+                    (Some(_), false) => "Converted",
+                },
+            );
+            let lamp = c.best.as_ref().map_or("None", |b| b.lamp.as_str());
+            crate::widgets::play(&mut b, &format!("Lamp.{lamp}"));
+            crate::widgets::play(
+                &mut b,
+                if Some(first + k) == pick {
+                    "Select"
+                } else {
+                    "Deselect"
+                },
+            );
+            b.finish_tweening();
+            call(
+                &mut b,
+                "xy",
+                &[px + cell / 2.0 + k as f32 * (cell + 5.0), charts_y],
+            );
+            children.push(b);
+        }
+        children
     }
 
     /// The ladder's window for `len` charts with `pick` chosen: its
     /// first, how many, and their height. Rows shrink (to 32 at least) so
     /// that all fit; more than fit scroll with the pick.
     fn ladder_window(&self, len: usize, pick: Option<usize>) -> (usize, usize, f32) {
-        if self.layout.chips {
+        if self.layout.chips || self.layout.radar {
             let (first, n) = window(len, pick, 5);
             return (first, n, 44.0);
         }
@@ -3631,6 +3862,7 @@ impl SelectScreen {
             })
             .collect();
         st.greyed = self.song().is_some() && charts.is_empty();
+        st.radar = self.radar_said().into();
         st.style_counts = self
             .data
             .styles
@@ -3867,7 +4099,8 @@ impl Screen for SelectScreen {
         let pick = pick?;
         let k = pick.checked_sub(first).filter(|k| *k < n)?;
         let played = charts.get(pick).is_some_and(|c| c.best.is_some());
-        let row = if self.layout.chips {
+        let buttons = self.layout.chips || self.layout.radar;
+        let row = if buttons {
             format!("Chart{k}")
         } else {
             format!("Ladder.Row{k}")
@@ -3875,7 +4108,7 @@ impl Screen for SelectScreen {
         let parts: &[&str] = match what {
             Mark::Chart => &[],
             Mark::ChartLevel => &["Meter"],
-            Mark::ChartBest if self.layout.chips => &[],
+            Mark::ChartBest if buttons => &[],
             Mark::ChartBest if played => &["Grade", "Score", "LampText"],
             Mark::ChartBest => &["Best"],
             _ => return None,
@@ -4000,6 +4233,11 @@ impl Screen for SelectScreen {
                     v.push(Focusable::new("StyleButton"));
                 }
                 v.extend((0..5).map(|k| Focusable::new(format!("Chart{k}"))));
+            } else if self.layout.radar {
+                // The skill radar's side: the style tabs and the chart
+                // buttons (the radar is no control).
+                v.extend((0..self.data.styles.len()).map(|i| Focusable::new(format!("Tab{i}"))));
+                v.extend((0..5).map(|k| Focusable::new(format!("Chart{k}"))));
             } else {
                 v.extend((0..self.data.styles.len()).map(|i| Focusable::new(format!("Tab{i}"))));
                 v.extend((0..LADDER_ROWS).map(|k| Focusable::new(format!("Ladder.Row{k}"))));
@@ -4064,6 +4302,7 @@ impl Screen for SelectScreen {
             || self.wheel_motion.is_some()
             || self.list.animating()
             || self.volume.animating()
+            || self.radar_morph.is_some()
             || (!self.layout.compact && (self.open > 0.0 && self.open < 1.0))
     }
 
@@ -4085,6 +4324,7 @@ impl Screen for SelectScreen {
         if !cx.is_current_screen() {
             return;
         }
+        self.now = cx.time();
         self.live.tick(root, "Wordmark", &self.env, cx);
         self.follow_ratings(cx.time());
         self.volume.update(cx.time(), root, self.reduced);
@@ -4100,9 +4340,13 @@ impl Screen for SelectScreen {
                 self.hints = None;
             }
         }
+        // The skill radar turned On or Off (Options over this screen): its
+        // side in the ladder's place, or the ladder again.
+        let radar = self.room.is_none() && !compact && crate::state::ratings::radar_shown();
         if [vp.width, vp.height] != self.layout.vp
             || compact != self.layout.compact
             || self.env.reduced() != self.reduced
+            || radar != self.layout.radar
         {
             self.cancel_navigation();
             self.reduced = self.env.reduced();
@@ -4143,6 +4387,14 @@ impl Screen for SelectScreen {
             self.start(root, cx);
         }
         self.show(root, cx);
+        // The radar's shape on its way to the chart chosen's.
+        if let Some((start, _, to)) = self.radar_morph {
+            self.fill_radar(root);
+            if self.now - start >= RADAR_MORPH {
+                self.radar_morph = None;
+                self.radar_drawn = Some(to);
+            }
+        }
         self.fill_footer(root, cx);
         self.fill_notices(root);
         self.tell(cx);
@@ -4235,14 +4487,6 @@ impl Screen for SelectScreen {
             }
             _ => input,
         };
-        // The pointer on the skill radar lists its numbers.
-        if let Input::Hover { target } = input {
-            let over = target.as_ref().is_some_and(|t| t.within("Radar"));
-            if over != self.radar_hover {
-                self.radar_hover = over;
-                self.fill_radar(root);
-            }
-        }
         if matches!(
             input,
             Input::Menu { .. }

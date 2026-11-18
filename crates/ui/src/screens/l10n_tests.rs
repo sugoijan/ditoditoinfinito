@@ -474,6 +474,37 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     use crate::PointerKind;
     use ddi_library::report::{ImportFailure, ImportReport};
     use std::cell::RefCell;
+    // The skill radar's side (round Z1): a rated chart's radar and lines,
+    // one waiting for its rating, one never rated (Double: not four
+    // lanes).
+    {
+        use crate::state::ratings;
+        ratings::set_mode(true, true);
+        let mut data = sample::select();
+        let song = &mut data.songs[0];
+        for c in &mut song.charts {
+            c.digest = Some(ddi_chart::ChartDigest(0x2100 + c.index as u128));
+        }
+        let rated = song.charts.iter().filter(|c| c.style == "dance-single").count();
+        for c in song.charts.iter().filter(|c| c.style == "dance-single").take(rated.saturating_sub(1)) {
+            ratings::remember(c.digest.unwrap(), [20.0, 19.0, 12.0, 8.0, 17.0, 6.0, 5.0, 14.0]);
+        }
+        let id = song.id.clone();
+        let play: super::select::PlayFn = Rc::new(|_, _, _, _| {});
+        let open: super::select::OpenFn = Rc::new(|_, _| {});
+        let mut h = harness();
+        h.push(super::select::SelectScreen::new(env.clone(), data, Some(&id), play, open));
+        shown(&mut h, found);
+        for _ in 0..6 {
+            h.key("ArrowDown", "ArrowDown");
+            h.run(0.05);
+            h.key("ArrowDown", "ArrowDown");
+            shown(&mut h, found);
+        }
+        h.key("Tab", "Tab");
+        shown(&mut h, found);
+        ratings::set_mode(false, false);
+    }
     // Typing a search, then what it found.
     let mut h = harness();
     h.push(sample::select_screen(env, None));

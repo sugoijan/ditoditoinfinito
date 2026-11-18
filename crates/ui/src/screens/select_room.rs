@@ -297,8 +297,14 @@ impl SelectScreen {
     /// The layout for a viewport: a room's has the song's side short and
     /// the players under it (`Layout::for_room`).
     pub(super) fn fit_layout(&self, vp: [f32; 2], compact: bool) -> Layout {
-        let l = Layout::fit(&self.env, vp, compact);
-        if self.room.is_some() { l.for_room() } else { l }
+        let mut l = Layout::fit(&self.env, vp, compact);
+        if self.room.is_some() {
+            return l.for_room();
+        }
+        // The skill radar in the ladder's place (round Z1): the wide
+        // layout's alone (a phone's and a room's short side keep theirs).
+        l.radar = !l.compact && crate::state::ratings::radar_shown();
+        l
     }
 
     /// Whether the short song's side shows its style button: always on a

@@ -2644,6 +2644,7 @@ fn publish_now(h: &Host) {
         );
         set(&o, "preferred", st.preferred.as_str().into());
         set(&o, "ladder", strings(&st.ladder));
+        set(&o, "radar", st.radar.as_str().into());
         let counts = js_sys::Object::new();
         for (name, n) in &st.style_counts {
             set(&counts, name, (*n as f64).into());
