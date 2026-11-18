@@ -86,7 +86,7 @@ select-radar-evasion = 回避
 select-radar-evasion-full = 回避
 select-radar-estimate-overall = DDI
 select-radar-estimate-unit = スキルごとの精度の損失（ポイント）
-select-radar-outside = 推定の検証範囲の外です
+select-radar-outside = 利用できません
 select-radar-estimate-layout = DDI推定はシングルの譜面のみです
 select-radar-estimate-none = この譜面の推定はありません
 

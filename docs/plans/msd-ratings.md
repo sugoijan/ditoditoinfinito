@@ -320,7 +320,7 @@ is and nothing is removed.
   spoke's number is its cost in points of Accuracy to a tenth; the
   caption is "DDI" and the decimal; a line beside it says what the
   numbers are. How the spokes are drawn: round Z3 below. Outside the
-  studied domain: "Outside what the estimate was studied on"; a chart that is not an original Single chart: "The DDI
+  studied domain: "Not available" (the maintainer's wording, 2026-11-19; "Outside what the estimate was studied on" before); a chart that is not an original Single chart: "The DDI
   estimate is for Single charts"; none made: "No estimate for this
   chart"; on its way: "Rating this chart…". Round Z1's layout, label rule,
   motion and tests apply to both sources.

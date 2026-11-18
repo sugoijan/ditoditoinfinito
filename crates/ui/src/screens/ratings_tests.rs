@@ -644,7 +644,7 @@ fn the_estimate_s_radar_draws_each_state() {
     // Song 1's Medium (the difficulty chosen last): outside; its Hard
     // waiting (its song offered, nothing rates it here).
     assert_eq!(said(&e), "outside");
-    assert!(h.texts().iter().any(|t| t == "Outside what the estimate was studied on"));
+    assert!(h.texts().iter().any(|t| t == "Not available"));
     h.tap(PointerKind::Mouse, "Chart1");
     h.run(0.6);
     assert_eq!(said(&e), "rating");
