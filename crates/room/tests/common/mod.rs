@@ -189,3 +189,270 @@ impl Script {
             .map_or(1_000_000, |m| m.life_ppm)
     }
 }
+
+/// A room run through the reducer at a time of its own: every accepted
+/// revision's events applied to a mirror, which must stay equal to the
+/// authority's state, and every refused command checked to change
+/// nothing. Each test file adds the helpers its own story needs.
+pub struct Room {
+    pub s: ddi_room::RoomState,
+    pub mirror: ddi_room::RoomState,
+    pub now: u64,
+    pub host: ddi_room::ParticipantId,
+}
+
+impl Room {
+    /// A room owned by `twitch:<owner>` named `name`.
+    pub fn open(
+        owner: &str,
+        name: &str,
+        policy: ddi_room::RoomPolicy,
+        rules: ddi_room::MatchRules,
+        source: ddi_room::ContentSource,
+    ) -> Self {
+        let s = ddi_room::RoomState::new(
+            ddi_room::RoomId::new("room"),
+            ddi_room::Identity::new(format!("twitch:{owner}")),
+            name.into(),
+            policy,
+            rules,
+            source,
+        );
+        Self {
+            mirror: s.clone(),
+            s,
+            now: 0,
+            host: ddi_room::ParticipantId(1),
+        }
+    }
+
+    pub fn follow(&mut self, events: &[ddi_room::Event]) {
+        if !events.is_empty() {
+            self.mirror.commit(events);
+        }
+        assert_eq!(self.mirror, self.s, "the mirror follows the events");
+    }
+
+    /// `who` issues `cmd` against their current view.
+    pub fn by(
+        &mut self,
+        who: ddi_room::ParticipantId,
+        cmd: ddi_room::Command,
+    ) -> Result<Vec<ddi_room::Event>, ddi_room::Rejection> {
+        self.based(who, Some(self.s.revision), cmd)
+    }
+
+    /// `who` issues `cmd` against the room as it was at `base`.
+    pub fn based(
+        &mut self,
+        who: ddi_room::ParticipantId,
+        base: Option<ddi_room::Revision>,
+        cmd: ddi_room::Command,
+    ) -> Result<Vec<ddi_room::Event>, ddi_room::Rejection> {
+        self.apply(ddi_room::Actor::Member(who), base, cmd)
+    }
+
+    /// The authority's `cmd`.
+    pub fn sys(
+        &mut self,
+        cmd: ddi_room::Command,
+    ) -> Result<Vec<ddi_room::Event>, ddi_room::Rejection> {
+        self.apply(ddi_room::Actor::Authority, None, cmd)
+    }
+
+    fn apply(
+        &mut self,
+        actor: ddi_room::Actor,
+        base: Option<ddi_room::Revision>,
+        cmd: ddi_room::Command,
+    ) -> Result<Vec<ddi_room::Event>, ddi_room::Rejection> {
+        let before = self.s.clone();
+        let r = self.s.apply(actor, base, &cmd, ddi_room::Millis(self.now));
+        match &r {
+            Ok(events) => self.follow(&events.clone()),
+            Err(_) => assert_eq!(before, self.s, "a refused command changes nothing"),
+        }
+        r
+    }
+
+    /// The authority's join of `twitch:<name>`.
+    pub fn join_as(
+        &mut self,
+        name: &str,
+        intent: ddi_room::Intent,
+        admin: bool,
+    ) -> Result<ddi_room::ParticipantId, ddi_room::Rejection> {
+        let identity = ddi_room::Identity::new(format!("twitch:{name}"));
+        self.sys(ddi_room::Command::Join {
+            identity: identity.clone(),
+            name: name.into(),
+            admin,
+            intent,
+        })?;
+        Ok(self.s.member_by_identity(&identity).unwrap().id)
+    }
+
+    /// `ms` pass: what the room's deadlines decide then.
+    pub fn wait(&mut self, ms: u64) -> Vec<ddi_room::Event> {
+        self.now += ms;
+        let events = self.s.advance(ddi_room::Millis(self.now));
+        self.follow(&events);
+        events
+    }
+
+    /// Time passes to `ms` after the start: the authority's alarm at
+    /// every deadline the room names on the way, as a server's is.
+    pub fn wait_to(&mut self, ms: u64) {
+        loop {
+            match self.s.next_deadline() {
+                Some(at) if at.0 <= ms && at.0 > self.now => {
+                    self.now = at.0;
+                    let events = self.s.advance(ddi_room::Millis(self.now));
+                    self.follow(&events);
+                }
+                _ => break,
+            }
+        }
+        self.now = ms;
+        let events = self.s.advance(ddi_room::Millis(self.now));
+        self.follow(&events);
+    }
+
+    /// The readiness revision of `stage`.
+    pub fn rev(&self, stage: ddi_room::StageId) -> u32 {
+        self.s.stage(stage).unwrap().readiness_rev
+    }
+
+    /// `who` reports `loading` for `stage`.
+    pub fn load_for(
+        &mut self,
+        who: ddi_room::ParticipantId,
+        stage: ddi_room::StageId,
+        loading: ddi_room::Loading,
+    ) -> Result<Vec<ddi_room::Event>, ddi_room::Rejection> {
+        let readiness_rev = self.rev(stage);
+        self.by(
+            who,
+            ddi_room::Command::ReportLoading {
+                stage,
+                readiness_rev,
+                loading,
+            },
+        )
+    }
+
+    /// `who` says they are ready (or not) for `stage`.
+    pub fn ready_for(
+        &mut self,
+        who: ddi_room::ParticipantId,
+        stage: ddi_room::StageId,
+        ready: bool,
+    ) -> Result<Vec<ddi_room::Event>, ddi_room::Rejection> {
+        let readiness_rev = self.rev(stage);
+        self.by(
+            who,
+            ddi_room::Command::SetReady {
+                stage,
+                readiness_rev,
+                ready,
+            },
+        )
+    }
+}
+
+/// A member's scripted play as their device streams it: its moments, its
+/// checkpoint reports where it has a reporter, and its end.
+#[derive(Default)]
+pub struct Stream {
+    pub play: Option<Script>,
+    pub sent: usize,
+    pub reporter: Option<ddi_room::attacks::Reporter>,
+    pub judged: Vec<Judged>,
+    pub judged_sent: usize,
+    pub ended: bool,
+}
+
+impl Stream {
+    /// The play to stream, reported by `reporter` where given.
+    pub fn give(&mut self, play: Script, reporter: Option<ddi_room::attacks::Reporter>) {
+        self.judged = play.judged();
+        self.play = Some(play);
+        self.reporter = reporter;
+    }
+
+    /// Whether there is anything left to stream.
+    pub fn streaming(&self) -> bool {
+        self.play.is_some() && !self.ended
+    }
+
+    /// The play judged to song µs `t_us`, streamed on `live` for `stage`;
+    /// at its end the run the member reports.
+    pub fn feed(
+        &mut self,
+        live: &mut ddi_room::live::LiveLink,
+        stage: ddi_room::StageId,
+        t_us: i64,
+    ) -> Option<ddi_room::Command> {
+        use ddi_room::live::stream::{LiveReport, StreamEnd};
+        use ddi_room::{Command, ReportedRun};
+        let play = self.play.clone()?;
+        if self.ended || t_us < -800_000 {
+            return None;
+        }
+        let out = live.stream(stage);
+        while let Some(m) = play.moments.get(self.sent) {
+            if i64::from(m.at_ms) * 1_000 > t_us {
+                break;
+            }
+            out.moment(*m);
+            self.sent += 1;
+        }
+        let judged_to = t_us.min(i64::from(play.out_ms.unwrap_or(play.end_ms)) * 1_000);
+        out.judged_to(judged_to);
+        if let Some(r) = self.reporter.as_mut() {
+            while let Some(j) = self.judged.get(self.judged_sent) {
+                if j.at_us > t_us {
+                    break;
+                }
+                r.judged(*j);
+                self.judged_sent += 1;
+            }
+            if let Some(o) = play.out_ms
+                && i64::from(o) * 1_000 <= t_us
+            {
+                r.out_at(i64::from(o) * 1_000);
+            }
+            for (k, rep) in r.due(judged_to, &|at| play.life(at)) {
+                out.report(LiveReport::from_report(k, rep));
+            }
+        }
+        if let Some(o) = play.out_ms
+            && i64::from(o) * 1_000 <= t_us
+        {
+            out.end(StreamEnd::Out {
+                at_us: i64::from(o) * 1_000,
+            });
+            self.ended = true;
+            Some(Command::ReportOutcome {
+                stage,
+                run: ReportedRun::Out { at_ms: o as u64 },
+                detail: None,
+            })
+        } else if t_us >= i64::from(play.end_ms) * 1_000 {
+            out.end(StreamEnd::Finished);
+            self.ended = true;
+            let last = play.moments.last();
+            Some(Command::ReportOutcome {
+                stage,
+                run: ReportedRun::Live {
+                    life_ppm: last.map_or(1_000_000, |m| m.life_ppm),
+                    score: last.map_or(0, |m| m.score),
+                    steps: 0,
+                },
+                detail: None,
+            })
+        } else {
+            None
+        }
+    }
+}

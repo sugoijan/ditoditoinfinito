@@ -7,14 +7,8 @@
 
 mod common;
 
-use common::song;
+use common::{Room, song};
 use ddi_room::*;
-
-struct Room {
-    s: RoomState,
-    now: u64,
-    host: ParticipantId,
-}
 
 impl Room {
     /// A hosted online room (its songs shared) of two stages whose owner
@@ -22,43 +16,13 @@ impl Room {
     fn of(owner: &str) -> Self {
         let mut rules = MatchRules::hosted();
         rules.stages = 2;
-        let s = RoomState::new(
-            RoomId::new("room"),
-            Identity::new(format!("twitch:{owner}")),
-            owner.into(),
-            RoomPolicy::default(),
-            rules,
-            ContentSource::Shared,
-        );
-        Self {
-            s,
-            now: 0,
-            host: ParticipantId(1),
-        }
-    }
-
-    fn by(&mut self, who: ParticipantId, cmd: Command) -> Result<Vec<Event>, Rejection> {
-        self.s
-            .apply(Actor::Member(who), Some(self.s.revision), &cmd, Millis(self.now))
-    }
-
-    fn sys(&mut self, cmd: Command) -> Vec<Event> {
-        self.s
-            .apply(Actor::Authority, None, &cmd, Millis(self.now))
-            .unwrap()
+        Self::open(owner, owner, RoomPolicy::default(), rules, ContentSource::Shared)
     }
 
     /// The authority's join of `name` (as the server sends it for a
     /// newcomer, for one who had left, and could for anyone connecting).
     fn join(&mut self, name: &str, admin: bool) -> ParticipantId {
-        let identity = Identity::new(format!("twitch:{name}"));
-        self.sys(Command::Join {
-            identity: identity.clone(),
-            name: name.into(),
-            admin,
-            intent: Intent::Play,
-        });
-        self.s.member_by_identity(&identity).unwrap().id
+        self.join_as(name, Intent::Play, admin).unwrap()
     }
 
     fn may(&self, who: ParticipantId, capability: Capability) -> bool {
@@ -81,44 +45,17 @@ impl Room {
             stage,
             status: ContentStatus::Available,
             share: Some("share".into()),
-        });
+        })
+        .unwrap();
         stage
     }
 
-    fn rev(&self, stage: StageId) -> u32 {
-        self.s.stage(stage).unwrap().readiness_rev
-    }
-
     fn load(&mut self, who: ParticipantId, stage: StageId, loading: Loading) {
-        let readiness_rev = self.rev(stage);
-        self.by(
-            who,
-            Command::ReportLoading {
-                stage,
-                readiness_rev,
-                loading,
-            },
-        )
-        .unwrap();
+        self.load_for(who, stage, loading).unwrap();
     }
 
     fn ready(&mut self, who: ParticipantId, stage: StageId) {
-        let readiness_rev = self.rev(stage);
-        self.by(
-            who,
-            Command::SetReady {
-                stage,
-                readiness_rev,
-                ready: true,
-            },
-        )
-        .unwrap();
-    }
-
-    /// Time passes: what the room's deadlines decide.
-    fn pass(&mut self, ms: u64) {
-        self.now += ms;
-        self.s.advance(Millis(self.now));
+        self.ready_for(who, stage, true).unwrap();
     }
 }
 
@@ -188,8 +125,8 @@ fn one_whose_song_was_still_loading_sits_out_as_still_loading() {
     }
     r.load(slow, stage, Loading::Loading { permille: 400 });
     // The loading grace, then the Ready window: the stage starts.
-    r.pass(60_000);
-    r.pass(60_000);
+    r.wait(60_000);
+    r.wait(60_000);
     let play = r.s.stage(stage).unwrap().play.as_ref().expect("started");
     assert_eq!(play.sat_out.get(&slow), Some(&SitOutReason::StillLoading));
 }
@@ -222,10 +159,11 @@ fn a_member_reconnecting_for_a_moment_keeps_their_place_in_the_stage() {
     r.sys(Command::SetConnection {
         participant: bea,
         connection: Connection::Reconnecting,
-    });
+    })
+    .unwrap();
     // The host readies in that second: the stage starts.
     r.ready(r.host, stage);
-    r.pass(1_000);
+    r.wait(1_000);
     let play = r.s.stage(stage).unwrap().play.as_ref().expect("started");
     assert!(play.lineup.contains(&bea), "ready and loaded: in");
 }
@@ -253,13 +191,14 @@ fn a_readiness_window_waits_for_a_member_reconnecting_for_a_moment() {
     r.ready(r.host, stage);
     r.ready(ana, stage);
     // Everyone loaded: the Ready window counts; Bea has not pressed yet.
-    r.pass(2_000);
+    r.wait(2_000);
     assert!(matches!(r.s.phase, Phase::Preparing { window: Some(_), .. }));
     // Her socket drops.
     r.sys(Command::SetConnection {
         participant: bea,
         connection: Connection::Reconnecting,
-    });
+    })
+    .unwrap();
     assert!(
         matches!(r.s.phase, Phase::Preparing { window: Some(_), .. }),
         "the window still waits for her: {:?}",
@@ -269,9 +208,10 @@ fn a_readiness_window_waits_for_a_member_reconnecting_for_a_moment() {
     r.sys(Command::SetConnection {
         participant: bea,
         connection: Connection::Connected,
-    });
+    })
+    .unwrap();
     r.ready(bea, stage);
-    r.pass(1_000);
+    r.wait(1_000);
     let play = r.s.stage(stage).unwrap().play.as_ref().expect("started");
     assert!(play.lineup.contains(&bea));
 }
@@ -295,7 +235,8 @@ fn the_administrators_flag_follows_the_join_both_ways() {
         name: "op".into(),
         admin: false,
         intent: Intent::Play,
-    });
+    })
+    .unwrap();
     assert_eq!(
         events,
         vec![Event::AdminChanged {
@@ -314,7 +255,8 @@ fn the_administrators_flag_follows_the_join_both_ways() {
             name: "rob".into(),
             admin: true,
             intent: Intent::Play,
-        });
+        })
+        .unwrap();
     }
     assert!(!r.s.member_by_identity(&identity).unwrap().admin);
     // A mirror applies the event as the authority did.
@@ -324,7 +266,8 @@ fn the_administrators_flag_follows_the_join_both_ways() {
         name: "op".into(),
         admin: true,
         intent: Intent::Play,
-    });
+    })
+    .unwrap();
     mirror.commit(&events);
     assert_eq!(mirror, r.s);
     // The owner's flag at the room's creation.
@@ -361,8 +304,9 @@ fn a_reconnecting_member_is_waited_for_only_inside_the_reconnect_grace() {
     r.sys(Command::SetConnection {
         participant: bea,
         connection: Connection::Reconnecting,
-    });
-    r.pass(1_000);
+    })
+    .unwrap();
+    r.wait(1_000);
     let Phase::Preparing { window: Some(w), .. } = r.s.phase else {
         panic!("{:?}", r.s.phase)
     };
@@ -371,8 +315,9 @@ fn a_reconnecting_member_is_waited_for_only_inside_the_reconnect_grace() {
     r.sys(Command::SetConnection {
         participant: bea,
         connection: Connection::Disconnected,
-    });
-    r.pass(1);
+    })
+    .unwrap();
+    r.wait(1);
     assert!(matches!(r.s.phase, Phase::Countdown { .. }), "{:?}", r.s.phase);
     let play = r.s.stage(stage).unwrap().play.as_ref().unwrap();
     assert_eq!(play.sat_out.get(&bea), Some(&SitOutReason::NotConnected));
@@ -390,12 +335,14 @@ fn a_reconnecting_member_is_waited_for_only_inside_the_reconnect_grace() {
     r.sys(Command::SetConnection {
         participant: bea,
         connection: Connection::Reconnecting,
-    });
+    })
+    .unwrap();
     r.ready(r.host, stage);
     assert!(matches!(r.s.phase, Phase::Countdown { .. }));
     let events = r.sys(Command::SetConnection {
         participant: bea,
         connection: Connection::Disconnected,
-    });
+    })
+    .unwrap();
     assert!(events.iter().any(|e| matches!(e, Event::StartCanceled { .. })));
 }

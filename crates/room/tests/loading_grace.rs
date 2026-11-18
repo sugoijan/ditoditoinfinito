@@ -8,19 +8,12 @@
 
 mod common;
 
-use common::song;
+use common::{Room, song};
 use ddi_room::*;
 
 const GRACE: u64 = ReadinessPolicy::LOADING_GRACE_V2_MS;
 /// The deployed Ready countdown.
 const WINDOW: u64 = 15_000;
-
-struct Room {
-    s: RoomState,
-    mirror: RoomState,
-    now: u64,
-    host: ParticipantId,
-}
 
 impl Room {
     /// A hosted online room (its songs shared) under `hosted-deadline-v2`
@@ -32,78 +25,11 @@ impl Room {
         policy.readiness.window_ms = WINDOW;
         let mut rules = MatchRules::hosted();
         rules.stages = 2;
-        let s = RoomState::new(
-            RoomId::new("room"),
-            Identity::new("twitch:host"),
-            "Host".into(),
-            policy,
-            rules,
-            ContentSource::Shared,
-        );
-        Self {
-            mirror: s.clone(),
-            s,
-            now: 0,
-            host: ParticipantId(1),
-        }
-    }
-
-    fn follow(&mut self, events: &[Event]) {
-        if !events.is_empty() {
-            self.mirror.commit(events);
-        }
-        assert_eq!(self.mirror, self.s, "the mirror follows the events");
-    }
-
-    fn by(&mut self, who: ParticipantId, cmd: Command) -> Result<Vec<Event>, Rejection> {
-        let r = self.s.apply(
-            Actor::Member(who),
-            Some(self.s.revision),
-            &cmd,
-            Millis(self.now),
-        );
-        if let Ok(events) = &r {
-            self.follow(&events.clone());
-        }
-        r
-    }
-
-    fn sys(&mut self, cmd: Command) -> Vec<Event> {
-        let events = self
-            .s
-            .apply(Actor::Authority, None, &cmd, Millis(self.now))
-            .unwrap();
-        self.follow(&events);
-        events
+        Self::open("host", "Host", policy, rules, ContentSource::Shared)
     }
 
     fn join(&mut self, name: &str) -> ParticipantId {
-        let identity = Identity::new(format!("twitch:{name}"));
-        self.sys(Command::Join {
-            identity: identity.clone(),
-            name: name.into(),
-            admin: false,
-            intent: Intent::Play,
-        });
-        self.s.member_by_identity(&identity).unwrap().id
-    }
-
-    /// Time passes to `ms` after the start: the authority's alarm at
-    /// every deadline the room names on the way, as a server's is.
-    fn wait_to(&mut self, ms: u64) {
-        loop {
-            match self.s.next_deadline() {
-                Some(at) if at.0 <= ms && at.0 > self.now => {
-                    self.now = at.0;
-                    let events = self.s.advance(Millis(self.now));
-                    self.follow(&events);
-                }
-                _ => break,
-            }
-        }
-        self.now = ms;
-        let events = self.s.advance(Millis(self.now));
-        self.follow(&events);
+        self.join_as(name, Intent::Play, false).unwrap()
     }
 
     /// The host picks song `n`; its share is up `shared_after` ms later.
@@ -122,38 +48,17 @@ impl Room {
             stage,
             status: ContentStatus::Available,
             share: Some(format!("share-{n}")),
-        });
+        })
+        .unwrap();
         stage
     }
 
-    fn rev(&self, stage: StageId) -> u32 {
-        self.s.stage(stage).unwrap().readiness_rev
-    }
-
     fn load(&mut self, who: ParticipantId, stage: StageId, loading: Loading) {
-        let readiness_rev = self.rev(stage);
-        self.by(
-            who,
-            Command::ReportLoading {
-                stage,
-                readiness_rev,
-                loading,
-            },
-        )
-        .unwrap();
+        self.load_for(who, stage, loading).unwrap();
     }
 
     fn ready(&mut self, who: ParticipantId, stage: StageId) {
-        let readiness_rev = self.rev(stage);
-        self.by(
-            who,
-            Command::SetReady {
-                stage,
-                readiness_rev,
-                ready: true,
-            },
-        )
-        .unwrap();
+        self.ready_for(who, stage, true).unwrap();
     }
 
     fn window(&self) -> ReadinessWindow {
@@ -302,7 +207,8 @@ fn the_grace_counts_from_the_songs_availability() {
         stage: s1,
         status: ContentStatus::Available,
         share: Some("share-1".into()),
-    });
+    })
+    .unwrap();
     assert_eq!(r.window().loading_until, Some(Millis(GRACE + 10_000 + GRACE)));
 }
 
@@ -340,7 +246,8 @@ fn the_grace_counts_from_the_end_of_a_5_s_and_a_60_s_upload() {
             stage: s1,
             status: ContentStatus::Available,
             share: Some("share-1".into()),
-        });
+        })
+        .unwrap();
         let w = r.window();
         assert_eq!(w.loading_until, Some(Millis(upload + GRACE)), "{upload}");
         assert_eq!(w.deadline, Millis(upload + GRACE + WINDOW), "{upload}");
@@ -373,7 +280,8 @@ fn a_pick_that_reuses_the_resting_songs_share_counts_from_the_pick() {
     r.sys(Command::SetSpotlightShare {
         chart: song(1).chart,
         share: "share-spot".into(),
-    });
+    })
+    .unwrap();
     r.wait_to(7_000);
     r.by(
         host,
@@ -415,7 +323,8 @@ fn a_pick_that_reuses_the_resting_songs_share_counts_from_the_pick() {
     r.sys(Command::SetSpotlightShare {
         chart: song(2).chart,
         share: "share-late".into(),
-    });
+    })
+    .unwrap();
     assert!(!r.s.content_pending(s1));
     assert_eq!(r.window().loading_until, Some(Millis(12_000 + GRACE)));
 }

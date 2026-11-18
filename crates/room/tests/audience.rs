@@ -6,7 +6,7 @@
 //! restart mid-stage; the members' own stream unchanged by an audience;
 //! what a tick costs at 1,000, 5,000 and 20,000 seats (`--ignored`).
 
-use ddi_room::attacks::{ATTACKS, Judged, Reporter};
+use ddi_room::attacks::{ATTACKS, Reporter};
 use ddi_room::audience::frames::{self, Coalesced, Coalescer};
 use ddi_room::audience::hub::AudienceDurable;
 use ddi_room::audience::public::PublicView;
@@ -19,19 +19,19 @@ use ddi_room::fake::{
     FakeAudienceSocket, FakeServer, FakeSocket, Latency, OffsetClock, SharedFake,
 };
 use ddi_room::live::plan::BattlePlan;
-use ddi_room::live::stream::{Frame, FrameEntry, LiveReport, StreamEnd};
+use ddi_room::live::stream::{Frame, FrameEntry};
 use ddi_room::live::{ClientLive, LiveNews, wire};
 use ddi_room::{
     ChartKey, ClientEnvelope, ClientId, Clock, Closure, Command, Connection, ContentCard,
     ContentId, ContentStatus, Identity, Intent, Loading, ManualClock, MatchRules, Millis,
-    OnlineAuthority, ParticipantId, Phase, ReportedRun, RoomAuthority, RoomId, RoomPolicy,
+    OnlineAuthority, ParticipantId, Phase, RoomAuthority, RoomId, RoomPolicy,
     RoomState, SongKey, StageId, TicketProblem,
 };
 use std::time::Instant;
 
 mod common;
 
-use common::{Script, plan_under};
+use common::{Script, Stream, plan_under};
 
 const ROOM: &str = "Room000001";
 const STAGE: StageId = StageId(1);
@@ -68,12 +68,7 @@ struct Player {
     seq: u64,
     link: OnlineAuthority<FakeSocket, OffsetClock>,
     server: SharedFake,
-    play: Option<Script>,
-    sent: usize,
-    reporter: Option<Reporter>,
-    judged: Vec<Judged>,
-    judged_sent: usize,
-    ended: bool,
+    stream: Stream,
     frames: Vec<(u64, Vec<u8>)>,
 }
 
@@ -116,70 +111,14 @@ impl Player {
     }
 
     fn feed(&mut self) {
-        let Some(play) = self.play.clone() else {
-            return;
-        };
-        if self.ended {
+        if !self.stream.streaming() {
             return;
         }
         let Some(t_us) = self.song_us() else {
             return;
         };
-        if t_us < -800_000 {
-            return;
-        }
-        let out = self.link.live_mut().stream(STAGE);
-        while let Some(m) = play.moments.get(self.sent) {
-            if i64::from(m.at_ms) * 1_000 > t_us {
-                break;
-            }
-            out.moment(*m);
-            self.sent += 1;
-        }
-        let judged_to = t_us.min(i64::from(play.out_ms.unwrap_or(play.end_ms)) * 1_000);
-        out.judged_to(judged_to);
-        if let Some(r) = self.reporter.as_mut() {
-            while let Some(j) = self.judged.get(self.judged_sent) {
-                if j.at_us > t_us {
-                    break;
-                }
-                r.judged(*j);
-                self.judged_sent += 1;
-            }
-            if let Some(o) = play.out_ms
-                && i64::from(o) * 1_000 <= t_us
-            {
-                r.out_at(i64::from(o) * 1_000);
-            }
-            for (k, rep) in r.due(judged_to, &|at| play.life(at)) {
-                out.report(LiveReport::from_report(k, rep));
-            }
-        }
-        if let Some(o) = play.out_ms
-            && i64::from(o) * 1_000 <= t_us
-        {
-            out.end(StreamEnd::Out {
-                at_us: i64::from(o) * 1_000,
-            });
-            self.ended = true;
-            self.send(Command::ReportOutcome {
-                stage: STAGE,
-                run: ReportedRun::Out { at_ms: o as u64 },
-                detail: None,
-            });
-        } else if t_us >= i64::from(play.end_ms) * 1_000 {
-            out.end(StreamEnd::Finished);
-            self.ended = true;
-            let last = play.moments.last();
-            self.send(Command::ReportOutcome {
-                stage: STAGE,
-                run: ReportedRun::Live {
-                    life_ppm: last.map_or(1_000_000, |m| m.life_ppm),
-                    score: last.map_or(0, |m| m.score),
-                    steps: 0,
-                },
-                detail: None,
-            });
+        if let Some(report) = self.stream.feed(self.link.live_mut(), STAGE, t_us) {
+            self.send(report);
         }
     }
 }
@@ -340,12 +279,7 @@ fn room(competitors: usize, watchers: usize, policy: RoomPolicy, attacks: bool) 
             seq: 0,
             link,
             server: server.clone(),
-            play: None,
-            sent: 0,
-            reporter: None,
-            judged: Vec::new(),
-            judged_sent: 0,
-            ended: false,
+            stream: Stream::default(),
             frames: Vec::new(),
         });
     }
@@ -420,9 +354,8 @@ fn start(r: &mut Room, plan: Option<&BattlePlan>, competitors: usize, scripts: &
         s.phase
     );
     for (p, s) in r.players.iter_mut().zip(scripts) {
-        p.play = Some(s.clone());
-        p.judged = s.judged();
-        p.reporter = plan.map(|plan| Reporter::new(p.id, plan.checkpoints_us.clone()));
+        let reporter = plan.map(|plan| Reporter::new(p.id, plan.checkpoints_us.clone()));
+        p.stream.give(s.clone(), reporter);
     }
 }
 

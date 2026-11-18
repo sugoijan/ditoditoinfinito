@@ -27,7 +27,7 @@ use std::time::Instant;
 
 mod common;
 
-use common::{Script, plan_under};
+use common::{Script, Stream, plan_under};
 
 const ROOM: &str = "Room000001";
 const STAGE: StageId = StageId(1);
@@ -81,12 +81,7 @@ struct Player {
     seq: u64,
     link: OnlineAuthority<FakeSocket, DriftClock>,
     server: SharedFake,
-    play: Option<Script>,
-    sent: usize,
-    reporter: Option<Reporter>,
-    judged: Vec<Judged>,
-    judged_sent: usize,
-    ended: bool,
+    stream: Stream,
     /// Stops pumping (its device gone) from this room ms.
     gone_at: Option<u64>,
     news: Vec<LiveNews>,
@@ -176,70 +171,14 @@ impl Player {
 
     /// Its play, judged to the song time its device has now.
     fn feed(&mut self) {
-        let Some(play) = self.play.clone() else {
-            return;
-        };
-        if self.ended {
+        if !self.stream.streaming() {
             return;
         }
         let Some(t_us) = self.song_us() else {
             return;
         };
-        if t_us < -800_000 {
-            return;
-        }
-        let out = self.link.live_mut().stream(STAGE);
-        while let Some(m) = play.moments.get(self.sent) {
-            if i64::from(m.at_ms) * 1_000 > t_us {
-                break;
-            }
-            out.moment(*m);
-            self.sent += 1;
-        }
-        let judged_to = t_us.min(i64::from(play.out_ms.unwrap_or(play.end_ms)) * 1_000);
-        out.judged_to(judged_to);
-        if let Some(r) = self.reporter.as_mut() {
-            while let Some(j) = self.judged.get(self.judged_sent) {
-                if j.at_us > t_us {
-                    break;
-                }
-                r.judged(*j);
-                self.judged_sent += 1;
-            }
-            if let Some(o) = play.out_ms
-                && i64::from(o) * 1_000 <= t_us
-            {
-                r.out_at(i64::from(o) * 1_000);
-            }
-            for (k, rep) in r.due(judged_to, &|at| play.life(at)) {
-                out.report(LiveReport::from_report(k, rep));
-            }
-        }
-        if let Some(o) = play.out_ms
-            && i64::from(o) * 1_000 <= t_us
-        {
-            out.end(StreamEnd::Out {
-                at_us: i64::from(o) * 1_000,
-            });
-            self.ended = true;
-            self.send(Command::ReportOutcome {
-                stage: STAGE,
-                run: ReportedRun::Out { at_ms: o as u64 },
-                detail: None,
-            });
-        } else if t_us >= i64::from(play.end_ms) * 1_000 {
-            out.end(StreamEnd::Finished);
-            self.ended = true;
-            let last = play.moments.last();
-            self.send(Command::ReportOutcome {
-                stage: STAGE,
-                run: ReportedRun::Live {
-                    life_ppm: last.map_or(1_000_000, |m| m.life_ppm),
-                    score: last.map_or(0, |m| m.score),
-                    steps: 0,
-                },
-                detail: None,
-            });
+        if let Some(report) = self.stream.feed(self.link.live_mut(), STAGE, t_us) {
+            self.send(report);
         }
     }
 }
@@ -447,12 +386,7 @@ fn room(setup: &Setup) -> Room {
             seq: 0,
             link,
             server: server.clone(),
-            play: None,
-            sent: 0,
-            reporter: None,
-            judged: Vec::new(),
-            judged_sent: 0,
-            ended: false,
+            stream: Stream::default(),
             gone_at: None,
             news: Vec::new(),
             mapped_once: setup.mapped_once,
@@ -551,9 +485,8 @@ fn started(r: &Room) {
 
 fn give_plays(r: &mut Room, scripts: &[Script], checkpoints: Option<&[i64]>) {
     for (p, s) in r.players.iter_mut().zip(scripts) {
-        p.play = Some(s.clone());
-        p.judged = s.judged();
-        p.reporter = checkpoints.map(|c| Reporter::new(p.id, c.to_vec()));
+        let reporter = checkpoints.map(|c| Reporter::new(p.id, c.to_vec()));
+        p.stream.give(s.clone(), reporter);
     }
 }
 
@@ -1743,12 +1676,7 @@ fn someone_who_comes_in_mid_stage_gets_the_stage_as_it_stands_and_follows_it() {
         seq: 0,
         link,
         server: r.server.clone(),
-        play: None,
-        sent: 0,
-        reporter: None,
-        judged: Vec::new(),
-        judged_sent: 0,
-        ended: false,
+        stream: Stream::default(),
         gone_at: None,
         news: Vec::new(),
         mapped_once: false,
@@ -2512,9 +2440,8 @@ fn late_entry(late_ms: u64) -> (Room, Vec<Script>, BattlePlan) {
     );
     let zero = play.song_zero_at.unwrap();
     for (p, s) in r.players.iter_mut().zip(&scripts).take(3) {
-        p.play = Some(s.clone());
-        p.judged = s.judged();
-        p.reporter = Some(Reporter::new(p.id, plan.checkpoints_us.clone()));
+        let reporter = Reporter::new(p.id, plan.checkpoints_us.clone());
+        p.stream.give(s.clone(), Some(reporter));
     }
     // The fourth readies `late_ms` after the song's time zero.
     let at = zero.0 + late_ms;
@@ -2527,9 +2454,8 @@ fn late_entry(late_ms: u64) -> (Room, Vec<Script>, BattlePlan) {
     r.run(400);
     if r.state().stage(STAGE).unwrap().play.as_ref().unwrap().lineup.contains(&ParticipantId(4)) {
         let p = &mut r.players[3];
-        p.play = Some(scripts[3].clone());
-        p.judged = scripts[3].judged();
-        p.reporter = Some(Reporter::new(p.id, plan.checkpoints_us.clone()));
+        let reporter = Reporter::new(p.id, plan.checkpoints_us.clone());
+        p.stream.give(scripts[3].clone(), Some(reporter));
     }
     r.run(62_000);
     (r, scripts, plan)

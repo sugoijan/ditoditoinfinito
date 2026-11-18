@@ -6,15 +6,8 @@
 
 mod common;
 
-use common::song;
+use common::{Room, song};
 use ddi_room::*;
-
-struct Room {
-    s: RoomState,
-    mirror: RoomState,
-    now: u64,
-    host: ParticipantId,
-}
 
 impl Room {
     /// A hosted online room (its songs shared) of two stages under
@@ -22,71 +15,15 @@ impl Room {
     fn with(policy: RoomPolicy) -> Self {
         let mut rules = MatchRules::hosted();
         rules.stages = 2;
-        let s = RoomState::new(
-            RoomId::new("room"),
-            Identity::new("twitch:host"),
-            "Host".into(),
-            policy,
-            rules,
-            ContentSource::Shared,
-        );
-        Self {
-            mirror: s.clone(),
-            s,
-            now: 0,
-            host: ParticipantId(1),
-        }
+        Self::open("host", "Host", policy, rules, ContentSource::Shared)
     }
 
     fn new() -> Self {
         Self::with(RoomPolicy::default())
     }
 
-    fn follow(&mut self, events: &[Event]) {
-        if !events.is_empty() {
-            self.mirror.commit(events);
-        }
-        assert_eq!(self.mirror, self.s, "the mirror follows the events");
-    }
-
-    fn by(&mut self, who: ParticipantId, cmd: Command) -> Result<Vec<Event>, Rejection> {
-        let r = self.s.apply(
-            Actor::Member(who),
-            Some(self.s.revision),
-            &cmd,
-            Millis(self.now),
-        );
-        if let Ok(events) = &r {
-            self.follow(&events.clone());
-        }
-        r
-    }
-
-    fn sys_try(&mut self, cmd: Command) -> Result<Vec<Event>, Rejection> {
-        let r = self.s.apply(Actor::Authority, None, &cmd, Millis(self.now));
-        if let Ok(events) = &r {
-            self.follow(&events.clone());
-        }
-        r
-    }
-
-    fn sys(&mut self, cmd: Command) -> Vec<Event> {
-        self.sys_try(cmd).unwrap()
-    }
-
-    fn join_as(&mut self, name: &str, intent: Intent) -> Result<ParticipantId, Rejection> {
-        let identity = Identity::new(format!("twitch:{name}"));
-        self.sys_try(Command::Join {
-            identity: identity.clone(),
-            name: name.into(),
-            admin: false,
-            intent,
-        })?;
-        Ok(self.s.member_by_identity(&identity).unwrap().id)
-    }
-
     fn join(&mut self, name: &str) -> ParticipantId {
-        self.join_as(name, Intent::Play).unwrap()
+        self.join_as(name, Intent::Play, false).unwrap()
     }
 
     fn pick(&mut self, n: u32) -> Result<Vec<Event>, Rejection> {
@@ -99,31 +36,9 @@ impl Room {
         )
     }
 
-    fn rev(&self, stage: StageId) -> u32 {
-        self.s.stage(stage).unwrap().readiness_rev
-    }
-
     fn load_and_ready(&mut self, who: ParticipantId, stage: StageId) {
-        let readiness_rev = self.rev(stage);
-        self.by(
-            who,
-            Command::ReportLoading {
-                stage,
-                readiness_rev,
-                loading: Loading::Loaded,
-            },
-        )
-        .unwrap();
-        let readiness_rev = self.rev(stage);
-        self.by(
-            who,
-            Command::SetReady {
-                stage,
-                readiness_rev,
-                ready: true,
-            },
-        )
-        .unwrap();
+        self.load_for(who, stage, Loading::Loaded).unwrap();
+        self.ready_for(who, stage, true).unwrap();
     }
 
     fn status(&self, stage: StageId) -> ContentStatus {
@@ -148,7 +63,8 @@ fn a_song_picked_again_after_its_share_failed_is_shared_again() {
             code: "digest_mismatch".into(),
         },
         share: None,
-    });
+    })
+    .unwrap();
     assert!(matches!(
         r.s.phase,
         Phase::Preparing { window: None, .. }
@@ -177,7 +93,7 @@ fn a_returning_member_is_refused_at_the_member_bound() {
     r.by(ana, Command::Leave).unwrap();
     r.join("cy");
     assert_eq!(r.s.present_people(), 3);
-    assert_eq!(r.join_as("ana", Intent::Play), Err(Rejection::RoomFull));
+    assert_eq!(r.join_as("ana", Intent::Play, false), Err(Rejection::RoomFull));
     assert!(r.s.members[&ana].left, "still gone");
     assert_eq!(r.s.present_people(), 3);
 }
@@ -196,7 +112,7 @@ fn a_returning_player_comes_back_to_watch_at_the_competitor_cap() {
     let bo = r.join("bo");
     assert_eq!(r.s.members[&bo].intent, Intent::Play);
     assert!(r.s.players_full());
-    assert_eq!(r.join_as("ana", Intent::Play), Ok(ana), "the same row");
+    assert_eq!(r.join_as("ana", Intent::Play, false), Ok(ana), "the same row");
     assert!(!r.s.members[&ana].left);
     assert_eq!(r.s.members[&ana].intent, Intent::Watch);
     assert_eq!(r.s.reserved_humans(), 2, "never past the cap");
@@ -204,7 +120,7 @@ fn a_returning_player_comes_back_to_watch_at_the_competitor_cap() {
     let mut r = Room::with(RoomPolicy::default());
     let ana = r.join("ana");
     r.by(ana, Command::Leave).unwrap();
-    r.join_as("ana", Intent::Play).unwrap();
+    r.join_as("ana", Intent::Play, false).unwrap();
     assert_eq!(r.s.members[&ana].intent, Intent::Play);
 }
 
@@ -221,7 +137,8 @@ fn choosing_watch_after_the_start_committed_cancels_the_start() {
         stage: s1,
         status: ContentStatus::Available,
         share: Some("share-1".into()),
-    });
+    })
+    .unwrap();
     let host = r.host;
     r.load_and_ready(host, s1);
     r.load_and_ready(ana, s1);

@@ -5,15 +5,8 @@
 
 mod common;
 
-use common::song;
+use common::{Room, song};
 use ddi_room::*;
-
-struct Room {
-    s: RoomState,
-    mirror: RoomState,
-    now: u64,
-    host: ParticipantId,
-}
 
 fn survived(groups: &[&[ParticipantId]]) -> Vec<Vec<Finisher>> {
     groups
@@ -37,20 +30,7 @@ impl Room {
             readiness: ReadinessPolicy::v1(),
             ..RoomPolicy::default()
         };
-        let s = RoomState::new(
-            RoomId::new("room"),
-            Identity::new("twitch:host"),
-            "Host".into(),
-            policy,
-            rules,
-            source,
-        );
-        Self {
-            mirror: s.clone(),
-            s,
-            now: 0,
-            host: ParticipantId(1),
-        }
+        Self::open("host", "Host", policy, rules, source)
     }
 
     fn hosted(stages: u16) -> Self {
@@ -68,101 +48,22 @@ impl Room {
         }
     }
 
-    fn follow(&mut self, events: &[Event]) {
-        if !events.is_empty() {
-            self.mirror.commit(events);
-        }
-        assert_eq!(self.mirror, self.s, "the mirror follows the events");
-    }
-
-    /// `who` issues `cmd` against their current view.
-    fn by(&mut self, who: ParticipantId, cmd: Command) -> Result<Vec<Event>, Rejection> {
-        self.based(who, Some(self.s.revision), cmd)
-    }
-
-    fn based(
-        &mut self,
-        who: ParticipantId,
-        base: Option<Revision>,
-        cmd: Command,
-    ) -> Result<Vec<Event>, Rejection> {
-        let before = self.s.clone();
-        let r = self
-            .s
-            .apply(Actor::Member(who), base, &cmd, Millis(self.now));
-        match &r {
-            Ok(events) => self.follow(&events.clone()),
-            Err(_) => assert_eq!(before, self.s, "a refused command changes nothing"),
-        }
-        r
-    }
-
-    fn sys(&mut self, cmd: Command) -> Result<Vec<Event>, Rejection> {
-        let r = self.s.apply(Actor::Authority, None, &cmd, Millis(self.now));
-        if let Ok(events) = &r {
-            self.follow(&events.clone());
-        }
-        r
-    }
-
     fn join(&mut self, name: &str, intent: Intent) -> ParticipantId {
         self.join_as(name, intent, false).unwrap()
-    }
-
-    fn join_as(
-        &mut self,
-        name: &str,
-        intent: Intent,
-        admin: bool,
-    ) -> Result<ParticipantId, Rejection> {
-        let identity = Identity::new(format!("twitch:{name}"));
-        self.sys(Command::Join {
-            identity: identity.clone(),
-            name: name.into(),
-            admin,
-            intent,
-        })?;
-        Ok(self.s.member_by_identity(&identity).unwrap().id)
-    }
-
-    fn wait(&mut self, ms: u64) -> Vec<Event> {
-        self.now += ms;
-        let events = self.s.advance(Millis(self.now));
-        self.follow(&events);
-        events
     }
 
     fn upcoming(&self) -> StageId {
         self.s.upcoming_stage().expect("a stage gathers readiness")
     }
 
-    fn rev(&self, stage: StageId) -> u32 {
-        self.s.stage(stage).unwrap().readiness_rev
-    }
-
     fn load(&mut self, who: ParticipantId, loading: Loading) {
         let stage = self.upcoming();
-        self.by(
-            who,
-            Command::ReportLoading {
-                stage,
-                readiness_rev: self.rev(stage),
-                loading,
-            },
-        )
-        .unwrap();
+        self.load_for(who, stage, loading).unwrap();
     }
 
     fn set_ready(&mut self, who: ParticipantId, ready: bool) -> Result<Vec<Event>, Rejection> {
         let stage = self.upcoming();
-        self.by(
-            who,
-            Command::SetReady {
-                stage,
-                readiness_rev: self.rev(stage),
-                ready,
-            },
-        )
+        self.ready_for(who, stage, ready)
     }
 
     fn ready(&mut self, who: ParticipantId) {

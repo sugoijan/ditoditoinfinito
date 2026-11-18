@@ -9,15 +9,8 @@
 
 mod common;
 
-use common::song;
+use common::{Room, song};
 use ddi_room::*;
-
-struct Room {
-    s: RoomState,
-    mirror: RoomState,
-    now: u64,
-    host: ParticipantId,
-}
 
 const WINDOW: u64 = 15_000;
 
@@ -30,101 +23,19 @@ impl Room {
         policy.readiness.window_ms = WINDOW;
         let mut rules = MatchRules::hosted();
         rules.stages = 2;
-        let s = RoomState::new(
-            RoomId::new("room"),
-            Identity::new("twitch:host"),
-            "Host".into(),
-            policy,
-            rules,
-            ContentSource::Shared,
-        );
-        Self {
-            mirror: s.clone(),
-            s,
-            now: 0,
-            host: ParticipantId(1),
-        }
-    }
-
-    fn follow(&mut self, events: &[Event]) {
-        if !events.is_empty() {
-            self.mirror.commit(events);
-        }
-        assert_eq!(self.mirror, self.s);
-    }
-
-    fn by(&mut self, who: ParticipantId, cmd: Command) -> Result<Vec<Event>, Rejection> {
-        let r = self
-            .s
-            .apply(Actor::Member(who), Some(self.s.revision), &cmd, Millis(self.now));
-        if let Ok(events) = &r {
-            self.follow(&events.clone());
-        }
-        r
-    }
-
-    fn sys(&mut self, cmd: Command) -> Vec<Event> {
-        let events = self
-            .s
-            .apply(Actor::Authority, None, &cmd, Millis(self.now))
-            .unwrap();
-        self.follow(&events);
-        events
+        Self::open("host", "Host", policy, rules, ContentSource::Shared)
     }
 
     fn join(&mut self, name: &str) -> ParticipantId {
-        let identity = Identity::new(format!("twitch:{name}"));
-        self.sys(Command::Join {
-            identity: identity.clone(),
-            name: name.into(),
-            admin: false,
-            intent: Intent::Play,
-        });
-        self.s.member_by_identity(&identity).unwrap().id
-    }
-
-    fn wait_to(&mut self, ms: u64) {
-        loop {
-            match self.s.next_deadline() {
-                Some(at) if at.0 <= ms && at.0 > self.now => {
-                    self.now = at.0;
-                    let events = self.s.advance(Millis(self.now));
-                    self.follow(&events);
-                }
-                _ => break,
-            }
-        }
-        self.now = ms;
-        let events = self.s.advance(Millis(self.now));
-        self.follow(&events);
-    }
-
-    fn rev(&self, stage: StageId) -> u32 {
-        self.s.stage(stage).unwrap().readiness_rev
+        self.join_as(name, Intent::Play, false).unwrap()
     }
 
     fn load(&mut self, who: ParticipantId, stage: StageId, loading: Loading) -> Result<Vec<Event>, Rejection> {
-        let readiness_rev = self.rev(stage);
-        self.by(
-            who,
-            Command::ReportLoading {
-                stage,
-                readiness_rev,
-                loading,
-            },
-        )
+        self.load_for(who, stage, loading)
     }
 
     fn ready(&mut self, who: ParticipantId, stage: StageId) -> Result<Vec<Event>, Rejection> {
-        let readiness_rev = self.rev(stage);
-        self.by(
-            who,
-            Command::SetReady {
-                stage,
-                readiness_rev,
-                ready: true,
-            },
-        )
+        self.ready_for(who, stage, true)
     }
 
     /// The host picks, everyone's song shared at once; host and bo load
@@ -144,7 +55,8 @@ impl Room {
             stage: s1,
             status: ContentStatus::Available,
             share: Some("share-1".into()),
-        });
+        })
+        .unwrap();
         for p in [host, bo] {
             self.load(p, s1, Loading::Loaded).unwrap();
             self.ready(p, s1).unwrap();
@@ -246,12 +158,14 @@ fn a_late_entry_is_only_for_those_counted_out_and_only_live() {
     r.sys(Command::SetConnection {
         participant: ana,
         connection: Connection::Reconnecting,
-    });
+    })
+    .unwrap();
     assert_eq!(r.ready(ana, s1), Err(Rejection::LateEntryClosed));
     r.sys(Command::SetConnection {
         participant: ana,
         connection: Connection::Connected,
-    });
+    })
+    .unwrap();
     let zero = r.play(s1).song_zero_at.unwrap();
     r.wait_to(zero.0 + 6_000);
     assert_eq!(
