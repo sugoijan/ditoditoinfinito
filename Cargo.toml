@@ -127,6 +127,9 @@ opt-level = 3
 # Skins the hand's mesh on the CPU every frame.
 [profile.release.package.ddi-character]
 opt-level = 3
+# Rates charts (MSD) in the background, in a worker on the web.
+[profile.release.package.ddi-msd]
+opt-level = 3
 
 # Native release builds (`cargo run --profile desktop`): `release` is
 # tuned for the wasm bundle's size; the desktop wants speed, and

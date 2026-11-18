@@ -1185,6 +1185,20 @@ Rust and the browser are implementation details, not advertised features.
   a separate native application consuming our loader and field renderer as Git
   dependencies (`docs/plans/noteskin-authoring.md`). Its own repository contains
   the editor hosts, MCP bridge, local development patches and authoring tests.
+- `crates/msd/` MSD (`ddi-msd`, `docs/plans/msd-ratings.md`): Etterna's
+  chart difficulty calculator, MinaCalc version 527 (etternagame/etterna
+  `2d706147`, MIT, its notice in each translated file), translated file for
+  file for four keys (`crates/msd/README.md`: what was left out and why);
+  `ddi_msd::msd` the listing's eight numbers (rate 1.0, goal 93%), `ssr` a
+  score's; a chart's rows as Etterna feeds them, `ddi_msd::chart::rows`, for
+  one-player four-lane layouts, `four_keys`. Upstream's arithmetic, `libm`
+  for its transcendentals and `fastsqrt` as its ARM build computes it, so
+  native and wasm give the same bits. Its oracle, upstream's calculator
+  built by itself, `tools/msd-oracle/build.sh` (the pinned commit fetched
+  into `target/msd-oracle/`), compared by `crates/msd/tests/oracle.rs`
+  (opt-in: `DDI_MSD_ORACLE`, `DDI_MSD_CORPUS`, `DDI_MSD_WRITE_FIXTURE`);
+  the oracle's numbers in `tests/fixture.json`, checked natively and under
+  WASI. Pure, natively tested.
 - `crates/importer-protocol/` the platform-free framed app/helper IPC contract (serde
   and plain data only; no SDK/networking or filesystem).
 - `crates/share-protocol/` songs shared by link's wire contract

@@ -125,3 +125,69 @@ source = "https://www.blender.org/download/demo-files/"
 commit = "Human Base Meshes v1.4.1; local adaptation 399a1c02"
 license_url = "https://creativecommons.org/publicdomain/zero/1.0/"
 notice = "assets/hand/NOTICE.txt"
+
+[[code]]
+name = "Etterna's MinaCalc (MSD)"
+what = "Etterna's chart difficulty calculator, MinaCalc version 527, translated to Rust for four keys (crates/msd/, its README.md): the optional MSD chart ratings and skill radar."
+files = [
+  "crates/msd/src/agnostic/ha_pattern_mods/cj.rs",
+  "crates/msd/src/agnostic/ha_pattern_mods/cj_density.rs",
+  "crates/msd/src/agnostic/ha_pattern_mods/flam_jam.rs",
+  "crates/msd/src/agnostic/ha_pattern_mods/hand_balance.rs",
+  "crates/msd/src/agnostic/ha_pattern_mods/hs.rs",
+  "crates/msd/src/agnostic/ha_pattern_mods/hs_density.rs",
+  "crates/msd/src/agnostic/ha_pattern_mods/js.rs",
+  "crates/msd/src/agnostic/ha_pattern_mods/old_jump_scaler.rs",
+  "crates/msd/src/agnostic/ha_pattern_mods/stream.rs",
+  "crates/msd/src/agnostic/ha_pattern_mods/the_thing_finder.rs",
+  "crates/msd/src/agnostic/ha_sequencers/flam_sequencing.rs",
+  "crates/msd/src/agnostic/ha_sequencers/thing_sequencing.rs",
+  "crates/msd/src/agnostic/ha_sequencers/trill_sequencing.rs",
+  "crates/msd/src/agnostic/ha_sequencing.rs",
+  "crates/msd/src/agnostic/interval_info.rs",
+  "crates/msd/src/agnostic/meta_interval_info.rs",
+  "crates/msd/src/agnostic/meta_row_info.rs",
+  "crates/msd/src/calc_window.rs",
+  "crates/msd/src/dependent/hd_basic_sequencing.rs",
+  "crates/msd/src/dependent/hd_meta_sequencing.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/balance.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/chaos.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/cjoh_anchor.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/cjohj.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/minijack.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/ohj.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/oht.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/old_anchor_scaler.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/old_ohj_scaler.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/old_roll_scaler.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/roll.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/roll_js.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/running_man.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/voht.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/wide_range_anchor.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/wide_range_balance.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/wide_range_cj_anchor.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/wide_range_jj.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/wide_range_jumptrill.rs",
+  "crates/msd/src/dependent/hd_pattern_mods/wide_range_roll.rs",
+  "crates/msd/src/dependent/hd_sequencers/cjoha_sequencing.rs",
+  "crates/msd/src/dependent/hd_sequencers/generic_sequencing.rs",
+  "crates/msd/src/dependent/hd_sequencers/ohj_sequencing.rs",
+  "crates/msd/src/dependent/hd_sequencers/rm_sequencing.rs",
+  "crates/msd/src/dependent/interval_hand_info.rs",
+  "crates/msd/src/dependent/meta_hand_info.rs",
+  "crates/msd/src/dependent/meta_interval_hand_info.rs",
+  "crates/msd/src/minacalc.rs",
+  "crates/msd/src/minacalc_helpers.rs",
+  "crates/msd/src/note_data.rs",
+  "crates/msd/src/pattern_mod_helpers.rs",
+  "crates/msd/src/sequenced_base_diff_calc.rs",
+  "crates/msd/src/sequencing_helpers.rs",
+  "crates/msd/src/ulbu.rs",
+  "crates/msd/src/ulbu_acolytes.rs",
+]
+spdx = "MIT"
+holders = ["2016-2023 Etterna <etternadev@gmail.com>"]
+source = "https://github.com/etternagame/etterna"
+commit = "2d706147cc4bcf95a8ceb24dc4f4129be207f803"
+license_url = "https://github.com/etternagame/etterna/blob/2d706147cc4bcf95a8ceb24dc4f4129be207f803/LICENSE"

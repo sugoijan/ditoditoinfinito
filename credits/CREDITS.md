@@ -659,6 +659,35 @@ studies' comparisons and previews (the maintainer's assessment, 2026-11-06).
 
 </details>
 
+### Etterna's MinaCalc (MSD)
+
+Etterna's chart difficulty calculator, MinaCalc version 527, translated to Rust for four keys (crates/msd/, its README.md): the optional MSD chart ratings and skill radar. Source: https://github.com/etternagame/etterna at commit `2d706147cc4bcf95a8ceb24dc4f4129be207f803`; licence: [MIT](https://github.com/etternagame/etterna/blob/2d706147cc4bcf95a8ceb24dc4f4129be207f803/LICENSE). Files: `crates/msd/src/agnostic/ha_pattern_mods/cj.rs`, `crates/msd/src/agnostic/ha_pattern_mods/cj_density.rs`, `crates/msd/src/agnostic/ha_pattern_mods/flam_jam.rs`, `crates/msd/src/agnostic/ha_pattern_mods/hand_balance.rs`, `crates/msd/src/agnostic/ha_pattern_mods/hs.rs`, `crates/msd/src/agnostic/ha_pattern_mods/hs_density.rs`, `crates/msd/src/agnostic/ha_pattern_mods/js.rs`, `crates/msd/src/agnostic/ha_pattern_mods/old_jump_scaler.rs`, `crates/msd/src/agnostic/ha_pattern_mods/stream.rs`, `crates/msd/src/agnostic/ha_pattern_mods/the_thing_finder.rs`, `crates/msd/src/agnostic/ha_sequencers/flam_sequencing.rs`, `crates/msd/src/agnostic/ha_sequencers/thing_sequencing.rs`, `crates/msd/src/agnostic/ha_sequencers/trill_sequencing.rs`, `crates/msd/src/agnostic/ha_sequencing.rs`, `crates/msd/src/agnostic/interval_info.rs`, `crates/msd/src/agnostic/meta_interval_info.rs`, `crates/msd/src/agnostic/meta_row_info.rs`, `crates/msd/src/calc_window.rs`, `crates/msd/src/dependent/hd_basic_sequencing.rs`, `crates/msd/src/dependent/hd_meta_sequencing.rs`, `crates/msd/src/dependent/hd_pattern_mods/balance.rs`, `crates/msd/src/dependent/hd_pattern_mods/chaos.rs`, `crates/msd/src/dependent/hd_pattern_mods/cjoh_anchor.rs`, `crates/msd/src/dependent/hd_pattern_mods/cjohj.rs`, `crates/msd/src/dependent/hd_pattern_mods/minijack.rs`, `crates/msd/src/dependent/hd_pattern_mods/ohj.rs`, `crates/msd/src/dependent/hd_pattern_mods/oht.rs`, `crates/msd/src/dependent/hd_pattern_mods/old_anchor_scaler.rs`, `crates/msd/src/dependent/hd_pattern_mods/old_ohj_scaler.rs`, `crates/msd/src/dependent/hd_pattern_mods/old_roll_scaler.rs`, `crates/msd/src/dependent/hd_pattern_mods/roll.rs`, `crates/msd/src/dependent/hd_pattern_mods/roll_js.rs`, `crates/msd/src/dependent/hd_pattern_mods/running_man.rs`, `crates/msd/src/dependent/hd_pattern_mods/voht.rs`, `crates/msd/src/dependent/hd_pattern_mods/wide_range_anchor.rs`, `crates/msd/src/dependent/hd_pattern_mods/wide_range_balance.rs`, `crates/msd/src/dependent/hd_pattern_mods/wide_range_cj_anchor.rs`, `crates/msd/src/dependent/hd_pattern_mods/wide_range_jj.rs`, `crates/msd/src/dependent/hd_pattern_mods/wide_range_jumptrill.rs`, `crates/msd/src/dependent/hd_pattern_mods/wide_range_roll.rs`, `crates/msd/src/dependent/hd_sequencers/cjoha_sequencing.rs`, `crates/msd/src/dependent/hd_sequencers/generic_sequencing.rs`, `crates/msd/src/dependent/hd_sequencers/ohj_sequencing.rs`, `crates/msd/src/dependent/hd_sequencers/rm_sequencing.rs`, `crates/msd/src/dependent/interval_hand_info.rs`, `crates/msd/src/dependent/meta_hand_info.rs`, `crates/msd/src/dependent/meta_interval_hand_info.rs`, `crates/msd/src/minacalc.rs`, `crates/msd/src/minacalc_helpers.rs`, `crates/msd/src/note_data.rs`, `crates/msd/src/pattern_mod_helpers.rs`, `crates/msd/src/sequenced_base_diff_calc.rs`, `crates/msd/src/sequencing_helpers.rs`, `crates/msd/src/ulbu.rs`, `crates/msd/src/ulbu_acolytes.rs`.
+
+<details><summary>Notice</summary>
+
+```text
+MIT License
+
+Copyright (c) 2016-2023 Etterna <etternadev@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+</details>
+
 
 ## Rust libraries
 

@@ -1299,6 +1299,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ddi-msd"
+version = "0.1.0"
+dependencies = [
+ "ddi-chart",
+ "libm",
+ "serde_json",
+]
+
+[[package]]
 name = "ddi-noteskin"
 version = "0.1.0"
 dependencies = [

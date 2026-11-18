@@ -1,0 +1,25 @@
+[package]
+name = "ddi-msd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: MSD, Etterna's chart difficulty calculator (MinaCalc), translated for four keys"
+publish = false
+
+# Pure, no I/O: the calculator alone, and (feature `chart`, on by default)
+# a chart's rows as Etterna feeds them to it. `libm` gives erf, erfc and pow
+# the same last bits natively and in wasm (std has no stable erf); it is
+# already in the game's tree (README.md).
+[features]
+default = ["chart"]
+chart = ["dep:ddi-chart"]
+
+[dependencies]
+libm = "0.2.16"
+ddi-chart = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true

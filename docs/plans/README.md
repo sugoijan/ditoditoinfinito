@@ -302,6 +302,12 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
 
 ## Charts, layouts and play
 
+- [MSD chart ratings and a skill radar](msd-ratings.md) (2026-11-18):
+  stage A built: Etterna's calculator (MinaCalc 527) translated for four
+  keys (`crates/msd/`), checked against upstream's own build
+  (`tools/msd-oracle/`) to the bit on nearly every chart; the options, the
+  background rating and the radar to follow.
+
 - [The DDI ruleset](ddi-ruleset.md) (2026-11-12): rounds 1 (the
   engine), 2 (the screens: Options' rows, the default with the move
   from ITG, the words and score in play, the results, lamps and bests,
