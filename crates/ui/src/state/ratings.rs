@@ -380,6 +380,41 @@ pub fn status() -> Status {
     })
 }
 
+/// Where a chart's rating stands, for what song select says in the
+/// radar's place (round Z1).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Standing {
+    /// Its eight numbers.
+    Rated(Values),
+    /// Waiting to be rated, or being rated (its song is offered, the
+    /// shown one first): it comes by itself.
+    Rating,
+    /// Not four lanes for one player: never rated.
+    NoLayout,
+    /// None, nor any to come (it could not be rated, or nothing rates it).
+    Unrated,
+}
+
+/// Where chart `digest` (of layout `layout`) of song `song` stands, while
+/// either option is On (`Unrated` otherwise).
+pub fn standing(song: &str, digest: Option<ChartDigest>, layout: &str) -> Standing {
+    if !ddi_msd::chart::four_keys(layout) {
+        return Standing::NoLayout;
+    }
+    if let Some(v) = digest.and_then(get) {
+        return Standing::Rated(v);
+    }
+    with(|s| {
+        if s.wanted()
+            && (s.rating.as_deref() == Some(song) || s.pending.iter().any(|j| j.song == song))
+        {
+            Standing::Rating
+        } else {
+            Standing::Unrated
+        }
+    })
+}
+
 /// The MSD shown in the number's place of `song`'s chart `index`: where
 /// Chart ratings shows MSD and the chart has one known.
 pub fn shown_msd(song: &ddi_chart::Song, index: usize) -> Option<f32> {
@@ -621,5 +656,41 @@ mod tests {
         assert_eq!(get(digest(7)), Some([10.0; 8]));
         offer([a]);
         assert_eq!(status().pending, 1);
+    }
+
+    /// Round Z1: what song select says in the radar's place.
+    #[test]
+    fn a_chart_stands_rated_rating_or_unrated() {
+        reset();
+        storage::install(Rc::new(storage::MemoryStore::default()));
+        set_mode(false, true);
+        assert_eq!(standing("x", Some(digest(1)), "dance-double"), Standing::NoLayout);
+        assert_eq!(standing("a", Some(digest(1)), "dance-single"), Standing::Unrated);
+        offer([Job {
+            song: "a".into(),
+            charts: vec![0, 1],
+        }]);
+        assert_eq!(standing("a", Some(digest(1)), "dance-single"), Standing::Rating);
+        let job = next().expect("a");
+        assert_eq!(standing("a", Some(digest(1)), "dance-single"), Standing::Rating);
+        // Chart 0 rated, chart 1 not (the calculator skipped it).
+        done(
+            &job.song,
+            vec![
+                Rated {
+                    index: 0,
+                    digest: digest(1),
+                    values: Some([9.0; 8]),
+                },
+                Rated {
+                    index: 1,
+                    digest: digest(2),
+                    values: None,
+                },
+            ],
+        );
+        assert_eq!(standing("a", Some(digest(1)), "dance-single"), Standing::Rated([9.0; 8]));
+        assert_eq!(standing("a", Some(digest(2)), "dance-single"), Standing::Unrated);
+        assert_eq!(standing("a", None, "dance-single"), Standing::Unrated);
     }
 }
