@@ -462,3 +462,43 @@ fn a_chart_of_another_layout_says_it_has_no_rating() {
     assert!(h.texts().iter().any(|t| t == "300 notes"));
     ratings::set_mode(false, false);
 }
+
+/// Round Z1: on the radar's side every chart of the style has its button
+/// (up to eight, as the ladder's rows), so a press never moves the buttons
+/// under the pointer: each button tapped in turn chooses its own chart.
+#[test]
+fn every_chart_keeps_its_button_on_the_radar_s_side() {
+    let _store = fresh();
+    ratings::set_mode(false, true);
+    let mut data = songs();
+    data.songs[0].charts = [
+        Difficulty::Beginner,
+        Difficulty::Easy,
+        Difficulty::Medium,
+        Difficulty::Hard,
+        Difficulty::Challenge,
+        Difficulty::Edit,
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(k, difficulty)| ChartEntry {
+        style: "dance-single".into(),
+        difficulty,
+        meter: 2 + 2 * k as u32,
+        notes: 300,
+        index: k,
+        digest: Some(ddi_chart::ChartDigest(100 + k as u128)),
+        ..ChartEntry::default()
+    })
+    .collect();
+    let (mut h, e) = select_at(data, [1280.0, 720.0]);
+    for k in 0..6 {
+        h.tap(PointerKind::Mouse, &format!("Chart{k}"));
+        h.run(0.3);
+        let want = format!("{} {}", ["Beginner", "Easy", "Medium", "Hard", "Challenge", "Edit"][k], 2 + 2 * k);
+        assert_eq!(e.state.borrow().chart.as_deref(), Some(want.as_str()), "Chart{k}");
+        assert_eq!(e.state.borrow().screen, "select", "nothing played");
+    }
+    assert!(h.ui.bounds("Chart6").is_none());
+    ratings::set_mode(false, false);
+}

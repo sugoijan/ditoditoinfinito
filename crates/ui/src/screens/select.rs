@@ -2614,9 +2614,10 @@ impl SelectScreen {
 
     /// The chart buttons of a short song's side, and of the skill radar's
     /// (round Z1, the same component and behavior): charts `first` to
-    /// `first + n` of `charts`, `pick` chosen, in a row of five places
-    /// across `[x, w]`, their middles at `y`, `h` tall; each named
-    /// `Chart<k>` (a tap picks it, `activate`).
+    /// `first + n` of `charts`, `pick` chosen, in a row of
+    /// [`SelectScreen::chart_places`] places across `[x, w]`, their middles
+    /// at `y`, `h` tall; each named `Chart<k>` (a tap picks it,
+    /// `activate`).
     #[allow(clippy::too_many_arguments)]
     fn chart_buttons(
         &self,
@@ -2629,7 +2630,8 @@ impl SelectScreen {
         chart_h: f32,
     ) -> Vec<Actor> {
         let env = &self.env;
-        let cell = (w - 4.0 * 5.0) / 5.0;
+        let places = self.chart_places(charts.len()) as f32;
+        let cell = (w - (places - 1.0) * 5.0) / places;
         let mut children = Vec::new();
         for k in 0..n {
             let c = charts[first + k];
@@ -2685,12 +2687,26 @@ impl SelectScreen {
         children
     }
 
+    /// How many places a row of chart buttons has for `len` charts: five
+    /// on a short song's side (a phone's, a room's); on the skill radar's
+    /// side as many as the charts, five at least and [`LADDER_ROWS`] at
+    /// most, as the ladder showed them, so that a press never moves the
+    /// buttons under the pointer (a window scrolling with the chart chosen
+    /// would put the chosen one where the next press lands, and play it).
+    fn chart_places(&self, len: usize) -> usize {
+        if self.layout.radar {
+            len.clamp(5, LADDER_ROWS)
+        } else {
+            5
+        }
+    }
+
     /// The ladder's window for `len` charts with `pick` chosen: its
     /// first, how many, and their height. Rows shrink (to 32 at least) so
     /// that all fit; more than fit scroll with the pick.
     fn ladder_window(&self, len: usize, pick: Option<usize>) -> (usize, usize, f32) {
         if self.layout.chips || self.layout.radar {
-            let (first, n) = window(len, pick, 5);
+            let (first, n) = window(len, pick, self.chart_places(len));
             return (first, n, 44.0);
         }
         let height = self.layout.ladder[1];
@@ -4237,7 +4253,7 @@ impl Screen for SelectScreen {
                 // The skill radar's side: the style tabs and the chart
                 // buttons (the radar is no control).
                 v.extend((0..self.data.styles.len()).map(|i| Focusable::new(format!("Tab{i}"))));
-                v.extend((0..5).map(|k| Focusable::new(format!("Chart{k}"))));
+                v.extend((0..LADDER_ROWS).map(|k| Focusable::new(format!("Chart{k}"))));
             } else {
                 v.extend((0..self.data.styles.len()).map(|i| Focusable::new(format!("Tab{i}"))));
                 v.extend((0..LADDER_ROWS).map(|k| Focusable::new(format!("Ladder.Row{k}"))));

@@ -141,7 +141,7 @@ fn msd_numbers_and_the_skill_radar_draw_in_the_theme() {
             let frac = [b[0] / w, b[1] / h, b[2] / w, b[3] / h];
             assert!(seen(&shot, |p| drawn(p, size, frac)));
             // Each chart chosen by its button: its radar, apart.
-            for k in 0..5 {
+            for k in 0..8 {
                 let name = format!("Chart{k}");
                 let Some(c) = ui.bounds(&name) else { continue };
                 // Virtual pixels to the window's.
