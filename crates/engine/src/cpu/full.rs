@@ -66,6 +66,8 @@ use super::{
 use ddi_chart::{NoteKind, Song};
 use std::collections::BTreeMap;
 
+pub mod teacher_v1;
+
 /// What a CPU plays of a chart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CpuPlay {

@@ -19,7 +19,7 @@ mod opponent;
 mod personality;
 pub use absolute::{ABSOLUTE_V1, ABSOLUTE_V2, Ability, AbsoluteModel, RowDemand, loads};
 pub use automatic::{Automatic, Plan};
-pub use full::{CPU_PLAY, CpuPlay, FullPlan, HOLD_MODEL_V1, HoldModel};
+pub use full::{CPU_PLAY, CpuPlay, FullPlan, HOLD_MODEL_V1, HoldModel, teacher_v1};
 pub use levels::{
     AbilityTable, CPU_LEVELS, CPU_LEVELS_V0, CPU_LEVELS_V1, CPU_LEVELS_V2, LEVELS, Level, LevelScale,
     LevelTable,

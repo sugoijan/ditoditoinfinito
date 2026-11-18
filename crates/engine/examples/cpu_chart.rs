@@ -26,6 +26,19 @@ struct Prepared {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
+        Some("teacher-v1") => {
+            let path = Path::new(args.get(2).ok_or("Expected a simfile path")?);
+            let index = args
+                .get(3)
+                .ok_or("Expected a zero-based chart index")?
+                .parse()?;
+            let samples = args.get(4).map(|s| s.parse()).transpose()?.unwrap_or(128);
+            if args.len() > 5 || std::fs::metadata(path)?.len() > 2 * 1024 * 1024 {
+                return Err("Expected teacher-v1 FILE INDEX [32..128], file limit 2 MiB".into());
+            }
+            let rating = cpu::teacher_v1::rate(&song(path)?, index, samples)?;
+            println!("{}", serde_json::to_string(&rating)?);
+        }
         Some("automatic-benchmark") => {
             let original = song(Path::new(args.get(2).ok_or("source")?))?;
             let index = args.get(3).ok_or("index")?.parse()?;
@@ -180,7 +193,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "cpu_chart extract FILE INDEX | benchmark PROFILE | sample PROFILE STRENGTH SEED | automatic FILE INDEX STRENGTH SEED | automatic-benchmark FILE INDEX"
+                "cpu_chart teacher-v1 FILE INDEX [SAMPLES] | extract FILE INDEX | benchmark PROFILE | sample PROFILE STRENGTH SEED | automatic FILE INDEX STRENGTH SEED | automatic-benchmark FILE INDEX"
                     .into(),
             );
         }
