@@ -7,6 +7,7 @@ pub mod battle_plan;
 pub mod bind;
 pub mod cpu_roster;
 pub mod editor;
+pub mod favorites;
 pub mod history;
 pub mod online;
 pub mod place;

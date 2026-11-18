@@ -64,11 +64,21 @@ thread_local! {
     static CLOCK: Cell<Option<fn() -> f64>> = const { Cell::new(None) };
     /// [`now_ms`] when the clock was installed: the run's start.
     static STARTED: Cell<f64> = const { Cell::new(0.0) };
+    /// How many stores were installed ([`generation`]).
+    static GENERATION: Cell<u64> = const { Cell::new(0) };
 }
 
 /// Makes `store` the one every load and save goes to.
 pub fn install(store: Rc<dyn Store>) {
     STORE.with(|s| *s.borrow_mut() = store);
+    GENERATION.with(|g| g.set(g.get() + 1));
+}
+
+/// Counts the stores [`install`] made current: a value read once and
+/// kept in memory is read again when it changes (another store, as a
+/// test installs one).
+pub fn generation() -> u64 {
+    GENERATION.with(Cell::get)
 }
 
 /// Makes `clock` (milliseconds since the Unix epoch: `Date.now()`) what
@@ -129,7 +139,9 @@ mod tests {
     #[test]
     fn values_round_trip_through_the_installed_store() {
         let mem = Rc::new(MemoryStore::default());
+        let before = generation();
         install(mem.clone());
+        assert_eq!(generation(), before + 1);
         assert_eq!(load::<Vec<u32>>(Area::Local, "k"), None);
         save(Area::Local, "k", &vec![1u32, 2]).unwrap();
         assert_eq!(load::<Vec<u32>>(Area::Local, "k"), Some(vec![1, 2]));
