@@ -6,10 +6,10 @@
 //! room's attacks put into the plays, its decision shown.
 
 use super::*;
-use ddi_room::fake::{FakeServer, FakeSocket, Latency, SharedFake};
+use ddi_room::fake::{FakeServer, FakeSocket, HttpRoom, Latency, SharedFake};
 use ddi_room::live::StreamEnd;
 use ddi_room::{Command, ContentStatus, Identity, Intent, ManualClock, RoomPolicy};
-use ddi_ui::state::online::api::{ApiRequest, ApiResponse, Method};
+use ddi_ui::state::online::api::{ApiRequest, ApiResponse};
 use ddi_ui::state::online::{Http, Online, OnlineConfig, Platform, SharedOnline};
 use ddi_ui::state::room::{Picked, SharedRoom, prepare_stage};
 
@@ -28,47 +28,28 @@ struct RoomHttp {
     out: Vec<(u64, ApiResponse)>,
 }
 
-fn ok(body: String) -> ApiResponse {
-    ApiResponse {
-        status: 200,
-        body,
-        session: None,
-    }
-}
-
 impl Http for RoomHttp {
     fn start(&mut self, id: u64, req: ApiRequest) {
-        let identity = Identity::new(format!("dev:{}", self.who));
-        let answer = match (req.method, req.path.as_str()) {
-            (Method::Get, "/me") => ok(format!(
-                r#"{{"player_id":"dev:{0}","login":"{0}","display_name":"{0}","admin":false,"expires_at_ms":1}}"#,
-                self.who
-            )),
-            (Method::Get, "/rooms/Room000001") => ok(
-                r#"{"room_id":"Room000001","name":"Live","revision":1,"phase":"lobby","admission":"open","participant":1}"#
-                    .into(),
-            ),
-            (Method::Post, "/rooms/Room000001/ticket") => {
-                match self.server.borrow_mut().ticket_answer(&identity) {
-                    Ok(body) => ok(body),
-                    Err(_) => ApiResponse {
-                        status: 403,
-                        body: r#"{"error":"not_a_member"}"#.into(),
-                        session: None,
-                    },
-                }
-            }
-            (Method::Post, "/rooms/Room000001/grant") => ok(format!(
-                r#"{{"grant":"grant-{}","expires_at_ms":9,"max_bytes":100.0}}"#,
-                self.who
-            )),
-            _ => ApiResponse {
-                status: 403,
-                body: r#"{"error":"not_an_operator"}"#.into(),
+        // As the server answers it (`FakeServer::answer_http`): a live
+        // room's, its grants anyone's.
+        let room = HttpRoom {
+            name: "Live",
+            grants_anyone: true,
+        };
+        let asked = (req.method.as_str(), req.path.as_str(), req.body.as_deref());
+        let (status, body) = self
+            .server
+            .borrow_mut()
+            .answer_http(Some(self.who), room, asked, None)
+            .unwrap_or_else(|| (403, r#"{"error":"not_an_operator"}"#.into()));
+        self.out.push((
+            id,
+            ApiResponse {
+                status,
+                body,
                 session: None,
             },
-        };
-        self.out.push((id, answer));
+        ));
     }
 
     fn poll(&mut self) -> Vec<(u64, ApiResponse)> {
@@ -1613,29 +1594,26 @@ struct AudienceHttp {
 
 impl Http for AudienceHttp {
     fn start(&mut self, id: u64, req: ApiRequest) {
-        let answer = match (req.method, req.path.as_str()) {
-            (Method::Get, "/me") => ok(format!(
-                r#"{{"player_id":"dev:{0}","login":"{0}","display_name":"{0}","admin":false,"expires_at_ms":1}}"#,
-                self.who
-            )),
-            // As the server answers it (`FakeServer::audience_join_answer`).
-            (Method::Post, "/rooms/Room000001/audience") => {
-                let body: serde_json::Value =
-                    serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap();
-                let (status, body) = self.server.borrow_mut().audience_join_answer(
-                    Some(&format!("dev:{}", self.who)),
-                    body["invite"].as_str().unwrap_or_default(),
-                    self.latency,
-                );
-                ApiResponse {
-                    status,
-                    body,
-                    session: None,
-                }
-            }
-            _ => panic!("unexpected {req:?}"),
+        // As the server answers it (`FakeServer::answer_http`).
+        let room = HttpRoom {
+            name: "Live",
+            grants_anyone: true,
         };
-        self.out.push((id, answer));
+        let asked = (req.method.as_str(), req.path.as_str(), req.body.as_deref());
+        let (status, body) = self
+            .server
+            .borrow_mut()
+            .answer_http(Some(self.who), room, asked, self.latency)
+            .filter(|_| req.path == "/me" || req.path.ends_with("/audience"))
+            .unwrap_or_else(|| panic!("unexpected {req:?}"));
+        self.out.push((
+            id,
+            ApiResponse {
+                status,
+                body,
+                session: None,
+            },
+        ));
     }
 
     fn poll(&mut self) -> Vec<(u64, ApiResponse)> {

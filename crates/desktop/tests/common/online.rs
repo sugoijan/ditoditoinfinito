@@ -9,12 +9,12 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 
-use ddi_room::fake::{FakeSocket, SharedFake};
-use ddi_room::{ClientId, Clock, Command, Identity, ManualClock, Role};
+use ddi_room::fake::{FakeSocket, HttpRoom, SharedFake};
+use ddi_room::{ClientId, Clock, Command, ManualClock};
 use ddi_ui::screens::data::{SelectData, SongEntry};
 use ddi_ui::screens::room::{RoomCall, RoomShell};
 use ddi_ui::screens::{Env, sample};
-use ddi_ui::state::online::api::{ApiRequest, ApiResponse, Method};
+use ddi_ui::state::online::api::{ApiRequest, ApiResponse};
 use ddi_ui::state::online::{Http, Online, OnlineConfig, Platform, SharedOnline};
 use ddi_ui::state::room::{Picked, RoomClient, SPOTLIGHT, SharedRoom, UploadJob};
 use ddi_ui::{Ui, UiEvent};
@@ -48,14 +48,6 @@ impl RoomHttp {
             ..RoomHttp::new(server, who)
         }
     }
-
-    fn operator(&self, identity: &Identity) -> bool {
-        self.server
-            .borrow()
-            .state()
-            .member_by_identity(identity)
-            .is_some_and(|m| m.admin || matches!(m.role, Role::Owner | Role::CoHost))
-    }
 }
 
 pub fn ok(body: String) -> ApiResponse {
@@ -66,55 +58,37 @@ pub fn ok(body: String) -> ApiResponse {
     }
 }
 
-fn no(status: u16, code: &str) -> ApiResponse {
-    ApiResponse {
-        status,
-        body: format!(r#"{{"error":"{code}"}}"#),
-        session: None,
-    }
-}
-
 impl Http for RoomHttp {
     fn start(&mut self, id: u64, request: ApiRequest) {
-        let who = self.who;
-        let identity = Identity::new(format!("dev:{who}"));
-        let room = format!("/rooms/{ROOM}");
-        let name = if self.live { "Live" } else { "After Hours" };
-        let answer = match (request.method, request.path.as_str()) {
-            (Method::Get, "/me") => ok(format!(
-                r#"{{"player_id":"dev:{who}","login":"{who}","display_name":"{who}","admin":false,"expires_at_ms":1}}"#
-            )),
-            (Method::Get, p) if p == room => ok(format!(
-                r#"{{"room_id":"{ROOM}","name":"{name}","revision":1,"phase":"lobby","admission":"open","participant":1}}"#
-            )),
-            (Method::Post, p) if p == format!("{room}/ticket") => {
-                match self.server.borrow_mut().ticket_answer(&identity) {
-                    Ok(body) => ok(body),
-                    Err(_) => no(403, "not_a_member"),
-                }
-            }
-            // The room's invite, read and replaced by its operators.
-            (_, p) if !self.live && p == format!("{room}/invite") => {
-                if self.operator(&identity) {
-                    ok(format!(
-                        r#"{{"invite":"{ROOM}.invite","watch_invite":"{ROOM}.watch","expires_at_ms":9,"admission":"open"}}"#
-                    ))
-                } else {
-                    no(403, "not_an_operator")
-                }
-            }
-            (Method::Post, p) if p == format!("{room}/grant") => {
-                if self.live || self.operator(&identity) {
-                    ok(format!(
-                        r#"{{"grant":"grant-{who}","expires_at_ms":9,"max_bytes":100.0}}"#
-                    ))
-                } else {
-                    no(403, "not_an_operator")
-                }
-            }
-            _ => no(403, "not_an_operator"),
+        // As the server answers it (`FakeServer::answer_http`); a live
+        // room's reads no invite.
+        let room = HttpRoom {
+            name: if self.live { "Live" } else { "After Hours" },
+            grants_anyone: self.live,
         };
-        self.out.push_back((id, answer));
+        let invite = request.path == format!("/rooms/{ROOM}/invite");
+        let asked = (
+            request.method.as_str(),
+            request.path.as_str(),
+            request.body.as_deref(),
+        );
+        let answered = match self.live && invite {
+            true => None,
+            false => self
+                .server
+                .borrow_mut()
+                .answer_http(Some(self.who), room, asked, None),
+        };
+        let (status, body) =
+            answered.unwrap_or_else(|| (403, r#"{"error":"not_an_operator"}"#.into()));
+        self.out.push_back((
+            id,
+            ApiResponse {
+                status,
+                body,
+                session: None,
+            },
+        ));
     }
 
     fn poll(&mut self) -> Vec<(u64, ApiResponse)> {

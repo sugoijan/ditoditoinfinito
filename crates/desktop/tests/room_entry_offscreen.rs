@@ -17,7 +17,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 
-use ddi_room::fake::{FakeServer, FakeSocket, Fault, SharedFake};
+use ddi_room::fake::{FakeServer, FakeSocket, Fault, HttpRoom, SharedFake};
 use ddi_room::{ClientId, Clock, Identity, ManualClock, ParticipantId, RoomPolicy};
 use ddi_ui::screens::online::OnlineCall;
 use ddi_ui::screens::online_home::Home;
@@ -45,34 +45,29 @@ impl Http for LaggyHttp {
             body,
             session: None,
         };
-        let room = format!("/rooms/{ROOM}");
+        // As the server answers it (`FakeServer::answer_http`), but the
+        // room's making.
+        let room = HttpRoom {
+            name: "After Hours",
+            grants_anyone: false,
+        };
+        let asked = (request.method.as_str(), request.path.as_str(), request.body.as_deref());
         let answer = match (request.method, request.path.as_str()) {
-            (Method::Get, "/me") => ok(
-                r#"{"player_id":"dev:alice","login":"alice","display_name":"alice","admin":false,"expires_at_ms":1}"#
-                    .into(),
-            ),
             (Method::Post, "/rooms") => ok(format!(
                 r#"{{"room_id":"{ROOM}","invite":"{ROOM}.invite"}}"#
             )),
-            (Method::Get, p) if p == room => ok(format!(
-                r#"{{"room_id":"{ROOM}","name":"After Hours","revision":1,"phase":"lobby","admission":"open","participant":1}}"#
-            )),
-            (Method::Post, p) if p == format!("{room}/ticket") => {
-                let body = self
+            _ => {
+                let (status, body) = self
                     .server
                     .borrow_mut()
-                    .ticket_answer(&Identity::new("dev:alice"))
-                    .expect("a ticket");
-                ok(body)
+                    .answer_http(Some("alice"), room, asked, None)
+                    .unwrap_or_else(|| (403, r#"{"error":"not_an_operator"}"#.into()));
+                ApiResponse {
+                    status,
+                    body,
+                    session: None,
+                }
             }
-            (_, p) if p == format!("{room}/invite") => ok(format!(
-                r#"{{"invite":"{ROOM}.invite","watch_invite":"{ROOM}.watch","expires_at_ms":9,"admission":"open"}}"#
-            )),
-            _ => ApiResponse {
-                status: 403,
-                body: r#"{"error":"not_an_operator"}"#.into(),
-                session: None,
-            },
         };
         let at = self.clock.now().0 + self.lag;
         self.out.push_back((at, id, answer));

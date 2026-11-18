@@ -196,6 +196,98 @@ impl FakeServer {
     }
 }
 
+/// What the fake's HTTP says of its room beyond the room itself
+/// ([`FakeServer::answer_http`]): its name, and who may have a stage's
+/// upload grant (a live room's anyone, as the session's tests have it;
+/// else its operators, as the server).
+#[derive(Clone, Copy, Debug)]
+pub struct HttpRoom<'a> {
+    pub name: &'a str,
+    pub grants_anyone: bool,
+}
+
+impl FakeServer {
+    /// A request of a room's client (`Online`'s) as the server answers it,
+    /// for `who` signed in through the development provider (`dev:<who>`;
+    /// none: no session), the audience's seat `latency` away: `/me`, the
+    /// room's summary, a socket's ticket, the room's invite (its
+    /// operators'), a stage's grant, an invite's preview and the
+    /// audience's join; none for another route (the caller's own answer).
+    pub fn answer_http(
+        &mut self,
+        who: Option<&str>,
+        room: HttpRoom<'_>,
+        (method, path, body): (&str, &str, Option<&str>),
+        latency: Option<Latency>,
+    ) -> Option<(u16, String)> {
+        let error = |status: u16, code: &str| (status, format!(r#"{{"error":"{code}"}}"#));
+        let id = self.state().room.as_str().to_string();
+        let rooms = format!("/rooms/{id}");
+        if method == "GET"
+            && let Some(link) = path.strip_prefix("/invites/")
+        {
+            return Some(match self.invite_preview(link) {
+                Ok(b) => (200, b),
+                Err((status, code)) => error(status, code),
+            });
+        }
+        if method == "POST" && path == format!("{rooms}/audience") {
+            let body: serde_json::Value =
+                serde_json::from_str(body.unwrap_or("{}")).unwrap_or_default();
+            let player = who.map(|w| format!("dev:{w}"));
+            return Some(self.audience_join_answer(
+                player.as_deref(),
+                body["invite"].as_str().unwrap_or_default(),
+                latency,
+            ));
+        }
+        let Some(who) = who else {
+            return (method == "GET" && path == "/me").then(|| error(401, "signed_out"));
+        };
+        let identity = crate::Identity::new(format!("dev:{who}"));
+        let operator = self
+            .state()
+            .member_by_identity(&identity)
+            .is_some_and(|m| m.admin || matches!(m.role, Role::Owner | Role::CoHost));
+        Some(match (method, path) {
+            ("GET", "/me") => (
+                200,
+                format!(
+                    r#"{{"player_id":"dev:{who}","login":"{who}","display_name":"{who}","admin":false,"expires_at_ms":1}}"#
+                ),
+            ),
+            ("GET", p) if p == rooms => (
+                200,
+                format!(
+                    r#"{{"room_id":"{id}","name":"{}","revision":1,"phase":"lobby","admission":"open","participant":1}}"#,
+                    room.name
+                ),
+            ),
+            ("POST", p) if p == format!("{rooms}/ticket") => match self.ticket_answer(&identity) {
+                Ok(body) => (200, body),
+                Err(_) => error(403, "not_a_member"),
+            },
+            (_, p) if p == format!("{rooms}/invite") => match operator {
+                true => (
+                    200,
+                    format!(
+                        r#"{{"invite":"{id}.invite","watch_invite":"{id}.watch","expires_at_ms":9,"admission":"open"}}"#
+                    ),
+                ),
+                false => error(403, "not_an_operator"),
+            },
+            ("POST", p) if p == format!("{rooms}/grant") => match room.grants_anyone || operator {
+                true => (
+                    200,
+                    format!(r#"{{"grant":"grant-{who}","expires_at_ms":9,"max_bytes":100.0}}"#),
+                ),
+                false => error(403, "not_an_operator"),
+            },
+            _ => return None,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,6 +308,78 @@ mod tests {
 
     fn json(s: &str) -> serde_json::Value {
         serde_json::from_str(s).unwrap()
+    }
+
+    #[test]
+    fn a_rooms_clients_requests_are_answered_as_the_server_answers_them() {
+        let mut f = fake(RoomPolicy::default().with_live().with_audience());
+        let room = HttpRoom {
+            name: "After Hours",
+            grants_anyone: false,
+        };
+        let mut ask =
+            |who, method, path: &str, body| f.answer_http(who, room, (method, path, body), None);
+        assert_eq!(
+            ask(None, "GET", "/me", None),
+            Some((401, r#"{"error":"signed_out"}"#.into()))
+        );
+        let (status, me) = ask(Some("bob"), "GET", "/me", None).unwrap();
+        assert_eq!(
+            (status, json(&me)["player_id"].clone()),
+            (200, "dev:bob".into())
+        );
+        let (_, summary) = ask(Some("bob"), "GET", "/rooms/Room000001", None).unwrap();
+        assert_eq!(json(&summary)["name"], "After Hours");
+        let (status, ticket) = ask(Some("bob"), "POST", "/rooms/Room000001/ticket", None).unwrap();
+        assert!(
+            status == 200 && json(&ticket)["ticket"].is_string(),
+            "{ticket}"
+        );
+        assert_eq!(
+            ask(Some("eve"), "POST", "/rooms/Room000001/ticket", None),
+            Some((403, r#"{"error":"not_a_member"}"#.into()))
+        );
+        // The invite and a grant: the owner's, not another member's.
+        for path in ["/rooms/Room000001/invite", "/rooms/Room000001/grant"] {
+            assert_eq!(
+                ask(Some("alice"), "POST", path, None).unwrap().0,
+                200,
+                "{path}"
+            );
+            assert_eq!(
+                ask(Some("bob"), "POST", path, None).unwrap().0,
+                403,
+                "{path}"
+            );
+        }
+        assert_eq!(ask(Some("bob"), "POST", "/rooms", None), None);
+        let anyone = HttpRoom {
+            grants_anyone: true,
+            ..room
+        };
+        let grant = f.answer_http(
+            Some("bob"),
+            anyone,
+            ("POST", "/rooms/Room000001/grant", None),
+            None,
+        );
+        assert_eq!(grant.unwrap().0, 200);
+        // An invite's preview and the audience's join, signed in or not.
+        let link = f.links().audience.clone();
+        let (status, _) = f
+            .answer_http(None, room, ("GET", &format!("/invites/{link}"), None), None)
+            .unwrap();
+        assert_eq!(status, 200);
+        let body = format!(r#"{{"invite":"{link}"}}"#);
+        let (status, seat) = f
+            .answer_http(
+                None,
+                room,
+                ("POST", "/rooms/Room000001/audience", Some(&body)),
+                None,
+            )
+            .unwrap();
+        assert!(status == 200 && json(&seat)["ticket"].is_string(), "{seat}");
     }
 
     #[test]

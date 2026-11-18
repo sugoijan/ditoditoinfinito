@@ -23,7 +23,7 @@ use std::sync::atomic::Ordering;
 use ddi_chart::{NoteKind, Song};
 use ddi_desktop::play::host::Host;
 use ddi_platform::HostTime;
-use ddi_room::fake::{FakeServer, FakeSocket, Latency, SharedFake};
+use ddi_room::fake::{FakeServer, FakeSocket, HttpRoom, Latency, SharedFake};
 use ddi_room::live::{Moment, MomentKind};
 use ddi_room::{Command, ContentStatus, Identity, Intent, ManualClock, RoomPolicy};
 use ddi_ui::event::UiEvent;
@@ -31,8 +31,7 @@ use ddi_room::fake::FakeAudienceSocket;
 use ddi_ui::state::audience::AudienceClient;
 
 use ddi_ui::screens::data::{Difficulty, SongEntry};
-use common::online::ok;
-use ddi_ui::state::online::api::{ApiRequest, ApiResponse, Method};
+use ddi_ui::state::online::api::{ApiRequest, ApiResponse};
 use ddi_ui::state::online::{Http, Online, OnlineConfig, Platform, SharedOnline};
 use ddi_ui::state::room::{Picked, RoomClient, SharedRoom, prepare_stage};
 
@@ -76,42 +75,32 @@ struct AudienceHttp {
 
 impl Http for AudienceHttp {
     fn start(&mut self, id: u64, req: ApiRequest) {
-        let answer = match (req.method, req.path.as_str()) {
-            (Method::Get, "/me") => ApiResponse {
-                status: 401,
-                body: r#"{"error":"signed_out"}"#.into(),
-                session: None,
-            },
-            (Method::Get, p) if p.starts_with("/invites/") => {
-                match self.server.borrow().invite_preview(&p["/invites/".len()..]) {
-                    Ok(b) => ok(b),
-                    Err((status, code)) => ApiResponse {
-                        status,
-                        body: format!(r#"{{"error":"{code}"}}"#),
-                        session: None,
-                    },
-                }
-            }
-            // As the server answers it (`FakeServer::audience_join_answer`).
-            (Method::Post, "/rooms/Room000001/audience") => {
-                let latency = Latency {
-                    down_ms: 60,
-                    down_jitter_ms: 40,
-                    up_ms: 60,
-                    up_jitter_ms: 40,
-                    seed: 7,
-                };
-                let body: serde_json::Value =
-                    serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap();
-                let (status, body) = self.server.borrow_mut().audience_join_answer(
-                    None,
-                    body["invite"].as_str().unwrap_or_default(),
-                    Some(latency),
-                );
-                assert_eq!(status, 200, "{body}");
-                ok(body)
-            }
-            _ => panic!("unexpected {req:?}"),
+        // As the server answers it (`FakeServer::answer_http`), the seat's
+        // socket a little away.
+        let latency = Latency {
+            down_ms: 60,
+            down_jitter_ms: 40,
+            up_ms: 60,
+            up_jitter_ms: 40,
+            seed: 7,
+        };
+        let room = HttpRoom {
+            name: "After Hours",
+            grants_anyone: false,
+        };
+        let asked = (req.method.as_str(), req.path.as_str(), req.body.as_deref());
+        let (status, body) = self
+            .server
+            .borrow_mut()
+            .answer_http(None, room, asked, Some(latency))
+            .unwrap_or_else(|| panic!("unexpected {req:?}"));
+        if req.path.ends_with("/audience") {
+            assert_eq!(status, 200, "{body}");
+        }
+        let answer = ApiResponse {
+            status,
+            body,
+            session: None,
         };
         self.out.push((id, answer));
     }

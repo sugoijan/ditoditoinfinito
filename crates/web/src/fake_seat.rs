@@ -23,14 +23,14 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use ddi_room::fake::{FakeAudienceSocket, FakeServer, FakeSocket, SharedFake};
+use ddi_room::fake::{FakeAudienceSocket, FakeServer, FakeSocket, HttpRoom, SharedFake};
 use ddi_room::live::{Moment, MomentKind, StreamEnd};
 use ddi_room::{
     ClientId, Clock, Command, ContentStatus, Identity, Intent, ManualClock, RoomPolicy, StageId,
 };
 use ddi_ui::screens::data::{ChartEntry, Difficulty, SongEntry};
 use ddi_ui::state::audience::AudienceClient;
-use ddi_ui::state::online::api::{ApiRequest, ApiResponse, Method};
+use ddi_ui::state::online::api::{ApiRequest, ApiResponse};
 use ddi_ui::state::online::{Http, Online, OnlineConfig, Platform, SharedOnline};
 use ddi_ui::state::room::{LoadJob, Picked, RoomClient, SharedRoom, prepare_stage};
 
@@ -164,75 +164,25 @@ fn answer(status: u16, body: String) -> ApiResponse {
 
 impl Http for FakeHttp {
     fn start(&mut self, id: u64, req: ApiRequest) {
-        let Some(who) = self.who else {
-            // The viewer: no session.
-            let a = match (req.method, req.path.as_str()) {
-                (Method::Get, p) if p.starts_with("/invites/") => {
-                    match self.server.borrow().invite_preview(&p["/invites/".len()..]) {
-                        Ok(b) => answer(200, b),
-                        Err((s, code)) => answer(s, format!(r#"{{"error":"{code}"}}"#)),
-                    }
-                }
-                (Method::Post, p) if p == format!("/rooms/{ROOM}/audience") => {
-                    let body: serde_json::Value =
-                        serde_json::from_str(req.body.as_deref().unwrap_or("{}"))
-                            .unwrap_or_default();
-                    let (s, b) = self.server.borrow_mut().audience_join_answer(
-                        None,
-                        body["invite"].as_str().unwrap_or_default(),
-                        None,
-                    );
-                    answer(s, b)
-                }
-                _ => answer(401, r#"{"error":"signed_out"}"#.into()),
-            };
-            self.out.push((id, a));
-            return;
+        // As the server answers it (`FakeServer::answer_http`), but the
+        // room's invite: the viewer's none, a member's not found.
+        let room = HttpRoom {
+            name: "Fake",
+            grants_anyone: true,
         };
-        let identity = Identity::new(format!("dev:{who}"));
-        let path = format!("/rooms/{ROOM}");
-        let a = match (req.method, req.path.as_str()) {
-            (Method::Get, "/me") => answer(
-                200,
-                format!(
-                    r#"{{"player_id":"dev:{who}","login":"{who}","display_name":"{who}","admin":false,"expires_at_ms":1}}"#
-                ),
-            ),
-            (Method::Get, p) if p.starts_with("/invites/") => {
-                match self.server.borrow().invite_preview(&p["/invites/".len()..]) {
-                    Ok(b) => answer(200, b),
-                    Err((s, code)) => answer(s, format!(r#"{{"error":"{code}"}}"#)),
-                }
-            }
-            (Method::Post, p) if p == format!("{path}/audience") => {
-                let body: serde_json::Value =
-                    serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap_or_default();
-                let (s, b) = self.server.borrow_mut().audience_join_answer(
-                    Some(&format!("dev:{who}")),
-                    body["invite"].as_str().unwrap_or_default(),
-                    None,
-                );
-                answer(s, b)
-            }
-            (Method::Get, p) if p == path => answer(
-                200,
-                format!(
-                    r#"{{"room_id":"{ROOM}","name":"Fake","revision":1,"phase":"lobby","admission":"open","participant":1}}"#
-                ),
-            ),
-            (Method::Post, p) if p == format!("{path}/ticket") => {
-                match self.server.borrow_mut().ticket_answer(&identity) {
-                    Ok(body) => answer(200, body),
-                    Err(_) => answer(403, r#"{"error":"not_a_member"}"#.into()),
-                }
-            }
-            (Method::Post, p) if p == format!("{path}/grant") => answer(
-                200,
-                format!(r#"{{"grant":"grant-{who}","expires_at_ms":9,"max_bytes":100.0}}"#),
-            ),
-            _ => answer(404, r#"{"error":"not_found"}"#.into()),
+        let asked = (req.method.as_str(), req.path.as_str(), req.body.as_deref());
+        let answered = match req.path == format!("/rooms/{ROOM}/invite") {
+            true => None,
+            false => self
+                .server
+                .borrow_mut()
+                .answer_http(self.who, room, asked, None),
         };
-        self.out.push((id, a));
+        let (s, b) = answered.unwrap_or_else(|| match self.who {
+            None => (401, r#"{"error":"signed_out"}"#.into()),
+            Some(_) => (404, r#"{"error":"not_found"}"#.into()),
+        });
+        self.out.push((id, answer(s, b)));
     }
 
     fn poll(&mut self) -> Vec<(u64, ApiResponse)> {

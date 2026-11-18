@@ -1463,7 +1463,9 @@ Rust and the browser are implementation details, not advertised features.
   `rewrite`, the room put as another authority would have it, and
   its three links answered as the server's bodies (`fake/invites.rs`:
   `invite_preview`, `kind: play|watch|audience`, `audience_count`, the
-  audience offered at the member bound; `audience_join_answer`). Tests:
+  audience offered at the member bound; `audience_join_answer`; a room's
+  clients' requests as the server answers them, `answer_http`, which the
+  fake rooms' HTTP of the web and the tests use). Tests:
   `crates/room/tests/walkthroughs.rs`, the handoff's walkthroughs;
   `tests/authority.rs`, the envelope and the authority; `tests/online.rs`,
   the adapter contract (one script through `LocalAuthority` and through
