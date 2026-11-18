@@ -311,7 +311,8 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   desktop), never during a play, cached by chart digest. Round Z1: the
   radar in the chart ladder's place under a row of chart buttons, its
   numbers always shown, a line where a chart has none; the web's rating
-  started on every route.
+  started on every route. Round Z2: the DDI estimate (`crates/rating`) as
+  a third choice, a try, its matched-level skill profile on the radar.
 
 - [The DDI ruleset](ddi-ruleset.md) (2026-11-12): rounds 1 (the
   engine), 2 (the screens: Options' rows, the default with the move
