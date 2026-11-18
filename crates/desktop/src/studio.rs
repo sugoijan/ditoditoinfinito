@@ -410,10 +410,12 @@ struct PackEntry {
 }
 
 /// What a pack made says: the zip's file name and how many sounds, or
-/// the announcer's name.
+/// the announcer's name; or, made but not read back by the game's reader
+/// as made (`Draft::check`), why: nothing written.
 enum Packed {
     Zip(String),
     Game(String),
+    Unread(String),
 }
 
 /// A pack's entry's bytes.
@@ -485,6 +487,7 @@ fn into_game(shelf: &Path, files: Vec<(String, Vec<u8>)>, readme: &str) -> Resul
 /// A pack made on a thread.
 fn make_pack(
     dir: PathBuf,
+    draft: Draft,
     export: Export,
     entries: Vec<PackEntry>,
     to: Packing,
@@ -492,6 +495,14 @@ fn make_pack(
     let mut files = Vec::with_capacity(entries.len() + 3);
     for e in entries {
         files.push(entry_bytes(&dir, e)?);
+    }
+    // Read back as the game reads it before it is written anywhere.
+    let sizes: Vec<(String, u64)> = files
+        .iter()
+        .map(|(p, b)| (p.clone(), b.len() as u64))
+        .collect();
+    if let Err(u) = draft.check(&export, &sizes) {
+        return Ok(Packed::Unread(u.0));
     }
     for (path, text) in &export.texts {
         files.push((path.clone(), text.clone().into_bytes()));
@@ -694,6 +705,15 @@ impl Studio {
     /// The draft as it is.
     pub fn draft(&self) -> Draft {
         self.state.draft.borrow().clone()
+    }
+
+    /// TESTING ONLY: the draft changed as the page's dialogs change it
+    /// (they are the shared page's, `ddi_ui::screens::studio_shell`, and
+    /// tested there), then kept and shown.
+    pub fn edit(&self, f: impl FnOnce(&mut Draft)) {
+        f(&mut self.state.draft.borrow_mut());
+        self.save();
+        self.dirty.set(true);
     }
 
     /// What the page says it is doing, or did.
@@ -957,11 +977,12 @@ impl Studio {
 
     /// The pack made and put where it goes, on a thread.
     fn pack(&self, to: Packing) {
-        let export = self.state.draft.borrow().export();
+        let draft = self.state.draft.borrow().clone();
+        let export = draft.export();
         let entries = self.pack_entries(&export);
         let dir = self.store.dir.clone();
         let rx = crate::os::background("ddi-studio-pack", None, move || {
-            make_pack(dir, export, entries, to)
+            make_pack(dir, draft, export, entries, to)
         });
         *self.packing.borrow_mut() = Some(rx);
         self.state.view.borrow_mut().busy = true;
@@ -1261,6 +1282,10 @@ impl Studio {
                 if let Some(used) = &self.used {
                     used();
                 }
+            }
+            Ok(Packed::Unread(why)) => {
+                eprintln!("announcer studio: the game's reader took the pack otherwise: {why}");
+                self.set_status(ms::status_unread(error_text(&why)));
             }
             Err(e) => {
                 let e = error_text(&e);

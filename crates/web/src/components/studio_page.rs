@@ -134,9 +134,10 @@ pub(crate) struct StudioPage {
 /// A take's processed copy: its channels and its rate.
 type Shaped = (Rc<Vec<Vec<f32>>>, u32);
 
-/// A pack made: what the draft exports, and its sounds made by their
-/// paths in the zip.
+/// A pack made: the draft it was made from, what it exports, and its
+/// sounds made by their paths in the zip.
 struct PackFiles {
+    draft: Draft,
     export: draft::Export,
     sounds: Vec<(String, Blob)>,
 }
@@ -148,6 +149,33 @@ impl PackFiles {
             .iter()
             .map(|(p, b)| (p.clone(), b.size() as u64))
             .collect()
+    }
+
+    /// The pack read back through the game's reader and compared with
+    /// its draft ([`Draft::check`]): as an installed announcer.
+    fn check(&self) -> Result<draft::InstallPlan, Failure> {
+        self.draft
+            .check(&self.export, &self.sizes())
+            .map_err(|u| Failure::Unread(u.0))
+    }
+}
+
+/// Why a pack was not made: the game's reader took it otherwise than the
+/// studio made it (a mistake of the studio's), or anything else.
+enum Failure {
+    Unread(String),
+    Other(String),
+}
+
+impl From<String> for Failure {
+    fn from(e: String) -> Failure {
+        Failure::Other(e)
+    }
+}
+
+impl From<&str> for Failure {
+    fn from(e: &str) -> Failure {
+        Failure::Other(e.to_string())
     }
 }
 
@@ -981,7 +1009,8 @@ impl Studio {
 
     /// The pack's sounds made: each export entry's, and where it goes.
     async fn files(&self) -> Result<PackFiles, String> {
-        let export = self.state.draft.borrow().export();
+        let draft = self.state.draft.borrow().clone();
+        let export = draft.export();
         let mut out = Vec::new();
         for e in &export.entries {
             let blob = match e.write {
@@ -1006,6 +1035,7 @@ impl Studio {
             out.push((e.path.clone(), blob));
         }
         Ok(PackFiles {
+            draft,
             export,
             sounds: out,
         })
@@ -1020,6 +1050,8 @@ impl Studio {
         wasm_bindgen_futures::spawn_local(async move {
             let made = async {
                 let pack = this.files().await?;
+                // Read back as the game reads it before it is offered.
+                pack.check()?;
                 let mut entries = Vec::with_capacity(pack.sounds.len() + 3);
                 for (path, blob) in &pack.sounds {
                     entries.push((path.clone(), files::blob_bytes(blob).await?));
@@ -1031,7 +1063,7 @@ impl Studio {
                 let zip =
                     ddi_library::zip::write_stored(&entries).ok_or("the pack is too large")?;
                 let blob = files::bytes_blob(&zip, "application/zip")?;
-                Ok::<_, String>((pack.export.file_name, blob, pack.sounds.len()))
+                Ok::<_, Failure>((pack.export.file_name, blob, pack.sounds.len()))
             }
             .await;
             this.state.view.borrow_mut().busy = false;
@@ -1046,7 +1078,8 @@ impl Studio {
                     this.state.view.borrow_mut().ready = Some(name.clone());
                     this.status(ms::status_exported(&name, n));
                 }
-                Err(e) => this.status(ms::status_not_exported(error_text(&e))),
+                Err(Failure::Unread(e)) => this.status(ms::status_unread(error_text(&e))),
+                Err(Failure::Other(e)) => this.status(ms::status_not_exported(error_text(&e))),
             }
         });
     }
@@ -1071,7 +1104,7 @@ impl Studio {
         wasm_bindgen_futures::spawn_local(async move {
             let stored = async {
                 let pack = this.files().await?;
-                let plan = pack.export.installed(&pack.sizes())?;
+                let plan = pack.check()?;
                 let sounds: Vec<(String, Blob)> = pack
                     .sounds
                     .into_iter()
@@ -1079,13 +1112,14 @@ impl Studio {
                     .collect();
                 let writes = crate::announcers::store(&plan.kept, sounds)?;
                 Db::open().await?.write(writes).await?;
-                Ok::<_, String>(plan.kept.name)
+                Ok::<_, Failure>(plan.kept.name)
             }
             .await;
             this.state.view.borrow_mut().busy = false;
             match stored {
                 Ok(name) => this.status(ms::status_used(name)),
-                Err(e) => this.status(ms::status_not_used(error_text(&e))),
+                Err(Failure::Unread(e)) => this.status(ms::status_unread(error_text(&e))),
+                Err(Failure::Other(e)) => this.status(ms::status_not_used(error_text(&e))),
             }
         });
     }

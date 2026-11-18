@@ -422,6 +422,8 @@ studio-status-used = { $name }をゲームに追加しました。オプショ�
 
 studio-status-not-used = 追加できませんでした：{ $error }
 
+studio-status-unread = 作成したパックを、ゲームが作ったとおりに読み込めませんでした（{ $error }）。これはスタジオの不具合で、あなたの操作によるものではありません。何も保存されていません。報告をお願いします。
+
 studio-status-no-select = 選曲画面を表示できませんでした。
 studio-status-no-results = リザルトを表示できませんでした。
 studio-status-no-play = プレイを用意できませんでした。

@@ -833,6 +833,12 @@ studio-status-used = { $name } is in the game: choose it under Options, Sound, A
 #   $error (String) - why
 studio-status-not-used = It could not be added: { $error }
 
+# The pack made was read back as the game reads a pack, and came out other
+# than the studio made it: a mistake in the game, not the author's.
+# Variables:
+#   $error (String) - what differed (data, in English)
+studio-status-unread = The game would not read this pack as the studio made it ({ $error }). This is a mistake in the studio, not yours: nothing was saved. Please report it.
+
 # A scene could not show its screen.
 studio-status-no-select = Song select could not be shown.
 studio-status-no-results = The results could not be shown.

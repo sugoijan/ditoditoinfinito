@@ -1049,3 +1049,50 @@ fn a_take_on_several_lines_is_written_once() {
     d.set_line(awesome, None);
     assert!(d.take(awesome).unwrap().also.is_empty());
 }
+
+/// Every export is read back through the game's own reader and compared
+/// with the draft before it is offered: plain, in two languages, tagged
+/// and shared alike pass; a pack the reader takes otherwise (a script it
+/// refuses, a declaration that says other languages, a take missing) is
+/// refused, as a mistake of the studio's.
+#[test]
+fn an_export_is_checked_by_the_games_reader() {
+    let sizes = |e: &Export| -> Vec<(String, u64)> {
+        e.entries.iter().map(|x| (x.path.clone(), 9)).collect()
+    };
+    let old: Draft = serde_json::from_str(OLD_DRAFT).unwrap();
+    let mut d = Draft {
+        name: "Checked".into(),
+        tidy: false,
+        ..Draft::default()
+    };
+    let plain = d.add("gameplay ready.mp3", 9, MP3);
+    let e = d.export();
+    let plan = d.check(&e, &sizes(&e)).expect("plain");
+    assert_eq!(plan.kept.name, "Checked");
+    let e = old.export();
+    assert!(old.check(&e, &sizes(&e)).is_ok());
+    d.add_language("en");
+    d.toggle_tag(plain, "calm");
+    d.toggle_switch("calm");
+    d.add_language("ja");
+    let ja = d.add("gameplay ready.mp3", 9, MP3);
+    d.add("evaluation cheer.mp3", 9, MP3);
+    d.set_line(ja, Some(Line::Combo(100)));
+    d.share(ja, Line::Cheer);
+    d.mixed = true;
+    let e = d.export();
+    let plan = d.check(&e, &sizes(&e)).expect("declared, scripted, shared");
+    assert!(plan.kept.ini.is_some() && plan.kept.script.is_some());
+    // What the reader takes otherwise is refused.
+    let mut broken = e.clone();
+    broken.texts[1].1 = broken.texts[1].1.replace("shared/", "elsewhere/");
+    assert!(d.check(&broken, &sizes(&broken)).unwrap_err().0.contains("refused"));
+    let mut other = e.clone();
+    other.texts[0].1 = other.texts[0].1.replace("Mixed=1\n", "");
+    other.texts[1].1 = other.texts[1].1.replace(", { mixed = true }", "");
+    assert!(d.check(&other, &sizes(&other)).unwrap_err().0.contains("languages"));
+    let mut fewer = e.clone();
+    fewer.entries.pop();
+    assert!(d.check(&fewer, &sizes(&fewer)).is_err());
+}

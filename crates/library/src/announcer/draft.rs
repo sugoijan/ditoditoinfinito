@@ -14,6 +14,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 
+use super::pool::Pool;
 use super::tidy::Measure;
 use super::{
     CHEER_DELAY, COMBO_GAP, COMMENT_GAP, GO_BEFORE, Grade, Kept, Line, MAX_BYTES, MAX_FILES,
@@ -79,6 +80,17 @@ impl Adopted {
     pub fn new(name: String, readme: Option<&str>) -> Adopted {
         let (by, license) = readme.map(readme_credits).unwrap_or_default();
         Adopted { name, by, license }
+    }
+}
+
+/// What the game's reader made of a pack the studio wrote, where it is
+/// not what the draft says ([`Draft::check`]): a mistake of the studio's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Unread(pub String);
+
+impl std::fmt::Display for Unread {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -1437,6 +1449,112 @@ impl Draft {
             readme,
             texts,
         }
+    }
+
+    /// What the game's reader must make of `export`'s pack: each take
+    /// written (its file in the pack, the lines it is said for, its
+    /// language, its tags, a weight of 1), the languages offered and
+    /// Mixed, the tags players may switch off.
+    fn expected(&self, export: &Export) -> Pool {
+        let base = format!("Announcers/{}/", self.folder_name());
+        let takes = export
+            .entries
+            .iter()
+            .filter_map(|e| {
+                let t = self.take(e.take)?;
+                Some(super::pool::Take {
+                    file: e.path.strip_prefix(&base).unwrap_or(&e.path).into(),
+                    events: t.lines().collect(),
+                    lang: self.written_lang(t).map(str::to_string),
+                    tags: t.tags.clone(),
+                    weight: 1.0,
+                })
+            })
+            .collect();
+        let languages: Vec<String> = if self.declares() {
+            self.written_languages().into_iter().map(String::from).collect()
+        } else {
+            Vec::new()
+        };
+        let carried = |tag: &str| {
+            self.takes
+                .iter()
+                .any(|t| exported(t) && t.tags.iter().any(|g| g == tag))
+        };
+        Pool {
+            takes,
+            mixed: self.mixed && languages.len() > 1,
+            languages,
+            tags: self
+                .switches
+                .iter()
+                .filter(|s| carried(&s.tag))
+                .map(|s| super::pool::Tag {
+                    name: s.tag.clone(),
+                    label: s.label_written(),
+                    default: s.default,
+                })
+                .collect(),
+        }
+    }
+
+    /// `export`'s pack (the draft's, made from it as it is), its sounds
+    /// made with `sizes` (by their paths in the zip), read back through the
+    /// game's own reader (the scan, the
+    /// declaration, the script, the pool: what a player's game runs) and
+    /// compared with the draft: every take with its lines, language, tags
+    /// and weight, the languages and Mixed, the switches. The pack as an
+    /// installed announcer, or what the reader made otherwise (a mistake
+    /// of the studio's, never the author's: [`Unread`]).
+    pub fn check(&self, export: &Export, sizes: &[(String, u64)]) -> Result<InstallPlan, Unread> {
+        let plan = export.installed(sizes).map_err(Unread)?;
+        let (pool, refused) = plan
+            .kept
+            .pool_with(&ddi_noteskin::params::Values::new(), super::pool::FALLBACK_LANGUAGE);
+        if let Some(why) = refused {
+            return Err(Unread(format!("its script was refused: {why}")));
+        }
+        // What the draft writes, whatever `export` holds.
+        let want = self.expected(&self.export());
+        let key = |t: &super::pool::Take| {
+            let mut tags = t.tags.clone();
+            tags.sort();
+            (
+                t.file.to_string(),
+                t.events.clone(),
+                t.lang.clone(),
+                tags,
+                t.weight.to_bits(),
+            )
+        };
+        let mut got: Vec<_> = pool.takes.iter().map(key).collect();
+        let mut wanted: Vec<_> = want.takes.iter().map(key).collect();
+        got.sort();
+        wanted.sort();
+        // Past what an import keeps, the last sounds are left out (the
+        // page says so beforehand, [`Draft::too_big`]).
+        let cut = self.too_big();
+        if let Some(w) = wanted.iter().find(|w| !got.contains(w))
+            && !cut
+        {
+            return Err(Unread(format!("{} reads as {:?}", w.0, got.iter().find(|g| g.0 == w.0))));
+        }
+        if let Some(g) = got.iter().find(|g| !wanted.contains(g)) {
+            return Err(Unread(format!("{} reads as {g:?}, not as written", g.0)));
+        }
+        if (pool.languages.as_slice(), pool.mixed) != (want.languages.as_slice(), want.mixed) {
+            return Err(Unread(format!(
+                "its languages read as {:?} (mixed: {}), not {:?} (mixed: {})",
+                pool.languages, pool.mixed, want.languages, want.mixed
+            )));
+        }
+        if pool.tags != want.tags {
+            return Err(Unread(format!(
+                "its switches read as {:?}, not {:?}",
+                pool.tags, want.tags
+            )));
+        }
+        Ok(plan)
     }
 
     /// A pack's `announcer.lua` (`docs/announcer-lines.md`, "Made in the
