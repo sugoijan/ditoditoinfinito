@@ -340,12 +340,8 @@ folder = "battle stage begin"  # a later stage starts
 texts = ["Next stage!", "On to the next stage!", "Here comes the next stage!"]
 
 [[line]]
-folder = "battle final stage"  # the last stage of a match starts, where a pack has no last song
+folder = "battle final stage"  # the last stage of a match starts
 texts = ["Final stage!", "This is the final stage!", "Last stage. Make it count!"]
-
-[[line]]
-folder = "battle last song"  # the match's last song starts (round AC), in place of ready
-texts = ["Last song!", "This is the last song!", "One last song. Give it everything!"]
 
 [[line]]
 folder = "battle life critical"  # your life is about to run out, once a stage

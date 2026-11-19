@@ -10,7 +10,7 @@
 name = "Mr. Clank"
 author = "すごいジャン"
 language = "British English"
-made = "2026-11-19"
+made = "2026-11-16"
 made_with = "Kokoro-82M (hexgrad, Apache-2.0), voice bm_george"
 
 [kokoro]
@@ -43,9 +43,6 @@ holders = ["すごいジャン"]
 "battle final stage/final-stage.mp3" = "Final stage!"
 "battle final stage/last-stage-make-it-count.mp3" = "Last stage. Make it count!"
 "battle final stage/this-is-the-final-stage.mp3" = "This is the final stage!"
-"battle last song/last-song.mp3" = "Last song!"
-"battle last song/one-last-song-give-it-everything.mp3" = "One last song. Give it everything!"
-"battle last song/this-is-the-last-song.mp3" = "This is the last song!"
 "battle life critical/careful-you-re-nearly-out.mp3" = "Careful, you're nearly out!"
 "battle life critical/hang-on-life-s-low.mp3" = "Hang on, life's low!"
 "battle life critical/your-life-is-critical.mp3" = "Your life is critical!"

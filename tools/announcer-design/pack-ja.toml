@@ -299,10 +299,6 @@ folder = "battle final stage"
 texts = ["ファイナルステージ！", "最後のステージだ！", "いよいよ最後！"]
 
 [[line]]
-folder = "battle last song"
-texts = ["ラストソング！", "これが最後の曲だ！", "最後の一曲、全力でいこう！"]
-
-[[line]]
 folder = "battle life critical"
 texts = ["ライフが危ない！", "危ない、もう後がない！", "耐えて！落ちないで！"]
 
