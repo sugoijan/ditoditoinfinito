@@ -69,24 +69,7 @@ impl CosmicRasterizer {
     /// the weight given, and the system's with `system`.
     pub fn with_families(bundled: &[Bundled], system: bool) -> CosmicRasterizer {
         let mut r = CosmicRasterizer::new(&[], system);
-        let db = r.fonts.db_mut();
-        for face in bundled {
-            let source = fontdb::Source::Binary(std::sync::Arc::new(face.bytes.to_vec()));
-            for id in db.load_font_source(source) {
-                let Some(mut info) = db.face(id).cloned() else {
-                    continue;
-                };
-                db.remove_face(id);
-                info.families = vec![(
-                    face.family.to_string(),
-                    fontdb::Language::English_UnitedStates,
-                )];
-                if let Some(w) = face.weight {
-                    info.weight = fontdb::Weight(w);
-                }
-                db.push_face_info(info);
-            }
-        }
+        load(r.fonts.db_mut(), bundled);
         r
     }
 
@@ -206,6 +189,10 @@ impl CosmicRasterizer {
     /// The run laid out at `scale`: its advance, the baseline from the
     /// line box's top, and its glyphs placed from the pen.
     fn layout(&mut self, text: &str, style: &TextStyle, scale: f32) -> (f32, f32, Vec<Glyph>) {
+        // No face at all: nothing drawn (cosmic-text would panic).
+        if self.fonts.db().is_empty() {
+            return (0.0, 0.0, Vec::new());
+        }
         let size = (style.size() * scale).max(1.0);
         let metrics = Metrics::new(size, style.line_height() * scale);
         let families = families(&style.family);
@@ -238,7 +225,9 @@ impl CosmicRasterizer {
         if let Some(run) = buffer.layout_runs().next() {
             advance = run.line_w;
             baseline = run.line_y - run.line_top;
-            for g in run.glyphs {
+            // A glyph in no face (its first face's .notdef): nothing drawn,
+            // its room kept.
+            for g in run.glyphs.iter().filter(|g| g.glyph_id != 0) {
                 let physical = g.physical((0.0, 0.0), 1.0);
                 let Some(image) = self
                     .swash
@@ -259,6 +248,48 @@ impl CosmicRasterizer {
         }
         (advance, baseline, glyphs)
     }
+}
+
+/// Loads the `bundled` faces into `db`, each under the family name given
+/// and at the weight given.
+fn load(db: &mut fontdb::Database, bundled: &[Bundled]) {
+    for face in bundled {
+        let source = fontdb::Source::Binary(std::sync::Arc::new(face.bytes.to_vec()));
+        for id in db.load_font_source(source) {
+            let Some(mut info) = db.face(id).cloned() else {
+                continue;
+            };
+            db.remove_face(id);
+            info.families = vec![(
+                face.family.to_string(),
+                fontdb::Language::English_UnitedStates,
+            )];
+            if let Some(w) = face.weight {
+                info.weight = fontdb::Weight(w);
+            }
+            db.push_face_info(info);
+        }
+    }
+}
+
+/// Where the system gave no face at all (a Linux with no fonts
+/// installed): the `bundled` faces (the theme's and each language's),
+/// `family` standing for every generic name, so that cosmic-text, which
+/// panics when it finds no face ("no default font found"), always has
+/// one. Nothing changes where the system has a face. Whether it was
+/// needed.
+pub fn back_with(fonts: &mut FontSystem, bundled: &[Bundled], family: &str) -> bool {
+    if !fonts.db().is_empty() {
+        return false;
+    }
+    let db = fonts.db_mut();
+    load(db, bundled);
+    db.set_sans_serif_family(family);
+    db.set_serif_family(family);
+    db.set_monospace_family(family);
+    db.set_cursive_family(family);
+    db.set_fantasy_family(family);
+    true
 }
 
 /// The families of a CSS font stack, unquoted, in order (one empty name
@@ -487,6 +518,40 @@ mod tests {
         let medium = r.face("Noto Sans CJK JP", 600, false);
         let regular = r.face("Noto Sans CJK JP", 400, false);
         assert!(medium.is_some() && medium != regular);
+    }
+
+    /// With no system face (a Linux with none installed) nothing panics:
+    /// a stack of generic names alone finds the bundled faces, `back_with`
+    /// gives a face-less font system the bundled ones (and changes nothing
+    /// where it has one), a run with no face at all measures empty, and a
+    /// character in no face draws nothing (its .notdef left out).
+    #[test]
+    fn with_no_system_face_nothing_panics() {
+        let mut r = bundled();
+        let style = TextStyle::new("sans-serif", 20.0);
+        let m = r.measure("Hello", &style, 1.0);
+        assert!(m.advance > 40.0, "{m:?}");
+        // A hieroglyph no face has: its room, no ink.
+        let (advance, _, glyphs) = r.layout("\u{13000}", &style, 1.0);
+        assert!(glyphs.iter().all(|g| g.width == 0 || g.height == 0), "{advance}");
+        // No face at all.
+        let mut none = CosmicRasterizer::new(&[], false);
+        let m = none.measure("Hello", &style, 1.0);
+        assert_eq!(m.advance, 0.0);
+        // `back_with`.
+        let mut fonts =
+            FontSystem::new_with_locale_and_db("en-US".into(), fontdb::Database::new());
+        let faces = [Bundled {
+            family: "Iosevka Term",
+            bytes: TERM,
+            weight: None,
+        }];
+        assert!(back_with(&mut fonts, &faces, "Iosevka Term"));
+        assert_eq!(fonts.db().family_name(&fontdb::Family::SansSerif), "Iosevka Term");
+        let n = fonts.db().len();
+        assert!(n > 0, "{n}");
+        assert!(!back_with(&mut fonts, &faces, "Iosevka Term"), "it has faces now");
+        assert_eq!(fonts.db().len(), n);
     }
 
     #[test]

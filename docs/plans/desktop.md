@@ -1172,7 +1172,15 @@ same offset.
   files without the library). Japanese falls back to the system's CJK
   fonts (Hiragino, Yu Gothic or Meiryo, Noto CJK when installed); a Linux
   without a CJK font shows boxes, said once in the import report. The
-  time fontdb takes to load a system's fonts is measured at start.
+  time fontdb takes to load a system's fonts is measured at start. A
+  system with no font at all (round AD, 2026-11-19: a Linux with none
+  installed made cosmic-text panic, "no default font found", drawing a
+  Dancing☆Onigiri work's text) never panics: a work's text
+  (`play/stage.rs`'s font system) then takes the bundled faces, Iosevka
+  Term standing for every generic name (`ddi_render::cosmic::back_with`),
+  the 2D pass has them always, and a run with no face at all draws
+  nothing; a character in no face draws nothing, its room kept (its
+  .notdef, glyph 0, left out, by the stage's text and the 2D pass alike).
 - **Folders** (D10): `dirs` 7.0.0 (MIT OR Apache-2.0) for config, data
   and cache, replacing the hand-written lookup in `store.rs`.
 - **Assets:** bundled songs, noteskins, fonts and the video module are

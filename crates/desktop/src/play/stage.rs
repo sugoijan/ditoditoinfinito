@@ -107,7 +107,26 @@ pub fn read(
     rx
 }
 
-/// The fonts text is drawn with: the system's, made once.
+/// The fonts text is drawn with: the system's (`system`), else none;
+/// where that gives no face at all (a Linux with no fonts installed), the
+/// bundled ones, Iosevka Term standing for sans-serif
+/// (`ddi_render::cosmic::back_with`): cosmic-text panics with no face.
+fn font_system(system: bool) -> glyphon::cosmic_text::FontSystem {
+    let mut fonts = if system {
+        glyphon::cosmic_text::FontSystem::new()
+    } else {
+        glyphon::cosmic_text::FontSystem::new_with_locale_and_db(
+            "en-US".into(),
+            glyphon::cosmic_text::fontdb::Database::new(),
+        )
+    };
+    if ddi_render::cosmic::back_with(&mut fonts, &crate::gpu::faces(), "Iosevka Term") {
+        eprintln!("No system fonts: a work's text is drawn in the bundled faces");
+    }
+    fonts
+}
+
+/// The fonts text is drawn with ([`font_system`]), made once.
 fn fonts() -> &'static Mutex<(
     glyphon::cosmic_text::FontSystem,
     glyphon::cosmic_text::SwashCache,
@@ -119,10 +138,7 @@ fn fonts() -> &'static Mutex<(
         )>,
     > = OnceLock::new();
     FONTS.get_or_init(|| {
-        Mutex::new((
-            glyphon::cosmic_text::FontSystem::new(),
-            glyphon::cosmic_text::SwashCache::new(),
-        ))
+        Mutex::new((font_system(true), glyphon::cosmic_text::SwashCache::new()))
     })
 }
 
@@ -132,6 +148,20 @@ fn fonts() -> &'static Mutex<(
 /// at most) 1.2 lines apart from the top, in its color (`#cccccc` for
 /// none or one not read); its pixels and its size in the stage's px.
 pub fn text_image(text: &str, size: u32, color: &str) -> Option<(Rgba, (f32, f32))> {
+    let mut guard = fonts().lock().ok()?;
+    let (fonts, swash) = &mut *guard;
+    Some(text_image_in(fonts, swash, text, size, color))
+}
+
+/// [`text_image`] in `fonts`: a glyph in no face (its first face's
+/// .notdef) draws nothing, its room kept.
+fn text_image_in(
+    fonts: &mut glyphon::cosmic_text::FontSystem,
+    swash: &mut glyphon::cosmic_text::SwashCache,
+    text: &str,
+    size: u32,
+    color: &str,
+) -> (Rgba, (f32, f32)) {
     use glyphon::cosmic_text::{Attrs, Buffer, Color, Family, Metrics, Shaping};
     let size = if size == 0 {
         16.0
@@ -142,8 +172,17 @@ pub fn text_image(text: &str, size: u32, color: &str) -> Option<(Rgba, (f32, f32
     let line = px * 1.2;
     let lines: Vec<&str> = text.split('\n').take(64).collect();
     let [r, g, b, a] = css_color(color).unwrap_or([0xcc, 0xcc, 0xcc, 0xff]);
-    let mut guard = fonts().lock().ok()?;
-    let (fonts, swash) = &mut *guard;
+    // No face at all: nothing drawn (cosmic-text would panic).
+    if fonts.db().is_empty() {
+        let h = ((line * lines.len() as f32).ceil() as u32).clamp(1, 2048);
+        return (
+            Rgba {
+                size: [1, h],
+                data: vec![0; (h * 4) as usize],
+            },
+            (1.0 / TEXT_SCALE, h as f32 / TEXT_SCALE),
+        );
+    }
     let mut buffer = Buffer::new(fonts, Metrics::new(px, line));
     buffer.set_size(None, None);
     let attrs = Attrs::new().family(Family::SansSerif);
@@ -158,26 +197,32 @@ pub fn text_image(text: &str, size: u32, color: &str) -> Option<(Rgba, (f32, f32
         ((line * lines.len() as f32).ceil() as u32).clamp(1, 2048),
     );
     let mut data = vec![0u8; (w * h * 4) as usize];
-    buffer.draw(fonts, swash, Color::rgba(r, g, b, a), |x, y, gw, gh, c| {
-        let alpha = c.a();
-        if alpha == 0 {
-            return;
-        }
-        for yy in y.max(0)..(y + gh as i32).min(h as i32) {
-            for xx in x.max(0)..(x + gw as i32).min(w as i32) {
-                let i = ((yy as u32 * w + xx as u32) * 4) as usize;
+    let base = Color::rgba(r, g, b, a);
+    // As `Buffer::draw` draws, but a glyph in no face (its first face's
+    // .notdef, glyph 0) draws nothing.
+    for run in buffer.layout_runs() {
+        for glyph in run.glyphs.iter().filter(|g| g.glyph_id != 0) {
+            let p = glyph.physical((0.0, run.line_y), 1.0);
+            let color = glyph.color_opt.unwrap_or(base);
+            swash.with_pixels(fonts, p.cache_key, color, |x, y, c| {
+                let alpha = c.a();
+                let (x, y) = (p.x + x, p.y + y);
+                if alpha == 0 || x < 0 || y < 0 || x >= w as i32 || y >= h as i32 {
+                    return;
+                }
+                let i = ((y as u32 * w + x as u32) * 4) as usize;
                 // Glyphs do not overlap: the coverage is the pixel's.
                 let px = &mut data[i..i + 4];
                 if alpha >= px[3] {
                     px.copy_from_slice(&[c.r(), c.g(), c.b(), alpha]);
                 }
-            }
+            });
         }
-    });
-    Some((
+    }
+    (
         Rgba { size: [w, h], data },
         (w as f32 / TEXT_SCALE, h as f32 / TEXT_SCALE),
-    ))
+    )
 }
 
 /// A CSS color as a canvas's `fillStyle` reads it (every named color,
@@ -214,6 +259,37 @@ mod tests {
         assert_eq!(css_color("hsla(0 100% 50% / 0.5)"), Some([255, 0, 0, 128]));
         assert_eq!(css_color("transparent"), Some([0, 0, 0, 0]));
         assert_eq!(css_color("nonsense"), None);
+    }
+
+    /// With no system font at all (a Linux with none installed) a work's
+    /// text is drawn in the bundled faces, never a panic ("no default font
+    /// found"): Latin in Iosevka Term, Japanese in its bundled face; a
+    /// character in no face draws nothing, its room kept.
+    #[test]
+    fn with_no_system_font_text_is_drawn_in_the_bundled_faces() {
+        let mut fonts = font_system(false);
+        assert!(!fonts.db().is_empty(), "the bundled faces");
+        let mut swash = glyphon::cosmic_text::SwashCache::new();
+        let mut draw = |text: &str| text_image_in(&mut fonts, &mut swash, text, 24, "#fff");
+        let inked = |image: &Rgba| image.data.chunks(4).filter(|p| p[3] > 0).count();
+        let (latin, _) = draw("Hello");
+        assert!(inked(&latin) > 100, "Latin drawn");
+        let (japanese, _) = draw("日本語");
+        assert!(inked(&japanese) > 100, "Japanese drawn");
+        // A hieroglyph no bundled face has: nothing drawn, its room kept.
+        let (none, _) = draw("\u{13000}");
+        assert_eq!(inked(&none), 0, "a glyph in no face draws nothing");
+        let (with, _) = draw("Hello\u{13000}");
+        assert_eq!(inked(&with), inked(&latin));
+        assert!(with.size[0] >= latin.size[0]);
+        // And with no face at all (no bundled one either): nothing, no
+        // panic.
+        let mut empty = glyphon::cosmic_text::FontSystem::new_with_locale_and_db(
+            "en-US".into(),
+            glyphon::cosmic_text::fontdb::Database::new(),
+        );
+        let (nothing, _) = text_image_in(&mut empty, &mut swash, "Hello", 24, "#fff");
+        assert_eq!(inked(&nothing), 0);
     }
 
     #[test]
