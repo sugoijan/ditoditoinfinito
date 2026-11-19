@@ -839,8 +839,15 @@ fn say(name: &str, text: &str) {
 }
 
 fn clock_text() -> String {
-    let s = now_ms() / 1000;
-    format!("{:02}:{:02}:{:02}", (s / 3600) % 24, (s / 60) % 60, s % 60)
+    let ms = now_ms();
+    let s = ms / 1000;
+    format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        (s / 3600) % 24,
+        (s / 60) % 60,
+        s % 60,
+        ms % 1000
+    )
 }
 
 /// A bot's session from the server, for the admin `token`: its token, or
@@ -915,6 +922,9 @@ struct Said {
     /// said (stage 2), and the songs said downloaded ahead.
     have: Option<(usize, usize, usize)>,
     downloaded: std::collections::BTreeSet<ddi_room::RoomSongId>,
+    /// The stage whose song everyone was said to have loaded (the room's
+    /// loading wait over, measured from its pick).
+    loaded: Option<ddi_room::StageId>,
     link: Option<LinkState>,
     phase: Option<PhaseKind>,
     spotlight: Option<String>,
@@ -1226,6 +1236,39 @@ impl Bot {
             if n > 0 {
                 self.say(format!("has {have} of the room's {n} songs; everyone has {everyone}"));
             }
+        }
+        // The host's: when everyone connected who plays has loaded the
+        // stage's song (the readiness window's loading wait over).
+        let loaded = {
+            let r = room.borrow();
+            match (&self.role, &r.state().phase) {
+                (Role::Host(_), ddi_room::Phase::Preparing { stage, .. }) => {
+                    let st = r.state().stage(*stage);
+                    let all = st.is_some_and(|st| {
+                        r.state()
+                            .members
+                            .values()
+                            .filter(|m| {
+                                !m.left
+                                    && !m.is_cpu()
+                                    && m.connection == Connection::Connected
+                                    && m.intent == Intent::Play
+                            })
+                            .all(|m| st.prep(m.id).loading == ddi_room::Loading::Loaded)
+                    });
+                    all.then_some(*stage)
+                }
+                _ => None,
+            }
+        };
+        if let Some(stage) = loaded
+            && self.said.loaded != Some(stage)
+        {
+            self.said.loaded = Some(stage);
+            self.say(format!(
+                "everyone has loaded stage {}'s song",
+                stage_number(room, stage)
+            ));
         }
     }
 

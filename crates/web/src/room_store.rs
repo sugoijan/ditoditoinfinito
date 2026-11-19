@@ -153,7 +153,7 @@ pub(crate) fn forget_store(store: &str) {
         {
             web_sys::console::warn_1(&format!("room: deleting the room's songs: {e}").into());
         }
-        publish();
+        publish_stored();
     });
 }
 
@@ -175,6 +175,7 @@ pub(crate) async fn forget(store: &str, share: &str) {
             }])
             .await;
     }
+    publish_stored();
 }
 
 /// At the start: every room's area no tab touched for [`STALE_MS`]
@@ -320,7 +321,7 @@ async fn put(
             k.files.insert(format!("{share}/{path}"), size);
         }
     });
-    publish();
+    publish_stored();
     Ok(())
 }
 
@@ -518,7 +519,13 @@ fn publish() {
         }
     });
     let _ = js_sys::Reflect::set(&w, &"__DDI_ROOM_STORE".into(), &o);
-    // What every room's area holds in the library, read again (tests).
+}
+
+/// [`publish`], and what every room's area holds in the library read
+/// again (tests: `window.__DDI_ROOM_STORED`), once the writes asked for
+/// are done.
+fn publish_stored() {
+    publish();
     if crate::web::automated() {
         wasm_bindgen_futures::spawn_local(async {
             let (keys, bytes) = stored_bytes().await;
