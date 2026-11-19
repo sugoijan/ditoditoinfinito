@@ -489,8 +489,9 @@ mod tests {
             )]);
             let kept = a.kept.resolve(&values, "en");
             assert_eq!(kept.bag_key(), format!("bundled:clank#{lang}"));
-            // Every line the game speaks, the battle's eighteen among them.
-            assert_eq!(kept.lines.len(), 68, "{lang}");
+            // Every line the game speaks, the battle's nineteen among them
+            // (round AC: `battle last song`).
+            assert_eq!(kept.lines.len(), 69, "{lang}");
             for b in announcer::Battle::ALL {
                 let line = announcer::Line::Battle(b);
                 assert_eq!(kept.files(line).map(|(l, _)| l), Some(line), "{lang}: {b:?}");

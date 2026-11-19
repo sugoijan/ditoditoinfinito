@@ -10,7 +10,7 @@
 name = "ガキンさん"
 author = "すごいジャン"
 language = "Japanese"
-made = "2026-11-16"
+made = "2026-11-19"
 made_with = "Kokoro-82M (hexgrad, Apache-2.0), voice jm_kumo"
 
 [kokoro]
@@ -51,6 +51,9 @@ holders = ["テレビ西日本 (TV Nishinippon)"]
 "battle final stage/fainaru-suteji.mp3" = "ファイナルステージ！"
 "battle final stage/ijoijo-saigo.mp3" = "いよいよ最後！"
 "battle final stage/saigo-no-suteji-da.mp3" = "最後のステージだ！"
+"battle last song/kore-ga-saigo-no-kyoku-da.mp3" = "これが最後の曲だ！"
+"battle last song/rasuto-songu.mp3" = "ラストソング！"
+"battle last song/saigo-no-ichi-kyoku-zenryoku-de-iko.mp3" = "最後の一曲、全力でいこう！"
 "battle life critical/abunai-mo-ato-ga-nai.mp3" = "危ない、もう後がない！"
 "battle life critical/raifu-ga-abunai.mp3" = "ライフが危ない！"
 "battle life critical/tae-te-ochinai-de.mp3" = "耐えて！落ちないで！"
