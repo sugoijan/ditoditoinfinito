@@ -473,6 +473,7 @@ fn the_public_view_says_nothing_a_member_alone_knows() {
                 ..ContentCard::default()
             }),
             battle: None,
+            song: None,
         });
         st.playlist[0].prep.insert(
             p2,

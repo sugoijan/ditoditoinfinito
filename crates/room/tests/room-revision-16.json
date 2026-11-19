@@ -1,0 +1,362 @@
+{
+  "room": "room",
+  "revision": 19,
+  "policy": {
+    "max_competitors": 73,
+    "max_members": 384,
+    "admin_reserve": 4,
+    "max_stages": 16,
+    "history": 8,
+    "readiness": {
+      "id": "hosted-deadline-v2",
+      "window_ms": 30000,
+      "loading_grace_ms": 45000,
+      "countdown_ms": 3000,
+      "min_ready_humans": 1,
+      "min_competitors": 2
+    },
+    "outcomes": {
+      "id": "self-reported-v0",
+      "after_song_end_ms": 60000,
+      "stage_cap_ms": 1200000
+    },
+    "live": {
+      "id": "live-v1",
+      "prelude_ms": 1000,
+      "timing": "live-v2",
+      "quiet_ping_ms": 60000
+    },
+    "audience": {
+      "id": "audience-v0"
+    }
+  },
+  "source": "shared",
+  "access": {
+    "admission": "open",
+    "invite_generation": 1
+  },
+  "members": [
+    [
+      1,
+      {
+        "id": 1,
+        "kind": {
+          "human": {
+            "identity": "twitch:host",
+            "name": "Host"
+          }
+        },
+        "role": "owner",
+        "admin": false,
+        "intent": "play",
+        "connection": "connected",
+        "left": false
+      }
+    ],
+    [
+      2,
+      {
+        "id": 2,
+        "kind": {
+          "human": {
+            "identity": "twitch:ana",
+            "name": "ana"
+          }
+        },
+        "role": "co_host",
+        "admin": false,
+        "intent": "play",
+        "connection": "connected",
+        "left": false
+      }
+    ],
+    [
+      3,
+      {
+        "id": 3,
+        "kind": {
+          "human": {
+            "identity": "twitch:bo",
+            "name": "bo"
+          }
+        },
+        "role": "member",
+        "admin": false,
+        "intent": "play",
+        "connection": "connected",
+        "left": false
+      }
+    ]
+  ],
+  "next": {
+    "rules": {
+      "stages": 3,
+      "seats": 73,
+      "cpu": {
+        "mode": "off",
+        "opponent": {
+          "level": 0,
+          "seed": 0
+        }
+      },
+      "return_each_stage": true,
+      "mid_match_entry": true,
+      "battle": "provisional-standard",
+      "awards": "placement_points_v1",
+      "ruleset": "ddi",
+      "easiest": "play_on",
+      "life_out_any_chart": true,
+      "shocks": "four"
+    },
+    "saved_at": 6,
+    "review": null
+  },
+  "playlist": [
+    {
+      "id": 4,
+      "content": null,
+      "content_changed_at": 0,
+      "readiness_rev": 0,
+      "prep": [],
+      "play": null
+    },
+    {
+      "id": 5,
+      "content": null,
+      "content_changed_at": 0,
+      "readiness_rev": 0,
+      "prep": [],
+      "play": null
+    },
+    {
+      "id": 6,
+      "content": null,
+      "content_changed_at": 0,
+      "readiness_rev": 0,
+      "prep": [],
+      "play": null
+    }
+  ],
+  "current": {
+    "id": 1,
+    "rules": {
+      "stages": 3,
+      "seats": 73,
+      "cpu": {
+        "mode": "off",
+        "opponent": {
+          "level": 0,
+          "seed": 0
+        }
+      },
+      "return_each_stage": true,
+      "mid_match_entry": true,
+      "battle": "provisional-standard",
+      "awards": "placement_points_v1",
+      "ruleset": "ddi",
+      "easiest": "play_on",
+      "life_out_any_chart": true,
+      "shocks": "four"
+    },
+    "roster": [
+      [
+        1,
+        {
+          "first_stage": 1,
+          "out_for_match": false
+        }
+      ],
+      [
+        2,
+        {
+          "first_stage": 1,
+          "out_for_match": false
+        }
+      ],
+      [
+        3,
+        {
+          "first_stage": 1,
+          "out_for_match": false
+        }
+      ]
+    ],
+    "stages": [
+      {
+        "id": 1,
+        "content": {
+          "id": {
+            "song": "song-1",
+            "chart": "digest-1"
+          },
+          "status": "available",
+          "share": "spot0001"
+        },
+        "content_changed_at": 6,
+        "readiness_rev": 1,
+        "prep": [
+          [
+            1,
+            {
+              "ready": true,
+              "loading": "loaded"
+            }
+          ],
+          [
+            2,
+            {
+              "ready": true,
+              "loading": "loaded"
+            }
+          ],
+          [
+            3,
+            {
+              "ready": true,
+              "loading": "loaded"
+            }
+          ]
+        ],
+        "play": {
+          "lineup": [
+            1,
+            2,
+            3
+          ],
+          "sat_out": [],
+          "start_at": 3000,
+          "result": {
+            "rule": "eight_player_scaled_v1",
+            "placements": [
+              {
+                "participant": 1,
+                "place": 1,
+                "finish": "survived",
+                "points": {
+                  "num": 12,
+                  "den": 1
+                }
+              },
+              {
+                "participant": 2,
+                "place": 2,
+                "finish": "survived",
+                "points": {
+                  "num": 5,
+                  "den": 1
+                }
+              },
+              {
+                "participant": 3,
+                "place": 3,
+                "finish": "survived",
+                "points": {
+                  "num": 1,
+                  "den": 1
+                }
+              }
+            ]
+          },
+          "song_ended": true,
+          "interrupted": false,
+          "reports": [
+            [
+              1,
+              {
+                "live": {
+                  "life_ppm": 500000,
+                  "score": 500000
+                }
+              }
+            ],
+            [
+              2,
+              {
+                "live": {
+                  "life_ppm": 400000,
+                  "score": 400000
+                }
+              }
+            ],
+            [
+              3,
+              {
+                "live": {
+                  "life_ppm": 300000,
+                  "score": 300000
+                }
+              }
+            ]
+          ],
+          "song_end_at": 4010,
+          "song_zero_at": 4000
+        }
+      },
+      {
+        "id": 2,
+        "content": {
+          "id": {
+            "song": "song-3",
+            "chart": "digest-3"
+          },
+          "status": "pending",
+          "card": {
+            "title": "Song Three",
+            "meter": 0
+          }
+        },
+        "content_changed_at": 19,
+        "readiness_rev": 1,
+        "prep": [],
+        "play": null
+      },
+      {
+        "id": 3,
+        "content": null,
+        "content_changed_at": 0,
+        "readiness_rev": 0,
+        "prep": [],
+        "play": null
+      }
+    ]
+  },
+  "phase": {
+    "preparing": {
+      "stage": 2,
+      "window": {
+        "deadline": 79010,
+        "readiness_rev": 1,
+        "loading_until": 49010
+      }
+    }
+  },
+  "history": [],
+  "counters": {
+    "participant": 4,
+    "matches": 2,
+    "stage": 7
+  },
+  "spotlight": {
+    "content": {
+      "song": "song-2",
+      "chart": "digest-2"
+    },
+    "card": {
+      "title": "",
+      "meter": 0
+    },
+    "by": 2
+  },
+  "picking": {
+    "picker": 2,
+    "shares": [
+      [
+        "digest-1",
+        "spot0001"
+      ]
+    ]
+  },
+  "hosting": {
+    "if_host_leaves": "pass_on"
+  }
+}

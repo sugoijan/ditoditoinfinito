@@ -294,6 +294,11 @@ pub enum Capability {
     /// is (round B1; the owner's alone before). Changing the admission
     /// stays [`Capability::ChangeAccess`].
     ReplaceInvite,
+    /// Add songs to the room's list and remove any of them (room model
+    /// revision 17, `crate::songs`; anyone removes what they added): an
+    /// operator's in this stage. The one check of it is
+    /// `RoomState::may_add`, which a later setting opens to everyone.
+    AddSongs,
 }
 
 /// Whether a member with `role` (and `admin`) may use `capability` in a
@@ -308,7 +313,8 @@ pub fn can(role: Role, admin: bool, capability: Capability, phase: PhaseKind) ->
         | Capability::TakePick
         | Capability::LetPlay
         | Capability::CloseAudience
-        | Capability::ReplaceInvite => operator,
+        | Capability::ReplaceInvite
+        | Capability::AddSongs => operator,
         Capability::Advance => {
             operator && !matches!(phase, PhaseKind::Stage | PhaseKind::SongCompletion)
         }
@@ -336,6 +342,7 @@ mod tests {
             Capability::LetPlay,
             Capability::CloseAudience,
             Capability::ReplaceInvite,
+            Capability::AddSongs,
         ] {
             assert!(can(Role::Owner, false, cap, p));
             assert!(can(Role::CoHost, false, cap, p));

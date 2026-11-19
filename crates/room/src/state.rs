@@ -6,12 +6,14 @@
 use crate::awards::{Finish, Placement, StageResult};
 use crate::battle::{Entrant, ReportedRun, Run, RunDetail};
 use crate::ids::{
-    ChartKey, ContentId, Identity, MatchId, Millis, ParticipantId, Revision, RoomId, StageId,
+    ChartKey, ContentId, Identity, MatchId, Millis, ParticipantId, Revision, RoomId, RoomSongId,
+    StageId,
 };
 use crate::member::{Capability, Connection, Intent, Member, MemberKind, OpponentSpec, Role, can};
 use crate::phase::{Interruption, Phase};
 use crate::points::Points;
 use crate::rules::{Access, ContentSource, MatchRules, PlayRules, RoomPolicy, RulesProblem};
+use crate::songs::RoomSongs;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -56,6 +58,17 @@ pub struct RoomState {
     /// closes its sockets (4410). Additive to protocol 2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed: Option<Closure>,
+    /// The room's song list (room model revision 17, [`crate::songs`]):
+    /// an online room's stages are picked from it. Behind a shared
+    /// pointer, so the copy a command is decided on costs nothing where
+    /// the command does not change the list. A room stored before it
+    /// reads with none, and one that never had one is written without it.
+    #[serde(default, skip_serializing_if = "songs_untouched")]
+    pub songs: std::sync::Arc<RoomSongs>,
+}
+
+fn songs_untouched(songs: &std::sync::Arc<RoomSongs>) -> bool {
+    songs.is_empty()
 }
 
 /// What a room does when its host goes (2026-11-12), the host's to choose
@@ -341,6 +354,11 @@ pub struct StageContent {
     /// its own with before it says it is ready to play live. Additive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub battle: Option<crate::live::PlanDigest>,
+    /// The entry of the room's song list it plays (revision 17,
+    /// [`crate::Command::PickListed`]); none for a pick made otherwise.
+    /// Additive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub song: Option<RoomSongId>,
 }
 
 /// Whether the room can use a stage's content, as its authority knows.
@@ -841,6 +859,7 @@ impl RoomState {
             },
             hosting: Hosting::default(),
             closed: None,
+            songs: Default::default(),
         }
     }
 
@@ -1082,6 +1101,14 @@ impl RoomState {
     /// next one's, or a recorded match's), which a pick of the same chart
     /// reuses.
     pub fn known_share(&self, content: &ContentId) -> Option<String> {
+        // A listed song's upload (revision 17), by its content.
+        if let Some(e) = self.songs.by_key(&content.song)
+            && e.available()
+            && e.chart(&content.chart).is_some()
+            && e.share.is_some()
+        {
+            return e.share.clone();
+        }
         if let Some(s) = &self.spotlight
             && s.content.chart == content.chart
             && s.share.is_some()
@@ -1379,6 +1406,41 @@ impl RoomState {
             }
             _ => Participation::Idle,
         })
+    }
+
+    /// Whether `id` may add songs to the room's list (revision 17): a
+    /// person present in an online room whose role lets them
+    /// (`Capability::AddSongs`: the hosts in this stage), never one held
+    /// to watching.
+    pub fn may_add(&self, id: ParticipantId) -> bool {
+        self.source == ContentSource::Shared
+            && self.members.get(&id).is_some_and(|m| {
+                m.present_person()
+                    && !m.watch_only
+                    && can(m.role, m.admin, Capability::AddSongs, self.phase.kind())
+            })
+    }
+
+    /// Whether `id` may remove entry `song` from the list: who added it,
+    /// or a host.
+    pub fn may_remove(&self, id: ParticipantId, song: &crate::songs::RoomSong) -> bool {
+        self.members.get(&id).is_some_and(|m| {
+            m.present_person()
+                && (song.by == id || can(m.role, m.admin, Capability::AddSongs, self.phase.kind()))
+        })
+    }
+
+    /// Whether entry `song` is named by a stage not yet over: picked (its
+    /// window open or not), counting down or being played. Such a song is
+    /// never removed, by anyone or to make room.
+    pub fn song_in_use(&self, song: &crate::songs::RoomSong) -> bool {
+        self.current
+            .iter()
+            .flat_map(|m| m.stages.iter())
+            .chain(self.playlist.iter())
+            .filter(|s| s.play.as_ref().is_none_or(|p| !p.song_ended && !p.interrupted))
+            .filter_map(|s| s.content.as_ref())
+            .any(|c| c.song == Some(song.id) || (c.song.is_none() && c.id.song == song.key))
     }
 
     /// The CPU profile behind a member, if it is a CPU seat.

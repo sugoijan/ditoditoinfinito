@@ -25,7 +25,7 @@
 //! connections, readiness and loading, intents of those who only watch
 //! (members watching are not listed), the watch-only mark, targeting,
 //! the invite's generation and admission, the picker, the next match's
-//! draft, the spotlight, reports' raw runs, sit-out reasons, song keys of
+//! draft, the spotlight, the song list's entries (only their count), reports' raw runs, sit-out reasons, song keys of
 //! the operators' libraries. A test walks a room with all of them set
 //! and checks the view's JSON for each.
 
@@ -78,6 +78,14 @@ pub struct PublicView {
     /// The match's standings, best first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub standings: Vec<Standing>,
+    /// How many songs the room's list holds (revision 17; the list
+    /// itself is the members'). Additive: left out while none.
+    #[serde(default, skip_serializing_if = "is_zero_u16")]
+    pub songs: u16,
+}
+
+fn is_zero_u16(x: &u16) -> bool {
+    *x == 0
 }
 
 /// The match's rules as plain values: the device words them as the
@@ -360,6 +368,7 @@ impl PublicView {
             players,
             stages,
             standings: room.standings().unwrap_or_default(),
+            songs: u16::try_from(room.songs.len()).unwrap_or(u16::MAX),
         }
     }
 

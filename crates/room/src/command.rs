@@ -6,11 +6,14 @@
 use crate::attacks::Targeting;
 use crate::awards::{Finisher, NoAwardRule, StageResult};
 use crate::battle::{ReportedRun, RunDetail};
-use crate::ids::{ContentId, Identity, MatchId, Millis, ParticipantId, Revision, StageId};
+use crate::ids::{
+    ChartKey, ContentId, Identity, MatchId, Millis, ParticipantId, Revision, RoomSongId, StageId,
+};
 use crate::live::PlanDigest;
 use crate::member::{Capability, Connection, Intent, Member, Role};
 use crate::phase::{Interruption, Phase, PhaseKind};
 use crate::rules::{Access, Admission, CapExceeded, MatchRules, PlayRules, RulesProblem};
+use crate::songs::{ChartLine, ListRules, NewSong, Removal, RoomSong};
 use crate::state::{
     Closure, ContentCard, ContentStatus, HostLeaves, Loading, MatchEnding, SitOutReason, Spotlight,
     StageContent,
@@ -95,6 +98,36 @@ pub enum Command {
         content: Option<ContentId>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         card: Option<Box<ContentCard>>,
+    },
+
+    /// The picker's pick of a song of the room's list (room model
+    /// revision 17, `crate::songs`): chart `chart` of entry `song`, which
+    /// must be there to load (`Available`). As [`Command::Pick`] from
+    /// there on, the stage's song available at once with the entry's
+    /// share (nothing to upload after the pick), its card the entry's.
+    PickListed {
+        song: RoomSongId,
+        chart: ChartKey,
+    },
+
+    // The room's song list (revision 17): who may add, `RoomState::may_add`.
+    /// Add a song to the list (its adder's device describes it; the
+    /// server checks its key and charts against what is uploaded). The
+    /// same song again is refused ([`Rejection::AlreadyListed`]); a full
+    /// list makes room by its rules ([`crate::songs::ListRules`]).
+    AddSong {
+        song: Box<NewSong>,
+    },
+    /// Remove an entry: its adder's, or a host's. Never one a stage not
+    /// yet over names ([`Rejection::SongInUse`]). Its upload is deleted.
+    RemoveSong {
+        song: RoomSongId,
+    },
+    /// The list's size and what an addition to a full list does: the
+    /// owner's room setting (as [`Command::SetHostLeaves`]). A smaller
+    /// size removes nothing by itself.
+    SetSongList {
+        rules: ListRules,
     },
 
     // Operators (owner, co-hosts, admins). Edits carry the envelope's base.
@@ -236,6 +269,18 @@ pub enum Command {
         chart: crate::ids::ChartKey,
         share: String,
     },
+    /// What the server made of entry `song`'s upload (revision 17): there
+    /// to load with share `share`, its charts as the uploaded record lists
+    /// them (`charts`, replacing the adder's description), or not
+    /// (`Unavailable`: the record's charts were not the ones added).
+    SetSongContent {
+        song: RoomSongId,
+        status: ContentStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        share: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        charts: Option<Vec<ChartLine>>,
+    },
     /// The battle plan the room keeps for `stage` (live play,
     /// `crate::live::plan`: offered by its picker's device, checked by the
     /// authority), named by its digest for every device to compare its own
@@ -347,6 +392,31 @@ pub enum Event {
     /// The song the picker's song select rests on, or none (M7b).
     SpotlightChanged {
         spotlight: Option<Spotlight>,
+    },
+    /// A song joined the room's list (revision 17).
+    SongAdded {
+        song: Box<RoomSong>,
+    },
+    /// An entry left the list, and why; `share` its upload's, which the
+    /// server deletes.
+    SongRemoved {
+        song: RoomSongId,
+        why: Removal,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        share: Option<String>,
+    },
+    /// [`Command::SetSongContent`].
+    SongContentSet {
+        song: RoomSongId,
+        status: ContentStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        share: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        charts: Option<Vec<ChartLine>>,
+    },
+    /// [`Command::SetSongList`].
+    SongListChanged {
+        rules: ListRules,
     },
     /// The pick changed hands ([`Command::TakePick`], or its holder could
     /// hold it no longer); none: nobody chooses until an operator takes
@@ -611,6 +681,31 @@ pub enum Rejection {
     NotOpenEnded,
     /// An early end before any stage of the match settled (revision 15).
     NothingPlayed,
+    /// Revision 17: the room has no song list (CPU practice picks from
+    /// the player's own library).
+    NoSongList,
+    /// No such entry in the room's list.
+    NotListed,
+    /// The same song is in the list already, as entry `song`.
+    AlreadyListed {
+        song: RoomSongId,
+    },
+    /// The list holds as many songs as it may (and makes no room: it
+    /// refuses new songs, or every song in it is in use).
+    ListFull,
+    /// The person added as many songs as one may (`limit`).
+    TooManySongs {
+        limit: u16,
+    },
+    /// A stage not yet over plays it.
+    SongInUse,
+    /// Not there to load yet (its upload is not done) or not at all.
+    SongNotReady,
+    /// The chart is not one of the song's.
+    ChartNotInSong,
+    /// A song described past the list's bounds (`NewSong::fits`), or list
+    /// rules out of theirs.
+    InvalidSong,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

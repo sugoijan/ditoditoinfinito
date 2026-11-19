@@ -476,6 +476,7 @@ impl RoomState {
                 // the canceled start held.
                 self.cancel_if_committed(id, out);
                 self.emit(out, Event::MemberLeft { participant: id });
+                self.drop_uploads_of(id, out);
                 // A host's leaving passes the room on (or ends it) before
                 // the pick they held goes to its owner: the new one.
                 self.settle_host(out);
@@ -580,6 +581,136 @@ impl RoomState {
                     return Err(Rejection::InvalidCard);
                 }
                 self.pick(base, content, card.as_deref(), now, out)
+            }
+            Command::PickListed { song, chart } => {
+                self.require_picker(actor)?;
+                self.require(actor, Capability::Advance)?;
+                if self.source != ContentSource::Shared {
+                    return Err(Rejection::NoSongList);
+                }
+                let entry = self.songs.get(*song).ok_or(Rejection::NotListed)?;
+                let line = entry.chart(chart).ok_or(Rejection::ChartNotInSong)?;
+                if !entry.available() {
+                    return Err(Rejection::SongNotReady);
+                }
+                let content = crate::ids::ContentId {
+                    song: entry.key.clone(),
+                    chart: chart.clone(),
+                };
+                let listed = (entry.id, entry.share.clone(), entry.card_for(line));
+                self.pick_content(base, &content, Some(&listed.2), Some((listed.0, listed.1)), now, out)
+            }
+            Command::AddSong { song } => {
+                let id = self.own(actor)?;
+                if self.source != ContentSource::Shared {
+                    return Err(Rejection::NoSongList);
+                }
+                if !self.may_add(id) {
+                    return Err(Rejection::Unauthorized {
+                        capability: Capability::AddSongs,
+                    });
+                }
+                if !song.fits() {
+                    return Err(Rejection::InvalidSong);
+                }
+                if let Some(e) = self.songs.by_key(&song.key) {
+                    return Err(Rejection::AlreadyListed { song: e.id });
+                }
+                let rules = self.songs.rules;
+                if self.songs.added_by(id) >= rules.per_person() {
+                    return Err(Rejection::TooManySongs {
+                        limit: u16::try_from(rules.per_person()).unwrap_or(u16::MAX),
+                    });
+                }
+                self.make_room(usize::from(rules.size), rules.when_full, out)?;
+                let entry = crate::songs::RoomSong {
+                    id: crate::ids::RoomSongId(self.songs.next.max(1)),
+                    key: song.key.clone(),
+                    card: song.card.clone(),
+                    charts: song.charts.clone(),
+                    by: id,
+                    added_at: self.revision.next(),
+                    // A bundled song everyone has: nothing to upload.
+                    status: if song.bundled {
+                        ContentStatus::Available
+                    } else {
+                        ContentStatus::Pending
+                    },
+                    share: None,
+                    bundled: song.bundled,
+                };
+                self.emit(
+                    out,
+                    Event::SongAdded {
+                        song: Box::new(entry),
+                    },
+                );
+                Ok(())
+            }
+            Command::RemoveSong { song } => {
+                let id = self.own(actor)?;
+                let entry = self.songs.get(*song).ok_or(Rejection::NotListed)?;
+                if !self.may_remove(id, entry) {
+                    return Err(Rejection::Unauthorized {
+                        capability: Capability::AddSongs,
+                    });
+                }
+                if self.song_in_use(entry) {
+                    return Err(Rejection::SongInUse);
+                }
+                let share = entry.share.clone();
+                self.emit(
+                    out,
+                    Event::SongRemoved {
+                        song: *song,
+                        why: crate::songs::Removal::Removed,
+                        share,
+                    },
+                );
+                Ok(())
+            }
+            Command::SetSongList { rules } => {
+                self.require(actor, Capability::ChangeAccess)?;
+                if self.source != ContentSource::Shared {
+                    return Err(Rejection::NoSongList);
+                }
+                if !rules.valid() {
+                    return Err(Rejection::InvalidSong);
+                }
+                if self.songs.rules != *rules {
+                    self.emit(out, Event::SongListChanged { rules: *rules });
+                }
+                Ok(())
+            }
+            Command::SetSongContent {
+                song,
+                status,
+                share,
+                charts,
+            } => {
+                Self::authority_only(actor)?;
+                let entry = self.songs.get(*song).ok_or(Rejection::NotListed)?;
+                if charts.as_ref().is_some_and(|c| {
+                    c.is_empty()
+                        || c.len() > crate::songs::MAX_CHARTS
+                        || !c.iter().all(crate::songs::ChartLine::fits)
+                }) {
+                    return Err(Rejection::InvalidSong);
+                }
+                let same_charts = charts.as_ref().is_none_or(|c| *c == entry.charts);
+                if entry.status == *status && entry.share == *share && same_charts {
+                    return Ok(());
+                }
+                self.emit(
+                    out,
+                    Event::SongContentSet {
+                        song: *song,
+                        status: status.clone(),
+                        share: share.clone(),
+                        charts: charts.clone(),
+                    },
+                );
+                Ok(())
             }
             Command::TakePick => {
                 self.require(actor, Capability::TakePick)?;
@@ -864,6 +995,7 @@ impl RoomState {
                 // everything): the room does not wait for its host where
                 // someone is there to run it, nor the pick for its holder.
                 if *connection == Connection::Disconnected {
+                    self.drop_uploads_of(*participant, out);
                     self.settle_host(out);
                     self.release_pick(*participant, out);
                 }
@@ -1044,6 +1176,21 @@ impl RoomState {
         now: Millis,
         out: &mut Vec<Event>,
     ) -> Decided {
+        self.pick_content(base, content, card, None, now, out)
+    }
+
+    /// A pick of `content`; `listed`, the entry of the room's song list it
+    /// plays and that entry's share (revision 17,
+    /// [`Command::PickListed`]: available at once).
+    fn pick_content(
+        &mut self,
+        base: Option<Revision>,
+        content: &crate::ids::ContentId,
+        card: Option<&ContentCard>,
+        listed: Option<(crate::ids::RoomSongId, Option<String>)>,
+        now: Millis,
+        out: &mut Vec<Event>,
+    ) -> Decided {
         let stage = match self.phase.clone() {
             Phase::Lobby => {
                 Self::check_base(base, self.next.saved_at)?;
@@ -1092,10 +1239,16 @@ impl RoomState {
         // A new song, or the same one whose share failed: chosen (and
         // shared) anew, never a window on content nobody can load.
         let unusable = |c: &StageContent| matches!(c.status, ContentStatus::Unavailable { .. });
-        if s.content.as_ref().is_none_or(|c| &c.id != content || unusable(c)) {
-            let (status, share) = match self.source {
-                ContentSource::LocalLibrary => (ContentStatus::Available, None),
-                ContentSource::Shared => match self.known_share(content) {
+        let song = listed.as_ref().map(|(id, _)| *id);
+        if s
+            .content
+            .as_ref()
+            .is_none_or(|c| &c.id != content || unusable(c) || c.song != song)
+        {
+            let (status, share) = match (self.source, listed) {
+                (ContentSource::LocalLibrary, _) => (ContentStatus::Available, None),
+                (ContentSource::Shared, Some((_, share))) => (ContentStatus::Available, share),
+                (ContentSource::Shared, None) => match self.known_share(content) {
                     Some(share) => (ContentStatus::Available, Some(share)),
                     None => (ContentStatus::Pending, None),
                 },
@@ -1110,6 +1263,7 @@ impl RoomState {
                         share,
                         card: card.cloned(),
                         battle: None,
+                        song,
                     }),
                 },
             );
@@ -1421,6 +1575,69 @@ impl RoomState {
             },
         );
         Ok(())
+    }
+
+    /// Room for one more song in a list of `size`: none needed, or the
+    /// oldest songs no stage not yet over names removed (`RemoveOldest`);
+    /// refused where it refuses, or where nothing can go.
+    fn make_room(
+        &mut self,
+        size: usize,
+        when_full: crate::songs::WhenFull,
+        out: &mut Vec<Event>,
+    ) -> Decided {
+        if self.songs.len() < size {
+            return Ok(());
+        }
+        if when_full == crate::songs::WhenFull::Refuse {
+            return Err(Rejection::ListFull);
+        }
+        let over = self.songs.len() + 1 - size;
+        let gone: Vec<(crate::ids::RoomSongId, Option<String>)> = self
+            .songs
+            .entries
+            .iter()
+            .filter(|e| !self.song_in_use(e))
+            .take(over)
+            .map(|e| (e.id, e.share.clone()))
+            .collect();
+        if gone.len() < over {
+            return Err(Rejection::ListFull);
+        }
+        for (song, share) in gone {
+            self.emit(
+                out,
+                Event::SongRemoved {
+                    song,
+                    why: crate::songs::Removal::ListFull,
+                    share,
+                },
+            );
+        }
+        Ok(())
+    }
+
+    /// `id` is gone (left, or away past the authority's patience): the
+    /// songs they added whose upload was not done leave the list (nobody
+    /// else can finish it). Their songs that are there stay: the room's.
+    fn drop_uploads_of(&mut self, id: ParticipantId, out: &mut Vec<Event>) {
+        let gone: Vec<crate::ids::RoomSongId> = self
+            .songs
+            .entries
+            .iter()
+            .filter(|e| e.by == id && e.status == ContentStatus::Pending)
+            .map(|e| e.id)
+            .collect();
+        for song in gone {
+            self.emit(
+                out,
+                Event::SongRemoved {
+                    song,
+                    why: crate::songs::Removal::AdderGone,
+                    share: None,
+                },
+            );
+        }
     }
 
     fn content_ready(&self, stage: &Stage) -> Decided {
@@ -2047,6 +2264,38 @@ impl RoomState {
                 };
             }
             Event::RoomClosed { reason } => self.closed = Some(*reason),
+            Event::SongAdded { song } => {
+                let list = std::sync::Arc::make_mut(&mut self.songs);
+                list.next = list.next.max(song.id.0 + 1);
+                list.entries.push((**song).clone());
+                list.changed_at = pending;
+            }
+            Event::SongRemoved { song, .. } => {
+                let list = std::sync::Arc::make_mut(&mut self.songs);
+                list.entries.retain(|e| e.id != *song);
+                list.changed_at = pending;
+            }
+            Event::SongContentSet {
+                song,
+                status,
+                share,
+                charts,
+            } => {
+                let list = std::sync::Arc::make_mut(&mut self.songs);
+                if let Some(e) = list.entries.iter_mut().find(|e| e.id == *song) {
+                    e.status = status.clone();
+                    e.share = share.clone();
+                    if let Some(c) = charts {
+                        e.charts = c.clone();
+                    }
+                }
+                list.changed_at = pending;
+            }
+            Event::SongListChanged { rules } => {
+                let list = std::sync::Arc::make_mut(&mut self.songs);
+                list.rules = *rules;
+                list.changed_at = pending;
+            }
             Event::SpotlightChanged { spotlight } => self.spotlight = spotlight.clone(),
             Event::PickerChanged { picker } => {
                 let mut picking = std::mem::take(&mut self.picking);

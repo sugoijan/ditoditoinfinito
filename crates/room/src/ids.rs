@@ -35,6 +35,11 @@ numeric_id!(
     /// its id from the lobby's playlist into its match and the match's record.
     StageId
 );
+numeric_id!(
+    /// One entry of the room's song list (`crate::songs`, room model
+    /// revision 17), unique within the room and never reused.
+    RoomSongId
+);
 
 /// The room's revision: one more for every accepted change, so a client can
 /// tell a missed update from an old one and an edit made against an older

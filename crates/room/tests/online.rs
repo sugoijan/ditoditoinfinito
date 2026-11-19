@@ -660,6 +660,97 @@ fn a_members_watching_is_kept_alike_by_both_authorities_and_every_mirror() {
     assert_eq!(m.roster.len(), 2);
 }
 
+/// Round RL1 (revision 17): the room's song list through both
+/// authorities: a host adds two songs (one twice, refused), a member may
+/// not, the server's word on an upload, a pick from the list available at
+/// once, a song in use refused removal and another removed; the same room,
+/// the same answers, every mirror equal.
+#[test]
+fn the_song_list_is_kept_alike_by_both_authorities_and_every_mirror() {
+    let song = |n: u8| ddi_room::NewSong {
+        key: SongKey::new(format!("s{n:015x}")),
+        card: ddi_room::SongCard {
+            title: format!("Song {n}"),
+            ..ddi_room::SongCard::default()
+        },
+        charts: vec![ddi_room::ChartLine {
+            chart: ChartKey::new(format!("d{n}")),
+            style: "dance-single".into(),
+            difficulty: "Hard".into(),
+            meter: 9,
+        }],
+        bundled: false,
+    };
+    let add = |n| Command::AddSong {
+        song: Box::new(song(n)),
+    };
+    let up = |id| {
+        Step::Authority(Command::SetSongContent {
+            song: ddi_room::RoomSongId(id),
+            status: ContentStatus::Available,
+            share: Some(format!("share{id}")),
+            charts: None,
+        })
+    };
+    let steps = vec![
+        Step::Connect("dev:alice"),
+        Step::Join("dev:bob", "Bob"),
+        Step::Connect("dev:bob"),
+        Step::Cmd("dev:alice", add(1)),
+        Step::Cmd("dev:alice", add(1)),
+        Step::Cmd("dev:bob", add(2)),
+        Step::Cmd("dev:alice", add(2)),
+        up(1),
+        up(2),
+        Step::Cmd(
+            "dev:alice",
+            Command::PickListed {
+                song: ddi_room::RoomSongId(1),
+                chart: ChartKey::new("d1"),
+            },
+        ),
+        Step::Cmd(
+            "dev:alice",
+            Command::RemoveSong {
+                song: ddi_room::RoomSongId(1),
+            },
+        ),
+        Step::Cmd(
+            "dev:alice",
+            Command::RemoveSong {
+                song: ddi_room::RoomSongId(2),
+            },
+        ),
+    ];
+    let (local, local_answers) = run_local(&steps);
+    let (server, online_answers, mirrors) = run_online(&steps, &[]);
+    assert_eq!(local_answers, online_answers);
+    assert_eq!(local, server, "the server's room is the local one");
+    for m in &mirrors {
+        assert_eq!(m, &server, "a client's mirror is the room");
+    }
+    assert_eq!(
+        local_answers,
+        vec![
+            None,
+            Some(Rejection::AlreadyListed {
+                song: ddi_room::RoomSongId(1)
+            }),
+            Some(Rejection::Unauthorized {
+                capability: ddi_room::Capability::AddSongs
+            }),
+            None,
+            None,
+            Some(Rejection::SongInUse),
+            None,
+        ]
+    );
+    let titles: Vec<&str> = local.songs.entries.iter().map(|e| e.card.title.as_str()).collect();
+    assert_eq!(titles, ["Song 1"]);
+    let c = local.current.as_ref().unwrap().stages[0].content.as_ref().unwrap();
+    assert_eq!((c.status.clone(), c.share.as_deref()), (ContentStatus::Available, Some("share1")));
+}
+
 /// The DDI ruleset's round 3: Difficulty and Boos are match rules, saved
 /// like the others, locked with the match, and kept alike by the local
 /// authority, the online one and every mirror; rules that name a ruleset

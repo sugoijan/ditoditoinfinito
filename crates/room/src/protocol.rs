@@ -165,8 +165,15 @@ pub fn supported(version: u32) -> bool {
 ///     before read as they were), and a retrying download
 ///     (`Loading::Retrying`) holding the readiness window's early end
 ///     until its loading grace would have ended
-///     (`ReadinessWindow::hold_until`).
-pub const ROOM_MODEL_REVISION: u32 = 16;
+///     (`ReadinessWindow::hold_until`);
+/// 17. round RL1 (2026-11-19): the room's song list (`crate::songs`,
+///     `RoomState::songs`, `Command::AddSong`, `RemoveSong`,
+///     `SetSongList`, `SetSongContent`, `PickListed`, `Event::SongAdded`,
+///     `SongRemoved`, `SongContentSet`, `SongListChanged`,
+///     `StageContent::song`, `Capability::AddSongs`, the public view's
+///     `songs`): an online room's songs added by its hosts, uploaded when
+///     added and picked from the list.
+pub const ROOM_MODEL_REVISION: u32 = 17;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being

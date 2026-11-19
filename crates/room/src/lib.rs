@@ -82,6 +82,7 @@ pub mod points;
 pub mod protocol;
 mod reduce;
 pub mod rules;
+pub mod songs;
 pub mod state;
 
 pub use authority::{Clock, LocalAuthority, ManualClock, RoomAuthority};
@@ -92,8 +93,9 @@ pub use battle::{BattlePreset, Entrant, ReportedRun, Run, RunDetail};
 pub use command::{Actor, CancelReason, Command, Event, RankingProblem, Rejection};
 pub use ids::{
     ChartKey, ClientId, ContentId, Identity, MatchId, Millis, ParticipantId, Revision, RoomId,
-    SongKey, StageId,
+    RoomSongId, SongKey, StageId,
 };
+pub use songs::{ChartLine, ListRules, NewSong, Removal, RoomSong, RoomSongs, SongCard, WhenFull};
 pub use member::{Capability, Connection, Intent, Member, MemberKind, OpponentSpec, Role, can};
 pub use online::{
     LinkState, OnlineAuthority, ReconnectPolicy, TicketProblem, Transport, TransportEvent,
