@@ -39,6 +39,7 @@ pub use keycaps::KeycapMaterial;
 mod active;
 mod cursor;
 mod rain;
+mod song_cover;
 mod wordmark;
 
 mod tables {
@@ -416,8 +417,7 @@ fn favorite_slot(height: f32, at: [f32; 2]) -> Actor {
 /// selected row, the title's size at rest and selected, and the room
 /// the meters take at its right.
 const WHEEL_BANNER_X: f32 = 12.0;
-const WHEEL_BANNER: [f32; 2] = [144.0, 45.0];
-const WHEEL_BANNER_BIG: [f32; 2] = [224.0, 70.0];
+/// (The banners' sizes follow the rows' heights: [`Infinito::wheel_banner`].)
 const WHEEL_TITLE: f32 = 17.0;
 const WHEEL_TITLE_BIG: f32 = 21.0;
 /// A song row's right end (`song_row`): the chart's level, its best's
@@ -458,6 +458,25 @@ impl Infinito {
         command_of(&mut f, "Press", "stoptweening;linear,0.05;zoom,0.97");
         command_of(&mut f, "Release", "stoptweening;linear,0.08;zoom,1");
         f
+    }
+
+    /// The wide wheel's banner at rest (144 × 45 in the shipped rows) and
+    /// on the selected row (224 × 70): as tall as the rows leave room for,
+    /// those at most, 3.2 wide to 1.
+    fn wheel_banner(&self) -> [f32; 2] {
+        let h = (self.m("Select.Wheel.Row") - self.m("Select.Wheel.Gap") - 15.0).min(45.0);
+        [h * 3.2, h]
+    }
+
+    fn wheel_banner_big(&self) -> [f32; 2] {
+        let h = (self.m("Select.Wheel.Selected") - 18.0).min(70.0);
+        [h * 3.2, h]
+    }
+
+    /// TESTING AID (the select-layout study): a tunable's value changed
+    /// (the list's rows' heights, the song side's and the list's widths).
+    pub fn set_metric(&mut self, name: &str, value: f32) {
+        self.metrics.insert(name.to_string(), value);
     }
 
     /// A wheel row `h` high: whether it is the compact list's, its
@@ -524,7 +543,8 @@ impl Infinito {
         let (bw, bh, bx) = if compact {
             (96.0, 30.0, 6.0)
         } else {
-            (WHEEL_BANNER[0], WHEEL_BANNER[1], WHEEL_BANNER_X)
+            let [w, h] = self.wheel_banner();
+            (w, h, WHEEL_BANNER_X)
         };
         let by = (row - bh) / 2.0;
         let mut back = round(
@@ -1666,6 +1686,9 @@ impl Look for Infinito {
                 frame("", vec![p, line])
             }
             "SongInfo" => self.song_info(spec),
+            "SongCover" => self.song_cover(spec),
+            "SongInfo.Text" => self.song_text(spec),
+            "SongInfo.Short" => self.song_short(spec),
             "StyleTab" => self.style_tab(spec),
             "ChartLadder.Row" => self.ladder_row(spec),
             "ChartLadder.Empty" => self.ladder_empty(spec),
@@ -1779,6 +1802,7 @@ impl Look for Infinito {
             }
         };
         let header = ddi_ui::hit::find_mut(actor, "Chevron").is_some();
+        let (wheel_banner, wheel_banner_big) = (self.wheel_banner(), self.wheel_banner_big());
         let a = self.c(if header { "HeaderRow" } else { "Row" });
         let b = self.c("Raised");
         let color = std::array::from_fn::<_, 4, _>(|i| mix(a[i], b[i]));
@@ -1804,12 +1828,12 @@ impl Look for Infinito {
                     actor,
                     name,
                     &[
-                        ("zoom", &[mix(1.0, WHEEL_BANNER_BIG[0] / WHEEL_BANNER[0])]),
+                        ("zoom", &[mix(1.0, wheel_banner_big[0] / wheel_banner[0])]),
                         (
                             "y",
                             &[mix(
-                                (row - WHEEL_BANNER[1]) / 2.0,
-                                (big - WHEEL_BANNER_BIG[1]) / 2.0,
+                                (row - wheel_banner[1]) / 2.0,
+                                (big - wheel_banner_big[1]) / 2.0,
                             )],
                         ),
                     ],
@@ -1821,13 +1845,13 @@ impl Look for Infinito {
                 &[(
                     "y",
                     &[mix(
-                        (row - WHEEL_BANNER[1]) / 2.0,
-                        (big - WHEEL_BANNER_BIG[1]) / 2.0,
+                        (row - wheel_banner[1]) / 2.0,
+                        (big - wheel_banner_big[1]) / 2.0,
                     ) + 8.0],
                 )],
             );
-            let tx = WHEEL_BANNER_X + WHEEL_BANNER[0] + 14.0;
-            let tx2 = WHEEL_BANNER_X + WHEEL_BANNER_BIG[0] + 16.0;
+            let tx = WHEEL_BANNER_X + wheel_banner[0] + 14.0;
+            let tx2 = WHEEL_BANNER_X + wheel_banner_big[0] + 16.0;
             let width = width - 2.0 * ROW_INSET;
             let room = mix(
                 width - tx - WHEEL_RIGHT - 8.0,

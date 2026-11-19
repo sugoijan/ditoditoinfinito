@@ -88,6 +88,11 @@ select-info-length = LENGTH
 # 38 px to itself.
 select-info-pack = PACK
 
+# A small label in capitals before the chosen chart's note count ("507")
+# in the line under the song's title, with about 50 px to itself
+# (the select-layout study's round 5, a candidate behind a testing switch).
+select-info-notes = NOTES
+
 ## The styles (Single, Double…) and the charts of the song shown.
 
 # The compact layout's style button (a phone's): the style shown, how

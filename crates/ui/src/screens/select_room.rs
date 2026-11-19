@@ -390,6 +390,10 @@ impl SelectScreen {
     /// The room's players panel beside the song (`RoomPlayers`; the wide
     /// layout's, empty elsewhere).
     pub(super) fn room_players(&self) -> Actor {
+        // TESTING AID: the select-layout study's three-column room.
+        if let Some(c) = self.study_column() {
+            return self.study_players_column(c);
+        }
         match (&self.room, self.layout.players) {
             (Some(rm), Some(rect)) if rm.side != Side::Joining => {
                 room::players_panel(&self.env, &rm.room.borrow(), rect)

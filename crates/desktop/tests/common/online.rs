@@ -21,6 +21,12 @@ use ddi_ui::{Ui, UiEvent};
 
 pub const ROOM: &str = "Room000001";
 
+thread_local! {
+    /// The tunables [`person`]'s look changes (the select-layout study's
+    /// slimmer list; empty: the shipped look).
+    pub static LOOK_METRICS: RefCell<Vec<(&'static str, f32)>> = const { RefCell::new(Vec::new()) };
+}
+
 /// The fake room's HTTP for one person: who they are, the room's name, a
 /// socket's ticket, an operator's upload grant. A live room's (as the
 /// session's live tests answer it) is named Live, reads no invite and
@@ -138,7 +144,11 @@ pub fn person(
         ClientId::new(format!("{who}-desktop")),
         1_000,
     )));
-    let look = Rc::new(ddi_theme::Infinito::new());
+    let mut look = ddi_theme::Infinito::new();
+    for (k, v) in LOOK_METRICS.with(|m| m.borrow().clone()) {
+        look.set_metric(k, v);
+    }
+    let look = Rc::new(look);
     let env = Env::new(look.clone(), Rc::new(|s: &str| s.to_string()));
     env.reduced_motion.set(true);
     let uploads: Rc<RefCell<Vec<UploadJob>>> = Rc::default();

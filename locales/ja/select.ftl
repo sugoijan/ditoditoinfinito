@@ -34,6 +34,8 @@ select-info-length = 長さ
 
 select-info-pack = パック
 
+select-info-notes = ノーツ
+
 ## スタイルと譜面。
 
 select-style-button = { $charts ->
