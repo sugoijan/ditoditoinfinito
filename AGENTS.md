@@ -1290,7 +1290,11 @@ Rust and the browser are implementation details, not advertised features.
   `decided`: those still in by life, then the score, DDI's sum,
   `Run::Live`'s `score`, a CPU's or a bot's its own (it plays the whole
   chart; a report without one, taken as given as any self-reported
-  value is, ranks as 0);
+  value is, ranks as 0), then the failed by score (`Run::Failed`: under
+  Charts: Adaptive's rule On the easiest chart, `MatchRules::easiest`,
+  Play on, a new room's since revision 15, life out on the easiest
+  chart is failed, played on to the song's end and out for the battle;
+  a live stage confirmed only once their streams ended);
   `GaugeAttacksV0`, the same with attacks, chosen by the match's Attacks
   rule, `MatchRules::attacks`, On by default where attacks are offered
   (`MatchRules::practice`; a hosted room's, `MatchRules::hosted_for`,
@@ -1413,7 +1417,15 @@ Rust and the browser are implementation details, not advertised features.
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 14 since 2026-11-17: the CPUs' levels,
+  (`ROOM_MODEL_REVISION`, 15 since 2026-11-19: joining during a match
+  On for a new room, `MatchRules::mid_match_entry` (seated for the next
+  stage not begun, up to the competitor cap, `RoomState::late_places`),
+  open-ended matches, `MatchRules::open_ended` (`Stage::last`,
+  `Command::SetLastStage`, `Command::EndMatch`), On the easiest chart's
+  Play on (`MatchRules::easiest`, `Run::Failed`, `MomentKind::Failed`),
+  a 4401 asking for a ticket first; `tests/room-revision-14.json`, read
+  as it was: Stages a number, joining Off, Out at the easiest chart; 14
+  since 2026-11-17: the CPUs' levels,
   `cpu-levels-v2`, which every device computes (a stored roster's level
   numbers mean the new levels; `tests/room-revision-13.json`); 13 since
   2026-11-17: DDI's points, percent and
@@ -1472,7 +1484,10 @@ Rust and the browser are implementation details, not advertised features.
   revisions passed over, `LinkState` (joining, connected, reconnecting on
   a fresh ticket by `ReconnectPolicy::RECONNECT_BACKOFF_V0`, tried at
   once by `retry_now`, and the ends:
-  4401 sign in again, 4410 closed, 4000 left, 4429 the room opened on
+  4401 a ticket asked once at once (`SIGN_IN_RECHECK_MS`: granted, a
+  reconnect; refused 401 or a second 4401 within a minute, sign in
+  again; a link refused before it ever reached the room says so,
+  `LinkState::SignInToEnter`, `NotAMember`), 4410 closed, 4000 left, 4429 the room opened on
   another device of the person's, a fifth socket, whose "Use this
   device" joins again, `OnlineAuthority::restart`); a socket's keep-alive
   (`KEEPALIVE_V0`, PROVISIONAL: "ping" after 20 s of silence, answered

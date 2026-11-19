@@ -12180,6 +12180,226 @@ stage's play (a watched one too) has a pointer-only volume beside the quit
 button (`docs/plans/play-hud.md`, "The music's volume"); the Ready card's
 change is that control and its line alone. No room model revision: nothing
 peers agree on changed.
+||||||| parent of ce414c7e (Say round AA in the progress note, the plans' index and AGENTS.md)
+
+## Feedback round AA: a sign-in that never ended, joining during a match, open-ended matches, playing on failed (room model revision 15, 2026-11-19)
+
+From the recording of the test with real players. **Room model revision 15**:
+server and frontend deploy together, the server first; people in rooms are
+told to reload.
+
+### 1. "Your sign-in ended. Sign in again to return to the room."
+
+The line shows for `LinkState::SignInAgain`: a socket the room closed 4401, or
+a ticket refused 401. Two defects, both fixed:
+
+- **A week-old session (verified, the coordinator's reading)**: the ticket
+  route re-signs a session used a day after its signing (a new cookie,
+  desktop's `x-ddi-session`), but the ticket it issued carried the expiry of
+  the session the request came with, and the room closes the socket 4401 on
+  the first message after that instant. Someone signed in six to seven days
+  before was thrown out hours later with a sign-in that was good. The server
+  (`session::ticket`, `Session::standing`) now gives the ticket the session as
+  the same request leaves it (re-signed where due, within the thirty days;
+  `a_ticket_lives_as_long_as_the_session_its_request_leaves`, at 6.5 days);
+  the client (`OnlineAuthority`, `SIGN_IN_RECHECK_MS`) asks for a ticket once,
+  at once, after a 4401: granted, it reconnects as after any lost socket (the
+  person sees Reconnecting at most); refused 401, or a second 4401 within a
+  minute, it is Sign in again (`a_socket_closed_for_its_session_asks_for_a_ticket_before_it_ends`,
+  the UI's `a_4401_with_the_session_still_good_reconnects`). Both shells and
+  the bots share the authority.
+- **A first-time player (the maintainer's correction: the player had never
+  played)**: the room's page address (`#/mp/room/<id>`) opened by someone who
+  never signed in asks for a ticket, is refused 401, and was told their
+  sign-in "ended"; signing in from More then got 403 and "You left this
+  room." That is what a newcomer gets when the host shares the page's address
+  (the address bar, a stream, a screenshot) instead of the invite link. Now a
+  link refused before it ever reached the room says what is true:
+  `LinkState::SignInToEnter` ("Sign in to enter this room.", a notice with
+  Sign in with Twitch and Multiplayer home; More's Sign in with Twitch),
+  `LinkState::NotAMember` ("You're not in this room. Ask its host for the
+  invite link.", a notice whose button goes to the multiplayer home; More's
+  Leave room reads Multiplayer home); "Your sign-in ended" only for a link that
+  had the room. The kept client of such a room is made anew when its invite
+  is then joined (`Kept::room_or`), so the join enters the room rather than
+  the old refusal (`a_rooms_address_opened_by_someone_never_in_it_says_so`,
+  `a_link_refused_before_it_reached_the_room_says_it_never_did`). The address
+  still admits nobody (the invite is the room's key: nothing added). To make
+  the wrong address harder to share: More's Copy invite link (and the room's
+  other links) now come first; a host alone in the lobby reads "Pick a song to
+  start the match. To bring people in, share the invite link from More, not
+  this page's address."; and Join by link given a room's page address says
+  "That's a room's page address, not its invite link. Ask the room's host for
+  the invite link." Desktop has no room-address route (`--join` takes an
+  invite and refuses anything else on the command line); its Join by link
+  says the same.
+
+Every other way the line can show, and whether it is right to:
+
+| Way | Shows today | Right? |
+| --- | --- | --- |
+| Signed out in another tab of the same browser (the cookie is shared) | Sign in again | Yes: the session ended |
+| Cookies cleared or blocked by the browser | Signed out before reaching the room: Sign in to enter; mid-room: Sign in again | Yes |
+| The 30-day cap reached mid-room | Sign in again at the first message after it | Yes, but unkind mid-stage; kinder: let a stage end, then ask (not built: the room closes the socket, the client cannot keep it; it would need the room to hold the close until the stage settles) |
+| The server's signing secret changed by a deploy | Every session invalid: Sign in again (or Sign in to enter) | Yes, and every person at once |
+| Desktop's `online-session` file lost | Signed out: Sign in to enter | Yes |
+| An audience seat | Never: relays do not close 4401, the audience join needs no session | n/a |
+| The sign-in coming back in another browser context (a chat app's in-app browser handing Twitch to the system browser) | The callback's binding cookie is not there: the server's own error page, never this line; the new context lands on the invite signed in | Not this line |
+| Privacy mode | First-party cookies kept for the session: none of the above | n/a |
+| The invite's Join pressed before `/me` answered | A sign-in round trip (Twitch answers at once for someone signed in), never this line | Not this line (a wasted trip) |
+| A second tab, a reload of the room's page | The cookie is shared: the ticket is granted | Not this line |
+| The sign-in's return route being the room's | Only after Sign in to enter or Sign in again; fine | n/a |
+| The cookie's path or SameSite on the return | `COOKIE_PATH` covers every API route; same-site navigation | Not this line |
+| A join that succeeded followed by a ticket refused | Only if the cookie vanished between them: now Sign in to enter | Yes |
+| Any 401 from the ticket route | `signed_out` (no or invalid token) and `session_expired` both mean the session cannot be used; `ticket_of` maps every 401 to signed out, 403 to not a member, 404/410 to closed, 429 and 5xx to a retry | Yes |
+
+**The session log**: the room's daily counts gain `sign_in_closes` (client,
+`session`: `closed` for every 4401 the room closed, `still_valid` where the
+seat's ticket followed within a minute: the session was in fact good), with
+the panel's pivot under Sockets. No identity; the timeline already said each
+seat's socket end and ticket.
+
+### 2. Joining during a match
+
+`MatchRules::mid_match_entry` (it existed, Off, offered nowhere) is **On for a
+new room and a new match**, practice and hosted; it is always written, and a
+rules JSON that names none reads Off (every stored room's names it: Off).
+Someone who joins while a match runs, or a watcher who chooses Play, is seated
+(`Event::LateEntrantsAdmitted`, after every accepted command,
+`RoomState::seat_newcomers`) in the stage being prepared whose play has not
+started: at once where its song is picked (its readiness window as it stands,
+the song to load like anyone's; `hosted-deadline-v2`'s grace covers them while
+it runs); during a stage's countdown or play they wait for the next pick
+(`Participation::WaitingNextStage`). Round P1b's late entry does not apply to
+a newcomer (it is for those counted out of the lineup at the commit). Places:
+**up to the room's competitor cap** (`RoomState::late_places`: the cap less
+those seated and still in, CPUs counted), never the seats the match began with
+(today a hosted room's seats are the cap already; a practice room's are its
+people and CPUs); a newcomer never takes a CPU's place, and with every place
+taken waits and is told why (`Participation::WaitingPlace`, "Every place in
+this match is taken, its CPUs' too. …"). Standings show a stage they missed as
+a dash and total the stages they played (as before); the players' rows say
+"From stage N" and the waiting states "Next song" / "No place free"; the
+invite's page says "A match is running: you can play from its next song." (the
+server's admission `next_stage`). Rules: a row **Joining during a match**
+(On/Off, the next match's). Persistent elimination is not offered in any Rules
+row, so the refused combination is never met there (the model still refuses
+it). Walkthroughs: `round_aa.rs`
+(`a_newcomer_during_a_match_plays_its_next_song_not_begun`,
+`a_full_match_seats_nobody_more_and_never_in_a_cpus_place`,
+`joining_during_a_match_off_and_elimination_never_combine`); the server's
+`a_newcomer_during_a_match_plays_its_next_stage_not_begun`.
+
+### 3. Open-ended matches
+
+`MatchRules::open_ended` (additive, left out while off; `stages` kept as the
+count Rules shows should Open be turned off, so revision 14's reading of
+`stages: u16` is untouched). An open match is made with one stage, the next
+made as each stage's start commits (so a per-stage rules change during a play
+lands on it as in a counted match), until a stage marked its **last song**
+(`Stage::last`, `Command::SetLastStage`, an operator's, the picker's at a
+pick, until the stage's start) settles, an operator **ends the match now**
+between stages (`Command::EndMatch`, asked once more; never during a stage's
+countdown or play, never before a stage settled; the stage not begun dropped,
+`Event::StagesDropped`), or the room's `max_stages` is reached (that stage is
+the last by itself, said beforehand as "Last song"). The match then ends as a
+counted one (results, totals, the winner), and the next match's draft keeps
+Stages: Open. Screens: the Stages row's values are Open, 1, 2, … (Open one
+step below one; its sentence says the bound), "Stage N" without "of M"
+everywhere (`[0]` variants of the messages: the status line, Rules'
+statement, the prompt, the picks' count, the Standings' title), "Last song ·"
+before the status line's words, More's Make this the last song / Not the last
+song for the stage picked and not started (an operator's), Make the next pick
+the last song before a pick (the picker's), End the match now. **Chosen**:
+More's items (not a second action on the pick row, which lives in song
+select's room view, another agent's file); no key hint of their own (More's
+key reaches them). Bots: `--stages open`, `--last-after N`, `--end-after N`.
+The session log says an open match's start as "an open-ended match began".
+Walkthroughs: `an_open_match_goes_on_until_its_last_song`,
+`an_open_match_ends_now_or_at_the_rooms_bound`.
+
+### 4. Under Adaptive, failed players play on
+
+`MatchRules::easiest` (`AtEasiest`: **Play on**, a new room's, or Out; left
+out of the JSON while Out, read Out where missing; a per-stage rule like
+Charts) under Charts: Adaptive. With Play on, life out on the ladder's lowest
+rung (or a song's only chart) is a fail that plays on
+(`FailPolicy::ImmediateContinue`, already the engine's: the gauge takes
+nothing more, every note judged and scored to the end): the competitor is
+**failed**, graded F, out for the battle from that moment (no attacks sent,
+attacks against them expire, nothing more placed in their play, out for
+`SETTLEMENT_V1` and Last standing), and ranked after everyone who did not
+fail, among the failed by score (`Run::Failed`, `ReportedRun::Failed`,
+`Finish::Failed`; the same points table over the whole order). Under As
+picked it does not apply (the same engine path, but its words, "On the
+easiest chart", are Adaptive's; As picked keeps its survival meaning).
+**When the results show**: the decision among those still in is made and told
+as before (Last standing, Stage won; the winner plays the song out); the
+stage's ranking with the failed placed by their final scores comes at the
+song's end, where every failed play ends (practice: worked out then; live:
+the room confirms only once every failed competitor's stream ended, else from
+the reports at the song's end). The failed see their own play to its end,
+"Failed: playing on" under the gauge; their miniatures are dimmed a little
+with "Failed", their notes and score still shown. A failed player's quit is a
+forfeit (ranked with forfeits). Live: a stream's moment of its own
+(`MomentKind::Failed`, the wire's kind 7), never its end; a CPU's failure from
+its reports. CPUs and bots the same; `cpus/fixture.txt` gains scenario 4
+(Play on: CPU 108 fails at 80.8 s, plays to the end, its score rising; every
+device alike over three networks; the first 248 lines byte-identical).
+Engine: no change (no `PlayLog` change: a stage's rules are the play's;
+stage plays are not kept). Nothing in `crates/engine/src/cpu/`.
+
+### What moved
+
+- The session's pinned stage traces (`pinned.txt`, `live_pinned.txt`):
+  digests only, because the traced views and field summaries gained the field
+  `failed: false`; every readable line unchanged, and the 233,910 field texts
+  of the practice pins compared before and after identical but for that word.
+  Their rigs name Out at the easiest chart (and the live rig no joining
+  during a match), as they were written.
+- The room screens' drawn pins `rules`, `add`, `add-level` (the Rules pop-up's
+  new rows). Walkthroughs written for joining Off name it Off.
+- `room-invite-next-match` keeps its words for a room whose rule is Off.
+
+### Validation
+
+- Suites: room (walkthroughs `round_aa.rs` and the stored revision-14
+  room, `a_room_stored_by_revision_14_loads_and_plays_on_as_it_was`, the
+  adapter contract's online tests), engine, session (the CPUs' fixture
+  natively and under WASI; the failed player's
+  `a_player_failed_on_the_easiest_chart_plays_on_and_ranks_under_the_survivors`),
+  ui (724), shell, theme, render and desktop (384) with no failure; clippy
+  native and wasm; `l10n check`. The server: fmt, clippy native and wasm
+  with and without `dev-auth`, 192 and 193 tests, against this round's
+  crates.
+- A local server with bots: a four-stage match where a bot joined ten
+  seconds into stage 1 and played stage 2 and on (its total stage 2's
+  points alone, place 2 of 3 after it); a short rerun with the bots'
+  fix, the late bot watching stage 1 (`watching stage 1 (not in it)`)
+  rather than playing it; an open match whose third pick was made its
+  last song, over after it; one ended now after two stages; an Adaptive
+  match on a song whose only chart is its Hard one (a scratch copy of the
+  bundled Beatucada), where both level-1 bots failed (14.1 s and 14.7 s),
+  played on to the end and ranked under the level-10 survivor by their
+  scores, the one who failed first above (under Out the later one would
+  have been).
+- The web in headless Chrome, then Firefox (CPU practice): the Rules
+  pop-up's new rows and Stages Open, More's "Make the next pick the last
+  song", the stage's prompt saying "Stage 1" alone, the player idled to a
+  fail on Beginner and playing on ("Failed: playing on" under an empty
+  gauge, the miniatures on), the Standings (4th of 4 under the survivors,
+  F, "Failed 0:32"), More's End the match now and its question, the match
+  over. Pictures under the main checkout's `target/scratch/mp/aa/shots/`.
+- The bots: a late bot handed a stage to watch (one it is not in) watched
+  it; before, it played and reported it, and the room refused the report.
+
+### Not done, and decisions
+
+- **Kinder end at the 30-day cap** (finish the stage, then ask): not built.
+- **Wording to decide**: "On the easiest chart: Play on / Out", "Joining
+  during a match", "Stages: Open", "Last song", "End the match now",
+  "Failed: playing on" (Japanese drafts).
+- **Rules' summary words** (`rules_words`) do not name the three new rules.
 
 ## Provisional choices
 
