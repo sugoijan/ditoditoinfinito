@@ -35,8 +35,10 @@ pub const MAX_SONGS: u16 = 100;
 pub const MAX_CHARTS: usize = 32;
 /// The longest key an entry's song or chart may have (bytes).
 pub const MAX_KEY: usize = 64;
-/// The longest style or difficulty an entry's chart names (characters).
-pub const MAX_CHART_TEXT: usize = 64;
+/// The longest style or difficulty an entry's chart names (bytes: a
+/// style's id, `dance-single`, and a difficulty's name, `Challenge`, are
+/// short), so that a full list at its worst stays well inside its row.
+pub const MAX_CHART_TEXT: usize = 32;
 
 /// The room's song list.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -212,8 +214,8 @@ impl ChartLine {
     pub fn fits(&self) -> bool {
         self.chart.as_str().len() <= MAX_KEY
             && !self.chart.as_str().is_empty()
-            && self.style.chars().count() <= MAX_CHART_TEXT
-            && self.difficulty.chars().count() <= MAX_CHART_TEXT
+            && self.style.len() <= MAX_CHART_TEXT
+            && self.difficulty.len() <= MAX_CHART_TEXT
     }
 }
 

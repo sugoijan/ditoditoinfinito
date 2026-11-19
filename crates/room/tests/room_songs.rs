@@ -477,15 +477,15 @@ fn room_songs_measure() {
                 NewSong {
                     key: SongKey::new(format!("{n:0>64}")),
                     card: SongCard {
-                        title: long('t', 200),
-                        artist: long('a', 200),
-                        pack: long('p', 200),
+                        title: "😀".repeat(200),
+                        artist: "😀".repeat(200),
+                        pack: "😀".repeat(200),
                     },
                     charts: (0..32)
                         .map(|k| ChartLine {
                             chart: ChartKey::new(format!("{n:0>32}{k:0>32}")),
-                            style: long('s', 64),
-                            difficulty: long('d', 64),
+                            style: long('s', 32),
+                            difficulty: long('d', 32),
                             meter: 99,
                         })
                         .collect(),
