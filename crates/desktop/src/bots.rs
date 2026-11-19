@@ -96,6 +96,9 @@ pub struct Options {
     pub songs: Vec<PathBuf>,
     /// The host's fixed list (`--pick ID[:CHART],…`).
     pub picks: Vec<(String, Option<usize>)>,
+    /// The songs the host adds to an online room's song list first, then
+    /// picks from it (`--add ID,…`, room model revision 17).
+    pub adds: Vec<String>,
     /// How long the host rests on a song before picking it.
     pub rest_ms: u64,
     /// The host's Rules: stages a match.
@@ -163,6 +166,7 @@ impl Default for Options {
             personality: None,
             songs: Vec::new(),
             picks: Vec::new(),
+            adds: Vec::new(),
             rest_ms: 8_000,
             stages: None,
             open: false,
@@ -204,7 +208,11 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
   --personality P      every bot's personality: a preset or seven multipliers
   --songs DIR          the host's songs from this folder (repeatable; else
                        the bundled songs alone, never the settings' folders)
-  --pick ID[:N],…      the host's songs in this order (chart index N)
+  --pick ID[:N],…      the host's songs in this order (chart index N); in an
+                       online room each is added to the room's song list
+                       before its pick
+  --add ID,…           songs the host adds to an online room's song list at
+                       once, then picks from the list in its order
   --rest SECONDS       the host's rest on a song before picking it (default 8)
   --stages N|open      the host's Rules: stages a match, or Open (an
                        open-ended match: no set count)
@@ -365,6 +373,15 @@ impl Options {
                         };
                         o.picks.push((id, chart));
                     }
+                }
+                "--add" => {
+                    o.adds.extend(
+                        value(i, a)?
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|p| !p.is_empty())
+                            .map(str::to_string),
+                    );
                 }
                 "--rest" => {
                     let s = value(i, a)?
@@ -835,6 +852,9 @@ fn sign_in(base: &str, token: &str, name: &str) -> Result<String, String> {
 /// The host's songs and where it is in them.
 struct Host {
     songs: Vec<(SongEntry, ChartEntry)>,
+    /// `--add`'s songs, added to the room's list once (revision 17).
+    adds: Vec<SongEntry>,
+    added: bool,
     /// The songs checked for the CPU so far ([`host_plays`]), by id.
     checked: std::collections::HashSet<String>,
     next: usize,
@@ -867,6 +887,8 @@ enum Role {
 /// What the log said last, so that it says each change once.
 #[derive(Default)]
 struct Said {
+    /// The room's song list as last said (revision 17).
+    songs: Option<Vec<String>>,
     link: Option<LinkState>,
     phase: Option<PhaseKind>,
     spotlight: Option<String>,
@@ -955,7 +977,9 @@ impl Bot {
         }
         let uploads = room.borrow_mut().take_upload_jobs();
         for job in uploads {
-            let what = if job.stage == SPOTLIGHT {
+            let what = if job.entry.is_some() {
+                format!("uploading {} for the room's songs", job.song.title)
+            } else if job.stage == SPOTLIGHT {
                 "sharing its resting song".to_string()
             } else {
                 format!("sharing stage {}'s song", stage_number(&room, job.stage))
@@ -1128,6 +1152,26 @@ impl Bot {
             ));
         }
         self.said.spotlight = spot;
+        // The room's song list as it changes (revision 17).
+        let list: Vec<String> = room
+            .borrow()
+            .room_songs()
+            .iter()
+            .map(|e| {
+                let state = match &e.status {
+                    ddi_room::ContentStatus::Pending => "uploading",
+                    ddi_room::ContentStatus::Available => "there",
+                    ddi_room::ContentStatus::Unavailable { .. } => "not there",
+                };
+                format!("{} ({state})", e.card.title)
+            })
+            .collect();
+        if self.said.songs.as_ref() != Some(&list) {
+            if !list.is_empty() || self.said.songs.is_some() {
+                self.say(format!("the room's songs: {} [{}]", list.len(), list.join(", ")));
+            }
+            self.said.songs = Some(list);
+        }
         if refusal.is_some() && refusal != self.said.refusal {
             self.say(format!("refused: {}", refusal.clone().unwrap_or_default()));
             room.borrow_mut().clear_refusal();
@@ -1404,6 +1448,26 @@ impl Bot {
                 Err(why) => say(format!("Rules refused: {why:?}")),
             }
             host.not_before = now + 2_000;
+            // Its library as the room's client knows it (revision 17): what
+            // it adds to the room's list is uploaded from it.
+            let library: Vec<SongEntry> = host
+                .songs
+                .iter()
+                .map(|(s, _)| s.clone())
+                .chain(host.adds.iter().cloned())
+                .collect();
+            room.borrow_mut().set_library(&library);
+        }
+        // `--add`: the songs added to the room's list at once, once.
+        if !host.added && room.borrow().has_song_list() && room.borrow().may_add() {
+            host.added = true;
+            for song in host.adds.clone() {
+                match room.borrow_mut().add_song(&song) {
+                    Ok(()) => say(format!("added {} to the room's songs", song.title)),
+                    Err(why) => say(format!("adding {} refused: {why:?}", song.title)),
+                }
+            }
+            room.borrow_mut().clear_refusal();
         }
         // One picker at a time: the bot picks while the pick is its own.
         // Someone who took it over chooses until they give it up (they
@@ -1496,6 +1560,10 @@ impl Bot {
             return;
         }
         host.waiting_said = false;
+        if room.borrow().has_song_list() {
+            Self::pick_listed(host, room, now, say);
+            return;
+        }
         let at = host.next % host.songs.len();
         let (song, chart) = host.songs[at].clone();
         // Each song checked for the CPU when the host first comes to it,
@@ -1541,6 +1609,107 @@ impl Bot {
                 host.resting = None;
                 // Nothing more until the room has moved on (its stage then
                 // holds it back until after the standings).
+                host.not_before = now + PAUSE_MS;
+            }
+            Err(why) => {
+                say(format!("the pick was refused: {why:?}"));
+                room.borrow_mut().clear_refusal();
+                host.not_before = now + RETRY_MS;
+            }
+        }
+    }
+}
+
+impl Bot {
+    /// An online room's pick (revision 17): from the room's song list.
+    /// With `--add` the list's songs in its order; else the host's songs,
+    /// each added to the list first where it is not there. A song is
+    /// rested on, then picked once it is uploaded.
+    fn pick_listed(host: &mut Host, room: &SharedRoom, now: u64, say: &mut dyn FnMut(String)) {
+        let entry = if host.adds.is_empty() {
+            if host.songs.is_empty() {
+                return;
+            }
+            let at = host.next % host.songs.len();
+            let (song, _) = host.songs[at].clone();
+            let listed = room.borrow().listed(&song).cloned();
+            match listed {
+                Some(e) => e,
+                None => {
+                    if room.borrow().may_add() {
+                        match room.borrow_mut().add_song(&song) {
+                            Ok(()) => say(format!("added {} to the room's songs", song.title)),
+                            Err(why) => {
+                                say(format!("adding {} refused: {why:?}", song.title));
+                                room.borrow_mut().clear_refusal();
+                                host.next += 1;
+                            }
+                        }
+                    }
+                    host.not_before = now + RETRY_MS;
+                    return;
+                }
+            }
+        } else {
+            let list = room.borrow().room_songs().to_vec();
+            if list.is_empty() {
+                return;
+            }
+            list[host.next % list.len()].clone()
+        };
+        if !entry.available() {
+            // Its upload under way: picked once it is there.
+            return;
+        }
+        // Its chart one player plays on four lanes, nearest level 7.
+        let chart = entry
+            .charts
+            .iter()
+            .filter(|c| {
+                ddi_ui::state::room::eligible(&ChartEntry {
+                    style: c.style.clone(),
+                    ..ChartEntry::default()
+                })
+                .is_ok()
+            })
+            .min_by_key(|c| (i64::from(c.meter) - 7).abs())
+            .cloned();
+        let Some(chart) = chart else {
+            say(format!("{}: no chart the CPU plays; passed over", entry.card.title));
+            host.next += 1;
+            return;
+        };
+        room.borrow_mut().hover_listed(Some((entry.id, &chart.chart)));
+        let Some(since) = host.resting else {
+            host.resting = Some(now);
+            say(format!(
+                "resting on {} ({} {}) of the room's songs",
+                entry.card.title, chart.difficulty, chart.meter
+            ));
+            return;
+        };
+        if now < since + host.rest_ms {
+            return;
+        }
+        let number = room.borrow().next_pick_number();
+        let last = host.last_after == Some(number)
+            && !host.last_at_ready
+            && matches!(
+                room.borrow().last_song_choice(),
+                Some(ddi_ui::state::room::LastSongChoice::NextPick { last: false })
+            );
+        if last {
+            room.borrow_mut().toggle_last_song();
+        }
+        match room.borrow_mut().pick_listed(entry.id, &chart.chart) {
+            Ok(()) => {
+                let as_last = if last { " as the last song" } else { "" };
+                say(format!(
+                    "picked {} from the room's songs for stage {number}{as_last}",
+                    entry.card.title
+                ));
+                host.next += 1;
+                host.resting = None;
                 host.not_before = now + PAUSE_MS;
             }
             Err(why) => {
@@ -1610,7 +1779,7 @@ fn host_plays(song: &SongEntry, chart: &ChartEntry) -> bool {
 /// it, [`host_plays`]), in an order drawn from `seed`. Never the settings'
 /// song folders (review3 desktop-4): what the host rests on or picks is
 /// uploaded as the room's share, and local packs stay local.
-fn host_songs(o: &Options, seed: u64) -> Vec<(SongEntry, ChartEntry)> {
+fn host_songs(o: &Options, seed: u64) -> (Vec<(SongEntry, ChartEntry)>, Vec<SongEntry>) {
     let songs = crate::songs::Songs::new(o.songs.clone());
     if !o.songs.is_empty() {
         songs.start(std::sync::Arc::new(|| {}));
@@ -1646,8 +1815,20 @@ fn host_songs(o: &Options, seed: u64) -> Vec<(SongEntry, ChartEntry)> {
         );
     }
     let entry = ddi_ui::state::select_view::plain_song_entry;
-    if !o.picks.is_empty() {
-        return o
+    // `--add`'s songs (revision 17), by id.
+    let adds: Vec<SongEntry> = o
+        .adds
+        .iter()
+        .filter_map(|id| match library.iter().find(|l| l.id == *id) {
+            Some(lib) => Some(entry(lib)),
+            None => {
+                eprintln!("bots: no song {id} in the library");
+                None
+            }
+        })
+        .collect();
+    if !o.picks.is_empty() || !o.adds.is_empty() {
+        let picks = o
             .picks
             .iter()
             .filter_map(|(id, chart)| {
@@ -1663,6 +1844,7 @@ fn host_songs(o: &Options, seed: u64) -> Vec<(SongEntry, ChartEntry)> {
                 Some((song, chart?))
             })
             .collect();
+        return (picks, adds);
     }
     let mut out: Vec<(SongEntry, ChartEntry)> = library
         .iter()
@@ -1673,7 +1855,7 @@ fn host_songs(o: &Options, seed: u64) -> Vec<(SongEntry, ChartEntry)> {
         })
         .collect();
     out.sort_by_key(|(s, _)| mix(seed, s.id.bytes().fold(0u64, |h, b| mix(h, u64::from(b)))));
-    out
+    (out, adds)
 }
 
 /// Ctrl-C's count: once leaves the rooms, twice ends at once.
@@ -1777,16 +1959,16 @@ pub fn run_with(o: Options, token: &str) -> i32 {
             .collect::<Vec<_>>()
             .join(", ")
     );
-    let songs = if o.host {
-        let songs = host_songs(&o, seed);
-        if songs.is_empty() {
+    let (songs, adds) = if o.host {
+        let (songs, adds) = host_songs(&o, seed);
+        if songs.is_empty() && adds.is_empty() {
             eprintln!("bots: the host has no song one player plays on four lanes");
             return 1;
         }
-        println!("{} bots: the host's songs: {}", clock_text(), songs.len());
-        songs
+        println!("{} bots: the host's songs: {}", clock_text(), songs.len() + adds.len());
+        (songs, adds)
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
     let mut bots = Vec::new();
     for (n, profile) in profiles.into_iter().enumerate() {
@@ -1810,6 +1992,8 @@ pub fn run_with(o: Options, token: &str) -> i32 {
         let role = if o.host && n == 0 {
             Role::Host(Box::new(Host {
                 songs: songs.clone(),
+                adds: adds.clone(),
+                added: false,
                 checked: Default::default(),
                 next: 0,
                 resting: None,
@@ -1942,6 +2126,9 @@ mod tests {
         assert_eq!(o.life_out, Some(ddi_room::AtEasiest::PlayOn));
         assert!(Options::parse(&args("--mp-bots --host --charts sideways")).is_err());
         assert!(Options::parse(&args("--mp-bots --host --life-out maybe")).is_err());
+        // Round RL1: the songs the host adds to the room's list first.
+        let o = Options::parse(&args("--mp-bots --host --add beatucada,sweeteners --add x")).unwrap();
+        assert_eq!(o.adds, ["beatucada", "sweeteners", "x"]);
         let o = Options::parse(&args(
             "--mp-bots --join http://localhost:8080/#/mp/join/Room000001.abcdefghijABCDEFGHIJ01?mp=1",
         ))
