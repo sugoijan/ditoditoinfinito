@@ -135,14 +135,7 @@ impl VoicePolicy {
             Event::StepUp | Event::StepDown => 12,
             Event::Survivors(_) => 10,
             Event::AttackLaunched => 8,
-            // The openings, the match's last song's among them (round
-            // AC: under every line that says an outcome and the rest of
-            // the battle's, over the combo lines, `COMBO_PRIORITY`).
-            Event::MatchBegin
-            | Event::StageBegin
-            | Event::FinalStage
-            | Event::LastSong
-            | Event::SongFinished => 5,
+            Event::MatchBegin | Event::StageBegin | Event::FinalStage | Event::SongFinished => 5,
         }
     }
 
@@ -165,7 +158,6 @@ impl VoicePolicy {
             Event::MatchBegin
                 | Event::StageBegin
                 | Event::FinalStage
-                | Event::LastSong
                 | Event::LifeCritical
                 | Event::Survivors(_)
                 | Event::Eliminated

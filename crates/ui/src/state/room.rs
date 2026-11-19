@@ -629,15 +629,15 @@ pub struct StageSetup {
 impl StageSetup {
     /// The stage's opening event: the match's beginning on its first stage
     /// (a one-stage match's too: one opening, never stacked), its last
-    /// song's (round AC: a counted match's last stage, an open-ended
-    /// match's stage marked its last song, `battle last song`, falling
-    /// back on `battle final stage`), else a stage's.
+    /// stage's (a counted match's last stage, or an open-ended match's
+    /// stage marked its last song: `battle final stage` for both, round
+    /// AF), else a stage's.
     pub fn opening(&self) -> ddi_library::announcer::Battle {
         use ddi_library::announcer::Battle as Event;
         if self.number <= 1 {
             Event::MatchBegin
         } else if self.is_last() {
-            Event::LastSong
+            Event::FinalStage
         } else {
             Event::StageBegin
         }

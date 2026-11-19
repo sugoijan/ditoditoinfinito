@@ -441,7 +441,6 @@ room-play-ladder-page = { $page }/{ $pages }ページ · { $field }人中 残り
 room-play-cue-match-begin = 対戦スタート
 room-play-cue-stage-begin = ステージ { $number } スタート
 room-play-cue-final-stage = ファイナルステージ
-room-play-cue-last-song = 最後の曲
 room-play-cue-life-critical = ライフ危険
 room-play-cue-survivors = 残り{ $count }人
 room-play-cue-eliminated = アウト

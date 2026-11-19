@@ -432,7 +432,6 @@ const FULL: &[&str] = &[
     "battle match begin",
     "battle stage begin",
     "battle final stage",
-    "battle last song",
     "battle life critical",
     "battle survivors 2",
     "battle eliminated",
@@ -445,61 +444,61 @@ const FULL: &[&str] = &[
     "battle match drawn",
 ];
 
-/// Round AC: an open-ended match's stage made its last song on its Ready
-/// card (after its order was handed to the prompt; the shells read the
-/// room's `of` again as the play starts, `RoomClient::stage_of`) opens
-/// with `battle last song`; a pack without it opens with `battle final
-/// stage` (its fallback) and the moment shows beside the field; an open
-/// match's stage not marked opens as a stage does, its voice never taking
-/// it for the match's last.
+/// Round AF ("Final stage for both, that's what I had meant"): an
+/// open-ended match's stage not marked opens as any later stage does
+/// (`battle stage begin`), its voice never taking it for the match's
+/// last; a stage made its last song on its Ready card (after its order
+/// was handed to the prompt; the shells read the room's `of` again as
+/// the play starts, `RoomClient::stage_of`) opens with `battle final
+/// stage`, as a counted match's last stage does
+/// (`a_stage_speaks_its_battle_moments_once_and_none_of_a_play_s_routine`).
 #[test]
-fn an_open_match_s_last_song_opens_with_its_line() {
+fn an_open_match_s_last_song_opens_with_the_final_stage_line() {
     let song = bundled("beatucada");
     let settings = Settings::default();
-    for with_line in [true, false] {
-        let mut room = room(2, 3, 2);
-        let mut rules = room.rules().clone();
-        rules.open_ended = true;
-        room.save_rules(rules).unwrap();
-        let mut now = 0;
-        let first = begin(&song, &mut room, &mut now);
-        assert!(!first.is_last() && first.of == 0);
-        assert_eq!(first.opening(), Battle::MatchBegin);
-        let pack: Vec<&str> = FULL
-            .iter()
-            .copied()
-            .filter(|f| with_line || *f != "battle last song")
-            .collect();
-        let (_, said) = play_voiced(&song, &settings, &mut room, &first, true, Some(voice_of(&pack)));
-        assert_eq!(said[0], "battle match begin");
-        // Stage 2: its prompt's order taken, then the Ready card's mark.
-        let e = entry_at(&song, CHART);
-        room.pick(&e, &e.charts[0]).unwrap();
-        let mut order = room.take_stage_order().expect("its prompt");
-        assert_eq!(order.of, 0, "not the last when its prompt opened");
-        assert_eq!(order.opening(), Battle::StageBegin);
-        room.toggle_last_song();
-        for job in room.take_load_jobs() {
-            let checked = check_chart(&song, job.chart, job.digest, &mut |e| panic!("{e}"));
-            room.finish_load(&job, checked);
-        }
-        room.set_ready(true).unwrap();
-        now += 3_000;
-        room.tick(now);
-        assert!(room.stage_started(order.stage));
-        // As the shells do at the play's start.
-        order.setup.of = room.stage_of(order.stage);
-        assert!(order.is_last());
-        assert_eq!(order.opening(), Battle::LastSong);
-        let (s, said) = play_voiced(&song, &settings, &mut room, &order, true, Some(voice_of(&pack)));
-        let opening = if with_line { "battle last song" } else { "battle final stage" };
-        assert_eq!(said[0], opening, "{said:?}");
-        let told = s.battle_told()[0];
-        assert_eq!(told.event, Battle::LastSong);
-        assert_eq!(told.spoken(), with_line);
-        assert_eq!(told.shown(&s.battle_policy().unwrap()), !with_line, "shown where not said");
-        assert_eq!(room.state().phase, Phase::MatchResults, "the last song ended the match");
+    let mut room = room(2, 3, 2);
+    let mut rules = room.rules().clone();
+    rules.open_ended = true;
+    room.save_rules(rules).unwrap();
+    let mut now = 0;
+    let first = begin(&song, &mut room, &mut now);
+    assert!(!first.is_last() && first.of == 0);
+    assert_eq!(first.opening(), Battle::MatchBegin);
+    let (_, said) = play_voiced(&song, &settings, &mut room, &first, true, Some(voice_of(FULL)));
+    assert_eq!(said[0], "battle match begin");
+    // Stage 2, not marked: a stage as any other, the match going on.
+    let second = begin(&song, &mut room, &mut now);
+    assert!(!second.is_last() && second.of == 0);
+    assert_eq!(second.opening(), Battle::StageBegin);
+    let (s, said) = play_voiced(&song, &settings, &mut room, &second, true, Some(voice_of(FULL)));
+    assert_eq!(said[0], "battle stage begin", "{said:?}");
+    assert_eq!(s.battle_told()[0].event, Battle::StageBegin);
+    assert_ne!(room.state().phase, Phase::MatchResults, "the match goes on");
+    // Stage 3: its prompt's order taken, then the Ready card's mark.
+    let e = entry_at(&song, CHART);
+    room.pick(&e, &e.charts[0]).unwrap();
+    let mut order = room.take_stage_order().expect("its prompt");
+    assert_eq!(order.of, 0, "not the last when its prompt opened");
+    assert_eq!(order.opening(), Battle::StageBegin);
+    room.toggle_last_song();
+    for job in room.take_load_jobs() {
+        let checked = check_chart(&song, job.chart, job.digest, &mut |e| panic!("{e}"));
+        room.finish_load(&job, checked);
     }
+    room.set_ready(true).unwrap();
+    now += 3_000;
+    room.tick(now);
+    assert!(room.stage_started(order.stage));
+    // As the shells do at the play's start.
+    order.setup.of = room.stage_of(order.stage);
+    assert!(order.is_last());
+    assert_eq!(order.opening(), Battle::FinalStage);
+    let (s, said) = play_voiced(&song, &settings, &mut room, &order, true, Some(voice_of(FULL)));
+    assert_eq!(said[0], "battle final stage", "{said:?}");
+    let told = s.battle_told()[0];
+    assert_eq!(told.event, Battle::FinalStage);
+    assert!(told.spoken());
+    assert_eq!(room.state().phase, Phase::MatchResults, "the last song ended the match");
 }
 
 /// A two-stage match with a pack of every line: each stage opens with the
@@ -537,11 +536,11 @@ fn a_stage_speaks_its_battle_moments_once_and_none_of_a_play_s_routine() {
             said.last().is_some_and(|l| l.starts_with("battle ")),
             "the outcome's line: {said:?}"
         );
-        // The match's last song (round AC): `battle last song`.
+        // A counted match's last stage: `battle final stage`.
         let opening = if stage == 1 {
             "battle match begin"
         } else {
-            "battle last song"
+            "battle final stage"
         };
         assert_eq!(
             said[..2],

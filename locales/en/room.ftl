@@ -736,11 +736,9 @@ room-play-cue-match-begin = Match begins
 #   $number (Number) - the stage's number, from 2
 room-play-cue-stage-begin = Stage { $number } begins
 
+# The match's last stage begins: a counted match's last stage, or an open
+# match's song marked as its last.
 room-play-cue-final-stage = Final stage
-
-# Round AC: the match's last song begins (a counted match's last stage,
-# or an open match's song marked as its last).
-room-play-cue-last-song = Last song
 
 # The player's life is about to run out.
 room-play-cue-life-critical = Life critical
