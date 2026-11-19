@@ -2387,8 +2387,9 @@ and the pad's digits as typed. No screen takes W A S D as a shortcut (Watch
 replay is V, the editor's audio view G).
 Song browsing returns to Start in one press, keeping its filter and place;
 Clear (the × inside Search) clears the filter explicitly; the quick volume
-between Search and More is Music volume (`ddi_ui::widgets::volume`, hover or
-tap for its slider, then press to mute; `docs/plans/song-navigation.md`).
+between Search and More is the game's one Volume, every sound's
+(`ddi_ui::widgets::volume`, hover or tap for its slider, then press to mute;
+`docs/plans/song-navigation.md`).
 Options returns to its caller;
 its P cycles the field preview's layout from anywhere on the screen (Shift+P
 backwards), the preview following the edited settings on that layout on both

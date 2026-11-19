@@ -203,8 +203,8 @@ options-profile-forget-description = このデバイスの登録とオフセッ�
 
 ## Sound.
 
-options-volume = 音楽の音量
-options-volume-description = 音楽の音量です（設定を同じ幅で変えると、聞こえる音量の変化もほぼ同じになります）。
+options-volume = 音量
+options-volume-description = ゲームの音全体（音楽、効果音、アナウンサー）の音量です（設定を同じ幅で変えると、聞こえる音量の変化もほぼ同じになります）。
 options-sample = 試聴
 options-sample-play = 試聴する
 options-sample-stop = 停止
@@ -225,7 +225,7 @@ options-announcer-language-description = アナウンサーが話す言語です
 options-announcer-script-stopped = スクリプトが停止しました
 options-announcer-tag-description = パックがこう印を付けたセリフを、アナウンサーが話すかどうかです。
 options-announcer-volume = アナウンサーの音量
-options-announcer-volume-description = アナウンサーの声の大きさで、音楽の音量に対する割合です（音楽をミュートするとこちらもミュートされます）。
+options-announcer-volume-description = アナウンサーの声の大きさで、音量に対する割合です（音量をミュートするとこちらもミュートされます）。
 options-announcer-remove = このアナウンサー
 options-announcer-remove-button = 削除
 options-announcer-remove-description = { $platform ->

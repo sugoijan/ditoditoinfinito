@@ -268,7 +268,9 @@ volume (`ddi_ui::widgets::volume`, the same component) in its top right
 corner, the classic part's on a room's Ready card, beside the players: the
 song's title is cut shorter for it, nothing else moves (the buttons, the
 countdown, the rows). While the music is muted or at zero, one quiet line
-left of it says "Music is muted" (`prompt-music-muted`).
+left of it says "Sound is muted" (`prompt-sound-muted`; "Music is muted"
+until round AD, 2026-11-19: the volume is every sound's, the music, the
+event sounds, scripts' sounds and the announcer at its share).
 
 - The pointer as on song select: the mouse over it shows its slider, a
   click mutes or brings the level back (the level the last mute kept, the
@@ -281,7 +283,7 @@ left of it says "Music is muted" (`prompt-music-muted`).
   level back, Back takes the focus back to Start without leaving.
 - None of it is a choice the countdown hears: the countdown runs on
   (the direction that brought the focus there stops it, as any does).
-- The level is the Music volume setting, kept when it settles; the play
+- The level is the Volume setting (`Settings::volume`), kept when it settles; the play
   reads it as it starts (the web reads it again then), and song select
   shows it, and tells its preview, when the player is back.
 - `ui.theme.prompt.volume` (percent, null without the control) and

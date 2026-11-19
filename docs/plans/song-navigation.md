@@ -115,7 +115,8 @@ prompt's or the play's, `kept_level`; the default level when muted since
 the game started), so a mouse's click
 always mutes and a touch's first tap only shows. With the focus, Up and
 Down step it by 5%, Start mutes and Back returns to the list; a wheel
-over it steps it too. It is the setting Options calls Music volume: the
+over it steps it too. It is the setting Options calls Volume (Music
+volume until 2026-11-19: it was always every sound's, round AD): the
 preview follows at once (`SelectCall::Volume`), the settings keep it
 when a drag is released. The compact layout has none (a phone's player
 reaches the volume on the start prompt and in the play instead,

@@ -68,8 +68,9 @@ sources, is `docs/research/announcers.md`.
    Options → Sound → Announcer lists Off, ours and the imported ones.
    One choice for every layout (StepMania keeps one per game type; we
    have no game types to the player).
-3. **Its own volume**, Announcer volume beside Music volume, as a share
-   of it (100% by default, so muting the music mutes the voice).
+3. **Its own volume**, Announcer volume beside Volume (named Music
+   volume until 2026-11-19), as a share of it (100% by default, so
+   muting the volume mutes the voice).
 4. **Presentation only.** Lines never touch judging, the clock, a play's
    log or its replay. A line that is not decoded when it is due is left
    out; Start never waits for the announcer.

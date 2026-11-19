@@ -10,7 +10,7 @@ prompt-save-as-default = 標準設定に保存
 
 prompt-saved-as-default = 標準設定に保存済み
 
-prompt-music-muted = 音楽はミュート中です
+prompt-sound-muted = 音はミュート中です
 
 ## The controls diagram.
 

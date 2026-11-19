@@ -399,8 +399,10 @@ options-profile-forget-description = Forgets this device and its offset: next ti
 
 ## Sound.
 
-options-volume = Music volume
-options-volume-description = How loud the music plays (equal steps are about equal in loudness).
+# The game's one volume: the music, the sounds (claps, mines, a song's
+# own sounds), the announcer and the previews all play at it.
+options-volume = Volume
+options-volume-description = How loud the game plays: the music, the sounds and the announcer (equal steps are about equal in loudness).
 
 # Plays a song's preview to hear the volume.
 options-sample = Sample
@@ -442,7 +444,7 @@ options-announcer-script-stopped = Its script stopped
 options-announcer-tag-description = Whether the announcer says the lines its pack marks so.
 
 options-announcer-volume = Announcer volume
-options-announcer-volume-description = How loud the announcer speaks, as a share of the music volume (muting the music mutes it too).
+options-announcer-volume-description = How loud the announcer speaks, as a share of the volume (muting the volume mutes it too).
 
 # The imported announcer chosen (desktop: one made in the announcer
 # studio), to remove.

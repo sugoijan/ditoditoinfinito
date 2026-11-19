@@ -25,9 +25,9 @@
 //! geometry and progress live in `ddi_actor::background`; this is visual
 //! time only and never delays the synchronous audio gesture.
 //!
-//! The music's volume sits in the card's top right corner on every card
+//! The volume sits in the card's top right corner on every card
 //! but a calibration's (the quick volume, [`crate::widgets::volume`], the
-//! same component as song select's), with a quiet "Music is muted" left
+//! same component as song select's), with a quiet "Sound is muted" left
 //! of it while the music is muted or at zero, so that nobody starts a
 //! song in silence without knowing (`docs/plans/start-prompt.md`, "The
 //! music's volume").
@@ -242,8 +242,8 @@ pub struct PromptView {
     /// The quiet line suggesting calibrating or not
     /// ([`PromptInfo::timing`]; none where the play's purpose has none).
     pub timing: Option<String>,
-    /// The music's volume control's level in percent while the card has
-    /// it, and whether its "Music is muted" line shows.
+    /// The volume control's level in percent while the card has
+    /// it, and whether its "Sound is muted" line shows.
     pub volume: Option<u32>,
     pub music_muted: bool,
 }
@@ -291,7 +291,7 @@ pub struct PromptState {
     pub options: Vec<super::data::OptionDef>,
     pub options_differ: bool,
     pub options_saved: bool,
-    /// No music's volume on the card (a calibration's prompt: its click
+    /// No volume on the card (a calibration's prompt: its click
     /// track is left as it is).
     pub without_volume: bool,
     pub version: u64,
@@ -777,7 +777,7 @@ pub struct PromptScreen {
     view_dirty: bool,
     /// A multiplayer room's stage (M7b, `prompt_room.rs`): Start is Ready.
     room: Option<room_mode::PromptRoom>,
-    /// The music's volume (`Settings::volume`), in the card's corner.
+    /// The volume (`Settings::volume`), in the card's corner.
     volume: crate::widgets::volume::Volume,
     /// The card built has it, and whether its muted line.
     volume_built: std::cell::Cell<bool>,
@@ -787,7 +787,7 @@ pub struct PromptScreen {
     volume_keys: bool,
 }
 
-/// The music's volume's name, and its button's side.
+/// The volume's name, and its button's side.
 const VOLUME: &str = "Volume";
 const VOLUME_SIZE: f32 = 36.0;
 
@@ -975,13 +975,13 @@ impl PromptScreen {
         })
     }
 
-    /// Whether `state`'s card has the music's volume: every card but a
+    /// Whether `state`'s card has the volume: every card but a
     /// calibration's.
     fn volume_shown(state: &PromptState) -> bool {
         !state.without_volume
     }
 
-    /// The music's volume's part of an input: its hover, focus, presses,
+    /// The volume's part of an input: its hover, focus, presses,
     /// wheel and keys (none of them a choice the countdown hears); `None`:
     /// not its. With the focus, Up and Down (and the menu's pair, Previous
     /// and Next) step it, Start mutes or brings the level back, Back takes
@@ -1064,7 +1064,7 @@ impl PromptScreen {
         (handled == Handled::Yes).then_some(Handled::Yes)
     }
 
-    /// The music's volume moved: kept once it settles (the play reads it
+    /// The volume moved: kept once it settles (the play reads it
     /// as it starts); the muted line comes or goes with it.
     fn volume_changed(
         &mut self,
@@ -1307,13 +1307,13 @@ impl PromptScreen {
         let inner = w - 48.0;
         let mut c: Vec<Actor> = Vec::new();
         let mut y = 24.0;
-        // The music's volume in the top right corner (of the classic
+        // The volume in the top right corner (of the classic
         // part, beside a room's players), and while the music is muted or
         // at zero its quiet line left of it: the first line (the title)
         // is cut shorter for them, nothing moves.
         let volume = Self::volume_shown(state);
         let muted = volume && self.volume.muted();
-        let muted_text: String = msg::prompt::music_muted().into();
+        let muted_text: String = msg::prompt::sound_muted().into();
         let muted_w = if muted {
             look::mono_width(&muted_text, SMALL).min(inner / 2.0) + 10.0
         } else {
@@ -2328,7 +2328,7 @@ impl Screen for PromptScreen {
             f.down = self.buttons.first().cloned();
             out.push(f);
         }
-        // The music's volume above them all: Up from the topmost (never
+        // The volume above them all: Up from the topmost (never
         // the first focus), Down back to it.
         if self.volume_built.get() {
             let top = rows
@@ -2554,7 +2554,7 @@ impl Screen for PromptScreen {
             }
             return Handled::Yes;
         }
-        // The music's volume: what it takes is never the countdown's nor
+        // The volume: what it takes is never the countdown's nor
         // a tap that starts.
         if let Some(handled) = self.volume_input(input, root, cx) {
             return handled;
@@ -3602,7 +3602,7 @@ mod tests {
             h.key("ArrowUp", "ArrowUp");
         }
         assert_eq!(h.ui.focused(), Some("Opt.speed"));
-        // Above the top row, the music's volume; Down back to the row.
+        // Above the top row, the volume; Down back to the row.
         h.key("ArrowUp", "ArrowUp");
         assert_eq!(h.ui.focused(), Some(VOLUME));
         h.key("Escape", "Escape");
@@ -3734,7 +3734,7 @@ mod tests {
         assert_eq!(state.borrow().reveal, 1.0);
     }
 
-    /// The music's volume (round AB, 2026-11-19): muted on song select,
+    /// The volume (round AB, 2026-11-19): muted on song select,
     /// the card says so beside its control in the top right corner, which
     /// never moves the buttons, never takes the first focus nor stops the
     /// countdown, and unmutes by the mouse, a tap and keys; a calibration's
@@ -3767,7 +3767,7 @@ mod tests {
         // The top right corner.
         assert!(volume[2] <= card[2] - 20.0 && volume[2] >= card[2] - 30.0, "{volume:?} {card:?}");
         assert!(volume[1] >= card[1] + 16.0 && volume[3] <= card[1] + 64.0, "{volume:?} {card:?}");
-        let muted: String = msg::prompt::music_muted().into();
+        let muted: String = msg::prompt::sound_muted().into();
         assert!(h.texts().contains(&muted));
         let line = h.ui.bounds("MusicMuted").unwrap();
         assert!(line[2] < volume[0] && line[1] < volume[3] && line[3] > volume[1]);
