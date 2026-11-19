@@ -30,7 +30,7 @@ use super::options::CALIBRATE;
 use crate::state::bind::Bound;
 use crate::state::settings::{
     BUILT_IN_ANNOUNCER, BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, GeneratedBackground,
-    ChartRatings, Graphics, INFINITO, OpponentFields, PadBindings, Palette, ParamValue, ReducedMotion, START_COUNTDOWNS,
+    ChartRatings, Graphics, INFINITO, OpponentFields, RoomAhead, PadBindings, Palette, ParamValue, ReducedMotion, START_COUNTDOWNS,
     JudgmentWords, ScoreDisplay, Settings, VideoMode, slider_to_volume, volume_to_slider,
 };
 use ddi_l10n::UiText;
@@ -1998,6 +1998,19 @@ impl OptionsModel {
                     m::reset_settings_description(wording),
                 ),
                 songs,
+                // Stage 2 of a room's song list: per device.
+                choice(
+                    "room_ahead",
+                    m::room_ahead(),
+                    labels(&ROOM_AHEAD),
+                    pos(&ROOM_AHEAD, self.settings.room_ahead()),
+                    m::room_ahead_description(
+                        ROOM_AHEAD
+                            .iter()
+                            .find(|(v, _)| *v == crate::state::settings::device_room_ahead())
+                            .map_or_else(m::room_ahead_everything, |(_, l)| l()),
+                    ),
+                ),
                 actions(
                     "privacy",
                     ddi_l10n::msg::pages::privacy(),
@@ -2234,6 +2247,7 @@ impl OptionsModel {
             "dancing_hand" => s.dancing_hand = on,
             "dancing_hand_multiplayer" => s.dancing_hand_multiplayer = on,
             "opponent_fields" => s.opponent_fields = at(&OPPONENT_FIELDS, i),
+            "room_ahead" => s.room_ahead = Some(at(&ROOM_AHEAD, i)),
             "chart_ratings" => {
                 s.chart_ratings = at(&CHART_RATINGS, i);
                 s.show_ratings();
@@ -3284,6 +3298,11 @@ const CHART_RATINGS: [Labeled<ChartRatings>; 3] = [
 const OPPONENT_FIELDS: [Labeled<OpponentFields>; 2] = [
     (OpponentFields::AsManyAsFit, m::opponent_fields_all),
     (OpponentFields::UpToEight, m::opponent_fields_eight),
+];
+const ROOM_AHEAD: [Labeled<RoomAhead>; 3] = [
+    (RoomAhead::Everything, m::room_ahead_everything),
+    (RoomAhead::LikelyNext, m::room_ahead_likely),
+    (RoomAhead::Off, m::room_ahead_off),
 ];
 const GRAPHICS: [Labeled<Graphics>; 2] = [
     (Graphics::Auto, m::graphics_auto),

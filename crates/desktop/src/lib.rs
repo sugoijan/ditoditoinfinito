@@ -311,6 +311,11 @@ pub fn run() {
     // so it reads the settings and never writes them.
     let utility = instance::utility(&args);
     instance::start(&args);
+    // Rooms' songs downloaded ahead by a run that ended in its room (a
+    // crash, a quit there): the folder's one app deletes them.
+    if utility.is_none() {
+        share::clear_stores();
+    }
     clock::epoch();
     // Announcers' scripts: the clock behind their fuel, and a seed they
     // cannot know for their tables' hashing.

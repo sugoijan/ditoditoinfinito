@@ -227,8 +227,12 @@ fn client_id() -> ClientId {
     ClientId::new(format!("desktop-{:x}-{:x}", n, std::process::id()))
 }
 
-/// Online room `id`'s client, made (and joined) at first.
+/// Online room `id`'s client, made (and joined) at first (another room
+/// kept is left, its songs on this device deleted).
 pub fn room(id: &str) -> SharedRoom {
+    if let Some(old) = KEPT.with(Kept::room).filter(|_| KEPT.with(Kept::room_id).as_deref() != Some(id)) {
+        forget_store_of(&old);
+    }
     KEPT.with(|k| {
         k.room_or(id, || {
             let room = Rc::new(RefCell::new(RoomClient::online(
@@ -245,9 +249,21 @@ pub fn room(id: &str) -> SharedRoom {
     })
 }
 
-/// Leave room: forgotten.
+/// Leave room: forgotten, its songs downloaded on this device deleted
+/// (stage 2 of the room's song list).
 pub fn discard() {
-    KEPT.with(Kept::discard_room);
+    if let Some(room) = KEPT.with(Kept::discard_room) {
+        forget_store_of(&room);
+    }
+}
+
+/// The songs room `room` downloaded on this device deleted (its store).
+fn forget_store_of(room: &SharedRoom) {
+    let store = match room.try_borrow() {
+        Ok(r) if r.is_online() => r.store(),
+        _ => return,
+    };
+    crate::share::forget_store(&store);
 }
 
 /// The room watched with its audience by `link`

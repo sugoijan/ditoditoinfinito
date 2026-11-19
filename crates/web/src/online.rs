@@ -393,7 +393,13 @@ fn client_id() -> ClientId {
 
 /// Online room `id`'s client, made (and joined) at first.
 pub(crate) fn room(id: &str) -> SharedRoom {
-    KEPT.with(|k| {
+    // Another room kept is left: its songs on this device deleted.
+    if let Some(old) = KEPT.with(Kept::room)
+        && KEPT.with(Kept::room_id).as_deref() != Some(id)
+    {
+        forget_store_of(&old);
+    }
+    let room = KEPT.with(|k| {
         k.room_or(id, || {
             // TESTING ONLY: the fake room in the page (`crate::fake_room`).
             if crate::fake_room::on() && id == crate::fake_seat::ROOM {
@@ -407,7 +413,25 @@ pub(crate) fn room(id: &str) -> SharedRoom {
                 now_ms(),
             )))
         })
-    })
+    });
+    // Its songs downloaded ahead are kept in the room's area
+    // (`crate::room_store`), one a room.
+    if let Ok(r) = room.try_borrow()
+        && r.is_online()
+    {
+        crate::room_store::open(&r.store());
+    }
+    room
+}
+
+/// The songs room `room` downloaded on this device deleted (stage 2 of
+/// the room's song list).
+fn forget_store_of(room: &SharedRoom) {
+    if let Ok(r) = room.try_borrow()
+        && r.is_online()
+    {
+        crate::room_store::forget_store(&r.store());
+    }
 }
 
 /// The online room kept for the session, if any.
@@ -425,6 +449,7 @@ pub(crate) fn kept_room_id() -> Option<String> {
 /// so that nothing keeps its client alive.
 pub(crate) fn discard() {
     if let Some(room) = KEPT.with(Kept::discard_room) {
+        forget_store_of(&room);
         crate::room::forget_playing(&room);
     }
 }

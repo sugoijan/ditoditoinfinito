@@ -179,12 +179,100 @@ fn not_loaded() -> ShareError {
 /// beside it, as in the pack it came from.
 const SONG_DIR: &str = "song";
 
-/// Where share `id`'s files go.
-fn share_root(id: &str) -> Result<PathBuf, ShareError> {
-    Ok(crate::paths::cache_dir()
-        .ok_or_else(|| ShareError::failed("finding the cache folder")("no cache folder"))?
-        .join("shares")
-        .join(id))
+/// Where share `id`'s files go: in an online room's store `store` (stage
+/// 2 of the room's song list: `rooms/<store>/<id>/` in the cache folder,
+/// deleted when the room is left, [`forget_store`]), else `shares/<id>/`.
+fn share_root(store: Option<&str>, id: &str) -> Result<PathBuf, ShareError> {
+    let cache = crate::paths::cache_dir()
+        .ok_or_else(|| ShareError::failed("finding the cache folder")("no cache folder"))?;
+    Ok(match store {
+        Some(store) => cache.join(ROOMS_DIR).join(store_name(store)).join(id),
+        None => cache.join("shares").join(id),
+    })
+}
+
+/// The cache folder's folder of the rooms' stores.
+const ROOMS_DIR: &str = "rooms";
+
+/// A store's name as a folder's: its letters, digits, `-` and `_` (a
+/// room's id, a bot's name after it).
+fn store_name(store: &str) -> String {
+    store
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .take(96)
+        .collect()
+}
+
+/// Room store `store`'s folder (`rooms/<store>/` in the cache folder).
+pub fn store_dir(store: &str) -> Option<PathBuf> {
+    Some(
+        crate::paths::cache_dir()?
+            .join(ROOMS_DIR)
+            .join(store_name(store)),
+    )
+}
+
+/// Room store `store` emptied (the room left or ended): its folder
+/// deleted, its shares forgotten as loaded.
+pub fn forget_store(store: &str) {
+    let Some(dir) = store_dir(store) else {
+        return;
+    };
+    if let Ok(mut c) = LOADED.lock() {
+        c.retain(|c| !c.root.starts_with(&dir));
+    }
+    match std::fs::remove_dir_all(&dir) {
+        Ok(()) => eprintln!("room: the room's songs on this device deleted ({})", dir.display()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => eprintln!("room: deleting the room's songs ({}): {e}", dir.display()),
+    }
+}
+
+/// Share `share` of room store `store` deleted (its song left the room's
+/// list).
+pub fn forget_in(store: &str, share: &str) {
+    let Ok(root) = share_root(Some(store), share) else {
+        return;
+    };
+    if let Ok(mut c) = LOADED.lock() {
+        c.retain(|c| c.root != root);
+    }
+    if let Err(e) = std::fs::remove_dir_all(&root)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        eprintln!("room: deleting a song of the room ({}): {e}", root.display());
+    }
+}
+
+/// Every room's store left by a run that ended without leaving its room
+/// (a crash, a quit in a room): deleted at the start of a run that opens
+/// the window (the one app of the data folder, `crate::instance`).
+pub fn clear_stores() {
+    let Some(dir) = crate::paths::cache_dir().map(|c| c.join(ROOMS_DIR)) else {
+        return;
+    };
+    match std::fs::remove_dir_all(&dir) {
+        Ok(()) => eprintln!("room: songs of rooms left before deleted ({})", dir.display()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => eprintln!("room: deleting songs of rooms left before ({}): {e}", dir.display()),
+    }
+}
+
+/// The bytes a folder's files take (the stores' sizes, for the log and
+/// the tests).
+pub fn folder_bytes(dir: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|e| match e.file_type() {
+            Ok(t) if t.is_dir() => folder_bytes(&e.path()),
+            Ok(_) => e.metadata().map_or(0, |m| m.len()),
+            Err(_) => 0,
+        })
+        .sum()
 }
 
 /// The share `id` from the server: `404` and `410` worded as the web
@@ -221,8 +309,38 @@ pub fn fetch(id: &str) -> Result<ShareDoc, ShareError> {
 /// into the cache; the songs as the library lists them. `progress` is
 /// called as it goes ([`download`] says where it is).
 pub fn load(id: &str, progress: &dyn Fn()) -> Result<LoadedShare, ShareError> {
+    load_in(None, id, progress)
+}
+
+/// [`load`] into room store `store` (where its songs downloaded ahead
+/// are: what is there at its listed size is not fetched again).
+pub fn load_in(
+    store: Option<&str>,
+    id: &str,
+    progress: &dyn Fn(),
+) -> Result<LoadedShare, ShareError> {
+    load_with(store, id, progress, &|_, _| {}, &|| false)
+}
+
+/// [`load_in`] told the bytes so far of all its files (`bytes`), given up
+/// where `stop` says so (between files and their chunks).
+pub fn load_with(
+    store: Option<&str>,
+    id: &str,
+    progress: &dyn Fn(),
+    bytes: &dyn Fn(u64, u64),
+    stop: &dyn Fn() -> bool,
+) -> Result<LoadedShare, ShareError> {
     let doc = fetch(id)?;
-    let root = share_root(id)?;
+    let root = share_root(store, id)?;
+    let all_bytes: u64 = doc
+        .songs
+        .iter()
+        .flat_map(|s| &s.files)
+        .filter(|f| contract::is_small(&f.path))
+        .map(|f| f.bytes.max(0.0) as u64)
+        .sum();
+    let done = std::cell::Cell::new(0u64);
     let mut songs = Vec::new();
     let total = doc.songs.len();
     note_download(id, |d| {
@@ -237,11 +355,19 @@ pub fn load(id: &str, progress: &dyn Fn()) -> Result<LoadedShare, ShareError> {
         let dir = root.join(n.to_string());
         for (stored, named) in contract::stored_files(&entry) {
             if contract::is_small(&stored) {
-                let got = ensure_file(&doc, id, n, &stored, &named, &dir);
+                if stop() {
+                    download_over(id);
+                    return Err(stopped());
+                }
+                let before = done.get();
+                let got = ensure_file(&doc, id, n, &stored, &named, &dir, &|got| {
+                    bytes(before + got, all_bytes);
+                }, stop);
                 if got.is_err() {
                     download_over(id);
                 }
-                got?;
+                done.set(before + got?);
+                bytes(done.get(), all_bytes);
             }
         }
         note_download(id, |d| d.songs_done = n + 1);
@@ -299,7 +425,7 @@ pub fn ensure_all(id: &str) -> Result<(), ShareError> {
         if !contract::is_small(&stored) {
             // A movie or an image missing on the server shows the song's
             // background instead, as a missing file does.
-            if let Err(e) = ensure_file(&doc, share, n, &stored, &named, &dir) {
+            if let Err(e) = ensure_file(&doc, share, n, &stored, &named, &dir, &|_| {}, &|| false) {
                 eprintln!("share: {}: {e}", named);
             }
         }
@@ -308,9 +434,16 @@ pub fn ensure_all(id: &str) -> Result<(), ShareError> {
     Ok(())
 }
 
+/// A download given up for the plan's stop (stage 2's downloads ahead).
+fn stopped() -> ShareError {
+    ShareError::failed("downloading ahead")("stopped")
+}
+
 /// File `stored` of song `n` at `dir/song/<named>` ([`SONG_DIR`]),
 /// fetched (as the share lists it, `contract::share_path`) unless it is
-/// there at its listed size.
+/// there at its listed size; its size. `bytes` is told the bytes so far
+/// of it; `stop` gives it up between its chunks.
+#[allow(clippy::too_many_arguments)]
 fn ensure_file(
     doc: &ShareDoc,
     id: &str,
@@ -318,7 +451,9 @@ fn ensure_file(
     stored: &str,
     named: &str,
     dir: &Path,
-) -> Result<(), ShareError> {
+    on_bytes: &dyn Fn(u64),
+    stop: &dyn Fn() -> bool,
+) -> Result<u64, ShareError> {
     let stored = contract::share_path(stored);
     let stored = stored.as_str();
     let rel = RelPathBuf::from(SONG_DIR).join(named);
@@ -338,7 +473,7 @@ fn ensure_file(
         && f.bytes >= 0.0
         && meta.len() == f.bytes as u64
     {
-        return Ok(());
+        return Ok(meta.len());
     }
     let url = match listed {
         Some(f) if !f.url.is_empty() => contract::resolve_url(&base(), &f.url),
@@ -389,12 +524,15 @@ fn ensure_file(
         d.bytes_done = 0;
         d.bytes = total;
     });
-    let written = (|| -> std::io::Result<()> {
+    let written = (|| -> std::io::Result<u64> {
         let mut file = std::fs::File::create(&tmp)?;
         let mut reader = resp.body_mut().with_config().limit(u64::MAX).reader();
         let mut buf = vec![0u8; 256 * 1024];
         let mut got = 0u64;
         loop {
+            if stop() {
+                return Err(std::io::Error::other("stopped"));
+            }
             let n = std::io::Read::read(&mut reader, &mut buf)?;
             if n == 0 {
                 break;
@@ -402,23 +540,84 @@ fn ensure_file(
             std::io::Write::write_all(&mut file, &buf[..n])?;
             got += n as u64;
             note_download(id, |d| d.bytes_done = got);
+            on_bytes(got);
         }
         file.sync_all()?;
-        std::fs::rename(&tmp, &target)
+        std::fs::rename(&tmp, &target)?;
+        Ok(got)
     })();
     note_download(id, |d| {
         d.file.clear();
         d.bytes_done = 0;
         d.bytes = 0;
     });
-    if let Err(e) = written {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(ShareError::of(
-            named,
-            ShareError::failed("writing a file")(e),
-        ));
+    match written {
+        Ok(got) => Ok(got),
+        Err(_) if stop() => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(stopped())
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(ShareError::of(
+                named,
+                ShareError::failed("writing a file")(e),
+            ))
+        }
     }
-    Ok(())
+}
+
+/// A listed song's share as stage 2's downloads ahead first read it: its
+/// first song's entry (its shared id), its pack, its banner fetched into
+/// room store `store` (its texture source there), and the bytes its song
+/// would take (movies left out).
+pub fn listing_in(store: &str, id: &str) -> Result<ddi_ui::state::room::Listing, ShareError> {
+    let doc = fetch(id)?;
+    let root = share_root(Some(store), id)?;
+    let song = doc.songs.first().ok_or_else(not_loaded)?;
+    let (mut entry, pack) = contract::record_entry(&song.record).ok_or_else(not_loaded)?;
+    entry.id = contract::song_id(id, 0);
+    let dir = root.join("0");
+    let lib = LibSong {
+        root: dir.clone(),
+        zip: false,
+        dir: RelPathBuf::from(SONG_DIR),
+        pack: if pack.is_empty() { doc.pack.clone() } else { pack },
+        pack_banner: None,
+        entry: entry.clone(),
+        warnings: Vec::new(),
+        notes: Vec::new(),
+        work: None,
+    };
+    let banner = match entry.banner.as_deref() {
+        Some(b) => {
+            let named = b.as_str().to_string();
+            let stored = contract::stored_files(&entry)
+                .into_iter()
+                .find(|(_, n)| *n == named)
+                .map(|(s, _)| s);
+            match stored {
+                Some(stored) => {
+                    ensure_file(&doc, id, 0, &stored, &named, &dir, &|_| {}, &|| false)?;
+                    Some(lib.source(b))
+                }
+                None => None,
+            }
+        }
+        None => None,
+    };
+    let bytes = song
+        .files
+        .iter()
+        .filter(|f| contract::is_small(&f.path))
+        .map(|f| f.bytes.max(0.0) as u64)
+        .sum();
+    Ok(ddi_ui::state::room::Listing {
+        entry,
+        pack: lib.pack,
+        banner,
+        bytes,
+    })
 }
 
 /// One of a song's files for an upload: where its bytes come from.

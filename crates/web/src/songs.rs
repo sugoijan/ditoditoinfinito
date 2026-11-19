@@ -557,7 +557,10 @@ async fn song_file_bytes(
         file: file.to_string(),
         error,
     };
-    if let Some(url) = crate::share::file_url(&entry.id, file) {
+    if let Some(bytes) = crate::room_store::bytes(&entry.id, file).await {
+        // A room's song downloaded ahead (stage 2): on this device.
+        Ok(bytes)
+    } else if let Some(url) = crate::share::file_url(&entry.id, file) {
         // A shared song's file comes down the link: counted for the
         // prompt's line (`crate::share::download_line`).
         Ok(fetch_bytes_counted(&url, file).await.map_err(unread)?)
@@ -579,7 +582,9 @@ async fn song_blob(
     stored: &str,
     bundled: &str,
 ) -> Result<Blob, String> {
-    if let Some(url) = crate::share::file_url(&entry.id, stored) {
+    if let Some(blob) = crate::room_store::blob(&entry.id, stored).await {
+        Ok(blob)
+    } else if let Some(url) = crate::share::file_url(&entry.id, stored) {
         fetch_blob(&url).await
     } else if is_imported_id(&entry.id) {
         imported_file(entry, record, stored)
@@ -598,6 +603,9 @@ async fn imported_file(
     record: Option<&ImportedSong>,
     file: &str,
 ) -> Result<Blob, LoadError> {
+    if let Some(blob) = crate::room_store::blob(&entry.id, file).await {
+        return Ok(blob);
+    }
     if let Some(url) = crate::share::file_url(&entry.id, file) {
         return Ok(fetch_blob(&url).await?);
     }
@@ -949,9 +957,11 @@ async fn parse_found(found: &Found) -> Result<Song, LoadError> {
                 .record
                 .as_ref()
                 .ok_or("the stored song went missing")?;
-            let chart = match crate::share::file_url(&entry.id, entry.chart.as_str()) {
-                Some(url) => fetch_bytes(&url).await?,
-                None => {
+            let here = crate::room_store::bytes(&entry.id, entry.chart.as_str()).await;
+            let chart = match (here, crate::share::file_url(&entry.id, entry.chart.as_str())) {
+                (Some(bytes), _) => bytes,
+                (None, Some(url)) => fetch_bytes(&url).await?,
+                (None, None) => {
                     let db = Db::open().await?;
                     blob_bytes(&song_file(&db, song, &entry.chart).await?).await?
                 }
@@ -1070,6 +1080,9 @@ pub(crate) async fn chart_text(id: &str) -> Result<(String, String), String> {
         return Err("not a simfile".into());
     }
     // A room's song is a share's, read from it.
+    if let Some(bytes) = crate::room_store::bytes(&entry.id, entry.chart.as_str()).await {
+        return Ok((String::from_utf8_lossy(&bytes).into_owned(), ext));
+    }
     if let Some(url) = crate::share::file_url(&entry.id, entry.chart.as_str()) {
         let bytes = fetch_bytes(&url).await?;
         return Ok((String::from_utf8_lossy(&bytes).into_owned(), ext));

@@ -114,6 +114,7 @@ room-chart-unsupported-title = CPU非対応
 ## Song select choosing a stage's song.
 
 room-pick-use = ステージ { $number } に決定
+room-pick-use-missing = ステージ { $number } に決定（{ $count }人がまだ持っていません）
 
 ## The Rules pop-up.
 
@@ -929,6 +930,9 @@ room-song-failed = アップロード失敗
 room-song-ready = この端末にあります
 room-song-loading = 読み込み中
 room-song-not-loaded = 未読み込み
+room-song-downloading-percent = ダウンロード中 { $percent }%
+room-song-downloading = ダウンロード中
+room-song-state-have = { $state } · { $of }人中{ $have }人が所持
 room-song-added-by-you = あなたが追加
 room-song-added-by = { $name } が追加
 room-song-line = { $artist } · { $state } · { $by }
@@ -954,3 +958,7 @@ room-host-when-full = リストがいっぱいのとき
 room-host-when-full-remove = 古い曲を削除
 room-host-when-full-refuse = 新しい曲を断る
 room-host-list-note = 一人が追加できる曲は { $count } 曲までです。曲は削除されるかルームが終わるまで残ります。
+
+room-ahead-quota = このブラウザにルームの曲を保存する空きがなくなりました。これからは次に遊びそうな曲だけを先にダウンロードします。
+room-status-my-songs-picker = ここで曲をルームに追加できます。次の曲は「ルームの曲」で選んでください。
+room-status-my-songs-adder = ここで曲をルームに追加できます。

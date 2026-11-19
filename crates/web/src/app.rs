@@ -114,8 +114,49 @@ pub(crate) fn start(root: Element) {
     // Never longer than this, should the adapter not answer or a face
     // crawl in.
     gloo::timers::callback::Timeout::new(8000, crate::boot::ready).forget();
+    // Stage 2 of a room's song list: this device's default for how much
+    // of a room's list it downloads ahead (a phone or a browser asked to
+    // save data: Likely next), and the songs of rooms left before (a
+    // crash, a closed tab) deleted, well after the boot (the room the page
+    // opens on kept: a reload of it).
+    ddi_ui::state::settings::set_device_room_ahead(device_room_ahead());
+    gloo::timers::callback::Timeout::new(15_000, || {
+        let keep = match Route::current() {
+            Route::MpRoom { id } => Some(id),
+            Route::Play(p) => p.room,
+            _ => None,
+        };
+        crate::room_store::sweep(keep);
+    })
+    .forget();
     // The page's for good.
     std::mem::forget(app);
+}
+
+/// This device's default for downloading a room's songs ahead: Likely
+/// next where the browser asks to save data (`navigator.connection.saveData`)
+/// or the screen is a phone's (under 600 CSS pixels its short side), else
+/// Everything.
+fn device_room_ahead() -> ddi_ui::state::settings::RoomAhead {
+    use ddi_ui::state::settings::RoomAhead;
+    let Some(w) = web_sys::window() else {
+        return RoomAhead::Everything;
+    };
+    let save = js_sys::Reflect::get(&w.navigator(), &"connection".into())
+        .ok()
+        .filter(|c| c.is_object())
+        .and_then(|c| js_sys::Reflect::get(&c, &"saveData".into()).ok())
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let phone = w.screen().ok().is_some_and(|s| {
+        let (a, b) = (s.width().unwrap_or(0), s.height().unwrap_or(0));
+        a > 0 && b > 0 && a.min(b) < 600
+    });
+    if save || phone {
+        RoomAhead::LikelyNext
+    } else {
+        RoomAhead::Everything
+    }
 }
 
 /// Runs `f` on the app after the code running now (an event's handler, a

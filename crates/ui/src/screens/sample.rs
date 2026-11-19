@@ -987,7 +987,10 @@ pub fn room_select(
         // development screen; the shells read the real chart).
         RoomCall::Prepare(job) => shared.borrow_mut().finish_load(&job, Ok(())),
         // Nor a play. Practice has no sign-in, and nothing to upload.
-        RoomCall::PlayStage(_) | RoomCall::Redirect(_) | RoomCall::Upload(_) => {}
+        RoomCall::PlayStage(_)
+        | RoomCall::Redirect(_)
+        | RoomCall::Upload(_)
+        | RoomCall::Preload(_) => {}
     });
     SelectScreen::new(
         env.clone(),

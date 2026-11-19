@@ -241,6 +241,15 @@ room-chart-unsupported-title = Not for CPUs
 # Variables:
 #   $number (Number) - the stage, from 1
 room-pick-use = Pick for stage { $number }
+# The same where some players don't have the song shown on their device
+# yet: picking it is allowed, the room waits for them to load it.
+# Variables:
+#   $number (Number) - the stage, from 1
+#   $count (Number) - players who don't have it yet
+room-pick-use-missing = { $count ->
+    [one] Pick for stage { $number } (one player doesn't have it yet)
+   *[other] Pick for stage { $number } ({ $count } players don't have it yet)
+}
 
 ## The Rules pop-up: this match's rules, locked while it runs, and the
 ## next match's, which can change.
@@ -2177,6 +2186,20 @@ room-song-ready = On this device
 room-song-loading = Loading
 # Not on this device yet: it is read when the song is picked.
 room-song-not-loaded = Not loaded yet
+# Being downloaded onto this device ahead of the picks, how much is
+# there (a song's state in its row's line).
+# Variables:
+#   $percent (Number) - how much is downloaded, 0 to 100
+room-song-downloading-percent = Downloading { $percent }%
+# The same before its size is known.
+room-song-downloading = Downloading
+# A song's state followed by how many of the room's players have it on
+# their device, said while not everyone does.
+# Variables:
+#   $state (String) - its state for this player (one of the states above)
+#   $have (Number) - players who have it
+#   $of (Number) - the room's players
+room-song-state-have = { $state } · { $have } of { $of } have it
 # Who added a room song, in its row's line.
 room-song-added-by-you = Added by you
 # Variables:
@@ -2256,3 +2279,16 @@ room-host-list-note = { $count ->
     [one] Each person may add one song. A song stays until it is removed or the room ends.
    *[other] Each person may add up to { $count } songs. A song stays until it is removed or the room ends.
 }
+
+## Stage 2 of the room's song list: songs downloaded ahead.
+
+# Said once on the room's status line where this browser ran out of
+# storage while downloading the room's songs ahead: from then on only the
+# likely next ones (the picked song, the one being looked at, the newest
+# few) are downloaded ahead.
+room-ahead-quota = This browser has no more room for the room's songs: only the likely next ones are downloaded ahead now.
+# The status line on My songs for someone who chooses the room's songs:
+# Enter there adds a song; picks are made on Room songs.
+room-status-my-songs-picker = Add songs to the room here. Pick the next song on Room songs.
+# The same for someone who may add songs but doesn't choose them.
+room-status-my-songs-adder = Add songs to the room here.

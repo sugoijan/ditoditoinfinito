@@ -69,7 +69,7 @@ pub(crate) fn shell_with(room: &SharedRoom, orders: &Orders, uploads: &Uploads) 
         RoomCall::Prepare(job) => shared.borrow_mut().finish_load(&job, Ok(())),
         RoomCall::PlayStage(order) => orders.borrow_mut().push(*order),
         RoomCall::Upload(job) => uploads.borrow_mut().push(*job),
-        RoomCall::Redirect(_) => {}
+        RoomCall::Redirect(_) | RoomCall::Preload(_) => {}
     })
 }
 

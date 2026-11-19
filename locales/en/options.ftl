@@ -495,6 +495,19 @@ options-opponent-fields-all = As many as fit
 options-opponent-fields-eight = Up to eight
 options-opponent-fields-description = In a multiplayer stage, a small field for every opponent the screen has room for, or eight at most: those attacking you or attacked by you and your nearest rivals. Up to eight is lighter for the computer in a large room.
 
+# Options → Data: how much of an online room's song list this device
+# downloads before the songs are picked (about 20 letters).
+options-room-ahead = Room songs ahead
+# Its choices: every song in the room's list; the likely next ones only;
+# none (a song is downloaded when it is picked).
+options-room-ahead-everything = Everything
+options-room-ahead-likely = Likely next
+options-room-ahead-off = Off
+# Its description: what each choice downloads and what it costs.
+# Variables:
+#   $device (String) - this device's default, one of the choices' names
+options-room-ahead-description = In an online room, get the room's songs before they're picked so a stage starts at once: all of them (a few megabytes each, no movies), the likely next few, or none. Deleted when you leave the room. Default here: { $device }.
+
 # Where the field and the dancing hand's view go together.
 options-hand-layout = Field + hand layout
 options-hand-layout-follow = Follow field

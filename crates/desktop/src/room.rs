@@ -28,7 +28,8 @@ use ddi_ui::state::online::Redirect;
 use ddi_ui::state::place::MenuPlace;
 use ddi_ui::state::settings::Settings;
 use ddi_ui::state::room::{
-    Inbox, LoadJob, LoadProblem, SharedFound, SharedRoom, ShellNews, UploadJob, prepare_stage,
+    Inbox, LoadJob, LoadProblem, PreloadJob, PreloadProblem, SharedFound, SharedRoom, ShellNews,
+    UploadJob, prepare_stage,
 };
 
 use crate::preview::SharedPlayer;
@@ -321,7 +322,7 @@ pub fn prepare_online_with(
         .name("ddi-room-share".into())
         .spawn(move || {
             let result = (|| {
-                let loaded = crate::share::load(&share, &|| {}).map_err(|e| {
+                let loaded = crate::share::load_in(job.store.as_deref(), &share, &|| {}).map_err(|e| {
                     eprintln!("room: reading share {share}: {e}");
                     LoadProblem::Download
                 })?;
@@ -351,6 +352,73 @@ pub fn prepare_online_with(
         });
     if let Err(e) = spawned {
         eprintln!("room: preparing a stage song: {e}");
+    }
+}
+
+/// Stage 2 of the room's song list: a listed song downloaded ahead into
+/// the room's store on a thread (its listing and banner, or its chart,
+/// music and pictures, never a movie), or deleted from it; its news to the
+/// online room's [`inbox`].
+pub fn preload(job: PreloadJob) {
+    if let Some(tx) = news() {
+        preload_with(&tx, job);
+    }
+}
+
+/// [`preload`], its news to `tx`.
+pub fn preload_with(tx: &NewsTx, job: PreloadJob) {
+    let tx = tx.0.clone();
+    let spawned = std::thread::Builder::new()
+        .name("ddi-room-ahead".into())
+        .spawn(move || match job {
+            PreloadJob::Listing { song, share, store } => {
+                let result = crate::share::listing_in(&store, &share).map_err(|e| {
+                    eprintln!("room: reading the room's song {song} ({share}): {e}");
+                    PreloadProblem::Download
+                });
+                let _ = tx.send(ShellNews::Listed {
+                    song,
+                    result: result.map(Box::new),
+                });
+            }
+            PreloadJob::Song {
+                song,
+                share,
+                store,
+                stop,
+            } => {
+                let progress_tx = tx.clone();
+                let said = std::cell::Cell::new(0u64);
+                let bytes = |done: u64, total: u64| {
+                    // A few times a megabyte at most.
+                    if done == total || done >= said.get() + 256 * 1024 {
+                        said.set(done);
+                        let _ = progress_tx.send(ShellNews::AheadProgress {
+                            song,
+                            done: done as f64,
+                            total: total as f64,
+                        });
+                    }
+                };
+                let result =
+                    crate::share::load_with(Some(&store), &share, &|| {}, &bytes, &|| stop.stopped());
+                let result = match result {
+                    Ok(loaded) => {
+                        crate::library::register_room_songs(&loaded.songs);
+                        Ok(())
+                    }
+                    Err(_) if stop.stopped() => Err(PreloadProblem::Stopped),
+                    Err(e) => {
+                        eprintln!("room: downloading the room's song {song} ({share}): {e}");
+                        Err(PreloadProblem::Download)
+                    }
+                };
+                let _ = tx.send(ShellNews::Ahead { song, result });
+            }
+            PreloadJob::Forget { share, store } => crate::share::forget_in(&store, &share),
+        });
+    if let Err(e) = spawned {
+        eprintln!("room: downloading a room's song: {e}");
     }
 }
 
@@ -550,6 +618,7 @@ fn room_shell(
         RoomCall::Prepare(job) if room.borrow().is_online() => prepare_online(&room, job),
         RoomCall::Prepare(job) => prepare_library(&room, &job, library, None),
         RoomCall::Upload(job) => upload(*job),
+        RoomCall::Preload(job) => preload(job),
         // Its prompt over the room (`crate::play::host`): Ready, the
         // play, its results; its outcome reported before them. The sample
         // songs (no library) have no play.

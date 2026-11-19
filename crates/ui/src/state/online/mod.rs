@@ -878,3 +878,6 @@ mod away_tests;
 
 #[cfg(test)]
 mod usage_tests;
+
+#[cfg(test)]
+mod ahead_tests;

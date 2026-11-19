@@ -70,6 +70,9 @@ mod ratings;
 mod replay;
 #[cfg(target_arch = "wasm32")]
 mod room;
+/// An online room's songs downloaded ahead (stage 2 of its song list).
+#[cfg(target_arch = "wasm32")]
+mod room_store;
 // The routes' table is pure and natively tested (`route`); the page's
 // address and history around it are the browser's (`router`).
 // (Natively only its tests use it.)

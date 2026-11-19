@@ -337,6 +337,16 @@ pub struct Settings {
     /// the play ([`OpponentFields`]): every one that fits, by default.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub opponent_fields: OpponentFields,
+    /// How much of an online room's song list this device downloads ahead
+    /// (Options → Data, [`RoomAhead`]; `docs/plans/multiplayer-room-songs.md`,
+    /// stage 2): none stored is the device's own default
+    /// ([`Settings::room_ahead`]). Left out of the stored settings then.
+    #[serde(
+        default,
+        deserialize_with = "ddi_engine::lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub room_ahead: Option<RoomAhead>,
     pub hand_layout: HandLayout,
     /// Percent of the play viewport, bottom-aligned.
     pub hand_frame_width: u8,
@@ -430,6 +440,48 @@ pub enum OpponentFields {
     /// A room of nine's eight at most, those that matter to the player in
     /// them past eight (as before the round).
     UpToEight,
+}
+
+/// How much of an online room's song list a device downloads ahead of
+/// the picks (`room-preload-v0`, `crate::state::room`'s preload; the
+/// maintainer, 2026-11-19: everything by default, a per-device option to
+/// lower it). Movies are never downloaded ahead.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RoomAhead {
+    /// Every listed song.
+    #[default]
+    Everything,
+    /// The picked song, the one the picker is on and the newest few, up
+    /// to a budget.
+    LikelyNext,
+    /// None: a song is downloaded when it is picked, as before.
+    Off,
+}
+
+thread_local! {
+    /// This device's default for [`Settings::room_ahead`] where none is
+    /// stored: the shell's ([`set_device_room_ahead`]).
+    static DEVICE_AHEAD: std::cell::Cell<RoomAhead> = const { std::cell::Cell::new(RoomAhead::Everything) };
+}
+
+/// The shell says this device's default for [`Settings::room_ahead`]: the
+/// web Likely next on a phone-sized screen or where the browser asks to
+/// save data (`navigator.connection.saveData`), else Everything.
+pub fn set_device_room_ahead(ahead: RoomAhead) {
+    DEVICE_AHEAD.with(|d| d.set(ahead));
+}
+
+/// This device's default for [`Settings::room_ahead`].
+pub fn device_room_ahead() -> RoomAhead {
+    DEVICE_AHEAD.with(std::cell::Cell::get)
+}
+
+impl Settings {
+    /// How much of a room's song list this device downloads ahead: the
+    /// player's choice, else the device's default.
+    pub fn room_ahead(&self) -> RoomAhead {
+        self.room_ahead.unwrap_or_else(device_room_ahead)
+    }
 }
 
 /// The pointer offered under Options → Display. Stored by these names;
@@ -783,6 +835,7 @@ impl Default for Settings {
             chart_ratings: ChartRatings::FromSong,
             skill_radar: false,
             opponent_fields: OpponentFields::default(),
+            room_ahead: None,
             hand_layout: HandLayout::default(),
             hand_frame_width: 50,
             hand_frame_height: 100,

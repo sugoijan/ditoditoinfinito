@@ -35,6 +35,10 @@ pub enum LinkNotice {
     /// [`JOINED_TO_WATCH_MS`] once the room is connected again, with
     /// whether they play the stage gathering or under way or the next.
     BackHere,
+    /// Stage 2 of the room's song list: this device's storage ran out
+    /// while downloading the room's songs ahead (the web's quota): said
+    /// once for [`JOINED_TO_WATCH_MS`], Likely next from then on.
+    AheadQuota,
 }
 
 /// How long the status line says a join was to watch (from the room's
@@ -314,6 +318,9 @@ impl OnlineLink {
         }
         if let Some(notice) = self.notice {
             match self.notice_until {
+                None if notice == LinkNotice::AheadQuota => {
+                    self.notice_until = Some(now_ms + JOINED_TO_WATCH_MS);
+                }
                 None if !matches!(notice, LinkNotice::JoinedToWatch | LinkNotice::BackHere) => {
                     self.notice_until = Some(now_ms + NOTICE_MS);
                 }

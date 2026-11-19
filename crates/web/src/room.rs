@@ -484,18 +484,21 @@ fn pump_kept(tell: bool) {
     let Some(room) = crate::online::kept_room() else {
         return;
     };
-    let (jobs, uploads) = {
+    let (jobs, uploads, ahead) = {
         let Ok(mut r) = room.try_borrow_mut() else {
             return;
         };
         r.tick(now_ms());
-        (r.take_load_jobs(), r.take_upload_jobs())
+        (r.take_load_jobs(), r.take_upload_jobs(), r.take_preload_jobs())
     };
     for job in jobs {
         prepare_for(room.clone(), job);
     }
     for job in uploads {
         upload(room.clone(), job);
+    }
+    for job in ahead {
+        preload(room.clone(), job);
     }
     if tell {
         tell_due(&room);
@@ -626,6 +629,7 @@ pub(crate) fn shell(which: RoomRoute) -> ddi_ui::screens::room::RoomShell {
         RoomCall::Redirect(r) => crate::components::page_routes::redirect(r),
         RoomCall::Prepare(job) => prepare_for(room.clone(), job),
         RoomCall::Upload(job) => upload(room.clone(), *job),
+        RoomCall::Preload(job) => preload(room.clone(), job),
         RoomCall::PlayStage(order) => {
             if let Some(audio) = crate::select_preview::hand_over(cx.in_gesture()) {
                 crate::web::audio::keep_for_play(&order.song.id, order.chart.index, audio);
@@ -650,6 +654,7 @@ pub(crate) fn prompt_room() -> (SharedRoom, ddi_ui::screens::room::RoomShell) {
             match call {
                 RoomCall::Prepare(job) => prepare_for(room.clone(), job),
                 RoomCall::Upload(job) => upload(room.clone(), *job),
+                RoomCall::Preload(job) => preload(room.clone(), job),
                 RoomCall::Redirect(r) => crate::components::page_routes::redirect(r),
                 _ => {}
             }
@@ -780,6 +785,20 @@ async fn read_shared(
     let warn =
         |e: &str| web_sys::console::warn_1(&format!("room: stage song {}: {e}", job.song).into());
     let share = job.share.as_deref().ok_or(LoadProblem::Download)?;
+    // A member's stage song (stage 2): into the room's area first, so
+    // that what follows is read on this device and the song is here for
+    // the room's list after (out of room: down the link as before).
+    let mut stored = false;
+    if let Some(store) = job.store.as_deref()
+        && job.stage != ddi_ui::state::room::SPOTLIGHT
+    {
+        let stop = ddi_ui::state::room::Stop::default();
+        match crate::room_store::song(store, share, progress, &stop).await {
+            Ok(()) => stored = true,
+            Err(ddi_ui::state::room::PreloadProblem::Quota) => {}
+            Err(_) => return Err(LoadProblem::Download),
+        }
+    }
     let loaded = crate::share::load(share).await.map_err(|e| {
         warn(&e.to_string());
         LoadProblem::Download
@@ -792,6 +811,7 @@ async fn read_shared(
     let record = &loaded.songs.first().ok_or(LoadProblem::Download)?.record;
     let entry = &record.entry;
     if job.stage != ddi_ui::state::room::SPOTLIGHT
+        && !stored
         && let Some(url) = crate::share::file_url(&entry.id, entry.music_for(p.index).as_str())
     {
         crate::songs::prefetch(&url, progress).await.map_err(|e| {
@@ -800,10 +820,10 @@ async fn read_shared(
         })?;
     }
     Ok(SharedFound {
-        banner: entry
-            .banner
-            .as_ref()
-            .and_then(|b| crate::share::file_url(&entry.id, b.as_str())),
+        banner: entry.banner.as_ref().and_then(|b| {
+            crate::room_store::source(share, b.as_str())
+                .or_else(|| crate::share::file_url(&entry.id, b.as_str()))
+        }),
         background: entry
             .background
             .as_ref()
@@ -813,6 +833,37 @@ async fn read_shared(
         pack: record.pack.clone(),
         live: p.live,
     })
+}
+
+/// Stage 2 of the room's song list: a listed song downloaded ahead into
+/// the room's area (`crate::room_store`), or deleted from it; the room
+/// told how it goes. (Testing's fake rooms have no share to read: their
+/// songs are the bundled ones, here at once.)
+pub(crate) fn preload(room: SharedRoom, job: ddi_ui::state::room::PreloadJob) {
+    use ddi_ui::state::room::PreloadJob;
+    wasm_bindgen_futures::spawn_local(async move {
+        match job {
+            PreloadJob::Listing { song, share, store } => {
+                let result = crate::room_store::listing(&store, &share).await;
+                room.borrow_mut().preload_listed(song, result);
+            }
+            PreloadJob::Song {
+                song,
+                share,
+                store,
+                stop,
+            } => {
+                let progress = |done: f64, total: f64| {
+                    if let Ok(mut r) = room.try_borrow_mut() {
+                        r.preload_progress(song, done, total);
+                    }
+                };
+                let result = crate::room_store::song(&store, &share, &progress, &stop).await;
+                room.borrow_mut().preload_done(song, result);
+            }
+            PreloadJob::Forget { share, store } => crate::room_store::forget(&store, &share).await,
+        }
+    });
 }
 
 /// A stage's song of the room watched with its audience

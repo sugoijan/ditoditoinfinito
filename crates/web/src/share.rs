@@ -122,6 +122,24 @@ pub(crate) async fn load(id: &str) -> Result<Rc<Share>, ShareError> {
         LAST.with_borrow_mut(|l| *l = Some(id.to_string()));
         return Ok(s);
     }
+    // A room's song kept on this device (stage 2): its list from there.
+    if let Some(text) = crate::room_store::share_json(id).await
+        && let Ok(share) = from_json(id, &text)
+    {
+        SHARES.with_borrow_mut(|m| m.insert(id.to_string(), share.clone()));
+        LAST.with_borrow_mut(|l| *l = Some(id.to_string()));
+        publish(id, "ready", Some(&share));
+        return Ok(share);
+    }
+    load_text(id).await.map(|(share, _)| share)
+}
+
+/// [`load`] from the server, with the share's JSON as it came (a room's
+/// song kept on this device keeps it, `crate::room_store`).
+pub(crate) async fn load_text(id: &str) -> Result<(Rc<Share>, String), ShareError> {
+    if !valid_id(id) {
+        return Err(ShareError::Gone { expired: false });
+    }
     publish(id, "loading", None);
     let url = format!("{}/s/{id}", base());
     let resp = gloo::net::http::Request::get(&url)
@@ -137,10 +155,10 @@ pub(crate) async fn load(id: &str) -> Result<Rc<Share>, ShareError> {
         resp.text()
             .await
             .map_err(ShareError::failed("reading the share"))
-            .and_then(|t| from_json(id, &t))
+            .and_then(|t| Ok((from_json(id, &t)?, t)))
     };
     match &result {
-        Ok(share) => {
+        Ok((share, _)) => {
             let share = share.clone();
             SHARES.with_borrow_mut(|m| m.insert(id.to_string(), share.clone()));
             LAST.with_borrow_mut(|l| *l = Some(id.to_string()));

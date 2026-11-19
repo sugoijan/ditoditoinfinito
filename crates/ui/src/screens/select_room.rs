@@ -66,7 +66,7 @@ const MORE_REMOVE: &str = "room-remove-song";
 const MORE_RETRY_UPLOAD: &str = "room-retry-upload";
 /// A listed song this device does not have, as the Room songs tab names
 /// it (its entry's id after it).
-const ROOM_SONG_ID: &str = "room-song:";
+use crate::screens::data::ROOM_SONG_ID;
 /// A phone's players strip's height under it, and the room after it.
 const STRIP_H: f32 = 28.0;
 const STRIP_GAP: f32 = 8.0;
@@ -439,8 +439,15 @@ impl SelectScreen {
                 x += w + 4.0;
             }
         }
-        // The status line over the list's column.
-        let text: String = room::status(&r).into();
+        // The status line over the list's column (on My songs, what
+        // Enter does there where it would say to pick).
+        let text: String = match rm.tab {
+            Tab::Mine if rm.side == Side::Listed => {
+                room::status_on_my_songs(&r).unwrap_or_else(|| room::status(&r))
+            }
+            _ => room::status(&r),
+        }
+        .into();
         let mut status = env.text("Room.Status", &text, 14.0, 600, "Secondary");
         // At its right: Retry for a download that failed after its own
         // retries (round P1b), else Pick songs for an operator who does
@@ -874,7 +881,8 @@ impl SelectScreen {
             .and_then(|s| r.member_of(s.by))
             .map(room::person_name);
         for e in r.room_songs() {
-            let mine = r.library_song(e).cloned();
+            // The player's own copy, else the one downloaded ahead.
+            let mine = r.library_song(e).cloned().or_else(|| r.ahead_song(e));
             let mut song = match &mine {
                 Some(s) => {
                     let mut s = s.clone();
@@ -902,6 +910,8 @@ impl SelectScreen {
                             ..ChartEntry::default()
                         })
                         .collect(),
+                    // Its banner as soon as it is here, before the song.
+                    banner: r.ahead_banner(e),
                     ..SongEntry::default()
                 },
             };
@@ -914,7 +924,18 @@ impl SelectScreen {
                 EntryState::Failed => ddi_l10n::msg::room::song_failed(),
                 EntryState::Ready => ddi_l10n::msg::room::song_ready(),
                 EntryState::Loading => ddi_l10n::msg::room::song_loading(),
+                EntryState::Downloading { done, total } if total > 0.0 => {
+                    ddi_l10n::msg::room::song_downloading_percent((done / total * 100.0).floor())
+                }
+                EntryState::Downloading { .. } => ddi_l10n::msg::room::song_downloading(),
                 EntryState::NotLoaded => ddi_l10n::msg::room::song_not_loaded(),
+            };
+            // Who has it, while not everyone does (stage 2).
+            let state = match r.have_count(e) {
+                Some((have, of)) if have < of => {
+                    ddi_l10n::msg::room::song_state_have(state, have, of)
+                }
+                _ => state,
             };
             let by = if e.by == r.me() {
                 ddi_l10n::msg::room::song_added_by_you()
@@ -1455,9 +1476,19 @@ impl SelectScreen {
                 },
             ),
             (Side::Listed, Tab::Mine) => None,
-            _ => r
-                .chooses()
-                .then(|| ddi_l10n::msg::room::pick_use(r.next_pick_number())),
+            _ => r.chooses().then(|| {
+                // Who does not have the song shown yet, said before the
+                // pick (stage 2).
+                let missing = self
+                    .shown_entry()
+                    .and_then(|id| r.state().songs.get(id))
+                    .map_or(0, |e| r.missing_count(e));
+                if missing > 0 {
+                    ddi_l10n::msg::room::pick_use_missing(r.next_pick_number(), missing)
+                } else {
+                    ddi_l10n::msg::room::pick_use(r.next_pick_number())
+                }
+            }),
         })
     }
 

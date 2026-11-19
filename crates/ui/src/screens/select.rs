@@ -1697,7 +1697,10 @@ impl SelectScreen {
         if !first.is_empty() {
             lines.push(first.join(" · "));
         }
-        lines.push(msg::chart_notes(c.notes).into());
+        // (A room's song not here yet: its notes are not known.)
+        if !self.song().is_some_and(SongEntry::away) {
+            lines.push(msg::chart_notes(c.notes).into());
+        }
         if !c.credit.is_empty() {
             lines.push(msg::chart_steps_by(&c.credit).into());
         }
@@ -2569,12 +2572,14 @@ impl SelectScreen {
                 );
                 look::ellipsized(&mut t, w);
                 children.push(left(t, px, y + 16.0));
-                let mut notes: String = if c.credit.is_empty() {
-                    msg::chart_notes(c.notes)
+                let mut notes: String = if self.song().is_some_and(SongEntry::away) {
+                    // A room's song not here yet: its notes are not known.
+                    String::new()
+                } else if c.credit.is_empty() {
+                    msg::chart_notes(c.notes).into()
                 } else {
-                    msg::chart_notes_by(c.notes, &c.credit)
-                }
-                .into();
+                    msg::chart_notes_by(c.notes, &c.credit).into()
+                };
                 if let Some(version) = c.version {
                     notes = format!("{} · {notes}", version_name(version));
                 }
@@ -2626,6 +2631,7 @@ impl SelectScreen {
         .into_iter()
         .filter(|a| a.name.starts_with("Ladder.Row"));
         let mut children = Vec::new();
+        let away = self.song().is_some_and(SongEntry::away);
         for k in 0..n {
             let c = charts[first + k];
             let mut r = made.next().unwrap_or_else(|| {
@@ -2640,12 +2646,14 @@ impl SelectScreen {
             // The difficulty (never translated) or the chart's own name.
             set_text(&mut r, "Label", &data(&c.label().to_uppercase()));
             set_text(&mut r, "Title", &data(&c.label()));
-            let mut notes: String = if c.credit.is_empty() {
-                msg::chart_notes(c.notes)
+            let mut notes: String = if away {
+                // A room's song not here yet: its notes are not known.
+                String::new()
+            } else if c.credit.is_empty() {
+                msg::chart_notes(c.notes).into()
             } else {
-                msg::chart_notes_by(c.notes, &c.credit)
-            }
-            .into();
+                msg::chart_notes_by(c.notes, &c.credit).into()
+            };
             // A generated version says what it leaves out or where it
             // comes from.
             if let Some(version) = c.version {

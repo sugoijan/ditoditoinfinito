@@ -35,7 +35,7 @@ use crate::state::online::Redirect;
 use crate::state::online::link::LinkNotice;
 use crate::state::room::{
     LastSongChoice,
-    LoadJob, LoadProblem, Refusal, RoomClient, RoomView as Where, SharedRoom, Sharing,
+    LoadJob, LoadProblem, PreloadJob, Refusal, RoomClient, RoomView as Where, SharedRoom, Sharing,
     SharingProblem, StageMark, StageOrder, Unsupported, UploadJob, cpu_levels,
 };
 
@@ -66,6 +66,10 @@ pub enum RoomCall {
     /// An online room's Sign in again: go where signing in needs (the
     /// server's page on the web, the system browser on desktop).
     Redirect(Redirect),
+    /// Stage 2 of the room's song list: a listed song downloaded ahead
+    /// into the room's store, or deleted from it
+    /// (`state::room::PreloadJob`).
+    Preload(PreloadJob),
 }
 
 pub type RoomShell = Rc<dyn Fn(RoomCall, &mut Cx)>;
@@ -298,6 +302,10 @@ impl Pump {
         let uploads = room.borrow_mut().take_upload_jobs();
         for job in uploads {
             shell(RoomCall::Upload(Box::new(job)), cx);
+        }
+        let ahead = room.borrow_mut().take_preload_jobs();
+        for job in ahead {
+            shell(RoomCall::Preload(job), cx);
         }
         let version = room.borrow().version();
         self.seen.replace(version) != Some(version)
@@ -615,6 +623,31 @@ pub fn status(r: &RoomClient) -> UiText {
     }
 }
 
+/// The status line on My songs (stage 2 of the room's song list), where
+/// it would say to pick a song: Enter adds a song there, picks are made
+/// on Room songs. None where the line says anything else.
+pub fn status_on_my_songs(r: &RoomClient) -> Option<UiText> {
+    if r.refusal().is_some()
+        || r.link_notice().is_some()
+        || r.link_state() != LinkState::Connected
+        || !r.may_add()
+    {
+        return None;
+    }
+    let picking = matches!(
+        r.state().phase,
+        Phase::Lobby | Phase::Intermission { .. } | Phase::Preparing { window: None, .. }
+    );
+    if !picking {
+        return None;
+    }
+    Some(if r.chooses() {
+        m::status_my_songs_picker()
+    } else {
+        m::status_my_songs_adder()
+    })
+}
+
 /// How many watch with the room's audience, for the players panel and the
 /// debug state (none where the room has no audience or it is closed).
 pub fn audience_words(r: &RoomClient) -> Option<UiText> {
@@ -754,6 +787,7 @@ fn phase_status(r: &RoomClient) -> UiText {
             LinkNotice::AudienceClosed => m::audience_closed_notice(),
             LinkNotice::AudienceOpened => m::audience_opened_notice(),
             LinkNotice::BackHere => back_here(r),
+            LinkNotice::AheadQuota => m::ahead_quota(),
         };
     }
     let s = r.state();
@@ -3143,9 +3177,12 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
                     crate::state::room::EntryState::Failed => "failed",
                     crate::state::room::EntryState::Ready => "ready",
                     crate::state::room::EntryState::Loading => "loading",
+                    crate::state::room::EntryState::Downloading { .. } => "downloading",
                     crate::state::room::EntryState::NotLoaded => "not_loaded",
                 }
                 .into(),
+                have: r.have_count(e),
+                banner: r.ahead_banner(e).is_some() || r.library_song(e).is_some_and(|s| s.banner.is_some()),
                 by: r.member_of(e.by).map(person_name).unwrap_or_default(),
                 share: e.share.clone(),
                 bundled: e.bundled,
@@ -3231,11 +3268,16 @@ pub(crate) fn more_mark(
 pub struct RoomSongView {
     pub id: u64,
     pub title: String,
-    /// `uploading`, `failed`, `ready`, `loading`, `not_loaded`.
+    /// `uploading`, `failed`, `ready`, `loading`, `downloading`,
+    /// `not_loaded`.
     pub state: String,
     pub by: String,
     pub share: Option<String>,
     pub bundled: bool,
+    /// How many players have it, of how many (stage 2: who has what).
+    pub have: Option<(u32, u32)>,
+    /// Its banner is here to draw.
+    pub banner: bool,
 }
 
 /// Changes what the pop-ups say of themselves in the debug state.

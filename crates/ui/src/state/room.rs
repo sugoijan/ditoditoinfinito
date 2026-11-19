@@ -63,6 +63,9 @@ use crate::state::online::link::{LinkNotice, OnlineLink};
 
 use crate::screens::data::{ChartEntry, SongEntry};
 
+mod preload;
+pub use preload::{Listing, PRELOAD_V0, PreloadJob, PreloadProblem, PreloadRules, Stop};
+
 /// The engine's CPU levels (`ddi_engine::cpu::CPU_LEVELS`, ten, since
 /// `cpu-levels-v1` abilities the same on every chart, with a person's shape
 /// since `cpu-levels-v2`), shown as five
@@ -231,6 +234,10 @@ pub struct LoadJob {
     /// besides ([`prepare_stage`]: the reading horizon, the battle plan).
     /// Boxed: the job travels in the screens' calls to the shell.
     pub live: Option<Box<LiveAsk>>,
+    /// A member's: the room's store its share is read into and from
+    /// ([`RoomClient::store`], stage 2: where its songs downloaded ahead
+    /// are); none: the shell's own place for shares (an audience seat's).
+    pub store: Option<String>,
 }
 
 impl LoadJob {
@@ -252,6 +259,7 @@ impl LoadJob {
             share: None,
             cpus,
             live: live.map(Box::new),
+            store: None,
         }
     }
 
@@ -273,6 +281,7 @@ impl LoadJob {
             share: Some(share),
             cpus: false,
             live: live.map(Box::new),
+            store: None,
         }
     }
 }
@@ -420,6 +429,21 @@ pub enum ShellNews {
     PreparedShared {
         job: Box<LoadJob>,
         result: Result<Box<SharedFound>, LoadProblem>,
+    },
+    /// Stage 2's downloads ahead ([`PreloadJob`]): a listing read, a
+    /// song's download moving on and ending.
+    Listed {
+        song: RoomSongId,
+        result: Result<Box<Listing>, PreloadProblem>,
+    },
+    AheadProgress {
+        song: RoomSongId,
+        done: f64,
+        total: f64,
+    },
+    Ahead {
+        song: RoomSongId,
+        result: Result<(), PreloadProblem>,
     },
 }
 
@@ -1433,6 +1457,8 @@ pub struct RoomClient {
     library: BTreeMap<String, SongEntry>,
     /// This device's uploads of the songs it added to the room's list.
     song_sharing: BTreeMap<RoomSongId, Sharing>,
+    /// Stage 2: the listed songs downloaded ahead (`preload`).
+    ahead: preload::Ahead,
 }
 
 /// What an entry of the room's song list is for this player (revision
@@ -1449,7 +1475,11 @@ pub enum EntryState {
     Ready,
     /// Being loaded here for a stage.
     Loading,
-    /// Not on this device yet (loaded when picked).
+    /// Being downloaded ahead (`preload`): `done` of `total` bytes (`0`
+    /// while the whole is not known).
+    Downloading { done: f64, total: f64 },
+    /// Not on this device yet (downloaded ahead in its turn, or loaded
+    /// when picked).
     NotLoaded,
 }
 
@@ -2114,6 +2144,7 @@ impl RoomClient {
             stale_before: None,
             library: BTreeMap::new(),
             song_sharing: BTreeMap::new(),
+            ahead: Default::default(),
             live_news: LiveNewsTap::default(),
             preparing: BTreeMap::new(),
             offered: BTreeSet::new(),
@@ -2812,6 +2843,7 @@ impl RoomClient {
         }
         self.read_live();
         self.tell_spotlight();
+        self.sync_preload();
         // A stage's prompt opens with no notice from before it (nor a
         // refusal of something done before it), and the room comes back
         // from a stage with none from it; joined to watch is said its
@@ -3375,6 +3407,7 @@ impl RoomClient {
             (ContentStatus::Available, _) => {}
         }
         if self.library_song(song).is_some()
+            || self.ahead_here(song)
             || self.picks.keys().any(|c| c.song == song.key)
         {
             return EntryState::Ready;
@@ -3387,6 +3420,8 @@ impl RoomClient {
         });
         if loading {
             EntryState::Loading
+        } else if let Some((done, total)) = self.ahead_progress(song) {
+            EntryState::Downloading { done, total }
         } else {
             EntryState::NotLoaded
         }
@@ -4250,6 +4285,23 @@ impl RoomClient {
     /// [`Self::finish_shared_load_live`] from the song as the shell read
     /// it from the share ([`SharedFound`]).
     pub fn finish_shared_found(&mut self, job: &LoadJob, result: Result<SharedFound, LoadProblem>) {
+        // A listed song read for a stage is here for the room's list too
+        // (stage 2): its files are in the room's store.
+        if let (Ok(found), Some(share)) = (&result, &job.share)
+            && job.stage != SPOTLIGHT
+            && job.store.is_some()
+            && self.readiness_rev(job.stage) == job.readiness_rev
+        {
+            self.ahead_read(
+                share,
+                Listing {
+                    entry: found.entry.clone(),
+                    pack: found.pack.clone(),
+                    banner: found.banner.clone(),
+                    bytes: 0,
+                },
+            );
+        }
         self.finish_shared_load_live(job, result.and_then(SharedFound::picked));
     }
 
@@ -4367,6 +4419,7 @@ impl RoomClient {
             return;
         }
         self.offered.clear();
+        self.preload_again();
         // Away past the room's patience, the room forgot what this member
         // had loaded of its stages not yet started (`ddi_room`'s
         // `drop_prep`): each such stage is prepared and reported again by
@@ -4471,6 +4524,11 @@ impl RoomClient {
                 ShellNews::PreparedShared { job, result } => {
                     self.finish_shared_found(&job, result.map(|f| *f))
                 }
+                ShellNews::Listed { song, result } => self.preload_listed(song, result.map(|l| *l)),
+                ShellNews::AheadProgress { song, done, total } => {
+                    self.preload_progress(song, done, total)
+                }
+                ShellNews::Ahead { song, result } => self.preload_done(song, result),
             }
         }
     }
@@ -5632,9 +5690,10 @@ impl RoomClient {
                     let digest = content.chart.as_str().parse().ok();
                     LoadJob::library(stage, readiness_rev, p, digest, false, live)
                 }
-                (None, Some(share)) => {
-                    LoadJob::from_share(stage, readiness_rev, share, &content.chart, live)
-                }
+                (None, Some(share)) => LoadJob {
+                    store: Some(self.store()),
+                    ..LoadJob::from_share(stage, readiness_rev, share, &content.chart, live)
+                },
                 // A listed bundled song (nothing uploaded) this device
                 // does not have: it cannot be read here.
                 (None, None) => {
@@ -5681,8 +5740,11 @@ impl RoomClient {
         if self.picks.contains_key(&content) || !self.asked.insert((stage, readiness_rev)) {
             return;
         }
-        self.jobs
-            .push(LoadJob::from_share(stage, readiness_rev, share, &content.chart, None));
+        let job = LoadJob {
+            store: Some(self.store()),
+            ..LoadJob::from_share(stage, readiness_rev, share, &content.chart, None)
+        };
+        self.jobs.push(job);
     }
 }
 

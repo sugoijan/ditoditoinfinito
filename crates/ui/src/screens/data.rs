@@ -512,11 +512,22 @@ pub struct SongEntry {
     pub played: bool,
 }
 
+/// The id prefix of an online room's listed song that is not on this
+/// device yet (`select_room.rs`): its row is made from the list's entry.
+pub const ROOM_SONG_ID: &str = "room-song:";
+
 impl SongEntry {
     /// Never played: its row says "NEW". A song with a best is played,
-    /// whatever `played` says.
+    /// whatever `played` says; a room's song not here yet is neither.
     pub fn is_new(&self) -> bool {
-        !self.played && self.charts.iter().all(|c| c.best.is_none())
+        !self.played && !self.away() && self.charts.iter().all(|c| c.best.is_none())
+    }
+
+    /// An online room's listed song not on this device yet (stage 2): its
+    /// row and song side show what the room's list says of it (no notes,
+    /// no length) until it is here.
+    pub fn away(&self) -> bool {
+        self.id.starts_with(ROOM_SONG_ID)
     }
 
     /// Its charts in style `style`, easiest first.

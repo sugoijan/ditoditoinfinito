@@ -163,7 +163,7 @@ pub fn person(
         }
         RoomCall::Prepare(job) => shared.borrow_mut().finish_load(&job, Ok(())),
         RoomCall::Upload(job) => kept.borrow_mut().push(*job),
-        RoomCall::PlayStage(_) | RoomCall::Redirect(_) => {}
+        RoomCall::PlayStage(_) | RoomCall::Redirect(_) | RoomCall::Preload(_) => {}
     });
     let design = ddi_ui::screens::design_for(&*look, size);
     let mut ui = Ui::new(design, ddi_ui::TextMode::Own, false);

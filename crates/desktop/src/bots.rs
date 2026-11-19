@@ -154,6 +154,10 @@ pub struct Options {
     /// The host's Rules: When life runs out (`--life-out play-on|out`,
     /// room model revision 16).
     pub life_out: Option<ddi_room::AtEasiest>,
+    /// Each bot downloads the room's listed songs ahead as a device does
+    /// (stage 2 of the room's song list: everything), unless
+    /// `--no-ahead` (load tests: a song read only when picked).
+    pub ahead: bool,
 }
 
 impl Default for Options {
@@ -188,6 +192,7 @@ impl Default for Options {
             quit_after: None,
             charts: None,
             life_out: None,
+            ahead: true,
         }
     }
 }
@@ -251,7 +256,9 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
                        two seats a signed-in bot (at most 5000)
   --anonymous          with --audience: the seats with no session at all,
                        seated by the server as anyone not signed in (by the
-                       connecting network, eight a network)";
+                       connecting network, eight a network)
+  --no-ahead           the bots do not download the room's listed songs
+                       ahead (each is read when picked), for load tests";
 
 impl Options {
     /// `args` (the command line after the program) read.
@@ -274,6 +281,10 @@ impl Options {
                 }
                 "--anonymous" => {
                     o.anonymous = true;
+                    took = false;
+                }
+                "--no-ahead" => {
+                    o.ahead = false;
                     took = false;
                 }
                 "--join" => {
@@ -900,6 +911,10 @@ enum Role {
 struct Said {
     /// The room's song list as last said (revision 17).
     songs: Option<Vec<String>>,
+    /// The listed songs this bot has, and those everyone has, as last
+    /// said (stage 2), and the songs said downloaded ahead.
+    have: Option<(usize, usize, usize)>,
+    downloaded: std::collections::BTreeSet<ddi_room::RoomSongId>,
     link: Option<LinkState>,
     phase: Option<PhaseKind>,
     spotlight: Option<String>,
@@ -930,6 +945,8 @@ struct Bot {
     said: Said,
     /// Over (refused, closed, left): nothing more to do.
     done: bool,
+    /// Downloads the room's songs ahead (`--no-ahead`: not).
+    ahead: bool,
 }
 
 impl Bot {
@@ -986,6 +1003,14 @@ impl Bot {
                 Some(self.check.clone()),
             );
         }
+        // Stage 2: the room's songs downloaded ahead, as a device does.
+        let ahead = room.borrow_mut().take_preload_jobs();
+        for job in ahead {
+            if let Some(tx) = &self.news {
+                crate::room::preload_with(tx, job);
+            }
+        }
+        self.say_have(&room);
         let uploads = room.borrow_mut().take_upload_jobs();
         for job in uploads {
             let what = if job.entry.is_some() {
@@ -1080,6 +1105,16 @@ impl Bot {
         room.set_inbox(inbox);
         // The Rules pop-up is a screen's; a bot has read them.
         room.set_rules_seen(true);
+        // Its own store of the room's songs (bots share the cache folder).
+        room.set_store(format!(
+            "{id}-{}",
+            self.profile.name.to_lowercase().replace(' ', "-")
+        ));
+        room.set_ahead(Some(if self.ahead {
+            ddi_ui::state::settings::RoomAhead::Everything
+        } else {
+            ddi_ui::state::settings::RoomAhead::Off
+        }));
         self.news = Some(tx);
         self.room = Some(Rc::new(RefCell::new(room)));
         self.say(format!("in room {id}"));
@@ -1126,6 +1161,7 @@ impl Bot {
             LinkState::Closed => {
                 self.say("the room closed");
                 self.done = true;
+                Self::forget_store(room);
             }
             LinkState::OpenedElsewhere => {
                 self.say("the room was opened on another device; stopping");
@@ -1138,6 +1174,57 @@ impl Bot {
             LinkState::Left => {
                 self.say("left the room");
                 self.done = true;
+                Self::forget_store(room);
+            }
+        }
+    }
+
+    /// The bot's store of the room's songs deleted (the room left or
+    /// ended), its size said.
+    fn forget_store(room: &SharedRoom) {
+        let store = room.borrow().store();
+        if let Some(dir) = crate::share::store_dir(&store) {
+            let bytes = crate::share::folder_bytes(&dir);
+            crate::share::forget_store(&store);
+            let after = crate::share::folder_bytes(&dir);
+            say(
+                "store",
+                &format!("{store}: {bytes} bytes before leaving, {after} after"),
+            );
+        }
+    }
+
+    /// What this bot has of the room's songs (stage 2), said as it
+    /// changes: each song downloaded ahead, how many it has, how many
+    /// everyone has.
+    fn say_have(&mut self, room: &SharedRoom) {
+        let (have, everyone, n, fresh) = {
+            let r = room.borrow();
+            let songs = r.room_songs();
+            let mut fresh = Vec::new();
+            let mut have = 0;
+            let mut everyone = 0;
+            for e in songs {
+                if r.entry_state(e) == ddi_ui::state::room::EntryState::Ready {
+                    have += 1;
+                    if r.ahead_song(e).is_some() && !self.said.downloaded.contains(&e.id) {
+                        fresh.push((e.id, e.card.title.clone()));
+                    }
+                }
+                if r.have_count(e).is_some_and(|(h, of)| h == of) {
+                    everyone += 1;
+                }
+            }
+            (have, everyone, songs.len(), fresh)
+        };
+        for (id, title) in fresh {
+            self.said.downloaded.insert(id);
+            self.say(format!("downloaded ahead: {title}"));
+        }
+        if self.said.have != Some((have, everyone, n)) {
+            self.said.have = Some((have, everyone, n));
+            if n > 0 {
+                self.say(format!("has {have} of the room's {n} songs; everyone has {everyone}"));
             }
         }
     }
@@ -2088,6 +2175,7 @@ pub fn run_with(o: Options, token: &str) -> i32 {
             matches: 0,
             said: Said::default(),
             done: false,
+            ahead: o.ahead,
         });
     }
     catch_stop();
@@ -2473,6 +2561,7 @@ mod tests {
             share: share.map(String::from),
             cpus: false,
             live: None,
+            store: None,
         };
         assert_eq!(check(&job(4, Some("x")), song.clone(), chart), Ok(()));
         assert_eq!(check(&job(5, None), song.clone(), chart), Ok(()));
