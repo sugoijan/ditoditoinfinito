@@ -263,90 +263,60 @@ fn song_n(n: u8) -> crate::screens::data::SongEntry {
     s.id = format!("bundled:{n}");
     s.title = format!("Song {n}");
     s.charts[0].digest = Some(ddi_chart::ChartDigest(u128::from(n)));
+    // An imported song's (a bundled one is listed with nothing uploaded).
+    s.pack = Some("Pack".into());
     s
 }
 
-/// ui-state-6, a follower: the spotlight's songs read from the room's
-/// share answered out of order: each song kept as its own, never one
-/// under the other's card.
+/// Revision 17 (round RL1): songs added to the room's list are uploaded
+/// one at a time, each under its own entry's grant; an upload whose entry
+/// was removed meanwhile ends changing nothing, and the next one goes on.
 #[test]
-fn the_spotlights_reads_answered_out_of_order_keep_each_song_its_own() {
-    use super::tests::room::{person, shared_pick, upload};
-    let clock = ManualClock::new(1_000);
-    let server = room_of(&clock, &["bob"]);
-    let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
-    let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
-    tick(&clock, &mut [&mut alice, &mut bob], 400);
-    let (a, b) = (song_n(7), song_n(8));
-    alice.hover(Some((&a, &a.charts[0])));
-    tick(&clock, &mut [&mut alice, &mut bob], 3_600);
-    tick(&clock, &mut [&mut alice, &mut bob], 400);
-    upload(&server, &mut alice, "sharea01");
-    tick(&clock, &mut [&mut alice, &mut bob], 400);
-    let job_a = bob.take_load_jobs();
-    assert_eq!(job_a.len(), 1);
-    alice.hover(Some((&b, &b.charts[0])));
-    tick(&clock, &mut [&mut alice, &mut bob], 3_600);
-    tick(&clock, &mut [&mut alice, &mut bob], 400);
-    upload(&server, &mut alice, "shareb01");
-    tick(&clock, &mut [&mut alice, &mut bob], 400);
-    let job_b = bob.take_load_jobs();
-    assert_eq!(job_b.len(), 1);
-    // B's read comes back first, A's after it.
-    bob.finish_shared_load(&job_b[0], Ok(shared_pick(&b)));
-    bob.finish_shared_load(&job_a[0], Ok(shared_pick(&a)));
-    let (card, picked) = bob.spotlight().unwrap();
-    assert_eq!(card.title, "Song 8");
-    assert_eq!(
-        picked.map(|p| p.chart.digest),
-        Some(Some(ddi_chart::ChartDigest(8))),
-        "B's own song under B's card"
-    );
-}
-
-/// ui-state-6, the picker: the spotlight moves on while the last song's
-/// upload still runs; that upload's end is not the new song's, and the
-/// new song is shared once it is done.
-#[test]
-fn the_spotlights_upload_ending_late_is_not_the_next_songs() {
+fn songs_added_are_uploaded_one_at_a_time_and_a_removed_ones_end_changes_nothing() {
     use super::tests::room::person;
-    use crate::state::room::SPOTLIGHT;
-    use ddi_room::Command;
+    use ddi_room::{Command, ContentStatus};
     let clock = ManualClock::new(1_000);
     let server = room_of(&clock, &["bob"]);
     let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
     let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
     tick(&clock, &mut [&mut alice, &mut bob], 400);
     let (a, b) = (song_n(7), song_n(8));
-    alice.hover(Some((&a, &a.charts[0])));
-    tick(&clock, &mut [&mut alice, &mut bob], 3_600);
+    alice.set_library(&[a.clone(), b.clone()]);
+    alice.add_song(&a).unwrap();
+    alice.add_song(&b).unwrap();
     tick(&clock, &mut [&mut alice, &mut bob], 400);
-    let jobs_a = alice.take_upload_jobs();
-    assert_eq!(jobs_a.len(), 1, "A's upload under way");
-    // The picker moves on to B before A's upload ends: B's grant asked
-    // for, not answered yet, as A's upload ends.
-    alice.hover(Some((&b, &b.charts[0])));
-    tick(&clock, &mut [&mut alice, &mut bob], 3_600);
-    // A's upload ends: the room hears of A's share.
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let ids: Vec<_> = alice.room_songs().iter().map(|e| e.id).collect();
+    assert_eq!(ids.len(), 2);
+    let jobs = alice.take_upload_jobs();
+    assert_eq!(jobs.len(), 1, "one at a time");
+    assert_eq!(jobs[0].entry, Some(ids[0]));
+    // A is removed while its upload runs; its end changes nothing.
+    alice.remove_song(ids[0]).unwrap();
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    assert_eq!(bob.room_songs().len(), 1);
+    alice.song_upload_finished(ids[0], Ok("sharea01".into()));
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let jobs = alice.take_upload_jobs();
+    assert_eq!(jobs.len(), 1, "B's upload next");
+    assert_eq!(jobs[0].entry, Some(ids[1]));
+    assert_eq!(jobs[0].song.id, b.id);
     server
         .borrow_mut()
-        .authority(Command::SetSpotlightShare {
-            chart: jobs_a[0].content.chart.clone(),
-            share: "sharea01".into(),
+        .authority(Command::SetSongContent {
+            song: ids[1],
+            status: ContentStatus::Available,
+            share: Some("shareb01".into()),
+            charts: None,
         })
-        .ok();
-    alice.upload_finished(SPOTLIGHT, Ok("sharea01".into()));
-    for _ in 0..4 {
-        tick(&clock, &mut [&mut alice, &mut bob], 400);
-    }
-    let jobs_b = alice.take_upload_jobs();
-    assert_eq!(jobs_b.len(), 1, "B shared too");
-    assert_eq!(jobs_b[0].content.chart, b_chart(&b));
+        .unwrap();
+    alice.song_upload_finished(ids[1], Ok("shareb01".into()));
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    assert!(alice.take_upload_jobs().is_empty());
+    assert_eq!(bob.room_songs()[0].share.as_deref(), Some("shareb01"));
 }
 
-fn b_chart(s: &crate::screens::data::SongEntry) -> ddi_room::ChartKey {
-    crate::state::room::content_id(s, &s.charts[0]).chart
-}
 
 /// `who`'s online state over the fake room whose invite endpoint is
 /// `invite`'s: read as it stands, replaced by any operator, failing while

@@ -68,6 +68,9 @@ use super::data::PackEntry;
 /// header's row is the header's (the bars stay put from screen to screen).
 #[path = "select_room.rs"]
 mod room_mode;
+/// An online room's song select's tabs' buttons (revision 17).
+pub const TAB_ROOM_NAME: &str = room_mode::TAB_ROOM;
+pub const TAB_MINE_NAME: &str = room_mode::TAB_MINE;
 #[path = "select_favorites.rs"]
 mod favorites_mode;
 
@@ -796,6 +799,9 @@ type FooterKey = (
     bool,
     bool,
     Option<bool>,
+    // A room's Enter and M words (revision 17: they follow the tab and
+    // the song's place in the room's list).
+    Option<(Option<String>, Option<String>)>,
 );
 
 /// Song select.
@@ -1510,9 +1516,10 @@ impl SelectScreen {
             })
     }
 
-    /// Fewer songs than [`PACKS_FROM`] are one list, without their packs.
+    /// Fewer songs than [`PACKS_FROM`] are one list, without their packs;
+    /// a room's own songs always (revision 17).
     fn flat(&self) -> bool {
-        self.data.songs.len() < PACKS_FROM
+        self.data.songs.len() < PACKS_FROM || self.room_listing()
     }
 
     fn lay_out_items(&mut self) {
@@ -2884,7 +2891,13 @@ impl SelectScreen {
         let favorite = self
             .heart()
             .filter(|_| matches!(now, Hints::Song | Hints::Greyed));
-        let key = (now, searching, found, manage, in_header, take, favorite);
+        let room_words = self.room.as_ref().map(|_| {
+            (
+                self.room_play_hint().flatten().map(String::from),
+                self.room_tab_hint().map(String::from),
+            )
+        });
+        let key = (now, searching, found, manage, in_header, take, favorite, room_words);
         if self.hints.as_ref() == Some(&key) {
             return;
         }
@@ -3060,6 +3073,11 @@ impl SelectScreen {
         let players = ddi_l10n::msg::room::players();
         if self.room.is_some() && !self.layout.compact && now == Hints::Song {
             hints.push(h(&["L"], &players));
+        }
+        // An online room's other tab (M, revision 17).
+        let tab_hint = self.room_tab_hint().map(String::from).unwrap_or_default();
+        if !tab_hint.is_empty() && now != Hints::Typing {
+            hints.push(h(&["M"], &tab_hint));
         }
         // A room not known yet: the way back alone.
         let joining = self.room_joining();
@@ -3348,9 +3366,8 @@ impl SelectScreen {
         if self.shell.is_none() || !cx.is_current_screen() {
             return;
         }
-        // A room not known yet shows no song: none is told (no preview);
-        // nor a follower's own list before the song followed replaced it.
-        if self.room_joining() || self.room_unfollowed() {
+        // A room not known yet shows no song: none is told (no preview).
+        if self.room_joining() {
             return;
         }
         let song = match self.shown {

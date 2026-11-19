@@ -54,7 +54,8 @@ use ddi_room::{
     ContentStatus, Finisher, Identity, LinkState, Loading, LocalAuthority, ManualClock, MatchId,
     MatchRules, MemberKind, Mirror, OpponentSpec, ParticipantId, Phase, Placement, Points,
     Rejection, ReportedRun, Revision, Role, RoomAuthority, RoomId, RoomPolicy, RoomState,
-    RulesProblem, Run, RunDetail, ServerMessage, SongKey, Stage, StageId, Transport,
+    RoomSong, RoomSongId, RulesProblem, Run, RunDetail, ServerMessage, SongKey, Stage, StageId,
+    Transport,
 };
 
 use crate::state::online::SharedOnline;
@@ -352,6 +353,11 @@ pub struct UploadJob {
     pub chart: ChartEntry,
     pub grant: String,
     pub max_bytes: f64,
+    /// The entry of the room's song list it is for (revision 17: a song
+    /// is uploaded when it is added; `stage` is then [`SPOTLIGHT`]'s 0),
+    /// answered by [`RoomClient::song_upload_progress`] and
+    /// [`RoomClient::song_upload_finished`]; none for a stage's.
+    pub entry: Option<RoomSongId>,
 }
 
 /// Where this device's sharing of a stage's song is (an online room's
@@ -395,6 +401,16 @@ pub enum ShellNews {
     },
     Uploaded {
         stage: StageId,
+        result: Result<String, ShareError>,
+    },
+    /// The same of a song added to the room's list (revision 17).
+    SongProgress {
+        song: RoomSongId,
+        done: f64,
+        total: f64,
+    },
+    SongUploaded {
+        song: RoomSongId,
         result: Result<String, ShareError>,
     },
     Prepared {
@@ -1410,6 +1426,86 @@ pub struct RoomClient {
     /// again; refusals of those up to it are of what the stopped page had
     /// asked, and are not said.
     stale_before: Option<u64>,
+    /// Revision 17: this player's library by each song's content
+    /// ([`song_key`]), as the room's screen gave it
+    /// ([`RoomClient::set_library`]): what a listed song is uploaded from
+    /// by its adder, and loaded from by anyone who has it.
+    library: BTreeMap<String, SongEntry>,
+    /// This device's uploads of the songs it added to the room's list.
+    song_sharing: BTreeMap<RoomSongId, Sharing>,
+}
+
+/// What an entry of the room's song list is for this player (revision
+/// 17): its upload, then whether this device has it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum EntryState {
+    /// Being uploaded (this device's: how far, `done` of `total` bytes;
+    /// another's: none known).
+    Uploading { done: f64, total: f64 },
+    /// This device's upload failed (Retry offered), or the room says the
+    /// upload was not the song added.
+    Failed,
+    /// On this device: in the library, or read from the room's share.
+    Ready,
+    /// Being loaded here for a stage.
+    Loading,
+    /// Not on this device yet (loaded when picked).
+    NotLoaded,
+}
+
+/// A song's content as a room's song list names it (revision 17,
+/// `ddi_share_protocol::song_key`): its original charts' digests; none
+/// where one has no digest yet (the library works it out when it next
+/// reads the chart) or it has no original chart.
+pub fn song_key(song: &SongEntry) -> Option<String> {
+    let digests: Vec<String> = song
+        .charts
+        .iter()
+        .filter(|c| c.version.is_none())
+        .map(|c| c.digest.map(|d| d.to_string()))
+        .collect::<Option<_>>()?;
+    (!digests.is_empty()).then(|| ddi_library::share::song_key(digests.iter().map(String::as_str)))
+}
+
+/// What the room's list is told of `song` when it is added: its card and
+/// its original charts (with their digests: [`song_key`] first).
+pub fn new_song(song: &SongEntry) -> Option<ddi_room::NewSong> {
+    let key = song_key(song)?;
+    let cut = |t: &str| t.chars().take(ContentCard::MAX_TEXT).collect::<String>();
+    let bytes = |t: &str| {
+        let mut end = 0;
+        for (i, c) in t.char_indices() {
+            if i + c.len_utf8() > ddi_room::songs::MAX_CHART_TEXT {
+                break;
+            }
+            end = i + c.len_utf8();
+        }
+        t[..end].to_string()
+    };
+    let mut charts: Vec<&ChartEntry> = song.charts.iter().filter(|c| c.version.is_none()).collect();
+    charts.sort_by_key(|c| c.index);
+    charts.dedup_by_key(|c| c.digest);
+    Some(ddi_room::NewSong {
+        key: SongKey::new(key),
+        card: ddi_room::SongCard {
+            title: cut(&song.title),
+            artist: cut(&song.artist),
+            pack: cut(song.pack.as_deref().unwrap_or_default()),
+        },
+        charts: charts
+            .into_iter()
+            .take(ddi_room::songs::MAX_CHARTS)
+            .filter_map(|c| {
+                Some(ddi_room::ChartLine {
+                    chart: ChartKey::new(c.digest?.to_string()),
+                    style: bytes(&c.style),
+                    difficulty: bytes(c.difficulty.name()),
+                    meter: c.meter,
+                })
+            })
+            .collect(),
+        bundled: song.pack.is_none(),
+    })
 }
 
 /// PROVISIONAL (`load-retry-v0`, round P1b): a member's failed download
@@ -2016,6 +2112,8 @@ impl RoomClient {
             retrying: Vec::new(),
             failed_jobs: BTreeMap::new(),
             stale_before: None,
+            library: BTreeMap::new(),
+            song_sharing: BTreeMap::new(),
             live_news: LiveNewsTap::default(),
             preparing: BTreeMap::new(),
             offered: BTreeSet::new(),
@@ -3171,6 +3269,376 @@ impl RoomClient {
         Ok(())
     }
 
+    // ---- the room's song list (revision 17) ----
+
+    /// Whether the room has a song list (an online room; CPU practice
+    /// picks from the player's own library).
+    pub fn has_song_list(&self) -> bool {
+        self.is_online()
+    }
+
+    /// The room's songs, oldest first.
+    pub fn room_songs(&self) -> &[RoomSong] {
+        &self.state().songs.entries
+    }
+
+    /// The list's rules (its size, what happens when it is full).
+    pub fn song_list_rules(&self) -> ddi_room::ListRules {
+        self.state().songs.rules
+    }
+
+    /// This player's library, as the room's screen has it: what a listed
+    /// song this device has is uploaded and loaded from (keyed by each
+    /// song's content, [`song_key`]).
+    pub fn set_library(&mut self, songs: &[SongEntry]) {
+        self.library = songs
+            .iter()
+            .filter_map(|s| Some((song_key(s)?, s.clone())))
+            .collect();
+    }
+
+    /// The library song that is listed entry `entry`, where this device
+    /// has it.
+    pub fn library_song(&self, entry: &RoomSong) -> Option<&SongEntry> {
+        self.library.get(entry.key.as_str())
+    }
+
+    /// The entry of the room's list that is library song `song`, if listed.
+    pub fn listed(&self, song: &SongEntry) -> Option<&RoomSong> {
+        let key = song_key(song)?;
+        self.state().songs.by_key(&SongKey::new(key))
+    }
+
+    /// Whether this player may add songs to the room's list now.
+    pub fn may_add(&self) -> bool {
+        self.has_song_list() && self.state().may_add(self.me)
+    }
+
+    /// Whether this player may remove entry `song`.
+    pub fn may_remove(&self, song: RoomSongId) -> bool {
+        self.state()
+            .songs
+            .get(song)
+            .is_some_and(|e| self.state().may_remove(self.me, e) && !self.state().song_in_use(e))
+    }
+
+    /// Add library song `song` to the room's list: refused where this
+    /// player may not, where a chart's digest is not known yet, or as the
+    /// room refuses (the same song listed, the list full, their share of
+    /// it). Its upload follows once the room lists it.
+    pub fn add_song(&mut self, song: &SongEntry) -> Result<(), Refusal> {
+        if !self.may_add() {
+            return self.refuse(Refusal::Room(Rejection::Unauthorized {
+                capability: Capability::AddSongs,
+            }));
+        }
+        let Some(new) = new_song(song) else {
+            return self.refuse(Refusal::Chart(Unsupported::NoDigest));
+        };
+        if let Some(e) = self.state().songs.by_key(&new.key) {
+            let id = e.id;
+            return self.refuse(Refusal::Room(Rejection::AlreadyListed { song: id }));
+        }
+        self.library.insert(new.key.as_str().to_string(), song.clone());
+        self.send(Command::AddSong {
+            song: Box::new(new),
+        })
+    }
+
+    /// Remove entry `song` from the room's list.
+    pub fn remove_song(&mut self, song: RoomSongId) -> Result<(), Refusal> {
+        self.send(Command::RemoveSong { song })
+    }
+
+    /// The list's size and what happens when it is full (the owner's).
+    pub fn set_song_list(&mut self, rules: ddi_room::ListRules) -> Result<(), Refusal> {
+        self.send(Command::SetSongList { rules })
+    }
+
+    /// What entry `song` is for this player now.
+    pub fn entry_state(&self, song: &RoomSong) -> EntryState {
+        match (&song.status, self.song_sharing.get(&song.id)) {
+            (ContentStatus::Pending, Some(Sharing::Uploading { done, total })) => {
+                return EntryState::Uploading {
+                    done: *done,
+                    total: *total,
+                };
+            }
+            (ContentStatus::Pending, Some(Sharing::Failed(_))) => return EntryState::Failed,
+            (ContentStatus::Pending, _) => {
+                return EntryState::Uploading {
+                    done: 0.0,
+                    total: 0.0,
+                };
+            }
+            (ContentStatus::Unavailable { .. }, _) => return EntryState::Failed,
+            (ContentStatus::Available, _) => {}
+        }
+        if self.library_song(song).is_some()
+            || self.picks.keys().any(|c| c.song == song.key)
+        {
+            return EntryState::Ready;
+        }
+        let loading = self.stages().iter().any(|st| {
+            st.play.is_none()
+                && st.content.as_ref().is_some_and(|c| c.id.song == song.key)
+                && st.prep(self.me).loading.in_progress()
+                && st.prep(self.me).loading != Loading::NotStarted
+        });
+        if loading {
+            EntryState::Loading
+        } else {
+            EntryState::NotLoaded
+        }
+    }
+
+    /// Whether this device's upload of entry `song` failed and may be
+    /// tried again.
+    pub fn may_retry_song(&self, song: RoomSongId) -> bool {
+        matches!(self.song_sharing.get(&song), Some(Sharing::Failed(_)))
+            && self
+                .state()
+                .songs
+                .get(song)
+                .is_some_and(|e| e.status == ContentStatus::Pending)
+    }
+
+    /// Upload entry `song` again after a failure: a new grant.
+    pub fn retry_song_upload(&mut self, song: RoomSongId) {
+        if self.may_retry_song(song) {
+            self.song_sharing.remove(&song);
+            self.version += 1;
+            self.sync_song_uploads();
+        }
+    }
+
+    /// The picker's pick of chart `chart` of listed song `song` (the Room
+    /// songs tab's Enter): the song of the stage the room plays next, there
+    /// at once (it is uploaded); refused where the CPUs cannot play it, or
+    /// as the room refuses.
+    pub fn pick_listed(&mut self, song: RoomSongId, chart: &ChartKey) -> Result<(), Refusal> {
+        let Some(entry) = self.state().songs.get(song).cloned() else {
+            return self.refuse(Refusal::Room(Rejection::NotListed));
+        };
+        let Some(line) = entry.chart(chart) else {
+            return self.refuse(Refusal::Room(Rejection::ChartNotInSong));
+        };
+        if self.has_cpus() && !cpu_style(&line.style) {
+            return self.refuse(Refusal::Chart(Unsupported::Layout {
+                style: line.style.clone(),
+            }));
+        }
+        let content = ContentId {
+            song: entry.key.clone(),
+            chart: chart.clone(),
+        };
+        self.map_listed_content(&content);
+        let stage = self.stage_picked_next();
+        self.send(Command::PickListed {
+            song,
+            chart: chart.clone(),
+        })?;
+        if std::mem::take(&mut self.pick_last)
+            && let Some(stage) = stage
+        {
+            self.send(Command::SetLastStage { stage, last: true })?;
+        }
+        Ok(())
+    }
+
+    /// The picker's song select rests on chart `chart` of listed song
+    /// `song` (none: on no song): once it has rested
+    /// [`SPOTLIGHT_REST_MS`], the room marks it for the others (its
+    /// entry's row; nothing is uploaded or downloaded for it).
+    pub fn hover_listed(&mut self, shown: Option<(RoomSongId, &ChartKey)>) {
+        let now = self.now_ms();
+        let next = shown.and_then(|(song, chart)| {
+            let e = self.state().songs.get(song)?;
+            let line = e.chart(chart)?;
+            let id = ContentId {
+                song: e.key.clone(),
+                chart: chart.clone(),
+            };
+            Some((id, e.card_for(line)))
+        });
+        if next.is_none() {
+            self.resting_on_none.get_or_insert(now);
+        } else {
+            self.resting_on_none = None;
+        }
+        if self.resting.as_ref().map(|(id, _, _)| id) != next.as_ref().map(|(id, _)| id) {
+            self.resting = next.map(|(id, card)| (id, card, now));
+        }
+    }
+
+    /// The entry the room's picker rests on (the spotlight's mark), if one.
+    pub fn spotlight_entry(&self) -> Option<RoomSongId> {
+        let spot = self.state().spotlight.as_ref()?;
+        self.state().songs.by_key(&spot.content.song).map(|e| e.id)
+    }
+
+    /// The song and chart of the library this device loads a listed
+    /// content from, where it has the song: made known as a pick of its
+    /// own (so the stage is prepared from the library, nothing read from
+    /// the share).
+    fn map_listed_content(&mut self, content: &ContentId) {
+        if self.picks.contains_key(content) {
+            return;
+        }
+        let Some(song) = self.library.get(content.song.as_str()) else {
+            return;
+        };
+        let Some(chart) = song
+            .charts
+            .iter()
+            .find(|c| c.digest.is_some_and(|d| d.to_string() == content.chart.as_str()))
+        else {
+            return;
+        };
+        let picked = Picked {
+            song: song.clone(),
+            chart: chart.clone(),
+        };
+        self.picks.insert(content.clone(), picked);
+    }
+
+    /// Every stage's listed content this device has in its library, made
+    /// known as its own ([`Self::map_listed_content`]).
+    fn map_listed(&mut self) {
+        if self.library.is_empty() {
+            return;
+        }
+        let contents: Vec<ContentId> = self
+            .stages()
+            .iter()
+            .filter_map(|st| st.content.as_ref())
+            .filter(|c| c.song.is_some())
+            .map(|c| c.id.clone())
+            .collect();
+        for c in contents {
+            self.map_listed_content(&c);
+        }
+    }
+
+    /// The songs this player added whose upload is not done: one asked
+    /// for at a time (its grant, then the shell's upload), from the
+    /// library; what is no longer waiting for an upload forgotten.
+    fn sync_song_uploads(&mut self) {
+        let me = self.me;
+        let waiting: BTreeSet<RoomSongId> = self
+            .state()
+            .songs
+            .entries
+            .iter()
+            .filter(|e| e.by == me && e.status == ContentStatus::Pending)
+            .map(|e| e.id)
+            .collect();
+        let before = self.song_sharing.len();
+        self.song_sharing.retain(|id, _| waiting.contains(id));
+        if self.song_sharing.len() != before {
+            self.version += 1;
+        }
+        if self.link_state() != LinkState::Connected
+            || self
+                .song_sharing
+                .values()
+                .any(|s| matches!(s, Sharing::Asking | Sharing::Uploading { .. }))
+        {
+            return;
+        }
+        let next = self.state().songs.entries.iter().find(|e| {
+            waiting.contains(&e.id)
+                && !self.song_sharing.contains_key(&e.id)
+                && self.library.contains_key(e.key.as_str())
+        });
+        let Some(song) = next.map(|e| e.id) else {
+            return;
+        };
+        self.song_sharing.insert(song, Sharing::Asking);
+        if let Some(l) = self.online_link_mut() {
+            l.request_song_grant(song);
+        }
+        self.version += 1;
+    }
+
+    /// The room's answers to the songs' grants: each upload handed to the
+    /// shell, or the refusal kept (Retry offered).
+    fn take_song_grants(&mut self) {
+        let news = match self.online_link_mut() {
+            Some(l) => l.take_song_grants(),
+            None => return,
+        };
+        for n in news {
+            if !matches!(self.song_sharing.get(&n.song), Some(Sharing::Asking)) {
+                continue;
+            }
+            let entry = self.state().songs.get(n.song).cloned();
+            let library = entry.as_ref().and_then(|e| self.library_song(e).cloned());
+            let next = match (n.answer, entry, library) {
+                (Ok(answer), Some(entry), Some(song)) => match answer.grant {
+                    Some(grant) => {
+                        let chart = song.charts.first().cloned().unwrap_or_default();
+                        let content = ContentId {
+                            song: entry.key.clone(),
+                            chart: entry
+                                .charts
+                                .first()
+                                .map(|c| c.chart.clone())
+                                .unwrap_or_else(|| ChartKey::new("")),
+                        };
+                        self.uploads.push(UploadJob {
+                            stage: SPOTLIGHT,
+                            content,
+                            song,
+                            chart,
+                            grant,
+                            max_bytes: answer.max_bytes,
+                            entry: Some(n.song),
+                        });
+                        Sharing::Uploading {
+                            done: 0.0,
+                            total: 0.0,
+                        }
+                    }
+                    None => Sharing::Failed(SharingProblem::Grant("no_grant".into())),
+                },
+                (Err(p), _, _) => Sharing::Failed(SharingProblem::Grant(p.code)),
+                _ => Sharing::Failed(SharingProblem::Grant("no_song".into())),
+            };
+            self.song_sharing.insert(n.song, next);
+            self.version += 1;
+        }
+    }
+
+    /// The upload of listed song `song` moved on: `done` bytes of `total`.
+    pub fn song_upload_progress(&mut self, song: RoomSongId, done: f64, total: f64) {
+        if let Some(s @ Sharing::Uploading { .. }) = self.song_sharing.get_mut(&song) {
+            *s = Sharing::Uploading { done, total };
+            self.version += 1;
+        }
+    }
+
+    /// The upload of listed song `song` ended: the share made (the room
+    /// hears it from the server and lists it as there), or why not. An
+    /// expired grant is asked for again and the upload made again.
+    pub fn song_upload_finished(&mut self, song: RoomSongId, result: Result<String, ShareError>) {
+        if !matches!(self.song_sharing.get(&song), Some(Sharing::Uploading { .. })) {
+            return;
+        }
+        let next = match result {
+            Ok(_) => Sharing::Sent,
+            Err(e) if ddi_library::share::grant_expired(&e) => {
+                if let Some(l) = self.online_link_mut() {
+                    l.request_song_grant(song);
+                }
+                Sharing::Asking
+            }
+            Err(e) => Sharing::Failed(SharingProblem::Upload(e)),
+        };
+        self.song_sharing.insert(song, next);
+        self.version += 1;
+    }
+
     /// The stage a pick now is for: the intermission's next, a stage
     /// prepared without its window, or the next match's first.
     fn stage_picked_next(&self) -> Option<StageId> {
@@ -3995,6 +4463,10 @@ impl RoomClient {
                     self.upload_progress(stage, done, total)
                 }
                 ShellNews::Uploaded { stage, result } => self.upload_finished(stage, result),
+                ShellNews::SongProgress { song, done, total } => {
+                    self.song_upload_progress(song, done, total)
+                }
+                ShellNews::SongUploaded { song, result } => self.song_upload_finished(song, result),
                 ShellNews::Prepared { job, result } => self.finish_load(&job, result),
                 ShellNews::PreparedShared { job, result } => {
                     self.finish_shared_found(&job, result.map(|f| *f))
@@ -4126,6 +4598,7 @@ impl RoomClient {
     /// Grants the room answered: an upload handed to the shell, the room's
     /// earlier share taken (nothing to upload), or the refusal kept.
     fn take_grants(&mut self) {
+        self.take_song_grants();
         let news = match self.online_link_mut() {
             Some(l) => l.take_grants(),
             None => return,
@@ -4198,6 +4671,7 @@ impl RoomClient {
                         chart: p.chart.clone(),
                         grant,
                         max_bytes: answer.max_bytes,
+                        entry: None,
                     });
                     Sharing::Uploading {
                         done: 0.0,
@@ -5087,61 +5561,6 @@ impl RoomClient {
         }
     }
 
-    /// The spotlight's song (M7b): the picker who rests on it shares it
-    /// ahead under the room's grant (once per song), so that its pick is
-    /// available at once; the others read the room's share of it, to show
-    /// its banner and play its preview before anything is picked.
-    fn sync_spotlight(&mut self) {
-        let Some(spot) = self.state().spotlight.as_ref() else {
-            // The spotlight went with its picker (the pick changed hands):
-            // a song rested on again is asked for again, once, and the
-            // room answers with the share it kept or made meanwhile.
-            if matches!(
-                self.spotlight_sharing,
-                Some((_, Sharing::Sent | Sharing::Failed(_)))
-            ) {
-                self.spotlight_sharing = None;
-            }
-            return;
-        };
-        if spot.by == self.me {
-            let asked = self
-                .spotlight_sharing
-                .as_ref()
-                .is_some_and(|(c, _)| *c == spot.content);
-            // One upload at a time: the room's grant and the shell's
-            // upload say no song, so another's still under way is waited
-            // for (it may serve again if the picker comes back to it).
-            let busy = matches!(
-                self.spotlight_sharing,
-                Some((_, Sharing::Asking | Sharing::Uploading { .. }))
-            );
-            if spot.share.is_none() && !asked && !busy && self.picks.contains_key(&spot.content) {
-                let content = spot.content.clone();
-                self.spotlight_sharing = Some((content, Sharing::Asking));
-                if let Some(l) = self.online_link_mut() {
-                    l.request_grant(SPOTLIGHT, Revision(0));
-                }
-            }
-            return;
-        }
-        let Some(share) = &spot.share else {
-            return;
-        };
-        if self.picks.contains_key(&spot.content)
-            || self
-                .spotlight_asked
-                .as_ref()
-                .is_some_and(|(c, s)| *c == spot.content && s == share)
-        {
-            return;
-        }
-        let (content, share) = (spot.content.clone(), share.clone());
-        self.jobs
-            .push(LoadJob::from_share(SPOTLIGHT, 0, share.clone(), &content.chart, None));
-        self.spotlight_asked = Some((content, share));
-    }
-
     /// An online room's content (M5d). The picker's own pick waiting for
     /// its share (pending, or refused by the room) is shared from here
     /// once per choice: the room's grant asked for, then the upload handed
@@ -5153,7 +5572,11 @@ impl RoomClient {
         if self.link_state() != LinkState::Connected {
             return;
         }
-        self.sync_spotlight();
+        // Revision 17: the room's list replaces the spotlight's upload
+        // ahead (the picker's resting song is a mark on its entry); the
+        // songs this device added are uploaded from here.
+        self.sync_song_uploads();
+        self.map_listed();
         let me = self.me;
         let picker = self.chooses();
         let mut ask = Vec::new();
@@ -5173,8 +5596,9 @@ impl RoomClient {
                 {
                     ask.push((st.id, st.content_changed_at));
                 }
-                (ContentStatus::Available, Some(share))
-                    if st.prep(me).loading == Loading::NotStarted =>
+                (ContentStatus::Available, share)
+                    if st.prep(me).loading == Loading::NotStarted
+                        && (share.is_some() || content.song.is_some()) =>
                 {
                     prepare.push((st.id, st.readiness_rev, content.id.clone(), share.clone()));
                 }
@@ -5203,12 +5627,26 @@ impl RoomClient {
                 continue;
             }
             let live = self.live_ask(stage, &content);
-            let job = match self.picks.get(&content) {
-                Some(p) => {
+            let job = match (self.picks.get(&content), share) {
+                (Some(p), _) => {
                     let digest = content.chart.as_str().parse().ok();
                     LoadJob::library(stage, readiness_rev, p, digest, false, live)
                 }
-                None => LoadJob::from_share(stage, readiness_rev, share, &content.chart, live),
+                (None, Some(share)) => {
+                    LoadJob::from_share(stage, readiness_rev, share, &content.chart, live)
+                }
+                // A listed bundled song (nothing uploaded) this device
+                // does not have: it cannot be read here.
+                (None, None) => {
+                    let _ = self.send(Command::ReportLoading {
+                        stage,
+                        readiness_rev,
+                        loading: Loading::Failed {
+                            code: LoadProblem::Unreadable.code().into(),
+                        },
+                    });
+                    continue;
+                }
             };
             self.jobs.push(job);
         }

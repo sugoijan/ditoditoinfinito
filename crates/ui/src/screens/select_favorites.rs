@@ -55,7 +55,8 @@ impl SelectScreen {
     /// Whether favorites apply to a list of `data`: not a share's songs,
     /// not a room's follower's side (the picker's own list has them).
     pub(super) fn favorites_apply(&self, data: &SelectData) -> bool {
-        data.shared.is_none() && !self.following()
+        // Never on a room's own songs (revision 17): one flat list.
+        data.shared.is_none() && !self.following() && !self.room_listing()
     }
 
     /// Whether the list has the favorites' pack (always its first).

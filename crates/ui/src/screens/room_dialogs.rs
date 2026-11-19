@@ -2462,6 +2462,10 @@ pub struct HostDialog {
     people: Vec<Person>,
 }
 
+/// The sizes Host options steps a room's song list through (revision 17):
+/// the hard bound the last.
+const LIST_SIZES: [u16; 11] = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+
 /// One of the other people, as Host options lists them.
 struct Person {
     id: u64,
@@ -2577,6 +2581,26 @@ impl Screen for HostDialog {
         } else {
             0.0
         };
+        // The room's song list's size and what an addition to a full list
+        // does (revision 17): the owner's, with what they mean.
+        let list = {
+            let r = self.room.borrow();
+            (succession && r.has_song_list()).then(|| r.song_list_rules())
+        };
+        let list_note: Vec<String> = match list {
+            Some(rules) => {
+                let text: String =
+                    m::host_list_note(u32::try_from(rules.per_person()).unwrap_or(u32::MAX)).into();
+                super::dialog::wrap_lines(&text, inner, 13.0)
+            }
+            None => Vec::new(),
+        };
+        let list_h = if list.is_some() {
+            2.0 * ROW + list_note.len() as f32 * 18.0 + 14.0
+        } else {
+            0.0
+        };
+        let setting_h = setting_h + list_h;
         // The room's audience, where it has one: how many watch, and the
         // owner's Close the audience / Open the audience.
         let audience = {
@@ -2634,7 +2658,46 @@ impl Screen for HostDialog {
                 c.push(left(t, x0, ay));
                 ay += 18.0;
             }
-            ry += setting_h - audience_h;
+            ry += setting_h - audience_h - list_h;
+        }
+        if let Some(rules) = list {
+            let labels = (&*m::rules_previous(), &*m::rules_next());
+            let at = |mid: f32| [x0 + inner - 210.0, x0 + inner - 114.0, x0 + inner - 18.0, mid];
+            let mid = ry + ROW / 2.0;
+            let mut label = env.text("ListSize", &m::host_list_size(), 14.0, 400, "Secondary");
+            look::ellipsized(&mut label, inner - 250.0);
+            c.push(left(label, x0, mid));
+            let mut v = env.text(
+                "ListSize.Value",
+                &m::host_list_size_value(rules.size),
+                14.0,
+                600,
+                "Text",
+            );
+            look::ellipsized(&mut v, 150.0);
+            let edge = (
+                rules.size <= LIST_SIZES[0],
+                rules.size >= ddi_room::songs::MAX_SONGS,
+            );
+            stepper(&env, &mut c, "listsize", labels, v, edge, at(mid));
+            let mid = ry + ROW + ROW / 2.0;
+            let mut label = env.text("WhenFull", &m::host_when_full(), 14.0, 400, "Secondary");
+            look::ellipsized(&mut label, inner - 250.0);
+            c.push(left(label, x0, mid));
+            let (value, edge) = match rules.when_full {
+                ddi_room::WhenFull::RemoveOldest => (m::host_when_full_remove(), (true, false)),
+                ddi_room::WhenFull::Refuse => (m::host_when_full_refuse(), (false, true)),
+            };
+            let mut v = env.text("WhenFull.Value", &value, 14.0, 600, "Text");
+            look::ellipsized(&mut v, 150.0);
+            stepper(&env, &mut c, "whenfull", labels, v, edge, at(mid));
+            let mut ay = ry + 2.0 * ROW + 8.0;
+            for (i, line) in list_note.iter().enumerate() {
+                let t = env.text(&format!("ListSize.About{i}"), line, 13.0, 400, "Muted");
+                c.push(left(t, x0, ay));
+                ay += 18.0;
+            }
+            ry += list_h;
         }
         if let Some(((_, open), words)) = &audience {
             let mid = ry + ROW / 2.0;
@@ -2795,6 +2858,10 @@ impl Screen for HostDialog {
         };
         if succession {
             pair(&mut v, "Dec.leaves".into(), "Inc.leaves".into());
+            if self.room.borrow().has_song_list() {
+                pair(&mut v, "Dec.listsize".into(), "Inc.listsize".into());
+                pair(&mut v, "Dec.whenfull".into(), "Inc.whenfull".into());
+            }
         }
         if self.room.borrow().may_close_audience() {
             v.push(Focusable::new(AUDIENCE));
@@ -2862,6 +2929,30 @@ impl Screen for HostDialog {
                             HostLeaves::PassOn
                         };
                         let _ = self.room.borrow_mut().set_host_leaves(policy);
+                        self.rebuild(root, cx);
+                    }
+                    "Dec.listsize" | "Inc.listsize" | "Dec.whenfull" | "Inc.whenfull" => {
+                        let mut rules = self.room.borrow().song_list_rules();
+                        match name.as_str() {
+                            "Dec.listsize" => {
+                                rules.size = LIST_SIZES
+                                    .iter()
+                                    .rev()
+                                    .find(|&&n| n < rules.size)
+                                    .copied()
+                                    .unwrap_or(rules.size);
+                            }
+                            "Inc.listsize" => {
+                                rules.size = LIST_SIZES
+                                    .iter()
+                                    .find(|&&n| n > rules.size)
+                                    .copied()
+                                    .unwrap_or(rules.size);
+                            }
+                            "Dec.whenfull" => rules.when_full = ddi_room::WhenFull::RemoveOldest,
+                            _ => rules.when_full = ddi_room::WhenFull::Refuse,
+                        }
+                        let _ = self.room.borrow_mut().set_song_list(rules);
                         self.rebuild(root, cx);
                     }
                     "People.Up" => self.scroll(-1, root, cx),

@@ -257,19 +257,31 @@ pub fn upload_with(tx: &NewsTx, job: UploadJob) {
     let tx = tx.0.clone();
     let song = job.song.id.clone();
     let stage = job.stage;
+    let entry = job.entry;
     let grant = job.grant;
     let spawned = std::thread::Builder::new()
         .name("ddi-room-upload".into())
         .spawn(move || {
             let progress_tx = tx.clone();
             let mut progress = move |done: f64, total: f64| {
-                let _ = progress_tx.send(ShellNews::Progress { stage, done, total });
+                let news = match entry {
+                    // A song added to the room's list (revision 17).
+                    Some(song) => ShellNews::SongProgress { song, done, total },
+                    None => ShellNews::Progress { stage, done, total },
+                };
+                let _ = progress_tx.send(news);
             };
             let result = crate::share::upload_room(&song, &grant, &mut progress);
             if let Err(e) = &result {
-                eprintln!("room: sharing stage {stage}: {e}");
+                match entry {
+                    Some(song) => eprintln!("room: sharing the room's song {song}: {e}"),
+                    None => eprintln!("room: sharing stage {stage}: {e}"),
+                }
             }
-            let _ = tx.send(ShellNews::Uploaded { stage, result });
+            let _ = tx.send(match entry {
+                Some(song) => ShellNews::SongUploaded { song, result },
+                None => ShellNews::Uploaded { stage, result },
+            });
         });
     if let Err(e) = spawned {
         eprintln!("room: sharing stage {stage}: {e}");

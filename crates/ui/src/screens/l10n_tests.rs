@@ -1681,6 +1681,59 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         ));
         shown(&mut h, found);
     }
+    // The online room's song list (revision 17): both tabs, a song added
+    // from My songs and its row on Room songs for each, More's items
+    // there; then the list's refusal of the same song again.
+    {
+        use crate::state::online::tests::room::{client, person, tick};
+        use ddi_room::fake::FakeServer;
+        use ddi_room::{Identity, Intent, ManualClock, RoomPolicy};
+        let clock = ManualClock::new(1_000);
+        let server = FakeServer::hosted(
+            "Room000001",
+            Identity::new("dev:alice"),
+            "alice",
+            RoomPolicy::default(),
+            clock.clone(),
+        )
+        .shared();
+        server
+            .borrow_mut()
+            .join(Identity::new("dev:bob"), "bob", Intent::Play)
+            .unwrap();
+        let alice = Rc::new(std::cell::RefCell::new(client(&server, person(&server, "alice"), "alice", 1_000)));
+        let bob = Rc::new(std::cell::RefCell::new(client(&server, person(&server, "bob"), "bob", 1_000)));
+        let mut ha = harness();
+        ha.push(sample::room_screen(env, alice.clone()));
+        let mut hb = harness();
+        hb.push(sample::room_screen(env, bob.clone()));
+        let step = |ms: u64| {
+            tick(&clock, &mut [&mut alice.borrow_mut(), &mut bob.borrow_mut()], ms);
+        };
+        step(400);
+        shown(&mut ha, found);
+        shown(&mut hb, found);
+        ha.tap(PointerKind::Mouse, super::select::TAB_MINE_NAME);
+        shown(&mut ha, found);
+        ha.key("Enter", "Enter");
+        step(400);
+        step(400);
+        shown(&mut ha, found);
+        ha.key("Enter", "Enter");
+        step(400);
+        shown(&mut ha, found);
+        ha.tap(PointerKind::Mouse, super::select::TAB_ROOM_NAME);
+        step(400);
+        shown(&mut ha, found);
+        shown(&mut hb, found);
+        ha.tap(PointerKind::Mouse, "More");
+        shown(&mut ha, found);
+        ha.key("Escape", "Escape");
+        hb.tap(PointerKind::Mouse, "More");
+        shown(&mut hb, found);
+        hb.key("Escape", "Escape");
+        shown(&mut hb, found);
+    }
     // The online room: an owner and a member over the fake room, through
     // its states.
     use crate::state::online::tests::room::{client, person, song, tick};
@@ -1765,7 +1818,15 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     hb.run(0.3);
     ha.tap(PointerKind::Mouse, super::room_dialogs::HOST_OPTIONS);
     shown(&mut ha, found);
-    for name in ["Inc.leaves", "Dec.leaves", "CoHost.2"] {
+    for name in [
+        "Inc.leaves",
+        "Dec.leaves",
+        "Inc.whenfull",
+        "Dec.listsize",
+        "Dec.whenfull",
+        "Inc.listsize",
+        "CoHost.2",
+    ] {
         ha.tap(PointerKind::Mouse, name);
         step(400);
         shown(&mut ha, found);

@@ -837,13 +837,24 @@ pub(crate) fn upload(room: SharedRoom, job: UploadJob) {
     wasm_bindgen_futures::spawn_local(async move {
         let progress = {
             let room = room.clone();
-            move |done: f64, total: f64| room.borrow_mut().upload_progress(job.stage, done, total)
+            move |done: f64, total: f64| match job.entry {
+                // A song added to the room's list (revision 17).
+                Some(song) => room.borrow_mut().song_upload_progress(song, done, total),
+                None => room.borrow_mut().upload_progress(job.stage, done, total),
+            }
         };
         let result = crate::share::upload_room(&job.song.id, &job.grant, &progress).await;
         if let Err(e) = &result {
-            web_sys::console::warn_1(&format!("room: sharing stage {}: {e}", job.stage).into());
+            let what = match job.entry {
+                Some(song) => format!("the room's song {song}"),
+                None => format!("stage {}", job.stage),
+            };
+            web_sys::console::warn_1(&format!("room: sharing {what}: {e}").into());
         }
-        room.borrow_mut().upload_finished(job.stage, result);
+        match job.entry {
+            Some(song) => room.borrow_mut().song_upload_finished(song, result),
+            None => room.borrow_mut().upload_finished(job.stage, result),
+        }
     });
 }
 

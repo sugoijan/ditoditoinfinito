@@ -2145,3 +2145,114 @@ room-audience-players = { $count ->
 # changed the rules while this player's edit was open; nothing of theirs
 # was applied and the pop-up now shows the rules as they are.
 room-refused-rules-changed = Someone else changed the rules meanwhile. Here they are now: check them, then Apply again.
+
+## The room's song list (room model revision 17): an online room's song
+## select has two tabs over its list, the room's own songs (the same for
+## everyone, added by its hosts) and the player's own library, from which
+## a host adds songs to the room.
+
+# The song select's tab of the room's song list, and More's item that
+# shows it (about 14 letters).
+room-tab-room-songs = Room songs
+# The tab of the player's own songs, and More's item that shows it (about
+# 14 letters).
+room-tab-my-songs = My songs
+# In the list's place when the room's list is empty, to who may add songs
+# (a host).
+room-songs-empty-adder = No songs in the room yet. Add songs from My songs.
+# The same, to anyone else in the room.
+room-songs-empty-member = The host hasn't added any songs yet.
+# A room song's state for this player, in its row's line: being uploaded by
+# whoever added it.
+room-song-uploading = Uploading
+# The same, this player's own upload, how far.
+# Variables:
+#   $percent (Number) - how much is uploaded, 0 to 100
+room-song-uploading-percent = Uploading { $percent }%
+# The upload failed (or what was uploaded was not the song added).
+room-song-failed = Upload failed
+# The song is on this device (in its own library, or read already).
+room-song-ready = On this device
+# The song is being read onto this device for a stage.
+room-song-loading = Loading
+# Not on this device yet: it is read when the song is picked.
+room-song-not-loaded = Not loaded yet
+# Who added a room song, in its row's line.
+room-song-added-by-you = Added by you
+# Variables:
+#   $name (String) - who added it (data)
+room-song-added-by = Added by { $name }
+# A room song's row's line: its artist, its state and who added it.
+# Variables:
+#   $artist (String) - the song's artist (data)
+#   $state (String) - its state (one of the room-song- states above)
+#   $by (String) - who added it (room-song-added-by…)
+room-song-line = { $artist } · { $state } · { $by }
+# The same for a song without an artist.
+# Variables:
+#   $state (String) - its state
+#   $by (String) - who added it
+room-song-line-no-artist = { $state } · { $by }
+# The same for the song the one who chooses the room's songs is looking at
+# (it may be picked next), said first.
+# Variables:
+#   $artist (String) - the song's artist (data)
+#   $state (String) - its state
+#   $by (String) - who added it
+#   $picker (String) - who chooses the room's songs (data)
+room-song-line-spotlight = { $picker } is on it · { $artist } · { $state } · { $by }
+# The Enter key's hint on My songs for a host: adds the song shown to the
+# room's list (a few words).
+room-add-song-use = Add to the room
+# The same where the song is in the room's list already (nothing happens).
+room-song-in-room = In the room
+# More's item for a room song this player may remove.
+room-remove-song = Remove from the room
+# More's item for a room song whose upload from this device failed.
+room-retry-upload = Upload again
+# Refused: the song is in the room's list already.
+room-refused-song-listed = That song is in the room already.
+# Refused: the room's list holds as many songs as it may and refuses new
+# ones (its host's setting), or every song in it is in use.
+room-refused-list-full = The room's song list is full.
+# Refused: the person added as many songs as one may.
+# Variables:
+#   $limit (Number) - how many one person may add
+room-refused-too-many-songs = { $limit ->
+    [one] You can add one song to this room.
+   *[other] You can add up to { $limit } songs to this room.
+}
+# Refused: a stage that is picked or under way plays that song.
+room-refused-song-in-use = That song is picked for a stage, so it stays for now.
+# Refused: the song is still being uploaded.
+room-refused-song-not-ready = That song is still being uploaded.
+# Refused: the song (or its chart) is not in the room's list any more.
+room-refused-song-gone = That song isn't in the room's list any more.
+# Refused: the song can't be listed as it is (too many charts, say).
+room-refused-song-invalid = That song can't be added to the room.
+
+## Host options: the room's song list's size and what an addition to a full
+## list does (the owner's settings).
+
+# The row's label (about 24 letters).
+room-host-list-size = Room songs at most
+# The row's value.
+# Variables:
+#   $count (Number) - the list's size, 1 to 100
+room-host-list-size-value = { $count ->
+    [one] One song
+   *[other] { $count } songs
+}
+# The row's label (about 24 letters).
+room-host-when-full = When the list is full
+# Its choices: the oldest song not in use is removed to make room; or new
+# songs are refused until one is removed.
+room-host-when-full-remove = Remove the oldest
+room-host-when-full-refuse = Refuse new songs
+# The note under the two rows: what they mean.
+# Variables:
+#   $count (Number) - how many songs one person may add (half the size)
+room-host-list-note = { $count ->
+    [one] Each person may add one song. A song stays until it is removed or the room ends.
+   *[other] Each person may add up to { $count } songs. A song stays until it is removed or the room ends.
+}

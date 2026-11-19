@@ -574,6 +574,29 @@ pub(crate) mod room {
                     r#"{{"invite":"{INVITE}","watch_invite":"{WATCH_INVITE}","expires_at_ms":9,"admission":"open"}}"#
                 )),
                 (Method::Get, "/rooms/Room000001/invite") => err(403, "not_an_operator"),
+                // Revision 17: an entry's upload grant, its adder's.
+                (Method::Post, "/rooms/Room000001/songs/grant") => {
+                    let srv = s.borrow();
+                    let song = req
+                        .body
+                        .as_deref()
+                        .and_then(|b| serde_json::from_str::<serde_json::Value>(b).ok())
+                        .and_then(|v| v.get("song").and_then(|m| m.as_u64()))
+                        .unwrap_or(0);
+                    let adder = srv
+                        .state()
+                        .songs
+                        .get(ddi_room::RoomSongId(song))
+                        .and_then(|e| srv.state().member(e.by))
+                        .is_some_and(|m| m.identity() == Some(&identity));
+                    if !adder {
+                        return err(403, "not_the_adder");
+                    }
+                    grants += 1;
+                    ok(&format!(
+                        r#"{{"grant":"grant-{who}-{grants}","expires_at_ms":9,"max_bytes":100.0}}"#
+                    ))
+                }
                 (Method::Post, "/rooms/Room000001/grant") => {
                     let srv = s.borrow();
                     let operator = srv
@@ -1039,57 +1062,57 @@ pub(crate) mod room {
             Some("http://localhost:8080/#/mp/join/Room000001.abcdefghijABCDEFGHIJ01")
         );
         assert_eq!(bob.invite_link(), None);
-        // Moving through the list sends nothing; resting does.
-        let s = song();
+        // Revision 17: the host adds a song of her library to the room's
+        // list: listed for everyone at once (uploading), uploaded under
+        // the room's grant for that entry (once), there for everyone once
+        // the server says so; a member may not add.
+        let mut s = song();
+        s.pack = Some("Pack".into());
         let mut other = song();
         other.id = "bundled:b".into();
         other.charts[0].digest = Some(ddi_chart::ChartDigest(8));
-        alice.hover(Some((&other, &other.charts[0])));
-        tick(&clock, &mut [&mut alice, &mut bob], 1_000);
-        alice.hover(Some((&s, &s.charts[0])));
-        tick(&clock, &mut [&mut alice, &mut bob], 2_000);
-        assert!(bob.state().spotlight.is_none(), "not rested yet");
-        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 1_200);
-        let spot = bob.state().spotlight.clone().unwrap();
-        assert_eq!(spot.card.title, "A");
-        assert_eq!(bob.spotlight().unwrap().1, None, "its card alone yet");
-        // Its upload, once, under a grant for no stage.
+        alice.set_library(&[s.clone(), other.clone()]);
+        bob.set_library(std::slice::from_ref(&other));
+        assert!(alice.may_add() && !bob.may_add());
+        assert!(bob.add_song(&other).is_err());
+        alice.add_song(&s).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        let entry = bob.room_songs()[0].clone();
+        assert_eq!((entry.card.title.as_str(), entry.by), ("A", alice.me()));
+        assert!(matches!(bob.entry_state(&entry), crate::state::room::EntryState::Uploading { .. }));
+        assert_eq!(alice.listed(&s).map(|e| e.id), Some(entry.id));
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
         let jobs = alice.take_upload_jobs();
         assert_eq!(jobs.len(), 1);
         assert_eq!(
-            (jobs[0].stage, jobs[0].grant.as_str()),
-            (crate::state::room::SPOTLIGHT, "grant-alice-1")
+            (jobs[0].entry, jobs[0].grant.as_str(), jobs[0].song.id.as_str()),
+            (Some(entry.id), "grant-alice-1", s.id.as_str())
         );
+        // Its progress is a change; the server's word makes it there.
+        let before = alice.version();
+        alice.song_upload_progress(entry.id, 1.0, 2.0);
+        assert!(alice.version() > before);
         server
             .borrow_mut()
-            .authority(Command::SetSpotlightShare {
-                chart: jobs[0].content.chart.clone(),
-                share: "abc12345".into(),
+            .authority(Command::SetSongContent {
+                song: entry.id,
+                status: ContentStatus::Available,
+                share: Some("abc12345".into()),
+                charts: None,
             })
             .unwrap();
-        // Its progress is a change, as a stage's upload's is.
-        let before = alice.version();
-        alice.upload_progress(jobs[0].stage, 1.0, 2.0);
-        assert!(alice.version() > before);
-        alice.upload_finished(jobs[0].stage, Ok("abc12345".into()));
+        alice.song_upload_finished(entry.id, Ok("abc12345".into()));
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
-        assert!(alice.take_upload_jobs().is_empty());
-        // Bob reads it from the share: the song shown with its banner.
-        let b = bob.take_load_jobs();
-        assert_eq!(b.len(), 1);
-        assert_eq!(
-            (b[0].stage, b[0].share.as_deref()),
-            (crate::state::room::SPOTLIGHT, Some("abc12345"))
-        );
-        bob.finish_shared_load(&b[0], Ok(shared_pick(&s)));
-        assert_eq!(
-            bob.spotlight().unwrap().1.unwrap().song.id,
-            "shared:abc12345:0"
-        );
+        assert!(alice.take_upload_jobs().is_empty(), "once");
+        let entry = bob.room_songs()[0].clone();
+        assert_eq!(bob.entry_state(&entry), crate::state::room::EntryState::NotLoaded);
+        assert_eq!(alice.entry_state(&entry), crate::state::room::EntryState::Ready);
+        // Nothing is read ahead: nobody follows the picker any more.
+        assert!(bob.take_load_jobs().is_empty());
         let _ = carol.take_load_jobs();
         // Bob may not pick: refused by the room.
-        assert!(bob.pick(&other, &other.charts[0]).is_err());
+        let chart = entry.charts[0].chart.clone();
+        assert!(bob.pick_listed(entry.id, &chart).is_err());
         tick(&clock, &mut [&mut alice, &mut bob], 400);
         assert!(matches!(
             bob.refusal(),
@@ -1109,9 +1132,9 @@ pub(crate) mod room {
             assert!(!r.attacks_offered() && !r.attacks_on());
             assert!(!r.attacks_played(r.rules()));
         }
-        // The pick: the match starts, the stage available with the
-        // spotlight's share at once; nothing to upload again.
-        alice.pick(&s, &s.charts[0]).unwrap();
+        // The pick from the list: the match starts, the stage available
+        // with the entry's share at once; nothing to upload again.
+        alice.pick_listed(entry.id, &chart).unwrap();
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
         let stage = alice.stages()[0].id;
         let content = bob.stages()[0].content.clone().unwrap();
@@ -1673,7 +1696,8 @@ pub(crate) mod room {
         let spot = carol.state().spotlight.clone().unwrap();
         assert_eq!((spot.by, spot.card.title.as_str()), (a, "A"));
         step!(400);
-        assert_eq!(upload(&server, &mut alice, "abc12345").len(), 1);
+        // Revision 17: nothing is shared ahead (the room's list is).
+        assert!(alice.take_upload_jobs().is_empty());
         step!(400);
         assert!(bob.take_upload_jobs().is_empty());
         // A member's take is not even sent; the room would refuse it.
@@ -1699,12 +1723,7 @@ pub(crate) mod room {
         let spot = alice.state().spotlight.clone().unwrap();
         assert_eq!((spot.by, spot.card.title.as_str()), (b, "B"));
         step!(400);
-        let jobs = upload(&server, &mut bob, "def67890");
-        assert_eq!(
-            (jobs.len(), jobs[0].grant.as_str()),
-            (1, "grant-bob-1"),
-            "the picker's own upload"
-        );
+        assert!(bob.take_upload_jobs().is_empty(), "nothing shared ahead");
         // The owner's pick is refused while they follow (the room says
         // who chooses); nothing of theirs is uploaded.
         assert_eq!(
@@ -1716,8 +1735,8 @@ pub(crate) mod room {
         step!(400);
         assert_eq!(alice.state().phase, Phase::Lobby);
         alice.clear_refusal();
-        // Taken back: the song the owner rested on before is told again
-        // and is shared already (the room kept its share): no upload.
+        // Taken back: the song the owner rested on before is told again;
+        // nothing uploaded.
         alice.take_pick().unwrap();
         step!(400);
         assert!(alice.chooses() && bob.may_take_pick());
@@ -1726,11 +1745,7 @@ pub(crate) mod room {
         assert!(bob.state().spotlight.is_none(), "not rested yet");
         step!(3_000);
         let spot = bob.state().spotlight.clone().unwrap();
-        assert_eq!(
-            (spot.by, spot.share.as_deref()),
-            (a, Some("abc12345")),
-            "{spot:?}"
-        );
+        assert_eq!((spot.by, spot.share.as_deref()), (a, None), "{spot:?}");
         step!(400);
         assert!(alice.take_upload_jobs().is_empty());
         // The owner's pick starts the match, as before.

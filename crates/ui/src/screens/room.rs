@@ -195,6 +195,15 @@ pub struct RoomView {
     /// it, its song id (a member's: the room's share of it).
     pub spotlight: Option<String>,
     pub spotlight_song: Option<String>,
+    /// An online room's song select's tab shown (`room`, `mine`; revision
+    /// 17), the room's song list (each entry's title, state for this
+    /// player, adder and share), whether this player may add to it, and
+    /// its rules (`size`, `remove_oldest` or `refuse`).
+    pub tab: Option<String>,
+    pub songs: Vec<RoomSongView>,
+    pub may_add: bool,
+    pub list_size: u16,
+    pub when_full: String,
     /// The match's picks as the history shows them, one a stage.
     pub picks: Vec<String>,
     /// An online room (M5c): its id and name, the link (`joining`,
@@ -3109,6 +3118,28 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
                     .collect(),
             })
             .collect(),
+        songs: r
+            .room_songs()
+            .iter()
+            .map(|e| RoomSongView {
+                id: e.id.0,
+                title: e.card.title.clone(),
+                state: match r.entry_state(e) {
+                    crate::state::room::EntryState::Uploading { .. } => "uploading",
+                    crate::state::room::EntryState::Failed => "failed",
+                    crate::state::room::EntryState::Ready => "ready",
+                    crate::state::room::EntryState::Loading => "loading",
+                    crate::state::room::EntryState::NotLoaded => "not_loaded",
+                }
+                .into(),
+                by: r.member_of(e.by).map(person_name).unwrap_or_default(),
+                share: e.share.clone(),
+                bundled: e.bundled,
+            })
+            .collect(),
+        may_add: r.may_add(),
+        list_size: r.song_list_rules().size,
+        when_full: snake(&r.song_list_rules().when_full),
         spotlight: spot.map(|sp| sp.card.title.clone()),
         spotlight_song: r
             .spotlight()
@@ -3179,6 +3210,18 @@ pub(crate) fn more_mark(
     at: [f32; 2],
 ) -> Actor {
     env.component("Link", "Button", &look::Spec::new(size, text), name, at)
+}
+
+/// An entry of the room's song list as the debug view says it.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
+pub struct RoomSongView {
+    pub id: u64,
+    pub title: String,
+    /// `uploading`, `failed`, `ready`, `loading`, `not_loaded`.
+    pub state: String,
+    pub by: String,
+    pub share: Option<String>,
+    pub bundled: bool,
 }
 
 /// Changes what the pop-ups say of themselves in the debug state.
@@ -3312,6 +3355,14 @@ pub fn refusal_text(why: &Refusal) -> UiText {
             Rejection::RulesLandLater { from: Some(_), .. } => m::refused_rules_later(),
             Rejection::RulesLandLater { from: None, .. } => m::refused_rules_no_stage(),
             Rejection::Stale { .. } => m::refused_rules_changed(),
+            // The room's song list (revision 17).
+            Rejection::AlreadyListed { .. } => m::refused_song_listed(),
+            Rejection::ListFull => m::refused_list_full(),
+            Rejection::TooManySongs { limit } => m::refused_too_many_songs(*limit),
+            Rejection::SongInUse => m::refused_song_in_use(),
+            Rejection::SongNotReady => m::refused_song_not_ready(),
+            Rejection::NotListed | Rejection::ChartNotInSong => m::refused_song_gone(),
+            Rejection::InvalidSong => m::refused_song_invalid(),
             other => {
                 let code = format!("{other:?}");
                 let code = code.split([' ', '{', '(']).next().unwrap_or("").to_string();

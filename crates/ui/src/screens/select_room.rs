@@ -1,65 +1,72 @@
 //! Song select as the multiplayer room's main view (M7b, the maintainer's
 //! match flow; `docs/plans/multiplayer-prototype-progress.md`).
 //!
-//! - **The picker** (one at a time, `RoomClient::chooses`: the room's
-//!   owner at first; "the host" in this module's names) sees their own song
-//!   list, the real song select with the room around it: Start on a song
-//!   picks it for the next (or first) stage and starts the match or goes on
-//!   with it (`RoomClient::pick`); the song it rests on is told to the room
-//!   once it rested (`RoomClient::hover`, `SPOTLIGHT_REST_MS`). Nothing is
-//!   added, edited, managed or shared from here.
-//! - **The others** follow, co-hosts and the owner included when they are
-//!   not the picker: the song side shows the picker's resting song (its
-//!   card at once, its banner and preview once the room's share of it is
-//!   read), and the list's place holds the room's panel: the status and the
-//!   match's picks (on a phone the players too), scrolling with Up and
-//!   Down, the wheel or its marks. They cannot pick.
-//! - **Taking the pick over** (2026-11-12): an operator who follows has
-//!   Pick songs (`RoomClient::may_take_pick`): a button in the header where
-//!   the picker's search is (`room::TAKE_PICK`), the room's More, and T
-//!   with its hint in the footer. It is immediate: this player's own list
-//!   comes back (kept aside while they followed, with their place, style
-//!   and search: [`RoomMode::library`], [`Place`]) and the previous picker's
-//!   screen becomes the following one, with the same action to take it
-//!   back.
+//! - **An online room (room model revision 17, round RL1)**: two tabs over
+//!   the list, **Room songs** (the room's own song list, the same for
+//!   everyone and updated as it changes, where the screen opens) and **My
+//!   songs** (the player's own library). The one who chooses the room's
+//!   songs picks on Room songs (Enter: "Pick for stage N",
+//!   `RoomClient::pick_listed`), from there on as before; on My songs
+//!   Enter only adds the song to the room's list, for who may add
+//!   (`RoomClient::add_song`: the hosts in this stage), and the others
+//!   browse it. Nobody follows the picker's resting song any more: its
+//!   entry is marked in the list (`RoomClient::spotlight_entry`). Each
+//!   row says the entry's state for this player and who added it; an
+//!   empty list says what to do. M switches the tabs (More too: a
+//!   controller's West, a phone), and each tab keeps its own place.
+//! - **CPU practice** has no list: the player's own list, the real song
+//!   select with the room around it: Start on a song picks it for the
+//!   next (or first) stage and starts the match or goes on with it
+//!   (`RoomClient::pick`).
+//! - **Taking the pick over** (2026-11-12): an operator who does not
+//!   choose has Pick songs (`RoomClient::may_take_pick`): a button at the
+//!   status line's end (`room::TAKE_PICK`), the room's More, and T with
+//!   its hint in the footer.
 //! - **The players, always** (feedback round B): in a room the song's side
 //!   is short (`Layout::for_room`: a phone's banner with the title and a
 //!   line, the style button only where the room can play more than one
 //!   style, one row of chart buttons and the chart chosen in words), and
-//!   the players panel (`room::players_panel`) takes the room under it,
-//!   the same for the host and the others. A phone has no room beside the
-//!   song and the list: the host's shows them as one line over the list
-//!   (`room::players_strip`), which opens the full list.
+//!   the players panel (`room::players_panel`) takes the room under it. A
+//!   phone has no room beside the song and the list: the players are one
+//!   line over the list (`room::players_strip`), which opens the full list.
 //! - **The room around it**: the header's Rules and Players (in More on a
 //!   phone), the room's More (invite, stop, leave), and the status line at
-//!   the top of the list's column, under the header: beside what it talks
-//!   about (the pick) and never under the footer's hints, where M2's room
-//!   had it. A room opens straight on this screen with the default rules
-//!   (the Rules pop-up opens by itself on entering only under the hidden
-//!   option `Settings::multiplayer_rules_first`, off by default; its
-//!   button is always there); a stage's standings pop up once back from
-//!   its results where they were not seen there; the stage's start prompt
-//!   opens when a pick gathers readiness.
+//!   the top of the list's column, under the header (and the tabs). A
+//!   room opens straight on this screen with the default rules (the Rules
+//!   pop-up opens by itself on entering only under the hidden option
+//!   `Settings::multiplayer_rules_first`, off by default); a stage's
+//!   standings pop up once back from its results where they were not seen
+//!   there; the stage's start prompt opens when a pick gathers readiness.
 //!
 //! - **One view, coming in once** (2026-11-12): what the screen is built
-//!   as is its [`Side`], changed only by [`SelectScreen::swap_side`].
-//!   Before the room says who this player is (an online room's first
-//!   answer comes after the screen is built) nothing role-specific shows:
-//!   the bars and, if it takes a moment, one quiet line (`RoomJoining`).
-//!   Once known, the picker's or the follower's view comes in with the
-//!   screen's own entrance, once, the bars kept as they are. A later change
-//!   of hands is one swap: the view's parts leave, then the other view's
-//!   come in (at once under reduced motion).
+//!   as is its [`Side`]. Before the room says who this player is (an
+//!   online room's first answer comes after the screen is built) nothing
+//!   role-specific shows: the bars and, if it takes a moment, one quiet
+//!   line (`RoomJoining`). Once known, the view comes in with the screen's
+//!   own entrance, once, the bars kept as they are.
 //!
 //! A child module of `select` (it reads the screen's own fields).
 
 use super::*;
 use crate::screens::room::{self, Pump, RoomShell};
 use crate::screens::room_dialogs::{NoticeDialog, PlayersDialog, RulesDialog, StandingsDialog};
-use crate::state::room::{RoomView, SharedRoom};
+use crate::state::room::{EntryState, RoomView, SharedRoom};
+use ddi_room::RoomSongId;
 
 /// The status line's height above the list.
 const STATUS_H: f32 = 40.0;
+/// The tabs' row over it (an online room's).
+const TABS_H: f32 = 34.0;
+/// The tabs' buttons.
+pub(super) const TAB_ROOM: &str = "Room.Tab.Room";
+pub(super) const TAB_MINE: &str = "Room.Tab.Mine";
+/// More's items for the list (revision 17).
+const MORE_TAB: &str = "room-tab";
+const MORE_REMOVE: &str = "room-remove-song";
+const MORE_RETRY_UPLOAD: &str = "room-retry-upload";
+/// A listed song this device does not have, as the Room songs tab names
+/// it (its entry's id after it).
+const ROOM_SONG_ID: &str = "room-song:";
 /// A phone's players strip's height under it, and the room after it.
 const STRIP_H: f32 = 28.0;
 const STRIP_GAP: f32 = 8.0;
@@ -83,10 +90,11 @@ pub(super) enum Side {
     /// The room has not said who this player is yet (an online room
     /// before its first answer): nothing role-specific.
     Joining,
-    /// This player's own list: they choose the room's songs.
+    /// CPU practice: this player's own list to pick from.
     Picker,
-    /// The picker's resting song and the room's panel.
-    Follower,
+    /// An online room (revision 17): the room's song list and the
+    /// player's own, as two tabs ([`Tab`]).
+    Listed,
 }
 
 impl Side {
@@ -94,12 +102,21 @@ impl Side {
     fn of(r: &crate::state::room::RoomClient) -> Side {
         if r.state().member(r.me()).is_none() {
             Side::Joining
-        } else if r.chooses() {
-            Side::Picker
+        } else if r.has_song_list() {
+            Side::Listed
         } else {
-            Side::Follower
+            Side::Picker
         }
     }
+}
+
+/// An online room's song select's tabs (revision 17).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Tab {
+    /// The room's song list: the picker picks here.
+    Room,
+    /// The player's own library: added to the room from here.
+    Mine,
 }
 
 /// The view's own parts, which leave and come in when it changes hands
@@ -113,10 +130,6 @@ const SIDE_PARTS: [&str; 6] = [
     "RoomPlayers",
 ];
 
-/// What `RoomMode::following` holds before anything was followed: never a
-/// chart's key.
-const UNFOLLOWED: &str = "\u{0}";
-
 /// The quiet line shown while the room is not known yet.
 const JOINING: &str = "RoomJoining";
 /// How long joining goes on before the line shows: a room that answers
@@ -127,27 +140,28 @@ const JOINING_AFTER: f32 = 1.0;
 pub(super) struct RoomMode {
     pub(super) room: SharedRoom,
     pub(super) shell: RoomShell,
-    /// What the screen is built as (its data with it: the player's own
-    /// list, or the song followed).
+    /// What the screen is built as.
     side: Side,
-    /// A change of hands under way: when the leaving view's parts are
-    /// out and the other view is built.
-    leaving: Option<f64>,
+    /// An online room's tab shown (its data with it: the room's list, or
+    /// the player's own).
+    tab: Tab,
     pump: Pump,
     /// The room's version and the seconds left the parts were built for.
     built: Option<(u64, Option<u64>, bool)>,
-    /// The others' panel: its first row.
-    panel_first: usize,
-    /// The song the others' side shows (its content's chart key, read or
-    /// not), to set it again only when it changes.
-    following: Option<(String, bool)>,
-    /// The player's own list, kept while the others' view replaces it
-    /// with the picker's resting song: put back when this player picks
-    /// (the pick taken or come back to them, or an online room's first
-    /// snapshot saying they pick, which comes after the screen is built).
+    /// The room's version the Room songs tab's list was made for.
+    listed_for: Option<u64>,
+    /// The Room songs tab's songs' ids and the entries they are.
+    entries: HashMap<String, RoomSongId>,
+    /// The player's own list, kept while the Room songs tab shows: put
+    /// back on My songs.
     pub(super) library: Option<SelectData>,
-    /// Where they were in it when they began to follow.
+    /// Where they were in it when they left it.
     place: Option<Place>,
+    /// Where they were on Room songs (the song and its chart).
+    room_place: Option<(String, Option<usize>)>,
+    /// They chose the room's songs at the last update: the song shown is
+    /// told the room again when the pick comes (back) to them.
+    choosing: bool,
     /// What was told the room the song select rests on.
     hovered: Option<(String, usize)>,
     /// The results whose standings were opened (a stage's number, or the
@@ -170,7 +184,14 @@ pub(super) struct RoomMode {
 
 /// What the room's debug view shows depends on: the room's version, the
 /// seconds left, the last refusal, the view and the screen's controls.
-type Published = (u64, Option<u64>, Option<crate::state::room::Refusal>, &'static str, Vec<String>);
+type Published = (
+    u64,
+    Option<u64>,
+    Option<crate::state::room::Refusal>,
+    &'static str,
+    Vec<String>,
+    Option<&'static str>,
+);
 
 impl SelectScreen {
     /// Song select as room `room`'s main view (M7b), its shell's calls
@@ -178,22 +199,32 @@ impl SelectScreen {
     /// following view. The data's list is the player's library (the
     /// others' is replaced by the host's resting song).
     pub fn with_room(mut self, room: SharedRoom, shell: RoomShell) -> SelectScreen {
-        let side = Side::of(&room.borrow());
+        // The player's library as the room's client knows it: what a
+        // listed song this device has is uploaded and loaded from.
+        if room.borrow().has_song_list() {
+            room.borrow_mut().set_library(&self.data.songs);
+        }
+        // Built as joining: an online room's view comes in at the first
+        // update that knows the player (its data then).
+        let side = match Side::of(&room.borrow()) {
+            Side::Listed => Side::Joining,
+            side => side,
+        };
         self.room = Some(RoomMode {
             room,
             shell,
             side,
-            leaving: None,
+            tab: Tab::Room,
             pump: Pump::default(),
             built: None,
-            panel_first: 0,
-            // Never a chart's key: the first update sets the follower's
-            // song (none yet, or the host's), not their own list.
-            following: Some((String::from(UNFOLLOWED), false)),
+            listed_for: None,
+            entries: HashMap::new(),
             heading: None,
             published: std::cell::RefCell::new(None),
             library: None,
             place: None,
+            room_place: None,
+            choosing: false,
             hovered: None,
             standings: None,
             time: 0.0,
@@ -215,10 +246,28 @@ impl SelectScreen {
         self
     }
 
-    /// The screen shows the local player's own list to pick from (they
-    /// are the room's picker); `None` outside a room.
+    /// The screen shows the local player's own list (practice's, or an
+    /// online room's My songs); `None` outside a room.
     pub(super) fn room_host(&self) -> Option<bool> {
-        self.room.as_ref().map(|rm| rm.side == Side::Picker)
+        self.room
+            .as_ref()
+            .map(|rm| rm.side == Side::Picker || (rm.side == Side::Listed && rm.tab == Tab::Mine))
+    }
+
+    /// The screen shows an online room's Room songs tab.
+    pub(super) fn room_listing(&self) -> bool {
+        self.room
+            .as_ref()
+            .is_some_and(|rm| rm.side == Side::Listed && rm.tab == Tab::Room)
+    }
+
+    /// The listed song shown on Room songs, if one.
+    fn shown_entry(&self) -> Option<RoomSongId> {
+        let rm = self.room.as_ref()?;
+        if !self.room_listing() {
+            return None;
+        }
+        rm.entries.get(&self.song()?.id).copied()
     }
 
     /// The room has not said who this player is yet: the screen shows
@@ -237,21 +286,12 @@ impl SelectScreen {
             .is_some_and(|rm| rm.side == Side::Joining)
     }
 
-    /// A follower's screen whose data is still the player's own list: the
-    /// song followed comes at its first update (nothing of the list is
-    /// told meanwhile, so no preview of it starts).
-    pub(super) fn room_unfollowed(&self) -> bool {
-        self.room.as_ref().is_some_and(|rm| {
-            rm.side == Side::Follower && rm.following.as_ref().is_some_and(|(k, _)| k == UNFOLLOWED)
-        })
-    }
-
     /// Whether this player may take the pick over now (an operator who
-    /// follows): Pick songs is offered.
+    /// does not choose): Pick songs is offered.
     pub(super) fn room_may_take(&self) -> bool {
         self.room
             .as_ref()
-            .is_some_and(|rm| rm.side == Side::Follower && rm.room.borrow().may_take_pick())
+            .is_some_and(|rm| rm.side == Side::Listed && rm.room.borrow().may_take_pick())
     }
 
     /// Takes the pick over: at once, this player's own list back when the
@@ -268,26 +308,35 @@ impl SelectScreen {
         }
     }
 
-    /// The room's follower: song select shows the host's song, no list.
+    /// Song select without a list of its own to show, the room's panel in
+    /// its place: never since revision 17 (a member who does not choose
+    /// browses the room's songs and their own).
     pub(super) fn following(&self) -> bool {
-        self.room_host() == Some(false)
+        false
     }
 
-    /// The layout with the list's column under the status line and, on
-    /// a phone, the host's players strip.
+    /// The layout with the list's column under the status line (and an
+    /// online room's tabs) and, on a phone, the players strip.
     pub(super) fn room_layout(&self, mut l: Layout) -> Layout {
         if self.room.is_some() {
-            let top = STATUS_H + self.strip_height(&l);
+            let top = STATUS_H + self.tabs_height() + self.strip_height(&l);
             l.wheel[1] += top;
             l.wheel[3] -= top;
         }
         l
     }
 
-    /// The room a phone's players strip takes over the host's list (the
-    /// others' list's place holds the panel, the players in it).
+    /// The tabs' row's height: an online room's, once the room is known.
+    fn tabs_height(&self) -> f32 {
+        match &self.room {
+            Some(rm) if rm.side == Side::Listed => TABS_H,
+            _ => 0.0,
+        }
+    }
+
+    /// The room a phone's players strip takes over the list.
     fn strip_height(&self, l: &Layout) -> f32 {
-        if l.compact && self.room_host() == Some(true) {
+        if l.compact && !self.room_joining() && self.room.is_some() {
             STRIP_H + STRIP_GAP
         } else {
             0.0
@@ -348,8 +397,10 @@ impl SelectScreen {
         }
     }
 
-    /// The room's own parts (`RoomParts`): the header's Rules and Players,
-    /// the status line, and the others' panel in the list's place.
+    /// The room's own parts (`RoomParts`): an online room's tabs, the
+    /// status line (with Retry or Pick songs at its end), a phone's
+    /// players strip, and an empty Room songs tab's words in the list's
+    /// place.
     pub(super) fn room_parts(&mut self, cx: &mut Cx) -> Actor {
         let Some(rm) = &self.room else {
             return frame("RoomParts", Vec::new());
@@ -358,93 +409,84 @@ impl SelectScreen {
         if rm.side == Side::Joining {
             return frame("RoomParts", Vec::new());
         }
-        let follower = rm.side == Side::Follower;
         let env = self.env.clone();
         let l = self.room_layout(self.layout);
         let r = rm.room.borrow();
         let mut children = Vec::new();
-        // The header is singleplayer's (follow-up round F): Rules are a
-        // footer link, the players beside the song (a tap opens them, as
-        // L and More do).
-        if !l.compact {
-            // An operator who follows: Pick songs, where the picker's
-            // search is (a follower has none).
-            if follower && r.may_take_pick() {
-                let label = ddi_l10n::msg::room::take_pick();
-                let w = (look::mono_width(&label, 15.0) + 24.0).max(72.0);
-                children.push(env.component(
-                    "Button",
-                    "Button",
-                    &Spec::new([w, 40.0], label.as_str()),
-                    room::TAKE_PICK,
-                    [l.field[0] + w / 2.0, 32.0],
-                ));
-            }
-        }
-        // The status line over the list's column.
         let [wx, wy, ww, wh] = l.wheel;
         let inset = env.metric("Select.Wheel.Inset", 0.0);
         let (sx, sw) = (wx + inset + 8.0, (ww - inset - 24.0).max(80.0));
+        let strip = self.strip_height(&l);
+        let status_y = wy - strip - STATUS_H / 2.0;
+        // An online room's tabs (revision 17): Room songs, My songs.
+        if rm.side == Side::Listed {
+            let ty = wy - strip - STATUS_H - TABS_H / 2.0;
+            let mut x = sx;
+            for (name, label, on) in [
+                (TAB_ROOM, ddi_l10n::msg::room::tab_room_songs(), rm.tab == Tab::Room),
+                (TAB_MINE, ddi_l10n::msg::room::tab_my_songs(), rm.tab == Tab::Mine),
+            ] {
+                let w = (look::mono_width(&label, 13.0) + 28.0).max(96.0);
+                let mut tab = env.component(
+                    "Tab",
+                    "Button",
+                    &Spec::new([w, TABS_H - 4.0], label.as_str()),
+                    name,
+                    [x + w / 2.0, ty],
+                );
+                crate::widgets::play(&mut tab, if on { "Selected" } else { "Available" });
+                children.push(tab);
+                x += w + 4.0;
+            }
+        }
+        // The status line over the list's column.
         let text: String = room::status(&r).into();
         let mut status = env.text("Room.Status", &text, 14.0, 600, "Secondary");
-        let strip = self.strip_height(&l);
-        // A download that failed after its own retries (round P1b):
-        // Retry at the line's right while the stage's window is open.
-        let retry = room::retry_shown(&r);
-        let sw_text = if retry {
-            let label = ddi_l10n::msg::room::retry_load();
-            let w = (look::mono_width(&label, 14.0) + 24.0).max(64.0);
-            children.push(env.component(
-                "Button",
-                "Button",
-                &Spec::new([w, 28.0], label.as_str()),
-                room::RETRY_LOAD,
-                [sx + sw - w / 2.0, wy - strip - STATUS_H / 2.0],
-            ));
-            (sw - w - 8.0).max(40.0)
+        // At its right: Retry for a download that failed after its own
+        // retries (round P1b), else Pick songs for an operator who does
+        // not choose.
+        let button = if room::retry_shown(&r) {
+            Some((ddi_l10n::msg::room::retry_load(), room::RETRY_LOAD))
+        } else if rm.side == Side::Listed && r.may_take_pick() {
+            Some((ddi_l10n::msg::room::take_pick(), room::TAKE_PICK))
         } else {
-            sw
+            None
+        };
+        let sw_text = match button {
+            Some((label, name)) => {
+                let w = (look::mono_width(&label, 14.0) + 24.0).max(64.0);
+                children.push(env.component(
+                    "Button",
+                    "Button",
+                    &Spec::new([w, 28.0], label.as_str()),
+                    name,
+                    [sx + sw - w / 2.0, status_y],
+                ));
+                (sw - w - 8.0).max(40.0)
+            }
+            None => sw,
         };
         look::ellipsized(&mut status, sw_text);
-        children.push(left(status, sx, wy - strip - STATUS_H / 2.0));
-        let following = self.following();
-        // The players are beside the song where the layout has room for
-        // them; a phone's are here, under the picks. Their rows built
-        // once for the strip and that panel.
-        let in_panel = following && l.players.is_none();
-        let mut players = if strip > 0.0 || in_panel {
-            room::player_rows(&r)
-        } else {
-            Vec::new()
-        };
+        children.push(left(status, sx, status_y));
         if strip > 0.0 {
-            let rows = if in_panel {
-                players.clone()
-            } else {
-                std::mem::take(&mut players)
-            };
+            let rows = room::player_rows(&r);
             children.push(room::players_strip(&env, &r, rows, [sx, wy - strip, sw, STRIP_H]));
         }
-        if following {
-            let rows = if in_panel {
-                room::panel_rows(&r, players)
+        // An empty Room songs tab says what to do (revision 17).
+        if rm.side == Side::Listed && rm.tab == Tab::Room && r.room_songs().is_empty() {
+            let words = if r.may_add() {
+                ddi_l10n::msg::room::songs_empty_adder()
             } else {
-                room::pick_panel_rows(&r)
+                ddi_l10n::msg::room::songs_empty_member()
             };
-            drop(r);
-            let (p, first) = room::panel(
-                &env,
-                &rows,
-                self.room.as_ref().map_or(0, |rm| rm.panel_first),
-                [sx, wy + 8.0, sw, wh - 16.0],
-            );
-            if let Some(rm) = &mut self.room {
-                rm.panel_first = first;
+            let lines = crate::screens::dialog::wrap_lines(&words, (sw - 32.0).max(80.0), 15.0);
+            for (i, text) in lines.iter().enumerate() {
+                let mut line = env.text("Room.SongsEmpty", text, 15.0, 600, "Secondary");
+                call(&mut line, "xy", &[sx + sw / 2.0, wy + wh / 3.0 + i as f32 * 22.0]);
+                children.push(line);
             }
-            children.push(p);
-        } else {
-            drop(r);
         }
+        drop(r);
         let _ = cx;
         frame("RoomParts", children)
     }
@@ -516,8 +558,8 @@ impl SelectScreen {
             None => return,
         };
         match to {
-            Side::Picker => self.take_back_library(),
-            Side::Follower => self.follow_host(root, cx),
+            Side::Picker => {}
+            Side::Listed => self.show_room_songs(root, cx),
             Side::Joining => {}
         }
         let left = root.tween_time_left();
@@ -694,50 +736,28 @@ impl SelectScreen {
             self.left_dirty = true;
         }
         // The side the room says this player is on, against the one
-        // shown: known at last, or the pick changed hands.
+        // shown: known at last (an online room's first answer).
         let now = Side::of(&room.borrow());
-        let (shown, leaving) = match &self.room {
-            Some(rm) => (rm.side, rm.leaving),
+        let shown = match &self.room {
+            Some(rm) => rm.side,
             None => return,
         };
         if now != shown && now != Side::Joining {
-            // From nothing the view comes in; from the other view, its
-            // parts leave first, then this one's come in: one swap (at
-            // once under reduced motion, and under the web's loader).
-            let at_once = shown == Side::Joining || self.env.reduced() || cx.holding();
-            if !at_once {
-                match leaving {
-                    None => {
-                        play_parts(root.children_mut(), SIDE_PARTS, "Off");
-                        let out = f64::from(self.env.metric("Motion.Screen.Out", 0.15));
-                        if let Some(rm) = &mut self.room {
-                            rm.leaving = Some(cx.time() + out);
-                        }
-                        self.cancel_navigation();
-                        return;
-                    }
-                    Some(at) if cx.time() < at => return,
-                    Some(_) => {}
-                }
-            }
             if let Some(rm) = &mut self.room {
-                rm.leaving = None;
                 rm.built = None;
             }
             let enter = shown == Side::Joining || !self.env.reduced();
             self.swap_side(now, enter, root, cx);
-        } else if leaving.is_some() {
-            // Changed back before the swap (taken and returned at once):
-            // the same view's parts come back in.
-            if let Some(rm) = &mut self.room {
-                rm.leaving = None;
-            }
-            play_parts(root.children_mut(), SIDE_PARTS, "On");
         }
         let side = self.room.as_ref().map_or(Side::Joining, |rm| rm.side);
         match side {
             Side::Picker => self.tell_hover(),
-            Side::Follower => self.follow_host(root, cx),
+            Side::Listed => {
+                // The room's list as it is now, on its tab; the picker's
+                // resting song told the room.
+                self.sync_room_songs(root, cx);
+                self.tell_hover_listed();
+            }
             // Nothing before the room says who this player is, but what
             // the link says of itself (it may end before the room is
             // known: closed, signed out).
@@ -756,6 +776,8 @@ impl SelectScreen {
             if let Some(rm) = &mut self.room {
                 rm.built = Some(key);
             }
+            // The footer's Enter follows the song's place in the room.
+            self.hints = None;
             self.refill_room(root, cx);
         }
     }
@@ -789,48 +811,176 @@ impl SelectScreen {
             .hover(song.as_ref().zip(chart.as_ref()));
     }
 
-    /// The others' side follows the picker's resting song: its card first,
-    /// the song as the room's share has it once read.
-    fn follow_host(&mut self, root: &mut Actor, cx: &mut Cx) {
+    /// The picker's song and chart shown on Room songs, told the room when
+    /// they change (its entry marked for the others once it rested).
+    fn tell_hover_listed(&mut self) {
         let Some(rm) = &mut self.room else {
             return;
         };
-        if rm.side != Side::Follower {
+        let chooses = rm.room.borrow().chooses();
+        if chooses != rm.choosing {
+            // The spotlight went with the last picker: told again.
+            rm.choosing = chooses;
+            rm.hovered = None;
+        }
+        if rm.tab != Tab::Room || !chooses {
             return;
         }
-        let r = rm.room.borrow();
-        let now = r.state().spotlight.as_ref().map(|s| {
-            let read = r.spotlight().is_some_and(|(_, p)| p.is_some());
-            (s.content.chart.as_str().to_string(), read)
-        });
-        if rm.following == now {
+        let (charts, pick) = self.charts();
+        let chart = pick.and_then(|p| charts.get(p).copied()).cloned();
+        let entry = self.shown_entry();
+        let key = entry
+            .zip(chart.as_ref())
+            .map(|(e, c)| (format!("{ROOM_SONG_ID}{}", e.0), c.index));
+        let digest = chart.as_ref().and_then(|c| c.digest).map(|d| ddi_room::ChartKey::new(d.to_string()));
+        let Some(rm) = &mut self.room else {
             return;
-        }
-        rm.following = now;
-        let (song, chart) = match r.spotlight() {
-            Some((_, Some(p))) => (p.song.clone(), p.chart.index),
-            Some((card, None)) => (placeholder(card), 0),
-            None => (SongEntry::default(), 0),
         };
-        drop(r);
+        if rm.hovered == key {
+            return;
+        }
+        rm.hovered = key;
+        rm.room
+            .borrow_mut()
+            .hover_listed(entry.zip(digest.as_ref()));
+    }
+
+    /// The Room songs tab's list: a row an entry, oldest first, each the
+    /// player's own copy of the song where they have it (its banner, its
+    /// preview, their bests) with only the listed charts, else made from
+    /// the entry; its line the artist, the entry's state for this player
+    /// and who added it.
+    fn room_songs_data(&self) -> (SelectData, HashMap<String, RoomSongId>) {
         let mut data = SelectData {
             mods: self.data.mods.clone(),
             preferred: self.data.preferred,
             autoplay: self.data.autoplay,
             ..SelectData::default()
         };
-        if !song.id.is_empty() {
-            data.styles = song_styles(&song);
-            data.style = song
-                .charts
-                .iter()
-                .find(|c| c.index == chart)
-                .map(|c| c.style.clone());
-            data.resume = Some((song.id.clone(), Some(chart)));
-            data.songs = vec![song];
+        let mut ids = HashMap::new();
+        let Some(rm) = &self.room else {
+            return (data, ids);
+        };
+        let r = rm.room.borrow();
+        let spot = r.spotlight_entry();
+        let picker = r
+            .state()
+            .spotlight
+            .as_ref()
+            .and_then(|s| r.member_of(s.by))
+            .map(room::person_name);
+        for e in r.room_songs() {
+            let mine = r.library_song(e).cloned();
+            let mut song = match &mine {
+                Some(s) => {
+                    let mut s = s.clone();
+                    s.charts.retain(|c| {
+                        c.version.is_none()
+                            && c.digest
+                                .is_some_and(|d| e.chart(&ddi_room::ChartKey::new(d.to_string())).is_some())
+                    });
+                    s
+                }
+                None => SongEntry {
+                    id: format!("{ROOM_SONG_ID}{}", e.id.0),
+                    title: e.card.title.clone(),
+                    charts: e
+                        .charts
+                        .iter()
+                        .enumerate()
+                        .map(|(i, c)| ChartEntry {
+                            style: c.style.clone(),
+                            difficulty: ddi_chart::Difficulty::from_name(&c.difficulty)
+                                .unwrap_or(ddi_chart::Difficulty::Edit),
+                            meter: c.meter,
+                            index: i,
+                            digest: c.chart.as_str().parse().ok(),
+                            ..ChartEntry::default()
+                        })
+                        .collect(),
+                    ..SongEntry::default()
+                },
+            };
+            song.pack = (!e.card.pack.is_empty()).then(|| e.card.pack.clone());
+            let state = match r.entry_state(e) {
+                EntryState::Uploading { done, total } if total > 0.0 => {
+                    ddi_l10n::msg::room::song_uploading_percent((done / total * 100.0).floor())
+                }
+                EntryState::Uploading { .. } => ddi_l10n::msg::room::song_uploading(),
+                EntryState::Failed => ddi_l10n::msg::room::song_failed(),
+                EntryState::Ready => ddi_l10n::msg::room::song_ready(),
+                EntryState::Loading => ddi_l10n::msg::room::song_loading(),
+                EntryState::NotLoaded => ddi_l10n::msg::room::song_not_loaded(),
+            };
+            let by = if e.by == r.me() {
+                ddi_l10n::msg::room::song_added_by_you()
+            } else {
+                let name = r.member_of(e.by).map(room::person_name).unwrap_or_default();
+                ddi_l10n::msg::room::song_added_by(name)
+            };
+            let line = match (&picker, spot == Some(e.id)) {
+                (Some(who), true) => ddi_l10n::msg::room::song_line_spotlight(
+                    e.card.artist.clone(),
+                    state,
+                    by,
+                    who.clone(),
+                ),
+                _ if e.card.artist.is_empty() => ddi_l10n::msg::room::song_line_no_artist(state, by),
+                _ => ddi_l10n::msg::room::song_line(e.card.artist.clone(), state, by),
+            };
+            song.artist = line.into();
+            ids.insert(song.id.clone(), e.id);
+            data.songs.push(song);
         }
-        // The player's own list is kept for when they pick, with where
-        // they were in it; its search does not filter the song followed.
+        drop(r);
+        data.styles = data
+            .songs
+            .iter()
+            .flat_map(|s| song_styles(s).into_iter())
+            .fold(Vec::new(), |mut all, st| {
+                if !all.iter().any(|a: &crate::screens::data::StyleDef| a.id == st.id) {
+                    all.push(st);
+                }
+                all
+            });
+        data.style = Some(self.style_id().to_string());
+        (data, ids)
+    }
+
+    /// The Room songs tab's list made again where the room's version moved
+    /// (an entry added, removed or uploaded, a load), the song shown kept.
+    fn sync_room_songs(&mut self, root: &mut Actor, cx: &mut Cx) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        let version = rm.room.borrow().version();
+        if rm.tab != Tab::Room || rm.listed_for == Some(version) {
+            return;
+        }
+        let (charts, pick) = self.charts();
+        let chart = pick.and_then(|p| charts.get(p)).map(|c| c.index);
+        let shown = self.song().map(|s| (s.id.clone(), chart));
+        let (data, ids) = self.room_songs_data();
+        if let Some(rm) = &mut self.room {
+            rm.listed_for = Some(version);
+            rm.entries = ids;
+        }
+        if self.data.songs == data.songs {
+            return;
+        }
+        self.resume = shown;
+        self.cancel_navigation();
+        let _ = cx;
+        self.set_data(data, false);
+        self.fill_tabs(root);
+        self.fill_charts(root);
+        self.left_dirty = true;
+    }
+
+    /// Room songs shown (an online room's first view, or its tab chosen):
+    /// the player's own list kept aside with where they were in it, the
+    /// room's list in its place where they left it.
+    fn show_room_songs(&mut self, root: &mut Actor, cx: &mut Cx) {
         if self.room.as_ref().is_some_and(|rm| rm.library.is_none()) {
             if self.typing {
                 self.leave_typing(root, cx);
@@ -851,26 +1001,34 @@ impl SelectScreen {
                 rm.place = Some(place);
             }
         }
+        let (data, ids) = self.room_songs_data();
+        let Some(rm) = &mut self.room else {
+            return;
+        };
+        rm.tab = Tab::Room;
+        rm.entries = ids;
+        rm.listed_for = Some(rm.room.borrow().version());
+        rm.hovered = None;
+        self.resume = rm.room_place.take();
         self.cancel_navigation();
         self.set_data(data, false);
         self.fill_tabs(root);
         self.fill_charts(root);
         self.left_dirty = true;
+        self.hints = None;
     }
 
-    /// This player picks now (the room said so at last, or the pick was
-    /// taken or came back): their own list back in the place of the song
-    /// they followed, where they left it (the song and chart shown, the
-    /// open pack, the style, the search).
-    fn take_back_library(&mut self) {
+    /// My songs shown: the player's own list back where they left it (the
+    /// song and chart shown, the open pack, the style, the search).
+    fn show_my_songs(&mut self, root: &mut Actor) {
+        let (charts, pick) = self.charts();
+        let chart = pick.and_then(|p| charts.get(p)).map(|c| c.index);
+        let shown = self.song().map(|s| (s.id.clone(), chart));
         let Some(rm) = &mut self.room else {
             return;
         };
-        // Followed again from scratch should the pick go.
-        rm.following = Some((String::from(UNFOLLOWED), false));
-        // The song shown is told the room again: its spotlight went with
-        // the last picker.
-        rm.hovered = None;
+        rm.tab = Tab::Mine;
+        rm.room_place = shown;
         let place = rm.place.take();
         let Some(mut library) = rm.library.take() else {
             return;
@@ -893,47 +1051,104 @@ impl SelectScreen {
         }
         self.cancel_navigation();
         self.set_data(library, false);
-        let Some(p) = place else {
-            return;
-        };
-        if let Some(i) = self.data.styles.iter().position(|st| st.id == p.style)
-            && i != self.style
-        {
-            self.style = i;
-            self.tabs_for = None;
-            self.pick = None;
-            self.reload();
-        }
-        if let Some((id, Some(chart))) = &p.song
-            && self.song().is_some_and(|song| song.id == *id)
-        {
-            let (charts, _) = self.charts();
-            if let Some(k) = charts.iter().position(|c| c.index == *chart) {
-                self.preferred = charts[k].difficulty;
-                self.pick = Some(k);
+        if let Some(p) = place {
+            if let Some(i) = self.data.styles.iter().position(|st| st.id == p.style)
+                && i != self.style
+            {
+                self.style = i;
+                self.tabs_for = None;
+                self.pick = None;
+                self.reload();
+            }
+            if let Some((id, Some(chart))) = &p.song
+                && self.song().is_some_and(|song| song.id == *id)
+            {
+                let (charts, _) = self.charts();
+                if let Some(k) = charts.iter().position(|c| c.index == *chart) {
+                    self.preferred = charts[k].difficulty;
+                    self.pick = Some(k);
+                }
             }
         }
+        self.fill_tabs(root);
+        self.fill_charts(root);
+        self.left_dirty = true;
+        self.hints = None;
     }
 
-    /// Start on a song in the room: the host's pick (the shell's play
-    /// function then does what the press must, as keeping the audio
-    /// context for the prompt); the others' does nothing.
+    /// The other tab shown, at once (M, the tabs' buttons, More).
+    fn switch_tab(&mut self, to: Tab, root: &mut Actor, cx: &mut Cx) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        if rm.side != Side::Listed || rm.tab == to {
+            return;
+        }
+        match to {
+            Tab::Room => self.show_room_songs(root, cx),
+            Tab::Mine => self.show_my_songs(root),
+        }
+        self.refill_room(root, cx);
+        cx.focus("Wheel");
+    }
+
+    /// Start on a song in the room: practice's pick, or an online room's
+    /// on Room songs (the shell's play function then does what the press
+    /// must, as keeping the audio context for the prompt); on My songs, the
+    /// song added to the room's list. Anyone else's does nothing.
     pub(super) fn room_start(&mut self, song: &SongEntry, chart: &ChartEntry, cx: &mut Cx) {
         let Some(rm) = &self.room else {
             return;
         };
-        // Theirs to pick as the room has it now, whatever the screen
-        // still shows while a change of hands is under way.
-        if self.room_host() != Some(true) || !rm.room.borrow().chooses() {
-            return;
-        }
-        let picked = rm.room.borrow_mut().pick(song, chart);
-        match picked {
-            Ok(()) => {
-                let env = self.env.clone();
-                (self.play)(song, chart, &env, cx);
+        let room = rm.room.clone();
+        match (rm.side, rm.tab) {
+            (Side::Picker, _) => {
+                if !room.borrow().chooses() {
+                    return;
+                }
+                let picked = room.borrow_mut().pick(song, chart);
+                match picked {
+                    Ok(()) => {
+                        let env = self.env.clone();
+                        (self.play)(song, chart, &env, cx);
+                    }
+                    Err(why) => NoticeDialog::show_refusal(self.env.clone(), &room, &why, cx),
+                }
             }
-            Err(why) => NoticeDialog::show_refusal(self.env.clone(), &rm.room, &why, cx),
+            (Side::Listed, Tab::Room) => {
+                let Some(entry) = rm.entries.get(&song.id).copied() else {
+                    return;
+                };
+                if !room.borrow().chooses() {
+                    return;
+                }
+                let Some(key) = chart.digest.map(|d| ddi_room::ChartKey::new(d.to_string())) else {
+                    return;
+                };
+                let picked = room.borrow_mut().pick_listed(entry, &key);
+                match picked {
+                    Ok(()) => {
+                        let env = self.env.clone();
+                        (self.play)(song, chart, &env, cx);
+                    }
+                    Err(why) => NoticeDialog::show_refusal(self.env.clone(), &room, &why, cx),
+                }
+            }
+            (Side::Listed, Tab::Mine) => {
+                let (may, listed) = {
+                    let r = room.borrow();
+                    (r.may_add(), r.listed(song).is_some())
+                };
+                if !may || listed {
+                    return;
+                }
+                let added = room.borrow_mut().add_song(song);
+                if let Err(why) = added {
+                    NoticeDialog::show_refusal(self.env.clone(), &room, &why, cx);
+                }
+                self.hints = None;
+            }
+            (Side::Joining, _) => {}
         }
     }
 
@@ -990,12 +1205,26 @@ impl SelectScreen {
         let Some(rm) = &self.room else {
             return false;
         };
-        // The picker's song's heart first, then a phone's volume.
-        let first = self
-            .favorite_item()
-            .into_iter()
-            .chain(self.volume_item())
-            .collect();
+        // The other tab, then what the list offers of the song shown
+        // (revision 17), the picker's song's heart, then a phone's volume.
+        let mut first: Vec<(String, String)> = Vec::new();
+        if rm.side == Side::Listed {
+            let label = match rm.tab {
+                Tab::Room => ddi_l10n::msg::room::tab_my_songs(),
+                Tab::Mine => ddi_l10n::msg::room::tab_room_songs(),
+            };
+            first.push((MORE_TAB.into(), label.into()));
+            if let Some(entry) = self.shown_entry() {
+                let r = rm.room.borrow();
+                if r.may_retry_song(entry) {
+                    first.push((MORE_RETRY_UPLOAD.into(), ddi_l10n::msg::room::retry_upload().into()));
+                }
+                if r.may_remove(entry) {
+                    first.push((MORE_REMOVE.into(), ddi_l10n::msg::room::remove_song().into()));
+                }
+            }
+        }
+        first.extend(self.favorite_item().into_iter().chain(self.volume_item()));
         room::open_more_with(&self.env, &rm.room, self.layout.compact, first, cx);
         true
     }
@@ -1037,22 +1266,15 @@ impl SelectScreen {
                     room::retry_load(&rm.room);
                 }
             }
-            "Panel.Up" => self.scroll_panel(-3, root, cx),
-            "Panel.Down" => self.scroll_panel(3, root, cx),
+            TAB_ROOM => self.switch_tab(Tab::Room, root, cx),
+            TAB_MINE => self.switch_tab(Tab::Mine, root, cx),
             _ => return None,
         }
         Some(Handled::Yes)
     }
 
-    fn scroll_panel(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) {
-        if let Some(rm) = &mut self.room {
-            rm.panel_first = (rm.panel_first as i64 + i64::from(by)).max(0) as usize;
-        }
-        self.refill_room(root, cx);
-    }
-
-    /// The others' Up and Down and wheel scroll the panel (there is no
-    /// list to move).
+    /// A room's keys and taps: the players (a tap on them, L), the tabs
+    /// (M), Pick songs (T).
     pub(super) fn room_input(
         &mut self,
         input: &Input,
@@ -1082,8 +1304,28 @@ impl SelectScreen {
             self.open_players(cx);
             return Some(Handled::Yes);
         }
-        if !self.following() {
-            return None;
+        // M: the other tab (revision 17).
+        if let Input::Key(k) = input
+            && self.letter_shortcut(k)
+            && k.key.eq_ignore_ascii_case("m")
+            && let Some(rm) = &self.room
+            && rm.side == Side::Listed
+        {
+            let to = match rm.tab {
+                Tab::Room => Tab::Mine,
+                Tab::Mine => Tab::Room,
+            };
+            self.switch_tab(to, root, cx);
+            return Some(Handled::Yes);
+        }
+        // T: an operator who does not choose takes the pick over.
+        if let Input::Key(k) = input
+            && self.letter_shortcut(k)
+            && k.key.eq_ignore_ascii_case("t")
+            && self.room_may_take()
+        {
+            self.take_pick(cx);
+            return Some(Handled::Yes);
         }
         // Nothing to move or pick before the room is known: Back and More
         // alone.
@@ -1101,18 +1343,7 @@ impl SelectScreen {
                 _ => None,
             };
         }
-        // T: an operator who follows takes the pick over.
-        if let Input::Key(k) = input
-            && self.letter_shortcut(k)
-            && k.key.eq_ignore_ascii_case("t")
-            && self.room_may_take()
-        {
-            self.take_pick(cx);
-            return Some(Handled::Yes);
-        }
-        let by = crate::screens::scroll_step(input)?;
-        self.scroll_panel(by, root, cx);
-        Some(Handled::Yes)
+        None
     }
 
     /// The room's messages: More's picks, rules applied.
@@ -1140,6 +1371,36 @@ impl SelectScreen {
         {
             self.room_left(by, cx);
         }
+        // The list's items (revision 17).
+        if let Some(id) = crate::screens::menu_pick(msg, room::MORE)
+            && matches!(id, MORE_TAB | MORE_REMOVE | MORE_RETRY_UPLOAD)
+        {
+            let entry = self.shown_entry();
+            match id {
+                MORE_TAB => {
+                    let to = match self.room.as_ref().map(|rm| rm.tab) {
+                        Some(Tab::Room) => Tab::Mine,
+                        _ => Tab::Room,
+                    };
+                    self.switch_tab(to, root, cx);
+                }
+                MORE_REMOVE => {
+                    if let Some(entry) = entry
+                        && let Err(why) = room.borrow_mut().remove_song(entry)
+                    {
+                        NoticeDialog::show_refusal(self.env.clone(), &room, &why, cx);
+                    }
+                    cx.focus("Wheel");
+                }
+                _ => {
+                    if let Some(entry) = entry {
+                        room.borrow_mut().retry_song_upload(entry);
+                    }
+                    cx.focus("Wheel");
+                }
+            }
+            return;
+        }
         if let Some(id) = crate::screens::menu_pick(msg, room::MORE)
             && id == super::favorites_mode::FAVORITE
         {
@@ -1162,32 +1423,57 @@ impl SelectScreen {
         }
     }
 
-    /// The footer's Start hint in a room: the picker's pick, or none.
+    /// The footer's Start hint in a room: the picker's pick (practice, or
+    /// an online room's Room songs), on My songs the song added to the
+    /// room (or said to be in it already), or none.
     pub(super) fn room_play_hint(&self) -> Option<Option<UiText>> {
         let rm = self.room.as_ref()?;
         let r = rm.room.borrow();
-        Some(
-            r.chooses()
+        Some(match (rm.side, rm.tab) {
+            (Side::Listed, Tab::Mine) if r.may_add() => Some(
+                match self.song().and_then(|s| r.listed(s)) {
+                    Some(_) => ddi_l10n::msg::room::song_in_room(),
+                    None => ddi_l10n::msg::room::add_song_use(),
+                },
+            ),
+            (Side::Listed, Tab::Mine) => None,
+            _ => r
+                .chooses()
                 .then(|| ddi_l10n::msg::room::pick_use(r.next_pick_number())),
-        )
+        })
+    }
+
+    /// The footer's M hint: the other tab's name (an online room's).
+    pub(super) fn room_tab_hint(&self) -> Option<UiText> {
+        let rm = self.room.as_ref()?;
+        (rm.side == Side::Listed).then(|| match rm.tab {
+            Tab::Room => ddi_l10n::msg::room::tab_my_songs(),
+            Tab::Mine => ddi_l10n::msg::room::tab_room_songs(),
+        })
     }
 
     /// Says what the room shows (`ThemeState::room`), when anything it
     /// says changed since it was last said.
     pub(super) fn room_publish(&self, items: Vec<String>) {
         if let Some(rm) = &self.room {
+            // The tab shown (revision 17).
+            let tab = (rm.side == Side::Listed).then_some(match rm.tab {
+                Tab::Room => "room",
+                Tab::Mine => "mine",
+            });
             let key = {
                 let r = rm.room.borrow();
                 let view = match r.view() {
                     RoomView::Select => "select",
                     RoomView::Prompt(_) => "prompt",
                 };
-                (r.version(), room::seconds_left(&r), r.refusal().cloned(), view, items)
+                (r.version(), room::seconds_left(&r), r.refusal().cloned(), view, items, tab)
             };
             if rm.published.borrow().as_ref() == Some(&key) {
                 return;
             }
             room::publish(&self.env, &rm.room, key.3, key.4.clone());
+            room::publish_dialog(&self.env, |v| v.tab = tab.map(str::to_string));
             *rm.published.borrow_mut() = Some(key);
         }
     }
@@ -1245,24 +1531,4 @@ fn a_followed_songs_styles_are_named_as_the_library_names_them() {
     let single = ddi_chart::Layout::builtin("dance-single").unwrap().name;
     let names: Vec<(&str, &str)> = styles.iter().map(|s| (s.id.as_str(), s.name.as_str())).collect();
     assert_eq!(names, [("dance-single", single.as_str()), ("my-layout", "my-layout")]);
-}
-
-/// A song the others know only by the host's card: its title and artist,
-/// its chart's difficulty and meter.
-fn placeholder(card: &ddi_room::ContentCard) -> SongEntry {
-    let difficulty =
-        ddi_chart::Difficulty::from_name(&card.difficulty).unwrap_or(ddi_chart::Difficulty::Edit);
-    SongEntry {
-        id: "room:spotlight".into(),
-        title: card.title.clone(),
-        artist: card.artist.clone(),
-        charts: vec![ChartEntry {
-            style: card.style.clone(),
-            difficulty,
-            meter: card.meter,
-            index: 0,
-            ..ChartEntry::default()
-        }],
-        ..SongEntry::default()
-    }
 }

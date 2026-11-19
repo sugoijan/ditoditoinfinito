@@ -58,6 +58,14 @@ pub struct GrantNews {
     pub answer: Result<GrantAnswer, api::Problem>,
 }
 
+/// An upload grant for an entry of the room's song list as the room
+/// answered it (revision 17).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SongGrantNews {
+    pub song: ddi_room::RoomSongId,
+    pub answer: Result<GrantAnswer, api::Problem>,
+}
+
 pub struct OnlineLink {
     pub(crate) authority: OnlineAuthority<Box<dyn Transport>, ManualClock>,
     online: SharedOnline,
@@ -81,6 +89,8 @@ pub struct OnlineLink {
     rotate_req: Option<u64>,
     grant_reqs: Vec<(u64, StageId, Revision)>,
     grants: Vec<GrantNews>,
+    song_grant_reqs: Vec<(u64, ddi_room::RoomSongId)>,
+    song_grants: Vec<SongGrantNews>,
     notice: Option<LinkNotice>,
     /// When the notice ends (set at the first tick after it was raised;
     /// [`LinkNotice::JoinedToWatch`]'s at the first tick connected).
@@ -125,6 +135,8 @@ impl OnlineLink {
             rotate_req: None,
             grant_reqs: Vec::new(),
             grants: Vec::new(),
+            song_grant_reqs: Vec::new(),
+            song_grants: Vec::new(),
             notice: seated.then_some(LinkNotice::JoinedToWatch),
             notice_until: None,
         }
@@ -234,6 +246,21 @@ impl OnlineLink {
     /// The grants answered since the last call.
     pub fn take_grants(&mut self) -> Vec<GrantNews> {
         std::mem::take(&mut self.grants)
+    }
+
+    /// Ask the room for the upload grant of entry `song` of its song list
+    /// (revision 17); the answer comes in [`Self::take_song_grants`].
+    pub fn request_song_grant(&mut self, song: ddi_room::RoomSongId) {
+        let id = self
+            .online
+            .borrow_mut()
+            .request(api::song_grant(&self.room_id, song.0));
+        self.song_grant_reqs.push((id, song));
+    }
+
+    /// The song grants answered since the last call.
+    pub fn take_song_grants(&mut self) -> Vec<SongGrantNews> {
+        std::mem::take(&mut self.song_grants)
     }
 
     /// Sign in after the room's socket said the session ended, or at a
@@ -355,6 +382,19 @@ impl OnlineLink {
                     changed = true;
                 }
                 None => self.grant_reqs.push((id, stage, chosen)),
+            }
+        }
+        let asked = std::mem::take(&mut self.song_grant_reqs);
+        for (id, song) in asked {
+            match self.online.borrow_mut().take_answer(id) {
+                Some(r) => {
+                    self.song_grants.push(SongGrantNews {
+                        song,
+                        answer: api::read::<GrantAnswer>(&r),
+                    });
+                    changed = true;
+                }
+                None => self.song_grant_reqs.push((id, song)),
             }
         }
         changed

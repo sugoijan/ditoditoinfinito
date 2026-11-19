@@ -501,7 +501,9 @@ fn a_rooms_picker_has_favorites_and_a_follower_none() {
     h.run(0.3);
     assert_eq!(e.state.borrow().favorite, Some(true));
     assert_eq!(e.state.borrow().favorites.len(), 2);
-    // Online: Alice picks, Bob follows.
+    // Online (revision 17): Room songs, a flat list, has no favorites'
+    // pack; My songs has the hearts and the pack, for Alice who picks and
+    // Bob who does not alike.
     let t = Three::new(false);
     let (ea, eb) = (env(), env());
     let mut ha = super::test_kit::harness();
@@ -517,21 +519,23 @@ fn a_rooms_picker_has_favorites_and_a_follower_none() {
     t.settle(400, &mut [&mut ha, &mut hb]);
     ha.run(0.5);
     hb.run(0.5);
+    assert!(ea.state.borrow().favorites.is_empty());
+    assert!(eb.state.borrow().favorites.is_empty());
+    for h in [&mut ha, &mut hb] {
+        h.key("KeyM", "m");
+        h.run(0.5);
+    }
     assert!(!ea.state.borrow().favorites.is_empty());
     assert!(ea.state.borrow().favorite.is_some());
-    assert_eq!(eb.state.borrow().favorite, None);
-    assert!(eb.state.borrow().favorites.is_empty());
-    assert!(hb.ui.actor("Favorite").is_none());
-    let kept = favorites::all();
-    hb.key("KeyF", "f");
-    hb.run(0.3);
-    assert_eq!(favorites::all(), kept, "a follower's F does nothing");
+    assert!(!eb.state.borrow().favorites.is_empty());
+    assert!(eb.state.borrow().favorite.is_some());
 }
 
-/// A picker whose Favorites pack was open when they handed the pick over
-/// has it open again when they take it back, on the song they left.
+/// A player whose Favorites pack was open on My songs has it open again
+/// after Room songs (and a hand-over of the pick meanwhile), on the song
+/// they left.
 #[test]
-fn a_pickers_open_favorites_come_back_after_a_hand_over() {
+fn an_open_favorites_pack_comes_back_after_room_songs() {
     use super::room_tests::Three;
     ddi_l10n::set_language("en");
     favorites::set_favorite("p1s2", true);
@@ -550,6 +554,8 @@ fn a_pickers_open_favorites_come_back_after_a_hand_over() {
             .with_room(t.bob.clone(), super::test_kit::shell(&t.bob, &orders)),
     );
     t.settle(400, &mut [&mut ha, &mut hb]);
+    ha.key("KeyM", "m");
+    ha.run(0.5);
     to_top(&mut ha, &ea.state);
     ha.key("Enter", "Enter");
     ha.run(0.3);
@@ -560,10 +566,14 @@ fn a_pickers_open_favorites_come_back_after_a_hand_over() {
     hb.tap(PointerKind::Mouse, "Room.TakePick");
     t.settle(400, &mut [&mut ha, &mut hb]);
     t.settle(400, &mut [&mut ha, &mut hb]);
-    assert_eq!(ea.state.borrow().favorite, None, "following");
+    ha.key("KeyM", "m");
+    ha.run(0.5);
+    assert!(ea.state.borrow().favorites.is_empty(), "Room songs");
     ha.key("KeyT", "t");
     t.settle(400, &mut [&mut ha, &mut hb]);
     t.settle(400, &mut [&mut ha, &mut hb]);
+    ha.key("KeyM", "m");
+    ha.run(0.5);
     assert_eq!(song(&ea.state), "p1s2");
     assert_eq!(ea.state.borrow().favorites, ["p2s4", "p1s2"]);
     arrow(&mut ha, "ArrowUp");

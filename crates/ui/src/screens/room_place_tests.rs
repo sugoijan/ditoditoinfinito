@@ -202,13 +202,13 @@ fn a_practice_rooms_place_holds_through_pop_ups_a_rebuild_and_a_stage() {
     assert_eq!(h.ui.focused(), Some("Wheel"));
 }
 
-/// An online room's picker who hands the pick over and takes it back has
-/// their list as they left it: the song, the chart, the style (Double,
-/// which an online room without CPUs plays), the open pack. While they
-/// follow, nothing of their list is told as the room's place, and a
-/// rebuild shows no list.
+/// An online room's two tabs keep their own places (revision 17): on My
+/// songs the player's list as they left it after Room songs was shown
+/// (the song, the chart, the style, Double, which an online room without
+/// CPUs plays, the open pack); nothing of Room songs is told as the
+/// room's place; a hand-over of the pick moves neither.
 #[test]
-fn the_pickers_place_comes_back_whole_after_a_hand_over() {
+fn my_songs_place_comes_back_whole_after_room_songs() {
     use super::room_tests::Three;
     let t = Three::new(true);
     let (ea, eb) = (env(), env());
@@ -219,12 +219,14 @@ fn the_pickers_place_comes_back_whole_after_a_hand_over() {
     data.resume = Some(("p2s4".into(), Some(2)));
     let mut ha = harness();
     ha.push(select(&ea, &t.alice, data, &orders, &ca));
-    let mut db = packs();
-    db.closed = vec![None, Some("Pack B".into())];
-    db.resume = Some(("p1s2".into(), Some(0)));
     let mut hb = harness();
-    hb.push(select(&eb, &t.bob, db, &orders, &cb));
+    hb.push(select(&eb, &t.bob, packs(), &orders, &cb));
     t.settle(400, &mut [&mut ha, &mut hb]);
+    // Room songs first; My songs where the room's place says.
+    assert_eq!(super::room_tests::view(&ea).tab.as_deref(), Some("room"));
+    ha.key("KeyM", "m");
+    ha.run(0.5);
+    assert_eq!(super::room_tests::view(&ea).tab.as_deref(), Some("mine"));
     ha.key("Tab", "Tab");
     ha.run(0.5);
     ha.key("ArrowDown", "ArrowDown");
@@ -234,30 +236,28 @@ fn the_pickers_place_comes_back_whole_after_a_hand_over() {
         (place.0.as_str(), place.1.as_deref(), place.2.as_str()),
         ("p2s5", Some("Hard 10"), "Double")
     );
-    // Bob takes the pick: his own list as he had it.
-    hb.tap(PointerKind::Mouse, "Room.TakePick");
-    t.settle(400, &mut [&mut ha, &mut hb]);
-    t.settle(400, &mut [&mut ha, &mut hb]);
-    assert_eq!(shown(&eb).0, "p1s2");
-    assert_eq!(shown(&eb).1.as_deref(), Some("Easy 3"));
+    // Room songs, then a hand-over and back, then My songs again.
+    ha.key("KeyM", "m");
+    ha.run(0.5);
     let told = places(&ca);
     ha.ui.rebuild_all();
     ha.run(0.5);
-    assert!(!ha.ui.actor("Wheel").is_some_and(|w| w.visible), "no list");
-    assert_eq!(places(&ca), told, "the song followed is nobody's place");
-    // Alice takes it back with T.
+    assert_eq!(places(&ca), told, "Room songs is nobody's place");
+    hb.tap(PointerKind::Mouse, "Room.TakePick");
+    t.settle(400, &mut [&mut ha, &mut hb]);
     ha.key("KeyT", "t");
     t.settle(400, &mut [&mut ha, &mut hb]);
-    t.settle(400, &mut [&mut ha, &mut hb]);
+    ha.key("KeyM", "m");
+    ha.run(0.5);
     assert_eq!(shown(&ea), place, "as she left it");
     assert_eq!(ea.state.borrow().closed, ["Bundled songs", "Pack A"]);
 }
 
-/// A follower's screen built once the room is known (the web's room page
-/// after a stage, a rebuild): the picker's song from its first frame,
-/// never the follower's own songs told (no preview of theirs), no place.
+/// A member's screen built once the room is known (the web's room page
+/// after a stage, a rebuild): Room songs from its first frame, never
+/// their own songs told (no preview of theirs), no place.
 #[test]
-fn a_follower_built_in_a_known_room_never_shows_or_tells_their_own_list() {
+fn a_member_built_in_a_known_room_opens_on_room_songs_and_tells_nothing_of_their_own() {
     use super::room_tests::Three;
     let t = Three::new(false);
     let eb = env();
@@ -269,12 +269,10 @@ fn a_follower_built_in_a_known_room_never_shows_or_tells_their_own_list() {
     db.resume = Some(("p1s2".into(), Some(0)));
     let mut hb = harness();
     hb.push(select(&eb, &t.bob, db, &orders, &cb));
-    let mut seen_list = false;
     for _ in 0..20 {
         hb.run(0.05);
-        seen_list |= hb.ui.actor("Wheel").is_some_and(|w| w.visible);
     }
-    assert!(!seen_list, "the list never showed");
+    assert_eq!(super::room_tests::view(&eb).tab.as_deref(), Some("room"));
     let own = cb.borrow().iter().any(|c| {
         matches!(c, SelectCall::Selected { song: Some(s), .. } if s.starts_with('p'))
     });

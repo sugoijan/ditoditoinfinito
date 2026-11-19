@@ -916,3 +916,41 @@ room-audience-standing = { $rank }. { $name } ・ { $points }ポイント
 room-audience-players = プレイヤー{ $count }人
 
 room-refused-rules-changed = その間にほかの人がルールを変更しました。今のルールを表示しています。確かめてから、もう一度適用してください。
+
+## The room's song list (room model revision 17).
+
+room-tab-room-songs = ルームの曲
+room-tab-my-songs = 自分の曲
+room-songs-empty-adder = ルームにはまだ曲がありません。「自分の曲」から追加してください。
+room-songs-empty-member = ホストはまだ曲を追加していません。
+room-song-uploading = アップロード中
+room-song-uploading-percent = アップロード中 { $percent }%
+room-song-failed = アップロード失敗
+room-song-ready = この端末にあります
+room-song-loading = 読み込み中
+room-song-not-loaded = 未読み込み
+room-song-added-by-you = あなたが追加
+room-song-added-by = { $name } が追加
+room-song-line = { $artist } · { $state } · { $by }
+room-song-line-no-artist = { $state } · { $by }
+room-song-line-spotlight = { $picker } が選択中 · { $artist } · { $state } · { $by }
+room-add-song-use = ルームに追加
+room-song-in-room = ルームにあります
+room-remove-song = ルームから削除
+room-retry-upload = もう一度アップロード
+room-refused-song-listed = その曲はすでにルームにあります。
+room-refused-list-full = ルームの曲リストがいっぱいです。
+room-refused-too-many-songs = このルームに追加できる曲は { $limit } 曲までです。
+room-refused-song-in-use = その曲はステージに選ばれているため、今は残ります。
+room-refused-song-not-ready = その曲はまだアップロード中です。
+room-refused-song-gone = その曲はもうルームのリストにありません。
+room-refused-song-invalid = その曲はルームに追加できません。
+
+## Host options: the room's song list.
+
+room-host-list-size = ルームの曲の上限
+room-host-list-size-value = { $count } 曲
+room-host-when-full = リストがいっぱいのとき
+room-host-when-full-remove = 古い曲を削除
+room-host-when-full-refuse = 新しい曲を断る
+room-host-list-note = 一人が追加できる曲は { $count } 曲までです。曲は削除されるかルームが終わるまで残ります。

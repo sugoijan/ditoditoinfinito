@@ -480,6 +480,13 @@ pub fn grant(room: &str, stage: u64) -> ApiRequest {
         .json(serde_json::json!({ "stage": stage }))
 }
 
+/// An upload grant for entry `song` of the room's song list (room model
+/// revision 17): its adder's, while its upload is not done.
+pub fn song_grant(room: &str, song: u64) -> ApiRequest {
+    ApiRequest::new(Method::Post, format!("/rooms/{room}/songs/grant"))
+        .json(serde_json::json!({ "song": song }))
+}
+
 /// The socket's path for a ticket (`/sockets/<id>/ws?ticket=`).
 pub fn socket_path(room: &str, ticket: &str) -> String {
     format!("/sockets/{room}/ws?ticket={}", percent_encode(ticket))

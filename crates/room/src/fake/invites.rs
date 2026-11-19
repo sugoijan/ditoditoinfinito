@@ -282,6 +282,32 @@ impl FakeServer {
                 ),
                 false => error(403, "not_an_operator"),
             },
+            // Revision 17: an entry of the song list's upload grant, its
+            // adder's (as the server's `POST /rooms/<id>/songs/grant`).
+            ("POST", p) if p == format!("{rooms}/songs/grant") => {
+                let song = body
+                    .and_then(|b| serde_json::from_str::<serde_json::Value>(b).ok())
+                    .and_then(|v| v.get("song").and_then(serde_json::Value::as_u64))
+                    .unwrap_or(0);
+                let state = self.state();
+                let entry = state.songs.get(crate::RoomSongId(song));
+                let adder = entry
+                    .and_then(|e| state.member(e.by))
+                    .is_some_and(|m| m.identity() == Some(&identity));
+                match (entry, adder) {
+                    (None, _) => error(404, "song_unknown"),
+                    (Some(_), false) => error(403, "not_the_adder"),
+                    (Some(e), true) if e.status != crate::ContentStatus::Pending => {
+                        error(409, "content_available")
+                    }
+                    (Some(_), true) => (
+                        200,
+                        format!(
+                            r#"{{"grant":"grant-{who}-song-{song}","expires_at_ms":9,"max_bytes":100.0}}"#
+                        ),
+                    ),
+                }
+            }
             ("POST", p) if p == format!("{rooms}/grant") => match room.grants_anyone || operator {
                 true => (
                     200,
