@@ -99,6 +99,9 @@ pub struct Options {
     /// The songs the host adds to an online room's song list first, then
     /// picks from it (`--add ID,…`, room model revision 17).
     pub adds: Vec<String>,
+    /// A song the host removes from the room's list once a stage settled
+    /// (`--remove TITLE`), its upload deleted by the server.
+    pub remove: Option<String>,
     /// How long the host rests on a song before picking it.
     pub rest_ms: u64,
     /// The host's Rules: stages a match.
@@ -167,6 +170,7 @@ impl Default for Options {
             songs: Vec::new(),
             picks: Vec::new(),
             adds: Vec::new(),
+            remove: None,
             rest_ms: 8_000,
             stages: None,
             open: false,
@@ -212,7 +216,11 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
                        online room each is added to the room's song list
                        before its pick
   --add ID,…           songs the host adds to an online room's song list at
-                       once, then picks from the list in its order
+                       once (by id, else by title), then picks from the list
+                       in its order (--pick's songs first where given; --pick
+                       takes titles too)
+  --remove TITLE       the host removes that song from the room's list once
+                       a stage settled
   --rest SECONDS       the host's rest on a song before picking it (default 8)
   --stages N|open      the host's Rules: stages a match, or Open (an
                        open-ended match: no set count)
@@ -374,6 +382,7 @@ impl Options {
                         o.picks.push((id, chart));
                     }
                 }
+                "--remove" => o.remove = Some(value(i, a)?.clone()),
                 "--add" => {
                     o.adds.extend(
                         value(i, a)?
@@ -855,6 +864,8 @@ struct Host {
     /// `--add`'s songs, added to the room's list once (revision 17).
     adds: Vec<SongEntry>,
     added: bool,
+    /// `--remove`'s song, removed once a stage settled.
+    remove: Option<String>,
     /// The songs checked for the CPU so far ([`host_plays`]), by id.
     checked: std::collections::HashSet<String>,
     next: usize,
@@ -1519,7 +1530,30 @@ impl Bot {
         if busy || room.borrow().view() != RoomView::Select {
             return;
         }
-        if now < host.not_before || host.songs.is_empty() {
+        // `--remove`: once a stage settled, the song taken out of the
+        // room's list (its upload deleted by the server).
+        if matches!(phase, Phase::Intermission { .. } | Phase::MatchResults)
+            && let Some(title) = host.remove.clone()
+        {
+            let id = room
+                .borrow()
+                .room_songs()
+                .iter()
+                .find(|e| e.card.title.eq_ignore_ascii_case(&title))
+                .map(|e| (e.id, e.share.clone()));
+            host.remove = None;
+            match id {
+                Some((id, share)) => match room.borrow_mut().remove_song(id) {
+                    Ok(()) => say(format!(
+                        "removed {title} from the room's songs (its share {})",
+                        share.unwrap_or_default()
+                    )),
+                    Err(why) => say(format!("removing {title} refused: {why:?}")),
+                },
+                None => say(format!("no {title} in the room's songs")),
+            }
+        }
+        if now < host.not_before || (host.songs.is_empty() && host.adds.is_empty()) {
             return;
         }
         // An open match ended now once enough stages settled (revision
@@ -1626,10 +1660,7 @@ impl Bot {
     /// each added to the list first where it is not there. A song is
     /// rested on, then picked once it is uploaded.
     fn pick_listed(host: &mut Host, room: &SharedRoom, now: u64, say: &mut dyn FnMut(String)) {
-        let entry = if host.adds.is_empty() {
-            if host.songs.is_empty() {
-                return;
-            }
+        let entry = if !host.songs.is_empty() {
             let at = host.next % host.songs.len();
             let (song, _) = host.songs[at].clone();
             let listed = room.borrow().listed(&song).cloned();
@@ -1651,6 +1682,7 @@ impl Bot {
                 }
             }
         } else {
+            // `--add` alone: the list's songs in its order.
             let list = room.borrow().room_songs().to_vec();
             if list.is_empty() {
                 return;
@@ -1814,12 +1846,28 @@ fn host_songs(o: &Options, seed: u64) -> (Vec<(SongEntry, ChartEntry)>, Vec<Song
                 .map(|l| l.entry.clone()),
         );
     }
-    let entry = ddi_ui::state::select_view::plain_song_entry;
+    // A folder's song under its pack's name (a bundled song has none: it
+    // is listed in a room with nothing uploaded, every device having it).
+    let packs: HashMap<String, String> = songs
+        .library
+        .borrow()
+        .as_ref()
+        .map(|l| l.songs.iter().map(|s| (s.entry.id.clone(), s.pack.clone())).collect())
+        .unwrap_or_default();
+    let entry = |l: &ddi_library::manifest::ManifestEntry| {
+        let mut song = ddi_ui::state::select_view::plain_song_entry(l);
+        song.pack = packs.get(&l.id).cloned().filter(|p| !p.is_empty());
+        song
+    };
     // `--add`'s songs (revision 17), by id.
     let adds: Vec<SongEntry> = o
         .adds
         .iter()
-        .filter_map(|id| match library.iter().find(|l| l.id == *id) {
+        .filter_map(|id| match library
+            .iter()
+            .find(|l| l.id == *id)
+            .or_else(|| library.iter().find(|l| l.title.eq_ignore_ascii_case(id)))
+        {
             Some(lib) => Some(entry(lib)),
             None => {
                 eprintln!("bots: no song {id} in the library");
@@ -1832,7 +1880,11 @@ fn host_songs(o: &Options, seed: u64) -> (Vec<(SongEntry, ChartEntry)>, Vec<Song
             .picks
             .iter()
             .filter_map(|(id, chart)| {
-                let Some(lib) = library.iter().find(|l| l.id == *id) else {
+                let Some(lib) = library
+                    .iter()
+                    .find(|l| l.id == *id)
+                    .or_else(|| library.iter().find(|l| l.title.eq_ignore_ascii_case(id)))
+                else {
                     eprintln!("bots: no song {id} in the library");
                     return None;
                 };
@@ -1994,6 +2046,7 @@ pub fn run_with(o: Options, token: &str) -> i32 {
                 songs: songs.clone(),
                 adds: adds.clone(),
                 added: false,
+                remove: o.remove.clone(),
                 checked: Default::default(),
                 next: 0,
                 resting: None,
