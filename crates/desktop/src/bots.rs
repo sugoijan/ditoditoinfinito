@@ -135,6 +135,19 @@ pub struct Options {
     /// Ready window and enters the stage late where the room lets it
     /// (within the live rules' late join).
     pub ready_late: Option<f64>,
+    /// With `--last-after N`, the host marks stage N the last song on its
+    /// Ready card once picked (`--last-at-ready`, round AC), not at its
+    /// pick.
+    pub last_at_ready: bool,
+    /// The last guest bot leaves each stage's play this many seconds into
+    /// its song (`--quit-after S`, round AC): a forfeit, as a person's
+    /// quit is.
+    pub quit_after: Option<f64>,
+    /// The host's Rules: the charts (`--charts as-picked|adaptive`).
+    pub charts: Option<ddi_room::Charts>,
+    /// The host's Rules: When life runs out (`--life-out play-on|out`,
+    /// room model revision 16).
+    pub life_out: Option<ddi_room::AtEasiest>,
 }
 
 impl Default for Options {
@@ -163,6 +176,10 @@ impl Default for Options {
             cpus: None,
             shocks: None,
             ready_late: None,
+            last_at_ready: false,
+            quit_after: None,
+            charts: None,
+            life_out: None,
         }
     }
 }
@@ -206,6 +223,12 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
   --ready-late S       the last guest bot readies only S seconds after each
                        stage's song started: it misses the Ready window and
                        enters the stage late where the room lets it
+  --quit-after S       the last guest bot leaves each stage's play S seconds
+                       into its song (a forfeit, as a person's quit)
+  --last-at-ready      with --last-after N: the host marks stage N the last
+                       song on its Ready card once picked, not at its pick
+  --charts C           the host's Rules: as-picked or adaptive charts
+  --life-out L         the host's Rules: when life runs out, play-on or out
   --audience N         N seats in the room's audience by --join's link (its
                        audience link, or its invite at the member bound): they
                        only watch (no play) and report what they received,
@@ -287,6 +310,32 @@ impl Options {
                         .filter(|s| s.is_finite() && *s >= 0.0)
                         .ok_or("--ready-late takes seconds")?;
                     o.ready_late = Some(s);
+                }
+                "--quit-after" => {
+                    let s = value(i, a)?
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|s| s.is_finite() && *s >= 0.0)
+                        .ok_or("--quit-after takes seconds")?;
+                    o.quit_after = Some(s);
+                }
+                "--last-at-ready" => {
+                    o.last_at_ready = true;
+                    took = false;
+                }
+                "--charts" => {
+                    o.charts = Some(match value(i, a)?.as_str() {
+                        "as-picked" => ddi_room::Charts::AsPicked,
+                        "adaptive" => ddi_room::Charts::Adaptive,
+                        _ => return Err("--charts takes as-picked or adaptive".into()),
+                    });
+                }
+                "--life-out" => {
+                    o.life_out = Some(match value(i, a)?.as_str() {
+                        "play-on" => ddi_room::AtEasiest::PlayOn,
+                        "out" => ddi_room::AtEasiest::Out,
+                        _ => return Err("--life-out takes play-on or out".into()),
+                    });
                 }
                 "--shocks" => {
                     let n = value(i, a)?
@@ -571,6 +620,8 @@ pub struct StagePlay {
     /// Its play: the chart itself, as people play it (`cpu-play-v1`), so
     /// its score is reported as it is.
     opponent: Opponent,
+    /// It leaves its play at this song second (`--quit-after`): a forfeit.
+    pub quit_at: Option<f64>,
     /// The stage's ladder, where its charts adapt: the chart it finished
     /// on, for its detail.
     rungs: Vec<Rung>,
@@ -608,6 +659,7 @@ impl StagePlay {
             started_ms: now_ms,
             live: None,
             fails_on: order.rules.plays_on_failed(),
+            quit_at: None,
         })
     }
 
@@ -660,6 +712,13 @@ impl StagePlay {
         }
         if let Some(at) = self.opponent.out_at().filter(|_| !self.fails_on) {
             return Some(Run::Out { at });
+        }
+        // Left its play (`--quit-after`): a forfeit, its stream ended so.
+        if self.quit_at.is_some_and(|q| t >= q) {
+            if let Some(live) = &mut self.live {
+                live.end(ddi_room::live::StreamEnd::Forfeit, t);
+            }
+            return Some(Run::Forfeit);
         }
         let end = self.opponent.player().end_time();
         let over = (self.opponent.finished() && t >= end + TAIL_S) || t >= end + 30.0;
@@ -784,7 +843,10 @@ struct Host {
     stages: Option<u16>,
     open: bool,
     last_after: Option<u16>,
+    last_at_ready: bool,
     end_after: Option<u16>,
+    charts: Option<ddi_room::Charts>,
+    life_out: Option<ddi_room::AtEasiest>,
     cpus: Option<(usize, Option<u8>)>,
     shocks: Option<ddi_room::ShocksPerAttack>,
     rest_ms: u64,
@@ -828,6 +890,8 @@ struct Bot {
     ready_at: u64,
     /// `--ready-late`'s seconds after the song's start, for this bot.
     late: Option<f64>,
+    /// `--quit-after`'s seconds into the song, for this bot.
+    quit_after: Option<f64>,
     play: Option<StagePlay>,
     matches: u32,
     said: Said,
@@ -1139,7 +1203,9 @@ impl Bot {
             let number = play.number;
             // How it performed, for the stage's standings, as a player's
             // report says it.
-            let detail = play.detail();
+            let mut detail = play.detail();
+            // Graded as its run ended (a forfeit QUIT), as a person's is.
+            ddi_session::battle::graded_as_run(&mut detail, &run);
             self.play = None;
             self.order = None;
             self.say(format!("stage {number}: {}", run_text(&run)));
@@ -1167,6 +1233,7 @@ impl Bot {
                 .and_then(|song| {
                     let mut play =
                         StagePlay::new(&order, &song, order.chart.index, &self.profile, seed, now)?;
+                    play.quit_at = self.quit_after;
                     play.go_live(room, &order, &song, now)?;
                     Ok(play)
                 });
@@ -1192,6 +1259,20 @@ impl Bot {
             return;
         }
         let view = room.borrow().view();
+        // The host's `--last-at-ready`: its `--last-after` stage made the
+        // last song on its Ready card, as a person's press (round AC).
+        if view == RoomView::Prompt(order.stage)
+            && let Role::Host(h) = &self.role
+            && h.last_at_ready
+            && h.last_after == Some(order.number)
+            && room.borrow().last_song_mark(order.stage) == Some((false, true))
+        {
+            room.borrow_mut().toggle_last_song();
+            self.say(format!(
+                "marked stage {} the last song on its Ready card",
+                order.number
+            ));
+        }
         if view == RoomView::Prompt(order.stage) {
             let (ready, failed) = {
                 let r = room.borrow();
@@ -1304,6 +1385,14 @@ impl Bot {
             if let Some(s) = host.shocks {
                 rules.shocks = s;
                 say(format!("Rules: {} shocks per attack", s.count()));
+            }
+            if let Some(c) = host.charts {
+                rules.charts = c;
+                say(format!("Rules: charts {}", c.id()));
+            }
+            if let Some(l) = host.life_out {
+                rules.set_life_out(l);
+                say(format!("Rules: when life runs out, {}", l.id()));
             }
             let stages = if rules.open_ended {
                 "open".to_string()
@@ -1436,6 +1525,7 @@ impl Bot {
         let number = room.borrow().next_pick_number();
         // An open match's last song (revision 15, `--last-after`).
         let last = host.last_after == Some(number)
+            && !host.last_at_ready
             && matches!(
                 room.borrow().last_song_choice(),
                 Some(ddi_ui::state::room::LastSongChoice::NextPick { last: false })
@@ -1727,7 +1817,10 @@ pub fn run_with(o: Options, token: &str) -> i32 {
                 stages: o.stages,
                 open: o.open,
                 last_after: o.last_after,
+                last_at_ready: o.last_at_ready,
                 end_after: o.end_after,
+                charts: o.charts,
+                life_out: o.life_out,
                 cpus: o.cpus,
                 shocks: o.shocks,
                 rest_ms: o.rest_ms,
@@ -1753,6 +1846,7 @@ pub fn run_with(o: Options, token: &str) -> i32 {
             order: None,
             ready_at: 0,
             late: o.ready_late.filter(|_| n + 1 == count && !(o.host && n == 0)),
+            quit_after: o.quit_after.filter(|_| n + 1 == count && !(o.host && n == 0)),
             play: None,
             matches: 0,
             said: Said::default(),
@@ -1835,6 +1929,19 @@ mod tests {
             .unwrap();
         assert_eq!((o.open, o.stages, o.last_after, o.end_after), (true, None, Some(3), Some(2)));
         assert!(Options::parse(&args("--mp-bots --host --last-after 0")).is_err());
+        // Round AC: the last song marked on the Ready card, a quitting
+        // guest, the charts and When life runs out.
+        let o = Options::parse(&args(
+            "--mp-bots --host --guests 2 --stages open --last-after 2 --last-at-ready \
+             --quit-after 10 --charts as-picked --life-out play-on",
+        ))
+        .unwrap();
+        assert!(o.last_at_ready);
+        assert_eq!(o.quit_after, Some(10.0));
+        assert_eq!(o.charts, Some(ddi_room::Charts::AsPicked));
+        assert_eq!(o.life_out, Some(ddi_room::AtEasiest::PlayOn));
+        assert!(Options::parse(&args("--mp-bots --host --charts sideways")).is_err());
+        assert!(Options::parse(&args("--mp-bots --host --life-out maybe")).is_err());
         let o = Options::parse(&args(
             "--mp-bots --join http://localhost:8080/#/mp/join/Room000001.abcdefghijABCDEFGHIJ01?mp=1",
         ))
