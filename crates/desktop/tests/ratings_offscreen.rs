@@ -342,3 +342,106 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
     ratings::set_mode(ratings::Source::Song, false);
     ddi_l10n::unforce();
 }
+
+/// Round Z4: the DDI estimate's radar read against charts of similar
+/// difficulty (`relative-profile-v0`), drawn for the bundled songs' Hard
+/// and Challenge charts side by side, their real estimates, each picked
+/// by its button; and each skill's number its level against charts this
+/// hard. 1280×720, English.
+#[test]
+fn the_ddi_estimate_s_shapes_differ_among_bundled_charts() {
+    use ddi_ui::screens::data::ChartEntry;
+    let mut pictures = common::gpu::Pictures::new();
+    assert!(ddi_l10n::force("en"));
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    ratings::set_mode(ratings::Source::Estimate, true);
+    let mut data = sample::select();
+    let songs = ["beatucada", "into-my-dream", "some-things-must", "sweeteners"];
+    for id in songs {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs").join(id);
+        let file = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|e| e == "ssc" || e == "sm"))
+            .unwrap();
+        let ext = file.extension().unwrap().to_str().unwrap().to_string();
+        let song = ddi_library::scan::parse_simfile(&std::fs::read_to_string(&file).unwrap(), &ext).unwrap();
+        // The song's original Single charts as they are, easiest first.
+        let mut singles: Vec<ChartEntry> = (0..song.charts.len())
+            .filter(|&i| song.charts[i].layout == "dance-single" && song.charts[i].derivation.is_none())
+            .map(|i| {
+                let mut c = ChartEntry::of_song(&song, i).unwrap();
+                c.digest = Some(song.chart_digest(i));
+                if let Some(e) = ratings::estimate_chart(&song, i) {
+                    ratings::remember_estimate(song.chart_digest(i), e);
+                }
+                c
+            })
+            .collect();
+        singles.sort_by_key(|c| (c.difficulty, c.meter));
+        let entry = data.songs.iter_mut().find(|s| s.id == id).unwrap();
+        entry.charts.retain(|c| c.style != "dance-single");
+        entry.charts.splice(0..0, singles);
+    }
+    let look = Rc::new(ddi_theme::Infinito::new());
+    let env = Env::new(look.clone(), Rc::new(|s: &str| s.to_string()));
+    env.reduced_motion.set(true);
+    let size = [1280u32, 720u32];
+    for (id, difficulty) in [
+        ("into-my-dream", "Hard"),
+        ("into-my-dream", "Challenge"),
+        ("beatucada", "Hard"),
+        ("beatucada", "Challenge"),
+        ("some-things-must", "Challenge"),
+        ("some-things-must", "Hard"),
+        ("sweeteners", "Hard"),
+        ("sweeteners", "Medium"),
+    ] {
+        let mut ui = Ui::new(ddi_ui::screens::DESIGN, ddi_ui::TextMode::Own, false);
+        ui.set_focus_ring(false);
+        ui.push(SelectScreen::new(
+            env.clone(),
+            data.clone(),
+            Some(id),
+            Rc::new(|_, _, _, _| {}),
+            Rc::new(|_, _| {}),
+        ));
+        ui.handle(UiEvent::Resize {
+            size: [1280.0, 720.0],
+            ratio: 1.0,
+        });
+        common::ui::frames(&mut ui, 1.0);
+        let charts: Vec<String> = env.state.borrow().ladder.clone();
+        let k = charts
+            .iter()
+            .position(|c| c.starts_with(difficulty))
+            .unwrap_or_else(|| panic!("{id} {difficulty} in {charts:?}"));
+        if !env.state.borrow().chart.as_deref().is_some_and(|c| c.starts_with(difficulty)) {
+            let c = ui.bounds(&format!("Chart{k}")).expect("the chart's button");
+            let at = [(c[0] + c[2]) / 2.0, (c[1] + c[3]) / 2.0];
+            for phase in [PointerPhase::Down, PointerPhase::Up] {
+                ui.handle(UiEvent::Pointer(PointerEvent {
+                    id: 1,
+                    kind: PointerKind::Mouse,
+                    phase,
+                    pos: at,
+                    buttons: u32::from(phase == PointerPhase::Down),
+                    modifiers: Modifiers::default(),
+                    time: 3000.0,
+                }));
+            }
+            common::ui::frames(&mut ui, 0.5);
+        }
+        let shot = pictures.draw(&mut ui, size);
+        let st = env.state.borrow().clone();
+        assert!(st.chart.as_deref().is_some_and(|c| c.starts_with(difficulty)), "{id}: {:?}", st.chart);
+        assert_eq!(st.radar, "shown", "{id} {difficulty}");
+        assert_apart_n(&ui, &format!("{id} {difficulty}"), 8);
+        if let Some(p) = shot {
+            keep(&format!("rel-{id}-{}", difficulty.to_lowercase()), size, "en", &p);
+        }
+    }
+    ratings::set_mode(ratings::Source::Song, false);
+    ddi_l10n::unforce();
+}
