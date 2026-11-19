@@ -216,6 +216,9 @@ fn stage_with(
     let rules = StageRules {
         difficulty,
         at_once,
+        // Out at zero life, as the study was measured (Play on under As
+        // picked since revision 16 would change what it compares).
+        easiest: ddi_room::AtEasiest::Out,
         ..StageRules::default()
     };
     let (seats, facts, _) = stage_under(song, chart, levels, seed, skills, targeting, rules);
