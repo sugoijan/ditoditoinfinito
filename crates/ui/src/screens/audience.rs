@@ -812,7 +812,7 @@ impl AudienceScreen {
                     tx += bw + 8.0;
                 }
                 if part_shown == Part::Standings {
-                    let title = m::table_title(usize::from(t.number), usize::from(t.of));
+                    let title = m::table_title(usize::from(t.number), usize::from(t.of_shown()));
                     let mut tt = crate::look::tracked(
                         env.text("Audience.TableTitle", &title, 11.0, 600, "Faint"),
                         120,

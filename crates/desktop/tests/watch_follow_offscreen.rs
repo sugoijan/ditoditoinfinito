@@ -54,6 +54,9 @@ fn stage(
         let mut rules = ddi_room::MatchRules {
             stages: 1,
             charts: ddi_room::Charts::Adaptive,
+            // Out at zero life on the easiest chart, as these views were
+            // written (revision 15's Play on has its own tests).
+            easiest: ddi_room::AtEasiest::Out,
             ..r.rules().clone()
         };
         rules.cpu.mode = ddi_room::CpuMode::Roster;

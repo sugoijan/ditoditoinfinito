@@ -291,6 +291,11 @@ pub struct Stage {
     pub prep: BTreeMap<ParticipantId, Prep>,
     /// Set when its start was committed.
     pub play: Option<StagePlay>,
+    /// An open-ended match's last song (room model revision 15,
+    /// `MatchRules::open_ended`): the match ends once it settles.
+    /// ADDITIVE: left out of the JSON while false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub last: bool,
 }
 
 impl Stage {
@@ -302,6 +307,7 @@ impl Stage {
             readiness_rev: 0,
             prep: BTreeMap::new(),
             play: None,
+            last: false,
         }
     }
 
@@ -588,6 +594,27 @@ impl Match {
         window || s.play.is_some()
     }
 
+    /// Whether stage `stage` is the match's last: a counted match's final
+    /// stage; an open-ended match's (`MatchRules::open_ended`) picked as
+    /// its last song ([`Stage::last`]), or the one at the room's
+    /// `max_stages`, the last by itself.
+    pub fn is_last(&self, stage: StageId, max_stages: u16) -> bool {
+        let Some(i) = self.stage_index(stage) else {
+            return true;
+        };
+        if self.rules.open_ended {
+            self.stages[i].last || i + 1 >= usize::from(max_stages)
+        } else {
+            i + 1 >= self.stages.len()
+        }
+    }
+
+    /// The match's stage count, `None` for an open-ended match (its
+    /// stages so far are `stages.len()`).
+    pub fn stage_count(&self) -> Option<u16> {
+        (!self.rules.open_ended).then(|| u16::try_from(self.stages.len()).unwrap_or(u16::MAX))
+    }
+
     /// Stage awards summed per competitor (equal stage weights; a missed or
     /// unconfirmed stage is zero, never an estimate).
     pub fn standings(&self) -> Vec<Standing> {
@@ -656,8 +683,19 @@ pub enum Participation {
     Left,
     /// Chose to watch (an admin observer, say).
     Watching,
-    /// Wants to play; arrived during the match and waits for the next.
+    /// Wants to play; arrived during the match and waits for the next
+    /// (the match's rules admit nobody during it).
     WaitingNextMatch,
+    /// Wants to play; arrived during a match that seats newcomers
+    /// (`MatchRules::mid_match_entry`, room model revision 15) and is
+    /// seated for its next stage not begun, at the next pick (a stage is
+    /// being played now).
+    WaitingNextStage,
+    /// Wants to play; arrived during a match that seats newcomers, every
+    /// place of which is taken (the competitor cap reached, its CPUs
+    /// counted: a newcomer never takes a CPU's place): seated once one
+    /// frees before a stage, else from the next match.
+    WaitingPlace,
     /// Persistent elimination ended their match.
     OutForMatch,
     /// Admitted for the upcoming stage, not ready.
@@ -750,7 +788,7 @@ impl RoomState {
         source: ContentSource,
     ) -> Self {
         let owner_id = ParticipantId(1);
-        let playlist: Vec<Stage> = (1..=u64::from(rules.stages))
+        let playlist: Vec<Stage> = (1..=u64::from(rules.planned_stages()))
             .map(|i| Stage::new(StageId(i)))
             .collect();
         let mut members = BTreeMap::new();
@@ -1127,6 +1165,76 @@ impl RoomState {
         }
     }
 
+    /// The running match seats newcomers for its next stage not begun
+    /// (`MatchRules::mid_match_entry`, room model revision 15): what an
+    /// invite's preview says (`next_stage` rather than `next_match`).
+    pub fn admits_next_stage(&self) -> bool {
+        self.running_match()
+            .is_some_and(|m| m.rules.mid_match_entry && !self.match_ends_now())
+    }
+
+    /// The running match has no stage left to seat anyone in: the stage
+    /// being prepared or played is its last (counted, or an open match's
+    /// last song, `Match::is_last`).
+    fn match_ends_now(&self) -> bool {
+        let Some(m) = self.running_match() else {
+            return true;
+        };
+        let at = match self.phase {
+            Phase::Preparing { stage, .. } => {
+                // Not begun: newcomers are seated in it.
+                if m.stage(stage).is_some_and(|s| s.play.is_none()) {
+                    return false;
+                }
+                stage
+            }
+            Phase::Intermission { .. } => return false,
+            Phase::Countdown { stage, .. }
+            | Phase::Stage { stage }
+            | Phase::SongCompletion { stage } => stage,
+            _ => return true,
+        };
+        m.is_last(at, self.policy.max_stages)
+    }
+
+    /// The places left in the running match for newcomers (room model
+    /// revision 15): the room's competitor cap
+    /// (`RoomPolicy::max_competitors`) less those seated and still in it
+    /// (its CPUs counted, never anyone gone or out for the match); never
+    /// the seats its rules began with.
+    pub fn late_places(&self) -> usize {
+        let Some(m) = &self.current else {
+            return 0;
+        };
+        let seated = m
+            .roster
+            .iter()
+            .filter(|(id, seat)| {
+                !seat.out_for_match && self.members.get(id).is_some_and(|p| !p.left)
+            })
+            .count();
+        usize::from(self.policy.max_competitors).saturating_sub(seated)
+    }
+
+    /// Who would be seated now in the running match's stage `stage` not
+    /// begun, in arrival order (by id): people who want to play and have
+    /// no seat in it, as many as there are places
+    /// ([`RoomState::late_places`]).
+    pub(crate) fn late_entrants(&self) -> Vec<ParticipantId> {
+        let Some(m) = &self.current else {
+            return Vec::new();
+        };
+        if !m.rules.mid_match_entry {
+            return Vec::new();
+        }
+        self.members
+            .values()
+            .filter(|p| p.wants_to_play() && !m.roster.contains_key(&p.id))
+            .map(|p| p.id)
+            .take(self.late_places())
+            .collect()
+    }
+
     /// The match's competitors who may start its next stage: its roster
     /// less those persistent elimination took out.
     pub fn candidates(&self) -> Vec<ParticipantId> {
@@ -1177,7 +1285,9 @@ impl RoomState {
         };
         let Some(seat) = current.roster.get(&id) else {
             return Some(match m.intent {
-                Intent::Play => Participation::WaitingNextMatch,
+                Intent::Play if !self.admits_next_stage() => Participation::WaitingNextMatch,
+                Intent::Play if self.late_places() == 0 => Participation::WaitingPlace,
+                Intent::Play => Participation::WaitingNextStage,
                 Intent::Watch => Participation::Watching,
             });
         };

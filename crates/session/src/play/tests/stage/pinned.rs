@@ -154,6 +154,7 @@ fn outcome_line(o: &crate::battle::StageOutcome) -> String {
                         ddi_room::Finish::Survived => "",
                         ddi_room::Finish::Eliminated => "x",
                         ddi_room::Finish::Forfeit => "f",
+                        ddi_room::Finish::Failed => "F",
                     };
                     format!("P{}{how}", f.participant.0)
                 })
@@ -281,6 +282,10 @@ fn practice_on(
     let rules = MatchRules {
         battle: ddi_room::BattlePreset::GAUGE_ATTACKS_V0.into(),
         charts,
+        // Out at zero life on the easiest chart, as these traces were
+        // pinned (Play on, a new room's since revision 15, has its own
+        // tests).
+        easiest: ddi_room::AtEasiest::Out,
         ..room.rules().clone()
     };
     room.save_rules(rules).unwrap();

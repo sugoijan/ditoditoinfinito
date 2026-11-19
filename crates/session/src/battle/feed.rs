@@ -93,6 +93,11 @@ pub enum MomentKind {
     /// are theirs ([`FieldFeed::step`]); the life after it is what it
     /// is then (given back after a step down).
     Step(u8),
+    /// Their life ran out on the easiest chart under Charts: Adaptive's
+    /// Play on (room model revision 15): failed from here, out for the
+    /// battle, their play going on to the song's end (their notes still
+    /// drawn, the field dimmed and saying so, [`Shown::failed`]).
+    Failed,
 }
 
 /// One judged moment of a player's run.
@@ -299,6 +304,9 @@ pub struct Shown {
     pub life: f32,
     pub combo: u32,
     pub out: bool,
+    /// Failed and playing on (Play on at the easiest chart, revision
+    /// 15): out for the battle, never [`Shown::out`].
+    pub failed: bool,
 }
 
 /// A battle shock in a player's field ([`FieldFeed::add_hazards`]).
@@ -342,6 +350,9 @@ pub struct FieldFeed {
     out_at: f64,
     /// A moment said they left the stage ([`MomentKind::Left`]).
     left: bool,
+    /// When a moment said they failed ([`MomentKind::Failed`]), the
+    /// field's own time; infinite while they have not.
+    failed_at: f64,
     /// Their steps down and up the ladder, in order: what the field
     /// draws from each one on ([`FieldFeed::step`]).
     steps: Vec<FeedStep>,
@@ -398,6 +409,7 @@ impl FieldFeed {
             life,
             lock: None,
             out_at: f64::INFINITY,
+            failed_at: f64::INFINITY,
             left: false,
             steps: Vec::new(),
         }
@@ -579,6 +591,7 @@ impl FieldFeed {
             }
             MomentKind::Boo | MomentKind::Mark | MomentKind::Step(_) => {}
             MomentKind::Left => self.left = true,
+            MomentKind::Failed => self.failed_at = self.failed_at.min(m.at),
             MomentKind::ShockHit => {
                 if let Some(s) = self
                     .shocks
@@ -629,7 +642,14 @@ impl FieldFeed {
             life: last.map_or(self.life, |m| m.life),
             combo: last.map_or(0, |m| m.combo),
             out: self.out_at <= self.view_time(t),
+            failed: self.failed_at <= self.view_time(t),
         }
+    }
+
+    /// When they failed and played on (the field's own time), once a
+    /// moment said so.
+    pub fn failed_at(&self) -> Option<f64> {
+        self.failed_at.is_finite().then_some(self.failed_at)
     }
 
     /// The field at song second `t` for a frame drawn with `scroll` (the
@@ -926,6 +946,7 @@ impl FieldFeed {
                 | MomentKind::HoldEnd(_)
                 | MomentKind::MineHit
                 | MomentKind::Mark
+                | MomentKind::Failed
                 | MomentKind::Left
                 | MomentKind::Step(_) => None,
             })
@@ -1138,7 +1159,8 @@ mod tests {
             Shown {
                 life: 1.0,
                 combo: 0,
-                out: false
+                out: false,
+                failed: false
             }
         );
         // The delay later: shown, out, the field blank.
@@ -1150,7 +1172,8 @@ mod tests {
             Shown {
                 life: 0.0,
                 combo: 3,
-                out: true
+                out: true,
+                failed: false
             }
         );
         assert_eq!(f.combo, 3);

@@ -380,16 +380,44 @@ pub enum Admission {
 /// One match's rules, locked from its start to its end.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MatchRules {
-    /// Songs in the match. Four is a working default, not a limit.
+    /// Songs in the match. Four is a working default, not a limit. Read
+    /// only where the match is counted: an open-ended match
+    /// ([`MatchRules::open_ended`]) keeps it as the count Rules shows
+    /// should its host turn Open off again.
     pub stages: u16,
+    /// Stages: Open (room model revision 15, feedback round AA: "an
+    /// option to have open-ended matches, where there isn't a pre-set
+    /// count of stages, but a song could be picked as 'last song'"): the
+    /// match goes on stage by stage as songs are picked until one picked
+    /// as its last song (`crate::state::Stage::last`) settles, its
+    /// operator ends it between stages (`crate::Command::EndMatch`), or
+    /// it reaches the room's `RoomPolicy::max_stages`, whose stage is its
+    /// last by itself (`crate::state::Match::is_last`). ADDITIVE: left
+    /// out of the JSON while off (a counted match, every match before),
+    /// read as off where missing, so revision 14's reading of `stages`
+    /// is untouched.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub open_ended: bool,
     /// Playing seats, humans and CPUs. At most the room's competitor cap.
     pub seats: u16,
     pub cpu: CpuRules,
     /// Everyone returns at the next stage after an elimination (default).
     /// Off: elimination, a forfeit or a missed stage ends the match for them.
     pub return_each_stage: bool,
-    /// Newcomers may enter at a later stage's boundary into a vacant seat,
-    /// with zero points for the stages they missed. Default Off.
+    /// Joining during a match (room model revision 15, feedback round AA:
+    /// "Players should be able to join mid-match and still play the
+    /// upcoming song as long as it hasn't started yet"): someone who
+    /// joins while the match runs, or a watcher who chooses Play, is
+    /// seated for its next stage whose play has not started (at once
+    /// where it is being prepared, its song to load like anyone's; at the
+    /// next pick where one is being played), with no points for the
+    /// stages they missed; seated up to the room's competitor cap
+    /// (`RoomPolicy::check_competitors`), never in a CPU's place
+    /// (`RoomState::late_places`). On for a new room
+    /// ([`MatchRules::hosted`], [`MatchRules::practice`]); always
+    /// written, and read Off where missing (rules from before revision
+    /// 15 always said it, Off, which a stored room keeps).
+    #[serde(default)]
     pub mid_match_entry: bool,
     /// The battle preset, opaque to the room (attacks, defense, gauge): the
     /// Attacks rule chooses it ([`MatchRules::attacks`],
@@ -444,6 +472,16 @@ pub struct MatchRules {
         skip_serializing_if = "Charts::is_as_picked"
     )]
     pub charts: Charts,
+    /// Under Charts: Adaptive, what zero life on the easiest chart (the
+    /// ladder's lowest rung, or a song's only chart) does ([`AtEasiest`],
+    /// room model revision 15, feedback round AA): Play on, a new room's
+    /// (the competitor is failed, plays the song to its end scoring, is
+    /// out for the battle and ranked under every survivor, the failed by
+    /// score), or Out (as before). Read only under Adaptive. ADDITIVE:
+    /// left out of the JSON while Out, read as Out where missing (rules
+    /// from before it, which a stored room keeps).
+    #[serde(default, skip_serializing_if = "AtEasiest::is_out")]
+    pub easiest: AtEasiest,
     /// How many attacks may stand placed (not yet passed) against one
     /// player at once (Three by default; `attacks-v3`, the maintainer's
     /// decision of 2026-11-13): a player at the limit is not a valid
@@ -510,6 +548,9 @@ pub struct PlayRules {
         skip_serializing_if = "Charts::is_as_picked"
     )]
     pub charts: Charts,
+    /// [`MatchRules::easiest`].
+    #[serde(default, skip_serializing_if = "AtEasiest::is_out")]
+    pub easiest: AtEasiest,
     /// [`MatchRules::at_once`].
     #[serde(default, skip_serializing_if = "AttacksAtOnce::is_default")]
     pub at_once: AttacksAtOnce,
@@ -695,6 +736,54 @@ impl Charts {
     }
 }
 
+/// What zero life on the easiest chart does under Charts: Adaptive
+/// ([`MatchRules::easiest`], room model revision 15).
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum AtEasiest {
+    /// Out of the stage, as ever (and as rules from before revision 15
+    /// read).
+    #[default]
+    Out,
+    /// Failed: played on to the song's end and scoring, out for the
+    /// battle (no attacks sent or placed from then, out for its
+    /// settlement), ranked under every competitor who did not fail and
+    /// among the failed by the score as earned (`crate::battle::rank`,
+    /// [`crate::battle::Run::Failed`]); graded F. A new room's.
+    PlayOn,
+}
+
+impl AtEasiest {
+    pub const ALL: [AtEasiest; 2] = [Self::PlayOn, Self::Out];
+
+    pub fn is_out(&self) -> bool {
+        *self == Self::Out
+    }
+
+    /// Its place in [`AtEasiest::ALL`].
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|a| *a == self).unwrap_or(0)
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Out => "out",
+            Self::PlayOn => "play_on",
+        }
+    }
+}
+
+impl MatchRules {
+    /// A stage under these rules plays on to the song's end once life
+    /// runs out on the easiest chart (Charts: Adaptive with
+    /// [`AtEasiest::PlayOn`]); every other is out at zero life there.
+    pub fn plays_on_failed(&self) -> bool {
+        self.charts == Charts::Adaptive && self.easiest == AtEasiest::PlayOn
+    }
+}
+
 /// How a stage ranks those still in ([`crate::battle::rank`]): by life,
 /// then the score (As picked, as ever); or by the score as earned, life
 /// only breaking a tie (Adaptive: those on harder charts earn more, which
@@ -789,6 +878,7 @@ impl MatchRules {
             boos: self.boos,
             battle: self.battle.clone(),
             charts: self.charts,
+            easiest: self.easiest,
             at_once: self.at_once,
             shocks: self.shocks,
             points: None,
@@ -803,11 +893,18 @@ impl MatchRules {
             boos: play.boos,
             battle: play.battle.clone(),
             charts: play.charts,
+            easiest: play.easiest,
             at_once: play.at_once,
             shocks: play.shocks,
             points: play.points.unwrap_or(self.points),
             ..self.clone()
         }
+    }
+
+    /// The stages a match under these rules is made with: its count, or
+    /// an open-ended match's first (the next ones made as it goes on).
+    pub fn planned_stages(&self) -> u16 {
+        if self.open_ended { 1 } else { self.stages }
     }
 
     /// Sets the Attacks rule: the battle with attacks, or survival alone.
@@ -840,6 +937,7 @@ impl MatchRules {
     pub fn hosted() -> Self {
         Self {
             stages: 4,
+            open_ended: false,
             seats: RoomPolicy::INITIAL_COMPETITOR_CAP,
             cpu: CpuRules {
                 mode: CpuMode::Off,
@@ -853,7 +951,7 @@ impl MatchRules {
                 roster: Vec::new(),
             },
             return_each_stage: true,
-            mid_match_entry: false,
+            mid_match_entry: true,
             battle: Self::PROVISIONAL_BATTLE.into(),
             awards: AwardScheme::PlacementPointsV1,
             ruleset: Self::DEFAULT_RULESET.into(),
@@ -861,6 +959,7 @@ impl MatchRules {
             boos: false,
             points: PointsBias::Strong,
             charts: Charts::AsPicked,
+            easiest: AtEasiest::PlayOn,
             at_once: AttacksAtOnce::Three,
             shocks: ShocksPerAttack::Four,
         }
@@ -915,7 +1014,9 @@ impl MatchRules {
     /// play. Run when the draft is saved, again at the match boundary and
     /// at the start, since reservations change in between.
     pub fn validate(&self, policy: &RoomPolicy, humans: usize) -> Result<(), RulesProblem> {
-        if self.stages == 0 || self.stages > policy.max_stages {
+        // An open-ended match's count is only what Rules shows should
+        // Open be turned off: its bound is the policy's, by itself.
+        if self.stages == 0 || (!self.open_ended && self.stages > policy.max_stages) {
             return Err(RulesProblem::StageCount {
                 stages: self.stages,
                 max: policy.max_stages,

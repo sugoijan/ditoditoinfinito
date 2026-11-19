@@ -100,6 +100,15 @@ pub struct Options {
     pub rest_ms: u64,
     /// The host's Rules: stages a match.
     pub stages: Option<u16>,
+    /// The host's Rules: Stages Open (`--stages open`, room model
+    /// revision 15): an open-ended match.
+    pub open: bool,
+    /// In an open-ended match, the host's pick of this stage (from 1) is
+    /// its last song (`--last-after N`: N stages, the last song the Nth).
+    pub last_after: Option<u16>,
+    /// In an open-ended match, the host ends it now once this many stages
+    /// settled (`--end-after N`, between stages).
+    pub end_after: Option<u16>,
     /// Stop after this many matches (none: until Ctrl-C).
     pub matches: Option<u32>,
     /// Players (people and bots) the host waits for before it picks.
@@ -143,6 +152,9 @@ impl Default for Options {
             picks: Vec::new(),
             rest_ms: 8_000,
             stages: None,
+            open: false,
+            last_after: None,
+            end_after: None,
             matches: None,
             wait_for: 2,
             seed: None,
@@ -177,7 +189,11 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
                        the bundled songs alone, never the settings' folders)
   --pick ID[:N],…      the host's songs in this order (chart index N)
   --rest SECONDS       the host's rest on a song before picking it (default 8)
-  --stages N           the host's Rules: stages a match
+  --stages N|open      the host's Rules: stages a match, or Open (an
+                       open-ended match: no set count)
+  --last-after N       an open match's Nth pick made its last song
+  --end-after N        an open match ended now (between stages) once N
+                       stages settled
   --matches N          stop after N matches
   --wait-for N         players the host waits for before picking (default 2)
   --seed N             names' order and plays
@@ -310,13 +326,29 @@ impl Options {
                     o.rest_ms = (s * 1000.0) as u64;
                 }
                 "--stages" => {
-                    o.stages = Some(
-                        value(i, a)?
-                            .parse::<u16>()
-                            .ok()
-                            .filter(|n| *n >= 1)
-                            .ok_or("--stages takes a number from 1")?,
-                    )
+                    let v = value(i, a)?;
+                    if v == "open" {
+                        o.open = true;
+                    } else {
+                        o.stages = Some(
+                            v.parse::<u16>()
+                                .ok()
+                                .filter(|n| *n >= 1)
+                                .ok_or("--stages takes a number from 1, or open")?,
+                        )
+                    }
+                }
+                "--last-after" | "--end-after" => {
+                    let n = value(i, a)?
+                        .parse::<u16>()
+                        .ok()
+                        .filter(|n| *n >= 1)
+                        .ok_or("--last-after and --end-after take a number from 1")?;
+                    if a == "--last-after" {
+                        o.last_after = Some(n);
+                    } else {
+                        o.end_after = Some(n);
+                    }
                 }
                 "--matches" => {
                     o.matches = Some(
@@ -546,6 +578,10 @@ pub struct StagePlay {
     /// The stage played live (`ddi_session::battle::live`): its stream to
     /// the room and the room's attacks into its CPU's play.
     live: Option<ddi_session::battle::live::LivePlay>,
+    /// The stage plays on failed at the easiest chart (Charts: Adaptive's
+    /// Play on, room model revision 15): its play goes on to the song's
+    /// end once its life ran out there, its run failed.
+    fails_on: bool,
 }
 
 impl StagePlay {
@@ -571,6 +607,7 @@ impl StagePlay {
             rungs: ddi_session::battle::ladder_rungs(song, &ladder)?,
             started_ms: now_ms,
             live: None,
+            fails_on: order.rules.plays_on_failed(),
         })
     }
 
@@ -621,7 +658,7 @@ impl StagePlay {
             };
             live.receive(t, &mut deliver);
         }
-        if let Some(at) = self.opponent.out_at() {
+        if let Some(at) = self.opponent.out_at().filter(|_| !self.fails_on) {
             return Some(Run::Out { at });
         }
         let end = self.opponent.player().end_time();
@@ -630,8 +667,9 @@ impl StagePlay {
             live.end(ddi_room::live::StreamEnd::Finished, t);
         }
         over.then(|| {
-            ddi_session::battle::run_of(
-                None,
+            ddi_session::battle::run_as(
+                self.fails_on,
+                self.opponent.out_at(),
                 self.opponent.life(),
                 &self.opponent.score(),
                 self.opponent.player().steps().len(),
@@ -686,6 +724,7 @@ fn run_text(run: &Run) -> String {
     match run {
         Run::Live { life, score, .. } => format!("life {:.0}%, score {score}", life * 100.0),
         Run::Out { at } => format!("out at {at:.1} s"),
+        Run::Failed { at, score } => format!("failed at {at:.1} s, played on, score {score}"),
         Run::Forfeit => "forfeit".into(),
     }
 }
@@ -743,6 +782,9 @@ struct Host {
     resting: Option<u64>,
     rules: bool,
     stages: Option<u16>,
+    open: bool,
+    last_after: Option<u16>,
+    end_after: Option<u16>,
     cpus: Option<(usize, Option<u8>)>,
     shocks: Option<ddi_room::ShocksPerAttack>,
     rest_ms: u64,
@@ -1221,6 +1263,9 @@ impl Bot {
             if let Some(n) = host.stages {
                 rules.stages = n;
             }
+            if host.open {
+                rules.open_ended = true;
+            }
             if let Some((n, level)) = host.cpus {
                 if room.borrow().cpus_offered() {
                     let mut roster =
@@ -1254,7 +1299,11 @@ impl Bot {
                 rules.shocks = s;
                 say(format!("Rules: {} shocks per attack", s.count()));
             }
-            let stages = rules.stages;
+            let stages = if rules.open_ended {
+                "open".to_string()
+            } else {
+                rules.stages.to_string()
+            };
             match room.borrow_mut().save_rules(rules) {
                 Ok(()) => say(format!("Rules: OK ({stages} stages a match)")),
                 Err(why) => say(format!("Rules refused: {why:?}")),
@@ -1314,6 +1363,18 @@ impl Bot {
         if now < host.not_before || host.songs.is_empty() {
             return;
         }
+        // An open match ended now once enough stages settled (revision
+        // 15, `--end-after`).
+        if let Some(n) = host.end_after
+            && matches!(phase, Phase::Intermission { .. })
+            && room.borrow().stages_played() >= usize::from(n)
+            && room.borrow().may_end_match()
+        {
+            room.borrow_mut().end_match();
+            say(format!("ended the match now after {n} stages"));
+            host.not_before = now + PAUSE_MS;
+            return;
+        }
         let players = {
             let r = room.borrow();
             r.state()
@@ -1367,9 +1428,19 @@ impl Bot {
             return;
         }
         let number = room.borrow().next_pick_number();
+        // An open match's last song (revision 15, `--last-after`).
+        let last = host.last_after == Some(number)
+            && matches!(
+                room.borrow().last_song_choice(),
+                Some(ddi_ui::state::room::LastSongChoice::NextPick { last: false })
+            );
+        if last {
+            room.borrow_mut().toggle_last_song();
+        }
         match room.borrow_mut().pick(&song, &chart) {
             Ok(()) => {
-                say(format!("picked {} for stage {number}", song.title));
+                let as_last = if last { " as the last song" } else { "" };
+                say(format!("picked {} for stage {number}{as_last}", song.title));
                 host.next += 1;
                 host.resting = None;
                 // Nothing more until the room has moved on (its stage then
@@ -1648,6 +1719,9 @@ pub fn run_with(o: Options, token: &str) -> i32 {
                 resting: None,
                 rules: false,
                 stages: o.stages,
+                open: o.open,
+                last_after: o.last_after,
+                end_after: o.end_after,
                 cpus: o.cpus,
                 shocks: o.shocks,
                 rest_ms: o.rest_ms,
@@ -1750,6 +1824,11 @@ mod tests {
         let o = Options::parse(&args("--mp-bots --host --guests 3 --stages 2 --rest 4.5")).unwrap();
         assert!(o.host && o.join.is_none());
         assert_eq!((o.guests, o.stages, o.rest_ms), (3, Some(2), 4_500));
+        // An open match (revision 15): its last song, or its end now.
+        let o = Options::parse(&args("--mp-bots --host --stages open --last-after 3 --end-after 2"))
+            .unwrap();
+        assert_eq!((o.open, o.stages, o.last_after, o.end_after), (true, None, Some(3), Some(2)));
+        assert!(Options::parse(&args("--mp-bots --host --last-after 0")).is_err());
         let o = Options::parse(&args(
             "--mp-bots --join http://localhost:8080/#/mp/join/Room000001.abcdefghijABCDEFGHIJ01?mp=1",
         ))
@@ -2092,6 +2171,7 @@ mod tests {
                 assert!(score > 500_000, "{score}");
             }
             Run::Out { at } => assert!(at > 0.0),
+            Run::Failed { at, .. } => assert!(at > 0.0),
             Run::Forfeit => panic!("never a forfeit"),
         }
         // A chart the CPU cannot plan is refused.

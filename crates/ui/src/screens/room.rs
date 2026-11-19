@@ -34,6 +34,7 @@ use crate::screen::Cx;
 use crate::state::online::Redirect;
 use crate::state::online::link::LinkNotice;
 use crate::state::room::{
+    LastSongChoice,
     LoadJob, LoadProblem, Refusal, RoomClient, RoomView as Where, SharedRoom, Sharing,
     SharingProblem, StageMark, StageOrder, Unsupported, UploadJob, cpu_levels,
 };
@@ -518,8 +519,10 @@ pub(crate) enum SatOutThen {
 impl SatOutThen {
     pub(crate) fn of(r: &RoomClient, stage: StageId, reason: ddi_room::SitOutReason) -> SatOutThen {
         let watching = r.watches();
-        let rules = r.state().current.as_ref().map(|m| &m.rules);
-        if rules.is_some_and(|rules| number_of(r, stage) >= usize::from(rules.stages)) {
+        let current = r.state().current.as_ref();
+        let rules = current.map(|m| &m.rules);
+        let max = r.state().policy.max_stages;
+        if current.is_some_and(|m| m.is_last(stage, max)) {
             SatOutThen::Last { watching }
         } else if reason == ddi_room::SitOutReason::Watching {
             SatOutThen::Chosen { watching }
@@ -554,6 +557,11 @@ impl SatOutThen {
 /// whose status line is the play's own).
 pub fn status(r: &RoomClient) -> UiText {
     let line = status_line(r);
+    // An open-ended match's last song (round AA), said before the line.
+    let line = match line_stage_id(r) {
+        Some(stage) if r.is_last_song(stage) => m::status_last_song(line),
+        _ => line,
+    };
     let in_stage = matches!(
         r.state().phase,
         Phase::Countdown { .. } | Phase::Stage { .. } | Phase::SongCompletion { .. }
@@ -607,6 +615,19 @@ fn alone(r: &RoomClient) -> bool {
     !s.members
         .values()
         .any(|m| m.id != r.me() && !m.left && !m.is_cpu())
+}
+
+/// The stage the room's status line is about (being chosen, gathered,
+/// counted down or played).
+fn line_stage_id(r: &RoomClient) -> Option<StageId> {
+    match r.state().phase {
+        Phase::Preparing { stage, .. }
+        | Phase::Intermission { next: stage }
+        | Phase::Countdown { stage, .. }
+        | Phase::Stage { stage }
+        | Phase::SongCompletion { stage } => Some(stage),
+        _ => None,
+    }
 }
 
 /// The number of the stage the room's status line is about (being
@@ -732,6 +753,8 @@ fn phase_status(r: &RoomClient) -> UiText {
                 }
                 // Joined while the match ran: told why they are not in it.
                 Some(Participation::WaitingNextMatch) => m::status_waiting_next_match(n),
+                Some(Participation::WaitingNextStage) => m::status_waiting_next_stage(n),
+                Some(Participation::WaitingPlace) => m::status_waiting_place(),
                 _ if r.is_online() => m::status_online_stage(n),
                 _ => m::status_playing(n),
             }
@@ -1348,7 +1371,16 @@ fn person_row(
     state: String,
 ) -> (String, String) {
     let role = person_role(s, member);
-    let sub = [role, seat_word(part), points]
+    // Joined during the match (round AA): the stage they played from.
+    let joined = s.current.as_ref().and_then(|m| {
+        let seat = m.roster.get(&member.id)?;
+        let first = m.stages.first()?.id;
+        (seat.first_stage != first)
+            .then(|| m.stage_index(seat.first_stage))
+            .flatten()
+            .map(|i| String::from(m::joined_at(i + 1)))
+    });
+    let sub = [role, seat_word(part), joined, points]
         .into_iter()
         .flatten()
         .filter(|t| !t.is_empty())
@@ -1375,6 +1407,8 @@ pub(crate) fn conn_word(c: Connection) -> Option<String> {
 fn seat_word(part: Option<&Participation>) -> Option<String> {
     match part {
         Some(Participation::WaitingNextMatch) => Some(m::next_match().into()),
+        Some(Participation::WaitingNextStage) => Some(m::next_song().into()),
+        Some(Participation::WaitingPlace) => Some(m::place_full().into()),
         Some(Participation::Watching) => Some(m::watching().into()),
         _ => None,
     }
@@ -1500,6 +1534,13 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
         items.push((MORE_INTENT.to_string(), intent_label(r).into()));
     }
     let running = r.state().phase.kind().match_running();
+    // An open-ended match's last song and its end (round AA).
+    if let Some((id, label)) = last_song_item(r) {
+        items.push((id.to_string(), label.into()));
+    }
+    if r.may_end_match() {
+        items.push((MORE_END_MATCH.to_string(), m::end_match().into()));
+    }
     if running && r.may(Capability::StopMatch) {
         items.push(("stop".to_string(), m::stop_match().into()));
     }
@@ -1542,6 +1583,49 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
     items.push(("leave".to_string(), leave.into()));
     items
 }
+
+/// More's End the match now (an open-ended match's, between stages,
+/// round AA), asked once more ([`ask_end_match`]).
+pub const MORE_END_MATCH: &str = "endmatch";
+
+/// More's last-song items (round AA): the stage picked and not started
+/// made the open-ended match's last song or not; before a pick, the
+/// next pick made it.
+pub const MORE_MAKE_LAST: &str = "makelast";
+pub const MORE_NOT_LAST: &str = "notlast";
+pub const MORE_PICK_LAST: &str = "picklast";
+
+/// More's last-song item for `r` now, if any: the picked stage made the
+/// last song or not (an operator's, until its start); before a pick, the
+/// next pick made it or not (the picker's).
+fn last_song_item(r: &RoomClient) -> Option<(&'static str, UiText)> {
+    match r.last_song_choice()? {
+        LastSongChoice::Picked { last: false, .. } => Some((MORE_MAKE_LAST, m::make_last())),
+        LastSongChoice::Picked { last: true, .. } => Some((MORE_NOT_LAST, m::not_last())),
+        LastSongChoice::NextPick { last: false } => Some((MORE_PICK_LAST, m::pick_last_next())),
+        LastSongChoice::NextPick { last: true } => Some((MORE_NOT_LAST, m::not_last())),
+    }
+}
+
+/// The question before an open-ended match ends now ([`MORE_END_MATCH`]).
+pub fn ask_end_match(env: &Env, room: &SharedRoom, cx: &mut Cx) {
+    let played = room.borrow().stages_played();
+    let room = room.clone();
+    cx.overlay(
+        super::dialog::ConfirmDialog::new(
+            env.clone(),
+            &m::end_match(),
+            &m::end_match_body(played),
+            &m::end_match(),
+            Rc::new(move |_| room.borrow_mut().end_match()),
+        )
+        .named(END_MATCH_QUESTION),
+        true,
+    );
+}
+
+/// The layer of [`ask_end_match`]'s question.
+pub const END_MATCH_QUESTION: &str = "room-end-match";
 
 /// More's Copy watch-only link (an operator's, from a server that makes
 /// one).
@@ -1593,6 +1677,11 @@ pub const NEVER_IN: &str = "room-never-in";
 /// device (round P1b), or a room's page opened by someone never in it
 /// (feedback round AA): sign in, or go to the multiplayer home.
 pub fn tell_opened_elsewhere(env: &Env, room: &SharedRoom, cx: &mut Cx) {
+    // More's End the match now (round AA), asked over the screen.
+    if room.borrow().take_end_question() {
+        ask_end_match(env, room, cx);
+        return;
+    }
     let state = room.borrow().link_state();
     let home: super::dialog::ConfirmFn = Rc::new(|cx| {
         cx.broadcast(
@@ -2191,6 +2280,12 @@ pub fn more_picked(id: &str, room: &SharedRoom, cx: &mut Cx) -> MoreAction {
         // Asked once: it cannot be undone.
         MORE_REPLACE_INVITE => return MoreAction::ReplaceInvite,
         "signin" => room.borrow_mut().sign_in_again(),
+        MORE_MAKE_LAST | MORE_NOT_LAST | MORE_PICK_LAST => {
+            room.borrow_mut().toggle_last_song();
+        }
+        // Asked once more over the room's song select: its question comes
+        // by the room's own notice (`tell_opened_elsewhere`).
+        MORE_END_MATCH => room.borrow().ask_end_match(),
         MORE_USE_HERE => room.borrow_mut().use_this_device(),
         RETRY_LOAD => retry_load(room),
         MORE_RELOAD => cx.request(crate::UiRequest::Reload),
@@ -2412,7 +2507,16 @@ pub fn pick_panel_rows(r: &RoomClient) -> Vec<PanelRow> {
     let picked = picks.iter().filter(|p| p.title.is_some()).count();
     let mut rows = vec![PanelRow::Heading(
         m::picks_heading().into(),
-        m::picks_count(picked, picks.len()).into(),
+        // An open-ended match's picks have no count (revision 15).
+        m::picks_count(
+            picked,
+            if r.state().current.as_ref().is_some_and(|m| m.rules.open_ended) {
+                0
+            } else {
+                picks.len()
+            },
+        )
+        .into(),
     )];
     rows.extend(picks.into_iter().map(PanelRow::Pick));
     rows
@@ -2909,7 +3013,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         members,
         cpus: u16::try_from(crate::state::cpu_roster::roster_of(rules, r.humans()).len())
             .unwrap_or(u16::MAX),
-        stage_count: rules.stages,
+        stage_count: if rules.open_ended { 0 } else { rules.stages },
         ruleset: rules.ruleset_id().into(),
         difficulty: difficulty_id(rules.difficulty).into(),
         boos: rules.boos,
@@ -3060,6 +3164,7 @@ pub fn mark_text(mark: &StageMark) -> String {
     match p.finish {
         Finish::Survived => m::mark_survived(mark.number, p.place, mark.field, points),
         Finish::Eliminated => m::mark_out(mark.number, p.place, mark.field, points),
+        Finish::Failed => m::mark_failed(mark.number, p.place, mark.field, points),
         Finish::Forfeit => m::mark_forfeit(mark.number, p.place, mark.field),
     }
     .into()
@@ -3309,10 +3414,25 @@ pub(crate) fn rules_diff(
 ) -> Vec<&'static str> {
     let roster = |rules, humans| crate::state::cpu_roster::roster_of(rules, humans);
     [
-        ("stages", gates.stages && before.stages != after.stages),
+        (
+            "stages",
+            gates.stages
+                && (before.open_ended != after.open_ended
+                    || (!after.open_ended && before.stages != after.stages)),
+        ),
         ("difficulty", before.difficulty != after.difficulty),
         ("boos", before.boos != after.boos),
+        (
+            "mid_match",
+            gates.stages && before.mid_match_entry != after.mid_match_entry,
+        ),
         ("charts", gates.charts && before.charts != after.charts),
+        (
+            "easiest",
+            gates.charts
+                && after.charts == ddi_room::Charts::Adaptive
+                && before.easiest != after.easiest,
+        ),
         (
             "cpus",
             gates

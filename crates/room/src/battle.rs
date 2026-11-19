@@ -95,6 +95,12 @@ pub enum Run {
     },
     /// Their gauge emptied at judged song second `at`.
     Out { at: f64 },
+    /// Their gauge emptied on the easiest chart at judged song second
+    /// `at` under Charts: Adaptive's Play on (`MatchRules::plays_on_failed`,
+    /// room model revision 15): out for the battle from then, the song
+    /// played on to its end, `score` what they earned to it (as
+    /// [`Run::Live`]'s). Ranked after everyone still in, by the score.
+    Failed { at: f64, score: i64 },
     /// Left the stage while competing (a quit, an interruption).
     Forfeit,
 }
@@ -125,6 +131,8 @@ pub enum ReportedRun {
         steps: u8,
     },
     Out { at_ms: u64 },
+    /// As [`Run::Failed`] (revision 15).
+    Failed { at_ms: u64, score: i64 },
     Forfeit,
 }
 
@@ -141,6 +149,10 @@ impl ReportedRun {
             },
             Run::Out { at } => ReportedRun::Out {
                 at_ms: (at.max(0.0) * 1_000.0).round() as u64,
+            },
+            Run::Failed { at, score } => ReportedRun::Failed {
+                at_ms: (at.max(0.0) * 1_000.0).round() as u64,
+                score,
             },
             Run::Forfeit => ReportedRun::Forfeit,
         }
@@ -160,6 +172,10 @@ impl ReportedRun {
             ReportedRun::Out { at_ms } => Run::Out {
                 at: at_ms as f64 / 1_000.0,
             },
+            ReportedRun::Failed { at_ms, score } => Run::Failed {
+                at: at_ms as f64 / 1_000.0,
+                score,
+            },
             ReportedRun::Forfeit => Run::Forfeit,
         }
     }
@@ -167,7 +183,7 @@ impl ReportedRun {
     /// The song was played to its end: the song is over for everyone, the
     /// room waits only a short while more for the others' reports.
     pub fn finished_song(self) -> bool {
-        matches!(self, ReportedRun::Live { .. })
+        matches!(self, ReportedRun::Live { .. } | ReportedRun::Failed { .. })
     }
 }
 
@@ -267,7 +283,10 @@ pub struct Entrant {
 
 /// Whether the stage is decided before the song's end: at most one starter
 /// is still in. With one, they won and finish the song; with none, the
-/// last out share the top place.
+/// last out share the top place. A failed competitor (Charts: Adaptive's
+/// Play on, [`Run::Failed`]) is out for the decision: it is the battle's
+/// among those still in, unchanged by the rule; their own places wait
+/// for the song's end, where their scores are final.
 pub fn decided(entrants: &[Entrant]) -> bool {
     entrants
         .iter()
@@ -283,20 +302,25 @@ pub fn decided(entrants: &[Entrant]) -> bool {
 /// under DDI the sum, everyone's on the chart's own scale), or under
 /// [`RankBy::Score`] (a match's "Charts: Adaptive") by the score as
 /// earned, whatever charts it was earned on, life only breaking a tie (the
-/// steps a run made are never ranked by); equal ones tied. Then those
-/// out, later first (the same second: tied); then forfeits, tied.
+/// steps a run made are never ranked by); equal ones tied. Then the
+/// failed ([`Run::Failed`], Charts: Adaptive's Play on, room model
+/// revision 15) by their score, equal ones tied; then those out, later
+/// first (the same second: tied); then forfeits, tied.
 /// Participants are ordered by id within a group.
 pub fn rank(entrants: &[Entrant], by: crate::rules::RankBy) -> Vec<Vec<Finisher>> {
     let mut live: Vec<(f64, i64, ParticipantId)> = Vec::new();
     let mut out: Vec<(f64, ParticipantId)> = Vec::new();
+    let mut failed: Vec<(i64, ParticipantId)> = Vec::new();
     let mut forfeit: Vec<ParticipantId> = Vec::new();
     for e in entrants {
         match e.run {
             Run::Live { life, score, .. } => live.push((life, score, e.participant)),
             Run::Out { at } => out.push((at, e.participant)),
+            Run::Failed { score, .. } => failed.push((score, e.participant)),
             Run::Forfeit => forfeit.push(e.participant),
         }
     }
+    failed.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
     out.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
     forfeit.sort();
     let mut ranking: Vec<Vec<Finisher>> = Vec::new();
@@ -322,6 +346,15 @@ pub fn rank(entrants: &[Entrant], by: crate::rules::RankBy) -> Vec<Vec<Finisher>
             _ => ranking.push(vec![f]),
         }
         last = Some((life, score));
+    }
+    let mut last: Option<i64> = None;
+    for (score, id) in failed {
+        let f = finisher(id, Finish::Failed);
+        match ranking.last_mut() {
+            Some(group) if last == Some(score) => group.push(f),
+            _ => ranking.push(vec![f]),
+        }
+        last = Some(score);
     }
     let mut last: Option<f64> = None;
     for (at, id) in out {

@@ -203,7 +203,9 @@ pub struct RulesDialog {
 }
 
 /// The rows whose sentence under them brightens while they are focused.
-const BRIGHTENS: [&str; 4] = ["charts", "at_once", "shocks", "points"];
+const BRIGHTENS: [&str; 7] = [
+    "stages", "mid_match", "charts", "easiest", "at_once", "shocks", "points",
+];
 
 /// The value of `all` one step from `at` (`up` or down), held at the
 /// ends: a choice's stepper pressed.
@@ -223,7 +225,9 @@ fn ends(len: usize, at: usize) -> (bool, bool) {
 
 /// The rows a running match may change from a later stage on
 /// (`ddi_room::PlayRules`).
-const PER_STAGE: [&str; 6] = ["difficulty", "boos", "charts", "attacks", "at_once", "shocks"];
+const PER_STAGE: [&str; 7] = [
+    "difficulty", "boos", "charts", "easiest", "attacks", "at_once", "shocks",
+];
 
 impl RulesDialog {
     /// From its button: Cancel and Apply.
@@ -439,7 +443,10 @@ impl RulesDialog {
     /// readied, counted down or played, or the next after an intermission.
     fn stage_of(&self) -> (usize, u16) {
         let r = self.room.borrow();
-        let stages = r.locked_rules().map_or(1, |l| l.stages);
+        // 0: an open-ended match (no set count, the messages' `[0]`).
+        let stages = r
+            .locked_rules()
+            .map_or(1, |l| if l.open_ended { 0 } else { l.stages });
         let n = match r.state().phase {
             Phase::Preparing { stage, .. }
             | Phase::Countdown { stage, .. }
@@ -793,7 +800,7 @@ impl Screen for RulesDialog {
             };
             let rules = now.as_ref().or(locked.as_ref()).map_or_else(String::new, |l| {
                 m::rules_locked_line(
-                    l.stages,
+                    if l.open_ended { 0 } else { l.stages },
                     cpu_roster::roster_of(l, humans).len(),
                     super::room::match_rules_words(&self.room.borrow(), l),
                 )
@@ -882,6 +889,34 @@ impl Screen for RulesDialog {
             Vec::new()
         };
         let zero_h = ROW + zero_about.len() as f32 * 17.0;
+        // Feedback round AA: Stages' sentence where it is Open, Joining
+        // during a match's row and sentence, and under Adaptive On the
+        // easiest chart's row and sentence.
+        let wrap = |t: UiText| super::dialog::wrap_lines(&String::from(t), inner, 12.0);
+        let max_stages = self.room.borrow().state().policy.max_stages;
+        let stages_about = if draft.open_ended {
+            wrap(m::rules_stages_open_about(max_stages))
+        } else {
+            Vec::new()
+        };
+        let mid_about = wrap(m::rules_mid_match_about());
+        let easiest_shown = self.adaptive_offered() && play.charts == ddi_room::Charts::Adaptive;
+        let easiest_about = if easiest_shown {
+            wrap(match play.easiest {
+                ddi_room::AtEasiest::PlayOn => m::rules_easiest_about_play_on(),
+                ddi_room::AtEasiest::Out => m::rules_easiest_about_out(),
+            })
+        } else {
+            Vec::new()
+        };
+        let aa_h = stages_about.len() as f32 * 17.0
+            + ROW
+            + mid_about.len() as f32 * 17.0
+            + if easiest_shown {
+                ROW + easiest_about.len() as f32 * 17.0
+            } else {
+                0.0
+            };
         // Attacks at once, under Attacks while they are On: its row and
         // its sentence.
         let at_once_shown = self.at_once_shown();
@@ -909,6 +944,7 @@ impl Screen for RulesDialog {
             + next_h
             + dest_h
             + 3.0 * ROW
+            + aa_h
             + zero_h
             + cpu_h
             + at_once_h
@@ -966,7 +1002,7 @@ impl Screen for RulesDialog {
                 ry + 8.0,
             ));
             let line = m::rules_locked_line(
-                rules.stages,
+                if rules.open_ended { 0 } else { rules.stages },
                 cpu_roster::roster_of(rules, humans).len(),
                 super::room::match_rules_words(&self.room.borrow(), rules),
             );
@@ -1075,18 +1111,24 @@ impl Screen for RulesDialog {
             );
             ry += ROW + 6.0;
         }
-        let max_stages = self.room.borrow().state().policy.max_stages;
         mark(&mut c, "stages", ry + ROW / 2.0);
+        // Stages: Open, then a count (feedback round AA): Open is one step
+        // below one, the count kept while Open (the next step up).
         stepper(
             &mut c,
             "stages",
             &m::rules_stages(),
-            UiText::data(draft.stages.to_string()).into(),
-            (draft.stages > 1, draft.stages < max_stages),
+            if draft.open_ended {
+                m::rules_stages_open().into()
+            } else {
+                UiText::data(draft.stages.to_string()).into()
+            },
+            (!draft.open_ended, draft.open_ended || draft.stages < max_stages),
             true,
             ry + ROW / 2.0,
         );
         ry += ROW;
+        about_lines(&mut c, "stages", &stages_about, self.bright == Some("stages"), &mut ry);
         // DDI's options that are the match's, everyone's (D0): its
         // difficulty and Boos. (The ruleset has no row: it is DDI, which
         // the note under the rows says.)
@@ -1112,6 +1154,20 @@ impl Screen for RulesDialog {
             ry + ROW / 2.0,
         );
         ry += ROW;
+        // Joining during a match (round AA): the next match's, never a
+        // stage's own.
+        mark(&mut c, "mid_match", ry + ROW / 2.0);
+        stepper(
+            &mut c,
+            "mid_match",
+            &m::rules_mid_match(),
+            on_off(draft.mid_match_entry),
+            (draft.mid_match_entry, !draft.mid_match_entry),
+            false,
+            ry + ROW / 2.0,
+        );
+        ry += ROW;
+        about_lines(&mut c, "mid_match", &mid_about, self.bright == Some("mid_match"), &mut ry);
         // At zero life: out, or a step down the song's ladder, where the
         // room plays it; said Out where it cannot yet.
         if self.adaptive_offered() {
@@ -1128,6 +1184,32 @@ impl Screen for RulesDialog {
             ry += ROW;
             about_lines(&mut c, "charts", &zero_about, self.bright == Some("charts"), &mut ry);
             said_to("charts", ry);
+            // On the easiest chart (round AA), under Adaptive.
+            if easiest_shown {
+                mark(&mut c, "easiest", ry + ROW / 2.0);
+                stepper(
+                    &mut c,
+                    "easiest",
+                    &m::rules_easiest(),
+                    match play.easiest {
+                        ddi_room::AtEasiest::PlayOn => m::rules_easiest_play_on(),
+                        ddi_room::AtEasiest::Out => m::rules_easiest_out(),
+                    }
+                    .into(),
+                    ends(ddi_room::AtEasiest::ALL.len(), play.easiest.index()),
+                    false,
+                    ry + ROW / 2.0,
+                );
+                ry += ROW;
+                about_lines(
+                    &mut c,
+                    "easiest",
+                    &easiest_about,
+                    self.bright == Some("easiest"),
+                    &mut ry,
+                );
+                said_to("easiest", ry);
+            }
         } else {
             fixed_row(&mut c, "Rule.charts", &m::rules_charts(), &m::rules_charts_online(), ry);
             ry += ROW;
@@ -1364,13 +1446,18 @@ impl Screen for RulesDialog {
             if self.stage_offered() {
                 rows.push(pair("dest"));
             }
-            for id in ["stages", "difficulty", "boos"] {
+            for id in ["stages", "difficulty", "boos", "mid_match"] {
                 if self.row_editable(id) {
                     rows.push(pair(id));
                 }
             }
             if self.adaptive_offered() {
                 rows.push(pair("charts"));
+                if self.edited().borrow().charts == ddi_room::Charts::Adaptive
+                    && self.row_editable("easiest")
+                {
+                    rows.push(pair("easiest"));
+                }
             }
             if self.cpus_shown() && self.row_editable("cpus") {
                 for k in 0..self.roster().len() {
@@ -1465,6 +1552,11 @@ impl Screen for RulesDialog {
             .and_then(|id| BRIGHTENS.into_iter().find(|b| *b == id))
             .filter(|id| match *id {
                 "charts" => self.adaptive_offered(),
+                "easiest" => {
+                    self.adaptive_offered()
+                        && self.edited().borrow().charts == ddi_room::Charts::Adaptive
+                }
+                "stages" => self.draft.borrow().open_ended,
                 "at_once" | "shocks" => self.at_once_shown(),
                 _ => true,
             });
@@ -1531,14 +1623,42 @@ impl Screen for RulesDialog {
                         rebuild(self, root, cx, name);
                     }
                     "Dec.stages" | "Inc.stages" if self.row_editable("stages") => {
+                        // Open, 1, 2, … the room's most: Open one step below
+                        // one, the count kept while Open (round AA).
                         let mut d = self.draft.borrow_mut();
-                        d.stages = if name == "Inc.stages" {
-                            d.stages.saturating_add(1)
+                        let up = name == "Inc.stages";
+                        if d.open_ended {
+                            if up {
+                                d.open_ended = false;
+                            }
+                        } else if !up && d.stages <= 1 {
+                            d.open_ended = true;
                         } else {
-                            d.stages.saturating_sub(1)
+                            d.stages = if up {
+                                d.stages.saturating_add(1)
+                            } else {
+                                d.stages.saturating_sub(1)
+                            }
+                            .clamp(1, max_stages);
                         }
-                        .clamp(1, max_stages);
                         drop(d);
+                        self.bright = Some("stages");
+                        rebuild(self, root, cx, name);
+                    }
+                    "Dec.mid_match" | "Inc.mid_match" if self.row_editable("mid_match") => {
+                        self.draft.borrow_mut().mid_match_entry = name == "Inc.mid_match";
+                        self.bright = Some("mid_match");
+                        rebuild(self, root, cx, name);
+                    }
+                    "Dec.easiest" | "Inc.easiest"
+                        if self.editable() && self.adaptive_offered() =>
+                    {
+                        let edited = self.edited();
+                        let mut d = edited.borrow_mut();
+                        let up = name == "Inc.easiest";
+                        d.easiest = step(&ddi_room::AtEasiest::ALL, d.easiest.index(), up);
+                        drop(d);
+                        self.bright = Some("easiest");
                         rebuild(self, root, cx, name);
                     }
                     "Dec.difficulty" | "Inc.difficulty" if self.editable() => {

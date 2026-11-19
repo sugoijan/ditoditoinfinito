@@ -50,6 +50,14 @@ pub enum MomentKind {
     /// refusal's kind with its flag, so that a reader that predates it
     /// reads the refusal of an attack no stage has and does nothing.
     Step { rung: u8 },
+    /// Their life ran out on the easiest chart under Charts: Adaptive's
+    /// Play on (room model revision 15, `MatchRules::plays_on_failed`):
+    /// failed, out for the battle from this moment, their play going on
+    /// to the song's end (their moments, their score, the stream's end
+    /// `Finished`). A kind of its own on the wire (`crate::live::wire`'s
+    /// 7), which a reader before revision 15 refuses (the revisions never
+    /// meet: each side checks the other's).
+    Failed,
 }
 
 /// One judged moment of a competitor's play.

@@ -53,6 +53,7 @@ fn scenarios() -> Vec<(StageRules, Vec<CpuSeat>)> {
         boos: false,
         points: PointsBias::Strong,
         charts,
+        easiest: ddi_room::AtEasiest::Out,
         at_once: Default::default(),
         shocks,
         changed: false,
@@ -62,6 +63,12 @@ fn scenarios() -> Vec<(StageRules, Vec<CpuSeat>)> {
     // rule: attacks of eight.
     let rules = |difficulty, charts| rules_of(difficulty, charts, ddi_room::ShocksPerAttack::Eight);
     let four = |difficulty, charts| rules_of(difficulty, charts, ddi_room::ShocksPerAttack::Four);
+    // Feedback round AA (revision 15): Adaptive with Play on at the
+    // easiest chart, a new room's: a CPU failed there plays on.
+    let play_on = |difficulty| StageRules {
+        easiest: ddi_room::AtEasiest::PlayOn,
+        ..rules(difficulty, Charts::Adaptive)
+    };
     vec![
         (
             rules(MatchDifficulty::Hard, Charts::AsPicked),
@@ -98,6 +105,17 @@ fn scenarios() -> Vec<(StageRules, Vec<CpuSeat>)> {
                 seat(7, 10, Some("technical"), Targeting::Spread),
             ],
         ),
+        // Play on (revision 15): the weakest fail on the easiest chart
+        // and play on to its end, scoring; out for the battle.
+        (
+            play_on(MatchDifficulty::Hard),
+            vec![
+                seat(8, 0, Some("reckless"), Targeting::Spread),
+                seat(9, 10, Some("technical"), Targeting::Spread),
+                seat(10, 9, None, Targeting::Spread),
+                seat(11, 10, None, Targeting::Spread),
+            ],
+        ),
     ]
 }
 
@@ -132,7 +150,11 @@ fn play(song: &ddi_chart::Song, chart: usize, rules: &StageRules, cpus: &[CpuSea
     let mut drives: Vec<Drive> = cpus
         .iter()
         .zip(&mut opps)
-        .map(|(c, opp)| Drive::new(o, c.participant, Some(plan.checkpoints_us.clone()), opp))
+        .map(|(c, opp)| {
+            let mut d = Drive::new(o, c.participant, Some(plan.checkpoints_us.clone()), opp);
+            d.set_fails_on(rules.plays_on_failed());
+            d
+        })
         .collect();
     let mut ledger = StageBattle::new(
         plan.rules().expect("known rules"),
@@ -212,6 +234,12 @@ fn play(song: &ddi_chart::Song, chart: usize, rules: &StageRules, cpus: &[CpuSea
             let (_, i, r, e) = up.remove(0);
             if let Some(r) = r {
                 reported[i] = Some(reported[i].map_or(r.k, |k| k.max(r.k)));
+                // A report saying out is its last (the ledger takes it as
+                // out from then): a CPU failed and playing on (revision
+                // 15) has no Out end to say it.
+                if r.out_at_us.is_some() {
+                    ended[i] = true;
+                }
                 taken[i].insert(r.k, r);
             }
             // Out: no more reports to wait for (finished, it reports on
@@ -274,6 +302,16 @@ fn play(song: &ddi_chart::Song, chart: usize, rules: &StageRules, cpus: &[CpuSea
     for (i, (d, opp)) in drives.iter().zip(&opps).enumerate() {
         let p = opp.player();
         let v = p.ruleset().score.view();
+        // Failed and played on (revision 15): when, a line of its own
+        // (none in the scenarios before it, whose lines stay as they were).
+        if d.fails_on() {
+            lines.push(format!(
+                "cpu {} failed {:?} finished {}",
+                cpus[i].participant.0,
+                opp.out_at(),
+                opp.finished()
+            ));
+        }
         lines.push(format!(
             "cpu {} end {:?} applied {:?} late {} combo {} life {} score {:?} steps {} tally {:?}",
             cpus[i].participant.0,

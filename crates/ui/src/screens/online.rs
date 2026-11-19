@@ -216,6 +216,7 @@ pub fn admission_text(a: Admission) -> UiText {
     match a {
         Admission::Open => m::invite_open(),
         Admission::NextMatch => m::invite_next_match(),
+        Admission::NextStage => m::invite_next_song(),
         Admission::Closed => m::invite_closed(),
         Admission::Full => m::invite_full(),
     }
@@ -229,10 +230,14 @@ pub fn preview_text(p: &Preview) -> UiText {
     }
     match p.admission {
         Admission::Full if p.audience => m::invite_full_audience(),
-        Admission::Open | Admission::NextMatch if p.kind == api::InviteKind::Watch => {
+        Admission::Open | Admission::NextMatch | Admission::NextStage
+            if p.kind == api::InviteKind::Watch =>
+        {
             m::invite_watch()
         }
-        Admission::Open | Admission::NextMatch if p.players_full => m::invite_full_watch(),
+        Admission::Open | Admission::NextMatch | Admission::NextStage if p.players_full => {
+            m::invite_full_watch()
+        }
         a => admission_text(a),
     }
 }
@@ -283,7 +288,10 @@ fn invite_doc(online: &Online) -> PageDoc {
                 blocks.push(Block::Muted(m::audience_watching(n).into()));
             }
             blocks.push(Block::Text(preview_text(p).into()));
-            joinable = matches!(p.admission, Admission::Open | Admission::NextMatch)
+            joinable = matches!(
+                p.admission,
+                Admission::Open | Admission::NextMatch | Admission::NextStage
+            )
                 && !audience_link;
             watch = p.kind == api::InviteKind::Watch;
         }

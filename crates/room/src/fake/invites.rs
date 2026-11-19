@@ -104,6 +104,9 @@ impl FakeServer {
             "closed"
         } else if self.present_humans() >= usize::from(s.policy.max_members) {
             "full"
+        } else if s.admits_next_stage() {
+            // Revision 15: a running match that seats newcomers.
+            "next_stage"
         } else if s.phase.kind().match_running() {
             "next_match"
         } else {

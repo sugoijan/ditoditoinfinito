@@ -110,6 +110,16 @@ pub struct PublicRules {
     /// before the rule, is eight, as `MatchRules::shocks`).
     #[serde(default = "crate::rules::ShocksPerAttack::before_the_rule")]
     pub shocks: crate::rules::ShocksPerAttack,
+    /// Stages: Open (room model revision 15; additive, left out while
+    /// counted): `stages` is then no count.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub open_ended: bool,
+    /// On the easiest chart (revision 15; additive, left out while Out).
+    #[serde(default, skip_serializing_if = "crate::rules::AtEasiest::is_out")]
+    pub easiest: crate::rules::AtEasiest,
+    /// Joining during a match (revision 15; additive, left out while Off).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mid_match_entry: bool,
 }
 
 impl PublicRules {
@@ -125,6 +135,9 @@ impl PublicRules {
             charts: r.charts,
             at_once: r.at_once,
             shocks: r.shocks,
+            open_ended: r.open_ended,
+            easiest: r.easiest,
+            mid_match_entry: r.mid_match_entry,
         }
     }
 }
@@ -208,6 +221,10 @@ pub struct PublicStage {
     /// on, `Match::changes`). Additive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rules: Option<PublicRules>,
+    /// An open-ended match's last song (room model revision 15,
+    /// `Stage::last`; additive, left out while false).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub last: bool,
 }
 
 /// A committed stage as the audience sees it.
@@ -248,6 +265,7 @@ fn public_stage(m: Option<&crate::state::Match>, s: &Stage) -> PublicStage {
         rules: m
             .filter(|m| m.stage_rules_changed(s.id))
             .map(|m| PublicRules::of(&m.rules_for(s.id))),
+        last: s.last,
         play: s.play.as_ref().map(|p| PublicPlay {
             lineup: p.lineup.iter().copied().collect(),
             start_at: p.start_at,

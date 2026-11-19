@@ -142,6 +142,26 @@ pub enum Command {
     /// Close the finished or interrupted match and open the next match's
     /// admission in the lobby.
     OpenNextMatch,
+    /// Make stage `stage` of an open-ended match its last song, or not
+    /// (`last`) (room model revision 15, `MatchRules::open_ended`): the
+    /// one who chooses the songs at their pick ("Pick as the last song",
+    /// the pick then this, as two commands), or an operator
+    /// (`Capability::Advance`) for a stage picked and not started. Taken
+    /// until the stage's start is committed ([`Rejection::StageStarted`]
+    /// after); refused in a counted match ([`Rejection::NotOpenEnded`]).
+    SetLastStage {
+        stage: StageId,
+        last: bool,
+    },
+    /// End a running open-ended match now, between stages, with the
+    /// stages played (room model revision 15): an operator's
+    /// (`Capability::Advance`). Its stage not begun is dropped and the
+    /// match's results come as when its last song settles: totals, the
+    /// winner. Refused during a stage's countdown or play
+    /// ([`Rejection::StageStarted`]), before any stage settled
+    /// ([`Rejection::NothingPlayed`]) and in a counted match
+    /// ([`Rejection::NotOpenEnded`]).
+    EndMatch,
 
     // The owner alone.
     SetCoHost {
@@ -415,6 +435,22 @@ pub enum Event {
         stage: StageId,
         participants: Vec<ParticipantId>,
     },
+    /// An open-ended match's next stage, made as the one before settled
+    /// (room model revision 15).
+    StageAdded {
+        stage: StageId,
+    },
+    /// An open-ended match's stage made its last song, or not
+    /// ([`Command::SetLastStage`]).
+    LastStageChanged {
+        stage: StageId,
+        last: bool,
+    },
+    /// An open-ended match's stages not begun dropped: it ends between
+    /// stages ([`Command::EndMatch`]), or its last song settled with a
+    /// stage made ahead after it (a start canceled, then the stage made
+    /// its last). Its results follow (`PhaseChanged` to `MatchResults`).
+    StagesDropped,
     PhaseChanged {
         phase: Phase,
     },
@@ -570,6 +606,11 @@ pub enum Rejection {
     /// Round P1b: a Ready to enter a stage late before its song was
     /// reported loaded.
     NotLoaded,
+    /// A last song or an early end asked of a counted match (room model
+    /// revision 15: only an open-ended match has them).
+    NotOpenEnded,
+    /// An early end before any stage of the match settled (revision 15).
+    NothingPlayed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

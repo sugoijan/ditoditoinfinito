@@ -38,6 +38,7 @@ impl RoomState {
         let mut out = Vec::new();
         work.decide(actor, base, command, now, &mut out)?;
         work.settle_host(&mut out);
+        work.seat_newcomers(&mut out);
         work.maybe_commit(now, &mut out);
         if !out.is_empty() {
             work.revision = work.revision.next();
@@ -555,6 +556,14 @@ impl RoomState {
             Command::OpenNextMatch => {
                 self.require(actor, Capability::Advance)?;
                 self.open_next_match(out)
+            }
+            Command::SetLastStage { stage, last } => {
+                self.require(actor, Capability::Advance)?;
+                self.set_last_stage(*stage, *last, out)
+            }
+            Command::EndMatch => {
+                self.require(actor, Capability::Advance)?;
+                self.end_match_now(out)
             }
             Command::Pick { content, card } => {
                 // The picker's; starting (or going on with) the match is
@@ -1270,7 +1279,9 @@ impl RoomState {
                 Member::cpu(id, ordinal, rules.cpu_for_seat(ordinal))
             })
             .collect();
-        let playlist = (0..rules.stages).map(|_| self.fresh_stage()).collect();
+        let playlist = (0..rules.planned_stages())
+            .map(|_| self.fresh_stage())
+            .collect();
         let id = crate::ids::MatchId(self.counters.matches);
         let first = self.playlist[0].id;
         self.emit(
@@ -1299,32 +1310,10 @@ impl RoomState {
     }
 
     /// Enter `stage`'s preparation, admitting late entrants where the rules
-    /// allow (into vacant seats only, never a CPU's).
+    /// allow (up to the competitor cap, never in a CPU's place:
+    /// `RoomState::late_entrants`).
     fn prepare(&mut self, stage: StageId, out: &mut Vec<Event>) {
-        if let Some(m) = &self.current
-            && m.rules.mid_match_entry
-        {
-            let vacant = usize::from(m.rules.seats).saturating_sub(m.roster.len());
-            let waiting: Vec<ParticipantId> = self
-                .members
-                .values()
-                .filter(|p| {
-                    p.wants_to_play()
-                        && !m.roster.contains_key(&p.id)
-                })
-                .map(|p| p.id)
-                .take(vacant)
-                .collect();
-            if !waiting.is_empty() {
-                self.emit(
-                    out,
-                    Event::LateEntrantsAdmitted {
-                        stage,
-                        participants: waiting,
-                    },
-                );
-            }
-        }
+        self.admit(stage, out);
         self.emit(
             out,
             Event::PhaseChanged {
@@ -1334,6 +1323,91 @@ impl RoomState {
                 },
             },
         );
+    }
+
+    /// Seat in `stage` whoever is waiting to join the running match
+    /// ([`RoomState::late_entrants`]), if anyone.
+    fn admit(&mut self, stage: StageId, out: &mut Vec<Event>) {
+        let waiting = self.late_entrants();
+        if !waiting.is_empty() {
+            self.emit(
+                out,
+                Event::LateEntrantsAdmitted {
+                    stage,
+                    participants: waiting,
+                },
+            );
+        }
+    }
+
+    /// Joining during a match (room model revision 15,
+    /// `MatchRules::mid_match_entry`), after every accepted command:
+    /// someone who wants to play and has no seat (just joined, or a
+    /// watcher who chose Play) is seated at once in the stage being
+    /// prepared whose play has not started (its song to load like
+    /// anyone's, the readiness window's grace and deadline as they
+    /// stand); during a stage's countdown or play they wait for the next
+    /// pick (`prepare`). Never while the room is closed.
+    fn seat_newcomers(&mut self, out: &mut Vec<Event>) {
+        if self.closed.is_some() {
+            return;
+        }
+        let Phase::Preparing { stage, .. } = self.phase else {
+            return;
+        };
+        let unstarted = self
+            .current
+            .as_ref()
+            .and_then(|m| m.stage(stage))
+            .is_some_and(|s| s.play.is_none());
+        if unstarted && self.running_match().is_some() {
+            self.admit(stage, out);
+        }
+    }
+
+    /// [`Command::SetLastStage`].
+    fn set_last_stage(&mut self, stage: StageId, last: bool, out: &mut Vec<Event>) -> Decided {
+        let m = self.running_match().ok_or_else(|| self.wrong_phase())?;
+        if !m.rules.open_ended {
+            return Err(Rejection::NotOpenEnded);
+        }
+        let s = m.stage(stage).ok_or(Rejection::UnknownStage)?;
+        if s.play.is_some() {
+            return Err(Rejection::StageStarted);
+        }
+        if s.last != last {
+            self.emit(out, Event::LastStageChanged { stage, last });
+        }
+        Ok(())
+    }
+
+    /// [`Command::EndMatch`]: between stages, with a stage settled.
+    fn end_match_now(&mut self, out: &mut Vec<Event>) -> Decided {
+        let m = self.running_match().ok_or_else(|| self.wrong_phase())?;
+        if !m.rules.open_ended {
+            return Err(Rejection::NotOpenEnded);
+        }
+        match self.phase {
+            Phase::Intermission { .. } => {}
+            Phase::Preparing { stage, .. } if m.stage(stage).is_some_and(|s| s.play.is_none()) => {}
+            Phase::Countdown { .. } => return Err(Rejection::StartCommitted),
+            _ => return Err(Rejection::StageStarted),
+        }
+        let settled = m
+            .stages
+            .iter()
+            .any(|s| s.play.as_ref().is_some_and(|p| p.result.is_some()));
+        if !settled {
+            return Err(Rejection::NothingPlayed);
+        }
+        self.emit(out, Event::StagesDropped);
+        self.emit(
+            out,
+            Event::PhaseChanged {
+                phase: Phase::MatchResults,
+            },
+        );
+        Ok(())
     }
 
     fn content_ready(&self, stage: &Stage) -> Decided {
@@ -1425,6 +1499,25 @@ impl RoomState {
                 phase: Phase::Countdown { stage, start_at },
             },
         );
+        self.open_next_stage(stage, out);
+    }
+
+    /// An open-ended match (`MatchRules::open_ended`) whose stage `stage`
+    /// started and is not its last (`Match::is_last`: its last song is
+    /// final once it starts) gets its next stage now, so that a change of
+    /// the per-stage rules made during the play lands on it as in a
+    /// counted match. Nothing where it has one.
+    fn open_next_stage(&mut self, stage: StageId, out: &mut Vec<Event>) {
+        let max = self.policy.max_stages;
+        let due = self.current.as_ref().is_some_and(|m| {
+            m.rules.open_ended
+                && !m.is_last(stage, max)
+                && m.stage_index(stage).is_some_and(|i| i + 1 == m.stages.len())
+        });
+        if due {
+            let added = self.fresh_stage();
+            self.emit(out, Event::StageAdded { stage: added });
+        }
     }
 
     fn cancel_start(&mut self, stage: StageId, reason: CancelReason, out: &mut Vec<Event>) {
@@ -1688,11 +1781,33 @@ impl RoomState {
                 );
             }
         }
-        let next = self
+        let mut next = self
             .current
             .as_ref()
             .and_then(|m| m.stage_index(stage).and_then(|i| m.stages.get(i + 1)))
             .map(|s| s.id);
+        // An open-ended match's next stage was made when this one
+        // started (`open_next_stage`); one that has none (this stage its
+        // last) ends here.
+        if next.is_none() {
+            self.open_next_stage(stage, out);
+            next = self
+                .current
+                .as_ref()
+                .and_then(|m| m.stage_index(stage).and_then(|i| m.stages.get(i + 1)))
+                .map(|s| s.id);
+        }
+        // An open-ended match's last song ends it whatever was made ahead.
+        let max = self.policy.max_stages;
+        if next.is_some()
+            && self
+                .current
+                .as_ref()
+                .is_some_and(|m| m.rules.open_ended && m.is_last(stage, max))
+        {
+            self.emit(out, Event::StagesDropped);
+            next = None;
+        }
         let phase = match next {
             Some(next) => Phase::Intermission { next },
             None => Phase::MatchResults,
@@ -1715,7 +1830,7 @@ impl RoomState {
             .map_err(Rejection::InvalidRules)?;
         self.check_cpus_here(rules).map_err(Rejection::InvalidRules)?;
         let have = self.playlist.len();
-        let added = (have..usize::from(rules.stages))
+        let added = (have..usize::from(rules.planned_stages()))
             .map(|_| self.fresh_stage())
             .collect();
         if self.current.is_none() {
@@ -1971,7 +2086,7 @@ impl RoomState {
             Event::NextRulesSaved { rules, added } => {
                 self.next.rules = rules.clone();
                 self.next.saved_at = pending;
-                self.playlist.truncate(usize::from(rules.stages));
+                self.playlist.truncate(usize::from(rules.planned_stages()));
                 for id in added {
                     self.counters.stage = self.counters.stage.max(id.0 + 1);
                     self.playlist.push(Stage::new(*id));
@@ -2049,6 +2164,26 @@ impl RoomState {
                             },
                         );
                     }
+                }
+            }
+            Event::StageAdded { stage } => {
+                self.counters.stage = self.counters.stage.max(stage.0 + 1);
+                if let Some(m) = &mut self.current {
+                    m.stages.push(Stage::new(*stage));
+                }
+            }
+            Event::LastStageChanged { stage, last } => {
+                if let Some(s) = self
+                    .current
+                    .as_mut()
+                    .and_then(|m| m.stages.iter_mut().find(|s| s.id == *stage))
+                {
+                    s.last = *last;
+                }
+            }
+            Event::StagesDropped => {
+                if let Some(m) = &mut self.current {
+                    m.stages.retain(|s| s.play.is_some());
                 }
             }
             Event::PhaseChanged { phase } => self.phase = phase.clone(),

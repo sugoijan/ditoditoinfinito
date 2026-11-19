@@ -829,6 +829,7 @@ fn the_rules_summary_says_no_attacks_only_where_they_are_turned_off() {
     // The usual rules: Adaptive charts, a new room's.
     let rules = crate::state::room::StageRules {
         charts: ddi_room::Charts::Adaptive,
+        easiest: ddi_room::AtEasiest::Out,
         ..Default::default()
     };
     let words = |r: &crate::state::room::StageRules, attacks| String::from(rules_words(r, attacks));
@@ -4017,6 +4018,9 @@ fn an_online_room_asks_its_host_always_and_the_others_during_a_match() {
         let m = s.current.as_mut().unwrap();
         m.roster.remove(&ParticipantId(2));
         m.roster.remove(&ParticipantId(3));
+        // Nobody seated during this match (revision 15's joining during
+        // a match would seat them again for its stage not begun).
+        m.rules.mid_match_entry = false;
     });
     t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
     assert_eq!(cost(&eb), None, "a member not in the match");
@@ -5649,11 +5653,14 @@ fn the_rooms_screens_draw_as_pinned() {
     assert_eq!(got, PINNED);
 }
 
+/// Round AA (revision 15) moved "rules" (its new rows: Joining during a
+/// match; under Adaptive, On the easiest chart) and the two pop-ups drawn
+/// over it, "add" and "add-level".
 const PINNED: [(&str, u64); 10] = [
     ("select", 16001433830104325910),
-    ("rules", 14777734907332526783),
-    ("add", 3011979641582632795),
-    ("add-level", 14452308440810743387),
+    ("rules", 5322785676097785853),
+    ("add", 10960918902752896039),
+    ("add-level", 9652554814654506447),
     ("players", 8610800191167024236),
     ("standings", 16950822547352780372),
     ("online-select", 15460780746050739119),
@@ -5949,6 +5956,7 @@ fn a_stage_prompt_says_whom_it_is_against_and_what_zero_life_does() {
     use super::prompt::{PromptInfo, StageLine};
     let adaptive = crate::state::room::StageRules {
         charts: ddi_room::Charts::Adaptive,
+        easiest: ddi_room::AtEasiest::Out,
         ..Default::default()
     };
     let as_picked = crate::state::room::StageRules::default();
@@ -6572,6 +6580,9 @@ fn sitting_out_says_what_comes_next() {
         let mut rules = room.borrow().rules().clone();
         rules.stages = stages;
         rules.return_each_stage = back;
+        // Persistent elimination never combines with joining during a
+        // match (revision 15's default On).
+        rules.mid_match_entry = back;
         room.borrow_mut().save_rules(rules).unwrap();
         let s = &library("dance-single").songs[0];
         room.borrow_mut().pick(s, &s.charts[0]).unwrap();

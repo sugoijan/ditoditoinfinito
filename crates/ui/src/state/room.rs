@@ -228,7 +228,8 @@ pub struct LoadJob {
     pub cpus: bool,
     /// An online room that plays live: what its preparation works out
     /// besides ([`prepare_stage`]: the reading horizon, the battle plan).
-    pub live: Option<LiveAsk>,
+    /// Boxed: the job travels in the screens' calls to the shell.
+    pub live: Option<Box<LiveAsk>>,
 }
 
 impl LoadJob {
@@ -249,7 +250,7 @@ impl LoadJob {
             digest,
             share: None,
             cpus,
-            live,
+            live: live.map(Box::new),
         }
     }
 
@@ -270,7 +271,7 @@ impl LoadJob {
             digest: chart.as_str().parse().ok(),
             share: Some(share),
             cpus: false,
-            live,
+            live: live.map(Box::new),
         }
     }
 }
@@ -633,7 +634,7 @@ impl StageSetup {
         use ddi_library::announcer::Battle as Event;
         if self.number <= 1 {
             Event::MatchBegin
-        } else if self.number >= self.of {
+        } else if self.of != 0 && self.number >= self.of {
             Event::FinalStage
         } else {
             Event::StageBegin
@@ -747,6 +748,11 @@ pub struct StageRules {
     /// The charts it is played on: the picked one, or Adaptive, down and
     /// up the song's ladder (`ddi_engine::ladder`, `adaptive-v0`).
     pub charts: ddi_room::Charts,
+    /// Under Adaptive, what zero life on the easiest chart does
+    /// (`ddi_room::MatchRules::easiest`, room model revision 15): Play on
+    /// (failed, the song played to its end, ranked after every survivor
+    /// by score) or Out.
+    pub easiest: ddi_room::AtEasiest,
     /// Attacks at once: the most attacks that may stand placed against one
     /// competitor (`attacks-v3`; read only where the stage has attacks).
     pub at_once: ddi_room::AttacksAtOnce,
@@ -774,6 +780,7 @@ struct PlayKey {
     boos: bool,
     attacks: bool,
     charts: ddi_room::Charts,
+    easiest: ddi_room::AtEasiest,
     at_once: ddi_room::AttacksAtOnce,
     shocks: ddi_room::ShocksPerAttack,
 }
@@ -785,6 +792,7 @@ impl PlayKey {
             boos: r.boos,
             attacks: r.attacks(),
             charts: r.charts,
+            easiest: r.easiest,
             at_once: r.at_once,
             shocks: r.shocks,
         }
@@ -796,6 +804,7 @@ impl PlayKey {
             boos: r.boos,
             attacks: r.attacks,
             charts: r.charts,
+            easiest: r.easiest,
             at_once: r.at_once,
             shocks: r.shocks,
         }
@@ -819,6 +828,7 @@ impl StageRules {
             boos: rules.boos,
             points: rules.points,
             charts: rules.charts,
+            easiest: rules.easiest,
             at_once: rules.at_once,
             shocks: rules.shocks,
             changed: false,
@@ -848,6 +858,7 @@ impl StageRules {
             boos: r.boos,
             points: r.points,
             charts: r.charts,
+            easiest: r.easiest,
             at_once: r.at_once,
             shocks: r.shocks,
             changed,
@@ -860,17 +871,25 @@ impl StageRules {
     /// life, so a device that plays it under other rules (one that
     /// predates the change) disagrees on the plan's digest and sits it
     /// out. `None` for a stage under the match's own rules, whose plan is
-    /// what it was.
+    /// what it was. Play on at the easiest chart (revision 15) adds its
+    /// word, only where it applies, so a tag of before is unchanged.
     pub fn changed_tag(&self) -> Option<String> {
         self.play_changed.then(|| {
+            let play_on = if self.plays_on_failed() { "/play-on" } else { "" };
             format!(
-                "{:?}/{}/{}",
+                "{:?}/{}/{}{play_on}",
                 self.difficulty,
                 if self.boos { "boos" } else { "no-boos" },
                 self.charts.id()
             )
             .to_lowercase()
         })
+    }
+
+    /// Life out on the easiest chart is played on as failed (Charts:
+    /// Adaptive with On the easiest chart: Play on, revision 15).
+    pub fn plays_on_failed(&self) -> bool {
+        self.adaptive() && self.easiest == ddi_room::AtEasiest::PlayOn
     }
 
     /// The attack rules a stage under these rules is played with: the
@@ -910,9 +929,17 @@ impl StageRules {
 
     /// The engine's ruleset a stage under these rules is played with:
     /// DDI with the match's options, an empty life out of the stage.
+    /// Under Play on at the easiest chart (revision 15) the fail plays on
+    /// (`FailPolicy::ImmediateContinue`: failed, judged and scored to the
+    /// song's end, the gauge taking nothing more): zero life with a rung
+    /// below still steps down, so only the easiest chart's is a fail.
     pub fn build(&self) -> ddi_engine::Ruleset {
         let mut rules = ddi_engine::rules::presets::ddi().with_ddi(&self.ddi_options());
-        rules.fail = ddi_engine::FailPolicy::Immediate;
+        rules.fail = if self.plays_on_failed() {
+            ddi_engine::FailPolicy::ImmediateContinue
+        } else {
+            ddi_engine::FailPolicy::Immediate
+        };
         rules
     }
 }
@@ -921,6 +948,16 @@ impl Default for StageRules {
     fn default() -> StageRules {
         StageRules::of(&MatchRules::hosted())
     }
+}
+
+/// What More offers of an open-ended match's last song
+/// ([`RoomClient::last_song_choice`], room model revision 15).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LastSongChoice {
+    /// The stage picked and not started: whether it is the last song.
+    Picked { stage: StageId, last: bool },
+    /// Before a pick: whether the next pick will be the last song.
+    NextPick { last: bool },
 }
 
 /// How the match ended for the local player, once the room has its
@@ -972,6 +1009,9 @@ pub struct StageTable {
     /// The stage's number, from 1, and the match's stages.
     pub number: u16,
     pub of: u16,
+    /// The match is open-ended (revision 15): its title says the stage's
+    /// number alone ([`StageTable::of_shown`]).
+    pub open_ended: bool,
     /// The room confirmed the outcome: the places, awards and order are
     /// final. Before, the rows are as seated and fill in as reports come.
     pub confirmed: bool,
@@ -993,6 +1033,14 @@ pub struct StageTable {
     pub result: Option<Vec<(ParticipantId, u16, Points)>>,
 }
 
+impl StageTable {
+    /// The match's count as the title says it: none (0) for an
+    /// open-ended match (the messages' `[0]`).
+    pub fn of_shown(&self) -> u16 {
+        if self.open_ended { 0 } else { self.of }
+    }
+}
+
 /// What a stage's standings are built from ([`TableSource::table`]): a
 /// member's room state ([`RoomClient::stage_table`]) or the room's public
 /// view (an audience seat's,
@@ -1003,6 +1051,9 @@ pub(crate) struct TableSource<'a> {
     /// The stage's place in its match, from 0, and the match's stages.
     pub index: usize,
     pub of: usize,
+    /// The match is open-ended (room model revision 15): its count is no
+    /// count, said as none ([`StageTable::open_ended`]).
+    pub open_ended: bool,
     /// The match's roster.
     pub roster: Vec<ParticipantId>,
     /// The match's stages' results up to this stage, it included, in
@@ -1095,6 +1146,7 @@ impl TableSource<'_> {
             stage: self.stage,
             number: u16::try_from(index + 1).unwrap_or(u16::MAX),
             of: u16::try_from(self.of).unwrap_or(u16::MAX),
+            open_ended: self.open_ended,
             confirmed,
             rules: self.rules,
             attacks: self.attacks,
@@ -1324,6 +1376,12 @@ pub struct RoomClient {
     /// The link's end whose notice was shown last
     /// (`take_opened_elsewhere`): once each time it happens.
     elsewhere_told: std::cell::Cell<Option<LinkState>>,
+    /// More's End the match now was chosen: its question is still to be
+    /// asked over the screen (`take_opened_elsewhere`, round AA).
+    asking_end: std::cell::Cell<bool>,
+    /// The picker chose to make their next pick the open-ended match's
+    /// last song (More, round AA): sent with the pick.
+    pick_last: bool,
     /// The never-in end (`LinkState::SignInToEnter`, `NotAMember`) last
     /// asked about, its notice told from the next ask
     /// (`take_opened_elsewhere`).
@@ -1928,6 +1986,8 @@ impl RoomClient {
             summaries: BTreeMap::new(),
             asking: Rc::default(),
             elsewhere_told: std::cell::Cell::new(None),
+            asking_end: std::cell::Cell::new(false),
+            pick_last: false,
             never_in_seen: std::cell::Cell::new(None),
             load_tries: BTreeMap::new(),
             retrying: Vec::new(),
@@ -2433,6 +2493,10 @@ impl RoomClient {
     /// by the screen that shows it (`screens::room::tell_opened_elsewhere`
     /// says which).
     pub fn take_opened_elsewhere(&self) -> bool {
+        // A question the room asks over the screen (End the match now).
+        if self.asking_end.get() {
+            return true;
+        }
         let state = self.link_state();
         let never_in = matches!(state, LinkState::SignInToEnter | LinkState::NotAMember);
         if state != LinkState::OpenedElsewhere && !never_in {
@@ -3052,10 +3116,134 @@ impl RoomClient {
                 chart: chart.clone(),
             },
         );
+        // The stage the pick is for, before the room moves on.
+        let stage = self.stage_picked_next();
         self.send(Command::Pick {
             content: id,
             card: Some(Box::new(card_of(song, chart))),
+        })?;
+        // Made the open-ended match's last song (More, round AA): told
+        // with the pick, as its own command.
+        if std::mem::take(&mut self.pick_last)
+            && let Some(stage) = stage
+        {
+            self.send(Command::SetLastStage { stage, last: true })?;
+        }
+        Ok(())
+    }
+
+    /// The stage a pick now is for: the intermission's next, a stage
+    /// prepared without its window, or the next match's first.
+    fn stage_picked_next(&self) -> Option<StageId> {
+        let s = self.state();
+        match s.phase {
+            Phase::Intermission { next } => Some(next),
+            Phase::Preparing { stage, .. } => Some(stage),
+            Phase::Lobby | Phase::MatchResults | Phase::Interrupted { .. } => {
+                s.playlist.first().map(|p| p.id)
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether `stage` is an open-ended match's last song (picked so, or
+    /// the room's last by its bound; round AA): its status line, Ready
+    /// card and prompt say so.
+    pub fn is_last_song(&self, stage: StageId) -> bool {
+        let s = self.state();
+        s.current
+            .as_ref()
+            .is_some_and(|m| m.rules.open_ended && m.is_last(stage, s.policy.max_stages))
+    }
+
+    /// What More offers of an open-ended match's last song now (round
+    /// AA): for the stage picked and not started, made the last song or
+    /// not (an operator's, until its start); before a pick, the next pick
+    /// made it (the picker's).
+    pub fn last_song_choice(&self) -> Option<LastSongChoice> {
+        let s = self.state();
+        if let Some(m) = s.running_match().filter(|m| m.rules.open_ended)
+            && let Phase::Preparing {
+                stage,
+                window: Some(_),
+            } = s.phase
+            && let Some(st) = m.stage(stage).filter(|st| st.play.is_none())
+        {
+            return self
+                .may(Capability::Advance)
+                .then_some(LastSongChoice::Picked { stage, last: st.last });
+        }
+        let open = match s.running_match() {
+            Some(m) => m.rules.open_ended,
+            None => s.next.rules.open_ended,
+        };
+        let before_pick = matches!(
+            s.phase,
+            Phase::Lobby
+                | Phase::Intermission { .. }
+                | Phase::Preparing { window: None, .. }
+                | Phase::MatchResults
+                | Phase::Interrupted { .. }
+        );
+        (open && before_pick && self.chooses()).then_some(LastSongChoice::NextPick {
+            last: self.pick_last,
         })
+    }
+
+    /// More's last-song item pressed ([`RoomClient::last_song_choice`]).
+    pub fn toggle_last_song(&mut self) {
+        match self.last_song_choice() {
+            Some(LastSongChoice::Picked { stage, last }) => {
+                let _ = self.send(Command::SetLastStage { stage, last: !last });
+            }
+            Some(LastSongChoice::NextPick { last }) => {
+                self.pick_last = !last;
+                self.version += 1;
+            }
+            None => {}
+        }
+    }
+
+    /// End the match now may be asked (round AA): a running open-ended
+    /// match between stages, a stage of it settled, by an operator.
+    pub fn may_end_match(&self) -> bool {
+        let s = self.state();
+        let Some(m) = s.running_match().filter(|m| m.rules.open_ended) else {
+            return false;
+        };
+        let between = match s.phase {
+            Phase::Intermission { .. } => true,
+            Phase::Preparing { stage, .. } => m.stage(stage).is_some_and(|st| st.play.is_none()),
+            _ => false,
+        };
+        between && self.stages_played() > 0 && self.may(Capability::Advance)
+    }
+
+    /// The running match's stages settled so far.
+    pub fn stages_played(&self) -> usize {
+        self.state().current.as_ref().map_or(0, |m| {
+            m.stages
+                .iter()
+                .filter(|st| st.play.as_ref().is_some_and(|p| p.result.is_some()))
+                .count()
+        })
+    }
+
+    /// More's End the match now: its question asked over the screen.
+    pub fn ask_end_match(&self) {
+        if self.may_end_match() {
+            self.asking_end.set(true);
+        }
+    }
+
+    /// The End the match now question is to be asked now (once).
+    pub fn take_end_question(&self) -> bool {
+        self.asking_end.replace(false)
+    }
+
+    /// End the open-ended match now (its question answered).
+    pub fn end_match(&mut self) {
+        let _ = self.send(Command::EndMatch);
     }
 
     /// The stage the next pick is for: its number in the match (from 1),
@@ -4040,6 +4228,7 @@ impl RoomClient {
                 stage,
                 index,
                 of: m.stages.len(),
+                open_ended: m.rules.open_ended,
                 roster: m.roster.keys().copied().collect(),
                 results: m.stages[..=index]
                     .iter()
@@ -4156,7 +4345,17 @@ impl RoomClient {
             setup: StageSetup {
                 stage,
                 number: u16::try_from(index + 1).unwrap_or(u16::MAX),
-                of: u16::try_from(m.stages.len()).unwrap_or(u16::MAX),
+                // An open-ended match (revision 15): its last song's
+                // number, else 0 (no set count: "Stage N").
+                of: if m.rules.open_ended {
+                    if m.is_last(stage, self.state().policy.max_stages) {
+                        u16::try_from(index + 1).unwrap_or(u16::MAX)
+                    } else {
+                        0
+                    }
+                } else {
+                    u16::try_from(m.stages.len()).unwrap_or(u16::MAX)
+                },
                 // What is really played: attacks only where they are
                 // offered (never a rule that silently does nothing).
                 battle: BattlePreset::with_attacks(self.attacks_played(&m.rules_for(stage))),

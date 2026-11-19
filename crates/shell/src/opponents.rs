@@ -64,6 +64,9 @@ pub struct Shown {
     /// narrow for it), worded: a competitor who left the stage rather
     /// than going out by their life (`OpponentView::left`).
     pub left: (String, String),
+    /// "Failed", worded: a competitor failed and playing on
+    /// (`OpponentView::failed`, room model revision 15).
+    pub failed: String,
     pub won: Option<String>,
     /// A battle's moment no announcer line said, worded, and how opaque,
     /// `0..=1`.
@@ -1776,6 +1779,9 @@ pub fn draw_fields(
         let [x, y, w, h] = slot.rect;
         let dim = if o.out {
             0.55
+        } else if o.failed {
+            // Failed and playing on: dimmed less than out, still read.
+            0.75
         } else if shown.stale.contains(&slot.seat) {
             0.7
         } else {
@@ -1881,6 +1887,16 @@ pub fn draw_fields(
             };
             q.blend = Blend::Add;
             list.quad(q);
+        }
+        // Failed and playing on (revision 15): the field dimmed a little,
+        // its notes still drawn, "Failed" quietly at its foot.
+        if o.failed && !o.out && !shown.failed.is_empty() {
+            let [l, t, r, b] = slot.panel;
+            list.rect([l, t, r, b], [0.0, 0.0, 0.0, 0.22]);
+            let st = style(size.min(12.0), 600);
+            let (word, m) = fitted(measure, &shown.failed, &st, r - l);
+            let wy = b - size.min(12.0) * 1.6 * ratio;
+            list.text(word, &st, (l + r - m.advance) / 2.0, wy.max(t), MUTED);
         }
         // Out: the field dimmed, in place, saying so.
         if o.out {
@@ -2119,6 +2135,7 @@ pub(crate) mod tests {
                     life: 0.5,
                     out: i == 1,
                     left: false,
+                    failed: false,
                     score: 0.9,
                     sum: Some(5_900_000),
                     combo: 10,
@@ -2127,6 +2144,7 @@ pub(crate) mod tests {
                 .collect(),
             out: "Out".into(),
             left: ("Left the stage".into(), "Left".into()),
+            failed: "Failed".into(),
             won: None,
             cue: None,
             score: ScoreShown::Sum,
@@ -3608,6 +3626,7 @@ pub(crate) mod tests {
             life: (i as f32 * 0.137).fract(),
             out: i % 7 == 3,
             left: false,
+            failed: false,
             score: 0.5 + (i as f64 * 0.0123).fract() / 2.0,
             sum: (i % 4 != 1).then_some(5_000_000 + i as i64 * 12_345),
             combo: i as u32 * 7,
@@ -3674,6 +3693,7 @@ pub(crate) mod tests {
                 opponents,
                 out: "Out".into(),
                 left: ("Left the stage".into(), "Left".into()),
+                failed: "Failed".into(),
                 won: Some("Last standing".into()),
                 cue: Some(("Attack incoming from a rather long way off".into(), 0.6)),
                 score: if n.is_multiple_of(2) {

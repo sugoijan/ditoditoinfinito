@@ -1453,6 +1453,7 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         difficulty: ddi_room::MatchDifficulty::Hard,
         boos: true,
         charts: ddi_room::Charts::Adaptive,
+        easiest: ddi_room::AtEasiest::Out,
         ..Default::default()
     };
     online.set_stage(super::prompt::StageLine {

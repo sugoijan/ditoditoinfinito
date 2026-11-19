@@ -49,6 +49,13 @@ room-rules = ルール
 room-ready = 準備OK
 room-unready = 準備を取り消す
 room-stop-match = 対戦を中止
+room-end-match = 今すぐ対戦を終える
+room-end-match-body = { $count ->
+   *[other] プレイした{ $count }曲のポイントで、今すぐ対戦を終えます。次の対戦も同じルールです。
+}
+room-make-last = この曲を最後の曲にする
+room-not-last = 最後の曲にしない
+room-pick-last-next = 次に選ぶ曲を最後の曲にする
 
 ## The status line.
 
@@ -111,6 +118,10 @@ room-rules-this-match = この対戦 · 固定
 room-rules-next-match = 次の対戦
 
 room-rules-stages = ステージ数
+room-rules-stages-open = オープン
+room-rules-stages-open-about = オープン：曲数を決めません。選んだ曲を最後の曲にするか、曲のあいだに対戦を終えられます。最大{ $max }曲です。
+room-rules-mid-match = 対戦途中の参加
+room-rules-mid-match-about = オン：対戦中に入った人は、まだ始まっていない次の曲から参加します。それまでの曲のポイントはありません。
 room-rules-cpus = CPUの人数
 room-rules-level = レベル
 room-rules-points = 得点
@@ -131,6 +142,11 @@ room-rules-shocks-about = 1回の攻撃で相手のフィールドに送るシ�
 room-rules-attacks-online = オフ · オンラインルームではまだ使えません
 
 room-rules-charts = 譜面
+room-rules-easiest = 最も易しい譜面で
+room-rules-easiest-play-on = プレイ続行
+room-rules-easiest-out = 脱落
+room-rules-easiest-about-play-on = プレイ続行：最も易しい譜面でライフがなくなった人は失敗として曲の最後までプレイし、生き残った全員より下に、失敗した人どうしはスコア順に並びます。
+room-rules-easiest-about-out = 脱落：最も易しい譜面でライフがなくなると、そのステージから脱落します。
 room-rules-charts-as-picked = 選んだまま
 room-rules-charts-adaptive = 適応
 
@@ -166,7 +182,10 @@ room-rules-apply = 適用
 
 room-rules-title-next = 次の対戦のルール
 
-room-rules-running = この対戦はステージ { $number } / { $stages } です。ルールは次のまま変わりません：
+room-rules-running = { $stages ->
+    [0] この対戦はステージ { $number } です。ルールは次のまま変わりません：
+   *[other] この対戦はステージ { $number } / { $stages } です。ルールは次のまま変わりません：
+}
 
 room-rules-running-next = { $marked ->
     [yes] 以下は次の対戦のルールです。●はこの対戦と異なる項目です。
@@ -181,7 +200,10 @@ room-rules-restart-confirm = やり直す
 
 room-rules-title-from = ステージ{ $number }からのルール
 
-room-rules-running-stage = この対戦はステージ { $number } / { $stages } です。現在のルール：
+room-rules-running-stage = { $stages ->
+    [0] この対戦はステージ { $number } です。現在のルール：
+   *[other] この対戦はステージ { $number } / { $stages } です。現在のルール：
+}
 
 room-rules-running-from-points = { $marked ->
     [yes] 以下のタイミング・Boo・ライフ0のとき・攻撃・得点はステージ{ $number }から適用されます。●は変更した項目です。
@@ -305,17 +327,29 @@ room-leave-co-host = 共同ホストを務めています。進行中の対戦�
 
 ## A stage's prompt, results and the room between stages.
 
-room-prompt-stage-cpus = ステージ { $number } / { $stages } · CPU { $cpus }人と対戦
+room-prompt-stage-cpus = { $stages ->
+    [0] ステージ { $number }
+   *[other] ステージ { $number } / { $stages }
+} · CPU { $cpus }人と対戦
 
-room-prompt-stage-people = ステージ { $number } / { $stages } · ほかのプレイヤー{ $others }人と対戦
+room-prompt-stage-people = { $stages ->
+    [0] ステージ { $number }
+   *[other] ステージ { $number } / { $stages }
+} · ほかのプレイヤー{ $others }人と対戦
 
-room-prompt-stage-mixed = ステージ { $number } / { $stages } · ほかのプレイヤー{ $others }人とCPU { $cpus }人と対戦
+room-prompt-stage-mixed = { $stages ->
+    [0] ステージ { $number }
+   *[other] ステージ { $number } / { $stages }
+} · ほかのプレイヤー{ $others }人とCPU { $cpus }人と対戦
 
 room-prompt-life-out = ゲージが尽きるとアウト
 
 room-prompt-chart-adapts = 譜面は実力に合わせて変わる
 
-room-prompt-stage-watched = ステージ { $number } / { $stages } · { $players }人のプレイを観戦
+room-prompt-stage-watched = { $stages ->
+    [0] ステージ { $number }
+   *[other] ステージ { $number } / { $stages }
+} · { $players }人のプレイを観戦
 
 room-results-back = ルームに戻る
 
@@ -353,6 +387,7 @@ room-rules-words = { $ruleset }{ $difficulty ->
 room-mark-survived = ステージ { $number }: { $field }人中 { $place }位 · +{ $points }点
 
 room-mark-out = ステージ { $number }: ゲージ切れ · { $field }人中 { $place }位 · +{ $points }点
+room-mark-failed = ステージ { $number }: 失敗（最後までプレイ） · { $field }人中 { $place }位 · +{ $points }点
 
 room-mark-forfeit = ステージ { $number }: 途中でやめた · { $field }人中 { $place }位 · 得点なし
 
@@ -375,6 +410,8 @@ room-results-none = —
 ## A stage's play.
 
 room-play-out = アウト
+room-play-failed = 失敗
+room-play-failed-on = 失敗：プレイ続行
 
 room-play-won = 1位確定
 
@@ -477,6 +514,7 @@ room-invite-members = ルームに{ $count }人
 
 room-invite-open = いま参加できます。準備完了は自分で押します。
 room-invite-next-match = 試合中です。観戦して、次の試合から参加します。
+room-invite-next-song = 試合中です。次の曲から参加できます。
 room-invite-closed = ホストが新しい参加を締め切りました。
 room-invite-full = このルームは満員です。
 room-invite-full-watch = プレイヤーの席が埋まっています。観戦で参加します。
@@ -527,6 +565,9 @@ room-role-co-host = 共同ホスト
 room-role-admin = 管理者
 room-watching = 観戦
 room-next-match = 次の試合から
+room-next-song = 次の曲から
+room-place-full = 空き枠なし
+room-joined-at = ステージ{ $number }から
 
 room-conn-joining = 接続中
 room-conn-reconnecting = 再接続中
@@ -591,6 +632,9 @@ room-sat-out-then-out = 欠場したため、この試合には戻れません�
 room-sat-out-then-chosen = 「プレイする」を選ぶと次のステージからプレイできます。
 
 room-status-waiting-next-match = ステージ{ $number }をプレイ中です。対戦の途中で参加したため、次の対戦からプレイします。
+room-status-waiting-next-stage = ステージ{ $number }をプレイ中です。対戦の途中で参加したため、次の曲からプレイします。
+room-status-waiting-place = この対戦の枠はCPUも含めてすべて埋まっています。次の対戦から、または枠が空けばその曲からプレイします。
+room-status-last-song = 最後の曲 · { $line }
 
 room-status-pick-new-match = 対戦終了。曲を選んで次の対戦を始めましょう。
 
@@ -649,7 +693,10 @@ room-mark-short-forfeit = { $field }人中 { $place }位 · 退出
 
 room-picks-heading = 選曲
 
-room-picks-count = { $stages }曲中 { $picked }曲
+room-picks-count = { $stages ->
+    [0] { $picked }曲
+   *[other] { $stages }曲中 { $picked }曲
+}
 
 room-panel-more-above = ▲ ほか{ $count }件
 room-panel-more-below = ▼ ほか{ $count }件
@@ -660,7 +707,10 @@ room-refused-title = できません
 
 room-rules-ok = OK
 
-room-rules-locked-line = { $stages }ステージ · CPU { $cpus }人 · { $rules }
+room-rules-locked-line = { $stages ->
+    [0] ステージ数オープン
+   *[other] { $stages }ステージ
+} · CPU { $cpus }人 · { $rules }
 
 room-rules-no-cpus = CPU対戦相手なし。
 
@@ -708,7 +758,10 @@ room-results-tab-graphs = グラフ
 
 room-results-hint-tabs = タブ切り替え
 
-room-table-title = ステージ { $number } / { $stages }
+room-table-title = { $stages ->
+    [0] ステージ { $number }
+   *[other] ステージ { $number } / { $stages }
+}
 
 room-table-waiting = 全員の結果を待っています…
 

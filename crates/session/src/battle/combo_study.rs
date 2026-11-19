@@ -1084,6 +1084,7 @@ fn stages(cands: &[Cand]) {
                 let rules = StageRules {
                     difficulty: MatchDifficulty::Normal,
                     charts,
+                    easiest: ddi_room::AtEasiest::Out,
                     ..StageRules::default()
                 };
                 let ruleset = stage_ruleset(&rules);

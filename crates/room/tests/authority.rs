@@ -679,9 +679,9 @@ fn an_older_room_model_is_refused_except_during_a_stage() {
     use ddi_room::{ROOM_MODEL_REVISION, UPDATE_REQUIRED, UpdateRequired, check_model_against};
     let rev = ROOM_MODEL_REVISION;
     assert_eq!(
-        rev, 14,
-        "14: the CPUs' levels, cpu-levels-v2 (13: DDI's points, percent and letters, the usage \
-         report)"
+        rev, 15,
+        "15: joining during a match, open-ended matches, Play on at the easiest chart (14: the \
+         CPUs' levels, cpu-levels-v2)"
     );
     assert_eq!(UPDATE_REQUIRED, "update_required");
     // The other way (round R2): a client refuses an authority older than
@@ -979,4 +979,59 @@ fn a_room_stored_by_revision_13_loads_and_plays_on() {
         .unwrap();
     assert!(matches!(state.phase, Phase::Preparing { .. }));
     assert_ne!(state.standings(), Some(before), "a new match");
+}
+
+/// A room stored by revision 14 loads under every later one (feedback
+/// round AA, revision 15): the JSON revision 14's own reducer wrote
+/// (`room-revision-14.json`: the revision-13 fixture's room gone on, its
+/// next match started by a pick, stage 4 gathering readiness, and someone
+/// new joined during it) reads, writes back what it reads, and plays on
+/// as it was: Stages a number (3), joining during a match Off (its rules
+/// said so), so the newcomer still waits for the next match; at the
+/// easiest chart Out (its rules name no Play on).
+#[test]
+fn a_room_stored_by_revision_14_loads_and_plays_on_as_it_was() {
+    let text = include_str!("room-revision-14.json");
+    let mut state: RoomState = serde_json::from_str(text).unwrap();
+    let back = serde_json::to_value(&state).unwrap();
+    assert_eq!(
+        back,
+        serde_json::from_str::<serde_json::Value>(text).unwrap(),
+        "written as it was read"
+    );
+    let m = state.current.as_ref().unwrap();
+    assert!(!m.rules.open_ended);
+    assert_eq!(m.stage_count(), Some(3));
+    assert!(!m.rules.mid_match_entry);
+    assert_eq!(m.rules.easiest, ddi_room::AtEasiest::Out);
+    assert!(!m.rules.plays_on_failed(), "Adaptive, out at zero life");
+    assert!(!state.next.rules.open_ended && !state.next.rules.mid_match_entry);
+    let newcomer = state
+        .member_by_identity(&ddi_room::Identity::new("twitch:newcomer"))
+        .unwrap()
+        .id;
+    assert_eq!(
+        state.participation(newcomer),
+        Some(ddi_room::Participation::WaitingNextMatch)
+    );
+    assert!(!state.admits_next_stage());
+    // A change of anyone's (a reconnect) seats nobody: still Off.
+    let revision = state.revision;
+    let events = state
+        .apply(
+            ddi_room::Actor::Authority,
+            Some(revision),
+            &Command::SetConnection {
+                participant: newcomer,
+                connection: ddi_room::Connection::Connected,
+            },
+            Millis(2_002_000),
+        )
+        .unwrap();
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, ddi_room::Event::LateEntrantsAdmitted { .. }))
+    );
+    assert!(matches!(state.phase, Phase::Preparing { stage: StageId(4), .. }));
 }

@@ -308,6 +308,7 @@ impl Writer {
                 MomentKind::Boo => (4, false),
                 MomentKind::Refused { .. } => (5, false),
                 MomentKind::Step { .. } => (6, false),
+                MomentKind::Failed => (7, false),
             };
             self.byte(kind | if flag { 0x10 } else { 0 });
             self.i(i64::from(m.at_ms) - at);
@@ -515,6 +516,7 @@ impl<'a> Reader<'a> {
                     attack: self.u32()?,
                 },
                 6 => MomentKind::Step { rung: self.byte()? },
+                7 => MomentKind::Failed,
                 _ => return Err(WireError::Invalid),
             };
             life = life.checked_add(self.i()?).ok_or(WireError::Invalid)?;

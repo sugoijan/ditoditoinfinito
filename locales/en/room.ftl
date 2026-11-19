@@ -106,6 +106,26 @@ room-ready = Ready
 room-unready = Cancel ready
 room-stop-match = Stop match
 
+# Feedback round AA: More's item (and its question's button) that ends an
+# open-ended match now, between stages, with the songs played (about 20
+# letters).
+room-end-match = End the match now
+
+# The question before it ends the match.
+# Variables:
+#   $count (Number) - the songs played in the match so far
+room-end-match-body = { $count ->
+    [one] The match ends now with the song played: its points decide it. The next match keeps these rules.
+   *[other] The match ends now with the { $count } songs played: their points decide it. The next match keeps these rules.
+}
+
+# More's items for an open-ended match's last song (about 24 letters each):
+# the stage picked and not started made the match's last song, or not;
+# and, before a pick, the next pick made the last song.
+room-make-last = Make this the last song
+room-not-last = Not the last song
+room-pick-last-next = Make the next pick the last song
+
 ## The status line (over the list, or atop the room's panel): what the room waits for.
 
 # The countdown to the stage's start.
@@ -217,6 +237,17 @@ room-rules-next-match = Next match
 
 # Rows' labels (about 20 letters each).
 room-rules-stages = Stages
+
+# Feedback round AA: the Stages row's value for an open-ended match (no
+# set count of songs), and its sentence under the row.
+room-rules-stages-open = Open
+# Variables:
+#   $max (Number) - the most stages the room allows
+room-rules-stages-open-about = Open: no set number of songs. A pick can be made the last song, or the match ended between songs; at most { $max }.
+
+# The rule Joining during a match (On or Off) and its sentence.
+room-rules-mid-match = Joining during a match
+room-rules-mid-match-about = On: people who join while a match runs play from its next song not yet started, with no points for the songs they missed.
 room-rules-cpus = CPU opponents
 room-rules-level = Level
 room-rules-points = Points
@@ -258,6 +289,15 @@ room-rules-attacks-online = Off · not in online rooms yet
 # chart of the same song when their life runs out and up to a harder one
 # when they keep full life.
 room-rules-charts = Charts
+
+# Feedback round AA: under Charts: Adaptive, what running out of life on
+# the easiest chart does: Play on (the default) or Out; and a sentence
+# for each under the row.
+room-rules-easiest = On the easiest chart
+room-rules-easiest-play-on = Play on
+room-rules-easiest-out = Out
+room-rules-easiest-about-play-on = Play on: whoever runs out of life on the easiest chart is failed, plays the song to its end and ranks under everyone who survived, the failed by their score.
+room-rules-easiest-about-out = Out: running out of life on the easiest chart ends the stage for them.
 room-rules-charts-as-picked = As picked
 room-rules-charts-adaptive = Adaptive
 
@@ -315,8 +355,11 @@ room-rules-title-next = Rules for the next match
 # room-rules-locked-line writes them), which cannot change.
 # Variables:
 #   $number (Number) - the stage the match is on, from 1
-#   $stages (Number) - the match's stages
-room-rules-running = This match is on stage { $number } of { $stages } and keeps these rules:
+#   $stages (Number) - the match's stages (0: an open-ended match, no set count)
+room-rules-running = { $stages ->
+    [0] This match is on stage { $number } and keeps these rules:
+   *[other] This match is on stage { $number } of { $stages } and keeps these rules:
+}
 
 # The line under those: the pop-up's rows are for the next match. Where a
 # row's value differs from the running match's, a small dot (●) marks it,
@@ -355,8 +398,11 @@ room-rules-title-from = Rules from stage { $number }
 # writes them).
 # Variables:
 #   $number (Number) - the stage the match is on, from 1
-#   $stages (Number) - the match's stages
-room-rules-running-stage = This match is on stage { $number } of { $stages }, under these rules:
+#   $stages (Number) - the match's stages (0: an open-ended match, no set count)
+room-rules-running-stage = { $stages ->
+    [0] This match is on stage { $number }, under these rules:
+   *[other] This match is on stage { $number } of { $stages }, under these rules:
+}
 
 # The line under those where the pop-up's rows change the running match's
 # rules from a later stage on (the stage named: one nobody has readied or
@@ -616,6 +662,13 @@ room-leave-co-host = You are a co-host. The match in progress goes on without yo
 # A CPU whose life is gone: out of this stage.
 room-play-out = Out
 
+# Feedback round AA: on a miniature field (and a followed player's), a
+# competitor whose life ran out on the easiest chart under "Play on":
+# failed, still playing (about 8 letters).
+room-play-failed = Failed
+# Under the player's own life gauge, the same of themselves.
+room-play-failed-on = Failed: playing on
+
 # Once the player has won the stage before the song's end (they finish
 # the song): in the line under the opponents' small fields at the right.
 room-play-won = Stage won
@@ -763,9 +816,12 @@ room-prompt-speed-raised = Speed raised so attacks can warn in time
 # stage and against how many CPUs (what running out of life does follows).
 # Variables:
 #   $number (Number) - the stage, from 1
-#   $stages (Number) - the match's stages
+#   $stages (Number) - the match's stages (0: an open-ended match, no set count)
 #   $cpus (Number) - CPU opponents
-room-prompt-stage-cpus = Stage { $number } of { $stages } · { $cpus ->
+room-prompt-stage-cpus = { $stages ->
+    [0] Stage { $number }
+   *[other] Stage { $number } of { $stages }
+} · { $cpus ->
     [one] against one CPU
    *[other] against { $cpus } CPUs
 }
@@ -773,9 +829,12 @@ room-prompt-stage-cpus = Stage { $number } of { $stages } · { $cpus ->
 # The same for an online room's stage against other people alone.
 # Variables:
 #   $number (Number) - the stage, from 1
-#   $stages (Number) - the match's stages
+#   $stages (Number) - the match's stages (0: an open-ended match, no set count)
 #   $others (Number) - the other players starting it
-room-prompt-stage-people = Stage { $number } of { $stages } · { $others ->
+room-prompt-stage-people = { $stages ->
+    [0] Stage { $number }
+   *[other] Stage { $number } of { $stages }
+} · { $others ->
     [one] against one other player
    *[other] against { $others } other players
 }
@@ -784,10 +843,13 @@ room-prompt-stage-people = Stage { $number } of { $stages } · { $others ->
 # room's CPUs.
 # Variables:
 #   $number (Number) - the stage, from 1
-#   $stages (Number) - the match's stages
+#   $stages (Number) - the match's stages (0: an open-ended match, no set count)
 #   $others (Number) - the other players starting it
 #   $cpus (Number) - CPU opponents
-room-prompt-stage-mixed = Stage { $number } of { $stages } · against { $others ->
+room-prompt-stage-mixed = { $stages ->
+    [0] Stage { $number }
+   *[other] Stage { $number } of { $stages }
+} · against { $others ->
     [one] one other player
    *[other] { $others } other players
 } and { $cpus ->
@@ -809,9 +871,12 @@ room-prompt-chart-adapts = the chart changes with your skill
 # someone watching with the room's audience): nothing is played here.
 # Variables:
 #   $number (Number) - the stage, from 1
-#   $stages (Number) - the match's stages
+#   $stages (Number) - the match's stages (0: an open-ended match, no set count)
 #   $players (Number) - the players starting it
-room-prompt-stage-watched = Stage { $number } of { $stages } · watching { $players ->
+room-prompt-stage-watched = { $stages ->
+    [0] Stage { $number }
+   *[other] Stage { $number } of { $stages }
+} · watching { $players ->
     [one] one player
    *[other] { $players } players
 }
@@ -890,6 +955,16 @@ room-mark-survived = Stage { $number }: place { $place } of { $field } · +{ $po
 #   $field (Number) - how many played the stage
 #   $points (String) - the points it gave, as a number ("3", "2.5")
 room-mark-out = Stage { $number }: out of life · place { $place } of { $field } · +{ $points } pts
+
+# The same, when the player's life ran out on the easiest chart under
+# Charts: Adaptive's "Play on" and they played on to the song's end as
+# failed (ranked after everyone who survived, by score).
+# Variables:
+#   $number (Number) - the stage, from 1
+#   $place (Number) - the place, from 1 (tied players share it)
+#   $field (Number) - how many played the stage
+#   $points (String) - the points it gave, as a number ("3", "2.5")
+room-mark-failed = Stage { $number }: failed, played on · place { $place } of { $field } · +{ $points } pts
 
 # The same, when the player left the stage while playing (no points).
 # Variables:
@@ -1057,6 +1132,9 @@ room-invite-members = { $count ->
 # What joining now means (one of these).
 room-invite-open = You can join now. You'll choose Ready yourself.
 room-invite-next-match = A match is running: you'll watch and play from the next match.
+# Feedback round AA: in its place where the running match seats newcomers
+# for its next song not yet started (joining during a match).
+room-invite-next-song = A match is running: you can play from its next song.
 room-invite-closed = The host has closed this room to new players.
 room-invite-full = This room is full.
 # In the place of room-invite-open or room-invite-next-match where every
@@ -1168,6 +1246,16 @@ room-role-co-host = Co-host
 room-role-admin = Admin
 room-watching = Watching
 room-next-match = Next match
+# Feedback round AA: a player's state in the players' rows for someone
+# who joined during a match that seats them at its next song; for one
+# waiting because every place is taken (CPUs too); and, under the name,
+# the stage someone who joined during the match played from (about 16
+# letters each).
+room-next-song = Next song
+room-place-full = No place free
+# Variables:
+#   $number (Number) - the stage, from 1
+room-joined-at = From stage { $number }
 
 # At the right of a person's row: their connection (about 12 letters).
 room-conn-joining = Joining
@@ -1344,6 +1432,22 @@ room-sat-out-then-chosen = Choose Play to play the next one.
 #   $number (Number) - the stage, from 1
 room-status-waiting-next-match = Stage { $number } is being played. You joined during this match and play from the next one.
 
+# Feedback round AA: the same, where the match seats people who join
+# during it from its next song.
+# Variables:
+#   $number (Number) - the stage being played, from 1
+room-status-waiting-next-stage = Stage { $number } is being played. You joined during this match and play from its next song.
+
+# The status line of someone who wants to play while every place in the
+# match is taken (its CPUs' too).
+room-status-waiting-place = Every place in this match is taken, its CPUs' too. You play from the next match, or sooner if a place frees.
+
+# Before the status line's own words where the stage it is about is an
+# open-ended match's last song.
+# Variables:
+#   $line (String) - the status line
+room-status-last-song = Last song · { $line }
+
 # On the room's status line and a stage's Ready card, for a player who
 # was not in the stage when it started but may still enter it (round
 # P1b's late entry: within a few seconds of the song's start, where the
@@ -1481,8 +1585,11 @@ room-picks-heading = Picks
 # Beside it: how many stages have a song, of the match's.
 # Variables:
 #   $picked (Number) - stages with a song
-#   $stages (Number) - the match's stages
-room-picks-count = { $picked } of { $stages }
+#   $stages (Number) - the match's stages (0: an open-ended match, no set count)
+room-picks-count = { $stages ->
+    [0] { $picked }
+   *[other] { $picked } of { $stages }
+}
 
 # Marks at the top and the bottom of a scrolled list: how many rows are
 # hidden there (a tap scrolls).
@@ -1505,10 +1612,11 @@ room-rules-ok = OK
 
 # The running match's rules, in one line.
 # Variables:
-#   $stages (Number) - the match's stages
+#   $stages (Number) - the match's stages (0: an open-ended match, no set count)
 #   $cpus (Number) - its CPU opponents
 #   $rules (String) - its rules in a few words, as room-rules-words writes them ("DDI · Hard timing · Boos")
 room-rules-locked-line = { $stages ->
+    [0] Open stages
     [one] One stage
    *[other] { $stages } stages
 } · { $cpus ->
@@ -1621,8 +1729,11 @@ room-results-hint-tabs = Change tab
 # The Standings tab's heading: which stage of the match these are.
 # Variables:
 #   $number (Number) - the stage's number, from 1
-#   $stages (Number) - the match's stages
-room-table-title = Stage { $number } of { $stages }
+#   $stages (Number) - the match's stages (0: an open-ended match, no set count)
+room-table-title = { $stages ->
+    [0] Stage { $number }
+   *[other] Stage { $number } of { $stages }
+}
 
 # Beside the heading while the room has not confirmed the stage: some
 # players are still playing or have not sent their result (about 36

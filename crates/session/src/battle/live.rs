@@ -465,9 +465,10 @@ impl RemoteSeat {
         self.step(track, (rungs, counted), step.rung, at, Tick(step.tick));
     }
 
-    /// Out of the stage (its gauge, or a forfeit).
+    /// Out of the stage (its gauge, or a forfeit), or failed and playing
+    /// on (out for the battle, revision 15).
     pub fn gone(&self) -> bool {
-        self.end.is_some_and(|e| e != StreamEnd::Finished)
+        self.end.is_some_and(|e| e != StreamEnd::Finished) || self.feed.failed_at().is_some()
     }
 
     pub fn out(&self) -> bool {
@@ -697,6 +698,12 @@ pub(crate) struct Live {
     /// them, where the charts adapt ([`Shown`]).
     counted: Vec<Rc<Counted>>,
     steps_sent: usize,
+    /// The stage plays on at zero life on the easiest chart (Charts:
+    /// Adaptive's Play on, room model revision 15): the local play's
+    /// failure is a moment of its stream ([`MomentKind::Failed`]), sent
+    /// once, never its end; set by the battle ([`Live::set_fails_on`]).
+    fails_on: bool,
+    failed_sent: bool,
     /// The checkpoints whose news came in a snapshot (it carries their
     /// commitments, not their records): those whose deadline had passed
     /// at its time.
@@ -822,6 +829,7 @@ fn feed_moment(m: &Moment, out: bool, score: ScoreView) -> feed::Moment {
         MomentKind::Boo => feed::MomentKind::Boo,
         MomentKind::Refused { .. } => feed::MomentKind::Mark,
         MomentKind::Step { rung } => feed::MomentKind::Step(rung),
+        MomentKind::Failed => feed::MomentKind::Failed,
     };
     let (offset, w0) = match m.kind {
         MomentKind::Tap { offset_ms, w0, .. } => (f32::from(offset_ms) / 1_000.0, Some(w0)),
@@ -989,6 +997,8 @@ impl Live {
             rungs: Vec::new(),
             counted: Vec::new(),
             steps_sent: 0,
+            fails_on: false,
+            failed_sent: false,
             snapshot_known: 0,
             cpu_lead_us,
             read_at,
@@ -1285,6 +1295,22 @@ impl Live {
             })
             .collect();
         moments.extend(steps);
+        // Failed and playing on (revision 15): a moment of its own, once.
+        if self.fails_on
+            && !self.failed_sent
+            && let Some(at) = human.gauge_failed_at()
+        {
+            self.failed_sent = true;
+            moments.push(Moment {
+                at_ms: (self.slew.to_room(micros(at)) as f64 / 1_000.0).round() as i32,
+                tick: 0,
+                lane: 0,
+                kind: MomentKind::Failed,
+                life_ppm: 0,
+                combo,
+                score,
+            });
+        }
         moments.sort_by_key(|m| m.at_ms);
         let t_us = micros(t);
         let mut reports = Vec::new();
@@ -1313,13 +1339,19 @@ impl Live {
         for (k, rep) in reports {
             out.report(LiveReport::from_report(k, rep));
         }
-        if let Some(at) = human.gauge_failed_at() {
+        if let Some(at) = human.gauge_failed_at().filter(|_| !self.fails_on) {
             out.end(StreamEnd::Out {
                 at_us: self.slew.to_room(micros(at)),
             });
             drop(room);
             self.ended = true;
         }
+    }
+
+    /// The stage plays on at zero life on the easiest chart (revision
+    /// 15): set once, before the play's first frame.
+    pub(crate) fn set_fails_on(&mut self, on: bool) {
+        self.fails_on = on;
     }
 
     /// The local play's stream ends (its song's end, a forfeit), sent at
@@ -1795,7 +1827,7 @@ impl LivePlay {
         };
         let track = Rc::new(feed::TapTrack::full(song, chart)?);
         let plan = prep.plan.clone().filter(|_| order.battle.attacks());
-        let play = Live::new(
+        let mut play = Live::new(
             handle,
             order.stage,
             order.me,
@@ -1806,6 +1838,8 @@ impl LivePlay {
             &track,
             None,
         );
+        let fails_on = order.rules.plays_on_failed();
+        play.set_fails_on(fails_on);
         let mut log = vec![play.describe()];
         let setup = order.setup.clone();
         let ruleset = crate::battle::stage_ruleset(&order.rules);
@@ -1822,12 +1856,13 @@ impl LivePlay {
             .map(|seat| {
                 let home = crate::battle::cpus::home(&mut home, song, chart)?;
                 let mut opponent = crate::battle::cpus::opponent(home, &ruleset, seat, &ladder)?;
-                let drive = crate::battle::cpus::Drive::new(
+                let mut drive = crate::battle::cpus::Drive::new(
                     ddi_room::live::cpus::ONLINE_CPUS_V0,
                     seat.participant,
                     checkpoints.clone(),
                     &mut opponent,
                 );
+                drive.set_fails_on(fails_on);
                 Ok(BotCpu { opponent, drive })
             })
             .collect::<Result<Vec<_>, String>>()?;

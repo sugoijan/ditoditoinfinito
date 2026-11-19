@@ -117,6 +117,13 @@ impl Room {
             server_clock.clone(),
         )
         .shared();
+        // Out at zero life on the easiest chart and nobody seated during
+        // a match, as these stages were written (revision 15's new
+        // defaults have tests of their own).
+        server.borrow_mut().rewrite(|s| {
+            s.next.rules.easiest = ddi_room::AtEasiest::Out;
+            s.next.rules.mid_match_entry = false;
+        });
         let mut rooms = Vec::new();
         for (i, (who, intent)) in people.iter().enumerate() {
             if i > 0 {
@@ -985,6 +992,7 @@ fn a_bot_reports_its_cpus_runs_with_the_chart_each_finished_on() {
     r.run(1.0);
     let mut rules = r.rooms[0].borrow().rules().clone();
     rules.charts = ddi_room::Charts::Adaptive;
+    rules.easiest = ddi_room::AtEasiest::Out;
     rules.seats = 5;
     rules.cpu.mode = ddi_room::CpuMode::Roster;
     rules.cpu.roster = (0..3u64)
@@ -2093,6 +2101,7 @@ fn a_seat_part_way_draws_each_competitor_on_their_chart_and_one_who_left_as_left
     }
     let mut rules = r.rooms[0].borrow().rules().clone();
     rules.charts = ddi_room::Charts::Adaptive;
+    rules.easiest = ddi_room::AtEasiest::Out;
     r.rooms[0].borrow_mut().save_rules(rules).unwrap();
     r.run(1.0);
     let orders = pick_and_ready(&r, &song, true, HARD);
@@ -2741,6 +2750,7 @@ fn a_live_stage_steps_down_and_the_others_fields_follow() {
     assert!(r.rooms[0].borrow().adaptive_offered(), "offered live");
     let mut rules = r.rooms[0].borrow().rules().clone();
     rules.charts = ddi_room::Charts::Adaptive;
+    rules.easiest = ddi_room::AtEasiest::Out;
     r.rooms[0].borrow_mut().save_rules(rules).unwrap();
     r.run(1.0);
     let orders = pick_and_ready(&r, &song, true, HARD);
@@ -2822,6 +2832,7 @@ fn a_live_stage_steps_up_and_the_others_fields_follow() {
     r.run(1.0);
     let mut rules = r.rooms[0].borrow().rules().clone();
     rules.charts = ddi_room::Charts::Adaptive;
+    rules.easiest = ddi_room::AtEasiest::Out;
     r.rooms[0].borrow_mut().save_rules(rules).unwrap();
     r.run(1.0);
     let orders = pick_and_ready(&r, &song, true, medium);
@@ -2884,6 +2895,7 @@ fn a_remote_percent_follows_the_competitors_steps_exactly() {
     r.run(1.0);
     let mut rules = r.rooms[0].borrow().rules().clone();
     rules.charts = ddi_room::Charts::Adaptive;
+    rules.easiest = ddi_room::AtEasiest::Out;
     r.rooms[0].borrow_mut().save_rules(rules).unwrap();
     r.run(1.0);
     let orders = pick_and_ready(&r, &song, true, HARD);
@@ -2973,6 +2985,7 @@ fn a_seat_part_way_works_a_percent_out_against_the_competitors_rung() {
     }
     let mut rules = r.rooms[0].borrow().rules().clone();
     rules.charts = ddi_room::Charts::Adaptive;
+    rules.easiest = ddi_room::AtEasiest::Out;
     r.rooms[0].borrow_mut().save_rules(rules).unwrap();
     r.run(1.0);
     let orders = pick_and_ready(&r, &song, true, HARD);

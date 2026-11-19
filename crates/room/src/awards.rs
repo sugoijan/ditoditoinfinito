@@ -472,6 +472,10 @@ pub enum Finish {
     Eliminated,
     /// Left while competing, or a disconnect the rules turned into a forfeit.
     Forfeit,
+    /// Life ran out on the easiest chart under Charts: Adaptive's Play on
+    /// (room model revision 15): played on to the song's end, placed
+    /// after every survivor by the score.
+    Failed,
 }
 
 /// One starter in a confirmed ranking.

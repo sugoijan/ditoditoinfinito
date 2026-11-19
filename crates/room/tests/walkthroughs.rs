@@ -104,9 +104,14 @@ impl Room {
     }
 }
 
+/// Joining during a match Off (a room stored before revision 15, or its
+/// host's choice): a newcomer waits for the next match.
 #[test]
 fn a_new_arrival_during_a_match_waits_for_the_next_match() {
-    let mut r = Room::hosted(1);
+    let mut rules = MatchRules::hosted();
+    rules.stages = 1;
+    rules.mid_match_entry = false;
+    let mut r = Room::new(rules, ContentSource::LocalLibrary);
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
     r.pick(1).unwrap();
@@ -528,7 +533,12 @@ fn a_stage_count_change_keeps_the_first_playlist_slots() {
 
 #[test]
 fn newly_reserved_seats_put_a_saved_draft_under_review_at_the_boundary() {
-    let mut r = Room::hosted(1);
+    // Nobody seated during the match: the reservations are the next
+    // match's alone.
+    let mut rules = MatchRules::hosted();
+    rules.stages = 1;
+    rules.mid_match_entry = false;
+    let mut r = Room::new(rules, ContentSource::LocalLibrary);
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
     r.pick(1).unwrap();
@@ -1223,6 +1233,8 @@ fn persistent_elimination_ends_the_match_for_the_eliminated_and_the_absent() {
     let mut rules = MatchRules::hosted();
     rules.stages = 2;
     rules.return_each_stage = false;
+    // The two never combine (`RulesProblem::EliminationWithLateEntry`).
+    rules.mid_match_entry = false;
     let mut r = Room::new(rules, ContentSource::LocalLibrary);
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
@@ -1270,10 +1282,10 @@ fn a_late_entrant_joins_at_a_stage_boundary_with_zero_for_missed_stages() {
     r.ready(ana);
     let s1 = r.play();
     let late = r.join("late", Intent::Play);
-    assert_eq!(r.part(late), Participation::WaitingNextMatch);
+    assert_eq!(r.part(late), Participation::WaitingNextStage);
     r.end(s1, &[&[host], &[ana]]);
     // Still waiting through the intermission until the boundary.
-    assert_eq!(r.part(late), Participation::WaitingNextMatch);
+    assert_eq!(r.part(late), Participation::WaitingNextStage);
     r.pick(2).unwrap();
     let s2 = r.upcoming();
     assert_eq!(r.part(late), Participation::NotReady { stage: s2 });
@@ -1492,6 +1504,7 @@ fn a_reports_detail_is_additive_on_the_wire() {
 fn an_online_stage_settles_on_its_starters_reports() {
     let mut rules = MatchRules::hosted();
     rules.stages = 2;
+    rules.mid_match_entry = false;
     let mut r = Room::new(rules, ContentSource::Shared);
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
@@ -3142,9 +3155,10 @@ fn a_watcher_is_no_competitor_and_a_watching_host_still_runs_the_room() {
     r.pick(3).unwrap();
     let s3 = r.upcoming();
     assert_eq!(r.part(ana), Participation::NotReady { stage: s3 });
-    // The host, who watched when the match began, waits for the next one.
+    // The host, who watched when the match began, is seated for the
+    // stage being prepared (joining during a match, revision 15).
     r.by(host, intent(Intent::Play)).unwrap();
-    assert_eq!(r.part(host), Participation::WaitingNextMatch);
+    assert_eq!(r.part(host), Participation::NotReady { stage: s3 });
 }
 
 /// Where every person watches there is nothing to start, unless CPUs
@@ -3203,10 +3217,10 @@ fn a_stage_needs_competitors_and_practice_cpus_play_alone_for_a_watcher() {
     assert_eq!(r.part(me), Participation::Watching);
     r.end(s1, &[&[cpus[0]], &[cpus[1]], &[cpus[2]]]);
     assert_eq!(r.s.standings().unwrap().len(), 3);
-    // Playing again mid-match: the next match's (practice admits nobody
-    // into a running match).
+    // Playing again mid-match: seated for the next stage at its pick
+    // (joining during a match, revision 15).
     r.by(me, intent(Intent::Play)).unwrap();
-    assert_eq!(r.part(me), Participation::WaitingNextMatch);
+    assert_eq!(r.part(me), Participation::WaitingNextStage);
     r.by(me, intent(Intent::Watch)).unwrap();
     r.pick(2).unwrap();
     let s2 = r.play();

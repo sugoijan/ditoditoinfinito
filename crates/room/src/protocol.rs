@@ -142,8 +142,23 @@ pub fn supported(version: u32) -> bool {
 ///     `cpu-levels-v2`: a steady lean of their own and a spread that
 ///     loosens under load before notes are left out), so every device
 ///     computes the room's CPUs' presses, judgments, life, attacks and
-///     scores anew; a stored roster's level numbers mean the new levels.
-pub const ROOM_MODEL_REVISION: u32 = 14;
+///     scores anew; a stored roster's level numbers mean the new levels;
+/// 15. feedback round AA (2026-11-19): joining during a match
+///     (`MatchRules::mid_match_entry`, On for a new room: a newcomer or a
+///     watcher who chooses Play seated for the next stage not begun, up to
+///     the competitor cap, `Participation::WaitingNextStage` and
+///     `WaitingPlace`, an invite's `next_stage`); open-ended matches
+///     (`MatchRules::open_ended`, `Stage::last`, `Command::SetLastStage`,
+///     `Command::EndMatch`, `Event::StageAdded`, `LastStageChanged`,
+///     `StagesDropped`); and under Charts: Adaptive the rule On the
+///     easiest chart (`MatchRules::easiest`, Play on for a new room: a
+///     competitor whose life runs out there is failed and plays on,
+///     `Run::Failed`, `ReportedRun::Failed`, `Finish::Failed`, a live
+///     stream's `MomentKind::Failed`, every device computing the room's
+///     CPUs failing alike); and a 4401 asks for a ticket before it ends
+///     a link (`SIGN_IN_RECHECK_MS`), the server's ticket carrying the
+///     re-signed session's expiry.
+pub const ROOM_MODEL_REVISION: u32 = 15;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being

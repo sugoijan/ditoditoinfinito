@@ -1160,6 +1160,7 @@ fn shocks_per_attack() {
                                 (0..n).map(|i| MIX[(i + seed as usize) % MIX.len()]).collect();
                             let stage_rules = StageRules {
                                 charts: charts_rule,
+                                easiest: ddi_room::AtEasiest::Out,
                                 shocks,
                                 ..StageRules::default()
                             };

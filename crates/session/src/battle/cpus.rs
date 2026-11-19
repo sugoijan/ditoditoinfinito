@@ -47,7 +47,11 @@ pub fn opponent(
     ladder: &[PlannedRung],
 ) -> Result<Opponent, String> {
     let mut rules = ruleset.fresh();
-    rules.fail = ddi_engine::FailPolicy::Immediate;
+    // Out at zero life, unless the stage plays on failed there (Play on
+    // at the easiest chart, revision 15: the stage's ruleset says so).
+    if rules.fail != ddi_engine::FailPolicy::ImmediateContinue {
+        rules.fail = ddi_engine::FailPolicy::Immediate;
+    }
     let level = usize::from(seat.level).min(ddi_engine::cpu::LEVELS - 1);
     // A roster CPU's personality (M7b); an unreadable one plays balanced.
     let skills = seat
@@ -106,6 +110,11 @@ pub struct Drive {
     end: Option<StreamEnd>,
     end_taken: bool,
     plays_on: bool,
+    /// The stage plays on at zero life on the easiest chart (Play on,
+    /// revision 15): out for the battle at its failure (its reports say
+    /// it out), its stream going on to its chart's end
+    /// ([`Drive::set_fails_on`]).
+    fails_on: bool,
 }
 
 impl Drive {
@@ -137,7 +146,18 @@ impl Drive {
             end: None,
             end_taken: false,
             plays_on: false,
+            fails_on: false,
         }
+    }
+
+    /// The stage plays on at zero life on the easiest chart (revision 15).
+    pub fn set_fails_on(&mut self, on: bool) {
+        self.fails_on = on;
+    }
+
+    /// The stage plays on failed (revision 15).
+    pub fn fails_on(&self) -> bool {
+        self.fails_on
     }
 
     /// Checkpoint `k`'s song time, where the stage has attacks.
@@ -253,7 +273,7 @@ impl Drive {
             }
         }
         if self.end.is_none() {
-            if let Some(at) = out.filter(|_| !self.plays_on) {
+            if let Some(at) = out.filter(|_| !self.plays_on && !self.fails_on) {
                 self.end = Some(StreamEnd::Out { at_us: micros(at) });
             } else if opponent.finished() {
                 self.end = Some(StreamEnd::Finished);
@@ -327,7 +347,8 @@ pub(crate) fn report_run(
     opponent: &Opponent,
     detail: RunDetail,
 ) {
-    let run = crate::battle::run_of(
+    let run = crate::battle::run_as(
+        drive.fails_on,
         drive.out_at(opponent),
         opponent.life(),
         &opponent.score(),

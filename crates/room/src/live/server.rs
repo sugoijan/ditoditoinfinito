@@ -550,6 +550,11 @@ struct Comp {
     steps: u8,
     /// Its last step, for a snapshot ([`CompetitorStatus::step`]).
     step: Option<StepStatus>,
+    /// When it failed (song µs: its life out on the easiest chart under
+    /// Charts: Adaptive's Play on, room model revision 15), from its
+    /// stream's [`MomentKind::Failed`] or a CPU's report saying it out
+    /// while its stream goes on: out for the battle, still playing.
+    failed_us: Option<i64>,
 }
 
 /// The earlier of two times, either of which may be unknown.
@@ -613,6 +618,12 @@ impl Comp {
 pub struct LiveStage {
     id: StageId,
     rules: LiveRules,
+    /// Its rules play on at zero life on the easiest chart (Charts:
+    /// Adaptive's Play on, room model revision 15): a competitor out by
+    /// their reports while their stream goes on is failed
+    /// ([`Comp::failed_us`]), and the stage is confirmed only once every
+    /// failed competitor's stream ended (their scores final).
+    plays_on: bool,
     song_zero_at: Millis,
     comps: BTreeMap<ParticipantId, Comp>,
     ledger: Option<StageBattle>,
@@ -691,6 +702,7 @@ impl LiveStage {
                         life_ppm: 1_000_000,
                         steps: 0,
                         step: None,
+                        failed_us: None,
                     },
                 )
             })
@@ -731,6 +743,7 @@ impl LiveStage {
         LiveStage {
             id,
             rules,
+            plays_on: m.is_some_and(|m| m.rules_for(id).plays_on_failed()),
             song_zero_at: play.song_zero_at.unwrap_or(play.start_at),
             early: comps.values().all(|c| c.live),
             comps,
@@ -793,6 +806,7 @@ impl LiveStage {
                     life_ppm: 1_000_000,
                     steps: 0,
                     step: None,
+                    failed_us: None,
                 },
             );
             if let (Some(ledger), Some(ready)) = (self.ledger.as_mut(), ready) {
@@ -873,6 +887,11 @@ impl LiveStage {
                     }
                     None => {
                         self.cpu_reports.insert((e.cpu, r.k), digest);
+                        // A CPU failed on the easiest chart plays on: its
+                        // reports say it out, its stream goes on.
+                        if self.plays_on {
+                            c.failed_us = earliest(c.failed_us, r.out_at_us);
+                        }
                         if (r.k as usize) < checkpoints {
                             c.reported = Some(c.reported.map_or(r.k, |k| k.max(r.k)));
                             c.reports.insert(r.k, r);
@@ -1022,6 +1041,9 @@ impl LiveStage {
         }
         c.step = StepStatus::after(c.step, &b.moments);
         c.steps = c.step.map_or(0, |s| s.rung);
+        if let Some(m) = b.moments.iter().find(|m| m.kind == MomentKind::Failed) {
+            c.failed_us = earliest(c.failed_us, Some(i64::from(m.at_ms) * 1_000));
+        }
         for r in b.reports {
             if (r.k as usize) < checkpoints {
                 c.reported = Some(c.reported.map_or(r.k, |k| k.max(r.k)));
@@ -1170,6 +1192,11 @@ impl LiveStage {
                         at: at_us as f64 / 1e6,
                     },
                     Some(e) if e.forfeit() => Run::Forfeit,
+                    // Failed (Play on): out for the battle, scoring on.
+                    _ if c.failed_us.is_some() => Run::Failed {
+                        at: c.failed_us.unwrap_or(0) as f64 / 1e6,
+                        score: c.last.map_or(0, |m| m.score),
+                    },
                     _ => Run::Live {
                         life: f64::from(c.last.map_or(c.life_ppm, |m| m.life_ppm)) / 1e6,
                         score: c.last.map_or(0, |m| m.score),
@@ -1198,6 +1225,17 @@ impl LiveStage {
         if !crate::battle::decided(&entrants) {
             return;
         }
+        // Failed competitors still playing (Play on): the decision among
+        // those still in stands, their places wait for their scores at
+        // their streams' ends (the reports at the song's end settle it).
+        if self.plays_on
+            && self
+                .comps
+                .values()
+                .any(|c| c.failed_us.is_some() && c.end.is_none())
+        {
+            return;
+        }
         let outstanding: Vec<ParticipantId> = self.ledger.as_ref().map_or_else(Vec::new, |l| {
             l.outstanding()
                 .filter(|(p, clear)| {
@@ -1217,7 +1255,9 @@ impl LiveStage {
                 let last_out = entrants
                     .iter()
                     .filter_map(|e| match e.run {
-                        Run::Out { at } => Some((at * 1e6).round() as i64),
+                        Run::Out { at } | Run::Failed { at, .. } => {
+                            Some((at * 1e6).round() as i64)
+                        }
                         _ => None,
                     })
                     .max();

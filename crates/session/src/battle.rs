@@ -161,6 +161,11 @@ pub struct OpponentView {
     /// good: a live stream's forfeit), not by its life: its field says
     /// so, and it ranks last as the stage ranks a forfeit.
     pub left: bool,
+    /// Failed and playing on (Charts: Adaptive's Play on at the easiest
+    /// chart, room model revision 15): out for the battle, never
+    /// [`OpponentView::out`]; its field dimmed and saying so, its score
+    /// still counting.
+    pub failed: bool,
     /// Its score as a fraction of the best its notes give (the percent),
     /// and as the room shows it and ranks by it under DDI: the sum (a
     /// CPU's its own: it plays the whole chart); none under another
@@ -376,6 +381,9 @@ struct Seat {
     /// it plays the song out and is never put out after it, whatever its
     /// gauge does (the decision stands; [`Seat::out_at`]).
     plays_on: bool,
+    /// Its failure was told its field ([`feed::MomentKind::Failed`]: the
+    /// stage plays on failed, revision 15).
+    failed_told: bool,
     /// An online room's CPU (`ddi_room::live::cpus`): played alike on
     /// every device, its reports sent to the room ([`cpus::Drive`]); its
     /// run sent once its stream ended.
@@ -745,6 +753,7 @@ impl Battle {
                     level: u8::try_from(level + 1).unwrap_or(u8::MAX),
                     feed,
                     plays_on: false,
+                    failed_told: false,
                     drive: None,
                 })
             })
@@ -998,13 +1007,16 @@ impl Battle {
             .filter(|_| attacks);
         let streams = self.competes() && prep.is_some();
         // The stage's CPUs, played as every other device plays them.
+        let fails_on = self.setup.rules.plays_on_failed();
         for s in &mut self.seats {
-            s.drive = Some(cpus::Drive::new(
+            let mut drive = cpus::Drive::new(
                 ddi_room::live::cpus::ONLINE_CPUS_V0,
                 s.seat.participant,
                 plan.as_ref().map(|p| p.checkpoints_us.clone()),
                 &mut s.opponent,
-            ));
+            );
+            drive.set_fails_on(fails_on);
+            s.drive = Some(drive);
         }
         self.remote_live = Some(live::Live::new(
             handle,
@@ -1018,6 +1030,7 @@ impl Battle {
             lock,
         ));
         if let Some(l) = self.remote_live.as_mut() {
+            l.set_fails_on(fails_on);
             l.set_most(most, max);
             l.set_rungs(self.rungs.iter().map(|r| (Rc::clone(&r.track), r.up)).collect());
             l.set_counted(self.counted.clone());
@@ -1239,6 +1252,16 @@ impl Battle {
         !self.setup.watching
     }
 
+    /// The local player failed and plays on (revision 15): the stage
+    /// plays on failed, their gauge emptied on the easiest chart, still
+    /// competing and not left.
+    pub fn failed_playing_on(&self, human: &Player) -> bool {
+        self.setup.rules.plays_on_failed()
+            && self.competes()
+            && self.forfeit.is_none()
+            && human.gauge_failed_at().is_some()
+    }
+
     /// The local player is still in the stage: competing, their gauge
     /// not emptied and not left ([`Battle::forfeit_now`]).
     pub fn me_in(&self, human: &Player) -> bool {
@@ -1312,20 +1335,23 @@ impl Battle {
     /// has not reached yet. The local player's own play is not counted:
     /// whoever asks is watching.
     pub fn still_playing(&self) -> bool {
+        let fails_on = self.setup.rules.plays_on_failed();
         if let Some(l) = &self.remote_live {
             return l.seats.iter().any(|s| match (s.end, s.through_us) {
                 (None, _) => true,
                 (Some(_), Some(end_us)) => !l.shown_to(end_us, self.now),
                 (Some(_), None) => false,
             }) || self.seats.iter().any(|s| {
-                s.out_at().is_none() && s.drive.as_ref().is_some_and(|d| d.end().is_none())
+                (s.out_at().is_none() || fails_on)
+                    && s.drive.as_ref().is_some_and(|d| d.end().is_none())
             });
         }
+        // A failed CPU plays on to the song's end (revision 15).
         !self.setup.remote()
             && self
                 .seats
                 .iter()
-                .any(|s| s.out_at().is_none() && !s.opponent.finished())
+                .any(|s| (s.out_at().is_none() || fails_on) && !s.opponent.finished())
     }
 
     pub fn setup(&self) -> &StageSetup {
@@ -1460,6 +1486,7 @@ impl Battle {
             life: shown.life,
             out: shown.out,
             left: shown.out && self.own.left(),
+            failed: false,
             score: percent_shown(&view),
             sum: view.ddi.map(|d| d.score),
             combo: shown.combo,
@@ -1484,6 +1511,7 @@ impl Battle {
     /// Each CPU judged to `t`, its judgments to the ledger and to its
     /// field.
     fn step_cpus(&mut self, t: f64) {
+        let fails_on = self.setup.rules.plays_on_failed();
         for s in &mut self.seats {
             s.opponent.advance(t);
             let events = s.opponent.take_judged();
@@ -1493,7 +1521,7 @@ impl Battle {
                     a.out_at(s.seat.participant, at);
                 }
             }
-            Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, s, events);
+            Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, s, events, fails_on);
         }
     }
 
@@ -1504,12 +1532,41 @@ impl Battle {
         rungs: &[Rc<feed::TapTrack>],
         s: &mut Seat,
         events: Vec<JudgeEvent>,
+        fails_on: bool,
     ) {
         Self::feed_steps(track, rungs, &mut s.feed, s.opponent.player());
         let (life, combo, out_at) = (s.opponent.life(), s.opponent.combo(), s.out_at());
         // Its score as the room shows it, for its field shown large.
         let score = s.opponent.score();
         let judge = &s.opponent.player().ruleset().judge;
+        // Failed and playing on (revision 15): told once, its field fed
+        // on (never out by life).
+        if fails_on {
+            if let Some(at) = out_at.filter(|_| !s.failed_told) {
+                s.failed_told = true;
+                s.feed.push(
+                    track,
+                    feed::Moment {
+                        at,
+                        tick: ddi_chart::Tick(0),
+                        lane: 0,
+                        kind: feed::MomentKind::Failed,
+                        life: 0.0,
+                        combo,
+                        out: false,
+                        offset: 0.0,
+                        w0: None,
+                        score,
+                    },
+                );
+            }
+            for e in events {
+                if let Some(m) = feed::Moment::judged(&e, judge, (life, combo, false), score) {
+                    s.feed.push(track, m);
+                }
+            }
+            return;
+        }
         for e in events {
             // Nothing after it went out: an online CPU plays on after its
             // gauge emptied (alike on every device), a practice's stops
@@ -1562,7 +1619,8 @@ impl Battle {
             let Some(d) = s.drive.as_mut() else { continue };
             let (events, ended) = cpus::step(d, &mut s.opponent, room, stage, (known, limit_us));
             s.feed.set_delay(l.field_delay_s(s.seat.participant));
-            Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, s, events);
+            let fails_on = d.fails_on();
+            Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, s, events, fails_on);
             if ended {
                 // The ledger is `l`'s, taken out of the battle meanwhile.
                 let p = self.seats[i].seat.participant;
@@ -1787,9 +1845,26 @@ impl Battle {
     /// and whether a final attack drew it.
     fn final_ranking(&self, me: Option<Run>) -> (Vec<Vec<Finisher>>, bool) {
         match &self.decided {
+            // Under Play on (revision 15) the decision among those still
+            // in stands, the failed placed by their scores at the end: the
+            // same ranking worked out now (the winner plays the song out,
+            // never put out after it; the settling as it was).
+            Some(_) if self.failed_play_on(me.as_ref()) => {
+                let (ranking, _) = self.rank_now(&self.entrants_as(me));
+                (ranking, self.drawn)
+            }
             Some(r) => (r.clone(), self.drawn),
             None => self.rank_now(&self.entrants_as(me)),
         }
+    }
+
+    /// The stage plays on failed (revision 15) and someone failed (the
+    /// local player's run `me`, or a CPU): their places wait for their
+    /// scores at the song's end.
+    fn failed_play_on(&self, me: Option<&Run>) -> bool {
+        self.setup.rules.plays_on_failed()
+            && (me.is_some_and(|r| matches!(r, Run::Failed { .. }))
+                || self.seats.iter().any(|s| s.out_at().is_some()))
     }
 
     /// The local player out of the play (out, or `quit` while in: a
@@ -2403,6 +2478,7 @@ impl Battle {
                     life: shown.life,
                     out: shown.out,
                     left: shown.out && s.feed.left(),
+                    failed: false,
                     // The stream tells DDI's sum alone: the percent is
                     // worked out from it, the W0s it told, its combo part
                     // and the chart's most and full combo's part
@@ -2438,6 +2514,7 @@ impl Battle {
                         life: shown.life,
                         out: shown.out,
                         left: false,
+                        failed: false,
                         score: view.as_ref().map_or(0.0, percent_shown),
                         sum: Some(view.and_then(|v| v.ddi).map_or(0, |d| d.score)),
                         combo: shown.combo,
@@ -2456,6 +2533,7 @@ impl Battle {
                         life: s.opponent.life(),
                         out: s.out_at().is_some(),
                         left: false,
+                        failed: false,
                         score: percent_shown(&score),
                         sum: score.ddi.map(|d| d.score),
                         combo: s.opponent.combo(),
@@ -2486,7 +2564,10 @@ impl Battle {
             && !watched
         {
             let at = human.judge().last_time().unwrap_or(0.0);
-            let end = match human.gauge_failed_at() {
+            // Failed and played on (revision 15): no end by life; a quit
+            // a forfeit, the song's end finished.
+            let fails_on = self.setup.rules.plays_on_failed();
+            let end = match human.gauge_failed_at().filter(|_| !fails_on) {
                 Some(out) => ddi_room::live::StreamEnd::Out {
                     at_us: attacks::micros(out),
                 },
@@ -2510,6 +2591,14 @@ impl Battle {
         }
         if self.decided.is_none() {
             self.play_out(human, quit);
+        } else if self.setup.rules.plays_on_failed() {
+            // Decided, the failed CPUs still playing: to their ends, for
+            // their final scores (revision 15).
+            for s in &mut self.seats {
+                if s.drive.is_none() && s.out_at().is_some() {
+                    s.opponent.finish();
+                }
+            }
         }
         let mut details = Vec::new();
         if !watched {
@@ -2531,10 +2620,13 @@ impl Battle {
         } else {
             self.attack_summary(human)
         };
-        if let Some(ranking) = &self.decided {
+        if self.decided.is_some() {
+            // Under Play on (revision 15) the failed placed by their
+            // final scores ([`Battle::final_ranking`]).
+            let (ranking, _) = self.final_ranking((!watched).then_some(mine));
             return StageOutcome {
                 stage: self.setup.stage,
-                ranking: ranking.clone(),
+                ranking,
                 confirmed_early: true,
                 mine,
                 drawn_by_final_attack: self.drawn,
@@ -2656,10 +2748,14 @@ impl Battle {
     /// The local player's run now: a forfeit where they left while in
     /// (`quit`, or [`Battle::forfeit_now`]), else out or still in.
     fn my_run(&self, human: &Player, quit: bool) -> Run {
-        if (quit || self.forfeit.is_some()) && human.gauge_failed_at().is_none() {
+        // A quit is a forfeit while still in, and (revision 15) while
+        // failed and playing on: their play ended before the song did.
+        let fails_on = self.setup.rules.plays_on_failed();
+        if (quit || self.forfeit.is_some()) && (human.gauge_failed_at().is_none() || fails_on) {
             Run::Forfeit
         } else {
-            run_of(
+            run_as(
+                fails_on,
                 human.gauge_failed_at(),
                 human.ruleset().gauge.life(),
                 &human.ruleset().score.view(),
@@ -2678,9 +2774,11 @@ impl Battle {
             })
             .into_iter()
             .collect();
+        let fails_on = self.setup.rules.plays_on_failed();
         out.extend(self.seats.iter().map(|s| Entrant {
             participant: s.seat.participant,
-            run: run_of(
+            run: run_as(
+                fails_on,
                 s.out_at(),
                 s.opponent.life(),
                 &s.opponent.score(),
@@ -2827,11 +2925,27 @@ fn played_out_forfeit(
 /// ruleset). `steps`, the steps it made on the song's ladder (a match's
 /// "Charts: Adaptive").
 pub fn run_of(out_at: Option<f64>, life: f32, score: &ScoreView, steps: usize) -> Run {
+    run_as(false, out_at, life, score, steps)
+}
+
+/// [`run_of`] where the stage plays on failed (`fails_on`: Charts:
+/// Adaptive's Play on at the easiest chart, room model revision 15): out
+/// at `out_at` is failed there, with the score as earned to the song's
+/// end (or to now, where the stage is ranked before it).
+pub fn run_as(
+    fails_on: bool,
+    out_at: Option<f64>,
+    life: f32,
+    score: &ScoreView,
+    steps: usize,
+) -> Run {
+    let sum = score.ddi.as_ref().map_or(0, |d| d.score);
     match out_at {
+        Some(at) if fails_on => Run::Failed { at, score: sum },
         Some(at) => Run::Out { at },
         None => Run::Live {
             life: f64::from(life),
-            score: score.ddi.as_ref().map_or(0, |d| d.score),
+            score: sum,
             steps: u8::try_from(steps).unwrap_or(u8::MAX),
         },
     }

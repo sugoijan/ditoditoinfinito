@@ -15,6 +15,9 @@ fn step_room(cpus: u16, level: u8, charts: ddi_room::Charts) -> RoomClient {
     let mut room = attacks_room(cpus, level);
     let rules = MatchRules {
         charts,
+        // Out on the easiest chart, as these tests were written (Play on,
+        // a new room's since revision 15, has its own).
+        easiest: ddi_room::AtEasiest::Out,
         ..room.rules().clone()
     };
     room.save_rules(rules).unwrap();
@@ -537,4 +540,52 @@ fn a_step_is_said_at_its_boundary_or_shown_where_the_pack_lacks_its_line() {
         assert_eq!(live.steps_told().len(), steps.len());
         assert_eq!(cues, if with_line { 0 } else { steps.len() }, "{with_line}");
     }
+}
+
+/// Feedback round AA (room model revision 15): under Adaptive with On the
+/// easiest chart: Play on, a new room's, the player whose life runs out
+/// on the ladder's lowest rung is failed and plays the song to its end,
+/// scoring; out for the battle from then (nothing placed in their play,
+/// no attacks sent); ranked under every competitor who did not fail,
+/// graded F; the same at any frame rate.
+#[test]
+fn a_player_failed_on_the_easiest_chart_plays_on_and_ranks_under_the_survivors() {
+    let song = bundled("beatucada");
+    let mut practice = attacks_room(3, 4);
+    let rules = MatchRules {
+        charts: ddi_room::Charts::Adaptive,
+        easiest: ddi_room::AtEasiest::PlayOn,
+        ..practice.rules().clone()
+    };
+    practice.save_rules(rules).unwrap();
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, HARD);
+    assert!(order.rules.plays_on_failed());
+    let (a, oa, _) = idle(&song, &order, 60.0);
+    let (b, ob, _) = idle(&song, &order, 144.0);
+    // Down every rung, failed on the last, and played on to its end.
+    let failed_at = a.player.gauge_failed_at().expect("failed on the lowest rung");
+    assert_eq!(a.player.steps().len(), ddi_engine::ladder::below(&song, HARD).len());
+    assert!(a.player.failed());
+    let last = a.player.judge().last_time().unwrap();
+    assert!(last > failed_at + 10.0, "judged on after failing: {failed_at} to {last}");
+    assert_eq!(a.player.results().tally, b.player.results().tally, "any frame rate");
+    // Out for the battle: their run failed, below every survivor.
+    assert!(matches!(oa.mine, ddi_room::Run::Failed { .. }), "{:?}", oa.mine);
+    assert_eq!(ids(&oa), ids(&ob));
+    let me = order.me.0;
+    let groups = ids(&oa);
+    let mine = groups.iter().position(|g| g.iter().any(|(p, _)| *p == me)).unwrap();
+    assert!(groups[mine].iter().all(|(_, f)| *f == Finish::Failed));
+    assert!(
+        groups[..mine]
+            .iter()
+            .flatten()
+            .all(|(_, f)| *f == Finish::Survived),
+        "{groups:?}"
+    );
+    // Graded F, as the results and the Standings say it.
+    let detail = oa.details.iter().find(|(p, _)| p.0 == me).unwrap().1.clone();
+    assert_eq!(detail.grade, ddi_engine::rules::ddi::FAILED);
+    assert!(a.battle().unwrap().failed_playing_on(&a.player));
 }

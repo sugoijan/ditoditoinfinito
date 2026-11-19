@@ -250,10 +250,16 @@ impl SessionConfig {
         };
         let mut options = self.replay.as_ref().map_or(self.options, |r| r.options);
         let mut rules = rules;
-        if self.opponents.is_some() {
-            // A stage: out when the gauge empties; the chart as the CPUs
-            // have it, at its own rate.
-            rules.fail = ddi_engine::FailPolicy::Immediate;
+        if let Some(stage) = &self.opponents {
+            // A stage: out when the gauge empties, unless it plays on
+            // failed on the easiest chart (Charts: Adaptive's Play on,
+            // room model revision 15); the chart as the CPUs have it, at
+            // its own rate.
+            rules.fail = if stage.rules.plays_on_failed() {
+                ddi_engine::FailPolicy::ImmediateContinue
+            } else {
+                ddi_engine::FailPolicy::Immediate
+            };
             options.transform = Default::default();
             options.clock.rate = 1.0;
         }

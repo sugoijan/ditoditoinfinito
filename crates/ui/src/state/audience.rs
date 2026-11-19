@@ -909,7 +909,15 @@ impl AudienceClient {
             setup: StageSetup {
                 stage,
                 number: u16::try_from(index + 1).unwrap_or(u16::MAX),
-                of: u16::try_from(v.stages.len()).unwrap_or(u16::MAX),
+                // An open-ended match (revision 15): its last song's
+                // number, else 0 ("Stage N").
+                of: if !v.rules.open_ended {
+                    u16::try_from(v.stages.len()).unwrap_or(u16::MAX)
+                } else if v.stages.get(index).is_some_and(|s| s.last) {
+                    u16::try_from(index + 1).unwrap_or(u16::MAX)
+                } else {
+                    0
+                },
                 battle: ddi_room::BattlePreset::with_attacks(attacks),
                 rules: self.stage_rules_of(Some(stage)),
                 me: AUDIENCE_ME,
@@ -974,6 +982,7 @@ impl AudienceClient {
                 stage,
                 index,
                 of: v.stages.len(),
+                open_ended: v.rules.open_ended,
                 roster: v.standings.iter().map(|st| st.participant).collect(),
                 results: v.stages[..=index]
                     .iter()

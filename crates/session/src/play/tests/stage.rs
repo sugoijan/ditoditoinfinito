@@ -949,7 +949,13 @@ fn a_stage_is_played_under_the_match_s_rules_not_the_player_s() {
     assert_eq!(fresh.rules().ruleset, "ddi");
     let normal = crate::battle::stage_ruleset(&ddi_ui::state::room::StageRules::of(fresh.rules()));
     assert_eq!(normal.ddi, Some(DdiOptions::default()));
-    assert_eq!(normal.fail, ddi_engine::FailPolicy::Immediate);
+    // A new room's rules (revision 15): Adaptive, playing on failed on
+    // the easiest chart; out at zero life under As picked or Out.
+    assert_eq!(normal.fail, ddi_engine::FailPolicy::ImmediateContinue);
+    let mut out = fresh.rules().clone();
+    out.easiest = ddi_room::AtEasiest::Out;
+    let out = crate::battle::stage_ruleset(&ddi_ui::state::room::StageRules::of(&out));
+    assert_eq!(out.fail, ddi_engine::FailPolicy::Immediate);
 }
 
 /// A practice room under the attacks' battle (the Attacks rule On, as a

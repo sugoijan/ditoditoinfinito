@@ -84,6 +84,9 @@ impl Rig {
             // (The CPUs are the room's roster, whose seeds are the room's:
             // `common::practice::SEED`, the same stage on every run.)
             rules.cpu.opponent.seed = 7;
+            // A player out at zero life, as these stages were written
+            // (revision 15's Play on at the easiest chart has its own).
+            rules.easiest = ddi_room::AtEasiest::Out;
             r.save_rules(rules).unwrap();
         }
         Some(Rig {

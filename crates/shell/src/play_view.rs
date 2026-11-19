@@ -499,7 +499,7 @@ pub struct PlayView<H: PlayHost> {
     overlay: Option<(Painter, DrawList)>,
     /// A stage's opponents' words (`crate::opponents`: "Out", "Stage
     /// won"), once worded.
-    shown_words: Option<[String; 5]>,
+    shown_words: Option<[String; 6]>,
     /// Where the last frame put the opponents' miniatures, if it did,
     /// and whether a battle's moment was shown in their status line.
     fields_drawn: Option<crate::opponents::Fields>,
@@ -1953,6 +1953,7 @@ impl<H: PlayHost> PlayView<H> {
                     m::play_last_standing().into(),
                     m::play_forfeit().into(),
                     m::table_left().into(),
+                    m::play_failed().into(),
                 ]
             });
             let mut opponents = views_now;
@@ -1967,12 +1968,14 @@ impl<H: PlayHost> PlayView<H> {
                 o.life = shown.life;
                 o.out = shown.out;
                 o.left = shown.out && feed.left();
+                o.failed = shown.failed && !shown.out;
             }
             Overlay {
                 shown: crate::opponents::Shown {
                     opponents,
                     out: words[0].clone(),
                     left: (words[3].clone(), words[4].clone()),
+                    failed: words[5].clone(),
                     // "Stage won", or before it "Last standing" while
                     // attacks against the player are still to come.
                     won: if b.won() {
@@ -2064,9 +2067,14 @@ impl<H: PlayHost> PlayView<H> {
                     });
                     Some((text, step))
                 });
-            let waiting = b
-                .waiting(&session.player)
-                .map(|_| String::from(ddi_l10n::msg::room::play_attack_waiting()));
+            // Failed and playing on (revision 15): said under the gauge,
+            // where the waiting line goes (no attacks wait any more).
+            let waiting = if focus.is_none() && b.failed_playing_on(&session.player) {
+                Some(String::from(ddi_l10n::msg::room::play_failed_on()))
+            } else {
+                b.waiting(&session.player)
+                    .map(|_| String::from(ddi_l10n::msg::room::play_attack_waiting()))
+            };
             // How the policy is changed, beside it: the key or the pad's
             // control (on a touch screen the label itself is tapped).
             let policy_key = session.policy_key().and_then(|k| match k {

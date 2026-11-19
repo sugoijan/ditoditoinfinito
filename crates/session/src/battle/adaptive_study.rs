@@ -274,6 +274,7 @@ fn stage(
     let rules = StageRules {
         difficulty,
         charts,
+        easiest: ddi_room::AtEasiest::Out,
         ..StageRules::default()
     };
     let ruleset = stage_ruleset(&rules);
@@ -707,6 +708,7 @@ fn adaptive_cost_of_72_cpus() {
     for charts in [Charts::AsPicked, Charts::Adaptive] {
         let rules = StageRules {
             charts,
+            easiest: ddi_room::AtEasiest::Out,
             ..StageRules::default()
         };
         let ruleset = stage_ruleset(&rules);

@@ -210,6 +210,9 @@ pub enum Admission {
     Open,
     /// A match runs: entry waits for the next.
     NextMatch,
+    /// A match runs that seats newcomers for its next song not begun
+    /// (room model revision 15, joining during a match).
+    NextStage,
     Closed,
     Full,
 }

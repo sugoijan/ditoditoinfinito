@@ -1283,7 +1283,7 @@ impl ResultsScreen {
             String::new()
         };
         let h = if fitted { h } else { top + drawn.height + 12.0 };
-        let title = m::table_title(usize::from(table.number), usize::from(table.of));
+        let title = m::table_title(usize::from(table.number), usize::from(table.of_shown()));
         let panel = self.panel("Standings", &title, &note, [x, y, w, h], content);
         self.stage_shown
             .set((drawn.first, drawn.shown, table.rows.len(), w - 2.0 * pad));
