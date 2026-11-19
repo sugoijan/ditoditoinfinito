@@ -962,3 +962,5 @@ room-host-list-note = 一人が追加できる曲は { $count } 曲までです�
 room-ahead-quota = このブラウザにルームの曲を保存する空きがなくなりました。これからは次に遊びそうな曲だけを先にダウンロードします。
 room-status-my-songs-picker = ここで曲をルームに追加できます。次の曲は「ルームの曲」で選んでください。
 room-status-my-songs-adder = ここで曲をルームに追加できます。
+room-add-pack = このパックをルームに追加（{ $count }曲）
+room-status-adding-pack = パックをルームに追加中：{ $count }曲中{ $done }曲をアップロード済み。

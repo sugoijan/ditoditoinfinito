@@ -64,6 +64,7 @@ pub(super) const TAB_MINE: &str = "Room.Tab.Mine";
 const MORE_TAB: &str = "room-tab";
 const MORE_REMOVE: &str = "room-remove-song";
 const MORE_RETRY_UPLOAD: &str = "room-retry-upload";
+const MORE_ADD_PACK: &str = "room-add-pack";
 /// A listed song this device does not have, as the Room songs tab names
 /// it (its entry's id after it).
 use crate::screens::data::ROOM_SONG_ID;
@@ -1254,6 +1255,25 @@ impl SelectScreen {
                 Tab::Mine => ddi_l10n::msg::room::tab_room_songs(),
             };
             last.push((MORE_TAB.into(), label.into()));
+            // My songs: the shown song's whole pack added at once.
+            if rm.tab == Tab::Mine
+                && let Some(pack) = self.song().and_then(|s| s.pack.clone())
+            {
+                let songs: Vec<SongEntry> = self
+                    .data
+                    .songs
+                    .iter()
+                    .filter(|s| s.pack.as_deref() == Some(pack.as_str()))
+                    .cloned()
+                    .collect();
+                let n = rm.room.borrow().pack_addable(&songs).len();
+                if n > 0 {
+                    last.push((
+                        MORE_ADD_PACK.into(),
+                        ddi_l10n::msg::room::add_pack(n).into(),
+                    ));
+                }
+            }
             if let Some(entry) = self.shown_entry() {
                 let r = rm.room.borrow();
                 if r.may_retry_song(entry) {
@@ -1412,7 +1432,7 @@ impl SelectScreen {
         }
         // The list's items (revision 17).
         if let Some(id) = crate::screens::menu_pick(msg, room::MORE)
-            && matches!(id, MORE_TAB | MORE_REMOVE | MORE_RETRY_UPLOAD)
+            && matches!(id, MORE_TAB | MORE_REMOVE | MORE_RETRY_UPLOAD | MORE_ADD_PACK)
         {
             let entry = self.shown_entry();
             match id {
@@ -1422,6 +1442,20 @@ impl SelectScreen {
                         _ => Tab::Room,
                     };
                     self.switch_tab(to, root, cx);
+                }
+                MORE_ADD_PACK => {
+                    let pack = self.song().and_then(|s| s.pack.clone());
+                    let songs: Vec<SongEntry> = self
+                        .data
+                        .songs
+                        .iter()
+                        .filter(|s| pack.is_some() && s.pack == pack)
+                        .cloned()
+                        .collect();
+                    if let Err(why) = room.borrow_mut().add_pack(&songs) {
+                        NoticeDialog::show_refusal(self.env.clone(), &room, &why, cx);
+                    }
+                    cx.focus("Wheel");
                 }
                 MORE_REMOVE => {
                     if let Some(entry) = entry

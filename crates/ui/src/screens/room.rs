@@ -627,6 +627,13 @@ pub fn status(r: &RoomClient) -> UiText {
 /// it would say to pick a song: Enter adds a song there, picks are made
 /// on Room songs. None where the line says anything else.
 pub fn status_on_my_songs(r: &RoomClient) -> Option<UiText> {
+    // A pack being added: how far its uploads are.
+    if let Some((done, of)) = r.pack_progress()
+        && r.refusal().is_none()
+        && r.link_notice().is_none()
+    {
+        return Some(m::status_adding_pack(done, of));
+    }
     if r.refusal().is_some()
         || r.link_notice().is_some()
         || r.link_state() != LinkState::Connected

@@ -127,6 +127,9 @@ struct Fake {
     member: Option<SharedRoom>,
     /// When the player's client was first seen connected.
     connected_at: Option<u64>,
+    /// Alice's song added to the room's list (room model revision 17):
+    /// her picks are made from it, as a host's are.
+    listed: bool,
     picked: bool,
     /// When alice and bob ready for the stage they have (alice:
     /// [`READY_AFTER`]; bob at once).
@@ -193,6 +196,7 @@ fn fake() -> Rc<RefCell<Fake>> {
         you: online(&server, Some("you")),
         member: None,
         connected_at: None,
+        listed: false,
         picked: false,
         ready_at: [None; 2],
         playing: [None; 2],
@@ -276,6 +280,45 @@ fn prepare_as(room: SharedRoom, job: LoadJob, player: bool) {
         };
         room.borrow_mut().finish_shared_load_live(&job, result);
     });
+}
+
+/// The song as alice's library has it (every original chart), for the
+/// room's list: its content is the bundled song's, which the player's
+/// library has too.
+fn listed_entry(song: &ddi_chart::Song) -> ddi_ui::screens::data::SongEntry {
+    let mut e = entry(song, 0);
+    e.charts = (0..song.charts.len())
+        .filter(|&i| song.charts[i].derivation.is_none())
+        .map(|i| ddi_ui::screens::data::ChartEntry {
+            style: song.charts[i].layout.clone(),
+            difficulty: song.charts[i].difficulty,
+            meter: song.charts[i].meter,
+            index: i,
+            digest: Some(song.chart_digest(i)),
+            ..Default::default()
+        })
+        .collect();
+    e
+}
+
+/// Alice's pick of `e`'s chart from the room's list (where the song is
+/// listed), else as before revision 17 (a pick shared after it).
+fn pick_from_list(
+    a: &mut RoomClient,
+    e: &ddi_ui::screens::data::SongEntry,
+) -> Result<(), ddi_ui::state::room::Refusal> {
+    let listed = a.room_songs().iter().find(|l| {
+        e.charts[0]
+            .digest
+            .is_some_and(|d| l.chart(&ddi_room::ChartKey::new(d.to_string())).is_some())
+    });
+    match listed.map(|l| l.id) {
+        Some(id) => {
+            let chart = ddi_room::ChartKey::new(e.charts[0].digest.map(|d| d.to_string()).unwrap_or_default());
+            a.pick_listed(id, &chart)
+        }
+        None => a.pick(e, &e.charts[0]),
+    }
 }
 
 impl Fake {
@@ -436,6 +479,23 @@ impl Fake {
         if connected && self.connected_at.is_none() {
             self.connected_at = Some(now);
         }
+        // The song in the room's list once the player is in (their Room
+        // songs tab shows it before it is picked).
+        if connected && !self.listed {
+            self.listed = true;
+            let alice = self.alice.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let Ok(song) = crate::songs::load_chart(SONG).await else {
+                    return;
+                };
+                let whole = listed_entry(&song);
+                let mut a = alice.borrow_mut();
+                a.set_library(std::slice::from_ref(&whole));
+                if let Err(why) = a.add_song(&whole) {
+                    web_sys::console::warn_1(&format!("fake room: adding the song: {why:?}").into());
+                }
+            });
+        }
         let due = self
             .connected_at
             .zip(WANTED.get())
@@ -458,7 +518,7 @@ impl Fake {
                 let mut rules = a.rules().clone();
                 rules.stages = 2;
                 let _ = a.save_rules(rules);
-                if let Err(why) = a.pick(&e, &e.charts[0]) {
+                if let Err(why) = pick_from_list(&mut a, &e) {
                     web_sys::console::warn_1(&format!("fake room: the pick: {why:?}").into());
                 }
             });
@@ -503,7 +563,7 @@ impl Fake {
                         .find(|&c| song.charts[c].layout == "dance-single")
                         .unwrap_or(0);
                     let e = entry(&song, chart);
-                    if let Err(why) = alice.borrow_mut().pick(&e, &e.charts[0]) {
+                    if let Err(why) = pick_from_list(&mut alice.borrow_mut(), &e) {
                         web_sys::console::warn_1(
                             &format!("fake room: the second pick: {why:?}").into(),
                         );

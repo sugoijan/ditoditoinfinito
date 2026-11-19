@@ -287,3 +287,41 @@ fn a_stage_stops_the_downloads_and_running_out_of_room_falls_back() {
     planned.sort();
     assert_eq!(planned, vec![ids[4], ids[5], ids[6], ids[7]]);
 }
+
+/// More's Add this pack: every song of the pack not in the room yet, as
+/// many as the person may add (half the list's size), uploaded one at a
+/// time; its progress said until the last is there.
+#[test]
+fn a_pack_is_added_up_to_the_person_s_share_and_its_uploads_are_counted() {
+    let clock = ManualClock::new(1_000);
+    let server = room_with(&clock, &["bob"], RoomPolicy::default().with_live());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+    for _ in 0..10 {
+        tick(&clock, &mut [&mut alice, &mut bob], 100);
+    }
+    alice
+        .set_song_list(ddi_room::ListRules {
+            size: 6,
+            when_full: ddi_room::WhenFull::Refuse,
+        })
+        .unwrap();
+    tick(&clock, &mut [&mut alice, &mut bob], 200);
+    let pack: Vec<SongEntry> = (0..5)
+        .map(|i| packed(&format!("p{i}"), &format!("P{i}"), 40 + i))
+        .collect();
+    alice.set_library(&pack);
+    alice.add_song(&pack[0]).unwrap();
+    tick(&clock, &mut [&mut alice, &mut bob], 200);
+    // Three of six a person, one added: two more.
+    assert_eq!(alice.pack_addable(&pack).len(), 2);
+    assert!(bob.pack_addable(&pack).is_empty(), "a member may not add");
+    assert_eq!(alice.add_pack(&pack), Ok(2));
+    tick(&clock, &mut [&mut alice, &mut bob], 200);
+    assert_eq!(bob.room_songs().len(), 3);
+    assert_eq!(alice.pack_progress(), Some((0, 2)));
+    uploaded(&server, &alice);
+    tick(&clock, &mut [&mut alice, &mut bob], 200);
+    assert_eq!(alice.pack_progress(), None);
+    assert!(alice.pack_addable(&pack).is_empty());
+}

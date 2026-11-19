@@ -2292,3 +2292,17 @@ room-ahead-quota = This browser has no more room for the room's songs: only the 
 room-status-my-songs-picker = Add songs to the room here. Pick the next song on Room songs.
 # The same for someone who may add songs but doesn't choose them.
 room-status-my-songs-adder = Add songs to the room here.
+# More's item on My songs for someone who may add songs: adds every song
+# of the shown song's pack that is not in the room yet (as many as they
+# may add).
+# Variables:
+#   $count (Number) - how many songs it adds
+room-add-pack = { $count ->
+    [one] Add this pack to the room (one song)
+   *[other] Add this pack to the room ({ $count } songs)
+}
+# The status line on My songs while a pack's songs are being uploaded.
+# Variables:
+#   $done (Number) - songs uploaded
+#   $count (Number) - the pack's songs being added
+room-status-adding-pack = Adding the pack to the room: { $done } of { $count } uploaded.

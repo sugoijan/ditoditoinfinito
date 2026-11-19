@@ -1459,6 +1459,9 @@ pub struct RoomClient {
     song_sharing: BTreeMap<RoomSongId, Sharing>,
     /// Stage 2: the listed songs downloaded ahead (`preload`).
     ahead: preload::Ahead,
+    /// The songs of a pack this player added at once (More's Add this
+    /// pack), by content, while any of them is still being uploaded.
+    pack_keys: Vec<SongKey>,
 }
 
 /// What an entry of the room's song list is for this player (revision
@@ -2145,6 +2148,7 @@ impl RoomClient {
             library: BTreeMap::new(),
             song_sharing: BTreeMap::new(),
             ahead: Default::default(),
+            pack_keys: Vec::new(),
             live_news: LiveNewsTap::default(),
             preparing: BTreeMap::new(),
             offered: BTreeSet::new(),
@@ -3375,6 +3379,62 @@ impl RoomClient {
         self.send(Command::AddSong {
             song: Box::new(new),
         })
+    }
+
+    /// The songs of `songs` (a pack of this player's library) that could
+    /// be added to the room's list now: not listed yet, their charts'
+    /// digests known, as many as this player may still add (half the
+    /// list's size) and, where the list refuses new songs when full, as it
+    /// has room for.
+    pub fn pack_addable<'a>(&self, songs: &'a [SongEntry]) -> Vec<&'a SongEntry> {
+        if !self.may_add() {
+            return Vec::new();
+        }
+        let s = self.state();
+        let rules = s.songs.rules;
+        let mut room_left = rules.per_person().saturating_sub(s.songs.added_by(self.me));
+        if rules.when_full == ddi_room::WhenFull::Refuse {
+            room_left = room_left.min(usize::from(rules.size).saturating_sub(s.songs.len()));
+        }
+        let mut seen = BTreeSet::new();
+        songs
+            .iter()
+            .filter(|song| {
+                new_song(song).is_some_and(|n| {
+                    s.songs.by_key(&n.key).is_none() && seen.insert(n.key.as_str().to_string())
+                })
+            })
+            .take(room_left)
+            .collect()
+    }
+
+    /// More's Add this pack (on My songs): each of `songs` that may be
+    /// added ([`Self::pack_addable`]) added to the room's list, uploaded
+    /// one at a time as any added song; how many. Its progress is
+    /// [`Self::pack_progress`].
+    pub fn add_pack(&mut self, songs: &[SongEntry]) -> Result<usize, Refusal> {
+        let adding: Vec<SongEntry> = self.pack_addable(songs).into_iter().cloned().collect();
+        let mut added = 0;
+        for song in &adding {
+            if let Some(n) = new_song(song) {
+                self.add_song(song)?;
+                self.pack_keys.push(n.key);
+                added += 1;
+            }
+        }
+        Ok(added)
+    }
+
+    /// A pack being added: its songs uploaded so far of those still in the
+    /// room's list, while any is not (none after).
+    pub fn pack_progress(&self) -> Option<(usize, usize)> {
+        let entries: Vec<&RoomSong> = self
+            .pack_keys
+            .iter()
+            .filter_map(|k| self.state().songs.by_key(k))
+            .collect();
+        let done = entries.iter().filter(|e| e.available()).count();
+        (!entries.is_empty() && done < entries.len()).then_some((done, entries.len()))
     }
 
     /// Remove entry `song` from the room's list.
