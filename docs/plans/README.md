@@ -313,6 +313,7 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   numbers always shown, a line where a chart has none; the web's rating
   started on every route. Round Z2: the DDI estimate (`crates/rating`) as
   a third choice, a try, its matched-level skill profile on the radar.
+  Round AD (2026-11-19): the estimate to a tenth everywhere it shows.
 
 - [The DDI ruleset](ddi-ruleset.md) (2026-11-12): rounds 1 (the
   engine), 2 (the screens: Options' rows, the default with the move
@@ -394,7 +395,8 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   combo tiers and still title watermark. The life gauge four lanes wide
   over the field and filling from the middle out, on a curve, since
   2026-11-06. The music's volume beside the quit button, pointer only,
-  since 2026-11-19 (round AB).
+  since 2026-11-19 (round AB); none in a room's stage on a touch screen
+  (round AD).
 
 - [Pump layouts](pump.md) (2026-10-13): done (ticked holds 2026-10-14,
   pump skins 2026-10-16, every bundled skin's own center 2026-10-22).
@@ -424,7 +426,8 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
 - [Song-select navigation](song-navigation.md) (2026-10-20): done; the
   reference for the tuned timings of taps, pairs and holds, and for the
   search field from a controller (2026-10-22); favorite songs and the
-  Favorites pack at the top of the list (2026-11-18).
+  Favorites pack at the top of the list (2026-11-18); the heart on the
+  typed f and a phone's Volume in More (2026-11-19, round AD).
 - [Smaller chart and import format gaps](format-gaps.md) (2026-10-21):
   done: `.lrc` lyrics, jackets and CD titles, per-chart and preview
   music, background names with `,` or `=`, Korean and Chinese text.
@@ -563,7 +566,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   Controls preview added 2026-10-27: the chart's receptors and primary
   bindings above the modifiers, a brief looping press demo, with auto-start
   taking priority. The music's volume in the card's corner, saying when
-  the music is muted, since 2026-11-19 (round AB).
+  the music is muted, since 2026-11-19 (round AB); worded as every
+  sound's ("Sound is muted"), and on calibration's sound tests' cards too
+  (round AD).
 - [Start menu and returning between screens](start-menu.md) (2026-10-20):
   implemented 2026-10-21. Singleplayer entry, a future Multiplayer hint, caller-relative
   Options, silent return from song select and desktop Quit. Animated Dosis

@@ -12164,6 +12164,36 @@ stage traces and the pins of drawn output unchanged.
   the default policy live and moving those tests and the fake room, not
   a bounded removal.
 
+## Round AD: the volume's edges, the favorite key, the estimate's digits (2026-11-19)
+
+The maintainer's answers to open decisions, built; no room model
+revision (nothing peers agree on changed).
+
+- The quick volume is every sound's (the music, claps, mines, scripts'
+  sounds, the announcer at its share, song select's preview) and says so:
+  Options' row is Volume (Music volume before), the announcer's
+  description "a share of the volume", the prompt's and the Ready card's
+  line "Sound is muted" (`prompt-sound-muted`). No behavior change.
+- On a touch screen a room's stage (played or watched) has no volume
+  button beside the quit button, so it never covers a miniature; its
+  Ready card has the control. Singleplayer plays, replays and playtests
+  keep it; a mouse shows it everywhere (`play_volume::offered`).
+- A phone's song select (no quick volume) has Volume in More, in a room
+  too (the picker's and the follower's), opening the same control in a
+  small dialog (`select_dialogs::VolumeDialog`).
+- Calibration's sound tests' cards have the volume and the muted line;
+  the arrows-only test's none. Calibration's results are untouched
+  (desktop's `the_volume_moved_before_a_run_settles_the_same`).
+- The heart's key is the typed f (`KeyEvent::key`), not the physical
+  `KeyF`.
+- Under "Chart ratings: DDI estimate" every number is the estimate to a
+  tenth (a room's lines too).
+- Desktop draws text in the bundled faces where the system has no font
+  (it panicked in cosmic-text).
+- Open, pictured for the maintainer: a room's chart row slides its five
+  places under the pointer where song select's radar side has a fixed
+  place for every chart; give the room the fixed places too?
+
 ## Round AB: the music's volume at the Ready card and in a stage (2026-11-19)
 
 Found in a test with other players: muted on song select (the quick
