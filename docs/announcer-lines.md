@@ -350,8 +350,7 @@ outcome's line is what you hear. A pack without them says `cleared` and
 |---|---|---|
 | `battle match begin` | As the first stage of a match starts (a one-stage match's too), in place of `ready` | `battle stage begin`, then `gameplay ready` |
 | `battle stage begin` | As a later stage starts, in place of `ready` | `gameplay ready` |
-| `battle final stage` | As the last stage of a match of two or more starts, in place of `ready`, where the pack has no `battle last song` | `battle stage begin`, then `gameplay ready` |
-| `battle last song` | As the match's last song starts, in place of `ready`: a counted match's last stage (two or more), or the song marked as the last of an open match (on the Ready card, More, or by the room's limit on stages); since 2026-11-19 | `battle final stage`, then `battle stage begin`, then `gameplay ready` |
+| `battle final stage` | As the last stage of a match of two or more starts, in place of `ready`: a counted match's last stage, or the song marked as the last of an open match (on the Ready card, More, or by the room's limit on stages; since 2026-11-19) | `battle stage begin`, then `gameplay ready` |
 | `battle life critical` | Your life is about to run out while you are still in (the gauge entering danger), once a stage | `gameplay comment danger` |
 | `battle attack incoming` | An attack against you is on its way (a battle with attacks): as it is committed, before its shocks can be seen, or not at all; not again for an attack within six seconds of the one before | nothing |
 | `battle attack launched` | Your own attack was sent (your attack power was full) | nothing |
@@ -368,12 +367,8 @@ outcome's line is what you hear. A pack without them says `cleared` and
 | `battle match drawn` | The same, first place shared | nothing |
 
 A stage opens with one line, never two: the match's beginning on its
-first stage (a one-stage match's too), its last song's on its last,
-else the stage's. `battle last song` is one of these openings, as
-`ready` is, below every other battle line and above the combo lines;
-where a pack lacks it the last stage opens with `battle final stage` (or
-what that falls back to) and "Last song" shows beside the field for a
-moment.
+first stage (a one-stage match's too), the final stage's on its last
+(an open match's song marked as its last included), else the stage's.
 
 `here we go` still ends half a second before the first note. One battle
 line speaks at a time: one due while another is still speaking speaks

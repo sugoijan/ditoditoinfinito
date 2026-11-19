@@ -12653,6 +12653,67 @@ line). Tests: the session's `grades.rs`, the room's
   "Waiting for … trying their download again", "You're back in the room. …",
   "failed but playing on when your life runs out" (Japanese drafts).
 
+## Round AF: the final stage's line, the room's chart row (2026-11-19)
+
+Two follow-ups the maintainer decided; no room model change (revision 16
+stays: the last song's mark was already in the model).
+
+- **The final stage's line for a marked last song** ("Final stage for
+  both, that's what I had meant"): `battle final stage` opens a counted
+  match's last stage, as before round AC, and now an open-ended match's
+  stage marked its last song too (on the Ready card, More, or by the
+  room's bound: `StageSetup::opening`, `Battle::FinalStage` where
+  `StageSetup::is_last`). Round AC's `battle last song` is removed: the
+  line (`Battle::LastSong`), its priority and fallbacks in the voice
+  (`announcer/battle.rs`, back to before AC), the cue beside the field
+  ("Last song", `room-play-cue-last-song`), the studio's line and its
+  examples, `docs/announcer-lines.md`, and our packs' six recordings, their
+  texts and provenance lines (`assets/announcers/Clank/{en,ja}`,
+  `pack.toml`, `pack-ja.toml`; the provenance's `made` date back to
+  2026-11-16; `gen-announcers`, `gen-credits`): the packs, their
+  provenance and the credits are byte for byte as before round AC's
+  recording commit (no other sound had changed then). The Ready card's
+  "Last song: Off / On" row and its status line stay. Test:
+  `an_open_match_s_last_song_opens_with_the_final_stage_line` (an open
+  match's unmarked stage opens with `battle stage begin`, its marked last
+  song with `battle final stage`; the counted match's last stage the same,
+  `a_stage_speaks_its_battle_moments_once_and_none_of_a_play_s_routine`).
+  AC's "Decision to confirm" on `battle last song`'s fallback is moot.
+- **A fixed place per chart in a room's chart row** ("Yes, fixed places in
+  rooms too"): the room's short side (the host's and the followers', wide
+  and on a phone) has a place per chart of the style, five at least and
+  eight at most, as the solo radar side has; past eight a window of eight
+  follows the chart chosen (`SelectScreen::chart_places`). A click never
+  slides the row under the pointer. At 1280×720 the row keeps its column
+  beside the banner (from x 348 to 592) and the players panel is
+  unchanged; the buttons are narrower: 44.8 wide for five (as before),
+  36.5 for six, 30.6 for seven, 26.1 for eight (a phone sideways: 56,
+  45.8, 38.6, 33.1). A number wider than its button is set smaller to fit
+  (`fit_number`: the DDI estimate's "18.8" about 16 px for six, 13 px for
+  seven, 11 px for eight, against 20); a chart named in its button is cut
+  as before. Tests: `a_rooms_chart_row_keeps_a_place_per_chart` (a click
+  on the right-most of seven chooses it and no button moves; each button
+  its own chart; the double arrow and a controller's shoulders one chart
+  at a time, nothing moving; eight charts eight buttons; nine a window;
+  wide and a phone either way) and
+  `a_rooms_chart_row_fits_a_place_per_chart_with_the_estimates_tenths`
+  (the real look: every number to a tenth inside its button for five to
+  eight charts, the row as wide as five's, the panel unmoved). No pin of
+  drawn output moved (the pinned rooms have five charts or fewer).
+  **Question**: a phone's singleplayer song select keeps its five sliding
+  places (the brief named rooms); give it the fixed places too?
+- The web in headless Chrome, then Firefox (CPU practice, a scratch pack's
+  song of seven Single charts imported in a fresh profile): the room's row
+  of seven buttons (30.6 wide at 1280×720), a click on the right-most
+  choosing Edit B 13 and one on the next Edit A 12, no button moving; an
+  open match whose stage 2 opened with `battle stage begin` and whose
+  stage 3, marked Last song: On on its Ready card, opened with `battle
+  final stage` (the voice's log, `__DDI_DEBUG.announcer.spoken`, then
+  here we go; nothing missing or absent); then a counted match of two
+  whose second stage opened with `battle final stage`. The singleplayer
+  smoke check passed in both (WebGPU, WebGL2). Pictures under the main
+  checkout's `target/scratch/mp/af/shots/`.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

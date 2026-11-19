@@ -273,7 +273,14 @@ Z1"). The gestures are the ladder's: Up/Left twice an easier chart,
 Down/Right twice a harder one, Tab the style, a tap on a button picks it
 and a tap on the chosen one plays; the buttons and the style tabs are the
 side's focusables; the footer's hints are unchanged. With it Off, or on a
-phone, or in a room, the song side is as described above.
+phone, or in a room, the song side is as described above, but for a
+room's row of chart buttons (wide and on a phone): since round AF
+(2026-11-19, the maintainer: "Yes, fixed places in rooms too") it has
+the same fixed places, one for each chart of the style up to eight, so
+a click never slides the row under the pointer; in the wide room's
+column beside the banner the row keeps its width and the buttons are
+narrower (44.8 for five, 36.5 for six, 30.6 for seven, 26.1 for eight
+at 1280×720), a number wider than its button set smaller to fit.
 
 ## A song's row (2026-11-19, round AE)
 

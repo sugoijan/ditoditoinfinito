@@ -553,9 +553,10 @@ Decision 1's original pack, explored from 2026-11-03 with ElevenLabs
   true peaks −1.8 to −2.5 dBFS (`announcer-level-v3`, as the rest).
   217 sounds for `Mr. Clank`, 216 for `ガキンさん`, over 68 lines.
   Round AC (2026-11-19) added `battle last song` (the match's last song
-  opening, in place of ready; `battle final stage` its fallback), three
-  texts each, made the same way (every earlier sound byte for byte the
-  same): 220 sounds and 219 over 69 lines.
+  opening); round AF (the same day, the maintainer: "Final stage for
+  both, that's what I had meant") took it out again, recordings and
+  texts, `battle final stage` opening an open match's marked last song
+  too: the packs are as before round AC, byte for byte.
 
 ### Louder packs (2026-11-12)
 
