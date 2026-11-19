@@ -427,7 +427,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   reference for the tuned timings of taps, pairs and holds, and for the
   search field from a controller (2026-10-22); favorite songs and the
   Favorites pack at the top of the list (2026-11-18); the heart on the
-  typed f and a phone's Volume in More (2026-11-19, round AD).
+  typed f and a phone's Volume in More (2026-11-19, round AD); a list
+  row's one level and best grade, or "NEW", for the chart Play would
+  play (2026-11-19, round AE).
 - [Smaller chart and import format gaps](format-gaps.md) (2026-10-21):
   done: `.lrc` lyrics, jackets and CD titles, per-chart and preview
   music, background names with `,` or `=`, Korean and Chinese text.

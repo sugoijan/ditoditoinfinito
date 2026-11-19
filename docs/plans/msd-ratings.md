@@ -92,7 +92,9 @@ a score goal; the listing is rate 1.0, goal 93%.
   options Off nothing is read, written, offered or started.
 - **The number** where Chart ratings is MSD and the chart has one
   (`ChartEntry::meter_text`, `meter_text_fine`, `msd`, `meter_is_songs`):
-  song select's list chips (whole), its chart buttons (whole; a phone's,
+  song select's list rows (to a tenth since round AE, the one chart
+  Play would play: `song-navigation.md`, "A song's row"; whole on
+  the level chips before), its chart buttons (whole; a phone's,
   a room's short side), its ladder rows (to a tenth, the song's own number
   said first in the row's line, "Song 9 · 300 notes"), the Play button and
   a room's chart line (`chart_shown`, whole), the plays list's title, the
@@ -101,8 +103,8 @@ a score goal; the listing is rate 1.0, goal 93%.
   and desktop's kept results, `ratings::shown_msd`), a room's players panel
   and status lines (`meter_text`). The number keeps its difficulty's
   color. A chart without MSD (not four lanes, or not rated yet) shows the
-  song's number at 55% opacity where it is a part of its own (chips,
-  buttons, rows): quiet, and the same color. Sorting, the ladder's order,
+  song's number at 55% opacity where it is a part of its own (a list
+  row's level, buttons, ladder rows): quiet, and the same color. Sorting, the ladder's order,
   the Adaptive ladder, the CPUs' eligibility, the announcer's hard-chart
   comment, the editor and the room's content card (agreed between peers)
   keep reading the song's number.
@@ -283,14 +285,13 @@ is and nothing is removed.
   playable heads, at most 1,200 source notes, 15 to 180 s, no lifts),
   wherever MSD's number shows. Since round AD (2026-11-19, the
   maintainer: "A tenth everywhere") its decimal to a tenth everywhere it
-  shows (the list's chips, the chart buttons, a ladder row, the prompt,
+  shows (the list's rows, the chart buttons, a ladder row, the prompt,
   the Play button, a room's lines, the radar's side's detail; "11.3"), its
   rounded level nowhere (`Shown::whole` and `fine` alike for it; whole
-  before). The list's chips squeeze a number wider than their cell to it
-  (the theme's `maxwidth,24` on `Meter<k>`: "18.8", 28 px at 14 px, about
-  six sevenths; two digits as they were, so the song's and MSD's chips
-  draw as before), the chart buttons fit it as they are
-  (`the_estimates_tenths_fit_the_chips_and_the_chart_buttons`, at the
+  before). The list's chips squeezed a number wider than their cell to
+  it (`maxwidth,24`) until round AE gave each row one level with room for
+  four characters, unsqueezed; the chart buttons fit it as they are
+  (`the_estimates_tenths_fit_the_rows_and_the_chart_buttons`, at the
   design's size, 600×480 and a phone's, the radar's places and the
   ladder's side). Elsewhere (not Single, a generated version,
   outside the domain, an error) the song's number, fainter, as MSD's

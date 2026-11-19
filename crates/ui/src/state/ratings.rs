@@ -473,7 +473,7 @@ pub enum Shown {
 }
 
 impl Shown {
-    /// As the list's chips and the chart buttons show it: MSD whole, the
+    /// As the chart buttons show it: MSD whole, the
     /// estimate's decimal to a tenth (its rounded level is shown nowhere:
     /// round AD, 2026-11-19, the maintainer: "A tenth everywhere").
     pub fn whole(&self) -> String {

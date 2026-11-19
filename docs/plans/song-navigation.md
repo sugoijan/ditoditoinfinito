@@ -275,6 +275,69 @@ and a tap on the chosen one plays; the buttons and the style tabs are the
 side's focusables; the footer's hints are unchanged. With it Off, or on a
 phone, or in a room, the song side is as described above.
 
+## A song's row (2026-11-19, round AE)
+
+The maintainer: "On the song list (multiplayer or not), to the right of
+the song name, instead of all the levels with a marker for which one was
+played and which grade, I want a simpler 'best grade' (and at most the
+grade 'flags') or something like 'NEW' for never played songs, falling
+back to the grade of the chart that would be played if one at the
+current difficulty is not present."
+
+Before, a row of the wide list had five level chips (Beginner to
+Challenge of the style: a cell each, its number inside, squeezed to a
+tenth's four characters, a lamp's line under it, an empty cell for a
+difficulty the song lacks) and "+N" for its Edits; the compact list's
+rows had none. Now every row, wide and compact, in singleplayer, the
+Favorites pack, a search, shared songs and a room's picker (a follower
+has no list), shows at its right:
+
+- **The chart a press of Play would play**: the style's chart at the
+  difficulty kept, else the closest (the easier on a tie), the one the
+  song's side shows (`ddi_ui::screens::data::would_play`, which the side
+  asks too; on the song shown, a chart picked there, so an Edit among
+  several is the one picked).
+- **Its level**, at the row's right edge in its difficulty's color: the
+  song's number, or the rating's where Chart ratings shows one, to a
+  tenth as a ladder row has it (`ChartEntry::meter_text_fine`: MSD and
+  the DDI estimate both "18.8"), fainter where it is the song's in a
+  rating's place. Nothing squeezes it: the theme gives it four
+  characters' room (`maxwidth,24` on the chips went with them).
+- **Its best's grade** left of it, as the lists write grades
+  (`list_grade`: AD, AB, SSS … F), with its lamp's mark under it (the
+  short line in the lamp's color the chips had, any lamp the history
+  gives the best); a quit is never a best, so never a grade.
+- **"NEW"** (`select-row-new`, a quiet pill in the accent; 未プレイ in
+  Japanese) in the grade's place where the player has no kept play of
+  any chart of the song: any style, any rules, a quit counted, an
+  autoplay not (`History::played`, by chart content and by song id, as
+  `SongEntry::played`, made with the bests in `select_view`).
+- **The level alone** where the song was played but not that chart.
+- A song with no chart in the style says so as before ("no Single
+  charts", greyed).
+
+The freed width went to the title and the artist. A room's picker sees
+their own bests (the list is their library). Every row follows a change
+of the difficulty kept (the chart gestures, a tap on the ladder or a
+chart button): the rows shown are filled again where they are
+(`List::refill`), not laid out again; a best that comes later (the
+history read after the list shows, a play kept, a best judged again)
+comes with the song list's data and fills its row in place. Nothing is
+read per frame: the grade, the lamp and "played" are the data's,
+worked out once per list from the summaries in memory.
+
+Scrolling 5,000 synthetic songs (Down held four seconds, then a wheel;
+`song_row_tests::scrolling_five_thousand_songs_measured`, ignored, at
+1280×720) drew 272 quads and 117 text runs a frame, 316 and 151 before.
+Checked by `crates/theme/src/song_row_tests.rs` (each case, wide and on
+a phone; a change of difficulty; the fallback chart the side shows; a
+best arriving later), `the_estimates_tenths_fit_the_rows_and_the_chart_buttons`,
+`History::played`'s and `select_view`'s tests, and
+`crates/desktop/tests/song_rows_offscreen.rs` (pictures, English and
+Japanese). The pinned theme hashes of song select
+(`song_select_with_the_radar_off_draws_in_the_theme_as_pinned`) were
+recorded again.
+
 ## The footer's hints (2026-11-18)
 
 Since the favorites' F a footer could hold more hints than fit beside its
