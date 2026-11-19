@@ -625,6 +625,10 @@ room-status-gathering = 全員の準備ができたらステージ{ $number }開
 
 room-status-loading-wait = { $count }人の読み込みを待っています · { $seconds }秒
 
+room-status-retry-wait = { $more ->
+    [0] { $name }を待っています：ダウンロードを再試行中 · { $seconds }秒
+   *[other] { $name }ほか{ $more }人を待っています：ダウンロードを再試行中 · { $seconds }秒
+}
 room-status-sitting-out = ステージ{ $number }はほかのプレイヤーがプレイ中です。{ $then }
 
 room-status-sat-out-not-ready = ステージ{ $number }の開始時に準備OKになっていませんでした。{ $then }
@@ -681,6 +685,7 @@ room-cpu-style-reckless = 踏みがち
 room-cpu-style-custom = カスタム
 
 room-state-loading = 読み込み中
+room-state-retrying = ダウンロード再試行中
 room-state-loading-percent = 読み込み中 { $percent }%
 room-state-load-failed = 読み込み失敗
 room-state-sitting-out = 見学

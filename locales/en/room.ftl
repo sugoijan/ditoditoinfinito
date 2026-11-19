@@ -1392,6 +1392,19 @@ room-status-loading-wait = { $count ->
    *[other] Waiting for { $count } players to load · { $seconds } s
 }
 
+# Round AC: before a stage starts, the room waits a while for someone
+# whose download of the stage's song failed and is being tried again
+# (up to the time shown; then it starts without them).
+# Variables:
+#   $name (String) - the first such player's name
+#   $more (Number) - how many others are trying again too (often 0)
+#   $seconds (Number) - whole seconds left of the wait
+room-status-retry-wait = { $more ->
+    [0] Waiting for { $name }: trying their download again · { $seconds } s
+    [one] Waiting for { $name } and 1 other: trying their downloads again · { $seconds } s
+   *[other] Waiting for { $name } and { $more } others: trying their downloads again · { $seconds } s
+}
+
 # For someone who is not in the stage the others play, where no reason
 # below applies (they chose Watch, for one), then what comes next.
 # Variables:
@@ -1546,6 +1559,9 @@ room-cpu-style-custom = Custom
 
 # At the right of a player's row (about 12 letters each).
 room-state-loading = Loading
+# Round AC: their download of the song failed and is being tried again
+# (the room waits for it a while).
+room-state-retrying = Retrying download
 # Variables:
 #   $percent (Number) - how much of the song is loaded, 0 to 100
 room-state-loading-percent = Loading { $percent }%

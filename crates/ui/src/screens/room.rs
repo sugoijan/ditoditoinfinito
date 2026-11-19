@@ -363,12 +363,10 @@ pub(crate) fn number_of(r: &RoomClient, id: StageId) -> usize {
 /// live: its deadlines are the room's), else on this device's.
 pub fn seconds_left(r: &RoomClient) -> Option<u64> {
     let s = r.state();
+    // The room's own next step: the loading grace's end, a retrying
+    // download's hold (revision 16), the deadline or the start.
     let at = match &s.phase {
-        Phase::Countdown { start_at, .. } => *start_at,
-        Phase::Preparing {
-            stage,
-            window: Some(w),
-        } if !s.content_pending(*stage) => w.loading_until.unwrap_or(w.deadline),
+        Phase::Countdown { .. } | Phase::Preparing { window: Some(_), .. } => s.next_deadline()?,
         _ => return None,
     };
     let now = r.room_now().map_or_else(|| r.now_ms(), |m| m.0);
@@ -402,13 +400,44 @@ pub fn loading_waits(r: &RoomClient) -> Option<usize> {
                     && s.members.get(id).is_some_and(|m| {
                         !m.is_cpu() && m.connection == ddi_room::Connection::Connected
                     })
-                    && matches!(
-                    st.prep(*id).loading,
-                    ddi_room::Loading::NotStarted | ddi_room::Loading::Loading { .. }
-                )
+                    && st.prep(*id).loading.in_progress()
             })
             .count(),
     )
+}
+
+/// The people whose download of the upcoming stage's song is being tried
+/// again while the room waits for them (revision 16,
+/// `ddi_room::Loading::Retrying`: during the loading grace, or holding the
+/// window's early end until it would have ended), this player not among
+/// them: their names, for the status line.
+pub fn retry_waits(r: &RoomClient) -> Vec<String> {
+    let s = r.state();
+    let Phase::Preparing {
+        stage,
+        window: Some(w),
+    } = &s.phase
+    else {
+        return Vec::new();
+    };
+    let now = r.room_now().map_or_else(|| r.now_ms(), |m| m.0);
+    let waits = w.loading() || w.hold_until.is_some_and(|h| now < h.0);
+    let Some(st) = s.stage(*stage).filter(|_| waits && !s.content_pending(*stage)) else {
+        return Vec::new();
+    };
+    let plays = plays(s);
+    s.candidates()
+        .into_iter()
+        .filter(|id| *id != r.me() && plays(*id))
+        .filter_map(|id| {
+            let m = s.members.get(&id)?;
+            let retrying = m.connection.holds_place() && st.prep(id).loading == ddi_room::Loading::Retrying;
+            match &m.kind {
+                ddi_room::MemberKind::Human { name, .. } if retrying => Some(name.clone()),
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 /// A person's state at the right of their row, the same on every list
@@ -456,6 +485,7 @@ fn person_state(
                     m::state_loading_percent(u32::from(*permille / 10)).into()
                 }
                 Some(ddi_room::Loading::Loading { .. }) => m::state_loading().into(),
+                Some(ddi_room::Loading::Retrying) => m::state_retrying().into(),
                 Some(ddi_room::Loading::Loaded) => m::state_not_ready().into(),
                 _ => m::state_waiting().into(),
             }
@@ -728,6 +758,11 @@ fn phase_status(r: &RoomClient) -> UiText {
                 m::status_sharing(n)
             } else if let Some(p) = r.load_problem(*stage) {
                 load_problem_text(p)
+            } else if let [one, ..] = retry_waits(r).as_slice() {
+                // Whom the room waits for: a download tried again
+                // (revision 16).
+                let more = retry_waits(r).len() - 1;
+                m::status_retry_wait(UiText::data(one), more, seconds)
             } else if let Some(waits) = loading_waits(r).filter(|&w| w > 0) {
                 // `hosted-deadline-v2`: the room waits for its players to
                 // load before the Ready countdown counts.

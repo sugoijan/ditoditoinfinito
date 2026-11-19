@@ -1361,7 +1361,8 @@ fn not_ready_in_time_sits_out_and_the_prompt_goes_back() {
 
 /// Round P1b (the maintainer's of 2026-11-16): a follower's failed
 /// download of the stage's song is tried again by itself twice, after 2 s
-/// and 5 s (`LOAD_RETRY_V0_MS`), the room hearing "loading" all along;
+/// and 5 s (`LOAD_RETRY_V0_MS`), the room hearing "retrying" all along
+/// (revision 16, round AC: the others told whom it waits for);
 /// once the tries are spent the failure is reported (everyone's lists say
 /// "Download failed") and the follower's song select has Retry beside its
 /// status line (and More's item) while the window is open, which loads
@@ -1433,12 +1434,21 @@ fn a_followers_failed_download_is_tried_again_then_offers_retry() {
     };
     fail(&bob);
     step(400);
-    assert!(matches!(bobs(), Loading::Loading { .. }), "{:?}", bobs());
+    // Round AC (revision 16): the room hears that it is tried again, and
+    // Alice is told whom the room waits for; Bob's row says so.
+    assert_eq!(bobs(), Loading::Retrying);
+    let status = String::from(room::status_line(&alice.borrow()));
+    assert!(
+        status.starts_with("Waiting for bob: trying their download again · "),
+        "{status}"
+    );
+    assert_eq!(room::retry_waits(&alice.borrow()), ["bob"]);
+    assert!(room::retry_waits(&bob.borrow()).is_empty(), "not to bob himself");
     assert!(bob.borrow_mut().take_load_jobs().is_empty(), "not before its wait");
     step(LOAD_RETRY_V0_MS[0]);
     fail(&bob);
     step(LOAD_RETRY_V0_MS[1]);
-    assert!(matches!(bobs(), Loading::Loading { .. }), "{:?}", bobs());
+    assert_eq!(bobs(), Loading::Retrying);
     assert!(!bob.borrow().may_retry_load(stage));
     fail(&bob);
     step(400);
@@ -2622,7 +2632,8 @@ fn the_panels_lines_say_what_each_player_is_doing() {
     let b = bob.borrow_mut().take_load_jobs();
     bob.borrow_mut().set_ready(true).unwrap();
     // (Round P1b: a failed download is tried again twice by itself, the
-    // room hearing "loading" meanwhile; the third failure is reported.)
+    // room hearing "retrying" meanwhile, round AC; the third failure is
+    // reported.)
     for (i, wait) in crate::state::room::LOAD_RETRY_V0_MS
         .into_iter()
         .chain([400])
@@ -2632,7 +2643,7 @@ fn the_panels_lines_say_what_each_player_is_doing() {
         carol.finish_shared_load(&c[0], Err(LoadProblem::Download));
         if i < 2 {
             step(&mut carol, 400);
-            assert_eq!(says(&alice, "carol"), ("Loading".into(), Tone::Plain));
+            assert_eq!(says(&alice, "carol"), ("Retrying download".into(), Tone::Plain));
         }
         step(&mut carol, wait);
     }

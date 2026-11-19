@@ -1409,6 +1409,11 @@ pub struct RoomClient {
 /// battle plan that differs would fail the same way again.
 pub const LOAD_RETRY_V0_MS: [u64; 2] = [2_000, 5_000];
 
+/// What [`RoomClient`] keeps as said of a download being tried again
+/// (`Loading::Retrying`): above every tenth, so no progress is said over
+/// it until its load is over.
+const RETRYING_SAID: u16 = u16::MAX - 1;
+
 /// How far behind the room's song time a member who watches a live stage
 /// hears its music, so that it matches the others' fields, which are
 /// drawn the view's delay behind (about half a second, `live-v2`;
@@ -3442,10 +3447,7 @@ impl RoomClient {
     /// The local player's preparation of `stage` is under way.
     pub fn loading(&self, stage: StageId) -> bool {
         self.state().stage(stage).is_some_and(|s| {
-            matches!(
-                s.prep(self.me).loading,
-                Loading::Loading { .. } | Loading::NotStarted
-            ) && s
+            s.prep(self.me).loading.in_progress() && s
                 .content
                 .as_ref()
                 .is_some_and(|c| c.status == ContentStatus::Available)
@@ -3545,6 +3547,7 @@ impl RoomClient {
                 self.preparing.remove(&job.stage);
                 self.retrying.push((due, job.clone()));
                 self.version += 1;
+                let _ = self.say_retrying(job);
                 true
             }
             None => {
@@ -3552,6 +3555,23 @@ impl RoomClient {
                 false
             }
         }
+    }
+
+    /// The room told `job`'s download is being tried again (revision 16,
+    /// `Loading::Retrying`: the readiness window's early end waits for it
+    /// up to the loading grace's end, the others told whom the room waits
+    /// for); its progress is not said again until it is over.
+    fn say_retrying(&mut self, job: &LoadJob) -> Result<(), Refusal> {
+        let key = (job.stage, job.readiness_rev);
+        if self.load_said.get(&key) == Some(&RETRYING_SAID) {
+            return Ok(());
+        }
+        self.load_said.insert(key, RETRYING_SAID);
+        self.send(Command::ReportLoading {
+            stage: job.stage,
+            readiness_rev: job.readiness_rev,
+            loading: Loading::Retrying,
+        })
     }
 
     /// The downloads due to be tried again by now, handed to the shell
@@ -3599,14 +3619,8 @@ impl RoomClient {
         };
         self.load_tries.remove(&(stage, job.readiness_rev));
         self.load_said.remove(&(stage, job.readiness_rev));
-        if self
-            .send(Command::ReportLoading {
-                stage,
-                readiness_rev: job.readiness_rev,
-                loading: Loading::Loading { permille: 0 },
-            })
-            .is_ok()
-        {
+        // Tried again: retrying, as the automatic tries are (revision 16).
+        if self.say_retrying(&job).is_ok() {
             self.jobs.push(job);
         }
         self.version += 1;
