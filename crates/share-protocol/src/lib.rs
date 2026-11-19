@@ -436,6 +436,12 @@ pub struct UploadGrant {
     /// Empty in a grant signed before it.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub grant_id: String,
+    /// The entry of the room's song list the upload is for (room model
+    /// revision 17: a song is uploaded when it is added, `stage` then 0),
+    /// its `content_key` the song's ([`song_key`]); none for a stage's.
+    /// Additive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub song: Option<u64>,
 }
 
 /// How long a grant lasts.
@@ -501,6 +507,77 @@ pub fn content_key(chart_digest: &str) -> String {
     chart_digest.to_string()
 }
 
+/// A song's content (room model revision 17, a room's song list): the
+/// digests of its original charts (not the versions the game makes of
+/// them, which every device makes alike), sorted, through FNV-1a 64, as
+/// `s1:` and sixteen hex digits. The adder's device makes it from its
+/// library, the server again from the record uploaded
+/// ([`record_song_charts`]), so the same song added twice is one entry
+/// and an upload of another song is told apart.
+pub fn song_key<'a>(digests: impl IntoIterator<Item = &'a str>) -> String {
+    let mut sorted: Vec<&str> = digests.into_iter().collect();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |b: &[u8]| {
+        for &x in b {
+            h ^= u64::from(x);
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    };
+    for d in sorted {
+        eat(&(d.len() as u64).to_le_bytes());
+        eat(d.as_bytes());
+    }
+    format!("s1:{h:016x}")
+}
+
+/// One original chart of a song as its record lists it
+/// ([`record_song_charts`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordChart {
+    pub digest: String,
+    /// Its style's id (the record's `layout`), difficulty and level.
+    pub style: String,
+    pub difficulty: String,
+    pub meter: u32,
+}
+
+/// The original charts a song's record lists (`entry.charts[]` without a
+/// `derivation`, each with its digest), in its order: what the server
+/// makes a listed song's charts of once it is uploaded, its key
+/// [`song_key`] of their digests. A chart without a digest is left out
+/// (the game lists none such).
+pub fn record_song_charts(record: &Value) -> Vec<RecordChart> {
+    record
+        .get("entry")
+        .and_then(|e| e.get("charts"))
+        .and_then(Value::as_array)
+        .map(|charts| {
+            charts
+                .iter()
+                .filter(|c| c.get("derivation").is_none_or(Value::is_null))
+                .filter_map(|c| {
+                    Some(RecordChart {
+                        digest: c.get("digest")?.as_str()?.to_string(),
+                        style: c.get("layout").and_then(Value::as_str).unwrap_or_default().into(),
+                        difficulty: c
+                            .get("difficulty")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .into(),
+                        meter: c
+                            .get("meter")
+                            .and_then(Value::as_u64)
+                            .and_then(|m| u32::try_from(m).ok())
+                            .unwrap_or(0),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// The grant of an `Authorization: Grant <grant>` header.
 pub fn grant_of(header: &str) -> Option<&str> {
     let (scheme, token) = header.trim().split_once(' ')?;
@@ -544,6 +621,32 @@ pub mod refusals {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_songs_key_is_its_original_charts_digests_in_any_order() {
+        let a = super::song_key(["bb", "aa"]);
+        assert_eq!(a, super::song_key(["aa", "bb", "aa"]));
+        assert_ne!(a, super::song_key(["aa"]));
+        assert_ne!(super::song_key(["ab", "c"]), super::song_key(["a", "bc"]));
+        // Pinned: every device and the server make the same key.
+        assert_eq!(a, "s1:0303c23e3bd20c4b");
+        let record = serde_json::json!({"entry": {"charts": [
+            {"digest": "aa", "layout": "dance-single", "difficulty": "Hard", "meter": 9},
+            {"digest": "cc", "layout": "dance-single", "difficulty": "Hard", "meter": 9,
+             "derivation": {"kind": "x"}},
+            {"index": 2},
+            {"digest": "bb", "layout": "dance-double", "difficulty": "Easy", "meter": 3,
+             "derivation": null},
+        ]}});
+        let charts = super::record_song_charts(&record);
+        let digests: Vec<&str> = charts.iter().map(|c| c.digest.as_str()).collect();
+        assert_eq!(digests, ["aa", "bb"]);
+        assert_eq!(
+            (charts[1].style.as_str(), charts[1].difficulty.as_str(), charts[1].meter),
+            ("dance-double", "Easy", 3)
+        );
+        assert_eq!(super::song_key(digests), a);
+    }
+
     #[test]
     fn a_record_s_chart_digests_are_read_where_the_game_writes_them() {
         let record = serde_json::json!({
@@ -759,6 +862,7 @@ mod tests {
             max_songs: GRANT_MAX_SONGS,
             expires_at_ms: 10,
             grant_id: "g1".into(),
+            song: None,
         };
         let without = NewShare {
             pack_art: false,
@@ -792,6 +896,7 @@ mod tests {
             max_songs: GRANT_MAX_SONGS,
             expires_at_ms: 10,
             grant_id: "g1".into(),
+            song: None,
         };
         assert_eq!(g.allows(&new_share()), Err("larger than the grant allows"));
         // The id travels in the signed claims; a grant signed before it

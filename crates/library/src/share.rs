@@ -200,6 +200,19 @@ pub fn record_entry(record: &Value) -> Option<(ManifestEntry, String)> {
     Some((entry, pack))
 }
 
+/// The song's content as a room's song list names it (room model revision
+/// 17, [`song_key`]): its original charts' digests; none where one of
+/// them has no digest yet.
+pub fn song_key_of(entry: &ManifestEntry) -> Option<String> {
+    let originals: Vec<String> = entry
+        .charts
+        .iter()
+        .filter(|c| c.derivation.is_none())
+        .map(|c| c.digest.map(|d| d.to_string()))
+        .collect::<Option<_>>()?;
+    (!originals.is_empty()).then(|| song_key(originals.iter().map(String::as_str)))
+}
+
 /// A song's record for a share, as the web stores a song (its
 /// `ImportedSong`: the entry, the pack, when and how much).
 pub fn record_of(entry: &ManifestEntry, pack: &str, now_ms: f64, bytes: f64) -> Value {
@@ -380,6 +393,16 @@ mod tests {
                 chart.layout
             );
         }
+        // The room's song list (revision 17): the server's reading of the
+        // record's original charts makes the key the game made.
+        let originals = ddi_share_protocol::record_song_charts(&sent);
+        assert_eq!(
+            originals.len(),
+            entry.charts.iter().filter(|c| c.derivation.is_none()).count()
+        );
+        assert!(originals.iter().all(|c| !c.style.is_empty() && !c.difficulty.is_empty()));
+        let key = song_key(originals.iter().map(|c| c.digest.as_str()));
+        assert_eq!(Some(key), song_key_of(&entry));
         // And the reader's own way back gives the entry again.
         let (back, pack) = record_entry(&sent).expect("the entry");
         assert_eq!((back, pack.as_str()), (entry, "Pack"));
