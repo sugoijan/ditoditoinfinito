@@ -211,7 +211,7 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
     let mut waited = 0;
     while !host.prompt_ready() {
         draws.poll(&mut host, &mut ui, &env);
-        ui.update(0.05);
+        ui.update(common::rig::WAIT_STEP);
         std::thread::sleep(std::time::Duration::from_millis(20));
         waited += 1;
         assert!(waited < 1000, "the song was never read");
@@ -268,7 +268,7 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
     let mut waited = 0;
     while !host.prompt_ready() {
         draws.poll(&mut host, &mut ui, &env);
-        ui.update(0.05);
+        ui.update(common::rig::WAIT_STEP);
         std::thread::sleep(std::time::Duration::from_millis(20));
         waited += 1;
         assert!(waited < 1000, "the song was never read");

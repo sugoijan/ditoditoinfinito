@@ -158,7 +158,7 @@ fn rig_with(
     let mut waited = 0;
     while !rig.host.prompt_ready() {
         rig.poll();
-        rig.ui.update(0.05);
+        rig.ui.update(common::rig::WAIT_STEP);
         std::thread::sleep(std::time::Duration::from_millis(20));
         waited += 1;
         assert!(waited < 1000, "the song was never read");

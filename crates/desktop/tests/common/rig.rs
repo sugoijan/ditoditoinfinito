@@ -25,14 +25,23 @@ pub fn fake_clock(host: &mut Host) -> Arc<AtomicU64> {
     clock
 }
 
-/// Polls `host` (with the GPU) until its prompt is ready, a twentieth of
-/// a second of the UI each time; the song's reading on its thread given
-/// real time between.
+/// The UI's step while a prompt's song is read: none of its time. A
+/// twentieth of a second a poll made the prompt's own clock (a room's
+/// countdown to Ready, song select's to Start) depend on how long the
+/// read took in real time: on a loaded machine a stage's prompt readied
+/// by itself before the test pressed anything.
+pub const WAIT_STEP: f32 = 0.0;
+
+/// Polls `host` (with the GPU) until its prompt is ready, the song's
+/// reading on its thread given real time between. The UI is stepped
+/// without its clock moving ([`WAIT_STEP`]): how long the song takes to
+/// read on this machine never runs the prompt's countdown, which a test
+/// moves on by itself after the wait.
 pub fn wait_prompt<'a>(host: &mut Host, ui: &mut Ui, env: &Env, dev: impl Fn() -> Device<'a>) {
     let mut waited = 0;
     loop {
         host.poll(ui, env, Some(dev()), 48_000);
-        ui.update(0.05);
+        ui.update(WAIT_STEP);
         if host.prompt_ready() {
             break;
         }
@@ -160,14 +169,14 @@ impl Draws {
         host.poll(ui, env, self.dev(), 48_000);
     }
 
-    /// Polls `host` until its prompt is ready, a twentieth of a second
-    /// of the UI each time; the song's reading on its thread given real
-    /// time between.
+    /// Polls `host` until its prompt is ready, the song's reading on its
+    /// thread given real time between, the UI stepped without its clock
+    /// moving ([`WAIT_STEP`]).
     pub fn wait_prompt(&self, host: &mut Host, ui: &mut Ui, env: &Env) {
         let mut waited = 0;
         loop {
             self.poll(host, ui, env);
-            ui.update(0.05);
+            ui.update(WAIT_STEP);
             if host.prompt_ready() {
                 break;
             }
