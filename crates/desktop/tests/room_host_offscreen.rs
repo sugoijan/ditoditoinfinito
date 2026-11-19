@@ -178,7 +178,25 @@ fn the_hosts_pop_ups_and_a_room_handed_over() {
             .borrow_mut()
             .rewrite(|s| s.members.get_mut(&dave).unwrap().left = true);
         scene.run(0.5);
-        // Make host, asked once more.
+        // Make host, asked once more (Carol's row scrolled into view where
+        // the song list's rows above leave a phone room for fewer people,
+        // revision 17).
+        for _ in 0..4 {
+            if scene.people[0].ui.actor("MakeHost.3").is_some() {
+                break;
+            }
+            let ui = &mut scene.people[0].ui;
+            let v = ui.viewport();
+            let mid = v.to_physical([v.screen.width / 2.0, v.screen.height / 2.0]);
+            ui.handle(ddi_ui::UiEvent::Wheel(ddi_ui::event::WheelEvent {
+                pos: [mid[0] / v.ratio, mid[1] / v.ratio],
+                delta: [0.0, 40.0],
+                source: ddi_ui::event::WheelSource::Pixels,
+                modifiers: ddi_ui::Modifiers::default(),
+                time: 0.0,
+            }));
+            scene.run(0.3);
+        }
         tap(&mut scene.people[0].ui, "MakeHost.3", 0.6);
         assert_eq!(top(&scene, 0), "confirm", "{lang} {size:?}");
         shot(&mut scene, 0, "host-4-make-host");

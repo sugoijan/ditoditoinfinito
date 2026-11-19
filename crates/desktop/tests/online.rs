@@ -5,8 +5,10 @@
 //! attempt (the system browser played by plain HTTP here, the provider
 //! told who it is), one makes a room from the home's Private room, the
 //! other reads its invite and joins; both connect through desktop's socket
-//! and see each other. M5d: the host chooses a bundled song, desktop's
-//! upload sends it under the room's grant, the guest reads it from the
+//! and see each other. M5d and revision 17: the host adds a bundled song
+//! (as an imported one) to the room's list, desktop's upload sends it
+//! under that entry's grant, the host picks it from the list, the guest
+//! reads it from the
 //! room's share into the cache and reports it loaded, both ready, the
 //! room counts down, each reports its own run and the room ranks them;
 //! the guest leaves. `DDI_HOME` should name a scratch folder (the share
@@ -278,10 +280,14 @@ fn desktop_signs_in_makes_a_room_and_a_guest_joins_it() {
         .clone();
     let (a, b) = (Rc::new(RefCell::new(a)), Rc::new(RefCell::new(b)));
     a.borrow_mut().set_inbox(ddi_desktop::room::inbox());
-    // M7b: the host's song select rests on it; after the rest the room
-    // shows it to the guest and it is uploaded ahead, under a grant for no
-    // stage (desktop's sharing code).
-    a.borrow_mut().hover(Some((&song, &chart)));
+    // Revision 17: the host adds it to the room's list (as an imported
+    // song: a bundled one would be listed with nothing uploaded), and it
+    // is uploaded at once under that entry's grant (desktop's sharing
+    // code); both see it there.
+    let mut song = song;
+    song.pack = Some("RL1".into());
+    a.borrow_mut().set_library(std::slice::from_ref(&song));
+    a.borrow_mut().add_song(&song).unwrap();
     let mut jobs = Vec::new();
     let waited = Instant::now();
     while jobs.is_empty() {
@@ -291,29 +297,22 @@ fn desktop_signs_in_makes_a_room_and_a_guest_joins_it() {
         std::thread::sleep(Duration::from_millis(30));
     }
     for j in jobs {
-        assert_eq!(j.stage, ddi_ui::state::room::SPOTLIGHT);
+        assert!(j.entry.is_some());
         assert!(!j.grant.is_empty());
         ddi_desktop::room::upload(j);
     }
     tick_until(&mut [&mut a.borrow_mut(), &mut b.borrow_mut()], |r| {
-        r.iter().all(|r| {
-            r.state()
-                .spotlight
-                .as_ref()
-                .is_some_and(|s| s.share.is_some())
-        })
+        r.iter()
+            .all(|r| r.room_songs().first().is_some_and(|e| e.available() && e.share.is_some()))
     });
-    // The guest reads it from the room's share (its banner and preview).
+    let listed = b.borrow().room_songs()[0].clone();
+    assert_eq!(listed.card.title, song.title);
+    // Nothing is read ahead of a pick in this stage.
     b.borrow_mut().set_inbox(ddi_desktop::room::inbox());
-    let jobs = b.borrow_mut().take_load_jobs();
-    assert_eq!(jobs.len(), 1);
-    assert_eq!(jobs[0].stage, ddi_ui::state::room::SPOTLIGHT);
-    ddi_desktop::room::prepare_online(&b, jobs.into_iter().next().unwrap());
-    tick_until(&mut [&mut b.borrow_mut()], |r| {
-        r[0].spotlight().is_some_and(|(_, p)| p.is_some())
-    });
-    // The pick reuses that share: available at once, nothing uploaded.
-    a.borrow_mut().pick(&song, &chart).unwrap();
+    assert!(b.borrow_mut().take_load_jobs().is_empty());
+    // The pick from the list: available at once, nothing uploaded.
+    let key = ddi_room::ChartKey::new(chart.digest.unwrap().to_string());
+    a.borrow_mut().pick_listed(listed.id, &key).unwrap();
     tick_until(&mut [&mut a.borrow_mut(), &mut b.borrow_mut()], |r| {
         r.iter().all(|r| {
             r.stages()[0]
@@ -329,14 +328,7 @@ fn desktop_signs_in_makes_a_room_and_a_guest_joins_it() {
         .as_ref()
         .and_then(|c| c.share.clone())
         .expect("the room's share");
-    assert_eq!(
-        Some(share.as_str()),
-        a.borrow()
-            .state()
-            .spotlight
-            .as_ref()
-            .and_then(|s| s.share.as_deref())
-    );
+    assert_eq!(Some(share.as_str()), listed.share.as_deref());
     // Each prepares it: the host from its library, the guest from the
     // room's share (desktop's reader, into the cache).
     let jobs = a.borrow_mut().take_load_jobs();

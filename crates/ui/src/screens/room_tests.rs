@@ -3565,7 +3565,9 @@ fn a_room_made_shows_no_view_until_it_answers_and_then_the_hosts_once() {
     let after = frames(&clock, &[&alice], &mut h, 1.2, &parts);
     assert!(view(&env).host && list_shows(&h));
     assert!(has(&h, "Room songs") && there(&h, "Room.Status"), "{:?}", h.texts());
-    for (k, name) in parts.iter().enumerate().take(4) {
+    // (An empty Room songs tab has no song's side, revision 17.)
+    assert!(!h.ui.actor("Song").is_some_and(|s| s.visible));
+    for (k, name) in parts.iter().enumerate().take(4).filter(|(_, n)| **n != "Song") {
         assert_eq!(runs(&after[k]), (1, 0), "{name}: {:?}", after[k]);
         assert_eq!(after[k].last(), Some(&1.0), "{name}");
     }
@@ -3595,7 +3597,9 @@ fn a_room_that_answers_at_once_shows_no_line_and_keeps_the_bars_coming_in() {
         let parts = ["Wheel", "Song", "RoomParts", "Header", "RoomJoining"];
         let seen = frames(&clock, &[&alice], &mut h, 1.0, &parts);
         assert!(view(&env).host && list_shows(&h), "{delay}");
-        for (k, name) in parts.iter().enumerate().take(3) {
+        // (An empty Room songs tab has no song's side, revision 17.)
+        assert!(!h.ui.actor("Song").is_some_and(|s| s.visible));
+        for (k, name) in parts.iter().enumerate().take(3).filter(|(_, n)| **n != "Song") {
             assert_eq!(runs(&seen[k]), (1, 0), "{delay} {name}: {:?}", seen[k]);
             assert_eq!(seen[k].last(), Some(&1.0), "{delay} {name}");
         }
@@ -3632,7 +3636,9 @@ fn a_member_joining_gets_the_rooms_songs_once() {
     assert!(!view(&env).host && list_shows(&h));
     assert!(there(&h, "Room.Tab.Room") && there(&h, "Room.Status"), "{:?}", h.texts());
     assert_eq!(view(&env).status, "alice is choosing the first song.");
-    for (k, name) in parts.iter().enumerate().take(3) {
+    // (An empty Room songs tab has no song's side, revision 17.)
+    assert!(!h.ui.actor("Song").is_some_and(|s| s.visible));
+    for (k, name) in parts.iter().enumerate().take(3).filter(|(_, n)| **n != "Song") {
         assert_eq!(runs(&after[k]), (1, 0), "{name}: {:?}", after[k]);
         assert_eq!(after[k].last(), Some(&1.0), "{name}");
     }
@@ -5869,10 +5875,10 @@ const PINNED: [(&str, u64); 10] = [
     ("add-level", 12840789705277059974),
     ("players", 8610800191167024236),
     ("standings", 8079863096519021899),
-    ("online-select", 7498639766089009586),
-    ("online-member", 11749448704371987129),
-    ("online-players", 5691449589399166643),
-    ("host", 18415686007184695005),
+    ("online-select", 11305437190800824916),
+    ("online-member", 16016429419736900636),
+    ("online-players", 4289503775560037037),
+    ("host", 5490122354457034926),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's

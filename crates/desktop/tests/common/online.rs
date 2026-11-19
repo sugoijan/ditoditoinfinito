@@ -211,6 +211,18 @@ impl Scene {
                 p.ui.update(1.0 / 60.0);
                 let jobs: Vec<UploadJob> = p.uploads.borrow_mut().drain(..).collect();
                 for job in jobs {
+                    // A song added to the room's list (revision 17).
+                    if let Some(song) = job.entry {
+                        let share = format!("song{:04x}", song.0);
+                        let _ = self.server.borrow_mut().authority(Command::SetSongContent {
+                            song,
+                            status: ddi_room::ContentStatus::Available,
+                            share: Some(share.clone()),
+                            charts: None,
+                        });
+                        p.room.borrow_mut().song_upload_finished(song, Ok(share));
+                        continue;
+                    }
                     if job.stage == SPOTLIGHT {
                         let share = format!("share{:04x}", now & 0xffff);
                         let _ = self

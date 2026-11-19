@@ -2197,8 +2197,10 @@ impl SelectScreen {
         self.publish_dirty = true;
         self.dimmed = false;
         self.backdrop.restore(&mut root, cx, &env);
-        // A room not known yet shows nothing of a view.
+        // A room not known yet shows nothing of a view; an empty Room
+        // songs tab no song's side.
         self.room_joining_view(&mut root);
+        self.room_song_side(&mut root);
         root
     }
 
@@ -2604,6 +2606,7 @@ impl SelectScreen {
                 None => msg::play_no_charts().into(),
             };
             super::set(root, "Play", "Label", &label);
+            self.room_play_button(root);
             return;
         }
         if self.layout.radar {
@@ -4380,6 +4383,7 @@ impl Screen for SelectScreen {
             ] {
                 if (shared && n == "AddIcon")
                     || (self.following() && matches!(n, "SearchIcon" | "Play"))
+                    || (n == "Play" && self.room_play_hint() == Some(None))
                 {
                     continue;
                 }

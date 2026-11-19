@@ -641,6 +641,10 @@ impl SelectScreen {
         if let Some(w) = hit::find_mut(root, "Wheel") {
             w.visible = !self.following();
         }
+        if self.layout.compact {
+            self.room_play_button(root);
+        }
+        self.room_song_side(root);
         self.publish_dirty = true;
     }
 
@@ -975,6 +979,7 @@ impl SelectScreen {
         self.fill_tabs(root);
         self.fill_charts(root);
         self.left_dirty = true;
+        self.room_song_side(root);
     }
 
     /// Room songs shown (an online room's first view, or its tab chosen):
@@ -1205,27 +1210,29 @@ impl SelectScreen {
         let Some(rm) = &self.room else {
             return false;
         };
-        // The other tab, then what the list offers of the song shown
-        // (revision 17), the picker's song's heart, then a phone's volume.
-        let mut first: Vec<(String, String)> = Vec::new();
+        // The picker's song's heart and a phone's volume first, the room's
+        // own, then the other tab and what the list offers of the song
+        // shown (revision 17).
+        let first: Vec<(String, String)> =
+            self.favorite_item().into_iter().chain(self.volume_item()).collect();
+        let mut last: Vec<(String, String)> = Vec::new();
         if rm.side == Side::Listed {
             let label = match rm.tab {
                 Tab::Room => ddi_l10n::msg::room::tab_my_songs(),
                 Tab::Mine => ddi_l10n::msg::room::tab_room_songs(),
             };
-            first.push((MORE_TAB.into(), label.into()));
+            last.push((MORE_TAB.into(), label.into()));
             if let Some(entry) = self.shown_entry() {
                 let r = rm.room.borrow();
                 if r.may_retry_song(entry) {
-                    first.push((MORE_RETRY_UPLOAD.into(), ddi_l10n::msg::room::retry_upload().into()));
+                    last.push((MORE_RETRY_UPLOAD.into(), ddi_l10n::msg::room::retry_upload().into()));
                 }
                 if r.may_remove(entry) {
-                    first.push((MORE_REMOVE.into(), ddi_l10n::msg::room::remove_song().into()));
+                    last.push((MORE_REMOVE.into(), ddi_l10n::msg::room::remove_song().into()));
                 }
             }
         }
-        first.extend(self.favorite_item().into_iter().chain(self.volume_item()));
-        room::open_more_with(&self.env, &rm.room, self.layout.compact, first, cx);
+        room::open_more_around(&self.env, &rm.room, self.layout.compact, first, last, cx);
         true
     }
 
@@ -1441,6 +1448,37 @@ impl SelectScreen {
                 .chooses()
                 .then(|| ddi_l10n::msg::room::pick_use(r.next_pick_number())),
         })
+    }
+
+    /// A phone's Play button in a room: hidden where Start does nothing
+    /// here (a member who does not choose, on Room songs; one who may not
+    /// add, on My songs), and on My songs saying what it does there.
+    pub(super) fn room_play_button(&self, root: &mut Actor) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        let hint = self.room_play_hint();
+        if let Some(play) = hit::find_mut(root, "Play") {
+            play.visible = hint != Some(None);
+        }
+        if rm.side == Side::Listed
+            && rm.tab == Tab::Mine
+            && let Some(Some(words)) = hint
+        {
+            crate::screens::set(root, "Play", "Label", &String::from(words));
+        }
+    }
+
+    /// The song's side hidden on an empty Room songs tab (no song to show:
+    /// the list's place says what to do).
+    pub(super) fn room_song_side(&self, root: &mut Actor) {
+        if self.room.is_none() || self.room_joining() {
+            return;
+        }
+        let empty = self.room_listing() && self.data.songs.is_empty();
+        if let Some(song) = hit::find_mut(root, "Song") {
+            song.visible = !empty;
+        }
     }
 
     /// The footer's M hint: the other tab's name (an online room's).

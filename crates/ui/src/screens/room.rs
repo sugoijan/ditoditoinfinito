@@ -1876,10 +1876,24 @@ pub fn open_more_with(
     first: Vec<(String, String)>,
     cx: &mut Cx,
 ) {
+    open_more_around(env, room, compact, first, Vec::new(), cx);
+}
+
+/// [`open_more_with`], with `last` after the room's own items (the room's
+/// song list's, revision 17).
+pub fn open_more_around(
+    env: &Env,
+    room: &SharedRoom,
+    compact: bool,
+    first: Vec<(String, String)>,
+    last: Vec<(String, String)>,
+    cx: &mut Cx,
+) {
     // The invite read again: another operator may have replaced it.
     room.borrow_mut().refresh_invite();
     let mut items = first;
     items.extend(more_items(&room.borrow(), compact));
+    items.extend(last);
     super::action_menu(env, &common::more(), items, MORE, cx);
 }
 
