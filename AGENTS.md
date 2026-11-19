@@ -865,14 +865,17 @@ Rust and the browser are implementation details, not advertised features.
   `LiveHandle` (the room client and the shell's steady clock,
   `ddi_platform::steady`, `SessionConfig::live`), the play started at
   the room's instant (`live_start`, a late join up to `late_join_ms`,
-  past it a forfeit watched; one who missed the Ready window may enter
+  past it a forfeit watched as a spectator watches, `Watching::Late`;
+  one who missed the Ready window may enter
   within it, `Event::EnteredLate`, the others' plays drawing a field of
   them from then, `Live::admit_late`), a room's stage played on while its
   page or window is hidden (`PlaySession::plays_on_unseen`,
   `Inputs::hidden`; the shells' timers judge it on: the web's
   `GameLoop::tick_unseen`, desktop's `Host::step_unseen`; singleplayer
-  still stops as interrupted) and started there when the room starts the
-  stage its player readied for (`Screen::unseen`, `Ui::step_unseen`: the
+  still stops as interrupted, and CPU practice alone waits for the page,
+  its Ready held back while unseen, `RoomClient::waits_unseen`) and
+  started there when the room starts the stage its player readied for
+  (`Screen::unseen`, `Ui::step_unseen`: the
   prompt's room run and Start pressed without a frame, on the web's
   prompt timer and its socket's wake), its moments and checkpoint reports streamed, the room's
   frames feeding people's fields (`TapTrack::full`, drawn wholly the
@@ -1293,10 +1296,12 @@ Rust and the browser are implementation details, not advertised features.
   `Run::Live`'s `score`, a CPU's or a bot's its own (it plays the whole
   chart; a report without one, taken as given as any self-reported
   value is, ranks as 0), then the failed by score (`Run::Failed`: under
-  Charts: Adaptive's rule On the easiest chart, `MatchRules::easiest`,
-  Play on, a new room's since revision 15, life out on the easiest
-  chart is failed, played on to the song's end and out for the battle;
-  a live stage confirmed only once their streams ended);
+  the rule When life runs out, `MatchRules::life_out`, Play on, a new
+  room's (revision 15 under Charts: Adaptive alone, revision 16 under
+  both: As picked at zero life, Adaptive on the easiest chart), life out
+  is failed, played on to the song's end and out for the battle; a live
+  stage confirmed only once their streams ended; a forfeit's detail kept
+  graded QUIT, one out or failed F, `RunDetail::graded_as`);
   `GaugeAttacksV0`, the same with attacks, chosen by the match's Attacks
   rule, `MatchRules::attacks`, On by default where attacks are offered
   (`MatchRules::practice`; a hosted room's, `MatchRules::hosted_for`,
@@ -1419,7 +1424,12 @@ Rust and the browser are implementation details, not advertised features.
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 15 since 2026-11-19: joining during a match
+  (`ROOM_MODEL_REVISION`, 16 since 2026-11-19: When life runs out under
+  both chart rules, `MatchRules::life_out`, `life_out_any_chart`,
+  `normalized`, a rule set stored before read as it was, and a
+  retrying download, `Loading::Retrying`, holding the window's early end
+  until its loading grace would have ended, `ReadinessWindow::hold_until`;
+  `tests/room-revision-15.json`; 15 since 2026-11-19: joining during a match
   On for a new room, `MatchRules::mid_match_entry` (seated for the next
   stage not begun, up to the competitor cap, `RoomState::late_places`),
   open-ended matches, `MatchRules::open_ended` (`Stage::last`,
@@ -2462,7 +2472,10 @@ shock −50, the rest as before). The percent is `ddi-percent-v1`
 (`ddi::PERCENT_RULE`, `ddi::percent_of`, its shares
 `ddi::PERCENT_SHARES`): nine tenths the accuracy (`points ÷ most`,
 `DdiScoreView::accuracy`) and one tenth the combo part over a full
-combo's of the notes shown (`DdiScoreView::max`), one floor; the letters
+combo's of the notes shown (`DdiScoreView::max`), one floor (a rounding
+down; the percent and the accuracy are shown never below 0.00 %,
+`ddi::shown_hundredths`, round AC, the numbers themselves, which the
+letters read, may be negative); the letters
 read it (SSS 99, SS 95, S 89, A 75, B 60, C 42, the floors as before);
 CPUs are tuned and measured by the accuracy (`ScoreView::accuracy`,
 `battle::accuracy`), never the percent. The results show the score or

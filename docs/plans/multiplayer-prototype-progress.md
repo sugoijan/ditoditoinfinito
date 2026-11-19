@@ -12430,6 +12430,229 @@ stage plays are not kept). Nothing in `crates/engine/src/cpu/`.
   "Failed: playing on" (Japanese drafts).
 - **Rules' summary words** (`rules_words`) do not name the three new rules.
 
+## Round AC: the decisions left by revision 15 (room model revision 16, 2026-11-19)
+
+The maintainer answered round AA's open decisions one by one. **Room model
+revision 16**: server and frontend deploy together, the server first;
+people in rooms are told to reload. A room stored at revision 15 loads and
+plays as it was (`tests/room-revision-15.json`, written by revision 15's
+own reducer: `a_room_stored_by_revision_15_loads_and_plays_on_as_it_was`).
+
+### 1. When life runs out: Play on, under both chart rules
+
+"Both." Round AA's rule (`MatchRules::easiest`, "On the easiest chart") is
+now **When life runs out: Play on / Out** under both chart rules: under As
+picked at zero life, under Adaptive at zero life on the easiest chart (its
+steps down first). Everything else as round AA built (failed: F, out for
+the battle from then, played to the song's end, ranked under every survivor
+and among the failed by score; CPUs and bots alike). Stored rules keep what
+they had: the field `easiest` is read as before, and a new additive marker,
+`MatchRules::life_out_any_chart` (written by every rule set made since,
+`MatchRules::hosted`, and by the reducer and the Rules pop-up through
+`MatchRules::normalized`, which keeps a rule set's meaning), says the rule
+is read under both; a rule set without it reads under Adaptive alone and
+Out under As picked (`MatchRules::life_out`). The Rules pop-up shows the row
+under both chart rules, its sentence saying what it does with each ("Play
+on: whoever runs out of life (with adaptive charts, on the easiest one) is
+failed, …"); As picked's own sentence no longer says "out until the next
+stage". A stage's prompt under As picked says "failed but playing on when
+your life runs out" (or "out when …"). Session and CPUs needed nothing new
+(the rule is read through `plays_on_failed`); `cpus/fixture.txt` gains
+scenario 5 (As picked, Play on: CPUs 112 and 113, levels 0 and 1, fail at
+57.96 s and 63.15 s and play to the end; the first 315 lines byte-identical).
+Walkthroughs: `round_ac.rs`'s
+`under_as_picked_the_failed_play_on_and_rank_after_the_survivors`; the
+session's `under_as_picked_a_failed_player_plays_on_and_ranks_under_the_survivors`.
+
+### 2. A failed player's numbers
+
+"Let the score go into the negatives but the percent never goes below 0%."
+The score stays as earned. AGENTS.md's "one floor" meant one rounding down
+(`floor(…)` in `ddi::percent_of`), never a floor at zero: the percent and
+the accuracy were negative by design (`views_floor_and_go_negative`). Now
+every place a person sees them shows them from 0.00 % (`ddi::shown_hundredths`):
+`DdiScoreView::percent_text` and `accuracy_text` (the results' Percent and
+Accuracy lines, the HUD's percent, the lists), the Standings
+(`results_stage`'s `percent_text`, a report from before included), the
+miniatures (`opponents::ScoreShown::Percent`) and `RunDetail::percent` as a
+device reports it, for every DDI play, singleplayer's included. Nothing
+ranked or graded changes (the numbers the letters and CPUs read are as
+before). The session's pinned traces moved by the reported percent alone
+(below).
+
+### 3. A quit or forfeit never shows a top grade
+
+**Found**: a stage's play that ends **interrupted** (the web: its
+AudioContext leaving the running state, as Safari's on a call or an app
+switch, or an output device change; desktop: the output reopened, the view
+lost; a hidden practice page) was reported as a forfeit, but
+`Player::quit_at` was never called, so its `RunDetail::grade` was the
+grade of the notes judged so far: after a perfect start, SSS (an
+autoplay's "Absolute Bot" in the reproduction,
+`an_interrupted_stage_play_is_a_forfeit_graded_quit`, which failed on the
+code as it stood). Escape's quit, a leave from outside the play, the late
+start and the prompt's forfeit were already QUIT; CPUs out were already F.
+**Fixed**: an interrupted stage play is a quit (`quit_at` at the
+interruption: graded QUIT, its counts to then); the session grades a
+competitor's detail by how their run ended (`battle::graded_as_run`:
+Forfeit QUIT, Out or Failed F); the room keeps every reported detail so
+(`RunDetail::graded_as` in the reducer: also an older peer's or a bot's);
+and the Standings show QUIT for a forfeit's line and F for one out or
+failed whatever a detail says (`results_stage::grade_of`). Checked: a CPU
+out by life (F), a quit after a perfect start in practice and online
+(QUIT), a late entrant (their own play's grade), someone who sat out (no
+line). Tests: the session's `grades.rs`, the room's
+`a_forfeit_is_kept_graded_quit_whatever_it_reported`, the UI's
+`a_forfeit_reads_quit_one_out_f_and_no_percent_is_below_zero`.
+
+### 4. The last song at the Ready card, and its announcer line
+
+- **The Ready card**: an open-ended match's stage's Ready card has a row
+  **Last song: Off / On** for whoever may mark it (`Capability::Advance`,
+  More's item's), one of the card's rows as the attack policy's (Left and
+  Right, ◀ ▶, a tap, or Enter on it; never Ready), until the stage's start
+  commits; through the countdown it stays, unchangeable, so the Start and
+  Back buttons never move (`RoomClient::last_song_mark`,
+  `an_open_matchs_ready_card_marks_the_last_song`). More's two items stay; no
+  new footer hint. **Found and fixed**: round AA's "Last song" line was on
+  the status line and the stage's prompt but not on the Ready card (its line
+  is `status_line`, which lacked it): the card now says "Last song · …".
+  **Found and fixed**: the stage's order (its `of`) is handed to the prompt
+  before the Ready card can mark it, so both shells now read the room's
+  `of` again as the play starts (`RoomClient::stage_of`), as they did the
+  attack policy; and round AA's `results_say(…, number >= of)` took every
+  stage of an open match for its last (`of` 0): `StageSetup::is_last`.
+- **The line** `battle last song` (`Battle::LastSong`): said as the match's
+  last song starts, in place of `ready`, for a counted match's last stage
+  (two or more) and an open match's song marked last (or the last by the
+  room's bound); a one-stage match still opens with `battle match begin`
+  (one opening, never stacked). **Its place**: one of the openings, under
+  every other battle line and over the combo lines (priority 5,
+  `COMBO_PRIORITY` 0). **Its fallback**: where a pack lacks it, the stage
+  opens as before, `battle final stage`, then `battle stage begin`, then
+  `ready` (never silence in `ready`'s place), and "Last song" shows beside
+  the field for a moment. **Decision to confirm**: the brief asked for no
+  fallback (silence); a line said in `ready`'s place cannot fall silent
+  without the stage losing its opening, so the opening's own fallbacks
+  stay; `battle final stage` is now said only by packs without the new
+  line (our own packs keep their recordings of it). Studio: its line and
+  when (`studio-line-battle-last-song`), examples in English and Japanese
+  (`examples.toml`); `docs/announcer-lines.md`. **Our packs' recordings**,
+  made here as every line of theirs (`kokoro.py pack --bundle`, the pinned
+  Kokoro-82M revision from the local cache, the stadium processing): Mr.
+  Clank "Last song!", "This is the last song!", "One last song. Give it
+  everything!"; ガキンさん "ラストソング！", "これが最後の曲だ！",
+  "最後の一曲、全力でいこう！". Every other sound of both packs came out
+  byte for byte as bundled (only the new folders and the provenance's lines
+  and date changed); `gen-announcers`, `gen-credits`.
+
+### 5. Kinder edges
+
+- **Too late for a stage** ("The spectator view"): a stage's play that
+  begins past its late join (a device later than `late_join_ms`) was a
+  forfeit watched from the player's own dimmed field with "Left the stage";
+  it is now watched as a spectator watches (`Watching::Late`: everyone's
+  fields, nothing of their own, no plate), its end a forfeit's.
+  **Ranking**: unchanged, as the brief asked ("as now"); note that "now" is
+  a forfeit (the room's no-show or the device's forfeit: last, no points),
+  not a sitting out. **Decision to confirm** below.
+- **A retrying download holds the window** ("Hold it briefly"): the room
+  knows of a retry by a new additive load state, `Loading::Retrying`, which
+  the client reports while `load-retry-v0` tries again (automatically, or by
+  Retry), its progress not said over it. Found: during the loading grace a
+  retry already held the window (it read as loading); it did not where the
+  grace had ended early (everyone loaded, then someone joining or reloading
+  failed): the Ready window then ended on everyone else being ready. Now
+  the window remembers when its grace would have ended
+  (`ReadinessWindow::hold_until`, additive) and a connected player who
+  retries holds its early end until then (or its deadline, whichever comes
+  first); then it starts without them (`RoomState::retrying`,
+  `a_retrying_download_holds_the_early_end_until_the_grace_would_have_ended`).
+  Their row says "Retrying download"; the others' status line "Waiting for
+  bob: trying their download again · 12 s" (`screens::room::retry_waits`).
+- **"Use this device"** after the room moved on said "Not possible at this
+  point of the match." (the stopped page's commands, sent again on the new
+  socket, refused): those refusals are no longer said
+  (`RoomClient::stale_before`), and the status line says "You're back in the
+  room." with "You play stage N." or "Stage N is under way without you: you
+  play the next one." (`LinkNotice::BackHere`, for twelve seconds).
+- **The 30-day cap mid-room** ("Now: finish the stage first"): the server
+  (`RoomCore::session_holds`) keeps the socket of a starter of the stage
+  under way whose session ends during it until the stage settles (its
+  results told to every socket as it does); their next frame then closes
+  4401 and the game asks for a sign-in between stages. A session ended
+  before the stage began is closed as before. Bounded by the room's stage
+  cap and `SESSION_HOLD_RESULTS_MS` (a minute) past the session's end
+  (`a_session_ending_during_a_stage_lets_the_stage_finish_first`, on the
+  server's clock). It applies to the seven-day expiry too, not only to the
+  thirty days.
+- **CPU practice in a hidden tab waits** ("Wait for you"): with nobody else
+  in the room (`RoomClient::waits_unseen`: practice), the prompt holds the
+  player's Ready back while its page is unseen (practice's unready stops its
+  countdown) and gives it back when the page is seen, its countdown then
+  running in view; online rooms start and play on unseen as before. The
+  desktop tests that pinned practice starting unseen now pin the wait (and a
+  play already running hidden still runs on to its end).
+- **The rules in a few words** (`room::rules_words`) now say "Out when life
+  runs out", "Open stages" and "No joining during a match" where they are
+  chosen (the last two where the match's rules are known:
+  `match_rules_words`; a stage's prompt leaves When life runs out to its
+  own line).
+
+### What moved
+
+- The session's pinned stage traces (`pinned.txt`, `live_pinned.txt`): the
+  reported percent of failed players only (now 0, was negative), and the
+  digests; every other line unchanged.
+- The room screens' drawn pins `rules`, `add`, `add-level` (the Rules
+  pop-up's When life runs out row under As picked, its sentence).
+- The tests whose rigs meant "out at zero life" under As picked now name
+  Out (the session's `room()` helper; the attack-rate study's rules).
+
+### Validation
+
+- Suites: room, engine, session, ui, theme, shell, library, share-protocol,
+  render and l10n with no failure (2,401 passed); the CPUs' fixture
+  natively and under WASI; desktop 386 passed, none failed (its two rigs
+  written for Out under As picked name it now; the built-in announcer's
+  test counts 69 lines); clippy native and wasm; `l10n check`; REUSE.
+  The server: fmt, clippy native and wasm with and without `dev-auth`, 193
+  and 194 tests, built against this round's crates (Cargo's `paths`
+  override, the server's manifest untouched).
+- A local server with bots (an open match, As picked, Play on, levels 1 to
+  10 on Beatucada's Hard): two bots failed in each stage (12.4 s and 15.7 s,
+  then 14.5 s and 15.2 s) and played on to the end, ranked under the
+  survivor by score; the last guest left each stage ten seconds in (a
+  forfeit, placed last with no points; that its detail reads QUIT is the
+  reducer's, checked by its tests, not read from the local server);
+  the host marked stage 2 the last song on its Ready card
+  (`--last-at-ready`) and the match ended after it.
+- The web in headless Chrome, then Firefox (CPU practice): the Rules
+  pop-up's When life runs out row under Adaptive and under As picked; an
+  open match's Ready card with Last song Off, then On by a click (the
+  card's line "Last song · Stage 2 starts once everyone is ready"); that
+  stage opened by the `battle last song` event (said by `battle final
+  stage` and shown beside the field with a bundle built before the packs
+  had the line; said by `battle last song` itself, then here we go, with
+  the bundle built after); a player idled to a fail under As picked playing on
+  ("Failed: playing on", a CPU's miniature "Failed"), its results F,
+  −5,714,089, Percent 0.00 %, Accuracy 0.00 %; a stage quit ten seconds in
+  whose Standings line reads QUIT. The singleplayer smoke check passed in
+  both (WebGPU and WebGL2). Pictures under the main checkout's
+  `target/scratch/mp/ac/shots/`. Not walked: the fake room's Use this
+  device and retrying download (the UI's tests cover them).
+
+### Not done, and decisions
+
+- **`battle last song`'s fallback**: the opening's fallbacks (above), not
+  silence. Confirm or say otherwise.
+- **A stage begun past its late join** ranks as a forfeit (as before), not
+  as sitting out (no placement). Changing it would be a model change.
+- **Wording to decide**: "When life runs out: Play on / Out", its two
+  sentences, "Last song: Off / On" on the Ready card, "Retrying download",
+  "Waiting for … trying their download again", "You're back in the room. …",
+  "failed but playing on when your life runs out" (Japanese drafts).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
