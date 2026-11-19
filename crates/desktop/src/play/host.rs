@@ -937,9 +937,10 @@ impl Host {
                 base: r.backdrop.clone(),
                 countdown,
                 no_card,
-                // Calibration's click track is left as it is: no music's
-                // volume on its card.
-                without_volume: r.calibration.is_some(),
+                // The arrows-only calibration is muted by design: no
+                // volume on its card (the sound tests have it: their click
+                // track plays at the volume; round AD).
+                without_volume: r.calibration.is_some_and(|m| m.muted()),
                 // Start at once: what the play needs loads behind it.
                 step: match &r.refused {
                     Some(why) => {

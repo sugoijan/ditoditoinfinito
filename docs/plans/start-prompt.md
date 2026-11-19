@@ -262,8 +262,9 @@ not changed.
 
 A player who muted the music on song select met a silent play with no way
 back short of Options, which a room's stage does not leave room for. Every
-card but a calibration's (`PromptState::without_volume`; its click track
-plays at the music's level and is left as it is) has song select's quick
+card but the arrows-only calibration's (`PromptState::without_volume`:
+muted by design; until round AD, 2026-11-19, every calibration's) has
+song select's quick
 volume (`ddi_ui::widgets::volume`, the same component) in its top right
 corner, the classic part's on a room's Ready card, beside the players: the
 song's title is cut shorter for it, nothing else moves (the buttons, the
@@ -286,5 +287,12 @@ event sounds, scripts' sounds and the announcer at its share).
 - The level is the Volume setting (`Settings::volume`), kept when it settles; the play
   reads it as it starts (the web reads it again then), and song select
   shows it, and tells its preview, when the player is back.
+- Calibration's sound tests (sound only, and the combined check) have it
+  too (round AD, the maintainer: "Say it is muted"): their click track
+  plays at the volume, so a person muted on song select hears nothing
+  without being told; moved there it changes the click's level alone,
+  never what is measured or settled (desktop's
+  `the_volume_moved_before_a_run_settles_the_same`). The play itself has
+  no volume button in calibration.
 - `ui.theme.prompt.volume` (percent, null without the control) and
   `musicMuted` for tests.

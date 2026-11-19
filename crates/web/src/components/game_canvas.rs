@@ -834,9 +834,13 @@ impl Component for GameCanvas {
         }
         // Start at once: the song loads behind it.
         prompt_state.borrow_mut().set_step(PromptStep::Ready);
-        // Calibration's click track is left as it is: no music's volume on
-        // its card.
-        if matches!(ctx.props().source, SongSource::Calibration(_)) {
+        // The arrows-only calibration is muted by design: no volume on its
+        // card (the sound tests have it: their click track plays at the
+        // volume; round AD).
+        if matches!(
+            ctx.props().source,
+            SongSource::Calibration(mode) if mode.muted()
+        ) {
             prompt_state.borrow_mut().set_without_volume(true);
         }
         // Song select's context, for this play (not a replay's).

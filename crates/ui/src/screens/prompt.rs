@@ -26,11 +26,11 @@
 //! time only and never delays the synchronous audio gesture.
 //!
 //! The volume sits in the card's top right corner on every card
-//! but a calibration's (the quick volume, [`crate::widgets::volume`], the
-//! same component as song select's), with a quiet "Sound is muted" left
-//! of it while the music is muted or at zero, so that nobody starts a
-//! song in silence without knowing (`docs/plans/start-prompt.md`, "The
-//! music's volume").
+//! but the arrows-only calibration's (the quick volume,
+//! [`crate::widgets::volume`], the same component as song select's), with
+//! a quiet "Sound is muted" left of it while the volume is muted or at
+//! zero, so that nobody starts a song or a sound test in silence without
+//! knowing (`docs/plans/start-prompt.md`, "The music's volume").
 //!
 //! Components: `Dialog` (the card, `Panel`'s fallback), `PlayButton`,
 //! `Button` and `Volume`; colors `Play.Field` (the play's own, under the picture),
@@ -291,8 +291,9 @@ pub struct PromptState {
     pub options: Vec<super::data::OptionDef>,
     pub options_differ: bool,
     pub options_saved: bool,
-    /// No volume on the card (a calibration's prompt: its click
-    /// track is left as it is).
+    /// No volume on the card (the arrows-only calibration's prompt,
+    /// muted by design; the sound tests' cards have it: their click track
+    /// plays at the volume, round AD).
     pub without_volume: bool,
     pub version: u64,
 }
@@ -975,8 +976,8 @@ impl PromptScreen {
         })
     }
 
-    /// Whether `state`'s card has the volume: every card but a
-    /// calibration's.
+    /// Whether `state`'s card has the volume: every card but the
+    /// arrows-only calibration's.
     fn volume_shown(state: &PromptState) -> bool {
         !state.without_volume
     }
@@ -3737,8 +3738,8 @@ mod tests {
     /// The volume (round AB, 2026-11-19): muted on song select,
     /// the card says so beside its control in the top right corner, which
     /// never moves the buttons, never takes the first focus nor stops the
-    /// countdown, and unmutes by the mouse, a tap and keys; a calibration's
-    /// card has none.
+    /// countdown, and unmutes by the mouse, a tap and keys; the arrows-only
+    /// calibration's card has none.
     #[test]
     fn the_music_volume_sits_in_the_cards_corner_and_says_when_it_is_muted() {
         use crate::state::settings::{DEFAULT_VOLUME, Settings};

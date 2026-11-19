@@ -95,3 +95,28 @@ fn saving_brings_the_offsets_to_the_truth() {
     let o = run(CalMode::Combined, &s, 0.0);
     assert!(!meaningful(&o), "{:+.1} ms", o.total() * 1000.0);
 }
+
+/// The sound tests' card has the volume (round AD): moved there before a
+/// run, the click track plays at the new level, and nothing measured or
+/// settled changes: the same outcome and the same offsets, muted, quiet
+/// or at the default.
+#[test]
+fn the_volume_moved_before_a_run_settles_the_same() {
+    use ddi_session::calibration::settle;
+    for mode in [CalMode::Audio, CalMode::Combined] {
+        let settled = |volume: f32| {
+            let s = Settings {
+                audio_offset: 0.020,
+                volume,
+                ..Settings::default()
+            };
+            let o = run(mode, &s, 0.010);
+            let mut after = s.clone();
+            let line = settle(&o, mode, &mut after, None, false).line;
+            (format!("{o:?}"), after.audio_offset, line)
+        };
+        let default = settled(Settings::default().volume);
+        assert_eq!(settled(0.0), default, "{mode:?} muted");
+        assert_eq!(settled(0.3), default, "{mode:?} quiet");
+    }
+}

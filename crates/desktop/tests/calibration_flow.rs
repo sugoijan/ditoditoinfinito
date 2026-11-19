@@ -98,6 +98,9 @@ fn a_test_from_the_menu_to_its_result_and_the_next() {
     }
     ui.update(0.5);
     assert_eq!(top(&ui), "play-prompt", "{:?}", ui.layers());
+    // The arrows-only test is muted by design: no volume on its card.
+    let prompt_volume = |env: &Env| env.state.borrow().prompt.as_ref().map(|p| p.volume);
+    assert_eq!(prompt_volume(&env), Some(None));
     key(&mut ui, "Enter", "Enter");
     host.poll(&mut ui, &env, Some(dev()), 48_000);
     assert!(host.playing(), "{:?}", ui.layers());
@@ -135,6 +138,14 @@ fn a_test_from_the_menu_to_its_result_and_the_next() {
     assert!(host.prompting(), "{:?}", ui.layers());
     assert!(env.state.borrow().song.starts_with("Calibration 2/3"));
     assert_eq!(top(&ui), "play-prompt", "{:?}", ui.layers());
+    // The sound-only test's card has the volume (its click track plays at
+    // it; round AD).
+    ui.update(0.1);
+    assert!(
+        matches!(prompt_volume(&env), Some(Some(_))),
+        "{:?}",
+        prompt_volume(&env)
+    );
     // Escape: back to the menu.
     key(&mut ui, "Escape", "Escape");
     ui.update(0.5);
