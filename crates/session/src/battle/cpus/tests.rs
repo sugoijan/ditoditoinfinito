@@ -116,6 +116,21 @@ fn scenarios() -> Vec<(StageRules, Vec<CpuSeat>)> {
                 seat(11, 10, None, Targeting::Spread),
             ],
         ),
+        // When life runs out: Play on under As picked (revision 16, round
+        // AC): the weakest fail on the picked chart and play on to its
+        // end, scoring; out for the battle.
+        (
+            StageRules {
+                easiest: ddi_room::AtEasiest::PlayOn,
+                ..four(MatchDifficulty::Hard, Charts::AsPicked)
+            },
+            vec![
+                seat(12, 0, Some("reckless"), Targeting::Spread),
+                seat(13, 1, None, Targeting::Leader),
+                seat(14, 10, Some("technical"), Targeting::Spread),
+                seat(15, 9, None, Targeting::Spread),
+            ],
+        ),
     ]
 }
 

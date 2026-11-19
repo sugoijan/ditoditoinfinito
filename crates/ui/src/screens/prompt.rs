@@ -583,16 +583,26 @@ impl PromptInfo {
             (others, 0) => msg::room::prompt_stage_people(number, stages, others).into(),
             (others, cpus) => msg::room::prompt_stage_mixed(number, stages, others, cpus).into(),
         };
-        // What running out of life does: out; or, under Adaptive, that
-        // the chart changes with the player's skill (the maintainer,
+        // What running out of life does: out, or failed and playing on
+        // (When life runs out, round AC); or, under Adaptive, that the
+        // chart changes with the player's skill (the maintainer,
         // 2026-11-15: no word of life running out there, nor of how).
-        let life: String = if adaptive_offered && rules.charts == ddi_room::Charts::Adaptive {
+        let adapts = adaptive_offered && rules.charts == ddi_room::Charts::Adaptive;
+        let life: String = if adapts {
             msg::room::prompt_chart_adapts().into()
+        } else if rules.plays_on_failed() {
+            msg::room::prompt_life_play_on().into()
         } else {
             msg::room::prompt_life_out().into()
         };
+        // The rules' words, When life runs out not again where the line
+        // before said it.
+        let said = crate::state::room::StageRules {
+            easiest: if adapts { rules.easiest } else { ddi_room::AtEasiest::PlayOn },
+            ..rules.clone()
+        };
         let rules: String = msg::room::prompt_ruleset(super::room::rules_words_in(
-            rules,
+            &said,
             attacks,
             adaptive_offered,
         ))

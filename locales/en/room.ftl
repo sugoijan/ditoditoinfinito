@@ -290,19 +290,21 @@ room-rules-attacks-online = Off · not in online rooms yet
 # when they keep full life.
 room-rules-charts = Charts
 
-# Feedback round AA: under Charts: Adaptive, what running out of life on
-# the easiest chart does: Play on (the default) or Out; and a sentence
-# for each under the row.
-room-rules-easiest = On the easiest chart
-room-rules-easiest-play-on = Play on
-room-rules-easiest-out = Out
-room-rules-easiest-about-play-on = Play on: whoever runs out of life on the easiest chart is failed, plays the song to its end and ranks under everyone who survived, the failed by their score.
-room-rules-easiest-about-out = Out: running out of life on the easiest chart ends the stage for them.
+# Round AC (feedback round AA's rule, now under both chart rules): what
+# running out of life does, the row's name (about 20 letters): Play on
+# (the default) or Out; and a sentence for each under the row, saying
+# what it does with the picked chart and with adaptive charts (where life
+# running out first steps down to an easier chart).
+room-rules-life-out = When life runs out
+room-rules-life-out-play-on = Play on
+room-rules-life-out-out = Out
+room-rules-life-out-about-play-on = Play on: whoever runs out of life (with adaptive charts, on the easiest one) is failed, plays the song to its end and ranks under everyone who survived, the failed by their score.
+room-rules-life-out-about-out = Out: running out of life (with adaptive charts, on the easiest one) ends the stage for them.
 room-rules-charts-as-picked = As picked
 room-rules-charts-adaptive = Adaptive
 
 # A line under the Charts row saying what the chosen value does.
-room-rules-charts-as-picked-about = Everyone plays the chart picked; a player whose life runs out is out until the next stage.
+room-rules-charts-picked-about = Everyone plays the chart picked.
 room-rules-charts-adaptive-about = Each player's chart changes with their skill.
 
 # Added after that line where the song picked for the stage has no other
@@ -663,7 +665,7 @@ room-leave-co-host = You are a co-host. The match in progress goes on without yo
 room-play-out = Out
 
 # Feedback round AA: on a miniature field (and a followed player's), a
-# competitor whose life ran out on the easiest chart under "Play on":
+# competitor whose life ran out under "When life runs out: Play on":
 # failed, still playing (about 8 letters).
 room-play-failed = Failed
 # Under the player's own life gauge, the same of themselves.
@@ -861,6 +863,10 @@ room-prompt-stage-mixed = { $stages ->
 # does, where the charts are as picked (the player is out of the stage).
 room-prompt-life-out = out when your life runs out
 
+# In its place where the match's rule When life runs out is Play on
+# (round AC): the player is failed and plays the song on to its end.
+room-prompt-life-play-on = failed but playing on when your life runs out
+
 # In its place where the match's charts are Adaptive: what the rule
 # means for the player, in a few words (the chart they play changes,
 # easier or harder, with how well they play; how and when is not said
@@ -900,7 +906,9 @@ room-prompt-ruleset = Rules: { $rules }
 # is not the default Strong, adaptive charts when they are chosen, and
 # how many attacks may be on their way to one player at once when it is
 # not the default three, and how many shocks one attack has when it is
-# not the default four.
+# not the default four; and (round AC) out of the stage when life runs
+# out, a match with no set number of songs, and no joining during a
+# match, each only where it is not the usual.
 # Variables:
 #   $ruleset (String) - the ruleset's name ("DDI")
 #   $difficulty (String) - "easy", "normal" or "hard"
@@ -910,6 +918,9 @@ room-prompt-ruleset = Rules: { $rules }
 #   $charts (String) - "as_picked" when everyone plays the chart picked (the charts not adapting to each player, which is the usual), else "adaptive"
 #   $at_once (String) - "one", "two" or "no_limit" when attacks are on and that is how many may be on their way to one player at once, else "three"
 #   $shocks (String) - "two", "six" or "eight" when attacks are on and that is how many shocks one attack has, else "four"
+#   $life_out (String) - "out" when a player whose life runs out is out of the stage, else "play_on" (they play on as failed, the usual)
+#   $stages (String) - "open" when the match has no set number of songs, else "counted" (the usual)
+#   $joining (String) - "off" when people who come during a match wait for the next match, else "on" (they play its next song, the usual)
 room-rules-words = { $ruleset }{ $difficulty ->
     [easy] {" "}· Easy timing
     [hard] {" "}· Hard timing
@@ -927,6 +938,9 @@ room-rules-words = { $ruleset }{ $difficulty ->
 }{ $charts ->
     [as_picked] {" "}· Charts as picked
    *[adaptive] {""}
+}{ $life_out ->
+    [out] {" "}· Out when life runs out
+   *[play_on] {""}
 }{ $at_once ->
     [one] {" "}· One attack at once
     [two] {" "}· Two attacks at once
@@ -937,6 +951,12 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [six] {" "}· Six shocks per attack
     [eight] {" "}· Eight shocks per attack
    *[four] {""}
+}{ $stages ->
+    [open] {" "}· Open stages
+   *[counted] {""}
+}{ $joining ->
+    [off] {" "}· No joining during a match
+   *[on] {""}
 }
 
 # A note on a stage's results and under the song in the room: how the
@@ -956,8 +976,8 @@ room-mark-survived = Stage { $number }: place { $place } of { $field } · +{ $po
 #   $points (String) - the points it gave, as a number ("3", "2.5")
 room-mark-out = Stage { $number }: out of life · place { $place } of { $field } · +{ $points } pts
 
-# The same, when the player's life ran out on the easiest chart under
-# Charts: Adaptive's "Play on" and they played on to the song's end as
+# The same, when the player's life ran out under "When life runs out:
+# Play on" and they played on to the song's end as
 # failed (ranked after everyone who survived, by score).
 # Variables:
 #   $number (Number) - the stage, from 1
@@ -1768,8 +1788,8 @@ room-table-playing = Still playing…
 #   $time (String) - the song's minute and second ("1:02")
 room-table-out = Out { $time }
 
-# The same for a player whose life ran out on the easiest chart under
-# Charts: Adaptive's "Play on": failed then, and played on to the end
+# The same for a player whose life ran out under "When life runs out:
+# Play on": failed then, and played on to the end
 # (feedback round AA).
 # Variables:
 #   $time (String) - the song's minute and second ("1:02")

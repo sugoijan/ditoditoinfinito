@@ -114,7 +114,9 @@ pub struct PublicRules {
     /// counted): `stages` is then no count.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub open_ended: bool,
-    /// On the easiest chart (revision 15; additive, left out while Out).
+    /// When life runs out, as the match plays it (`MatchRules::life_out`:
+    /// revision 15 said it under Adaptive alone, "On the easiest chart";
+    /// revision 16 under both chart rules; additive, left out while Out).
     #[serde(default, skip_serializing_if = "crate::rules::AtEasiest::is_out")]
     pub easiest: crate::rules::AtEasiest,
     /// Joining during a match (revision 15; additive, left out while Off).
@@ -136,7 +138,7 @@ impl PublicRules {
             at_once: r.at_once,
             shocks: r.shocks,
             open_ended: r.open_ended,
-            easiest: r.easiest,
+            easiest: r.life_out(),
             mid_match_entry: r.mid_match_entry,
         }
     }

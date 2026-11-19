@@ -258,6 +258,27 @@ impl RunDetail {
     pub const MAX_TIERS: usize = 12;
     pub const MAX_CHART: usize = 32;
 
+    /// A forfeit's grade, in place of a letter, as a quit play's results
+    /// say it (the engine's `QUIT`).
+    pub const QUIT_GRADE: &'static str = "QUIT";
+    /// The grade of a competitor out by life or failed (DDI's `F`).
+    pub const FAILED_GRADE: &'static str = "F";
+
+    /// The detail graded as `run` ended (room model revision 16, round AC:
+    /// "we should be careful not to show an 'SSS' grade on it"): a forfeit
+    /// QUIT, one out by life or failed F, whatever the report's grade says;
+    /// a run still in keeps its own.
+    pub fn graded_as(mut self, run: &ReportedRun) -> RunDetail {
+        match run {
+            ReportedRun::Forfeit => self.grade = Self::QUIT_GRADE.into(),
+            ReportedRun::Out { .. } | ReportedRun::Failed { .. } => {
+                self.grade = Self::FAILED_GRADE.into();
+            }
+            ReportedRun::Live { .. } => {}
+        }
+        self
+    }
+
     /// The detail within the room's bounds.
     pub fn bounded(mut self) -> RunDetail {
         if self.grade.chars().count() > Self::MAX_GRADE {

@@ -3326,10 +3326,11 @@ pub(crate) fn manageable(r: &RoomClient) -> Vec<&ddi_room::Member> {
 /// Match rules `rules` in a few words as room `r` plays them: attacks and
 /// Adaptive charts said only where it offers them ([`rules_words_in`]).
 pub fn match_rules_words(r: &RoomClient, rules: &ddi_room::MatchRules) -> UiText {
-    rules_words_in(
+    rules_words_of(
         &crate::state::room::StageRules::of(rules),
         r.attacks_offered().then(|| rules.attacks()),
         r.adaptive_offered(),
+        Some(rules),
     )
 }
 
@@ -3340,6 +3341,19 @@ pub fn rules_words_in(
     rules: &crate::state::room::StageRules,
     attacks: Option<bool>,
     adaptive_offered: bool,
+) -> UiText {
+    rules_words_of(rules, attacks, adaptive_offered, None)
+}
+
+/// [`rules_words_in`], with the match's own rules where they are known
+/// (`whole`): its Stages Open and Joining during a match said where they
+/// are not the usual (round AC), as When life runs out is from the
+/// stage's.
+fn rules_words_of(
+    rules: &crate::state::room::StageRules,
+    attacks: Option<bool>,
+    adaptive_offered: bool,
+    whole: Option<&ddi_room::MatchRules>,
 ) -> UiText {
     let on = |b: bool| if b { "on" } else { "off" };
     let charts = if adaptive_offered {
@@ -3357,6 +3371,9 @@ pub fn rules_words_in(
         // Only where the stage has attacks.
         if attacks.unwrap_or(true) { at_once_id(rules.at_once) } else { "three" },
         if attacks.unwrap_or(true) { shocks_id(rules.shocks) } else { "four" },
+        rules.easiest.id(),
+        if whole.is_some_and(|w| w.open_ended) { "open" } else { "counted" },
+        on(whole.is_none_or(|w| w.mid_match_entry)),
     )
 }
 
@@ -3427,12 +3444,9 @@ pub(crate) fn rules_diff(
             gates.stages && before.mid_match_entry != after.mid_match_entry,
         ),
         ("charts", gates.charts && before.charts != after.charts),
-        (
-            "easiest",
-            gates.charts
-                && after.charts == ddi_room::Charts::Adaptive
-                && before.easiest != after.easiest,
-        ),
+        // When life runs out, as each plays it (revision 16: under both
+        // chart rules; a rule set stored before reads as it was).
+        ("easiest", before.life_out() != after.life_out()),
         (
             "cpus",
             gates
@@ -3527,7 +3541,7 @@ pub fn charts_name(z: ddi_room::Charts) -> UiText {
 /// What the At zero life choice does, under its row.
 pub fn charts_about(z: ddi_room::Charts) -> UiText {
     match z {
-        ddi_room::Charts::AsPicked => m::rules_charts_as_picked_about(),
+        ddi_room::Charts::AsPicked => m::rules_charts_picked_about(),
         ddi_room::Charts::Adaptive => m::rules_charts_adaptive_about(),
     }
 }

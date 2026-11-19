@@ -157,8 +157,16 @@ pub fn supported(version: u32) -> bool {
 ///     stream's `MomentKind::Failed`, every device computing the room's
 ///     CPUs failing alike); and a 4401 asks for a ticket before it ends
 ///     a link (`SIGN_IN_RECHECK_MS`), the server's ticket carrying the
-///     re-signed session's expiry.
-pub const ROOM_MODEL_REVISION: u32 = 15;
+///     re-signed session's expiry;
+/// 16. round AC (2026-11-19): When life runs out under both chart rules
+///     (`MatchRules::easiest` read under As picked too where
+///     `MatchRules::life_out_any_chart` says so, which every rule set made
+///     since does: `MatchRules::life_out`, `normalized`; rules stored
+///     before read as they were), and a retrying download
+///     (`Loading::Retrying`) holding the readiness window's early end
+///     until its loading grace would have ended
+///     (`ReadinessWindow::hold_until`).
+pub const ROOM_MODEL_REVISION: u32 = 16;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being

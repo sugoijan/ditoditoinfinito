@@ -1005,7 +1005,8 @@ pub(crate) fn test_details() -> [ddi_room::RunDetail; 2] {
         ddi_room::RunDetail {
             score: Some(2_100_000),
             percent: Some(4_100),
-            grade: "C".into(),
+            // Out by life: graded F, as the room keeps it (round AC).
+            grade: "F".into(),
             life_ppm: 0,
             out_at_ms: Some(41_000),
             max_combo: 45,

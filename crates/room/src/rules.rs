@@ -472,16 +472,31 @@ pub struct MatchRules {
         skip_serializing_if = "Charts::is_as_picked"
     )]
     pub charts: Charts,
-    /// Under Charts: Adaptive, what zero life on the easiest chart (the
-    /// ladder's lowest rung, or a song's only chart) does ([`AtEasiest`],
-    /// room model revision 15, feedback round AA): Play on, a new room's
-    /// (the competitor is failed, plays the song to its end scoring, is
-    /// out for the battle and ranked under every survivor, the failed by
-    /// score), or Out (as before). Read only under Adaptive. ADDITIVE:
-    /// left out of the JSON while Out, read as Out where missing (rules
-    /// from before it, which a stored room keeps).
+    /// When life runs out ([`AtEasiest`]; read it through
+    /// [`MatchRules::life_out`]): Play on, a new room's (the competitor is
+    /// failed, plays the song to its end scoring, is out for the battle
+    /// and ranked under every survivor, the failed by score), or Out (as
+    /// before): under Charts: As picked at zero life, under Adaptive at
+    /// zero life on the easiest chart (the ladder's lowest rung, or a
+    /// song's only chart; its steps down come first). Room model revision
+    /// 15 (feedback round AA) read it under Adaptive alone, as "On the
+    /// easiest chart"; revision 16 (round AC, the maintainer, 2026-11-19:
+    /// "Both") under both chart rules, where
+    /// [`MatchRules::life_out_any_chart`] says so. ADDITIVE: left out of
+    /// the JSON while Out, read as Out where missing (rules from before
+    /// it, which a stored room keeps).
     #[serde(default, skip_serializing_if = "AtEasiest::is_out")]
     pub easiest: AtEasiest,
+    /// `easiest` is the rule When life runs out under both chart rules
+    /// (room model revision 16): true for every rule set made since
+    /// ([`MatchRules::hosted`], [`MatchRules::normalized`], which the
+    /// Rules pop-up and the reducer apply to what they save). False in
+    /// rules stored or sent before it, whose `easiest` is read under
+    /// Adaptive alone, As picked out at zero life as it was then
+    /// ([`MatchRules::life_out`]). ADDITIVE: left out of the JSON while
+    /// false, read as false where missing.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub life_out_any_chart: bool,
     /// How many attacks may stand placed (not yet passed) against one
     /// player at once (Three by default; `attacks-v3`, the maintainer's
     /// decision of 2026-11-13): a player at the limit is not a valid
@@ -551,6 +566,9 @@ pub struct PlayRules {
     /// [`MatchRules::easiest`].
     #[serde(default, skip_serializing_if = "AtEasiest::is_out")]
     pub easiest: AtEasiest,
+    /// [`MatchRules::life_out_any_chart`].
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub life_out_any_chart: bool,
     /// [`MatchRules::at_once`].
     #[serde(default, skip_serializing_if = "AttacksAtOnce::is_default")]
     pub at_once: AttacksAtOnce,
@@ -569,6 +587,19 @@ pub struct PlayRules {
 }
 
 impl PlayRules {
+    /// When life runs out, as these rules are played
+    /// ([`MatchRules::life_out`]).
+    pub fn life_out(&self) -> AtEasiest {
+        life_out(self.easiest, self.life_out_any_chart, self.charts)
+    }
+
+    /// These rules as revision 16 writes them ([`MatchRules::normalized`]).
+    pub fn normalized(mut self) -> PlayRules {
+        self.easiest = self.life_out();
+        self.life_out_any_chart = true;
+        self
+    }
+
     /// The Attacks rule ([`MatchRules::attacks`]).
     pub fn attacks(&self) -> bool {
         crate::battle::BattlePreset::parse(&self.battle)
@@ -736,8 +767,10 @@ impl Charts {
     }
 }
 
-/// What zero life on the easiest chart does under Charts: Adaptive
-/// ([`MatchRules::easiest`], room model revision 15).
+/// What zero life does where it would end a competitor's play: When
+/// life runs out ([`MatchRules::easiest`], [`MatchRules::life_out`]; room
+/// model revision 15 under Charts: Adaptive on the easiest chart alone,
+/// revision 16 under both chart rules).
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
@@ -751,7 +784,8 @@ pub enum AtEasiest {
     /// battle (no attacks sent or placed from then, out for its
     /// settlement), ranked under every competitor who did not fail and
     /// among the failed by the score as earned (`crate::battle::rank`,
-    /// [`crate::battle::Run::Failed`]); graded F. A new room's.
+    /// [`crate::battle::Run::Failed`]); graded F. A new room's, under
+    /// both chart rules.
     PlayOn,
 }
 
@@ -775,12 +809,50 @@ impl AtEasiest {
     }
 }
 
+/// When life runs out under rules whose `easiest` is `easiest`, read
+/// under both chart rules where `any_chart` (revision 16), else under
+/// Adaptive alone (revision 15's reading: As picked was out).
+fn life_out(easiest: AtEasiest, any_chart: bool, charts: Charts) -> AtEasiest {
+    if any_chart || charts == Charts::Adaptive {
+        easiest
+    } else {
+        AtEasiest::Out
+    }
+}
+
 impl MatchRules {
+    /// When life runs out under these rules, as they are played: their
+    /// `easiest` where it is read under both chart rules (revision 16,
+    /// [`MatchRules::life_out_any_chart`]), else under Adaptive alone and
+    /// Out under As picked (rules stored before revision 16 read as they
+    /// were).
+    pub fn life_out(&self) -> AtEasiest {
+        life_out(self.easiest, self.life_out_any_chart, self.charts)
+    }
+
+    /// Sets When life runs out, under both chart rules from now on.
+    pub fn set_life_out(&mut self, life_out: AtEasiest) {
+        self.easiest = life_out;
+        self.life_out_any_chart = true;
+    }
+
+    /// These rules as revision 16 writes them, played as they were: When
+    /// life runs out as it reads ([`MatchRules::life_out`]), under both
+    /// chart rules from now on. What the Rules pop-up edits and the
+    /// reducer saves, so that a rule set stored before revision 16 and
+    /// edited after it plays what its Rules row shows.
+    pub fn normalized(mut self) -> MatchRules {
+        self.easiest = self.life_out();
+        self.life_out_any_chart = true;
+        self
+    }
+
     /// A stage under these rules plays on to the song's end once life
-    /// runs out on the easiest chart (Charts: Adaptive with
-    /// [`AtEasiest::PlayOn`]); every other is out at zero life there.
+    /// runs out where it would end the play (When life runs out: Play
+    /// on): under As picked at zero life, under Adaptive on the easiest
+    /// chart; every other is out at zero life there.
     pub fn plays_on_failed(&self) -> bool {
-        self.charts == Charts::Adaptive && self.easiest == AtEasiest::PlayOn
+        self.life_out() == AtEasiest::PlayOn
     }
 }
 
@@ -879,6 +951,7 @@ impl MatchRules {
             battle: self.battle.clone(),
             charts: self.charts,
             easiest: self.easiest,
+            life_out_any_chart: self.life_out_any_chart,
             at_once: self.at_once,
             shocks: self.shocks,
             points: None,
@@ -894,6 +967,7 @@ impl MatchRules {
             battle: play.battle.clone(),
             charts: play.charts,
             easiest: play.easiest,
+            life_out_any_chart: play.life_out_any_chart,
             at_once: play.at_once,
             shocks: play.shocks,
             points: play.points.unwrap_or(self.points),
@@ -960,6 +1034,7 @@ impl MatchRules {
             points: PointsBias::Strong,
             charts: Charts::AsPicked,
             easiest: AtEasiest::PlayOn,
+            life_out_any_chart: true,
             at_once: AttacksAtOnce::Three,
             shocks: ShocksPerAttack::Four,
         }

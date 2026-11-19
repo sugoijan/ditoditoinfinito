@@ -826,14 +826,20 @@ fn the_attacks_at_once_row_shows_under_attacks_and_three_is_the_default() {
 #[test]
 fn the_rules_summary_says_no_attacks_only_where_they_are_turned_off() {
     use super::room::rules_words;
-    // The usual rules: Adaptive charts, a new room's.
+    // The usual rules: Adaptive charts, a new room's (Play on when life
+    // runs out).
     let rules = crate::state::room::StageRules {
         charts: ddi_room::Charts::Adaptive,
-        easiest: ddi_room::AtEasiest::Out,
         ..Default::default()
     };
     let words = |r: &crate::state::room::StageRules, attacks| String::from(rules_words(r, attacks));
     assert_eq!(words(&rules, Some(true)), "DDI");
+    // Round AC: Out said where it is chosen.
+    let out = crate::state::room::StageRules {
+        easiest: ddi_room::AtEasiest::Out,
+        ..rules.clone()
+    };
+    assert_eq!(words(&out, Some(true)), "DDI · Out when life runs out");
     assert_eq!(words(&rules, Some(false)), "DDI · No attacks");
     assert_eq!(words(&rules, None), "DDI");
     let hard = crate::state::room::StageRules {
@@ -865,6 +871,17 @@ fn the_rules_summary_says_no_attacks_only_where_they_are_turned_off() {
     // A new practice room has attacks, and Reset's defaults too.
     let room = RoomClient::shared(0, 1);
     assert!(room.borrow().rules().attacks() && room.borrow().attacks_on());
+    // Round AC: a match's Stages Open and Joining during a match Off said
+    // where they are chosen, as When life runs out: Out.
+    let mut m = room.borrow().rules().clone();
+    assert_eq!(String::from(super::room::match_rules_words(&room.borrow(), &m)), "DDI");
+    m.open_ended = true;
+    m.mid_match_entry = false;
+    m.set_life_out(ddi_room::AtEasiest::Out);
+    assert_eq!(
+        String::from(super::room::match_rules_words(&room.borrow(), &m)),
+        "DDI · Out when life runs out · Open stages · No joining during a match"
+    );
 }
 
 /// The DDI ruleset's round 3: the match's Difficulty, Boos and Attacks are
@@ -5655,12 +5672,14 @@ fn the_rooms_screens_draw_as_pinned() {
 
 /// Round AA (revision 15) moved "rules" (its new rows: Joining during a
 /// match; under Adaptive, On the easiest chart) and the two pop-ups drawn
-/// over it, "add" and "add-level".
+/// over it, "add" and "add-level"; round AC (revision 16) moved the same
+/// three (When life runs out, its row under As picked too, and the As
+/// picked sentence).
 const PINNED: [(&str, u64); 10] = [
     ("select", 16001433830104325910),
-    ("rules", 5322785676097785853),
-    ("add", 10960918902752896039),
-    ("add-level", 9652554814654506447),
+    ("rules", 16042799659378123936),
+    ("add", 17627936778336865441),
+    ("add-level", 12840789705277059974),
     ("players", 8610800191167024236),
     ("standings", 16950822547352780372),
     ("online-select", 15460780746050739119),
@@ -5956,7 +5975,6 @@ fn a_stage_prompt_says_whom_it_is_against_and_what_zero_life_does() {
     use super::prompt::{PromptInfo, StageLine};
     let adaptive = crate::state::room::StageRules {
         charts: ddi_room::Charts::Adaptive,
-        easiest: ddi_room::AtEasiest::Out,
         ..Default::default()
     };
     let as_picked = crate::state::room::StageRules::default();
@@ -5987,13 +6005,24 @@ fn a_stage_prompt_says_whom_it_is_against_and_what_zero_life_does() {
     for word in ["life", "easier", "harder", "bar"] {
         assert!(!said(4, 0, &adaptive, Some(true), true).contains(word), "{word}");
     }
+    // As picked: a new room's Play on when life runs out (round AC), or
+    // out; said once, by the line.
     assert_eq!(
         said(1, 0, &as_picked, Some(true), true),
+        "Stage 1 of 3 · against one CPU · failed but playing on when your life runs out · \
+         Rules: DDI · Charts as picked"
+    );
+    let out = crate::state::room::StageRules {
+        easiest: ddi_room::AtEasiest::Out,
+        ..as_picked.clone()
+    };
+    assert_eq!(
+        said(1, 0, &out, Some(true), true),
         "Stage 1 of 3 · against one CPU · out when your life runs out · \
          Rules: DDI · Charts as picked"
     );
     assert_eq!(
-        said(0, 2, &as_picked, None, false),
+        said(0, 2, &out, None, false),
         "Stage 1 of 3 · against 2 other players · out when your life runs out · Rules: DDI"
     );
 }

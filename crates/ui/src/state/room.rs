@@ -748,9 +748,10 @@ pub struct StageRules {
     /// The charts it is played on: the picked one, or Adaptive, down and
     /// up the song's ladder (`ddi_engine::ladder`, `adaptive-v0`).
     pub charts: ddi_room::Charts,
-    /// Under Adaptive, what zero life on the easiest chart does
-    /// (`ddi_room::MatchRules::easiest`, room model revision 15): Play on
-    /// (failed, the song played to its end, ranked after every survivor
+    /// When life runs out, as the stage plays it
+    /// (`ddi_room::MatchRules::life_out`: under As picked at zero life,
+    /// under Adaptive on the easiest chart; room model revision 16): Play
+    /// on (failed, the song played to its end, ranked after every survivor
     /// by score) or Out.
     pub easiest: ddi_room::AtEasiest,
     /// Attacks at once: the most attacks that may stand placed against one
@@ -792,7 +793,7 @@ impl PlayKey {
             boos: r.boos,
             attacks: r.attacks(),
             charts: r.charts,
-            easiest: r.easiest,
+            easiest: r.life_out(),
             at_once: r.at_once,
             shocks: r.shocks,
         }
@@ -828,7 +829,7 @@ impl StageRules {
             boos: rules.boos,
             points: rules.points,
             charts: rules.charts,
-            easiest: rules.easiest,
+            easiest: rules.life_out(),
             at_once: rules.at_once,
             shocks: rules.shocks,
             changed: false,
@@ -871,8 +872,9 @@ impl StageRules {
     /// life, so a device that plays it under other rules (one that
     /// predates the change) disagrees on the plan's digest and sits it
     /// out. `None` for a stage under the match's own rules, whose plan is
-    /// what it was. Play on at the easiest chart (revision 15) adds its
-    /// word, only where it applies, so a tag of before is unchanged.
+    /// what it was. Play on when life runs out (revision 15 under
+    /// Adaptive, 16 under both) adds its word, only where it applies, so a
+    /// tag of before is unchanged.
     pub fn changed_tag(&self) -> Option<String> {
         self.play_changed.then(|| {
             let play_on = if self.plays_on_failed() { "/play-on" } else { "" };
@@ -886,10 +888,11 @@ impl StageRules {
         })
     }
 
-    /// Life out on the easiest chart is played on as failed (Charts:
-    /// Adaptive with On the easiest chart: Play on, revision 15).
+    /// Life out where it would end the play is played on as failed (When
+    /// life runs out: Play on; revision 16 under both chart rules, under
+    /// As picked at zero life, under Adaptive on the easiest chart).
     pub fn plays_on_failed(&self) -> bool {
-        self.adaptive() && self.easiest == ddi_room::AtEasiest::PlayOn
+        self.easiest == ddi_room::AtEasiest::PlayOn
     }
 
     /// The attack rules a stage under these rules is played with: the
@@ -929,10 +932,11 @@ impl StageRules {
 
     /// The engine's ruleset a stage under these rules is played with:
     /// DDI with the match's options, an empty life out of the stage.
-    /// Under Play on at the easiest chart (revision 15) the fail plays on
-    /// (`FailPolicy::ImmediateContinue`: failed, judged and scored to the
-    /// song's end, the gauge taking nothing more): zero life with a rung
-    /// below still steps down, so only the easiest chart's is a fail.
+    /// Under When life runs out: Play on (revision 16, both chart rules)
+    /// the fail plays on (`FailPolicy::ImmediateContinue`: failed, judged
+    /// and scored to the song's end, the gauge taking nothing more): under
+    /// Adaptive zero life with a rung below still steps down, so only the
+    /// easiest chart's is a fail.
     pub fn build(&self) -> ddi_engine::Ruleset {
         let mut rules = ddi_engine::rules::presets::ddi().with_ddi(&self.ddi_options());
         rules.fail = if self.plays_on_failed() {

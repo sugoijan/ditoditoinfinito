@@ -679,9 +679,9 @@ fn an_older_room_model_is_refused_except_during_a_stage() {
     use ddi_room::{ROOM_MODEL_REVISION, UPDATE_REQUIRED, UpdateRequired, check_model_against};
     let rev = ROOM_MODEL_REVISION;
     assert_eq!(
-        rev, 15,
-        "15: joining during a match, open-ended matches, Play on at the easiest chart (14: the \
-         CPUs' levels, cpu-levels-v2)"
+        rev, 16,
+        "16: When life runs out under both chart rules, a retrying download holding the window \
+         (15: joining during a match, open-ended matches, Play on at the easiest chart)"
     );
     assert_eq!(UPDATE_REQUIRED, "update_required");
     // The other way (round R2): a client refuses an authority older than
@@ -1034,4 +1034,75 @@ fn a_room_stored_by_revision_14_loads_and_plays_on_as_it_was() {
             .any(|e| matches!(e, ddi_room::Event::LateEntrantsAdmitted { .. }))
     );
     assert!(matches!(state.phase, Phase::Preparing { stage: StageId(4), .. }));
+}
+
+/// A room stored by revision 15 loads under every later one (round AC,
+/// revision 16): the JSON revision 15's own reducer wrote
+/// (`room-revision-15.json`: a new room's rules of then, As picked with
+/// Play on at the easiest chart, an open match; stage 1 played, bo out by
+/// life; a change from its next stage to Adaptive kept with Play on; that
+/// stage picked, made the last song and gathering readiness) reads,
+/// writes back what it reads, and plays as it was: As picked out at zero
+/// life (revision 15 read the rule under Adaptive alone), the Adaptive
+/// stage playing on, the next match's draft As picked and out. Rules
+/// saved since are revision 16's, the rule then read under both.
+#[test]
+fn a_room_stored_by_revision_15_loads_and_plays_on_as_it_was() {
+    let text = include_str!("room-revision-15.json");
+    let mut state: RoomState = serde_json::from_str(text).unwrap();
+    let back = serde_json::to_value(&state).unwrap();
+    assert_eq!(
+        back,
+        serde_json::from_str::<serde_json::Value>(text).unwrap(),
+        "written as it was read"
+    );
+    let m = state.current.as_ref().unwrap();
+    assert!(m.rules.open_ended);
+    assert_eq!((m.rules.charts, m.rules.easiest), (Charts::AsPicked, AtEasiest::PlayOn));
+    assert!(!m.rules.life_out_any_chart);
+    assert_eq!(m.rules.life_out(), AtEasiest::Out, "As picked: out, as it was");
+    assert!(!m.rules.plays_on_failed());
+    assert!(!m.rules_for(StageId(1)).plays_on_failed());
+    let last = StageId(3);
+    assert!(m.stage(last).unwrap().last, "the last song kept");
+    assert_eq!(m.rules_for(last).charts, Charts::Adaptive);
+    assert!(m.rules_for(last).plays_on_failed(), "Adaptive: Play on, as it was");
+    assert!(!m.stage_rules_changed(StageId(1)));
+    assert!(m.stage_rules_changed(last));
+    assert!(!state.next.rules.plays_on_failed(), "the draft As picked: out");
+    // The public view says the rule as played.
+    assert_eq!(
+        serde_json::to_value(audience::PublicView::of(&state, "room")).unwrap()["rules"]
+            .get("easiest"),
+        None,
+        "Out, left out"
+    );
+    // The host saves the next match's rules as revision 16 does: the
+    // draft's meaning kept (Out under As picked) and the rule then read
+    // under both chart rules; Play on chosen plays on under As picked.
+    let host = ParticipantId(1);
+    let mut draft = state.next.rules.clone();
+    draft.charts = Charts::AsPicked;
+    let revision = state.revision;
+    state
+        .apply(
+            Actor::Member(host),
+            Some(revision),
+            &Command::SaveNextRules { rules: draft.clone() },
+            Millis(40_000),
+        )
+        .unwrap();
+    assert!(state.next.rules.life_out_any_chart);
+    assert_eq!(state.next.rules.life_out(), AtEasiest::Out, "its meaning kept");
+    draft.set_life_out(AtEasiest::PlayOn);
+    let revision = state.revision;
+    state
+        .apply(
+            Actor::Member(host),
+            Some(revision),
+            &Command::SaveNextRules { rules: draft },
+            Millis(41_000),
+        )
+        .unwrap();
+    assert!(state.next.rules.plays_on_failed(), "As picked, Play on");
 }

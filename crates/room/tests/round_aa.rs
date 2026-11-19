@@ -399,14 +399,21 @@ fn failed_runs_rank_after_the_survivors_by_score() {
         serde_json::to_string(&failed).unwrap(),
         r#"{"failed":{"at_ms":12346,"score":42}}"#
     );
-    // The rule: Play on for a new room, read only under Adaptive.
+    // The rule: Play on for a new room, under both chart rules since
+    // revision 16 (round AC); a rule set from before it reads under
+    // Adaptive alone.
     let mut r = MatchRules::hosted();
     assert_eq!(r.easiest, AtEasiest::PlayOn);
-    assert!(!r.plays_on_failed(), "As picked: out at zero life");
+    assert!(r.plays_on_failed(), "As picked: plays on (revision 16)");
     r.charts = Charts::Adaptive;
     assert!(r.plays_on_failed());
     r.easiest = AtEasiest::Out;
     assert!(!r.plays_on_failed());
+    let mut before = MatchRules::hosted();
+    before.life_out_any_chart = false;
+    assert!(!before.plays_on_failed(), "revision 15's As picked: out");
+    before.charts = Charts::Adaptive;
+    assert!(before.plays_on_failed());
 }
 
 /// Part 4, a stage settled on its starters' reports: one survivor, two

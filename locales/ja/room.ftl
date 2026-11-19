@@ -142,15 +142,15 @@ room-rules-shocks-about = 1回の攻撃で相手のフィールドに送るシ�
 room-rules-attacks-online = オフ · オンラインルームではまだ使えません
 
 room-rules-charts = 譜面
-room-rules-easiest = 最も易しい譜面で
-room-rules-easiest-play-on = プレイ続行
-room-rules-easiest-out = 脱落
-room-rules-easiest-about-play-on = プレイ続行：最も易しい譜面でライフがなくなった人は失敗として曲の最後までプレイし、生き残った全員より下に、失敗した人どうしはスコア順に並びます。
-room-rules-easiest-about-out = 脱落：最も易しい譜面でライフがなくなると、そのステージから脱落します。
+room-rules-life-out = ライフがなくなったら
+room-rules-life-out-play-on = プレイ続行
+room-rules-life-out-out = 脱落
+room-rules-life-out-about-play-on = プレイ続行：ライフがなくなった人（適応譜面では最も易しい譜面で）は失敗として曲の最後までプレイし、生き残った全員より下に、失敗した人どうしはスコア順に並びます。
+room-rules-life-out-about-out = 脱落：ライフがなくなると（適応譜面では最も易しい譜面で）、そのステージから脱落します。
 room-rules-charts-as-picked = 選んだまま
 room-rules-charts-adaptive = 適応
 
-room-rules-charts-as-picked-about = 全員が選ばれた譜面をプレイし、ライフが尽きたプレイヤーは次のステージまで脱落します。
+room-rules-charts-picked-about = 全員が選ばれた譜面をプレイします。
 room-rules-charts-adaptive-about = 各プレイヤーの譜面が実力に合わせて変わります。
 
 room-rules-charts-no-ladder = 選ばれた曲にはこのスタイルの譜面がほかにないため、選んだままと同じになります。
@@ -343,6 +343,7 @@ room-prompt-stage-mixed = { $stages ->
 } · ほかのプレイヤー{ $others }人とCPU { $cpus }人と対戦
 
 room-prompt-life-out = ゲージが尽きるとアウト
+room-prompt-life-play-on = ゲージが尽きると失敗のままプレイ続行
 
 room-prompt-chart-adapts = 譜面は実力に合わせて変わる
 
@@ -372,6 +373,9 @@ room-rules-words = { $ruleset }{ $difficulty ->
 }{ $charts ->
     [as_picked] {" "}· 譜面 選んだまま
    *[adaptive] {""}
+}{ $life_out ->
+    [out] {" "}· ライフ切れで脱落
+   *[play_on] {""}
 }{ $at_once ->
     [one] {" "}· 同時攻撃 1
     [two] {" "}· 同時攻撃 2
@@ -382,6 +386,12 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [six] {" "}· 攻撃ごとのショック 6
     [eight] {" "}· 攻撃ごとのショック 8
    *[four] {""}
+}{ $stages ->
+    [open] {" "}· ステージ数 オープン
+   *[counted] {""}
+}{ $joining ->
+    [off] {" "}· 対戦途中の参加なし
+   *[on] {""}
 }
 
 room-mark-survived = ステージ { $number }: { $field }人中 { $place }位 · +{ $points }点

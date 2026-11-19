@@ -376,6 +376,21 @@ pub enum Loading {
     Failed {
         code: String,
     },
+    /// The song's download failed and is being tried again by itself
+    /// (room model revision 16, round AC: the client's `load-retry-v0`):
+    /// loading as far as the room is concerned, and while it lasts the
+    /// readiness window does not end early on everyone else being ready,
+    /// up to the loading grace's end (`ReadinessWindow::hold_until`);
+    /// the others' status lines say whom the room waits for.
+    Retrying,
+}
+
+impl Loading {
+    /// Still loading as the room waits for it: not started, loading or
+    /// trying its download again.
+    pub fn in_progress(&self) -> bool {
+        matches!(self, Loading::NotStarted | Loading::Loading { .. } | Loading::Retrying)
+    }
 }
 
 /// A committed stage.
@@ -569,8 +584,10 @@ impl Match {
     /// Whether stage `stage` is played under other per-stage rules than
     /// the match began with.
     pub fn stage_rules_changed(&self, stage: StageId) -> bool {
+        // Compared as played: a match stored before revision 16 and a
+        // change saved since differ in how they are written alone.
         self.change_for(stage)
-            .is_some_and(|c| c.rules != self.rules.play_rules())
+            .is_some_and(|c| c.rules.clone().normalized() != self.rules.play_rules().normalized())
     }
 
     /// When the changes were last saved (none: never).
@@ -1020,13 +1037,35 @@ impl RoomState {
             Phase::Preparing {
                 stage,
                 window: Some(w),
-            } => (!self.content_pending(*stage)).then_some(w.loading_until.unwrap_or(w.deadline)),
+            } => (!self.content_pending(*stage)).then_some(match w.loading_until {
+                Some(l) => l,
+                // A retrying download holds the early end until the
+                // grace's end (revision 16): the room looks again then.
+                None => match w.hold_until {
+                    Some(h) if self.retrying(*stage) => h.min(w.deadline),
+                    _ => w.deadline,
+                },
+            }),
             Phase::Countdown { start_at, .. } => Some(*start_at),
             Phase::Stage { stage } | Phase::SongCompletion { stage } => {
                 self.report_deadline(*stage)
             }
             _ => None,
         }
+    }
+
+    /// Someone connected who wants to play `stage` is trying its song's
+    /// download again ([`Loading::Retrying`], revision 16).
+    pub fn retrying(&self, stage: StageId) -> bool {
+        let Some(s) = self.stage(stage) else {
+            return false;
+        };
+        self.candidates().iter().any(|&id| {
+            self.members
+                .get(&id)
+                .is_some_and(|m| m.wants_to_play() && m.connection.holds_place())
+                && s.prep_ref(id).loading == Loading::Retrying
+        })
     }
 
     /// Whether `stage`'s chosen content is still being shared.
@@ -1159,7 +1198,9 @@ impl RoomState {
         let prep = stage.prep_ref(id);
         match prep.loading {
             Loading::Failed { .. } => Some(SitOutReason::LoadFailed),
-            Loading::NotStarted | Loading::Loading { .. } => Some(SitOutReason::StillLoading),
+            Loading::NotStarted | Loading::Loading { .. } | Loading::Retrying => {
+                Some(SitOutReason::StillLoading)
+            }
             Loading::Loaded if !prep.ready => Some(SitOutReason::NotReady),
             Loading::Loaded => None,
         }

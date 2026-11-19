@@ -1013,6 +1013,10 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
                 && h.ui.bounds(inner).is_some()
             {
                 count(inner);
+                // Below the dialog's fold (its rows scroll): into view.
+                let at = h.centre(inner);
+                h.wheel_lines(at, [0.0, 40.0]);
+                h.run(0.3);
                 h.tap(PointerKind::Mouse, inner);
                 shown(h, found);
                 h.key("Escape", "Escape");

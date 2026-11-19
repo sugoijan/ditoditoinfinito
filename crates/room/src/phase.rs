@@ -48,6 +48,15 @@ pub struct ReadinessWindow {
     /// `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loading_until: Option<Millis>,
+    /// `hosted-deadline-v2`, its loading grace ended early (everyone
+    /// loaded before it ran out): when it would have ended. Until then a
+    /// member trying their download again (`crate::state::Loading::
+    /// Retrying`) holds the window's early end on everyone else being
+    /// ready (room model revision 16, round AC: "Hold it briefly"); then
+    /// it starts without them. ADDITIVE: left out of the JSON while
+    /// `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold_until: Option<Millis>,
 }
 
 impl ReadinessWindow {

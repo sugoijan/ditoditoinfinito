@@ -313,3 +313,70 @@ cpu 110 reports 0:016d7a57180b578d 1:8769625f4ee4e128 2:d4fa605525f930eb 3:1d1db
 cpu 111 failed None finished true
 cpu 111 end Some(Finished) applied [4, 8, 11] late 0 combo 253 life 1 score Some((2535971, 14120, 1412178)) steps 2 tally Tally { taps: [250, 21, 0, 0, 0, 1], held: 16, let_go: 0, mine_hit: 1, boo: 0, checkpoint_hit: 0, checkpoint_miss: 0, w0: 178, hold_units: 19 }
 cpu 111 reports 0:016d7a57180b578d 1:8769625f4ee4e128 2:d4fa605525f930eb 3:9ad2fbc4f37a8cc3 4:2103fef16cc89fa0 5:0c5152a939750983 6:0b90735e71472501 7:c8092c1cd6e1fd58 8:852a336c1adfdb2d 9:766aa2d4431a4243 10:1eba6629c65ace77 11:2a7ec05e53f5bc50 12:d1f86eda174e4214 13:236e072444e86dad 14:d67663d371ede61c 15:d9bc516bde8a83a3 16:7474afe4d0a517cb 17:ab13b24f6556e683 18:c51e9a79f377a484 19:ed8d089f91fd310e 20:48303352fd9e0184 21:4b5cb2cd580d4c80 22:70d7614ce835a7ad 23:5d8acc14de5d2c08 24:45f1a32c215fbc23 25:2702e1bd70f5d8c5 26:616cf76d27014239 27:142e4d1772d1b31d 28:bdd27289bf84a269 29:90f0382ab66a5cc4 30:14336df575161a92 31:182af20e8c08fa17 32:70b57c93ab27c9c3 33:839419170055d353 34:6c993e0492c1516b 35:32f6197d3dfbec8d 36:0517b03707fad8de 37:e95bcf35fa146466 38:4d1fa7fc820d1b21 39:2a20e828f6f7a44e 40:632fbada12017987 41:3b24b26a5d020704 42:d6932e9d3a637fd9 43:eebccdfe4fef914b 44:1ef2ea67fb56e66d 45:86b44dedec312e54 46:0c151048c7bdbf7a 47:d816f767444c06c0 48:30e9820a7c68f1de 49:c26681b489bb95a2 50:0c7c6237dbf66ac2 51:482112eda6a40417 52:ad21462bdadc7d34 53:bf612ba3412d98a9
+scenario 5
+k 0 at 1967213 power [(ParticipantId(112), 0), (ParticipantId(113), 0), (ParticipantId(114), 0), (ParticipantId(115), 0)] commits []
+k 1 at 3934426 power [(ParticipantId(112), 0), (ParticipantId(113), 0), (ParticipantId(114), 0), (ParticipantId(115), 0)] commits []
+k 2 at 5901639 power [(ParticipantId(112), 0), (ParticipantId(113), 0), (ParticipantId(114), 0), (ParticipantId(115), 0)] commits []
+k 3 at 7868852 power [(ParticipantId(112), 0), (ParticipantId(113), 0), (ParticipantId(114), 0), (ParticipantId(115), 0)] commits []
+k 4 at 9836066 power [(ParticipantId(112), 4), (ParticipantId(113), 2), (ParticipantId(114), 7), (ParticipantId(115), 10)] commits []
+k 5 at 11803279 power [(ParticipantId(112), 9), (ParticipantId(113), 4), (ParticipantId(114), 14), (ParticipantId(115), 18)] commits []
+k 6 at 13770492 power [(ParticipantId(112), 15), (ParticipantId(113), 9), (ParticipantId(114), 20), (ParticipantId(115), 24)] commits []
+k 7 at 15737705 power [(ParticipantId(112), 17), (ParticipantId(113), 11), (ParticipantId(114), 25), (ParticipantId(115), 32)] commits []
+k 8 at 17704918 power [(ParticipantId(112), 18), (ParticipantId(113), 11), (ParticipantId(114), 32), (ParticipantId(115), 36)] commits []
+k 9 at 19672131 power [(ParticipantId(112), 27), (ParticipantId(113), 13), (ParticipantId(114), 39), (ParticipantId(115), 48)] commits []
+k 10 at 21639344 power [(ParticipantId(112), 32), (ParticipantId(113), 15), (ParticipantId(114), 47), (ParticipantId(115), 51)] commits []
+k 11 at 23606557 power [(ParticipantId(112), 33), (ParticipantId(113), 18), (ParticipantId(114), 55), (ParticipantId(115), 63)] commits []
+k 12 at 25573770 power [(ParticipantId(112), 34), (ParticipantId(113), 18), (ParticipantId(114), 62), (ParticipantId(115), 68)] commits []
+k 13 at 27540984 power [(ParticipantId(112), 41), (ParticipantId(113), 25), (ParticipantId(114), 72), (ParticipantId(115), 78)] commits []
+k 14 at 29508197 power [(ParticipantId(112), 45), (ParticipantId(113), 25), (ParticipantId(114), 75), (ParticipantId(115), 84)] commits []
+k 15 at 31475410 power [(ParticipantId(112), 48), (ParticipantId(113), 29), (ParticipantId(114), 83), (ParticipantId(115), 94)] commits []
+k 16 at 33442623 power [(ParticipantId(112), 52), (ParticipantId(113), 36), (ParticipantId(114), 95), (ParticipantId(115), 0)] commits [(1, ParticipantId(114), 20)]
+k 17 at 35409836 power [(ParticipantId(112), 53), (ParticipantId(113), 40), (ParticipantId(114), 0), (ParticipantId(115), 10)] commits [(2, ParticipantId(112), 21)]
+k 18 at 37377049 power [(ParticipantId(112), 60), (ParticipantId(113), 43), (ParticipantId(114), 8), (ParticipantId(115), 22)] commits []
+k 19 at 39344262 power [(ParticipantId(112), 62), (ParticipantId(113), 48), (ParticipantId(114), 19), (ParticipantId(115), 36)] commits []
+k 20 at 41311475 power [(ParticipantId(112), 70), (ParticipantId(113), 48), (ParticipantId(114), 27), (ParticipantId(115), 43)] commits []
+k 21 at 43278689 power [(ParticipantId(112), 72), (ParticipantId(113), 48), (ParticipantId(114), 34), (ParticipantId(115), 51)] commits []
+k 22 at 45245902 power [(ParticipantId(112), 74), (ParticipantId(113), 50), (ParticipantId(114), 42), (ParticipantId(115), 59)] commits []
+k 23 at 47213115 power [(ParticipantId(112), 80), (ParticipantId(113), 58), (ParticipantId(114), 49), (ParticipantId(115), 67)] commits []
+k 24 at 49180328 power [(ParticipantId(112), 86), (ParticipantId(113), 60), (ParticipantId(114), 57), (ParticipantId(115), 77)] commits []
+k 25 at 51147541 power [(ParticipantId(112), 88), (ParticipantId(113), 60), (ParticipantId(114), 62), (ParticipantId(115), 86)] commits []
+k 26 at 53114754 power [(ParticipantId(112), 92), (ParticipantId(113), 62), (ParticipantId(114), 71), (ParticipantId(115), 97)] commits []
+k 27 at 55081967 power [(ParticipantId(112), 94), (ParticipantId(113), 67), (ParticipantId(114), 81), (ParticipantId(115), 0)] commits [(3, ParticipantId(113), 31)]
+k 28 at 57049180 power [(ParticipantId(112), 95), (ParticipantId(113), 68), (ParticipantId(114), 85), (ParticipantId(115), 8)] commits []
+k 29 at 59016393 power [(ParticipantId(112), 95), (ParticipantId(113), 71), (ParticipantId(114), 94), (ParticipantId(115), 17)] commits []
+k 30 at 60983607 power [(ParticipantId(112), 95), (ParticipantId(113), 72), (ParticipantId(114), 98), (ParticipantId(115), 21)] commits []
+k 31 at 62950820 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 0), (ParticipantId(115), 31)] commits [(4, ParticipantId(115), 35)]
+k 32 at 64918033 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 7), (ParticipantId(115), 39)] commits []
+k 33 at 66885246 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 16), (ParticipantId(115), 50)] commits []
+k 34 at 68852459 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 23), (ParticipantId(115), 62)] commits []
+k 35 at 70819672 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 38), (ParticipantId(115), 78)] commits []
+k 36 at 72786885 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 44), (ParticipantId(115), 82)] commits []
+k 37 at 74754098 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 49), (ParticipantId(115), 92)] commits []
+k 38 at 76721311 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 56), (ParticipantId(115), 0)] commits [(5, ParticipantId(114), 42)]
+k 39 at 78688525 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 64), (ParticipantId(115), 10)] commits []
+k 40 at 80655738 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 71), (ParticipantId(115), 20)] commits []
+k 41 at 82622951 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 78), (ParticipantId(115), 25)] commits []
+k 42 at 84590164 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 85), (ParticipantId(115), 33)] commits []
+k 43 at 86557377 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 93), (ParticipantId(115), 43)] commits []
+k 44 at 88524590 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 99), (ParticipantId(115), 53)] commits []
+k 45 at 90491803 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 0), (ParticipantId(115), 59)] commits [(6, ParticipantId(115), 49)]
+k 46 at 92459016 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 13), (ParticipantId(115), 74)] commits []
+k 47 at 94426230 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 19), (ParticipantId(115), 82)] commits []
+k 48 at 96393443 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 25), (ParticipantId(115), 90)] commits []
+k 49 at 98360656 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 29), (ParticipantId(115), 94)] commits []
+k 50 at 100327869 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 37), (ParticipantId(115), 100)] commits []
+k 51 at 102295082 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 40), (ParticipantId(115), 100)] commits []
+k 52 at 104262295 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 42), (ParticipantId(115), 100)] commits []
+k 53 at 106229508 power [(ParticipantId(112), 95), (ParticipantId(113), 73), (ParticipantId(114), 42), (ParticipantId(115), 100)] commits []
+cpu 112 failed Some(57.96049635701276) finished true
+cpu 112 end Some(Finished) applied [2] late 0 combo 46 life 0 score Some((1204424, 6670, 667018)) steps 0 tally Tally { taps: [49, 71, 54, 21, 8, 14], held: 26, let_go: 1, mine_hit: 2, boo: 0, checkpoint_hit: 0, checkpoint_miss: 0, w0: 18, hold_units: 32 }
+cpu 112 reports 0:016d7a57180b578d 1:8769625f4ee4e128 2:d4fa605525f930eb 3:6e8d2f3de6e4fa18 4:8163997738237456 5:59662b26ff6a15f4 6:f66647c508eebfbf 7:69cd4e928d5413fb 8:33a4c4d42adffc0b 9:8ab60346787ba6d6 10:017086e2b054be26 11:adc77d92bc597113 12:e3846f20e17eec27 13:d2ddcdfb61e4fe8f 14:6bffc6392546c04d 15:48dc4237783d1867 16:dbd1961638b8563c 17:8d50abb5709b4cd2 18:b7258d1b02e92e05 19:b4e1a7bc7c6867fe 20:901936ff53462bad 21:e2fac6f6f3640943 22:9b5e6d87683ab048 23:4ff94d33b8838cfc 24:93d047ecfc3108c3 25:dce349f7b6a5373a 26:fb6a3547ed0a7f7f 27:329e8336a9090a60 28:39a4e7d9145bad36 29:df7b16ab6f9bf595
+cpu 113 failed Some(63.151659) finished true
+cpu 113 end Some(Finished) applied [3] late 0 combo 16 life 0 score Some((1144345, 6370, 637014)) steps 0 tally Tally { taps: [31, 58, 62, 33, 24, 9], held: 27, let_go: 0, mine_hit: 0, boo: 0, checkpoint_hit: 0, checkpoint_miss: 0, w0: 14, hold_units: 34 }
+cpu 113 reports 0:016d7a57180b578d 1:8769625f4ee4e128 2:d4fa605525f930eb 3:7b0eb17593921d56 4:9a668fc66046c842 5:5660bb61f3e86c8c 6:2c319a4592c1e36d 7:38b8fab7cda7f667 8:760f99839dc2f54e 9:23db68cfbda25659 10:a9f57f482497d3b7 11:608feb125a49e9af 12:415f67289731c31f 13:aed1bb94141c63b0 14:702e1eb3709252ba 15:e43e2e1240f3ff30 16:6da93db3ffa86374 17:e98f17b562b879fe 18:0dc61e032b1bb275 19:a026527be1db1ef7 20:cb204b5ac3558fce 21:350abaa47d869210 22:8576f467c27ed5c4 23:dda7df4338badc08 24:147dd8d9bc570b87 25:ad3fcea61bc20c6e 26:6785eb70bf159b45 27:2ef97b0dbb021ce9 28:5603f4a7a7f59497 29:117d294dd274ebd1 30:b08393574049965f 31:fd0c223cdcbc6b2a 32:425e44c496b2f6a0
+cpu 114 failed None finished true
+cpu 114 end Some(Finished) applied [1, 5] late 0 combo 217 life 1 score Some((2257137, 11920, 1192085)) steps 0 tally Tally { taps: [150, 63, 4, 0, 0, 0], held: 29, let_go: 0, mine_hit: 0, boo: 0, checkpoint_hit: 0, checkpoint_miss: 0, w0: 85, hold_units: 36 }
+cpu 114 reports 0:016d7a57180b578d 1:8769625f4ee4e128 2:d4fa605525f930eb 3:7b0eb17593921d56 4:6f09535435cc9eb1 5:eac750da3d5573b5 6:44f0ced517f3f56d 7:ab4e9031845d909f 8:8841a6b489f0d06e 9:aebe81304d655947 10:b15969ce6d7becfd 11:8f2c749ed38b7bcb 12:26bf715be495dc7d 13:c7a722fb0f0c815b 14:120c525d5853d2de 15:ea6768c348d67152 16:5ec616e179cdfe76 17:808c4596655203b2 18:691120260f30723b 19:d3f672fecfbd7e37 20:dde2f30524118733 21:e876f2fd02bd578b 22:aab6cd9353c9fc00 23:83d28a9641679b5e 24:23ffc4c5b1222bc6 25:708dbd60e84aaa89 26:23eb513f64779143 27:5e4849528c42e138 28:808c96b2633113e8 29:1baff181e1010ee5 30:5b50e72a502045e6 31:facfe70572c40832 32:0c120fb8473239f9 33:82e9201542a59e97 34:7b7533056183c958 35:922c3b1b5624ef69 36:96bab646245d74b2 37:cf0cb7339e7c5d50 38:d9d5ee4bbba675fe 39:d391a62e0cbe3e0d 40:481fe8118c3a6ce5 41:7e58e2c00f6d8755 42:3abfa026cc0e138e 43:79689b248a594397 44:b6553f9d7de59f55 45:4f154a2651400159 46:ba60f593beab1129 47:a3762261599020cd 48:a891dcc99a2cf259 49:0fafddaa914aad81 50:06c95d172f290bce 51:f929e6f648c639c7 52:186cf6d349294c66 53:bf612ba3412d98a9
+cpu 115 failed None finished true
+cpu 115 end Some(Finished) applied [4, 6] late 0 combo 217 life 1 score Some((2365538, 12525, 1252660)) steps 0 tally Tally { taps: [206, 10, 1, 0, 0, 0], held: 29, let_go: 0, mine_hit: 0, boo: 0, checkpoint_hit: 0, checkpoint_miss: 0, w0: 160, hold_units: 36 }
+cpu 115 reports 0:016d7a57180b578d 1:8769625f4ee4e128 2:d4fa605525f930eb 3:7b0eb17593921d56 4:94c2cf65e05a1d73 5:1a116027e6b0aa20 6:4a0788a8ba5e5de5 7:5d3aacf7b72219b7 8:59867594c70ac923 9:62219bb92b0743de 10:55e0ea13531e5a02 11:15cd081204e9a847 12:d1d2acac7dacb0fa 13:d0b0a80bdedfeeae 14:19d7ce5854184426 15:df8a516683d2f7ce 16:d580895b5742708e 17:a20d4f6694ca0b17 18:c67a674f15c36822 19:39bf48dfa065b617 20:d9ae53535fa64c26 21:9a0a8ff8ccb6949d 22:9fe470902c576ee1 23:ef902333876bd454 24:b6802e201eab4435 25:dd83dcfecead6383 26:c28dfd84797b1821 27:82e2820738345d23 28:b182c7390c5905d4 29:9740b0cbe676fc16 30:2abc05bd74a3b363 31:7445bee9b51725ec 32:9ba04d950c1d72d0 33:6326a7b742b5a060 34:e6b71eb38370d0ab 35:f95b44a84151d466 36:5cac64d8ad9ad010 37:4559df0d679f18ec 38:2b1566679c2b91bc 39:9bf4883c41095df0 40:8cedd5e2ce72c1bc 41:b1d558e5060f1b3f 42:ab7e7648d66cb056 43:096a02bc10433837 44:740b5095b9882508 45:acad463aa4430ed5 46:85eaa73c0fab684c 47:7962ff36f669188a 48:13acd1a1ceaf1fc2 49:c6674b8a42b6f31c 50:073cae9da093ac2b 51:94498568c92f6b4a 52:ad21462bdadc7d34 53:bf612ba3412d98a9

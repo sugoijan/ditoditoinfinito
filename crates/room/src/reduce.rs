@@ -294,7 +294,10 @@ impl RoomState {
                 participant: id,
                 run: *run,
                 at: now,
-                detail: detail.clone().map(RunDetail::bounded),
+                // Graded as the run ended (revision 16, round AC): a
+                // forfeit never keeps the letter of the notes judged
+                // before it.
+                detail: detail.clone().map(|d| d.bounded().graded_as(run)),
             },
         );
         let all = self
@@ -525,9 +528,10 @@ impl RoomState {
                 // where it is not the match's own. A change that names
                 // none keeps the stage's as it stands (an earlier change's),
                 // never the match's by default.
-                let rules = m.play_rules_of(&m.rules_for(*from).with_play(rules));
+                // As revision 16 keeps them ([`crate::MatchRules::normalized`]).
+                let rules = m.play_rules_of(&m.rules_for(*from).with_play(&rules.clone().normalized()));
                 rules.check().map_err(Rejection::InvalidRules)?;
-                if m.play_rules_for(*from) != rules {
+                if m.play_rules_for(*from).normalized() != rules {
                     self.emit(out, Event::StageRulesChanged { from: *from, rules });
                 }
                 Ok(())
@@ -1149,11 +1153,18 @@ impl RoomState {
         // The candidates once for the checks below (this runs after every
         // accepted command).
         let candidates = self.candidates();
-        if w.loading() {
+        let w = if w.loading() {
             if self.still_loading(s, &candidates) {
                 return;
             }
-            self.end_loading(stage, w, now, out);
+            self.end_loading(stage, w, now, out)
+        } else {
+            w
+        };
+        // A download being tried again holds the early end until the
+        // loading grace would have ended (revision 16).
+        if w.hold_until.is_some_and(|h| now < h) && self.retrying(stage) {
+            return;
         }
         let Some(s) = self.stage(stage) else { return };
         let grace = self.policy.readiness.grace().is_some();
@@ -1181,11 +1192,13 @@ impl RoomState {
                 deadline: now.after(grace).after(p.window_ms),
                 readiness_rev,
                 loading_until: Some(now.after(grace)),
+                hold_until: None,
             },
             None => ReadinessWindow {
                 deadline: now.after(p.window_ms),
                 readiness_rev,
                 loading_until: None,
+                hold_until: None,
             },
         }
     }
@@ -1197,10 +1210,7 @@ impl RoomState {
         candidates.iter().any(|&id| {
             self.members.get(&id).is_some_and(|m| {
                 m.wants_to_play() && m.connection.holds_place()
-            }) && matches!(
-                stage.prep_ref(id).loading,
-                Loading::NotStarted | Loading::Loading { .. }
-            )
+            }) && stage.prep_ref(id).loading.in_progress()
         })
     }
 
@@ -1216,6 +1226,9 @@ impl RoomState {
         let window = ReadinessWindow {
             deadline: now.after(self.policy.readiness.window_ms),
             loading_until: None,
+            // Ended early: a retrying download may hold the early end
+            // until the grace's own end (revision 16).
+            hold_until: w.loading_until.filter(|l| now < *l),
             ..w
         };
         self.emit(
@@ -1825,6 +1838,9 @@ impl RoomState {
         out: &mut Vec<Event>,
     ) -> Decided {
         Self::check_base(base, self.next.saved_at)?;
+        // As revision 16 keeps them, played as they were sent (When life
+        // runs out under both chart rules from now on).
+        let rules = &rules.clone().normalized();
         rules
             .validate(&self.policy, self.reserved_humans())
             .map_err(Rejection::InvalidRules)?;
@@ -1871,6 +1887,31 @@ impl RoomState {
                     return;
                 }
                 self.end_loading(stage, w, now, out);
+                self.maybe_commit(now, out);
+            }
+            // A retrying download held the early end until the grace's
+            // own end (revision 16): it starts without them now if
+            // everyone else is ready.
+            Phase::Preparing {
+                stage,
+                window: Some(w),
+            } if now < w.deadline
+                && w.hold_until.is_some_and(|h| now >= h)
+                && self.retrying(stage) =>
+            {
+                let window = ReadinessWindow {
+                    hold_until: None,
+                    ..w
+                };
+                self.emit(
+                    out,
+                    Event::PhaseChanged {
+                        phase: Phase::Preparing {
+                            stage,
+                            window: Some(window),
+                        },
+                    },
+                );
                 self.maybe_commit(now, out);
             }
             Phase::Preparing {

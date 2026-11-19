@@ -43,6 +43,9 @@ fn room_seeded(stages: u16, cpus: u16, level: u8, seed: u64) -> RoomClient {
     // 2026-11-14): what these stages' tests are about; the step-down
     // tests choose Adaptive themselves.
     rules.charts = ddi_room::Charts::AsPicked;
+    // Out when life runs out, as these tests were written (Play on, a new
+    // room's, applies under As picked too since revision 16).
+    rules.set_life_out(ddi_room::AtEasiest::Out);
     room.save_rules(rules).unwrap();
     room
 }

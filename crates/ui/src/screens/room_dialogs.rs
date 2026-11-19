@@ -242,9 +242,11 @@ impl RulesDialog {
     }
 
     fn opened(env: Env, room: SharedRoom, first: bool) -> RulesDialog {
-        let draft = room.borrow().state().next.rules.clone();
+        // As revision 16 writes them (When life runs out under both chart
+        // rules), played as they were: what the rows show is what plays.
+        let draft = room.borrow().state().next.rules.clone().normalized();
         let draws = room.borrow().now_ms();
-        let ahead = room.borrow().rules_ahead();
+        let ahead = room.borrow().rules_ahead().map(MatchRules::normalized);
         let from = room.borrow().rules_land_on();
         let stage_draft = ahead.unwrap_or_else(|| draft.clone());
         let base = room.borrow().revision();
@@ -890,8 +892,8 @@ impl Screen for RulesDialog {
         };
         let zero_h = ROW + zero_about.len() as f32 * 17.0;
         // Feedback round AA: Stages' sentence where it is Open, Joining
-        // during a match's row and sentence, and under Adaptive On the
-        // easiest chart's row and sentence.
+        // during a match's row and sentence, and When life runs out's row
+        // and sentence (round AC: under both chart rules).
         let wrap = |t: UiText| super::dialog::wrap_lines(&String::from(t), inner, 12.0);
         let max_stages = self.room.borrow().state().policy.max_stages;
         let stages_about = if draft.open_ended {
@@ -900,23 +902,15 @@ impl Screen for RulesDialog {
             Vec::new()
         };
         let mid_about = wrap(m::rules_mid_match_about());
-        let easiest_shown = self.adaptive_offered() && play.charts == ddi_room::Charts::Adaptive;
-        let easiest_about = if easiest_shown {
-            wrap(match play.easiest {
-                ddi_room::AtEasiest::PlayOn => m::rules_easiest_about_play_on(),
-                ddi_room::AtEasiest::Out => m::rules_easiest_about_out(),
-            })
-        } else {
-            Vec::new()
-        };
+        let easiest_about = wrap(match play.life_out() {
+            ddi_room::AtEasiest::PlayOn => m::rules_life_out_about_play_on(),
+            ddi_room::AtEasiest::Out => m::rules_life_out_about_out(),
+        });
         let aa_h = stages_about.len() as f32 * 17.0
             + ROW
             + mid_about.len() as f32 * 17.0
-            + if easiest_shown {
-                ROW + easiest_about.len() as f32 * 17.0
-            } else {
-                0.0
-            };
+            + ROW
+            + easiest_about.len() as f32 * 17.0;
         // Attacks at once, under Attacks while they are On: its row and
         // its sentence.
         let at_once_shown = self.at_once_shown();
@@ -1184,35 +1178,31 @@ impl Screen for RulesDialog {
             ry += ROW;
             about_lines(&mut c, "charts", &zero_about, self.bright == Some("charts"), &mut ry);
             said_to("charts", ry);
-            // On the easiest chart (round AA), under Adaptive.
-            if easiest_shown {
-                mark(&mut c, "easiest", ry + ROW / 2.0);
-                stepper(
-                    &mut c,
-                    "easiest",
-                    &m::rules_easiest(),
-                    match play.easiest {
-                        ddi_room::AtEasiest::PlayOn => m::rules_easiest_play_on(),
-                        ddi_room::AtEasiest::Out => m::rules_easiest_out(),
-                    }
-                    .into(),
-                    ends(ddi_room::AtEasiest::ALL.len(), play.easiest.index()),
-                    false,
-                    ry + ROW / 2.0,
-                );
-                ry += ROW;
-                about_lines(
-                    &mut c,
-                    "easiest",
-                    &easiest_about,
-                    self.bright == Some("easiest"),
-                    &mut ry,
-                );
-                said_to("easiest", ry);
-            }
         } else {
             fixed_row(&mut c, "Rule.charts", &m::rules_charts(), &m::rules_charts_online(), ry);
             ry += ROW;
+        }
+        // When life runs out (round AA's On the easiest chart; round AC,
+        // revision 16: under both chart rules).
+        {
+            let life_out = play.life_out();
+            mark(&mut c, "easiest", ry + ROW / 2.0);
+            stepper(
+                &mut c,
+                "easiest",
+                &m::rules_life_out(),
+                match life_out {
+                    ddi_room::AtEasiest::PlayOn => m::rules_life_out_play_on(),
+                    ddi_room::AtEasiest::Out => m::rules_life_out_out(),
+                }
+                .into(),
+                ends(ddi_room::AtEasiest::ALL.len(), life_out.index()),
+                false,
+                ry + ROW / 2.0,
+            );
+            ry += ROW;
+            about_lines(&mut c, "easiest", &easiest_about, self.bright == Some("easiest"), &mut ry);
+            said_to("easiest", ry);
         }
         // Practice's CPUs: the roster, each removable, then the adds.
         if cpus {
@@ -1453,11 +1443,10 @@ impl Screen for RulesDialog {
             }
             if self.adaptive_offered() {
                 rows.push(pair("charts"));
-                if self.edited().borrow().charts == ddi_room::Charts::Adaptive
-                    && self.row_editable("easiest")
-                {
-                    rows.push(pair("easiest"));
-                }
+            }
+            // When life runs out: under both chart rules (revision 16).
+            if self.row_editable("easiest") {
+                rows.push(pair("easiest"));
             }
             if self.cpus_shown() && self.row_editable("cpus") {
                 for k in 0..self.roster().len() {
@@ -1552,10 +1541,7 @@ impl Screen for RulesDialog {
             .and_then(|id| BRIGHTENS.into_iter().find(|b| *b == id))
             .filter(|id| match *id {
                 "charts" => self.adaptive_offered(),
-                "easiest" => {
-                    self.adaptive_offered()
-                        && self.edited().borrow().charts == ddi_room::Charts::Adaptive
-                }
+                "easiest" => true,
                 "stages" => self.draft.borrow().open_ended,
                 "at_once" | "shocks" => self.at_once_shown(),
                 _ => true,
@@ -1650,13 +1636,12 @@ impl Screen for RulesDialog {
                         self.bright = Some("mid_match");
                         rebuild(self, root, cx, name);
                     }
-                    "Dec.easiest" | "Inc.easiest"
-                        if self.editable() && self.adaptive_offered() =>
-                    {
+                    "Dec.easiest" | "Inc.easiest" if self.editable() => {
                         let edited = self.edited();
                         let mut d = edited.borrow_mut();
                         let up = name == "Inc.easiest";
-                        d.easiest = step(&ddi_room::AtEasiest::ALL, d.easiest.index(), up);
+                        let life_out = step(&ddi_room::AtEasiest::ALL, d.life_out().index(), up);
+                        d.set_life_out(life_out);
                         drop(d);
                         self.bright = Some("easiest");
                         rebuild(self, root, cx, name);

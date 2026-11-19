@@ -589,3 +589,49 @@ fn a_player_failed_on_the_easiest_chart_plays_on_and_ranks_under_the_survivors()
     assert_eq!(detail.grade, ddi_engine::rules::ddi::FAILED);
     assert!(a.battle().unwrap().failed_playing_on(&a.player));
 }
+
+/// Round AC (revision 16): When life runs out: Play on applies under
+/// Charts: As picked too. Idle on the picked chart, the player fails at
+/// zero life and plays the song to its end, scoring; out for the battle;
+/// ranked under every competitor who did not fail; graded F; the same at
+/// any frame rate.
+#[test]
+fn under_as_picked_a_failed_player_plays_on_and_ranks_under_the_survivors() {
+    let song = bundled("beatucada");
+    let mut practice = attacks_room(3, 4);
+    let mut rules = MatchRules {
+        charts: ddi_room::Charts::AsPicked,
+        ..practice.rules().clone()
+    };
+    rules.set_life_out(ddi_room::AtEasiest::PlayOn);
+    practice.save_rules(rules).unwrap();
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, HARD);
+    assert!(!order.rules.adaptive());
+    assert!(order.rules.plays_on_failed());
+    let (a, oa, _) = idle(&song, &order, 60.0);
+    let (b, ob, _) = idle(&song, &order, 144.0);
+    let failed_at = a.player.gauge_failed_at().expect("failed on the picked chart");
+    assert!(a.player.steps().is_empty(), "no ladder under As picked");
+    assert!(a.player.failed());
+    let last = a.player.judge().last_time().unwrap();
+    assert!(last > failed_at + 10.0, "judged on after failing: {failed_at} to {last}");
+    assert_eq!(a.player.results().tally, b.player.results().tally, "any frame rate");
+    assert!(matches!(oa.mine, ddi_room::Run::Failed { .. }), "{:?}", oa.mine);
+    assert_eq!(ids(&oa), ids(&ob));
+    let me = order.me.0;
+    let groups = ids(&oa);
+    let mine = groups.iter().position(|g| g.iter().any(|(p, _)| *p == me)).unwrap();
+    assert!(groups[mine].iter().all(|(_, f)| *f == Finish::Failed));
+    assert!(
+        groups[..mine]
+            .iter()
+            .flatten()
+            .all(|(_, f)| *f == Finish::Survived),
+        "{groups:?}"
+    );
+    let detail = oa.details.iter().find(|(p, _)| p.0 == me).unwrap().1.clone();
+    assert_eq!(detail.grade, ddi_engine::rules::ddi::FAILED);
+    assert_eq!(detail.percent, Some(0), "never below 0 % as reported");
+    assert!(a.battle().unwrap().failed_playing_on(&a.player));
+}
