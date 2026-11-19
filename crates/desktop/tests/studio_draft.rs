@@ -148,7 +148,11 @@ fn the_studio_s_draft_is_never_lost_to_an_error_a_mistake_or_a_second_copy() {
         t.shell.ui.update(1.0 / 30.0);
     }
     assert!(studio.left(), "{:?}", t.shell.ui.layers());
-    t.shell.offscreen_poll();
+    // No poll between leaving and opening again: the work is a thread's,
+    // and a poll that found it finished would rightly let the studio go
+    // (the files are small: on a fast machine they are done by now). What
+    // was asked for is under way until a poll takes it, so it is kept.
+    assert!(studio.working());
     let living = t
         .shell
         .songs
