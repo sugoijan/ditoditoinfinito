@@ -2549,7 +2549,9 @@ fn announcer_for<B>(
                 // (`Battle::end_event`: a stage ranked on this
                 // device, for one who competes in it.)
                 !b.setup().remote() && b.competes(),
-                b.setup().number >= b.setup().of,
+                // (An open-ended match's `of` is 0 until its last song:
+                // never its last before, round AC.)
+                b.setup().is_last(),
             ),
         None => announcer,
     };

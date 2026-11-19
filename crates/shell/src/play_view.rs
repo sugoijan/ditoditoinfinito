@@ -2602,6 +2602,7 @@ fn cue_words(
             Battle::MatchBegin => m::play_cue_match_begin(),
             Battle::StageBegin => m::play_cue_stage_begin(number),
             Battle::FinalStage => m::play_cue_final_stage(),
+            Battle::LastSong => m::play_cue_last_song(),
             Battle::LifeCritical => m::play_cue_life_critical(),
             Battle::Survivors(n) => m::play_cue_survivors(n),
             Battle::Eliminated => m::play_cue_eliminated(),

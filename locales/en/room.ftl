@@ -119,6 +119,11 @@ room-end-match-body = { $count ->
    *[other] The match ends now with the { $count } songs played: their points decide it. The next match keeps these rules.
 }
 
+# Round AC: on an open-ended match's stage's Ready card, for whoever may
+# mark it, a row whose value (On or Off, the usual words) says whether
+# this stage is the match's last song (about 16 letters).
+room-ready-last-song = Last song
+
 # More's items for an open-ended match's last song (about 24 letters each):
 # the stage picked and not started made the match's last song, or not;
 # and, before a pick, the next pick made the last song.
@@ -719,6 +724,10 @@ room-play-cue-match-begin = Match begins
 room-play-cue-stage-begin = Stage { $number } begins
 
 room-play-cue-final-stage = Final stage
+
+# Round AC: the match's last song begins (a counted match's last stage,
+# or an open match's song marked as its last).
+room-play-cue-last-song = Last song
 
 # The player's life is about to run out.
 room-play-cue-life-critical = Life critical

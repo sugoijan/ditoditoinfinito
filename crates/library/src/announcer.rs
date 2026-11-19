@@ -131,8 +131,16 @@ pub enum Battle {
     /// A later stage begins, not the last.
     StageBegin,
     /// The match's last stage begins (announced by the match's length,
-    /// never inferred from who is left).
+    /// never inferred from who is left). Since round AC spoken where a
+    /// pack lacks [`Battle::LastSong`], which opens that stage now.
     FinalStage,
+    /// The match's last song begins: a counted match's last stage, or the
+    /// stage an open-ended match's operator marked its last song (or the
+    /// room's bound made it) (round AC, 2026-11-19: "The announcer should
+    /// have a line for it too"). In place of `gameplay ready`, as the
+    /// openings are; where a pack lacks it, `battle final stage` and the
+    /// rest of that opening's fallbacks.
+    LastSong,
     /// The local player's life enters danger while still in (once a
     /// stage).
     LifeCritical,
@@ -172,10 +180,11 @@ pub enum Battle {
 pub const SURVIVOR_MILESTONES: [u8; 2] = [4, 2];
 
 impl Battle {
-    pub const ALL: [Battle; 18] = [
+    pub const ALL: [Battle; 19] = [
         Battle::MatchBegin,
         Battle::StageBegin,
         Battle::FinalStage,
+        Battle::LastSong,
         Battle::LifeCritical,
         Battle::AttackIncoming,
         Battle::AttackLaunched,
@@ -199,6 +208,7 @@ impl Battle {
             Battle::MatchBegin => "match begin",
             Battle::StageBegin => "stage begin",
             Battle::FinalStage => "final stage",
+            Battle::LastSong => "last song",
             Battle::LifeCritical => "life critical",
             Battle::AttackIncoming => "attack incoming",
             Battle::AttackLaunched => "attack launched",
@@ -221,7 +231,7 @@ impl Battle {
     pub fn opens(self) -> bool {
         matches!(
             self,
-            Battle::MatchBegin | Battle::StageBegin | Battle::FinalStage
+            Battle::MatchBegin | Battle::StageBegin | Battle::FinalStage | Battle::LastSong
         )
     }
 }
@@ -434,7 +444,8 @@ impl Line {
 
     /// The line, then the lines spoken in its place where an announcer
     /// lacks it, in order. A battle's opening falls back on `battle stage
-    /// begin`, then on `gameplay ready` (whose role it takes); its life
+    /// begin`, then on `gameplay ready` (whose role it takes), the last
+    /// song's on `battle final stage` before them; its life
     /// critical on the danger comment, its elimination on `gameplay
     /// failed` and the winner's finished song on `gameplay cleared`, each
     /// of which says that moment in a play; the rest on nothing (an
@@ -446,6 +457,11 @@ impl Line {
             Line::Battle(Battle::MatchBegin | Battle::FinalStage) => {
                 chain.extend([Line::Battle(Battle::StageBegin), Line::Ready])
             }
+            Line::Battle(Battle::LastSong) => chain.extend([
+                Line::Battle(Battle::FinalStage),
+                Line::Battle(Battle::StageBegin),
+                Line::Ready,
+            ]),
             Line::Battle(Battle::StageBegin) => chain.push(Line::Ready),
             Line::Battle(Battle::LifeCritical) => chain.push(Line::CommentDanger),
             Line::Battle(Battle::Eliminated) => chain.push(Line::Failed),

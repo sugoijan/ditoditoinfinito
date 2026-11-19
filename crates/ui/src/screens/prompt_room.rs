@@ -70,6 +70,13 @@ pub(super) fn targeting_keys(state: &PromptState, cx: &Cx) -> Option<Vec<crate::
 pub(super) const TARGETING: &str = "Opt.room.targeting";
 pub(super) const TARGETING_ID: &str = "room.targeting";
 
+/// An open-ended match's Last song toggle on its stage's Ready card (round
+/// AC: "maybe we can add some extra action on the ready screen to mark it
+/// as the last song before it starts"): one of the rows as the policy's
+/// is, for whoever may mark it (`RoomClient::last_song_mark`).
+pub(super) const LAST_SONG: &str = "Opt.room.last";
+pub(super) const LAST_SONG_ID: &str = "room.last";
+
 pub(super) struct PromptRoom {
     room: SharedRoom,
     stage: StageId,
@@ -381,7 +388,15 @@ impl PromptScreen {
             };
             return vec![(line.into(), "Gold")];
         }
-        vec![(room::status_line(&r).into(), "Accent")]
+        // An open-ended match's last song (round AA's line, which the card
+        // lacked until round AC), said before the room's line.
+        let line = room::status_line(&r);
+        let line = if r.is_last_song(rm.stage) {
+            msg::room::status_last_song(line)
+        } else {
+            line
+        };
+        vec![(line.into(), "Accent")]
     }
 
     /// Whether the card is a room's stage's Ready card (`ready-card-v1`):
@@ -544,6 +559,89 @@ impl PromptScreen {
         let mut row = frame(name, parts);
         call(&mut row, "y", &[y]);
         Some((row, name.into(), height))
+    }
+
+    /// The Last song row (round AC), where this player may mark an
+    /// open-ended match's stage the last song: its label and Yes or No,
+    /// changed by Left and Right, ◀ ▶, a tap or Enter until the stage's
+    /// start commits; then the value alone, the row kept in its place so
+    /// that nothing under it moves. Its control's name and its height.
+    pub(super) fn room_last_song_row(&self, inner: f32, y: f32) -> Option<(Actor, String, f32)> {
+        let rm = self.room.as_ref()?;
+        if rm.gone.get().is_some() {
+            return None;
+        }
+        let (last, changeable) = rm.room.borrow().last_song_mark(rm.stage)?;
+        let env = &self.env;
+        let name = LAST_SONG;
+        let x0 = 24.0;
+        let mid = OPTION_ROW / 2.0;
+        let label_text = msg::room::ready_last_song();
+        let label_w = look::mono_width(&label_text, 14.0).min(inner * 0.4);
+        let words = [msg::common::off(), msg::common::on()];
+        let vw = words
+            .iter()
+            .map(|w| look::mono_width(w, 14.0))
+            .fold(40.0, f32::max)
+            + 8.0;
+        let vx = x0 + label_w + 14.0;
+        let row_w = label_w + 14.0 + 44.0 + vw;
+        let mut light = quad(
+            &format!("{name}.Light"),
+            [row_w + 12.0, OPTION_ROW - 2.0],
+            [1.0, 1.0, 1.0, 0.004],
+        );
+        call(&mut light, "cornerradius", &[6.0]);
+        call(&mut light, "xy", &[x0 + row_w / 2.0, mid]);
+        let mut label = env.text(&format!("{name}.Label"), &label_text, 14.0, 400, "Muted");
+        call(&mut label, "maxwidth", &[label_w]);
+        let mut value = env.text(
+            &format!("{name}.Value"),
+            &words[usize::from(last)],
+            14.0,
+            600,
+            if last { "Accent" } else { "Text" },
+        );
+        call(&mut value, "maxwidth", &[vw]);
+        call(&mut value, "xy", &[vx + 22.0 + vw / 2.0, mid]);
+        let mut parts = vec![light, left(label, x0, mid), value];
+        if changeable {
+            let arrow = |part: &str, glyph: &str, x: f32| {
+                let mut hit = quad(
+                    &format!("{name}.{part}"),
+                    [26.0, OPTION_ROW],
+                    [1.0, 1.0, 1.0, 0.004],
+                );
+                call(&mut hit, "xy", &[x, mid]);
+                let mut g = env.text("", glyph, 12.0, 400, "Accent");
+                call(&mut g, "xy", &[x, mid]);
+                frame(&format!("{name}.{part}"), vec![hit, g])
+            };
+            parts.push(arrow("Down", "◀", vx + 9.0));
+            parts.push(arrow("Up", "▶", vx + 22.0 + vw + 13.0));
+        }
+        let mut row = frame(name, parts);
+        call(&mut row, "y", &[y]);
+        Some((row, name.into(), OPTION_ROW))
+    }
+
+    /// The Last song row pressed or stepped (round AC): the stage made
+    /// the match's last song, or not, while its start is not committed;
+    /// the card built again.
+    pub(super) fn room_last_song_toggle(&mut self, root: &mut Actor, cx: &mut Cx) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        if rm.gone.get().is_some() {
+            return;
+        }
+        let stage = rm.stage;
+        let changeable = rm.room.borrow().last_song_mark(stage).is_some_and(|(_, c)| c);
+        if changeable {
+            rm.room.borrow_mut().toggle_last_song();
+        }
+        self.rebuild(root, cx);
+        self.publish();
     }
 
     /// The policy stepped by `by` in its ring (Left, Right, ◀ ▶, a tap or
@@ -746,8 +844,9 @@ impl PromptScreen {
             } => {
                 let undo = match (action, cx.focused()) {
                     (MenuAction::Back, _) | (_, Some("Back")) => Undo::Leave,
-                    // The focus's own button (Save, the timing line's link).
-                    (_, Some("SaveOptions" | "Calibrate")) => return None,
+                    // The focus's own button (Save, the timing line's link,
+                    // the Last song row).
+                    (_, Some("SaveOptions" | "Calibrate" | LAST_SONG)) => return None,
                     _ => Undo::Unready,
                 };
                 let holder = cx.menu_source().cloned().map(Holder::Menu);

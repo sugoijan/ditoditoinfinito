@@ -2295,6 +2295,8 @@ impl GameCanvas {
             // audience's has none.
             if !watched {
                 setup.targeting = crate::room::stage_targeting(order);
+                // Its last song marked on the Ready card (round AC).
+                setup.of = crate::room::stage_of(order);
             }
             setup
         });

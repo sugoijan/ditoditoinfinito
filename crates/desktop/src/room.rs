@@ -123,6 +123,21 @@ impl StageRoom {
         }
     }
 
+    /// Stage `order`'s `of` as its play starts (round AC): the room's,
+    /// where the Ready card may have made it the match's last song since
+    /// the order was made.
+    pub fn stage_of(&self, order: &ddi_ui::state::room::StageOrder) -> u16 {
+        let Some(room) = self.room() else {
+            return order.of;
+        };
+        let r = room.borrow();
+        if r.me() == order.me && r.stage_started(order.stage) {
+            r.stage_of(order.stage)
+        } else {
+            order.of
+        }
+    }
+
     /// Stage `order`'s room client for its play, where the room plays it
     /// live (`ddi_session::battle::live`): the play starts at the room's
     /// instant and streams through it (watched with the room's audience,

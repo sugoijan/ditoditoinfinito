@@ -232,6 +232,8 @@ impl Request {
             // changed on the stage's prompt since the order was made).
             if let Some(room) = &self.stage_room {
                 setup.targeting = room.targeting(order);
+                // Its last song marked on the Ready card (round AC).
+                setup.of = room.stage_of(order);
                 // An online room's stage played live: its room's client.
                 config.live = room.live_handle(order);
             }

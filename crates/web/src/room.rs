@@ -924,6 +924,23 @@ pub(crate) fn stage_targeting(order: &StageOrder) -> ddi_room::attacks::Targetin
     .unwrap_or(order.targeting)
 }
 
+/// Stage `order`'s `of` as its play starts (round AC): the room's, where
+/// the Ready card may have made it the match's last song since the order
+/// was made ([`ddi_ui::state::room::RoomClient::stage_of`]).
+pub(crate) fn stage_of(order: &StageOrder) -> u16 {
+    let room = PLAYING.with(|p| {
+        p.borrow()
+            .as_ref()
+            .filter(|p| p.order.stage == order.stage)
+            .map(|p| p.room.clone())
+    });
+    room.and_then(|room| {
+        let r = room.try_borrow().ok()?;
+        (r.me() == order.me && r.stage_started(order.stage)).then(|| r.stage_of(order.stage))
+    })
+    .unwrap_or(order.of)
+}
+
 /// Where a stage's results go back to: the room it was played in.
 pub(crate) fn back_route() -> Route {
     LAST.with(|l| l.borrow().as_ref().map(|(r, _)| r.clone()))

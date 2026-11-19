@@ -53,6 +53,7 @@ room-end-match = 今すぐ対戦を終える
 room-end-match-body = { $count ->
    *[other] プレイした{ $count }曲のポイントで、今すぐ対戦を終えます。次の対戦も同じルールです。
 }
+room-ready-last-song = 最後の曲
 room-make-last = この曲を最後の曲にする
 room-not-last = 最後の曲にしない
 room-pick-last-next = 次に選ぶ曲を最後の曲にする
@@ -435,6 +436,7 @@ room-play-ladder-page = { $page }/{ $pages }ページ · { $field }人中 残り
 room-play-cue-match-begin = 対戦スタート
 room-play-cue-stage-begin = ステージ { $number } スタート
 room-play-cue-final-stage = ファイナルステージ
+room-play-cue-last-song = 最後の曲
 room-play-cue-life-critical = ライフ危険
 room-play-cue-survivors = 残り{ $count }人
 room-play-cue-eliminated = アウト

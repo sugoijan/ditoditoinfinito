@@ -538,6 +538,7 @@ fn the_battle_lines_have_their_own_folders_and_category() {
             "battle match begin",
             "battle stage begin",
             "battle final stage",
+            "battle last song",
             "battle life critical",
             "battle attack incoming",
             "battle attack launched",
@@ -598,6 +599,16 @@ fn a_missing_battle_line_falls_back_on_the_play_line_of_its_moment() {
     assert_eq!(
         b(Battle::FinalStage).chain(),
         [b(Battle::FinalStage), b(Battle::StageBegin), Line::Ready]
+    );
+    // Round AC: the last song's opening, the final stage's before it.
+    assert_eq!(
+        b(Battle::LastSong).chain(),
+        [
+            b(Battle::LastSong),
+            b(Battle::FinalStage),
+            b(Battle::StageBegin),
+            Line::Ready
+        ]
     );
     assert_eq!(
         b(Battle::StageBegin).chain(),

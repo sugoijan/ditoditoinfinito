@@ -629,16 +629,25 @@ pub struct StageSetup {
 impl StageSetup {
     /// The stage's opening event: the match's beginning on its first stage
     /// (a one-stage match's too: one opening, never stacked), its last
-    /// stage's, else a stage's.
+    /// song's (round AC: a counted match's last stage, an open-ended
+    /// match's stage marked its last song, `battle last song`, falling
+    /// back on `battle final stage`), else a stage's.
     pub fn opening(&self) -> ddi_library::announcer::Battle {
         use ddi_library::announcer::Battle as Event;
         if self.number <= 1 {
             Event::MatchBegin
-        } else if self.of != 0 && self.number >= self.of {
-            Event::FinalStage
+        } else if self.is_last() {
+            Event::LastSong
         } else {
             Event::StageBegin
         }
+    }
+
+    /// The match's last stage: a counted match's, or an open-ended
+    /// match's last song (its `of` is then its number; 0 before it is
+    /// marked).
+    pub fn is_last(&self) -> bool {
+        self.of != 0 && self.number >= self.of
     }
 
     /// Decided by the room from everyone's reports, never on this device:
@@ -3200,6 +3209,33 @@ impl RoomClient {
         })
     }
 
+    /// What the stage `stage`'s Ready card shows of an open-ended match's
+    /// last song (round AC): whether it is marked, and whether this
+    /// player may change it now ([`RoomClient::last_song_choice`]: the
+    /// same capability as More's item, until the stage's start commits).
+    /// `None` where the card has no such control: a counted match, a
+    /// stage that is the last by the room's bound alone, a player who may
+    /// not mark it.
+    pub fn last_song_mark(&self, stage: StageId) -> Option<(bool, bool)> {
+        let s = self.state();
+        let m = s.running_match().filter(|m| m.rules.open_ended)?;
+        // Kept through the countdown (unchangeable then), so that the
+        // card's rows stay where they were.
+        let st = m.stage(stage)?;
+        if !self.may(Capability::Advance) {
+            return None;
+        }
+        // The room's bound makes it the last by itself: nothing to mark.
+        if !st.last && m.is_last(stage, s.policy.max_stages) {
+            return None;
+        }
+        let changeable = matches!(
+            self.last_song_choice(),
+            Some(LastSongChoice::Picked { stage: p, .. }) if p == stage
+        );
+        Some((st.last, changeable))
+    }
+
     /// More's last-song item pressed ([`RoomClient::last_song_choice`]).
     pub fn toggle_last_song(&mut self) {
         match self.last_song_choice() {
@@ -4364,17 +4400,7 @@ impl RoomClient {
             setup: StageSetup {
                 stage,
                 number: u16::try_from(index + 1).unwrap_or(u16::MAX),
-                // An open-ended match (revision 15): its last song's
-                // number, else 0 (no set count: "Stage N").
-                of: if m.rules.open_ended {
-                    if m.is_last(stage, self.state().policy.max_stages) {
-                        u16::try_from(index + 1).unwrap_or(u16::MAX)
-                    } else {
-                        0
-                    }
-                } else {
-                    u16::try_from(m.stages.len()).unwrap_or(u16::MAX)
-                },
+                of: self.stage_of(stage),
                 // What is really played: attacks only where they are
                 // offered (never a rule that silently does nothing).
                 battle: BattlePreset::with_attacks(self.attacks_played(&m.rules_for(stage))),
@@ -4419,6 +4445,31 @@ impl RoomClient {
             self.watch_music.fix(stage);
         }
         Some(order)
+    }
+
+    /// The `of` of stage `stage`'s [`StageSetup`]: the match's stage
+    /// count; in an open-ended match (revision 15) the stage's own number
+    /// where it is the last song, else 0 (no set count: "Stage N"). Read
+    /// again as its play starts (round AC: the Ready card may have made it
+    /// the last song since its order was taken; the mark is fixed once
+    /// the start commits).
+    pub fn stage_of(&self, stage: StageId) -> u16 {
+        let s = self.state();
+        let Some(m) = s.current.as_ref() else {
+            return 0;
+        };
+        let Some(index) = m.stage_index(stage) else {
+            return 0;
+        };
+        if m.rules.open_ended {
+            if m.is_last(stage, s.policy.max_stages) {
+                u16::try_from(index + 1).unwrap_or(u16::MAX)
+            } else {
+                0
+            }
+        } else {
+            u16::try_from(m.stages.len()).unwrap_or(u16::MAX)
+        }
     }
 
     /// The music's delay behind the room's song time (ms) for `stage`, a

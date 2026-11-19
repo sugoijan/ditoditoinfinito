@@ -1548,6 +1548,15 @@ impl PromptScreen {
             controls.push(name);
             y += 10.0 + height;
         }
+        // An open-ended match's Last song (round AC), for whoever may
+        // mark it: one more row, above the buttons.
+        if state.step == PromptStep::Ready
+            && let Some((row, name, height)) = self.room_last_song_row(inner, y + 6.0)
+        {
+            c.push(row);
+            controls.push(name);
+            y += 6.0 + height;
+        }
         y += 14.0;
         // The step.
         let mut buttons: Vec<(String, String, &str)> = Vec::new();
@@ -2630,6 +2639,12 @@ impl Screen for PromptScreen {
             ) = (input, &row)
             {
                 let by = if *action == MenuAction::Left { -1 } else { 1 };
+                if id == room_mode::LAST_SONG_ID {
+                    if !repeat {
+                        self.room_last_song_toggle(root, cx);
+                    }
+                    return Handled::Yes;
+                }
                 if id == room_mode::TARGETING_ID {
                     // Three policies in a ring: a held key steps once.
                     if !repeat {
@@ -2660,6 +2675,10 @@ impl Screen for PromptScreen {
                     (1, true)
                 };
                 cx.focus(name.clone());
+                if id == room_mode::LAST_SONG_ID {
+                    self.room_last_song_toggle(root, cx);
+                    return Handled::Yes;
+                }
                 if id == room_mode::TARGETING_ID {
                     self.room_targeting_step(by, root, cx);
                     return Handled::Yes;
@@ -2677,6 +2696,14 @@ impl Screen for PromptScreen {
                 self.choose(PromptChoice::Back, cx);
                 Handled::Yes
             }
+            // On the Last song row (round AC): it changes, never Ready.
+            Input::Menu {
+                action: MenuAction::Start,
+                ..
+            } if step == PromptStep::Ready && cx.focused() == Some(room_mode::LAST_SONG) => {
+                self.room_last_song_toggle(root, cx);
+                Handled::Yes
+            }
             // Start starts, unless Back has the focus (then the menu's
             // default activates it).
             Input::Menu {
@@ -2690,6 +2717,10 @@ impl Screen for PromptScreen {
             }
             Input::Activate { name } if name == room_mode::TARGETING => {
                 self.room_targeting_step(1, root, cx);
+                Handled::Yes
+            }
+            Input::Activate { name } if name == room_mode::LAST_SONG => {
+                self.room_last_song_toggle(root, cx);
                 Handled::Yes
             }
             Input::Activate { name } if name == "Room.Up" || name == "Room.Down" => {

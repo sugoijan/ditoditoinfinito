@@ -717,3 +717,64 @@ fn presses_in_one_frame_after_ready_all_count() {
     r.h.run((CANCEL_HOLD + 0.3) as f32);
     assert!(ready(&r), "the readying press held");
 }
+
+/// Round AC: an open-ended match's Ready card has a Last song row for
+/// whoever may mark the stage (here the practice room's owner): Off, then
+/// On by a tap, Left or Right, or Enter on it (never Ready); the room's
+/// status line then says "Last song"; the Start and Back buttons never
+/// move; a counted match's card has no such row.
+#[test]
+fn an_open_matchs_ready_card_marks_the_last_song() {
+    let room = RoomClient::shared(0, 1);
+    let mut rules = room.borrow().rules().clone();
+    rules.open_ended = true;
+    room.borrow_mut().save_rules(rules).unwrap();
+    let s = song();
+    room.borrow_mut().pick(&s, &s.charts[0]).unwrap();
+    let order = room.borrow_mut().take_stage_order().unwrap();
+    let state = Rc::new(RefCell::new(PromptState::default()));
+    state.borrow_mut().info.title = "Single Song".into();
+    let mut h = harness();
+    h.push(
+        PromptScreen::new(env(), state, Rc::new(|_, _| {}))
+            .with_room(room.clone(), order.stage, Rc::new(|_, _| {})),
+    );
+    h.run(0.5);
+    let row = super::LAST_SONG;
+    assert!(h.ui.actor(row).is_some(), "the row");
+    let last = |room: &SharedRoom| room.borrow().state().stage(order.stage).unwrap().last;
+    assert!(!last(&room));
+    let value = |h: &Harness| match &h.actor(&format!("{row}.Value")).kind {
+        ddi_actor::Kind::Text(t) => t.text().to_string(),
+        _ => String::new(),
+    };
+    assert_eq!(value(&h), "Off");
+    let buttons = |h: &Harness| (h.ui.bounds("Start"), h.ui.bounds("Back"));
+    let before = buttons(&h);
+    h.tap(PointerKind::Touch, row);
+    h.run(0.2);
+    assert!(last(&room), "marked");
+    assert_eq!(value(&h), "On");
+    assert!(
+        h.texts().iter().any(|t| t.starts_with("Last song · ")),
+        "the card's line: {:?}",
+        h.texts()
+    );
+    assert_eq!(buttons(&h), before, "Start and Back stay put");
+    // Left on it: not the last song; Enter on it: the last again, and
+    // never Ready.
+    while h.ui.focused() != Some(row) {
+        h.key("ArrowUp", "ArrowUp");
+    }
+    h.key("ArrowLeft", "ArrowLeft");
+    h.run(0.2);
+    assert!(!last(&room));
+    enter(&mut h);
+    h.run(0.2);
+    assert!(last(&room));
+    assert!(!room.borrow().ready(), "Enter on the row marks, never readies");
+    assert_eq!(buttons(&h), before);
+    // A counted match: no row.
+    let r = rig_with(env(), false, false);
+    assert!(r.h.ui.actor(row).is_none());
+}
