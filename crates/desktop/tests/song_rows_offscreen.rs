@@ -88,7 +88,11 @@ fn song_rows_draw_in_the_theme() {
         common::ui::key(&mut ui, "ArrowUp", "ArrowUp");
         common::ui::frames(&mut ui, 1.0);
         assert!(
-            env.state.borrow().chart.as_deref().is_some_and(|c| c.starts_with("Medium")),
+            env.state
+                .borrow()
+                .chart
+                .as_deref()
+                .is_some_and(|c| c.starts_with("Medium")),
             "{:?}",
             env.state.borrow().chart
         );
