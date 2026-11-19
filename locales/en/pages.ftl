@@ -413,7 +413,7 @@ pages-credits-rust-notice-for = for { $crates }
 pages-privacy = Privacy
 
 # The note's first paragraph.
-pages-privacy-intro = This note says what { -game-name } and its online server keep about you, and for how long. Last changed on November 18, 2026.
+pages-privacy-intro = This note says what { -game-name } and its online server keep about you, and for how long. Last changed on November 19, 2026.
 
 # A heading inside the note.
 pages-privacy-alone-heading = Playing alone
@@ -438,12 +438,12 @@ pages-privacy-sign-in = Online rooms need you to sign in with Twitch (watching a
 # A heading inside the note.
 pages-privacy-rooms-heading = Rooms
 
-pages-privacy-rooms = A room keeps what its members see: its name, each member's display name and Twitch user id (so they can come back), their roles, the songs picked (title, artist and chart) and the results of its matches. A room is deleted when it ends: two minutes after its last member's connection closed, after a week without activity, when its host leaves and it is not passed on, or when the server's administrators close it. After that, only a note that it ended (its id, when and why) is kept for a week, so that its links can say the room is closed; its session log, described below, is kept apart and names nobody. While a room is open, the server's administrators can see it listed with its name, its members' display names and how many people are in it.
+pages-privacy-rooms = A room keeps what its members see: its name, each member's display name and Twitch user id (so they can come back), their roles, the room's song list (each song's title, artist, pack and charts, and who added it), the songs picked and the results of its matches. A room is deleted when it ends: two minutes after its last member's connection closed, after a week without activity, when its host leaves and it is not passed on, or when the server's administrators close it. After that, only a note that it ended (its id, when and why) is kept for a week, so that its links can say the room is closed; its session log, described below, is kept apart and names nobody. While a room is open, the server's administrators can see it listed with its name, its members' display names and how many people are in it.
 
 # A heading inside the note.
 pages-privacy-songs-heading = Songs
 
-pages-privacy-songs = When a room's host picks a song, the game uploads it to our server so that everyone in the room can play it. Anyone with that copy's link could read it while the room is open; it is deleted when the room ends, a week after it was uploaded at the latest. A few people we give a key can also share songs by link: such a song is kept until the expiry chosen when it was shared (from an hour to no expiry) or until it is deleted.
+pages-privacy-songs = When a room's host or co-host adds a song to the room's song list, the game uploads it from their device to our server so that everyone in the room can play it, and the room keeps who added it. Anyone with that copy's link could read it while the room is open. It is kept as long as the room lives: it is deleted when it is removed from the list (by whoever added it, by a host, or to make room in a full list) and when the room ends. Should a room ever stop without ending, its songs are deleted a week after it last showed it was still open, at the latest. A few people we give a key can also share songs by link: such a song is kept until the expiry chosen when it was shared (from an hour to no expiry) or until it is deleted.
 
 # A heading inside the note.
 pages-privacy-audience-heading = Watching with an audience
