@@ -1833,3 +1833,6 @@ impl Look for Infinito {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod song_row_tests;
