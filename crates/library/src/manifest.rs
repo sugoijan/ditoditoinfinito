@@ -274,10 +274,8 @@ pub struct ChartInfo {
 /// What the game keeps of a chart's DDI estimate (`ddi_rating::Estimate`,
 /// read through its JSON, [`ChartEstimate::from_rating_json`], so nothing
 /// here depends on the estimator): the decimal to the hundredth and the
-/// level shown, whether each is qualified (the number to 1,200 source
-/// notes, `within_scalar_domain`; the profile to 900,
-/// `within_studied_domain`), and the skill radar's profile by
-/// [`PROFILE_RULE`] where the profile is qualified.
+/// level shown, whether the number and its matched-level profile qualify,
+/// and the eight costs used by the song-select radar ([`PROFILE_RULE`]).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChartEstimate {
     pub decimal: f32,
@@ -296,7 +294,7 @@ pub struct ChartEstimate {
 /// How a DDI estimate's profile is read (`docs/plans/msd-ratings.md`, "The
 /// DDI estimate as a source"): kept with the estimator's and the scale's
 /// names, a new rule forgets what an older one made.
-pub const PROFILE_RULE: &str = "matched-level-profile-v0";
+pub const PROFILE_RULE: &str = "matched-level-profile-v1";
 
 /// The skill profile of a chart estimated at `decimal` (1 to 19) from the
 /// estimator's `means` (a row a CPU level, 1 to 10: the balanced Accuracy,
@@ -325,19 +323,20 @@ impl ChartEstimate {
             decimal: f64,
             level: u8,
             within_scalar_domain: bool,
+            // Older estimates only qualified a profile in the all-level domain.
             within_studied_domain: bool,
+            within_matched_profile_domain: Option<bool>,
             means: [[f64; 9]; 10],
         }
         let e: Estimate = serde_json::from_str(json).ok()?;
         let hundredth = |x: f64| ((x * 100.0).round() / 100.0) as f32;
-        let profile = e
-            .within_studied_domain
-            .then(|| matched_profile(e.decimal, &e.means).map(hundredth));
+        let studied = e.within_matched_profile_domain.unwrap_or(e.within_studied_domain);
+        let profile = studied.then(|| matched_profile(e.decimal, &e.means).map(hundredth));
         Some(ChartEstimate {
             decimal: hundredth(e.decimal),
             level: e.level,
             scalar: e.within_scalar_domain,
-            studied: e.within_studied_domain,
+            studied,
             profile,
         })
     }

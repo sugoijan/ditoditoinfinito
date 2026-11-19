@@ -419,3 +419,12 @@ pictures, eight labels apart as the platform measures them, English and
 Japanese) and in headless Chrome and Firefox on a release build (each
 choice on Into My Dream, the scratch pack estimated by the worker and
 compared with the native estimator, the pattern songs' radars).
+
+The song-select qualification in `matched-level-profile-v1` extends the
+displayed profile to 1,200 source notes on mine-free charts. On 58/60 fresh
+mine-free families all eight displayed labels were within 1.5 levels of
+teacher-v1. Evasion on mine-bearing charts exceeded the registered error
+limits. Their radar and the all-level API retain the 900-note limit.
+The manifest reader uses `within_matched_profile_domain`, with the earlier
+all-level flag as the fallback for older estimator JSON. The cache rule
+version makes previously stored estimates eligible for recomputation.

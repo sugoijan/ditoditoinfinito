@@ -30,6 +30,9 @@ pub struct Estimate {
     /// Qualification for the score curve and skill readouts: the scalar
     /// conditions with at most 900 source notes.
     pub within_studied_domain: bool,
+    /// Qualification for the song-select profile at the chart's decimal-matched
+    /// CPU level. Extends the 900-note domain to 1,200 on mine-free charts.
+    pub within_matched_profile_domain: bool,
     /// At balanced CPU levels 1–10: mean raw Accuracy, then eight skill costs
     /// (balanced minus weakened Accuracy in percentage points, SKILL_NAMES order).
     pub means: [[f64; 9]; 10],
@@ -194,6 +197,7 @@ pub fn estimate(song: &Song, index: usize) -> Result<Estimate, String> {
         chart_digest: song.chart_digest(index),
         within_scalar_domain: chart.scalar_studied,
         within_studied_domain: chart.readouts_studied,
+        within_matched_profile_domain: chart.matched_profile_studied,
         decimal,
         level: decimal.round() as u8,
         expected: calibrated(&coefficients::EXPECTED),
@@ -208,14 +212,17 @@ mod tests {
     use ddi_chart::formats::sm::{parse_sm, parse_ssc};
 
     #[test]
-    fn scalar_and_skill_qualification_have_separate_note_limits() {
-        for (notes, bpm, last_note, scalar, readouts) in [
-            (900, 120, "1000", true, true),
-            (901, 120, "1000", true, false),
-            (1200, 120, "1000", true, false),
-            (1201, 120, "1000", false, false),
-            (901, 60, "1000", false, false), // over 180 seconds
-            (901, 120, "L000", false, false),
+    fn scalar_matched_profile_and_all_level_qualification() {
+        for (notes, bpm, last_note, scalar, matched, readouts) in [
+            (900, 120, "1000", true, true, true),
+            (900, 120, "M000", true, true, true),
+            (901, 120, "1000", true, true, false),
+            (901, 120, "M000", true, false, false),
+            (1200, 120, "1000", true, true, false),
+            (1200, 120, "M000", true, false, false),
+            (1201, 120, "1000", false, false, false),
+            (901, 60, "1000", false, false, false), // over 180 seconds
+            (901, 120, "L000", false, false, false),
         ] {
             let mut rows = vec!["1000"; notes];
             rows[notes - 1] = last_note;
@@ -228,6 +235,19 @@ mod tests {
             .unwrap();
             let estimate = estimate(&song, 0).unwrap();
             assert_eq!(estimate.within_scalar_domain, scalar);
+            assert_eq!(estimate.within_matched_profile_domain, matched);
+            let json = serde_json::to_string(&estimate).unwrap();
+            let stored = ddi_library::manifest::ChartEstimate::from_rating_json(&json).unwrap();
+            assert_eq!(stored.profile.is_some(), matched);
+            assert_eq!(stored.studied, matched);
+            let mut legacy = serde_json::to_value(&estimate).unwrap();
+            legacy
+                .as_object_mut()
+                .unwrap()
+                .remove("within_matched_profile_domain");
+            let old = ddi_library::manifest::ChartEstimate::from_rating_json(&legacy.to_string())
+                .unwrap();
+            assert_eq!(old.profile.is_some(), readouts);
             assert_eq!(estimate.within_studied_domain, readouts);
             assert_eq!(estimate.expected.is_some(), readouts);
             assert_eq!(estimate.conservative.is_some(), readouts);

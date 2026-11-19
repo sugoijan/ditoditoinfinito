@@ -1240,7 +1240,8 @@ Rust and the browser are implementation details, not advertised features.
 - `crates/rating/` estimates teacher-v1 keyboard difficulty at 1× in one pass.
   `ddi_rating::estimate` takes an imported dance-single chart and returns its
   1–19 estimate (scalar qualification through 1,200 source notes), score
-  curve and calibrated skill profiles (through 900). See the crate's
+  curve and calibrated skill profiles (through 900). Song select’s matched-level
+  radar qualifies through 1,200 on mine-free charts and 900 with mines. See the crate's
   README for the JSON command, model identity and qualification limits.
 - `crates/msd/` MSD (`ddi-msd`, `docs/plans/msd-ratings.md`): Etterna's
   chart difficulty calculator, MinaCalc version 527 (etternagame/etterna
