@@ -366,6 +366,8 @@ impl Rig {
             (Watching::Spectator, Some(_)) => "focus",
             (Watching::Out, _) => "out",
             (Watching::Left, _) => "left",
+            (Watching::Late, None) => "late",
+            (Watching::Late, Some(_)) => "late-focus",
         };
         Some((view, w.focus))
     }

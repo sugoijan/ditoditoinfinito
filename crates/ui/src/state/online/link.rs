@@ -31,6 +31,10 @@ pub enum LinkNotice {
     /// Host options' Close the audience / Open the audience.
     AudienceClosed,
     AudienceOpened,
+    /// Back by "Use this device" (round AC): said for
+    /// [`JOINED_TO_WATCH_MS`] once the room is connected again, with
+    /// whether they play the stage gathering or under way or the next.
+    BackHere,
 }
 
 /// How long the status line says a join was to watch (from the room's
@@ -249,6 +253,7 @@ impl OnlineLink {
         let stopped = self.authority.link() == LinkState::OpenedElsewhere;
         if stopped {
             self.authority.restart();
+            self.set_notice(Some(LinkNotice::BackHere));
         }
         stopped
     }
@@ -282,7 +287,7 @@ impl OnlineLink {
         }
         if let Some(notice) = self.notice {
             match self.notice_until {
-                None if notice != LinkNotice::JoinedToWatch => {
+                None if !matches!(notice, LinkNotice::JoinedToWatch | LinkNotice::BackHere) => {
                     self.notice_until = Some(now_ms + NOTICE_MS);
                 }
                 None if self.authority.link() == LinkState::Connected => {

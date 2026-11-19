@@ -76,6 +76,11 @@ room-refused-no-song = 先にこのステージの曲を選んでください。
 
 room-refused-started = そのステージは開始済みのため、変更できません。
 
+room-back-here = { $plays ->
+    [this] ルームに戻りました。ステージ{ $number }をプレイします。
+    [next] ルームに戻りました。ステージ{ $number }はすでに始まっています。次のステージからプレイします。
+   *[none] ルームに戻りました。
+}
 room-refused-phase = 対戦のこの段階ではできません。
 
 room-refused-preparing = 曲をまだ準備しています。

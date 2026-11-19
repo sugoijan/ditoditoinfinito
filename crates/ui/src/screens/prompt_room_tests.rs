@@ -639,7 +639,8 @@ fn back_on_the_loading_screen_of_a_started_stage_takes_the_gesture() {
 /// with the player in its lineup it presses Start for the shell, outside
 /// any gesture (the Ready press made the sound), once. Unseen it readies
 /// no one: the prompt's own countdown to Ready stands still, and a room
-/// waiting for a player not ready starts nothing.
+/// waiting for a player not ready starts nothing. CPU practice alone
+/// waits for the page to be seen (round AC).
 #[test]
 fn unseen_the_prompt_starts_the_stage_its_player_readied_for_and_readies_no_one() {
     let starts = |r: &Rig| {
@@ -665,24 +666,29 @@ fn unseen_the_prompt_starts_the_stage_its_player_readied_for_and_readies_no_one(
     // (Seen, its countdown readies the player, as ever.)
     r.h.run(3.5);
     assert!(r.room.borrow().ready(), "the countdown, seen");
-    // Ready (pressed while seen), then unseen: the room's countdown runs
-    // on the unseen steps, and Start is pressed at the first after it.
+    // CPU practice alone (round AC, the maintainer: "Wait for you"):
+    // Ready (pressed while seen), then unseen: the player's Ready is held
+    // back, the countdown stops and nothing starts however long the page
+    // stays unseen.
     let mut r = rig_with(env(), true, false);
     enter(&mut r.h);
     assert!(r.room.borrow().ready());
+    assert!(r.room.borrow().waits_unseen());
     let t0 = r.room.borrow().now_ms();
-    let mut started = None;
-    for s in 1..=6 {
-        unseen(&mut r, t0 + (s - 1) * 1_000, 1);
-        if starts(&r) > 0 {
-            started = Some(s);
-            break;
-        }
-    }
-    assert_eq!(started, Some(3), "{:?}", r.seen.borrow());
-    assert_eq!(r.seen.borrow().last(), Some(&(PromptChoice::Start, false)));
-    unseen(&mut r, t0 + 3_000, 5);
-    assert_eq!(starts(&r), 1, "once");
+    unseen(&mut r, t0, 8);
+    assert_eq!(starts(&r), 0, "{:?}", r.seen.borrow());
+    assert!(!r.room.borrow().ready(), "held back while unseen");
+    assert_eq!(phase(&r), ddi_room::PhaseKind::Preparing);
+    // Seen again: Ready given back, the countdown runs in view, then the
+    // stage starts (an online room still starts and plays on unseen,
+    // round P1b: `RoomClient::waits_unseen` is CPU practice's alone).
+    r.h.ui.set_wall_ms(t0 + 9_000);
+    r.h.run(0.1);
+    assert!(r.room.borrow().ready(), "given back");
+    assert_eq!(phase(&r), ddi_room::PhaseKind::Countdown);
+    r.h.ui.set_wall_ms(t0 + 12_100);
+    r.h.run(0.2);
+    assert_eq!(starts(&r), 1, "{:?}", r.seen.borrow());
 }
 
 /// Presses in CPU practice, whose room answers inside the press: Ready

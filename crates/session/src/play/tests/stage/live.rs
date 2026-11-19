@@ -739,8 +739,14 @@ fn a_late_device_joins_part_way_and_a_too_late_one_forfeits_and_watches() {
         "missed what came before: {} of {before}",
         plays[1].player.tally().taps[5]
     );
-    // Carol: past the late join, a forfeit, watching.
+    // Carol: past the late join, a forfeit, watching as a spectator does
+    // (round AC: everyone's fields, nothing of her own, no "Left the
+    // stage" over hers).
     assert!(plays[2].battle().unwrap().forfeited());
+    let w = plays[2].watch(now).expect("watching");
+    assert_eq!(w.why, crate::play::Watching::Late);
+    assert!(w.why.spectates());
+    assert_eq!(plays[2].hand_rests_at(), None, "no hand of her own");
     let mut ended = play_out(&r, &mut plays, 200.0, |_, _| {});
     let (_, carol) = ended[2].take().unwrap();
     assert_eq!(carol.mine, ddi_room::Run::Forfeit);

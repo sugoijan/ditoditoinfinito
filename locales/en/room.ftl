@@ -164,6 +164,19 @@ room-refused-started = That stage has started; it cannot change now.
 
 room-refused-phase = Not possible at this point of the match.
 
+# Round AC: on the status line for a while after "Use this device" brought
+# the room back to this device: that they are back, and whether they play
+# the stage being readied or played now, or (it being under way without
+# them) the one after it.
+# Variables:
+#   $plays (String) - "this" (they play stage $number), "next" (stage $number is under way without them: they play the next one) or "none" (nothing to say of a stage)
+#   $number (Number) - the stage, from 1 (0 where $plays is "none")
+room-back-here = { $plays ->
+    [this] You're back in the room. You play stage { $number }.
+    [next] You're back in the room. Stage { $number } is under way without you: you play the next one.
+   *[none] You're back in the room.
+}
+
 room-refused-preparing = The song is still being prepared.
 
 ## Why a stage's song could not be prepared on this device, on the

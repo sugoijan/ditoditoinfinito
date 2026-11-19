@@ -1615,6 +1615,13 @@ pub(crate) mod room {
             ]
         );
         assert!(connected(&server));
+        // Round AC: back, it says so (no refusal of what the stopped
+        // page had asked).
+        assert!(devices[0].refusal().is_none());
+        assert_eq!(
+            String::from(crate::screens::room::status_line(&devices[0])),
+            "You're back in the room."
+        );
         assert!(devices[1].take_opened_elsewhere());
         assert!(devices[1].leave_cost().is_none(), "an ended link costs nothing to leave");
     }

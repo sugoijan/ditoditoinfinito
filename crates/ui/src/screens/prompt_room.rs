@@ -101,6 +101,12 @@ pub(super) struct PromptRoom {
     /// Ready taken back, or the prompt left, while ready: the game's
     /// deliberate gesture (feedback round O).
     taking: RefCell<Taking>,
+    /// CPU practice with nobody else in the room (round AC, the
+    /// maintainer: "Wait for you"): the player's Ready held back by the
+    /// prompt while its page was unseen, so that its countdown and start
+    /// wait (practice's unready stops its countdown); given back as soon
+    /// as the page is seen again.
+    held_unseen: Cell<bool>,
 }
 
 /// What the deliberate gesture does on a room's stage's prompt once the
@@ -196,6 +202,7 @@ impl PromptScreen {
             gone: Cell::new(None),
             first: Cell::new(0),
             rows_shown: Cell::new((0, 0, 0)),
+            held_unseen: Cell::new(false),
             time: Cell::new(0.0),
             quit_at: Cell::new(None),
             taking: RefCell::default(),
@@ -255,6 +262,11 @@ impl PromptScreen {
             return;
         };
         rm.time.set(cx.time());
+        // Seen again (round AC): the Ready the prompt held back while
+        // unseen, given back; the countdown runs again in view.
+        if rm.held_unseen.replace(false) && !rm.started.get() {
+            let _ = rm.room.borrow_mut().set_ready(true);
+        }
         let changed = rm.pump.borrow_mut().run(&rm.room, &rm.shell, cx);
         // This device stopped for another of the person's (round P1b).
         if cx.is_current_screen() && rm.room.borrow().take_opened_elsewhere() {
@@ -324,6 +336,17 @@ impl PromptScreen {
         };
         if rm.started.get() || rm.gone.get().is_some() || rm.quit_at.get().is_some() {
             return;
+        }
+        // CPU practice alone (round AC: "Wait for you"): its countdown
+        // and start wait for the page to be seen (the player's Ready held
+        // back meanwhile: practice's unready stops its countdown). A room
+        // with anyone else in it plays on unseen as before.
+        let waits = {
+            let r = rm.room.borrow();
+            r.waits_unseen() && r.ready() && !r.stage_started(rm.stage)
+        };
+        if waits && rm.room.borrow_mut().set_ready(false).is_ok() {
+            rm.held_unseen.set(true);
         }
         rm.pump.borrow_mut().run(&rm.room, &rm.shell, cx);
         let start = {

@@ -307,7 +307,7 @@ pub(crate) fn watch_label(
     let tap = (touch && !w.over && !w.ended).then(|| m::watch_tap_hint().into());
     let said = match w.focus {
         Some(_) => name.map(|n| m::watch_following(n).into()),
-        None if w.why == ddi_session::play::Watching::Spectator
+        None if w.why.spectates()
             && !touch
             && w.age < ddi_session::play::WATCH_HINT_SECONDS
             && !w.over =>
@@ -1185,7 +1185,7 @@ impl<H: PlayHost> PlayView<H> {
         // follow in the play's field's place); a player out of the stage
         // keeps theirs, dimmed.
         let watch = session.watch(moment.now.0);
-        let spectator = watch.filter(|w| w.why == ddi_session::play::Watching::Spectator);
+        let spectator = watch.filter(|w| w.why.spectates());
         // A player out of the stage may follow a competitor large too,
         // their own field then a miniature among the others (its seat the
         // last: `own_seat`).
@@ -1848,7 +1848,7 @@ impl<H: PlayHost> PlayView<H> {
         // The mark of the player's own field out of the stage: they left
         // it, or are out.
         let own_word = watch
-            .filter(|w| w.why != ddi_session::play::Watching::Spectator)
+            .filter(|w| !w.why.spectates())
             .map(|w| -> String {
                 match w.why {
                     ddi_session::play::Watching::Left => ddi_l10n::msg::room::play_forfeit().into(),
@@ -2122,6 +2122,8 @@ impl<H: PlayHost> PlayView<H> {
                 (ddi_session::play::Watching::Spectator, Some(_)) => "focus",
                 (ddi_session::play::Watching::Out, _) => "out",
                 (ddi_session::play::Watching::Left, _) => "left",
+                (ddi_session::play::Watching::Late, None) => "late",
+                (ddi_session::play::Watching::Late, Some(_)) => "late-focus",
             },
             focus,
             lane,

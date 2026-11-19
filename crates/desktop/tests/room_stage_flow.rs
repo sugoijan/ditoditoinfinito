@@ -428,13 +428,14 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
 /// it played; shown again, the results are there. Never ready by itself:
 /// a player not ready is left alone.
 /// Round Y3: with Options → Display's "Dancing hand in multiplayer" On,
-/// a stage started while the window is hidden starts its play at once,
-/// as without the hand: the play never waits for the hand, which is
-/// readied on frames and rests until the window is seen again (as when
-/// it falls behind). Never the other way round: the hand's readiness
-/// still holds a play started in sight.
+/// a stage's play never waits for the hand where it starts unseen (an
+/// online room's, round P1b). In CPU practice alone (round AC, the
+/// maintainer: "Wait for you") a hidden window's stage does not start at
+/// all: its Ready held back while hidden, hand or no hand; seen again,
+/// its countdown runs in sight and the play starts, the hand readied
+/// there as ever.
 #[test]
-fn a_hidden_windows_stage_starts_without_waiting_for_the_dancing_hand() {
+fn a_hidden_windows_practice_stage_waits_for_it_with_the_dancing_hand_on() {
     common::indexes();
     let settings = ddi_ui::state::settings::Settings {
         dancing_hand_multiplayer: true,
@@ -457,27 +458,30 @@ fn a_hidden_windows_stage_starts_without_waiting_for_the_dancing_hand() {
     draws.wait_prompt(&mut host, &mut ui, &env);
     ui.update(0.5);
     assert_eq!(top(&ui), "play-prompt");
-    // Ready, then hidden at once: the hand never readied in sight.
+    // Ready, then hidden at once.
     key(&mut ui, "Enter", "Enter");
     ui.update(0.02);
     assert!(room.borrow().ready());
     let t0 = room.borrow().now_ms();
-    let mut started = None;
     for s in 1..=8 {
         ui.set_wall_ms(t0 + s * 1_000);
         let now = clock.fetch_add(1_000_000_000, Ordering::SeqCst) + 1_000_000_000;
         host.step_unseen(HostTime(now as f64 / 1e9), &mut ui, &env, draws.dev(), 48_000);
-        if host.playing() {
-            started = Some(s);
-            break;
-        }
+        assert!(!host.playing(), "never started hidden");
     }
-    assert!(room.borrow().stage_started(stage), "the room started it");
-    assert_eq!(started, Some(3), "the play starts at the unseen step after the start");
+    assert!(!room.borrow().stage_started(stage), "the room waits");
+    // Seen: Ready given back, its countdown, then the play.
+    ui.update(0.05);
+    assert!(room.borrow().ready(), "given back");
+    draws.countdown(&mut host, &mut ui, &env, &room);
+    assert!(room.borrow().stage_started(stage), "started once seen");
 }
 
+/// A ready player's practice stage, hidden, waits for the window (round
+/// AC); seen, it starts, and hidden again it is judged on unseen to its
+/// end (round P1b), its results shown once seen.
 #[test]
-fn a_ready_players_hidden_window_starts_the_stage_and_plays_it_unseen() {
+fn a_ready_players_hidden_window_waits_then_plays_the_stage_unseen() {
     common::indexes();
     let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
     let mut host = Host::new(Rc::default(), None);
@@ -508,22 +512,32 @@ fn a_ready_players_hidden_window_starts_the_stage_and_plays_it_unseen() {
         hidden_step(&mut host, &mut ui, t0 + s * 1_000);
     }
     assert!(!room.borrow().ready() && !host.playing(), "never readied by itself");
-    // Ready, then hidden: the room counts down (3 s) and starts the stage.
+    // Ready, then hidden: CPU practice alone waits (round AC: "Wait for
+    // you"), its Ready held back, nothing starting.
     ui.update(0.05);
     key(&mut ui, "Enter", "Enter");
     ui.update(0.05);
     assert!(room.borrow().ready());
     let t0 = room.borrow().now_ms();
-    let mut started = None;
     for s in 1..=6 {
         hidden_step(&mut host, &mut ui, t0 + s * 1_000);
-        if host.playing() {
-            started = Some(s);
-            break;
-        }
+        assert!(!host.playing(), "never started hidden");
     }
+    assert!(!room.borrow().stage_started(stage), "the room waits");
+    // Seen: its countdown, the room starts the stage and the play with
+    // it; then hidden again, the play runs on unseen (round P1b).
+    ui.update(0.05);
+    assert!(room.borrow().ready(), "Ready given back");
+    draws.countdown(&mut host, &mut ui, &env, &room);
     assert!(room.borrow().stage_started(stage), "the room started it");
-    assert_eq!(started, Some(3), "the play starts at the unseen step after the start");
+    let mut waited = 0;
+    while !host.playing() {
+        draws.poll(&mut host, &mut ui, &env);
+        ui.update(0.05);
+        waited += 1;
+        assert!(waited < 200, "the play never started");
+    }
+    let t0 = t0 + 7_000;
     let me = room.borrow().me();
     assert!(
         matches!(

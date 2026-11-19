@@ -1104,7 +1104,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             watch: if spectating {
                 Some(watch::Watch::new(Watching::Spectator, f64::NAN))
             } else {
-                late_watch.then(|| watch::Watch::new(Watching::Left, f64::NAN))
+                // Past a live stage's late join (round AC): as a
+                // spectator, its forfeit the room's to rank as before.
+                late_watch.then(|| watch::Watch::new(Watching::Late, f64::NAN))
             },
             over: false,
             steps_seen: 0,
@@ -1418,7 +1420,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let spectating = self
             .watch
             .as_ref()
-            .is_some_and(|w| w.why == Watching::Spectator);
+            .is_some_and(|w| w.why.spectates());
         if !spectating {
             self.feed_replay(HostTime(judge_now), &mut events);
             events.extend(self.player.update(HostTime(judge_now)));
@@ -1594,7 +1596,8 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             }
         }
         let outcome = if let Some((why, quit)) = watch_ended {
-            let left = why == Watching::Left || (why == Watching::Spectator && quit);
+            let left = matches!(why, Watching::Left | Watching::Late)
+                || (why == Watching::Spectator && quit);
             if left {
                 self.audio.stop_all();
             } else {
@@ -2345,7 +2348,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         frame.holds = Default::default();
         frame.failed = false;
         frame.danger = false;
-        if w.why == Watching::Spectator {
+        if w.why.spectates() {
             frame.combo = 0;
             frame.score = Default::default();
             frame.life = 0.0;
@@ -2417,7 +2420,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     /// play (and for a spectator, who has no hand).
     pub fn hand_rests_at(&self) -> Option<f64> {
         let w = self.watch.as_ref()?;
-        if w.why == Watching::Spectator {
+        if w.why.spectates() {
             return None;
         }
         self.player

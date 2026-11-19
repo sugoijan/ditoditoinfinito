@@ -1406,6 +1406,10 @@ pub struct RoomClient {
     load_tries: BTreeMap<(StageId, u32), u32>,
     retrying: Vec<(u64, LoadJob)>,
     failed_jobs: BTreeMap<StageId, LoadJob>,
+    /// Round AC: the last command's `seq` when "Use this device" joined
+    /// again; refusals of those up to it are of what the stopped page had
+    /// asked, and are not said.
+    stale_before: Option<u64>,
 }
 
 /// PROVISIONAL (`load-retry-v0`, round P1b): a member's failed download
@@ -2011,6 +2015,7 @@ impl RoomClient {
             load_tries: BTreeMap::new(),
             retrying: Vec::new(),
             failed_jobs: BTreeMap::new(),
+            stale_before: None,
             live_news: LiveNewsTap::default(),
             preparing: BTreeMap::new(),
             offered: BTreeSet::new(),
@@ -2275,6 +2280,15 @@ impl RoomClient {
 
     /// The people whose role the owner may change: everyone else present,
     /// by joining order; never a bot (a bot follows a room) nor a CPU.
+    /// A stage of this room waits for its player's page to be seen before
+    /// it counts down and starts (round AC, the maintainer: "Wait for
+    /// you"): CPU practice with nobody else in it. An online room, and a
+    /// practice room with another person in it were there such a thing,
+    /// starts and plays on unseen (round P1b).
+    pub fn waits_unseen(&self) -> bool {
+        !self.is_online() && self.other_people().is_empty()
+    }
+
     pub fn other_people(&self) -> Vec<&ddi_room::Member> {
         self.state()
             .members
@@ -2500,6 +2514,12 @@ impl RoomClient {
     pub fn use_this_device(&mut self) {
         if self.online_link_mut().is_some_and(|l| l.use_this_device()) {
             self.elsewhere_told.set(None);
+            // What the stopped page had asked and is sent again on the
+            // new socket is answered for a room gone on: its refusals are
+            // not said (round AC: "Not possible at this point of the
+            // match." was), the status line saying they are back instead.
+            self.stale_before = Some(self.seq);
+            self.refusal = None;
             self.version += 1;
         }
     }
@@ -4908,7 +4928,10 @@ impl RoomClient {
                     if self.ready_asked.is_some_and(|(r, _)| r == *s) {
                         self.ready_asked = None;
                     }
-                    self.refusal = Some(Refusal::Room(rejection.clone()));
+                    // Not one asked before "Use this device" (round AC).
+                    if !self.stale_before.is_some_and(|q| *s <= q) {
+                        self.refusal = Some(Refusal::Room(rejection.clone()));
+                    }
                     self.version += 1;
                 }
                 ServerMessage::Events { .. } | ServerMessage::Snapshot { .. } => {

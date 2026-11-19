@@ -671,6 +671,32 @@ fn line_stage(r: &RoomClient) -> Option<usize> {
     }
 }
 
+/// Back by "Use this device" (round AC): that they are, and whether they
+/// play the stage being readied or under way (`RoomClient::in_stage`:
+/// its lineup, or its late entry still open) or, past it, the next.
+fn back_here(r: &RoomClient) -> UiText {
+    let s = r.state();
+    let plays = s.member(r.me()).is_some_and(|m| m.intent == ddi_room::Intent::Play);
+    let (kind, stage) = match s.phase {
+        Phase::Preparing {
+            stage,
+            window: Some(_),
+        } if r.in_stage(stage) => ("this", Some(stage)),
+        Phase::Countdown { stage, .. } | Phase::Stage { stage } | Phase::SongCompletion { stage }
+            if r.in_stage(stage) =>
+        {
+            ("this", Some(stage))
+        }
+        Phase::Countdown { stage, .. } | Phase::Stage { stage } | Phase::SongCompletion { stage }
+            if plays =>
+        {
+            ("next", Some(stage))
+        }
+        _ => ("none", None),
+    };
+    m::back_here(kind, stage.map_or(0, |st| number_of(r, st)))
+}
+
 fn phase_status(r: &RoomClient) -> UiText {
     if r.is_online() {
         match r.link_state() {
@@ -718,6 +744,7 @@ fn phase_status(r: &RoomClient) -> UiText {
             LinkNotice::AudienceInviteCopied => m::audience_invite_copied(),
             LinkNotice::AudienceClosed => m::audience_closed_notice(),
             LinkNotice::AudienceOpened => m::audience_opened_notice(),
+            LinkNotice::BackHere => back_here(r),
         };
     }
     let s = r.state();

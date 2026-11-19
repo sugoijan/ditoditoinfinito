@@ -60,6 +60,20 @@ pub enum Watching {
     Out,
     /// A player who left the stage's play while still in (a forfeit).
     Left,
+    /// A player in the stage whose play began past its late join (round
+    /// AC, the maintainer: "The spectator view"): a forfeit as the room
+    /// ranks it, watched as a spectator watches (everyone's fields,
+    /// nothing of their own, no "Left the stage" over them), its end a
+    /// forfeit's.
+    Late,
+}
+
+impl Watching {
+    /// Watched as a spectator watches: no field of their own, everyone's
+    /// over the whole screen or one followed large.
+    pub fn spectates(self) -> bool {
+        matches!(self, Watching::Spectator | Watching::Late)
+    }
 }
 
 /// What a frame shows of the watching ([`super::PlaySession::watch`]).
@@ -144,7 +158,7 @@ impl Watch {
     /// skips a stage the player is out of to its results. `menu`: the
     /// edge as a menu reads a pad's.
     pub fn read(&mut self, raw: &RawInput, menu: Option<MenuInput>) -> Option<Ask> {
-        let spectator = self.why == Watching::Spectator;
+        let spectator = self.why.spectates();
         // Who may skip (to the results, or back where the seat ended).
         let skips = !spectator || self.ended;
         match &raw.device {
