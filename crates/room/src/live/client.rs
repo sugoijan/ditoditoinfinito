@@ -14,7 +14,8 @@ use crate::live::server::LiveSnapshot;
 use crate::live::cpus::{CpuEntry, CpuNews};
 use crate::live::stream::{Frame, FrameReader, LiveReport, Outbox, StreamEnd};
 use crate::live::{
-    ClientLive, ClientLiveEnvelope, LIVE_VERSION, LiveRefusal, LiveRules, ServerLive, wire,
+    ClientLive, ClientLiveEnvelope, HaveSet, LIVE_VERSION, LiveRefusal, LiveRules, ServerLive,
+    wire,
 };
 use crate::online::Message;
 use std::collections::BTreeMap;
@@ -52,6 +53,15 @@ pub struct LiveLink {
     /// every `quiet_ping_ms` where the room's policy names it.
     quiet: bool,
     quiet_ping_ms: Option<u64>,
+    /// Who has which listed songs, as the room last said each member's
+    /// (`crate::live::have`); cleared with each new socket (its hello
+    /// is answered with everyone's).
+    haves: BTreeMap<ParticipantId, HaveSet>,
+    /// What this device has, as the game last set it, what was said of it
+    /// on this socket, and when.
+    have: HaveSet,
+    have_sent: Option<HaveSet>,
+    have_at: Option<u64>,
 }
 
 /// What a device computed of a stage's CPUs, kept to send
@@ -181,7 +191,24 @@ impl LiveLink {
             cpus: BTreeMap::new(),
             quiet: false,
             quiet_ping_ms: None,
+            haves: BTreeMap::new(),
+            have: HaveSet::default(),
+            have_sent: None,
+            have_at: None,
         }
+    }
+
+    /// The listed songs this device has (`crate::live::have`): said to the
+    /// room after hello and when it changes, at most every
+    /// [`crate::live::have::HAVE_EVERY_MS`].
+    pub fn set_have(&mut self, have: HaveSet) {
+        self.have = have;
+    }
+
+    /// Who has which listed songs, as the room last said (this member's
+    /// own among them, as the room has it).
+    pub fn haves(&self) -> &BTreeMap<ParticipantId, HaveSet> {
+        &self.haves
     }
 
     /// Whether the room is quiet now (no stage gathering, counting down
@@ -369,6 +396,9 @@ impl LiveLink {
         self.ping_at = now;
         // Everything not acknowledged goes again on the new socket.
         self.fresh = true;
+        // Who has what is said again on it (and told back whole).
+        self.have_sent = None;
+        self.haves.clear();
         if let Some(r) = self.reader.as_mut() {
             r.ask_resume();
         }
@@ -396,6 +426,15 @@ impl LiveLink {
             }
             ServerLive::Refused { refusal } => self.news.push(LiveNews::Refused(refusal)),
             ServerLive::Audience { count, open } => self.audience = Some((count, open)),
+            ServerLive::Have { sets } => {
+                for (who, set) in sets {
+                    if set.is_empty() {
+                        self.haves.remove(&who);
+                    } else {
+                        self.haves.insert(who, set);
+                    }
+                }
+            }
             ServerLive::Snapshot(snap) => {
                 FrameReader::adopt(&mut self.reader, &snap);
                 if let Some(me) = self.me
@@ -476,6 +515,20 @@ impl LiveLink {
         }
         for m in std::mem::take(&mut self.queued) {
             out.extend(text(m));
+        }
+        let unsaid = match &self.have_sent {
+            Some(sent) => *sent != self.have,
+            None => !self.have.is_empty(),
+        };
+        let every = crate::live::have::HAVE_EVERY_MS;
+        if unsaid
+            && (self.have_sent.is_none() || self.have_at.is_none_or(|t| now >= t + every))
+        {
+            self.have_sent = Some(self.have.clone());
+            self.have_at = Some(now);
+            out.extend(text(ClientLive::Have {
+                songs: self.have.clone(),
+            }));
         }
         let fresh = std::mem::take(&mut self.fresh);
         for o in self.outboxes.values_mut() {

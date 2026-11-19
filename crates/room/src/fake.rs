@@ -202,6 +202,9 @@ pub struct FakeServer {
     /// The identities whose sessions ended ([`FakeServer::sign_out`]):
     /// their tickets refused 401 as the server refuses them.
     signed_out: std::collections::BTreeSet<Identity>,
+    /// Who has which listed songs, by socket (`crate::live::have`): in
+    /// memory beside the sockets, as the server keeps it.
+    haves: crate::live::Haves,
 }
 
 /// The server's bounds on one member (`../ddi-server`'s `room.rs`,
@@ -325,6 +328,7 @@ impl FakeServer {
             tickets_issued: BTreeMap::new(),
             admins: Default::default(),
             signed_out: Default::default(),
+            haves: Default::default(),
             audience,
             room_name,
         }
@@ -863,13 +867,39 @@ impl FakeServer {
         if let ClientLive::Audience { open } = msg {
             self.audience_open(participant, open);
         }
+        let hello = matches!(msg, ClientLive::Hello { .. });
+        if let ClientLive::Have { songs } = &msg
+            && self.live.is_some()
+            && let Some(said) = self.haves.set(&conn.to_string(), participant, songs.clone())
+        {
+            self.say_live(said);
+        }
         let Some(live) = self.live.as_mut() else {
             self.close_conn(conn, close::BAD_MESSAGE);
             return;
         };
         let out = live.receive(self.authority.state(), participant, msg, now);
         self.live_out(Some(conn), out);
+        // A socket that says hello is told who has what.
+        if hello && let Some(all) = self.haves.all() {
+            self.push_frame(conn, Frame::Text(ServerLiveEnvelope::text(all)), false);
+        }
         self.live_tick();
+    }
+
+    /// A live message to every socket that said hello.
+    fn say_live(&mut self, msg: crate::live::ServerLive) {
+        let text = ServerLiveEnvelope::text(msg);
+        for k in self.open_conns(true) {
+            self.push_frame(k, Frame::Text(text.clone()), false);
+        }
+    }
+
+    /// Socket `conn` is gone: what it said of the songs it has goes too.
+    fn haves_gone(&mut self, conn: u64) {
+        if let Some(said) = self.haves.closed(&conn.to_string()) {
+            self.say_live(said);
+        }
     }
 
     /// What the live side said, to whom it goes; its commands applied as
@@ -1172,6 +1202,7 @@ impl FakeServer {
             }
         }
         if let Some(p) = closed {
+            self.haves_gone(conn);
             self.gone(p);
         }
         out
@@ -1208,6 +1239,7 @@ impl FakeServer {
             }
             _ => return,
         };
+        self.haves_gone(conn);
         self.gone(p);
     }
 }

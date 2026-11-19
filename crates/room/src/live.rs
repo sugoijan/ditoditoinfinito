@@ -33,6 +33,7 @@ pub mod client;
 pub mod clock;
 pub mod cpus;
 pub mod delay;
+pub mod have;
 pub mod plan;
 pub mod server;
 pub mod slew;
@@ -45,6 +46,7 @@ use serde::{Deserialize, Serialize};
 pub use client::{LiveLink, LiveNews};
 pub use clock::{ClockEstimate, ClockEstimator, Ping, Pong};
 pub use delay::{VIEW_DELAY_V0, ViewDelay, ViewDelayRules, ViewMeter};
+pub use have::{HaveSet, Haves};
 pub use plan::{BattlePlan, PlanDigest, PlanProblem};
 pub use server::{CompetitorStatus, LiveOut, LiveReply, LiveServer, LiveSnapshot, LiveStage, StepStatus};
 pub use slew::{SLEW_V0, SlewRules, SongSlew};
@@ -221,6 +223,11 @@ pub enum ClientLive {
         stage: StageId,
         runs: Vec<cpus::CpuRun>,
     },
+    /// Which of the room's listed songs this device has (`have`,
+    /// `room-have-v0`): sent after hello and when it changes, at most
+    /// every few seconds. The room keeps it beside the socket, never in
+    /// its state, and says it to every live socket.
+    Have { songs: HaveSet },
 }
 
 /// The room's live message (JSON text: `{"v":2,"live":{"kind":…}}`).
@@ -241,6 +248,12 @@ pub enum ServerLive {
     Audience {
         count: u32,
         open: bool,
+    },
+    /// Who has which of the room's listed songs (`have`): every member's
+    /// to a socket that said hello, a member's own when it changed to
+    /// every live socket (an empty set: nothing, or gone).
+    Have {
+        sets: Vec<(crate::ids::ParticipantId, HaveSet)>,
     },
 }
 
