@@ -73,6 +73,9 @@ impl Window {
                 ..r.rules().clone()
             };
             rules.set_attacks(true);
+            // Out when life runs out, as written (Play on applies under
+            // As picked too since revision 16).
+            rules.set_life_out(ddi_room::AtEasiest::Out);
             // (The CPUs are the room's roster, whose seeds are the room's:
             // `common::practice::SEED`.)
             rules.cpu.opponent.seed = 7;
