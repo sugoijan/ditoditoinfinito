@@ -1737,7 +1737,9 @@ impl SelectScreen {
                 let decimal = self.chosen_estimate().map_or(1.0, |e| e.decimal);
                 Some((
                     std::iter::once(crate::radar::number(decimal))
-                        .chain(p.iter().map(|c| crate::radar::number(*c)))
+                        .chain(p.iter().enumerate().map(|(k, c)| {
+                            crate::radar::number(crate::radar::spoke_number(decimal, k, *c))
+                        }))
                         .collect(),
                     crate::radar::estimate_spokes(decimal, &p),
                     m::radar_estimate_overall().into(),

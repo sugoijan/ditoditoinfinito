@@ -216,10 +216,11 @@ select-radar-evasion-full = Evasion
 # Its caption's word, before the chart's estimate ("DDI 14.3"; DDI is the
 # game's ruleset's name: keep it).
 select-radar-estimate-overall = DDI
-# A line beside the radar, under the chart's lines: its spokes' numbers
-# are how many points of Accuracy each skill costs a CPU of the chart's
-# level. Short.
-select-radar-estimate-unit = Skill costs, in points of Accuracy
+# A line beside the radar, under the chart's lines: each spoke's number
+# is the skill's level on the chart's difficulty scale, compared with
+# charts about as hard (as demanding as usual: the chart's own rating;
+# higher where it stands out). Short.
+select-radar-estimate-unit = Skills, compared with charts this hard
 # In the radar's place where the estimate has no skill profile for the
 # chart (it is longer or otherwise outside the charts the estimate was
 # studied on). Short and plain.

@@ -634,9 +634,18 @@ fn the_estimate_s_radar_draws_each_state() {
     }
     assert!(h.ui.bounds_of("Radar", "Label8").is_none());
     let texts = h.texts();
-    for want in ["12.3", "2.9", "1.5", "0.0", "Jack speed", "Evasion", "DDI", "9.4", "Skill costs, in points of Accuracy"] {
+    for want in ["Jack speed", "Evasion", "DDI", "9.4", "Skills, compared with charts this hard"] {
         assert!(texts.iter().any(|t| t == want), "{want} in {texts:?}");
     }
+    // Each spoke's number: its skill's level against charts this hard
+    // (round Z4), as `spoke_number` makes it.
+    let costs = [2.86, 0.0, 0.0, 1.45, 12.29, 0.0, 0.0, 0.0];
+    for (k, c) in costs.iter().enumerate() {
+        let want = crate::radar::number(crate::radar::spoke_number(9.44, k, *c));
+        assert!(texts.contains(&want), "{want} in {texts:?}");
+    }
+    // An absent skill a quarter under the chart's own estimate.
+    assert!(texts.iter().any(|t| t == "7.3"));
     // The estimate's level in the button, the decimal in the detail.
     assert_eq!(e.state.borrow().chart.as_deref(), Some("Medium 6"));
     h.key("ArrowDown", "ArrowDown");

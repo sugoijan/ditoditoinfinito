@@ -1294,4 +1294,15 @@ mod tests {
         assert!(spokes.iter().all(|s| *s >= base - 1e-6), "{spokes:?}");
         assert!(spokes.iter().all(|s| *s <= spokes[jack]), "{spokes:?}");
     }
+
+    /// Round Z4: a stream pattern's largest spoke is Stream or Stamina.
+    #[test]
+    fn a_stream_pattern_bulges_at_stream_or_stamina() {
+        use ddi_engine::cpu::SKILL_NAMES;
+        let song = pattern(150, &RND, 600);
+        let e = estimate_chart(&song, 0).expect("estimated");
+        let spokes = crate::radar::estimate_spokes(e.decimal, &e.profile.expect("a profile"));
+        let largest = (0..8).max_by(|&a, &b| spokes[a].total_cmp(&spokes[b])).unwrap();
+        assert!(["Stream", "Stamina"].contains(&SKILL_NAMES[largest]), "{spokes:?}");
+    }
 }

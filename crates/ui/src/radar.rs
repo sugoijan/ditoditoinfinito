@@ -39,16 +39,17 @@ pub const COLORS: [Rgba; 4] = [
 
 /// The DDI estimate's radar (round Z3, the maintainer: "set a minimum
 /// value of 1 for each skill and grow everything proportionally to the
-/// difficulty"): each skill's value `1 + e`, `e = cost / (cost +`
-/// [`COST_HALF`]`)`, so nothing below the floor and a standout toward
-/// twice it; a spoke `base(decimal) × (1 + e ×` [`GROWTH`]`)` of the
+/// difficulty"): each skill's value `1 + e`, `e` how much it stands out,
+/// 0 to 1 (since round Z4 its percentile among charts of similar
+/// difficulty, [`skill_standing`]), so nothing below the floor; a spoke `base(decimal) × (1 + e ×` [`GROWTH`]`)` of the
 /// radius, `base` rising linearly from [`BASE_AT_1`] at 1 to
 /// [`BASE_AT_19`] at 19. A chart with no costs is a regular octagon whose
 /// size says its difficulty; the longest spoke there can be (19, a cost
 /// without end) reaches the outer ring.
 ///
-/// The cost, in points of Accuracy, at which a skill is halfway to its
-/// most: a typical chart's Stream costs about 2.
+/// The cost, in points of Accuracy, at which a skill without a table
+/// (Handstream) is halfway to its most: a typical chart's Stream costs
+/// about 2.
 pub const COST_HALF: f32 = 2.0;
 /// How far past the base a skill's spoke reaches at its most: six tenths
 /// of it, a bulge rather than a spike, and room enough for the base to
@@ -68,17 +69,87 @@ pub fn estimate_base(decimal: f32) -> f32 {
     BASE_AT_1 + (BASE_AT_19 - BASE_AT_1) * t
 }
 
+/// How the DDI estimate's radar reads a skill (round Z4, the maintainer:
+/// "do some normalization so that the apparent skill level is not
+/// absolute but relative to the distribution"), kept with nothing: it is
+/// drawing only.
+pub const SPOKE_RULE: &str = "relative-profile-v0";
+
+/// At or under this many points of Accuracy a skill costs nothing to
+/// speak of: its spoke is the base.
+pub const COST_FLOOR: f32 = 0.1;
+
+/// Where `cost` stands among `knots` (the costs at
+/// [`crate::radar_table::KNOT_PCT`]'s percentiles): 0 at or under the
+/// first, 1 at or past the last, linear between knots.
+fn percentile(knots: &[f32; 8], cost: f32) -> f32 {
+    use crate::radar_table::KNOT_PCT;
+    if cost <= knots[0] {
+        return 0.0;
+    }
+    for k in 1..8 {
+        if cost < knots[k] {
+            let (a, b) = (knots[k - 1], knots[k]);
+            let t = if b > a { (cost - a) / (b - a) } else { 1.0 };
+            return KNOT_PCT[k - 1] + (KNOT_PCT[k] - KNOT_PCT[k - 1]) * t;
+        }
+    }
+    1.0
+}
+
+/// How much skill `k` (`ddi_engine::cpu::SKILL_NAMES`' order) of a chart
+/// estimated at `decimal` stands out, 0 to 1 ([`SPOKE_RULE`]): 0 where it
+/// costs [`COST_FLOOR`] or less; else its percentile among charts of
+/// similar difficulty where it costs anything
+/// ([`crate::radar_table::BANDS`]), the two bands about `decimal` blended
+/// by it (the first band's below the first center, the last's past the
+/// last), a band without enough charts reading every chart's
+/// ([`crate::radar_table::ALL`]); a skill with no table at all
+/// (Handstream) as round Z3 had it, `cost / (cost + COST_HALF)`.
+pub fn skill_standing(decimal: f32, k: usize, cost: f32) -> f32 {
+    use crate::radar_table::{ALL, BAND_CENTERS, BANDS};
+    let cost = cost.max(0.0);
+    if cost <= COST_FLOOR {
+        return 0.0;
+    }
+    let Some(all) = ALL[k] else {
+        return cost / (cost + COST_HALF);
+    };
+    let at = |band: usize| percentile(BANDS[band][k].as_ref().unwrap_or(&all), cost);
+    let last = BAND_CENTERS.len() - 1;
+    if decimal <= BAND_CENTERS[0] {
+        return at(0);
+    }
+    if decimal >= BAND_CENTERS[last] {
+        return at(last);
+    }
+    let i = BAND_CENTERS.iter().rposition(|c| *c <= decimal).unwrap_or(0).min(last - 1);
+    let t = (decimal - BAND_CENTERS[i]) / (BAND_CENTERS[i + 1] - BAND_CENTERS[i]);
+    at(i) + (at(i + 1) - at(i)) * t
+}
+
 /// The DDI estimate's spokes, as fractions of the radius, for a chart of
-/// `decimal` whose skills cost `costs` points of Accuracy.
+/// `decimal` whose skills cost `costs` points of Accuracy: the base
+/// octagon of its difficulty, each skill past it by how much it stands
+/// out ([`skill_standing`]).
 pub fn estimate_spokes(decimal: f32, costs: &[f32; 8]) -> Vec<f32> {
     let base = estimate_base(decimal);
     costs
         .iter()
-        .map(|c| {
-            let c = c.max(0.0);
-            base * (1.0 + c / (c + COST_HALF) * GROWTH)
-        })
+        .enumerate()
+        .map(|(k, c)| base * (1.0 + skill_standing(decimal, k, *c) * GROWTH))
         .collect()
+}
+
+/// A DDI estimate's spoke's number, consistent with its length: the
+/// skill's level on the difficulty scale, `decimal × (1 + e × GROWTH) /
+/// (1 + 0.5 × GROWTH)`, so a skill as demanding as usual for charts this
+/// hard reads the chart's own estimate, a standout up to about a quarter
+/// above it, an absent one about a quarter below. The one place a
+/// spoke's number is made: to show the costs again, return `cost`.
+pub fn spoke_number(decimal: f32, k: usize, cost: f32) -> f32 {
+    let e = skill_standing(decimal, k, cost);
+    decimal * (1.0 + e * GROWTH) / (1.0 + 0.5 * GROWTH)
 }
 
 /// The DDI estimate's rings: the base octagon at 5, 10 and 15 (so two
@@ -619,4 +690,57 @@ fn the_estimate_s_octagon_grows_with_difficulty() {
     // Its rings: the base at 5, 10, 15, then the outer ring.
     let r = estimate_rings();
     assert!(r[0] < r[1] && r[1] < r[2] && r[2] < r[3] && r[3] == 1.0);
+}
+
+/// Round Z4, `relative-profile-v0`: a chart whose every cost is its band's
+/// median (at a band's center) draws a regular octagon at the middle of
+/// its room, every number its own estimate; the standing rises with the
+/// cost, is 0 at the floor, runs without a step across the bands, and
+/// Handstream (no table) keeps the absolute rule.
+#[cfg(test)]
+#[test]
+fn a_skill_stands_relative_to_charts_this_hard() {
+    use crate::radar_table::{ALL, BAND_CENTERS, BANDS};
+    for (band, &center) in BAND_CENTERS.iter().enumerate() {
+        let costs: [f32; 8] = std::array::from_fn(|k| match BANDS[band][k].or(ALL[k]) {
+            Some(knots) => knots[3],
+            // Handstream: halfway by the absolute rule.
+            None => COST_HALF,
+        });
+        let spokes = estimate_spokes(center, &costs);
+        let mid = estimate_base(center) * (1.0 + 0.5 * GROWTH);
+        for (k, s) in spokes.iter().enumerate() {
+            assert!((s - mid).abs() < 1e-4, "band {band} skill {k}: {s} against {mid}");
+            assert!((spoke_number(center, k, costs[k]) - center).abs() < 1e-3);
+        }
+    }
+    // Monotone in the cost, the floor at 0.1.
+    for k in 0..8 {
+        assert_eq!(skill_standing(11.0, k, 0.1), 0.0);
+        assert_eq!(skill_standing(11.0, k, 0.0), 0.0);
+        let mut last = 0.0;
+        for i in 1..400 {
+            let e = skill_standing(11.0, k, i as f32 * 0.05);
+            assert!(e >= last - 1e-6, "skill {k} at {}: {e} < {last}", i as f32 * 0.05);
+            assert!((0.0..=1.0).contains(&e));
+            last = e;
+        }
+    }
+    // No step across the bands: the decimal swept at fixed costs.
+    for k in 0..8 {
+        for cost in [0.3f32, 1.0, 2.5, 6.0] {
+            let mut last = skill_standing(1.0, k, cost);
+            for i in 1..=1800 {
+                let d = 1.0 + i as f32 * 0.01;
+                let e = skill_standing(d, k, cost);
+                assert!((e - last).abs() < 0.01, "skill {k} cost {cost} at {d}: {last} to {e}");
+                last = e;
+            }
+        }
+    }
+    // Handstream: the absolute rule.
+    assert!((skill_standing(11.0, 2, 2.0) - 0.5).abs() < 1e-6);
+    assert!((skill_standing(3.0, 2, 6.0) - 0.75).abs() < 1e-6);
+    // The longest spoke still ends at the outer ring.
+    assert!(estimate_spokes(19.0, &[1.0e9; 8]).iter().all(|s| *s <= 1.0 + 1e-6));
 }
