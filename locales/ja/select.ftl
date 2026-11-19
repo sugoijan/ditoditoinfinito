@@ -12,6 +12,8 @@ select-pack-songs-found = { $count }曲中{ $found }曲
 
 select-row-no-charts = { $style }の譜面なし
 
+select-row-new = 未プレイ
+
 ## ヘッダー。
 
 select-title = 選曲

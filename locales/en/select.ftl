@@ -40,6 +40,11 @@ select-pack-songs-found = { $count ->
 #   $style (String) - the style's name, as its tab shows it ("Single")
 select-row-no-charts = no { $style } charts
 
+# A song's row, at its right, in the place of a grade: the player has
+# never played any chart of the song. A small pill beside the level, at
+# most about 5 letters; all capitals, as a label.
+select-row-new = NEW
+
 ## The header: the screen's name, the search, what the play is set to.
 
 # The screen's name in the header, small capitals after the game's

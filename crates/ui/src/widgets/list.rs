@@ -227,6 +227,8 @@ pub struct List {
     selected_key: Option<u64>,
     slots: Vec<Slot>,
     placed: Option<Placed>,
+    /// The rows shown are filled again at the next update, in place.
+    refill: bool,
     /// Items filled since the start, for tests.
     pub fills: usize,
 }
@@ -251,6 +253,7 @@ impl List {
             selected_key: None,
             slots: Vec::new(),
             placed: None,
+            refill: false,
             fills: 0,
         };
         list.reload(model);
@@ -500,6 +503,14 @@ impl List {
     pub fn reset_actors(&mut self) {
         self.slots.clear();
         self.placed = None;
+    }
+
+    /// What the model says of its items changed, not which they are (song
+    /// select's rows when the difficulty kept changes): every row shown
+    /// is filled again at the next update where it is, nothing laid out
+    /// or selected again.
+    pub fn refill(&mut self) {
+        self.refill = true;
     }
 
     /// Something other than the list changed a row: it places them again
@@ -769,6 +780,17 @@ impl List {
             return;
         };
         let mut filled = false;
+        if std::mem::take(&mut self.refill) {
+            for (k, slot) in self.slots.iter_mut().enumerate() {
+                let (Some(i), Some(a)) = (slot.item, items.children_mut().get_mut(k)) else {
+                    continue;
+                };
+                model.fill(i, a, cx);
+                self.fills += 1;
+                filled = true;
+                slot.image = hit::find_mut(a, "Banner").is_some_and(|b| b.visible);
+            }
+        }
         for i in first..last {
             if self.slots.iter().any(|s| s.item == Some(i)) {
                 continue;

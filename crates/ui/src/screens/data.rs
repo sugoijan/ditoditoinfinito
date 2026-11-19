@@ -507,9 +507,18 @@ pub struct SongEntry {
     /// Its credit line (a bundled song's: the artist and the licence),
     /// shown and searched.
     pub credit: String,
+    /// The player has played one of its charts (any style, any rules, a
+    /// quit too; never an autoplay): `state::history::History::played`.
+    pub played: bool,
 }
 
 impl SongEntry {
+    /// Never played: its row says "NEW". A song with a best is played,
+    /// whatever `played` says.
+    pub fn is_new(&self) -> bool {
+        !self.played && self.charts.iter().all(|c| c.best.is_none())
+    }
+
     /// Its charts in style `style`, easiest first.
     pub fn charts_in(&self, style: &str) -> Vec<&ChartEntry> {
         let mut v: Vec<&ChartEntry> = self.charts.iter().filter(|c| c.style == style).collect();
@@ -598,6 +607,19 @@ pub fn closest(charts: &[&ChartEntry], preferred: Difficulty) -> Option<usize> {
         }
     }
     best.map(|(i, _)| i)
+}
+
+/// The chart of `charts` (a song's in the style, easiest first) a press
+/// of Play would play now: the one picked on it (`pick`, the song shown's
+/// alone), else the one [`closest`] to the difficulty kept. Song select's
+/// side and its list's row both ask this, so they never disagree.
+pub fn would_play(
+    charts: &[&ChartEntry],
+    pick: Option<usize>,
+    preferred: Difficulty,
+) -> Option<usize> {
+    pick.filter(|&p| p < charts.len())
+        .or_else(|| closest(charts, preferred))
 }
 
 /// Song select's data.

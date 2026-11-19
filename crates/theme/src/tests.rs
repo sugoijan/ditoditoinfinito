@@ -101,8 +101,8 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
             "SongList.Row",
             s(596.0, 64.0, ""),
             &[
-                "Plate", "Banner", "Title", "Subtitle", "Right", "Cell0", "Cell4", "Meter0",
-                "Meter4", "NoCharts",
+                "Plate", "Banner", "Title", "Subtitle", "Right", "Chosen", "Level", "Grade",
+                "Flag", "New", "NewLabel", "NoCharts",
             ],
         ),
         (
@@ -901,8 +901,8 @@ fn the_preview_movie_takes_the_banners_place_while_the_shell_draws_it() {
     );
 }
 
-/// Many styles: the tabs never run into the wheel; named charts by name,
-/// counted on the wheel's row; packs say how many songs match.
+/// Many styles: the tabs never run into the wheel; named charts by name;
+/// packs say how many songs match.
 #[test]
 fn many_styles_named_charts_and_counts_in_the_theme() {
     use ddi_ui::screens::data::{ChartEntry, StyleDef};
@@ -972,7 +972,6 @@ fn many_styles_named_charts_and_counts_in_the_theme() {
     }
     let texts = h.texts();
     assert!(texts.iter().any(|t| t == "HYPER EDIT"), "{texts:?}");
-    assert!(texts.iter().any(|t| t == "+1"), "{texts:?}");
     // A search: the packs' counts.
     h.key("Slash", "/");
     h.sync("some", [4, 4], None);
@@ -2471,6 +2470,8 @@ fn song_selects_footer_hints_never_overlap() {
 /// over the sample library at three sizes, Chart ratings on the song's and
 /// on MSD (the bundled charts' numbers as the manifest gives them), and
 /// after a chart and a song changed by keys; a phone's sideways too.
+/// Recorded again in round AE, whose list rows show one chart's level
+/// and best in the place of the five level chips.
 #[test]
 fn song_select_with_the_radar_off_draws_in_the_theme_as_pinned() {
     use ddi_ui::screens::select::SelectScreen;
@@ -2530,38 +2531,39 @@ fn song_select_with_the_radar_off_draws_in_the_theme_as_pinned() {
 }
 
 const THEME_OFF_PINNED: [u64; 24] = [
-    15725122417511466891,
-    10236960284848904486,
-    10639081228426127218,
-    12667105283059785223,
-    15205999969632810044,
-    1662399774100987532,
-    15725122417511466891,
-    10236960284848904486,
-    10639081228426127218,
-    16831497350810834523,
-    13743372237617181829,
-    1657978566578211068,
-    1137531011077408220,
-    7347686347872387539,
-    4398459285243504126,
-    4017556961955621395,
-    9031551059196086246,
-    5980066501828746578,
-    1137531011077408220,
-    7347686347872387539,
-    4398459285243504126,
-    7662886429544622715,
-    17038983878928361525,
-    8779959774794916449,
+    961844337856104095,
+    11163235818027493003,
+    3412205291634525976,
+    13660537527811530485,
+    17406333334040583960,
+    1475523141092204417,
+    961844337856104095,
+    11163235818027493003,
+    3412205291634525976,
+    2096631347111801466,
+    8063847042139315681,
+    10074167075107863200,
+    11196450303767606532,
+    13011281625963291997,
+    10320574033528533808,
+    1262965641311292135,
+    8150957479042137151,
+    16465344824985674711,
+    11196450303767606532,
+    13011281625963291997,
+    10320574033528533808,
+    6506989735503659457,
+    14097999949330615018,
+    916317321653497389,
 ];
 
 /// Under "Chart ratings: DDI estimate" every number is the estimate to a
-/// tenth (round AD): the list's five chips stay inside their cells and
-/// apart, and the chart buttons' numbers inside their buttons, at the
-/// design's size and the smallest wide window.
+/// tenth (round AD): a list row's level whole at the row's right, clear
+/// of the grade's column (round AE: no squeeze), and the chart buttons'
+/// numbers inside their buttons, at the design's size and the smallest
+/// wide window, and on a phone.
 #[test]
-fn the_estimates_tenths_fit_the_chips_and_the_chart_buttons() {
+fn the_estimates_tenths_fit_the_rows_and_the_chart_buttons() {
     use ddi_library::manifest::ChartEstimate;
     use ddi_ui::screens::data::{ChartEntry, Difficulty, SelectData, SongEntry};
     use ddi_ui::screens::select::SelectScreen;
@@ -2647,30 +2649,42 @@ fn the_estimates_tenths_fit_the_chips_and_the_chart_buttons() {
         for want in ["18.8", "10.0", "20.0", "11.1", "14.3"].iter().skip(usize::from(compact)) {
             assert!(texts.iter().any(|t| t == want), "{size:?}: no {want} in {texts:?}");
         }
-        // The list's rows: each chip's number inside its cell, apart.
+        // The list's rows: the Hard chart's level (the difficulty kept),
+        // whole, inside the row and right of the grade's column ("NEW"'s
+        // pill: the songs are new).
+        assert!(
+            texts.iter().any(|t| t == "11.1"),
+            "{size:?}: no row's 11.1 in {texts:?}"
+        );
+        assert!(
+            !texts
+                .iter()
+                .any(|t| t.starts_with("11") && t.ends_with('…'))
+        );
         let mut rows = 0;
         for i in 0..40 {
             let row = format!("Wheel#{i}");
-            let Some(cell0) = h.ui.bounds_of(&row, "Cell0") else {
+            let (Some(plate), Some(level), Some(pill)) = (
+                h.ui.bounds_of(&row, "Plate"),
+                h.ui.bounds_of(&row, "Level"),
+                h.ui.bounds_of(&row, "NewBack"),
+            ) else {
                 continue;
             };
-            if h.ui.bounds_of(&row, "Meter0").is_none() || cell0[2] - cell0[0] < 1.0 {
+            if level[2] - level[0] < 1.0 {
                 continue;
             }
             rows += 1;
-            let mut last_right = f32::MIN;
-            for k in 0..5 {
-                let cell = h.ui.bounds_of(&row, &format!("Cell{k}")).unwrap();
-                let m = h.ui.bounds_of(&row, &format!("Meter{k}")).unwrap();
-                assert!(
-                    m[0] >= cell[0] - 0.5 && m[2] <= cell[2] + 0.5,
-                    "{size:?} {row} Meter{k} {m:?} outside its cell {cell:?}"
-                );
-                assert!(m[0] > last_right, "{size:?} {row} Meter{k} touches the one before");
-                last_right = m[2];
-            }
+            assert!(
+                level[2] <= plate[2] + 0.5,
+                "{size:?} {row}: level {level:?} past {plate:?}"
+            );
+            assert!(
+                level[0] > pill[2],
+                "{size:?} {row}: level {level:?} on the pill {pill:?}"
+            );
         }
-        assert!(compact || rows > 0, "{size:?}: no rows found");
+        assert!(rows > 0, "{size:?}: no rows found");
         // The chart buttons.
         let mut buttons = 0;
         for k in 0..8 {

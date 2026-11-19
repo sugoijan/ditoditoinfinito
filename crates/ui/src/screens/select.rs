@@ -45,7 +45,7 @@ use ddi_library::announcer::{Comment, Line};
 use ddi_library::suggest::{Kind as SuggestKind, Suggester};
 
 use super::data::{
-    ChartEntry, ImportView, Notice, SelectData, ShareView, SongEntry, closest, style_name,
+    ChartEntry, ImportView, Notice, SelectData, ShareView, SongEntry, style_name, would_play,
 };
 use super::{Backdrop, Env, FooterHint, extent, footer_hints, frame, ground, header, left, right};
 use crate::hit;
@@ -642,6 +642,11 @@ struct Wheel<'a> {
     style: &'a str,
     style_name: &'a str,
     banner_side: f32,
+    /// The difficulty kept, and the chart picked on the song shown (its
+    /// index in the data, the chart's in its style): what a row's chart
+    /// is ([`would_play`]).
+    preferred: Difficulty,
+    picked: Option<(usize, usize)>,
 }
 
 impl ListModel for Wheel<'_> {
@@ -711,27 +716,43 @@ impl ListModel for Wheel<'_> {
                     .map(|b| cx.texture(b, self.banner_side));
                 set_image(item, "Banner", banner);
                 let charts = song.charts_in(self.style);
-                for (k, &d) in Difficulty::ALL[..5].iter().enumerate() {
-                    let chart = charts.iter().find(|c| c.difficulty == d);
-                    let meter = chart.map(|c| c.meter);
-                    // Its MSD in the song's number's place where Chart
-                    // ratings shows it (`crate::state::ratings`).
-                    let shown = chart.map(|c| match c.shown_rating() {
-                        Some(r) => r.whole(),
-                        None => c.meter.to_string(),
-                    });
-                    set_text(item, &format!("Meter{k}"), &shown.unwrap_or_default());
+                // The chart a press of Play would play, as the song's side
+                // has it: its level, and its best's grade and lamp, else
+                // "NEW" for a song never played (`song-navigation.md`, "A
+                // song's row"). All of it from the data: nothing is read
+                // here, and rows are filled only as they come into view or
+                // when the difficulty kept changes.
+                let pick = self.picked.filter(|&(at, _)| at == s).map(|(_, p)| p);
+                let chart = would_play(&charts, pick, self.preferred).map(|p| charts[p]);
+                if let Some(c) = chart {
+                    set_text(item, "Level", &c.meter_text_fine());
+                    crate::widgets::play(item, &format!("Level.{}", c.difficulty.name()));
+                    // Fainter where it is the song's number in a rating's place.
                     if crate::state::ratings::ever_shown() {
-                        faint(item, &format!("Meter{k}"), chart.is_some_and(|c| c.meter_is_songs()));
+                        faint(item, "Level", c.meter_is_songs());
                     }
-                    // The best's lamp under the meter.
-                    if let Some(l) = part(item, &format!("Lamp{k}")) {
-                        let lamp = chart.and_then(|c| c.best.as_ref()).map(|b| b.lamp.as_str());
-                        crate::widgets::play(l, &format!("Lamp.{}", lamp.unwrap_or("None")));
-                    }
-                    if let Some(c) = part(item, &format!("Cell{k}")) {
-                        crate::widgets::play(c, if meter.is_some() { "Full" } else { "Empty" });
-                    }
+                } else {
+                    set_text(item, "Level", "");
+                }
+                let best = chart.and_then(|c| c.best.as_ref());
+                set_text(item, "Grade", best.map_or("", |b| b.grade.as_str()));
+                let lamp = best.map_or("None", |b| b.lamp.as_str());
+                crate::widgets::play(
+                    item,
+                    if lamp == "None" {
+                        "Unflagged"
+                    } else {
+                        "Flagged"
+                    },
+                );
+                if let Some(f) = part(item, "Flag") {
+                    crate::widgets::play(f, &format!("Lamp.{lamp}"));
+                }
+                if chart.is_some() && song.is_new() {
+                    set_text(item, "NewLabel", &msg::row_new());
+                    crate::widgets::play(item, "New");
+                } else {
+                    crate::widgets::play(item, "NotNew");
                 }
                 // Hidden when the song has charts in the style.
                 if charts.is_empty() {
@@ -741,20 +762,6 @@ impl ListModel for Wheel<'_> {
                         &msg::row_no_charts(style_name(self.style, self.style_name)),
                     );
                 }
-                // Edits (and named charts) beside the five meters.
-                let edits = charts
-                    .iter()
-                    .filter(|c| c.difficulty == Difficulty::Edit)
-                    .count();
-                set_text(
-                    item,
-                    "Edits",
-                    &if edits > 0 {
-                        format!("+{edits}")
-                    } else {
-                        String::new()
-                    },
-                );
                 crate::widgets::play(
                     item,
                     if charts.is_empty() {
@@ -908,6 +915,9 @@ pub struct SelectScreen {
     open: f32,
     /// The multiplayer room it is the main view of (M7b, `select_room.rs`).
     room: Option<room_mode::RoomMode>,
+    /// What the list's rows were filled for: the difficulty kept and the
+    /// chart picked on the song shown (the wheel's `picked`).
+    rows_for: (Difficulty, Option<(usize, usize)>),
 }
 
 /// The wheel's model over a screen's fields, each borrowed on its own
@@ -924,6 +934,11 @@ macro_rules! wheel_model {
             &$s.favorite,
             $s.style,
             $s.layout.compact,
+            $s.preferred,
+            match ($s.shown, $s.pick) {
+                (Some(Item::Song(s)), Some(p)) => Some((s, p)),
+                _ => None,
+            },
         )
     };
 }
@@ -1022,6 +1037,7 @@ impl SelectScreen {
             wheel_motion: None,
             open: 1.0,
             room: None,
+            rows_for: (preferred, None),
         };
         let resume = data.resume.clone();
         let resume_pack = data.resume_pack.clone();
@@ -1960,10 +1976,7 @@ impl SelectScreen {
             return (Vec::new(), None);
         };
         let charts = song.charts_in(self.style_id());
-        let pick = self
-            .pick
-            .filter(|&p| p < charts.len())
-            .or_else(|| closest(&charts, self.preferred));
+        let pick = would_play(&charts, self.pick, self.preferred);
         (charts, pick)
     }
 
@@ -4127,6 +4140,8 @@ fn wheel<'a>(
     favorite: &'a [bool],
     style: usize,
     compact: bool,
+    preferred: Difficulty,
+    picked: Option<(usize, usize)>,
 ) -> Wheel<'a> {
     let st = data.styles.get(style);
     Wheel {
@@ -4139,6 +4154,8 @@ fn wheel<'a>(
         style: st.map_or("", |s| s.id.as_str()),
         style_name: st.map_or("", |s| s.name.as_str()),
         banner_side: if compact { 96.0 } else { 224.0 },
+        preferred,
+        picked,
     }
 }
 
@@ -4487,6 +4504,13 @@ impl Screen for SelectScreen {
         let event = {
             let look = self.env.look.clone();
             let model = wheel_model!(self);
+            // Another difficulty kept, or a chart picked: each row's chart
+            // may be another, so the rows shown are filled again in place.
+            let rows_for = (model.preferred, model.picked);
+            if rows_for != self.rows_for {
+                self.rows_for = rows_for;
+                self.list.refill();
+            }
             self.list.update(dt, root, &model, &*look, cx)
         };
         if self

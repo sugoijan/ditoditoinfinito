@@ -48,8 +48,6 @@ numbers_weight = 800
 # A room's stage's Ready card and the audience's page (`ready-card-v1`):
 # the panel translucent over the song's darkened backdrop.
 "Panel.Glass" = "#14121ac2"
-"Cell" = "#ffffff0d"
-"CellEmpty" = "#ffffff05"
 "BannerEmpty" = "#1f1b28"
 "Track" = "#24212b"
 "Thumb" = "#6d6676"

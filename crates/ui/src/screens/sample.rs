@@ -151,6 +151,7 @@ pub fn bundled() -> Vec<SongEntry> {
                 title_translit: String::new(),
                 artist_translit: String::new(),
                 credit: String::new(),
+                played: false,
                 charts: charts
                     .iter()
                     .enumerate()
@@ -317,6 +318,14 @@ pub fn select() -> SelectData {
         }) {
             c.best = Some(best);
         }
+    }
+    // Those songs played, and one on a chart that is not kept (its row
+    // shows its level alone); the others are new.
+    for s in &mut songs {
+        s.played = matches!(
+            s.id.as_str(),
+            "some-things-must" | "sweeteners" | "into-my-dream"
+        );
     }
     SelectData {
         styles,

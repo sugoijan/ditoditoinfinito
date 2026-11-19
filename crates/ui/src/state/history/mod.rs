@@ -20,7 +20,7 @@ mod reworker;
 mod tests;
 pub mod timing;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ddi_chart::Song;
 use ddi_engine::player::{PlayOptions, Results};
@@ -792,6 +792,22 @@ pub struct Best {
     pub lamp_play: String,
 }
 
+/// What the player has played ([`History::played`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Played {
+    /// The charts played, by content.
+    pub charts: HashSet<ChartDigest>,
+    /// The songs played, by id.
+    pub songs: HashSet<String>,
+}
+
+impl Played {
+    /// Whether song `id`, of charts `digests`, was played.
+    pub fn song(&self, id: &str, mut digests: impl Iterator<Item = Option<ChartDigest>>) -> bool {
+        self.songs.contains(id) || digests.any(|d| d.is_some_and(|d| self.charts.contains(&d)))
+    }
+}
+
 /// The summaries of every play kept, in memory.
 #[derive(Clone, Debug, Default)]
 pub struct History {
@@ -945,6 +961,22 @@ impl History {
             .filter(|(_, s)| f(s))
             .map(|(id, _)| id.clone())
             .collect()
+    }
+
+    /// What the player has played: every play kept but the autoplayed
+    /// ones (quits and plays under other rules included), by chart content
+    /// and by song id. Song select's list says "NEW" on a song none of
+    /// whose charts is in it (`docs/plans/song-navigation.md`, "A song's
+    /// row").
+    pub fn played(&self) -> Played {
+        let mut played = Played::default();
+        for s in self.plays.values().filter(|s| !s.autoplay) {
+            played.charts.insert(s.chart.digest);
+            if !played.songs.contains(&s.chart.song) {
+                played.songs.insert(s.chart.song.clone());
+            }
+        }
+        played
     }
 
     /// Every best.

@@ -1847,3 +1847,29 @@ fn a_ddi_play_kept_before_the_new_percent_is_judged_again_with_it() {
     assert_eq!(n.borrow_mut().take().unwrap().unwrap(), 1);
     assert_eq!(b.history().get(&id), Some(&fresh));
 }
+
+/// What song select's rows call played (round AE): a quit is a play of
+/// its chart and its song, never a best; a play under other rules is
+/// played too; an autoplay is neither.
+#[test]
+fn a_quit_is_played_but_no_best_and_an_autoplay_is_not_played() {
+    let song = song();
+    let mut h = History::default();
+    let mut quit = PlaySummary::of(&record(&song, 0, &itg(), 1.0, false));
+    quit.ended = Ending::Quit;
+    h.add("quit".into(), quit);
+    h.add(
+        "auto".into(),
+        PlaySummary::of(&record(&song, 1, &itg(), 2.0, true)),
+    );
+    let played = h.played();
+    assert!(played.charts.contains(&song.chart_digest(0)));
+    assert!(!played.charts.contains(&song.chart_digest(1)));
+    assert!(played.song("s1", std::iter::empty()));
+    assert!(!played.song("s2", [Some(song.chart_digest(1))].into_iter()));
+    assert!(played.song("s2", [None, Some(song.chart_digest(0))].into_iter()));
+    assert!(h.bests().is_empty(), "{:?}", h.bests());
+    // The autoplay alone: nothing played.
+    h.remove(&["quit".into()]);
+    assert_eq!(h.played(), Played::default());
+}

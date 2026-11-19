@@ -20,10 +20,12 @@
 //!   `Link` (centered; `Button`): `Label`, `Extent`.
 //! - `SongList.Row` (`List.Row`): `Plate`, `Banner`, `Title`, `Subtitle`
 //!   (the artist), `Right` (kept at the row's right edge as the wheel
-//!   moves rows right) holding `Cell0`…`Cell4` with `Meter0`…`Meter4`
-//!   (Beginner to Challenge) and `NoCharts`. Commands
-//!   `Select`, `Deselect`, `Available`, `Unavailable`; `Full` and
-//!   `Empty` on a cell. `SongList.Header` (`List.Header`): `Plate`,
+//!   moves rows right) holding `Level` (the level of the chart Play would
+//!   play), `Grade` (its best's), `Flag` (its best's lamp: `Lamp.<name>`),
+//!   `New` with `NewLabel` (a song never played), and `NoCharts`.
+//!   Commands `Select`, `Deselect`, `Available`, `Unavailable`,
+//!   `Level.<difficulty>`, `Flagged`, `Unflagged`, `New`, `NotNew`.
+//!   `SongList.Header` (`List.Header`): `Plate`,
 //!   `Chevron`, `Title`, `Count`; `Select`, `Deselect`.
 //! - `SongInfo` (`Panel`): `Banner`, `Title`, `Artist`,
 //!   `Bpm`, `Length`, `Pack`, `Line` (artist, BPM and length on one

@@ -13,7 +13,7 @@ use ddi_library::manifest::{ChartInfo, ManifestEntry};
 
 use ddi_engine::rules::RulesetKey;
 
-use super::history::{Best as HistoryBest, BestKey, History, score_text_as};
+use super::history::{Best as HistoryBest, BestKey, History, Played, score_text_as};
 use super::place::MenuPlace;
 use super::settings::{CenterVersions, Settings};
 use crate::screens::data::{
@@ -200,11 +200,13 @@ fn song_entry<'a>(
     s: &Listed<'a>,
     pack: Option<&str>,
     settings: &Settings,
-    bests: &HashMap<BestKey, HistoryBest>,
+    (bests, played): (&HashMap<BestKey, HistoryBest>, &Played),
     keys: &mut BestKeys<'a>,
 ) -> SongEntry {
     let entry = s.entry;
     SongEntry {
+        // Any chart, shown or not (a version the options hide now).
+        played: played.song(&entry.id, entry.charts.iter().map(|c| c.digest)),
         id: entry.id.clone(),
         title: entry.title.clone(),
         artist: entry.artist.clone(),
@@ -315,6 +317,7 @@ pub fn select_data(
             })
             .collect();
     let bests = history.bests();
+    let played = history.played();
     let mut keys = BestKeys::new();
     let mut list = Vec::with_capacity(songs.len());
     let mut packs: Vec<PackEntry> = Vec::new();
@@ -330,7 +333,7 @@ pub fn select_data(
         });
     }
     for s in songs.iter().filter(|s| s.pack.is_none()) {
-        list.push(song_entry(s, None, settings, &bests, &mut keys));
+        list.push(song_entry(s, None, settings, (&bests, &played), &mut keys));
     }
     for s in songs.iter() {
         let Some(pack) = &s.pack else { continue };
@@ -344,7 +347,13 @@ pub fn select_data(
             packs.len() - 1
         });
         let name = packs[at].name.clone();
-        list.push(song_entry(s, name.as_deref(), settings, &bests, &mut keys));
+        list.push(song_entry(
+            s,
+            name.as_deref(),
+            settings,
+            (&bests, &played),
+            &mut keys,
+        ));
     }
     let mods = crate::screens::play::mods_summary(
         &settings.transform,
@@ -750,5 +759,57 @@ mod tests {
             vec![Some("Pack".to_string()), Some("Other".to_string())]
         );
         assert_eq!(d.styles.len(), 1);
+    }
+
+    /// A song is played (its row no longer "NEW") by a play of any of its
+    /// charts, by content or by its id, a quit included; a quit is no
+    /// best.
+    #[test]
+    fn a_song_is_played_by_any_kept_play_of_its_charts() {
+        use super::super::history::{ChartKey, Ending, PlaySummary, RECORD_VERSION};
+        let mut a = entry("a", "dance-single");
+        a.charts[0].digest = Some(ddi_chart::ChartDigest(7));
+        let b = entry("b", "dance-single");
+        let c = entry("c", "dance-single");
+        let songs: Vec<Listed> = [&a, &b, &c].into_iter().map(Listed::bundled).collect();
+        let summary = |song: &str, digest: u128| PlaySummary {
+            version: RECORD_VERSION,
+            chart: ChartKey {
+                song: song.into(),
+                digest: ddi_chart::ChartDigest(digest),
+                index: 0,
+            },
+            ruleset: ddi_engine::rules::presets::itg().key(),
+            time: 1.0,
+            autoplay: false,
+            ended: Ending::Quit,
+            worked: None,
+            options: None,
+            clock: None,
+            rejudged: None,
+            rejudge: None,
+        };
+        let mut history = History::default();
+        // A's chart under another song's id (a pack imported again).
+        history.add("1".into(), summary("old-a", 7));
+        // B by its id, a chart it no longer has.
+        history.add("2".into(), summary("b", 9));
+        let d = select_data(
+            &songs,
+            &|_| false,
+            &Settings::default(),
+            &history,
+            &MenuPlace::default(),
+        );
+        let played: Vec<(&str, bool, bool)> = d
+            .songs
+            .iter()
+            .map(|s| (s.id.as_str(), s.played, s.is_new()))
+            .collect();
+        assert_eq!(
+            played,
+            vec![("a", true, false), ("b", true, false), ("c", false, true)]
+        );
+        assert!(d.songs.iter().all(|s| s.charts[0].best.is_none()));
     }
 }

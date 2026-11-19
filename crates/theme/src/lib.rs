@@ -420,7 +420,19 @@ const WHEEL_BANNER: [f32; 2] = [144.0, 45.0];
 const WHEEL_BANNER_BIG: [f32; 2] = [224.0, 70.0];
 const WHEEL_TITLE: f32 = 17.0;
 const WHEEL_TITLE_BIG: f32 = 21.0;
-const WHEEL_METERS: f32 = 5.0 * 26.0 + 4.0 * 4.0 + 28.0 + 24.0;
+/// A song row's right end (`song_row`): the chart's level, its best's
+/// grade (or "NEW") beside it, and their margins; the compact list's.
+const WHEEL_RIGHT: f32 = ROW_LEVEL[0] + ROW_LEVEL_W + ROW_GAP + ROW_GRADE_W + 10.0;
+const WHEEL_RIGHT_COMPACT: f32 = ROW_LEVEL_COMPACT[0] + ROW_LEVEL_COMPACT_W + ROW_GAP + 40.0 + 6.0;
+/// The level's right margin and size; the room it is given (four
+/// characters, "18.8").
+const ROW_LEVEL: [f32; 2] = [14.0, 18.0];
+const ROW_LEVEL_W: f32 = 40.0;
+const ROW_LEVEL_COMPACT: [f32; 2] = [10.0, 15.0];
+const ROW_LEVEL_COMPACT_W: f32 = 34.0;
+/// Between the level and the grade's column; the grade's column.
+const ROW_GAP: f32 = 8.0;
+const ROW_GRADE_W: f32 = 44.0;
 
 const DIFFICULTIES: [&str; 6] = ["Beginner", "Easy", "Medium", "Hard", "Challenge", "Edit"];
 const JUDGEMENTS: [&str; 6] = ["W1", "W2", "W3", "W4", "W5", "Miss"];
@@ -533,8 +545,12 @@ impl Infinito {
         };
         let mut title = at_left(self.text("Title", "", ts, 600, "Text"), tx, row * 0.36);
         let mut sub = at_left(self.text("Subtitle", "", ss, 400, "Muted"), tx, row * 0.72);
-        // Room for the meters at the right.
-        let cells = if compact { 0.0 } else { WHEEL_METERS };
+        // Room for the chart's level and best at the right.
+        let cells = if compact {
+            WHEEL_RIGHT_COMPACT
+        } else {
+            WHEEL_RIGHT
+        };
         max_width(&mut title, w - tx - cells - 8.0);
         max_width(&mut sub, w - tx - cells - 8.0);
         // Greyed: a dim plate, grey art, muted titles.
@@ -551,46 +567,73 @@ impl Infinito {
         self.colored(&mut title, "Available", "Text");
         self.colored(&mut sub, "Unavailable", "Off");
         self.colored(&mut sub, "Available", "Muted");
-        // The meters, kept at the right edge.
+        // The chart a press of Play would play, at the right edge: its
+        // level in its difficulty's color, and left of it the best's
+        // grade with its lamp's mark under it, or "NEW" for a song never
+        // played (`docs/plans/song-navigation.md`, "A song's row").
         let mut right = Vec::new();
         let cy = row / 2.0;
-        if !compact {
-            for (k, d) in DIFFICULTIES.iter().take(5).enumerate() {
-                let x = w - 14.0 - 5.0 * 26.0 - 4.0 * 4.0 + 13.0 + k as f32 * 30.0;
-                let mut cell = round(quad(&format!("Cell{k}"), [26.0, 26.0], self.c("Cell")), 4.0);
-                call(&mut cell, "xy", &[x, cy]);
-                self.colored(&mut cell, "Full", "Cell");
-                self.colored(&mut cell, "Empty", "CellEmpty");
-                let mut meter = at(
-                    self.num(&format!("Meter{k}"), "", 14.0, &format!("Difficulty.{d}")),
-                    x,
-                    cy,
-                );
-                // Inside its cell: a rating to a tenth ("18.8", the DDI
-                // estimate's, round AD) squeezed to it, two digits as
-                // they are.
-                call(&mut meter, "maxwidth", &[24.0]);
-                // The best's lamp, a line under the cell.
-                let mut lamp = round(
-                    quad(&format!("Lamp{k}"), [18.0, 3.0], self.c("Lamp.Clear")),
-                    1.5,
-                );
-                call(&mut lamp, "xy", &[x, cy + 16.0]);
-                self.lamp_commands(&mut lamp);
-                let mut both = frame(&format!("Meters{k}"), vec![cell, meter, lamp]);
-                command_of(&mut both, "Unavailable", "diffusealpha,0");
-                command_of(&mut both, "Available", "diffusealpha,1");
-                right.push(both);
-            }
+        let ([margin, size], level_w, grade_size) = if compact {
+            (ROW_LEVEL_COMPACT, ROW_LEVEL_COMPACT_W, 14.0)
+        } else {
+            (ROW_LEVEL, ROW_LEVEL_W, 16.0)
+        };
+        let mut level = at_right(
+            self.num("Level", "", size, "Difficulty.Medium"),
+            w - margin,
+            cy,
+        );
+        for d in DIFFICULTIES {
+            let c = rgba(self.c(&format!("Difficulty.{d}")));
+            command_of(&mut level, &format!("Level.{d}"), &format!("diffuse,{c}"));
         }
-        // Edits and named charts, counted, left of the meters.
-        if !compact {
-            let x = w - 14.0 - 5.0 * 26.0 - 4.0 * 4.0 - 8.0;
-            let mut edits = at_right(self.num("Edits", "", 12.0, "Difficulty.Edit"), x, cy);
-            command_of(&mut edits, "Unavailable", "diffusealpha,0");
-            command_of(&mut edits, "Available", "diffusealpha,1");
-            right.push(edits);
-        }
+        max_width(&mut level, level_w);
+        let gx = w - margin - level_w - ROW_GAP - if compact { 20.0 } else { ROW_GRADE_W / 2.0 };
+        let mut grade = at(self.num("Grade", "", grade_size, "Text"), gx, cy);
+        command_of(&mut grade, "Flagged", &format!("y,{}", cy - 4.0));
+        command_of(&mut grade, "Unflagged", &format!("y,{cy}"));
+        // The best's lamp, a short line under the grade (as the level
+        // chips had it under theirs).
+        let mut flag = round(quad("Flag", [18.0, 3.0], self.c("Lamp.Clear")), 1.5);
+        call(
+            &mut flag,
+            "xy",
+            &[gx, cy + if compact { 9.0 } else { 10.0 }],
+        );
+        self.lamp_commands(&mut flag);
+        // "NEW": a quiet pill in the accent, the grade's place.
+        let pill = if compact {
+            [40.0, 16.0]
+        } else {
+            [ROW_GRADE_W, 18.0]
+        };
+        let mut tint = self.c("Accent");
+        tint[3] = 0.14;
+        let mut new_back = round(quad("NewBack", pill, tint), pill[1] / 2.0);
+        call(&mut new_back, "xy", &[gx, cy]);
+        let mut label = at(
+            tracked(
+                self.text(
+                    "NewLabel",
+                    "",
+                    if compact { 9.0 } else { 10.0 },
+                    700,
+                    "Accent",
+                ),
+                80,
+            ),
+            gx,
+            cy,
+        );
+        max_width(&mut label, pill[0] - 8.0);
+        let mut new = frame("New", vec![new_back, label]);
+        hide(&mut new);
+        command_of(&mut new, "New", "diffusealpha,1");
+        command_of(&mut new, "NotNew", "diffusealpha,0");
+        let mut chosen = frame("Chosen", vec![level, grade, flag, new]);
+        command_of(&mut chosen, "Unavailable", "diffusealpha,0");
+        command_of(&mut chosen, "Available", "diffusealpha,1");
+        right.push(chosen);
         let mut none = at_right(self.text("NoCharts", "", 12.0, 400, "Faint"), w - 14.0, cy);
         hide(&mut none);
         command_of(&mut none, "Unavailable", "diffusealpha,1");
@@ -1787,8 +1830,8 @@ impl Look for Infinito {
             let tx2 = WHEEL_BANNER_X + WHEEL_BANNER_BIG[0] + 16.0;
             let width = width - 2.0 * ROW_INSET;
             let room = mix(
-                width - tx - WHEEL_METERS - 8.0,
-                width - tx2 - WHEEL_METERS - 8.0,
+                width - tx - WHEEL_RIGHT - 8.0,
+                width - tx2 - WHEEL_RIGHT - 8.0,
             );
             let zoom = mix(1.0, WHEEL_TITLE_BIG / WHEEL_TITLE);
             set(
