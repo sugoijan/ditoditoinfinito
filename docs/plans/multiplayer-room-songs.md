@@ -1,7 +1,7 @@
 # A room's own songs
 
-Status: stage 1 built (round RL1, room model revision 17, 2026-11-19);
-stages 2 to 4 planned.
+Status: stages 1 and 2 built (rounds RL1 and RL2, room model revision
+17, 2026-11-19, released together); stages 3 and 4 planned.
 
 The maintainer's request (2026-11-19): "a separation step between the
 local song list and the room's song list, they would still look the same
@@ -20,10 +20,10 @@ Each is a room model revision of its own; server first, as always.
 1. **The room's list** (built, revision 17): the list in the room's state,
    hosts and co-hosts add and remove, uploads when added, two tabs on the
    room's song select, picks from the list.
-2. **Downloading ahead**: everything in the list by default (never
-   movies), a per-device Options row (Everything, Likely next, Off), the
-   rows' marks and who has what over the live side channel, cleanup when
-   the room is left.
+2. **Downloading ahead** (built, revision 17 too): everything in the list
+   by default (never movies), a per-device Options row (Everything, Likely
+   next, Off), the rows filled in and who has what over the live side
+   channel, cleanup when the room is left.
 3. **Everyone may add**: a room setting "Who can add songs: Hosts /
    Everyone" (Hosts by default), beside "If the host leaves" in Host
    options; `RoomState::may_add` is its one check.
@@ -125,8 +125,100 @@ picks from the list in its order; with only `--pick` (or neither), each
 song it will pick is added to the list first and picked once uploaded.
 Every bot says the room's list as it changes.
 
+## Stage 2 as built (round RL2, still revision 17)
+
+Nothing had been deployed at revision 17, so stage 2's additions to the
+wire (two live messages) stay in it; peers that both speak 17 agree.
+
+### The plan (`crates/ui/src/state/room/preload.rs`, `room-preload-v0`, PROVISIONAL)
+
+- Each member's device downloads the listed songs its own library does
+  not have (a song whose original charts' digests it has, a bundled song
+  it has, needs nothing) into a store of the room's own
+  (`RoomClient::store`, the room's id; a bot's `<room>-<name>`), as
+  `PreloadJob`s its shell runs: first every song's **listing** (the
+  share's list and the banner, small: the rows fill in), then the songs'
+  chart, music and pictures, **never a movie** (`is_small`), two at once.
+- Order: a stage's song not yet played, then the song the picker is on,
+  then the newest added, then the rest.
+- **Never from a stage's countdown to its end** (`Countdown`, `Stage`,
+  `SongCompletion`): a download under way is stopped (`Stop`) and taken
+  up again after; while a stage gathers readiness only its song; not
+  while this device uploads. A hidden page is not paused: a browser does
+  not slow a download under way, and the next song starts at the hidden
+  page's next run of the room (a second or a minute apart).
+- Retries: `load-retry-v0`'s waits (2 s, 5 s), then the song waits for
+  the next connection.
+- A song removed is deleted from the store (`PreloadJob::Forget`); the
+  whole store when the room is left or ends.
+- A stage's own load of a listed song goes into the same store, so it
+  counts as downloaded after, and a song downloaded ahead loads from it.
+
+### The option
+
+Options → Data, "Room songs ahead": Everything (the default), Likely next
+(the picked song, the picker's, and the newest up to four songs and
+64 MB), Off (a song is fetched when picked, as in stage 1). Per device
+(`Settings::room_ahead`, none stored: the device's own default): on the
+web Likely next where `navigator.connection.saveData` is set or the
+screen's short side is under 600 CSS pixels, else Everything; desktop
+Everything. The description says the default.
+
+### Where it is kept
+
+- **Web** (`crates/web/src/room_store.rs`): the library's IndexedDB
+  `files` store under `room/<store>/<share>/<path>`, never a song of the
+  library nor of the history. Every read of a shared song looks there
+  first (chart, music, pictures, preview, the share's list). A tab
+  touches its room's area each minute; at the next start an area nobody
+  touched for 30 minutes is deleted (a crash, a closed tab), the room the
+  page opens on kept. Out of storage (the quota, or
+  `window.__DDI_ROOM_QUOTA_BYTES` in tests): Likely next from then, said
+  once on the status line. `window.__DDI_ROOM_STORE`,
+  `__DDI_ROOM_STORED` for tests.
+- **Desktop** (`crates/desktop/src/share.rs`): the cache folder's
+  `rooms/<store>/<share>/`, deleted when the room is left; the run that
+  opens the window deletes `rooms/` at its start (rooms left by a crash).
+
+### The rows
+
+A listed song this device has (its library's, or downloaded) is drawn as
+any song: its banner, length, BPM, notes, charts, and its preview from
+the copy here. One not here shows its banner as soon as its listing is
+read, its state ("Downloading 41%", "Not loaded yet", …), no NEW and no
+note counts (`SongEntry::away`); the song side says what the list's
+entry says. While not everyone has it, the row adds "11 of 12 have it".
+
+### Who has what (`ddi_room::live::have`, `room-have-v0`, PROVISIONAL)
+
+`ClientLive::Have { songs }` (ranges of entry ids, at most 64) after hello
+and when it changes, at most every five seconds; the server keeps it on
+the socket's attachment (never the room's state: nothing is written) and
+says the member's set to every live socket (`ServerLive::Have`),
+everyone's to a socket that says hello; a socket that closes takes its
+set with it. The players counted are the people and bots connected who
+play. The picker's Enter on Room songs says "Pick for stage N (2 players
+don't have it yet)" before the pick. The readiness window needs nothing
+new: `hosted-deadline-v2` already ends its loading wait once everyone
+connected has loaded, and a song downloaded ahead loads from this device.
+
+### Stage 1's gaps closed
+
+- The status line on My songs says what Enter does there ("Add songs to
+  the room here. Pick the next song on Room songs.").
+- More on My songs: Add this pack to the room (N songs), up to the
+  person's share and, where the list refuses new songs, its room; the
+  status line says how many are uploaded.
+- The session log records each add (the adder's seat) and each removal
+  (why), never which song.
+- The web's fake room (`mpfakeroom`) lists its song when the player is
+  in and picks from the list; the audience's fake seat (`mpfakeseat`)
+  keeps picking as before (the audience sees only the list's count).
+- Bots download ahead as a device does (`--no-ahead` for load tests) and
+  say what they have, how many everyone has, and when everyone loaded a
+  stage's song.
+
 ## Not in stage 1
 
-Downloading ahead and who has what (stage 2); a song's banner for those
-who do not have it; bests on songs not in one's library; a pack added at
-once; "Who can add songs" (stage 3); choosing by the group (stage 4).
+Bests on songs not in one's library (a downloaded song's row has none);
+"Who can add songs" (stage 3); choosing by the group (stage 4).

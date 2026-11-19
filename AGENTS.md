@@ -1431,7 +1431,10 @@ Rust and the browser are implementation details, not advertised features.
   `Capability::AddSongs` through `RoomState::may_add`, `StageContent::song`;
   entries named by `ddi_share_protocol::song_key`, at most 100, a person
   half the list's size, the oldest not in use removed when full unless the
-  host refuses new songs; `docs/plans/multiplayer-room-songs.md`);
+  host refuses new songs; `docs/plans/multiplayer-room-songs.md`; and
+  its stage 2, in 17 too, nothing deployed between: who has which listed
+  songs, `live/have.rs`, `ClientLive::Have` and `ServerLive::Have`, kept
+  by the server beside each socket and never in the room's state);
   `tests/room-revision-16.json` reads with an empty list; 16 since
   2026-11-19: When life runs out under
   both chart rules, `MatchRules::life_out`, `life_out_any_chart`,
@@ -1675,7 +1678,18 @@ Rust and the browser are implementation details, not advertised features.
   list (`pick_listed`), there at once; whoever has the song loads it from
   their library, the others from the entry's share. The picker's resting
   song is a mark on its entry (`hover_listed`, `spotlight_entry`): nothing
-  is shared ahead or read for it any more. A pick that names no entry
+  is shared ahead or read for it any more. Stage 2 (still revision 17):
+  each member's device downloads the listed songs it does not have ahead
+  of the picks into a store of the room's own (`state/room/preload.rs`,
+  `room-preload-v0`: listings and banners first, a stage's song, the
+  picker's, the newest; never a movie; none from a stage's countdown to
+  its end; `PreloadJob`, `RoomCall::Preload`, `RoomClient::store`,
+  `ahead_song`, `have_count`; Options → Data's Room songs ahead,
+  `Settings::room_ahead`, a phone's or a data-saving browser's default
+  Likely next), the web's in the library's IndexedDB under `room/<store>/`
+  (`crates/web/src/room_store.rs`), desktop's in the cache folder's
+  `rooms/<store>/` (`share::load_with`), each emptied when the room is
+  left. A pick that names no entry
   (practice's, and revision 16's) is pending: the client asks the room for the
   stage's grant and hands the shell an `UploadJob` (`RoomCall::Upload`:
   the song uploaded as the room's share with `Authorization: Grant`,

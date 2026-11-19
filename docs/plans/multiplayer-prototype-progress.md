@@ -12804,10 +12804,74 @@ server's worst list (four-byte characters at every bound) is a row of
 - A bundled song is listed with nothing uploaded, by the adder's word: a
   device without it (an older desktop build) cannot load it.
 
+## Round RL2: the room's own song list, stage 2, downloading ahead (still room model revision 17, 2026-11-19)
+
+The plan, what is kept where, the option, the rows and who has what:
+`docs/plans/multiplayer-room-songs.md`, "Stage 2 as built". Released with
+stage 1 (nothing deployed at 17), so the revision stays 17: its two live
+messages are additive and both sides of 17 speak them.
+
+### What moved
+
+- The room crate: `live::have` (`HaveSet`, `Haves`), `ClientLive::Have`,
+  `ServerLive::Have`; the fake server keeps it beside its sockets as the
+  server does; `LiveLink::set_have`, `haves`.
+- The server: each socket's attachment keeps what its device has (never
+  the room's state, nothing written), said to every live socket, everyone's
+  to a socket that says hello, gone with its socket; the session log
+  records a song added (the adder's seat) and removed (why), never which.
+- The client: `state/room/preload.rs` (`PreloadJob`, `Listing`, `Stop`,
+  `RoomClient::store`, `ahead_song`, `ahead_banner`, `have_count`,
+  `missing_count`, `add_pack`, `pack_progress`), `EntryState::Downloading`,
+  `LoadJob::store`, `ShellNews::Listed`/`AheadProgress`/`Ahead`,
+  `RoomCall::Preload`, `LinkNotice::AheadQuota`; `Settings::room_ahead`.
+- The shells: the web's `room_store.rs` (IndexedDB, swept at the next
+  start), desktop's `rooms/<store>/` in the cache folder (`share::load_with`,
+  `listing_in`, `forget_store`, `clear_stores`).
+- The screens: the rows filled in from the copy here (no NEW, no notes for
+  one not here, `SongEntry::away`), "Downloading 41%", "11 of 12 have it",
+  "Pick for stage 3 (2 players don't have it yet)", My songs' status line,
+  More's Add this pack to the room.
+- Bots: download ahead as a device does (`--no-ahead` not), say what they
+  have, how many everyone has and when everyone loaded a stage's song; the
+  log's times in milliseconds.
+
+### Measures (this Mac, a local server; load average 6 to 12)
+
+Eight synthetic songs of 5.1 MB each (155 s of Opus at 320 kbit/s, a
+chart, a banner; 40.6 MB in all), a host bot adding them all at once:
+
+| What | Downloading ahead | Without (`--no-ahead`, Off) |
+| --- | --- | --- |
+| Pick to everyone loaded, two guest bots on the local link | 145 ms, 112 ms (stages 1, 2) | 206 ms, 228 ms |
+| The same, Bob in Chrome at 16 Mbit/s | 164 ms | 2.77 s |
+| The same, Bob in Firefox (local link) | 164 ms | — |
+| The Ready window | the 15 s Ready countdown at once | the loading wait first |
+| All eight on a guest bot after the last upload | 3 s (local) | — |
+| All eight on Bob in Chrome at 16 Mbit/s | 34 s | — |
+| A guest that joined during a stage | its eight 0.4 s after the stage ended (nothing during it) | — |
+| A store, eight songs | 40.6 MB (32 files on the web; 39.7 MB on disk) | the picked songs only (10.2 MB after two stages) |
+| After leaving | 0 bytes (web: no key left; desktop: the folder gone) | 0 |
+| A listing (the share's list and the banner) | about 750 bytes of list and the banner (1.5 KB here; a real one 20 to 150 KB), all eight's banners within 0.9 s of joining at 16 Mbit/s | none under Off |
+
+A song removed from the list was deleted from every guest's store (35.5
+MB left of 40.6). A forced quota (12 MB) stopped after two songs, said
+"This browser has no more room for the room's songs: only the likely
+next ones are downloaded ahead now." and fell back to Likely next; the
+picked song then came down the link as before. No share file was fetched
+from a stage's countdown to its results in either browser.
+
+### Not done, and decisions
+
+- Bests on a downloaded room song's row (it has none).
+- Under Off nothing is fetched ahead, banners included.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `room-preload-v0` (2026-11-19, round RL2): every listed song downloaded ahead by default (listings and banners first, then two songs at once: a stage's, the picker's, the newest), never a movie, nothing from a stage's countdown to its end, only the stage's song while it gathers readiness; Likely next the newest four up to 64 MB beside those two | `ddi_ui::state::room::PRELOAD_V0`, `preload.rs` | A list of eight 5 MB songs is on every device in a few seconds on a fast link (40 MB); a pick's loading wait ends at once | The numbers; whether banners should come under Off too |
+| `room-have-v0` (2026-11-19, round RL2): who has which listed song, said by each device at most every five seconds, at most 64 ranges | `ddi_room::live::have` (`HAVE_EVERY_MS`, `MAX_RANGES`) | The rows' "11 of 12 have it"; the picker's warning | The five seconds |
 | `room-songs-v0` (2026-11-19, round RL1): a room's list at most 100 songs, its size a host setting (5 to 100), the oldest not in use removed when full by default, a person at most half the list's size; an entry at most 32 original charts | `ddi_room::songs` (`MAX_SONGS`, `ListRules`, `MAX_CHARTS`) | A host fills a hundred songs (a lone host fifty); a full list loses its oldest song not picked | Whether hosts are held to half; the bounds |
 | `room-share-life-v0` (2026-11-19, round RL1): a room's shares kept while the room reports itself to the registry, each report moving their expiry to the room's idle life (a week) from then | the server's index (`report`), `RoomConfig::share_life_secs` | A song added to a room lives as long as the room; a room lost without ending leaves its songs a week at most | The week |
 | `load-retry-v0` (2026-11-16, round P1b): a failed download of a stage's song tried again after 2 s and 5 s, the room told "loading" meanwhile, then reported failed with Retry offered | `ddi_ui::state::room::LOAD_RETRY_V0_MS`, `RoomClient::retry_load` | A brief network failure costs a few seconds, not the stage; after two more failures, "Download failed" in the lists and Retry on the member's song select | The waits; whether Retry should also show on a Ready screen (there is none without the song) |

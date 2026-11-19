@@ -48,7 +48,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   list; downloading ahead; everyone may add; choosing by the group); stage
   1 built (room model revision 17): hosts add and remove, uploads when
   added kept while the room lives, Room songs and My songs tabs, picks
-  from the list.
+  from the list; stage 2 built (still revision 17, released with stage
+  1): every listed song downloaded ahead by default into a store of the
+  room's own (Options → Data's Room songs ahead), the rows filled in, who
+  has what over the live side.
 - [The audience](multiplayer-audience.md) (2026-11-13): watching a room
   beyond its members, counted and not listed: who is audience (a link of
   its own, offered at the member bound), the public view, relays against
