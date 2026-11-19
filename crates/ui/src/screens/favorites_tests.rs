@@ -377,6 +377,42 @@ fn a_share_has_no_favorites() {
     assert!(!h.texts().iter().any(|t| t.contains("favorites")));
 }
 
+/// The heart's key is the one that types F on the person's layout (round
+/// AD): an event whose code is `KeyU` and key `f` turns it, one whose code
+/// is `KeyF` and key `u` does not; Shift's F too, a modifier's not; while
+/// the search is typed into, f types.
+#[test]
+fn the_hearts_key_is_the_typed_letter_f() {
+    ddi_l10n::set_language("en");
+    let (mut h, s, _, _) = shelled(packs(), [1280.0, 720.0]);
+    assert_eq!(s.borrow().favorite, Some(false));
+    h.key("KeyF", "u");
+    h.run(0.3);
+    assert_eq!(s.borrow().favorite, Some(false), "the physical KeyF typing u");
+    h.key("KeyU", "f");
+    h.run(0.3);
+    assert_eq!(s.borrow().favorite, Some(true), "the key typing f");
+    h.key("KeyU", "F");
+    h.run(0.3);
+    assert_eq!(s.borrow().favorite, Some(false), "Shift's F");
+    h.key_with(
+        "KeyF",
+        "f",
+        crate::event::Modifiers {
+            ctrl: true,
+            ..Default::default()
+        },
+    );
+    h.run(0.3);
+    assert_eq!(s.borrow().favorite, Some(false), "a modifier's: not the heart");
+    // Typing: f is the field's.
+    h.key("Slash", "/");
+    h.run(0.3);
+    h.key("KeyU", "f");
+    h.run(0.3);
+    assert_eq!(s.borrow().favorite, Some(false));
+}
+
 /// A favorite whose song is gone shows again with it (a library read
 /// again); the list's rows follow.
 #[test]

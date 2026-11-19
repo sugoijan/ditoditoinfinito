@@ -4836,8 +4836,14 @@ impl SelectScreen {
                 self.open_plays(cx);
                 return Handled::Yes;
             }
-            // The song's heart (F, by its place on the keyboard).
-            Input::Key(k) if self.letter_shortcut(k) && k.code == "KeyF" && self.heart().is_some() => {
+            // The song's heart: the key that types F on the person's
+            // layout, never the physical KeyF (round AD, 2026-11-19, the
+            // maintainer: "The typed letter f").
+            Input::Key(k)
+                if self.letter_shortcut(k)
+                    && k.key.eq_ignore_ascii_case("f")
+                    && self.heart().is_some() =>
+            {
                 self.toggle_favorite(root, cx);
                 return Handled::Yes;
             }

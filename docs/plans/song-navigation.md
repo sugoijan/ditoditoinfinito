@@ -221,8 +221,11 @@ individually favorited (maybe with a heart icon) and show up in a
   of a second (at once under reduced motion). A favorite's row carries a
   small filled heart over its banner's upper left corner (the look's
   `Fav`, on a darker heart so it reads on any art); other rows nothing.
-- **Inputs**: a click or a tap on the heart; F (by its physical place,
-  `KeyF`, not while typing a search), its word in the footer on a song's
+- **Inputs**: a click or a tap on the heart; F (the key that types f on
+  the person's layout, `KeyEvent`'s key, either case and no other
+  modifier: round AD, 2026-11-19, the maintainer: "The typed letter f";
+  by its physical place, `KeyF`, before; not while typing a search, where
+  f types), its word in the footer on a song's
   row ("Favorite", "Unfavorite"; a phone's layout has no footer); More's
   "Add to favorites" or "Remove from favorites", a controller's and a
   phone's way. A change is at once, asks nothing and says nothing. They
