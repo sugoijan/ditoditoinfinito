@@ -12714,10 +12714,102 @@ stays: the last song's mark was already in the model).
   smoke check passed in both (WebGPU, WebGL2). Pictures under the main
   checkout's `target/scratch/mp/af/shots/`.
 
+## Round RL1: the room's own song list, stage 1 (room model revision 17, 2026-11-19)
+
+The maintainer's request and answers, the four stages and what stage 1
+built: `docs/plans/multiplayer-room-songs.md`. In short: an online room
+has a song list of its own (`ddi_room::songs`), the same for everyone and
+updated as it changes; its hosts and co-hosts add songs from a My songs
+tab and remove them; a song is uploaded when it is added and kept as long
+as the room lives; the room's song select opens on Room songs, where the
+one who chooses picks; nobody follows the picker's resting song any more
+(it is marked on its row) and nothing is shared ahead for it.
+
+### What moved
+
+- The room model, revision 17 (`ROOM_MODEL_REVISION`): `RoomState::songs`
+  (behind a shared pointer: a command that leaves the list alone copies
+  none of it), `Command::AddSong`, `RemoveSong`, `SetSongList`,
+  `SetSongContent`, `PickListed`, their events and refusals,
+  `Capability::AddSongs` (`RoomState::may_add`: the hosts in this stage),
+  `StageContent::song`, the public view's `songs` count. A room stored by
+  revision 16 reads with an empty list and writes back what it read
+  (`tests/room-revision-16.json`, written by revision 16's own reducer).
+- `ddi_share_protocol::song_key` (a song's content: its original charts'
+  digests), `record_song_charts`, `UploadGrant::song`.
+- The server: the songs grant, the record checked at the upload's end, the
+  `songs` row written only when the list changed, a removed song's share
+  deleted at once, a room's shares kept while it reports itself alive,
+  `room_id` indexed, `room_shares` 64 → 256 (the server's README).
+- The client: `RoomClient::set_library`, `add_song`, `remove_song`,
+  `set_song_list`, `pick_listed`, `hover_listed`, `entry_state`, the
+  uploads one at a time (`UploadJob::entry`), a listed song loaded from
+  the library where this device has it, else from its share; the
+  spotlight's upload and read ahead removed.
+- The screens: Room songs and My songs (M, the tabs, More), the rows'
+  state and adder, the empty list's words, Add to the room, Remove from
+  the room and Upload again in More, a phone's Play hidden where it does
+  nothing, Host options' Room songs at most and When the list is full.
+- Bots: `--add`, `--pick` by title, `--remove`; every bot says the list.
+- CPU practice: unchanged (its own library, no list: giving it the tabs
+  would have cost a list in a room that has nobody to share it with).
+
+### Measures (release build, this Mac, load average 16 to 25)
+
+| A list of 100 | List JSON | An entry | A command leaving it alone | One changing it | Copying state and list |
+| --- | --- | --- | --- | --- | --- |
+| Typical (5 charts) | 72 KB | 722 B | 0.7 µs | 25.6 µs | 46.6 µs |
+| Worst (32 charts, texts at their bounds) | 833 KB | 8.3 KB | 0.7 µs | 58.9 µs | 224.7 µs |
+
+The state without the list is 1.75 KB; the proposal measured about 180 µs
+added to every command for 200 entries without the shared pointer. The
+server's worst list (four-byte characters at every bound) is a row of
+861 KB, under the 1.5 MiB a row the room refuses past.
+
+### Validated
+
+- The room crate's walkthroughs (`tests/room_songs.rs`): adding, the same
+  song twice, a member refused, removing (the adder or a host, never a
+  song in use), a full list under both rules, a person's half, uploads
+  done and failed, an adder gone, a pick from the list available at once,
+  practice without a list, a stored revision-16 room; the adapter
+  contract through both authorities
+  (`the_song_list_is_kept_alike_by_both_authorities_and_every_mirror`).
+- On a local server with bots: a host bot adds five songs, the guests'
+  logs list them as they are uploaded (within the same second), the host
+  picks the third, the stage plays from the shares; `--remove` deletes
+  that song's share (its URL 404, the others 200); the room's end deletes
+  every share (all 404).
+- Desktop offscreen pictures of both tabs for a host, a co-host and a
+  member, wide and on a phone, in English and Japanese
+  (`tests/room_picker_offscreen.rs`).
+- The web in headless Chrome and Firefox against the local server: a host
+  and a guest, both opening on Room songs; the host adds two songs from
+  My songs and the guest's list has each about a third of a second after
+  the press; the host picks the second from Room songs and both get the
+  stage's prompt. Desktop's `tests/online.rs` against it: sign-in, a song
+  added and uploaded under its entry's grant, picked from the list, read
+  by the guest from its share, both ready, both runs reported.
+- The singleplayer smoke check in Chrome and Firefox.
+
+### Not done, and decisions
+
+- Downloading ahead (stage 2): a member who does not have a listed song
+  sees no banner and no preview of it until it is picked, and its row's
+  bests and length are unknown (it shows NEW).
+- A song's whole pack added at once; "Who can add songs" (stage 3);
+  choosing by the group (stage 4).
+- A person's half applies to the hosts too: a lone host fills half the
+  list. Should operators be exempt?
+- A bundled song is listed with nothing uploaded, by the adder's word: a
+  device without it (an older desktop build) cannot load it.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `room-songs-v0` (2026-11-19, round RL1): a room's list at most 100 songs, its size a host setting (5 to 100), the oldest not in use removed when full by default, a person at most half the list's size; an entry at most 32 original charts | `ddi_room::songs` (`MAX_SONGS`, `ListRules`, `MAX_CHARTS`) | A host fills a hundred songs (a lone host fifty); a full list loses its oldest song not picked | Whether hosts are held to half; the bounds |
+| `room-share-life-v0` (2026-11-19, round RL1): a room's shares kept while the room reports itself to the registry, each report moving their expiry to the room's idle life (a week) from then | the server's index (`report`), `RoomConfig::share_life_secs` | A song added to a room lives as long as the room; a room lost without ending leaves its songs a week at most | The week |
 | `load-retry-v0` (2026-11-16, round P1b): a failed download of a stage's song tried again after 2 s and 5 s, the room told "loading" meanwhile, then reported failed with Retry offered | `ddi_ui::state::room::LOAD_RETRY_V0_MS`, `RoomClient::retry_load` | A brief network failure costs a few seconds, not the stage; after two more failures, "Download failed" in the lists and Retry on the member's song select | The waits; whether Retry should also show on a Ready screen (there is none without the song) |
 | `quiet-ping-v0` (2026-11-16, round P1b): a live room's clock pinged once a minute between stages, a burst of five at each pick | `ddi_room::LivePolicy::QUIET_PING_V0_MS`, `LiveLink::set_quiet` | None (the estimate at a stage's start is no worse); the room's object woken six times fewer between stages | The minute |
 | A late entry within `late_join_ms` (5 s) of a stage's song's time zero (2026-11-16, round P1b) | `ddi_room::RoomState::late_entry_open`, `Event::EnteredLate` | One who missed the Ready window keeps the Ready screen for those seconds and plays late (the notes before missed) | Whether the bound should be its own number rather than the late join's |

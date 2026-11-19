@@ -43,6 +43,12 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   CPUs in online rooms (`online-cpus-v0`: computed alike on every device,
   reported for by the devices, the first report taken), and the open
   questions.
+- [A room's own songs](multiplayer-room-songs.md) (2026-11-19): an online
+  room's song list apart from each member's library, in four stages (the
+  list; downloading ahead; everyone may add; choosing by the group); stage
+  1 built (room model revision 17): hosts add and remove, uploads when
+  added kept while the room lives, Room songs and My songs tabs, picks
+  from the list.
 - [The audience](multiplayer-audience.md) (2026-11-13): watching a room
   beyond its members, counted and not listed: who is audience (a link of
   its own, offered at the member bound), the public view, relays against

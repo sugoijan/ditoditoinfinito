@@ -1424,7 +1424,16 @@ Rust and the browser are implementation details, not advertised features.
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 16 since 2026-11-19: When life runs out under
+  (`ROOM_MODEL_REVISION`, 17 since 2026-11-19: an online room's own song
+  list, `crate::songs` (`RoomState::songs`, behind a shared pointer and
+  stored by the server in a row of its own; `Command::AddSong`,
+  `RemoveSong`, `SetSongList`, `SetSongContent`, `PickListed`,
+  `Capability::AddSongs` through `RoomState::may_add`, `StageContent::song`;
+  entries named by `ddi_share_protocol::song_key`, at most 100, a person
+  half the list's size, the oldest not in use removed when full unless the
+  host refuses new songs; `docs/plans/multiplayer-room-songs.md`);
+  `tests/room-revision-16.json` reads with an empty list; 16 since
+  2026-11-19: When life runs out under
   both chart rules, `MatchRules::life_out`, `life_out_any_chart`,
   `normalized`, a rule set stored before read as it was, and a
   retrying download, `Loading::Retrying`, holding the window's early end
@@ -1656,10 +1665,18 @@ Rust and the browser are implementation details, not advertised features.
   instead (`crates/ui/src/state/online/link.rs`: `ddi_room`'s
   `OnlineAuthority` over the shell's socket, its tickets, the room's name
   and invite, a stage's upload grant); its roles come from the shared
-  `ddi_room::can` (`RoomClient::may`). The picker's resting song is
-  shared ahead (`SPOTLIGHT`, a grant for stage 0) and read from the share
-  by the others (their song select shows and previews it); the pick
-  reuses that share where it can. Otherwise the pick is pending: the client asks the room for the
+  `ddi_room::can` (`RoomClient::may`). Since revision 17 a host adds
+  songs of their library to the room's list (`RoomClient::add_song`, the
+  library known to the client by each song's content,
+  `RoomClient::set_library`, `room::song_key`), each uploaded when added
+  under its entry's grant (`POST /rooms/<id>/songs/grant`,
+  `UploadJob::entry`, `song_upload_progress`/`song_upload_finished`,
+  `ShellNews::SongProgress`/`SongUploaded`), and the picker picks from the
+  list (`pick_listed`), there at once; whoever has the song loads it from
+  their library, the others from the entry's share. The picker's resting
+  song is a mark on its entry (`hover_listed`, `spotlight_entry`): nothing
+  is shared ahead or read for it any more. A pick that names no entry
+  (practice's, and revision 16's) is pending: the client asks the room for the
   stage's grant and hands the shell an `UploadJob` (`RoomCall::Upload`:
   the song uploaded as the room's share with `Authorization: Grant`,
   `upload_progress`/`upload_finished`, an expired grant renewed, a
@@ -1709,14 +1726,18 @@ Rust and the browser are implementation details, not advertised features.
   Close/Open the audience and More's Copy audience link
   (`RoomClient::audience`, `set_audience_open`). M7b: the room's main view is song select
   (`SelectScreen::with_room`, `screens/select_room.rs`, a child module of
-  `select`): the picker's library, Enter "Pick for stage N"; the others
-  following the picker's song with the room's panel (status, picks; a
-  phone's the players too) in the list's place; Rules and Players in the
+  `select`): practice's the player's library, Enter "Pick for stage N";
+  an online room's (revision 17) two tabs, Room songs (the room's list,
+  one flat list, each row's line its state for this player and who added
+  it; the picker's Enter "Pick for stage N") and My songs (the player's
+  library, Enter "Add to the room" for who may add), M, the tabs' buttons
+  and More switching them, each keeping its place (`RoomMode::library`,
+  `Place`, `room_place`); nobody follows the picker's song; Rules and
+  Players in the
   header (More on a phone), the status line over the list. An operator
-  who follows has Pick songs (`screens::room::TAKE_PICK`: a header
-  button where the picker's search is, the room's More, T): the pick
-  taken at once, their own list back with their place and search
-  (`RoomMode::library`, `Place`); the status line names who chooses and
+  who does not choose has Pick songs (`screens::room::TAKE_PICK`: a
+  button at the status line's end, the room's More, T): the pick
+  taken at once; the status line names who chooses and
   the players' rows mark them. The picker's list has a place of its own
   for the session, never singleplayer's (`state::place::ROOM_KEY`,
   `load_room`, `apply_room`, `room_picked`: the first room starts at
