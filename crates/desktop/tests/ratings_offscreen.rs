@@ -278,7 +278,11 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
         add("z-stream", "Stream pattern", pattern(150, &RND, 600));
         add("z-jacks", "Jack pattern", pattern(130, &JACK, 480));
         add("z-slow", "Quarter notes", pattern(70, &["1000", "0000", "0000", "0000", "0100", "0000", "0000", "0000"], 600));
-        add("z-long", "Long stream", pattern(120, &RND, 1100));
+        // Over 900 source notes with mines in it: the number qualifies (to
+        // 1,200), the matched-level profile does not (a chart this long
+        // without mines has one since the estimator's later qualification).
+        let mined: Vec<&str> = RND.iter().copied().chain(["M000"]).collect();
+        add("z-long", "Long stream", pattern(120, &mined, 1100));
         let look = Rc::new(ddi_theme::Infinito::new());
         let env = Env::new(look.clone(), Rc::new(|s: &str| s.to_string()));
         env.reduced_motion.set(true);
