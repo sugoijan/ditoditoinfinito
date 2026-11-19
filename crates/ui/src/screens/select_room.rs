@@ -936,6 +936,15 @@ impl SelectScreen {
             ids.insert(song.id.clone(), e.id);
             data.songs.push(song);
         }
+        // The styles the list's songs have, in the player's library's order
+        // (Single first, as song select has them), the others after.
+        let order: Vec<String> = rm
+            .library
+            .as_ref()
+            .map_or(&self.data.styles, |l| &l.styles)
+            .iter()
+            .map(|st| st.id.clone())
+            .collect();
         drop(r);
         data.styles = data
             .songs
@@ -947,6 +956,8 @@ impl SelectScreen {
                 }
                 all
             });
+        data.styles
+            .sort_by_key(|st| order.iter().position(|o| *o == st.id).unwrap_or(usize::MAX));
         data.style = Some(self.style_id().to_string());
         (data, ids)
     }
