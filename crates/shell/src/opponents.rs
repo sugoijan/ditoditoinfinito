@@ -117,7 +117,8 @@ pub enum ScoreShown {
     /// The score, the sum ("5987654").
     #[default]
     Sum,
-    /// The percent to two decimals, floored ("98.76%").
+    /// The percent to two decimals, floored ("98.76%"), never below
+    /// 0 %.
     Percent,
 }
 
@@ -129,10 +130,10 @@ impl ScoreShown {
             // A live stage's person: the stream tells the sum alone.
             (ScoreShown::Percent, Some(sum)) if o.score.is_nan() => sum.to_string(),
             _ => {
+                // Never below 0 % (round AC): the score says the rest.
                 let hundredths = ((o.score * 1_000_000.0).round() as i64).div_euclid(100);
-                let sign = if hundredths < 0 { "-" } else { "" };
-                let p = hundredths.unsigned_abs();
-                format!("{sign}{}.{:02}%", p / 100, p % 100)
+                let p = ddi_engine::rules::ddi::shown_hundredths(hundredths);
+                format!("{}%", ddi_engine::rules::ddi::hundredths_text(p))
             }
         }
     }
@@ -2938,7 +2939,8 @@ pub(crate) mod tests {
         assert_eq!(ScoreShown::Sum.text(&of(0.0, Some(0))), "0");
         // DDI's score may be negative.
         assert_eq!(ScoreShown::Sum.text(&of(-0.0123, Some(-13_530))), "-13530");
-        assert_eq!(ScoreShown::Percent.text(&of(-0.0123, Some(-13_530))), "-1.23%");
+        // Its percent is never shown below 0 % (round AC).
+        assert_eq!(ScoreShown::Percent.text(&of(-0.0123, Some(-13_530))), "0.00%");
         // A ruleset without a sum shows its percent.
         assert_eq!(ScoreShown::Sum.text(&of(0.5, None)), "50.00%");
         for (w, h, n) in [(1280.0, 720.0, 3), (1280.0, 720.0, 8), (390.0, 844.0, 8)] {

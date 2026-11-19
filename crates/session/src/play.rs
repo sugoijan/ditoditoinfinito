@@ -1648,6 +1648,13 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 event,
                 SessionEvent::Aborted { .. } | SessionEvent::Interrupted
             );
+            // An interrupted stage play (its sound stopped by the system,
+            // its view lost) is a quit as Escape's is: judged to now and
+            // graded QUIT, never by the notes judged before it (round AC:
+            // a perfect start read SSS in the Standings).
+            if matches!(event, SessionEvent::Interrupted) {
+                self.player.quit_at(self.player.judge_time(host_now));
+            }
             let o = b.outcome(&self.player, quit);
             self.stage_end = b.end_event(&o, quit);
             self.announcer.stage_end(self.stage_end);

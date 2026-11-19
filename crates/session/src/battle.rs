@@ -593,6 +593,20 @@ fn finished_on(rungs: &[Rung], detail: &mut RunDetail, player: &Player) {
     detail.harder = rung.is_some_and(|r| r.up);
 }
 
+/// A competitor's grade as their run ended (round AC): a forfeit QUIT,
+/// in place of a letter, as a quit's results say it; out by life or
+/// failed F; else the grade their play earned. Never the letter of the
+/// few notes judged before a forfeit.
+pub fn graded_as_run(detail: &mut RunDetail, run: &Run) {
+    match run {
+        Run::Forfeit => detail.grade = ddi_engine::player::QUIT_GRADE.into(),
+        Run::Out { .. } | Run::Failed { .. } => {
+            detail.grade = ddi_engine::rules::ddi::FAILED.into();
+        }
+        _ => {}
+    }
+}
+
 /// How a CPU (`opponent`) performed, as judged by its own play (its own
 /// score: it plays the whole chart), with the attacks it `launched` and
 /// was sent where the stage has them, and the chart it finished on (a
@@ -2612,6 +2626,7 @@ impl Battle {
                 self.launched(self.setup.me),
             );
             finished_on(&self.rungs, &mut detail, human);
+            graded_as_run(&mut detail, &mine);
             details.push((self.setup.me, detail.bounded()));
         }
         details.extend(self.cpu_details());

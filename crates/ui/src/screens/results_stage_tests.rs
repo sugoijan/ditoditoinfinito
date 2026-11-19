@@ -421,6 +421,34 @@ fn the_table_says_ties_those_out_and_those_who_left() {
     assert!(line.starts_with("Winners: You, "), "{line}");
 }
 
+/// Round AC: a forfeit never shows the letter of the notes judged before
+/// it (a report saying SSS reads QUIT), one out of the stage reads F, and
+/// a percent is never shown below 0 % (a failed player's −207.19 %).
+#[test]
+fn a_forfeit_reads_quit_one_out_f_and_no_percent_is_below_zero() {
+    crate::screens::results::forget_tab();
+    let env = env();
+    let room = practice(2, 3);
+    let how = |i: usize| match i {
+        0 => went(9_512, "AA", 0.64, 120, [100, 40, 9, 0, 0, 0, 1]),
+        1 => went(-20_719, "D", 0.2, 3, [1, 0, 0, 0, 0, 0, 90]),
+        2 => out(went(-500, "SSS", 0.0, 30, [20, 0, 0, 0, 0, 0, 0]), 9_400),
+        _ => Went {
+            finish: Finish::Forfeit,
+            ..went(9_990, "SSS", 0.9, 8, [10, 0, 0, 0, 0, 0, 0])
+        },
+    };
+    let order = play(&room, &[&[0], &[1], &[2], &[3]], &how);
+    let mut h = harness();
+    h.push(results(&env, &room, &order));
+    h.run(1.0);
+    let v = view(&env);
+    let grades: Vec<_> = v.rows.iter().map(|r| r.grade.clone()).collect();
+    assert_eq!(grades, ["AA", "D", "F", "QUIT"]);
+    let percents: Vec<_> = v.rows.iter().map(|r| r.score.clone()).collect();
+    assert_eq!(percents, ["95.12%", "0.00%", "0.00%", "99.90%"]);
+}
+
 /// A match whose zero life steps down: whoever stepped down to an easier
 /// chart is marked with the chart they finished on ("↓ Easy"); those on
 /// the stage's chart are not.

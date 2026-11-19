@@ -385,11 +385,11 @@ fn name_of(r: &dyn TableWho, id: ParticipantId) -> (String, Option<u8>) {
     r.label(id)
 }
 
-/// A percent in hundredths as shown ("99.50%").
+/// A percent in hundredths as shown ("99.50%"), never below 0 % (round
+/// AC: a report from before it may carry one).
 fn percent_text(hundredths: i32) -> String {
-    let sign = if hundredths < 0 { "-" } else { "" };
-    let p = hundredths.unsigned_abs();
-    format!("{sign}{}.{:02}%", p / 100, p % 100)
+    let p = ddi_engine::rules::ddi::shown_hundredths(i64::from(hundredths));
+    format!("{}%", ddi_engine::rules::ddi::hundredths_text(p))
 }
 
 /// A line's main number: the ruleset's score, or its percent where it
@@ -449,6 +449,23 @@ fn life_of(row: &StageRow) -> String {
     }
 }
 
+/// A line's grade (round AC): a forfeit's QUIT and an out or failed
+/// competitor's F, as the room ranked them, whatever their report's
+/// grade says (a report from before it, the letter of the few notes
+/// judged before an interruption); else the reported grade.
+fn grade_of<'a>(row: &StageRow, reported: &'a str) -> &'a str {
+    let finish = row.placement.map(|p| p.finish);
+    if finish == Some(Finish::Forfeit) || row.run == Some(Run::Forfeit) {
+        ddi_engine::player::QUIT_GRADE
+    } else if matches!(finish, Some(Finish::Failed | Finish::Eliminated))
+        || matches!(row.run, Some(Run::Out { .. } | Run::Failed { .. }))
+    {
+        ddi_engine::rules::ddi::FAILED
+    } else {
+        reported
+    }
+}
+
 /// What a line shows, in words and numbers.
 fn row_view(r: &dyn TableWho, table: &StageTable, row: &StageRow, percent: bool) -> StageRowView {
     let (name, level) = name_of(r, row.participant);
@@ -479,7 +496,7 @@ fn row_view(r: &dyn TableWho, table: &StageTable, row: &StageRow, percent: bool)
             String::new()
         },
         grade: d
-            .map(|d| UiText::data(list_grade(&d.grade)).into())
+            .map(|d| UiText::data(list_grade(grade_of(row, &d.grade))).into())
             .unwrap_or_default(),
         life: if reported {
             life_of(row)

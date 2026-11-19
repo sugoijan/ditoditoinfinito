@@ -30,6 +30,9 @@ use crate::transform::{self, TransformOptions};
 /// Default [`Frame::visible_range`], in arrow heights.
 pub const DEFAULT_VISIBLE_RANGE: f32 = 12.0;
 
+/// A quit play's grade, in place of a letter ([`Results::quit`]).
+pub const QUIT_GRADE: &str = "QUIT";
+
 /// The most notes a frame reserves room for at once.
 const NOTES_RESERVED: usize = 256;
 
@@ -2431,7 +2434,7 @@ impl Player {
             0.0
         };
         let mut grade = if self.quit {
-            "QUIT".into()
+            QUIT_GRADE.into()
         } else {
             self.ruleset.grades.grade(&score, &self.tally, self.failed)
         };

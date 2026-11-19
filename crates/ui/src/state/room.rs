@@ -1192,8 +1192,9 @@ pub fn run_detail(
             Some(d) => Some(d.score),
             None => score.money.and_then(|m| i64::try_from(m).ok()),
         },
+        // As shown: never below 0 % (round AC).
         percent: match &score.ddi {
-            Some(d) => i32::try_from(d.percent).ok(),
+            Some(d) => i32::try_from(ddi_engine::rules::ddi::shown_hundredths(d.percent)).ok(),
             None => score.percent.map(|p| (p * 10_000.0).round() as i32),
         },
         grade: results.grade.clone(),

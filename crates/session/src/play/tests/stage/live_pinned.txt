@@ -7,9 +7,9 @@
     P6: score Some(713548) percent Some(3897) grade "D" life 370000 out None combo 17 tiers [9, 10, 29, 40, 17, 12, 7] sent Some(0) taken Some(1) shocks Some(1) chart Some("Beginner")
   told: MatchBegin@10.16, Survivors(4)@31.16, StepUp@42.56, StepUp@54.37
 == live, three CPUs, bob (late on every note)
-  digest: 0xdc018d64362f661b (4266 lines)
+  digest: 0xb7db1c43534f6ad7 (4266 lines)
   outcome: P4 > P5 > P6 > P2x · mine Out { at: 19.845742258652095 } · policy Spread
-    P2: score Some(-622286) percent Some(-4629) grade "F" life 0 out Some(19846) combo 0 tiers [0, 0, 0, 0, 0, 0, 9] sent Some(0) taken Some(0) shocks Some(0) chart Some("Beginner")
+    P2: score Some(-622286) percent Some(0) grade "F" life 0 out Some(19846) combo 0 tiers [0, 0, 0, 0, 0, 0, 9] sent Some(0) taken Some(0) shocks Some(0) chart Some("Beginner")
     P4: score Some(1167754) percent Some(5766) grade "C" life 1000000 out None combo 27 tiers [16, 18, 48, 38, 12, 5, 4] sent Some(1) taken Some(2) shocks Some(4) chart Some("Easy")
     P5: score Some(1071887) percent Some(5431) grade "C" life 1000000 out None combo 21 tiers [13, 15, 40, 42, 12, 1, 7] sent Some(0) taken Some(1) shocks Some(1) chart Some("Easy")
     P6: score Some(713548) percent Some(3897) grade "D" life 370000 out None combo 17 tiers [9, 10, 29, 40, 17, 12, 7] sent Some(0) taken Some(1) shocks Some(1) chart Some("Beginner")
@@ -27,9 +27,9 @@
     P1: score Some(1406780) percent Some(10000) grade "Absolute Bot" life 1000000 out None combo 62 tiers [62, 0, 0, 0, 0, 0, 0] sent Some(0) taken Some(0) shocks Some(0) chart Some("Hard") (harder)
   told: MatchBegin@9.16, StageWon@30.16, StepUp@88.77, StepUp@102.54, StepUp@114.36
 == live, no CPUs, bob (late on every note)
-  digest: 0x44f77a157befd8e3 (4250 lines)
+  digest: 0x6b5868dc37060cbf (4250 lines)
   outcome: P1 > P2x · decided early · mine Out { at: 19.880464480874316 } · policy Spread
-    P2: score Some(-375790) percent Some(-2843) grade "F" life 0 out Some(19880) combo 0 tiers [0, 0, 0, 0, 0, 0, 5] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score Some(-375790) percent Some(0) grade "F" life 0 out Some(19880) combo 0 tiers [0, 0, 0, 0, 0, 0, 5] sent Some(0) taken Some(0) shocks Some(0) chart None
   told: MatchBegin@9.16, LifeCritical@28.02, Eliminated@29.99
 == live, no CPUs, carol (watches)
   digest: 0xbcbf7990bd82693f (4250 lines)

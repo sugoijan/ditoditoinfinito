@@ -413,9 +413,12 @@ impl DdiScoreView {
         self.percent as f64 / 10_000.0
     }
 
-    /// The percent as shown, two decimals ("99.50").
+    /// The percent as shown, two decimals ("99.50"), never below 0.00
+    /// (round AC, the maintainer, 2026-11-19: "the percent never goes
+    /// below 0%"; the percent itself, which the letters read, may be
+    /// negative: a percent below zero says nothing more than zero).
     pub fn percent_text(&self) -> String {
-        hundredths_text(self.percent)
+        hundredths_text(shown_hundredths(self.percent))
     }
 
     /// The accuracy as a fraction (`0.995`): what CPUs are measured by.
@@ -423,10 +426,18 @@ impl DdiScoreView {
         self.accuracy as f64 / 10_000.0
     }
 
-    /// The accuracy as shown, two decimals ("99.50").
+    /// The accuracy as shown, two decimals ("99.50"), never below 0.00
+    /// as the percent ([`DdiScoreView::percent_text`]).
     pub fn accuracy_text(&self) -> String {
-        hundredths_text(self.accuracy)
+        hundredths_text(shown_hundredths(self.accuracy))
     }
+}
+
+/// A percent or an accuracy in hundredths as a person is shown it
+/// (round AC): floored at 0, never below. What is ranked or graded reads
+/// the number itself.
+pub fn shown_hundredths(hundredths: i64) -> i64 {
+    hundredths.max(0)
 }
 
 /// Hundredths of a percent as shown, two decimals ("99.50", "-10.00").
@@ -937,7 +948,7 @@ mod tests {
     }
 
     #[test]
-    fn views_floor_and_go_negative() {
+    fn views_floor_and_go_negative_and_are_shown_from_zero() {
         let v = DdiScoreView::of(199, 200, 3);
         assert_eq!((v.ratio, v.percent, v.absolute), (995_000, 9950, 19_903));
         // The score is the two together.
@@ -948,11 +959,14 @@ mod tests {
         let v = DdiScoreView::of(-10, 100, 0);
         assert_eq!((v.ratio, v.percent, v.absolute), (-100_000, -1000, -1000));
         assert_eq!(v.score, -101_000);
-        assert_eq!(v.percent_text(), "-10.00");
+        // Shown never below 0 % (round AC).
+        assert_eq!(v.percent_text(), "0.00");
+        assert_eq!(v.accuracy_text(), "0.00");
+        assert_eq!(hundredths_text(v.percent), "-10.00");
         // Floored down, below zero too.
         let v = DdiScoreView::of(-1, 3, 0);
         assert_eq!((v.ratio, v.percent, v.score), (-333_334, -3334, -333_434));
-        assert_eq!(v.percent_text(), "-33.34");
+        assert_eq!(v.percent_text(), "0.00");
     }
 
     /// A perfect 1,000-note chart with every tap a W0: the whole
