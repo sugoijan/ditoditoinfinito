@@ -12210,7 +12210,6 @@ stage's play (a watched one too) has a pointer-only volume beside the quit
 button (`docs/plans/play-hud.md`, "The music's volume"); the Ready card's
 change is that control and its line alone. No room model revision: nothing
 peers agree on changed.
-||||||| parent of ce414c7e (Say round AA in the progress note, the plans' index and AGENTS.md)
 
 ## Feedback round AA: a sign-in that never ended, joining during a match, open-ended matches, playing on failed (room model revision 15, 2026-11-19)
 
