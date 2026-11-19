@@ -933,8 +933,9 @@ Rust and the browser are implementation details, not advertised features.
   (`battle_cue::draw_chart`, `Battle::chart_line`, `chart_shown`; the
   waiting line then a line lower, or in its place where that would
   reach the receptors, `waiting_below_fits`),
-  `crates/shell/src/battle_cue.rs`; the music's volume beside the quit
-  button, pointer only, showing with it (round AB,
+  `crates/shell/src/battle_cue.rs`; the volume beside the quit
+  button, pointer only, showing with it, but on a touch screen never in
+  a room's stage (`play_volume::offered`) (round AB,
   `crates/shell/src/play_volume.rs`: its button and slider drawn by the
   2D pass, hit-tested by the shells from `Drawn::volume_at` as the quit
   button is, its edges handed to `PlayView::volume_edges`, never to the

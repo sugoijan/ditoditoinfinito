@@ -1290,10 +1290,17 @@ impl<H: PlayHost> PlayView<H> {
             ddi_render::scene::quit_button(&geo, &session.layout, screen.ratio, insets)
         });
         self.renderer.set_quit_button(quit);
-        // The music's volume beside it, while it shows (none in
-        // calibration, whose click track is left as it is).
+        // The volume beside it, while it shows (none in calibration,
+        // whose click track is left as it is, nor in a room's stage on a
+        // touch screen, where it would stay over the miniatures).
         let volume_place = quit
-            .filter(|_| session.volume_adjustable())
+            .filter(|_| {
+                crate::play_volume::offered(
+                    session.volume_adjustable(),
+                    screen.touch,
+                    session.battle().is_some(),
+                )
+            })
             .map(|q| crate::play_volume::place(q, [w, h], screen.ratio));
         self.volume
             .frame(volume_place, screen.ratio, session.volume(), moment.now.0);

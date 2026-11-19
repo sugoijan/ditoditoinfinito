@@ -113,6 +113,18 @@ pub fn place(quit: [f32; 3], [w, h]: [f32; 2], ratio: f32) -> Place {
     }
 }
 
+/// Whether a play has the control at all (while the quit button shows):
+/// never where its volume does not change (calibration, whose click track
+/// is left as it is: `adjustable` false), and on a touch screen (`touch`,
+/// where the quit button never hides) not in a room's stage, played or
+/// watched (`stage`): there it would stay over the opponents' miniatures,
+/// and the stage's Ready card has the volume (the maintainer, round AD,
+/// 2026-11-19: "Hide it in stages on touch"). With a mouse it shows
+/// everywhere, as the quit button does, for a moment after it moved.
+pub fn offered(adjustable: bool, touch: bool, stage: bool) -> bool {
+    adjustable && !(touch && stage)
+}
+
 /// What a pointer does on the play (logical pixels).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
@@ -590,6 +602,19 @@ mod tests {
         assert!(!v.open() && v.at().is_none());
         // Hidden, nothing is taken.
         assert_eq!(v.pointer(edge(Phase::Down, b), 6.2), (false, None));
+    }
+
+    /// On a touch screen a room's stage has none (its Ready card has the
+    /// volume); singleplayer plays, replays and playtests do; with a mouse
+    /// every play does; calibration never.
+    #[test]
+    fn a_touch_screen_s_stage_has_none() {
+        assert!(offered(true, true, false));
+        assert!(!offered(true, true, true));
+        assert!(offered(true, false, true));
+        assert!(offered(true, false, false));
+        assert!(!offered(false, false, false));
+        assert!(!offered(false, true, false));
     }
 
     /// The session's volume is shown while nobody holds the slider.

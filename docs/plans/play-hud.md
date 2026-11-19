@@ -82,7 +82,10 @@ lanes').
   avoids), shown exactly when the quit button shows: throughout on a
   touch screen, for two seconds after the mouse moved, in replays and
   watched stages too; never in calibration (its click track is left as
-  it is). Drawn by the play's 2D pass over everything: a dark disc with a
+  it is), and on a touch screen not in a room's stage, played or watched
+  (round AD, 2026-11-19, the maintainer: "Hide it in stages on touch":
+  always showing there, it would cover a miniature; the Ready card has the
+  volume; `play_volume::offered`). Drawn by the play's 2D pass over everything: a dark disc with a
   light rim as the quit button is, the speaker of `ui/volume.svg` in
   shapes (crossed out when muted, one to three waves).
 - **What a press does.** A press on the button opens its slider (a plate
