@@ -204,6 +204,9 @@ pub type PlaysFn = Rc<dyn Fn(&SongEntry, &ChartEntry) -> Vec<super::data::PlayRo
 /// The shell's part of song select (none on the developer routes).
 pub type ShellFn = Rc<dyn Fn(SelectCall, &mut Cx)>;
 
+/// More's Volume (a phone's layout: [`SelectScreen::volume_item`]).
+pub const MORE_VOLUME: &str = "MoreVolume";
+
 /// Where the list is: the song shown, its chart (the play route's
 /// index), the style (id), the search, the packs closed.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -3272,6 +3275,26 @@ impl SelectScreen {
         );
     }
 
+    /// More's Volume, on a phone's layout alone (which has no quick
+    /// volume; round AD): its item.
+    pub(super) fn volume_item(&self) -> Option<(String, String)> {
+        self.layout
+            .compact
+            .then(|| (MORE_VOLUME.to_string(), msg::more_volume().into()))
+    }
+
+    /// More's Volume picked: the same control in a small dialog
+    /// ([`super::select_dialogs::VolumeDialog`]); the list keeps the focus
+    /// under it.
+    pub(super) fn open_volume(&self, cx: &mut Cx) {
+        cx.focus("Wheel");
+        cx.overlay(
+            super::select_dialogs::VolumeDialog::new(self.env.clone(), self.shell.clone()),
+            true,
+        );
+        self.status("volume dialog".into());
+    }
+
     /// The quick volume moved: the preview follows at once, the settings
     /// once it settles.
     fn volume_changed(&mut self, c: VolumeChange, cx: &mut Cx) {
@@ -5050,6 +5073,8 @@ impl SelectScreen {
             items.push(("EditChart".into(), msg::more_edit().into()));
         }
         items.extend(self.favorite_item());
+        // A phone's volume, on More's first page.
+        items.extend(self.volume_item());
         if self.manageable().is_some() && !shared {
             items.push(("Link.Manage".into(), msg::more_manage().into()));
         }
@@ -5154,6 +5179,7 @@ impl SelectScreen {
                 return Handled::Yes;
             }
             favorites_mode::FAVORITE => self.toggle_favorite(root, cx),
+            MORE_VOLUME => self.open_volume(cx),
             "History" => self.open_plays(cx),
             "WatchBest" => self.watch_best(cx),
             "EditChart" => self.edit(cx),

@@ -1,8 +1,8 @@
 //! Song select's dialogs: adding songs (the import: its pickers, options,
 //! progress and report), managing what was imported (reading a pack's
 //! folder again, removing a pack, a song or the songs that could not be
-//! read, each confirmed; none of it while an import runs) and the notices
-//! in full.
+//! read, each confirmed; none of it while an import runs), the notices
+//! in full and a phone's volume.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -27,6 +27,7 @@ use crate::screen::{Cx, Handled, Input, Screen};
 use crate::state::select_view::pack_label;
 use crate::widgets::field::{FieldEvent, SearchField};
 use crate::widgets::list::{ItemKind, List, ListConfig, ListModel, ListStyle};
+use crate::widgets::volume::{Volume, VolumeChange};
 use crate::widgets::{part, set_text};
 
 /// What can be managed: the selected pack, or the selected song (and its
@@ -2108,5 +2109,111 @@ impl Drop for PlaysDialog {
         let mut st = self.env.state.borrow_mut();
         st.plays.clear();
         st.plays_selected = None;
+    }
+}
+
+/// The volume on a phone's layout, which has no quick volume (round AD,
+/// 2026-11-19, the maintainer: "Yes, in More"): More's Volume opens the
+/// same control as song select's ([`Volume`]), its slider always
+/// showing, with the quiet "Sound is muted" line while it is muted or at
+/// zero. Up and Down step it, Start (or a press on its button) mutes or
+/// brings the level back, a press or a drag along the slider sets it;
+/// the preview follows at once and the settings keep it once it settles,
+/// as the quick volume's do. Back, Close or a press outside close it.
+pub struct VolumeDialog {
+    env: Env,
+    shell: Option<ShellFn>,
+    volume: Volume,
+    screen: [f32; 2],
+}
+
+/// The dialog's control.
+pub const VOLUME_DIALOG_CONTROL: &str = "Volume";
+
+impl VolumeDialog {
+    pub fn new(env: Env, shell: Option<ShellFn>) -> VolumeDialog {
+        let gain = crate::state::settings::Settings::load().volume;
+        VolumeDialog {
+            env,
+            shell,
+            volume: Volume::new(VOLUME_DIALOG_CONTROL, gain).slider_shown(),
+            screen: super::DESIGN,
+        }
+    }
+
+    fn changed(&mut self, c: VolumeChange, root: &mut Actor, cx: &mut Cx) {
+        if c.commit {
+            let mut s = crate::state::settings::Settings::load();
+            if s.volume != c.gain {
+                s.volume = c.gain;
+                s.save();
+            }
+        }
+        if let Some(t) = hit::find_mut(root, "SoundMuted") {
+            t.visible = self.volume.muted();
+        }
+        if let Some(s) = &self.shell {
+            s(SelectCall::Volume(c.gain), cx);
+        }
+    }
+}
+
+impl Screen for VolumeDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
+    fn name(&self) -> &str {
+        "volume"
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        let vp = cx.viewport().screen;
+        self.screen = [vp.width, vp.height];
+        let env = self.env.clone();
+        let w = 280.0_f32.min(self.screen[0] - 32.0);
+        let h = 360.0_f32.min(self.screen[1] - 16.0);
+        let (mut children, [x, y]) = shell(&env, self.screen, [w, h], &msg::more_volume());
+        let muted: String = ddi_l10n::msg::prompt::sound_muted().into();
+        let mut t = env.text("SoundMuted", &muted, 13.0, 400, "Muted");
+        look::ellipsized(&mut t, w - 48.0);
+        t.visible = self.volume.muted();
+        children.push(left(t, x + 24.0, y + 58.0));
+        children.push(self.volume.build_at([x + w / 2.0, y + 96.0], &*env.look, cx));
+        children.push(super::dialog::foot_button(&env, "Close", &common::close(), [x, y, w, h]));
+        dialog_root(children)
+    }
+
+    fn focusables(&self) -> Vec<Focusable> {
+        vec![
+            Focusable::new(VOLUME_DIALOG_CONTROL),
+            Focusable::new("Close"),
+        ]
+    }
+
+    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        match input {
+            Input::Activate { name } if name == "Close" => {
+                cx.close(false);
+                return Handled::Yes;
+            }
+            Input::Activate { name } if name == VOLUME_DIALOG_CONTROL => {
+                if let Some(c) = self.volume.toggle_mute(root) {
+                    self.changed(c, root, cx);
+                }
+                return Handled::Yes;
+            }
+            Input::Outside => {
+                cx.close(true);
+                return Handled::Yes;
+            }
+            _ => {}
+        }
+        let reduced = self.env.reduced();
+        let (h, change) = self.volume.input(input, root, cx, reduced);
+        if let Some(c) = change {
+            self.changed(c, root, cx);
+        }
+        h
     }
 }

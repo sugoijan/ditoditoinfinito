@@ -118,9 +118,16 @@ Down step it by 5%, Start mutes and Back returns to the list; a wheel
 over it steps it too. It is the setting Options calls Volume (Music
 volume until 2026-11-19: it was always every sound's, round AD): the
 preview follows at once (`SelectCall::Volume`), the settings keep it
-when a drag is released. The compact layout has none (a phone's player
-reaches the volume on the start prompt and in the play instead,
-`docs/plans/start-prompt.md`, "The music's volume", and
+when a drag is released. The compact layout has no button: its More has
+a Volume item instead (round AD, 2026-11-19, the maintainer: "Yes, in
+More"; after the heart's, on More's first page, in a room's More too, the
+follower's included), which opens the same control in a small dialog
+(`select_dialogs::VolumeDialog`: its slider always showing,
+`Volume::slider_shown`, "Sound is muted" while muted; Up and Down step
+it, Start or a press on its button mutes or brings the level back, Back,
+Close or a press outside close it; the preview follows and the settings
+keep it as the button's do); the start prompt and the play have theirs
+(`docs/plans/start-prompt.md`, "The music's volume", and
 `docs/plans/play-hud.md`). A room's follower, who has no search, keeps the
 quick volume in its place (round AB, 2026-11-19). Back on top of a screen
 that changed the level (Options, the prompt, a play), it shows the new

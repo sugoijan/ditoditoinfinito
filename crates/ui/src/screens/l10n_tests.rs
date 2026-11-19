@@ -470,7 +470,7 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         DanoniImportView, DanoniOriginRequest, ImportReportView, ImportRunning, ImportView, Notice,
         PlayRow, ShareState, ShareView, SharedView,
     };
-    use super::select_dialogs::{NoticesDialog, PlaysDialog, ShareDialog};
+    use super::select_dialogs::{NoticesDialog, PlaysDialog, ShareDialog, VolumeDialog};
     use crate::PointerKind;
     use ddi_library::report::{ImportFailure, ImportReport};
     use std::cell::RefCell;
@@ -746,6 +746,16 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         }],
     ));
     shown(&mut h, found);
+    // A phone's volume (More's Volume), muted: its line shows.
+    let mut settings = crate::state::settings::Settings::load();
+    let volume = settings.volume;
+    settings.volume = 0.0;
+    settings.save();
+    let mut h = harness();
+    h.push(VolumeDialog::new(env.clone(), None));
+    shown(&mut h, found);
+    settings.volume = volume;
+    settings.save();
 }
 
 /// A list of actions (the editor's menus), page by page.

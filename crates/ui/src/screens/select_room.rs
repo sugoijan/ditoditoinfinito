@@ -990,8 +990,12 @@ impl SelectScreen {
         let Some(rm) = &self.room else {
             return false;
         };
-        // The picker's song's heart first.
-        let first = self.favorite_item().into_iter().collect();
+        // The picker's song's heart first, then a phone's volume.
+        let first = self
+            .favorite_item()
+            .into_iter()
+            .chain(self.volume_item())
+            .collect();
         room::open_more_with(&self.env, &rm.room, self.layout.compact, first, cx);
         true
     }
@@ -1141,6 +1145,8 @@ impl SelectScreen {
         {
             self.toggle_favorite(root, cx);
             cx.focus("Wheel");
+        } else if crate::screens::menu_pick(msg, room::MORE) == Some(MORE_VOLUME) {
+            self.open_volume(cx);
         } else if let Some(id) = crate::screens::menu_pick(msg, room::MORE) {
             match room::more_picked(id, &room, cx) {
                 room::MoreAction::Rules => self.open_rules(cx),

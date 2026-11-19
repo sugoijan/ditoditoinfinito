@@ -431,6 +431,12 @@ select-more-style = Style: { $style }
 # Opens the dialog that adds songs.
 select-more-add-songs = Add songs
 
+# On a phone's layout, which has no volume button: opens a small dialog
+# with the game's volume (a slider, and a button that mutes), every
+# sound's (the music, the sounds, the announcer). Also that dialog's
+# title.
+select-more-volume = Volume
+
 # Opens the options.
 select-more-options = Options
 

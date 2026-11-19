@@ -73,6 +73,8 @@ mod l10n_tests;
 #[cfg(test)]
 mod favorites_tests;
 #[cfg(test)]
+mod volume_tests;
+#[cfg(test)]
 mod ratings_tests;
 pub mod numbers;
 pub mod online;

@@ -79,6 +79,9 @@ pub struct Volume {
     focused: bool,
     /// Opened by a tap: stays until a press elsewhere.
     pinned: bool,
+    /// The slider always shows (song select's Volume dialog on a phone,
+    /// [`Volume::slider_shown`]).
+    always: bool,
     dragging: bool,
     /// When the mouse left (closing after [`LINGER`]).
     left_at: Option<f64>,
@@ -98,10 +101,19 @@ impl Volume {
             hovered: false,
             focused: false,
             pinned: false,
+            always: false,
             dragging: false,
             left_at: None,
             track: Cell::new((60.0, 120.0)),
         }
+    }
+
+    /// With its slider always showing (a dialog of its own, where nothing
+    /// else is there to press).
+    pub fn slider_shown(mut self) -> Volume {
+        self.always = true;
+        self.open = true;
+        self
     }
 
     /// The slider's part.
@@ -222,6 +234,7 @@ impl Volume {
     }
 
     fn set_open(&mut self, open: bool, root: &mut Actor, reduced: bool) {
+        let open = open || self.always;
         if open == self.open {
             return;
         }

@@ -199,6 +199,8 @@ select-more-style = スタイル：{ $style }
 
 select-more-add-songs = 曲を追加
 
+select-more-volume = 音量
+
 select-more-options = オプション
 
 select-suggestions-title = 検索候補
