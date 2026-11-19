@@ -2168,6 +2168,135 @@ fn the_players_panel_counts_those_that_do_not_fit() {
     assert_eq!(top(&h), "room-players");
 }
 
+/// A library of one Single song of `n` charts, Beginner to Challenge then
+/// Edits, meters 2, 4, … (round AF's chart row).
+fn many_charts(n: usize) -> SelectData {
+    let difficulties = [
+        Difficulty::Beginner,
+        Difficulty::Easy,
+        Difficulty::Medium,
+        Difficulty::Hard,
+        Difficulty::Challenge,
+    ];
+    let mut data = library("dance-single");
+    data.songs.truncate(1);
+    data.songs[0].charts = (0..n)
+        .map(|k| ChartEntry {
+            difficulty: *difficulties.get(k).unwrap_or(&Difficulty::Edit),
+            ..chart("dance-single", k, 2 + 2 * k as u32)
+        })
+        .collect();
+    data
+}
+
+/// The chart shown, as song select says it ("Edit 14").
+fn chart_shown(env: &Env) -> String {
+    env.state.borrow().chart.clone().unwrap_or_default()
+}
+
+/// Round AF ("Yes, fixed places in rooms too"): a room's row of chart
+/// buttons has a place per chart, up to eight, as song select's radar
+/// side has: a click on the right-most of seven chooses it and no button
+/// moves; the keyboard's Left and Right and a controller's shoulders
+/// change the chart one at a time as before, nothing moving either;
+/// eight charts are eight buttons; past eight the row is a window of
+/// eight following the chart chosen. On a phone the same.
+#[test]
+fn a_rooms_chart_row_keeps_a_place_per_chart() {
+    use crate::nav::MenuAction;
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let places = |h: &Harness| -> Vec<[f32; 4]> {
+        (0..8).filter_map(|k| h.ui.bounds(&format!("Chart{k}"))).collect()
+    };
+    let screen = |env: &Env, data: SelectData| {
+        sample::room_select(env, room.clone(), data)
+            .with_room(room.clone(), shell(&room, &orders))
+    };
+    for size in [[1280.0, 720.0], [844.0, 390.0], [390.0, 844.0]] {
+        let design = if size[0] == 1280.0 { DESIGN } else { super::COMPACT };
+        let env = env();
+        let mut h = Harness::new(design, size, 1.0, TextMode::Own);
+        h.push(screen(&env, many_charts(7)));
+        h.run(0.5);
+        let before = places(&h);
+        assert_eq!(before.len(), 7, "{size:?}: a place per chart");
+        assert!(h.ui.bounds("Chart7").is_none());
+        // Every button inside the song's side, none overlapping.
+        for pair in before.windows(2) {
+            assert!(pair[0][2] <= pair[1][0], "{size:?}: {pair:?}");
+        }
+        // The keyboard on the list (an arrow twice: a harder or an
+        // easier chart, `select_navigation`): one chart at a time,
+        // nothing moving.
+        let twice = |h: &mut Harness, key: &str| {
+            for _ in 0..2 {
+                h.key(key, key);
+                h.run(0.05);
+            }
+            h.run(0.8);
+        };
+        let first = chart_shown(&env);
+        twice(&mut h, "ArrowRight");
+        let next = chart_shown(&env);
+        assert_ne!(next, first, "{size:?}");
+        twice(&mut h, "ArrowLeft");
+        assert_eq!(chart_shown(&env), first, "{size:?}");
+        assert_eq!(places(&h), before, "{size:?}: the keyboard moved the row");
+        // A controller's shoulders, the same.
+        h.pad(MenuAction::Next, true);
+        h.pad(MenuAction::Next, false);
+        h.run(0.3);
+        assert_eq!(chart_shown(&env), next, "{size:?}");
+        h.pad(MenuAction::Previous, true);
+        h.pad(MenuAction::Previous, false);
+        h.run(0.3);
+        assert_eq!(chart_shown(&env), first, "{size:?}");
+        assert_eq!(places(&h), before, "{size:?}: the shoulders moved the row");
+        // A click on the right-most button: its chart, nothing moving.
+        h.tap(PointerKind::Mouse, "Chart6");
+        h.run(0.3);
+        assert_eq!(chart_shown(&env), "Edit 14", "{size:?}");
+        assert_eq!(places(&h), before, "{size:?}: the click moved the row");
+        assert_eq!(top(&h), "select", "{size:?}: nothing picked");
+        // Each button in turn chooses its own chart.
+        for k in 0..7 {
+            h.tap(PointerKind::Mouse, &format!("Chart{k}"));
+            h.run(0.3);
+            let name = ["Beginner", "Easy", "Medium", "Hard", "Challenge"]
+                .get(k)
+                .unwrap_or(&"Edit");
+            assert_eq!(
+                chart_shown(&env),
+                format!("{name} {}", 2 + 2 * k),
+                "{size:?} Chart{k}"
+            );
+            assert_eq!(places(&h), before, "{size:?}: Chart{k} moved the row");
+        }
+    }
+    // Eight charts, eight buttons; nine, a window of eight following the
+    // chart chosen.
+    let eight = env();
+    let mut h = harness();
+    h.push(screen(&eight, many_charts(8)));
+    h.run(0.5);
+    assert_eq!(places(&h).len(), 8);
+    let nine = env();
+    let mut h = harness();
+    h.push(screen(&nine, many_charts(9)));
+    h.run(0.5);
+    assert_eq!(places(&h).len(), 8);
+    h.tap(PointerKind::Mouse, "Chart7");
+    h.run(0.3);
+    assert_eq!(chart_shown(&nine), "Edit 16");
+    h.pad(MenuAction::Next, true);
+    h.pad(MenuAction::Next, false);
+    h.run(0.3);
+    assert_eq!(chart_shown(&nine), "Edit 18", "the ninth, in view");
+    assert_eq!(places(&h).len(), 8);
+}
+
 /// A phone has no room for the panel beside the song and the list: the
 /// host's players are one line over the list (their initials, You whole,
 /// how many they are), and a tap on it opens the full list.

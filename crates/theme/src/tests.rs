@@ -2704,3 +2704,144 @@ fn the_estimates_tenths_fit_the_rows_and_the_chart_buttons() {
     }
     ratings::set_mode(ratings::Source::Song, false);
 }
+
+/// Round AF ("Yes, fixed places in rooms too"): a room's row of chart
+/// buttons has a place per chart, up to eight, in the short song side's
+/// column beside the banner, as wide as it was with five: the buttons
+/// narrower, never the players panel smaller. Under "Chart ratings: DDI
+/// estimate" each button's number to a tenth stays inside its button
+/// (smaller where the button is narrow), at the design's size and on a
+/// phone held either way.
+#[test]
+fn a_rooms_chart_row_fits_a_place_per_chart_with_the_estimates_tenths() {
+    use ddi_library::manifest::ChartEstimate;
+    use ddi_ui::screens::data::{ChartEntry, Difficulty, SelectData, SongEntry};
+    use ddi_ui::screens::select::SelectScreen;
+    use ddi_ui::state::ratings;
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    ratings::set_mode(ratings::Source::Estimate, false);
+    let decimals = [18.84_f32, 10.04, 19.96, 11.11, 14.27, 17.77, 12.5, 13.33];
+    let song = |n: usize| {
+        let charts = (0..n)
+            .map(|k| {
+                let digest = ddi_chart::ChartDigest(500 + 10 * n as u128 + k as u128);
+                ratings::remember_estimate(
+                    digest,
+                    ChartEstimate {
+                        decimal: decimals[k],
+                        level: decimals[k].round() as u8,
+                        scalar: true,
+                        studied: true,
+                        profile: None,
+                    },
+                );
+                ChartEntry {
+                    style: "dance-single".into(),
+                    difficulty: [
+                        Difficulty::Beginner,
+                        Difficulty::Easy,
+                        Difficulty::Medium,
+                        Difficulty::Hard,
+                        Difficulty::Challenge,
+                    ]
+                    .get(k)
+                    .copied()
+                    .unwrap_or(Difficulty::Edit),
+                    meter: 9,
+                    notes: 300,
+                    index: k,
+                    digest: Some(digest),
+                    ..ChartEntry::default()
+                }
+            })
+            .collect();
+        SelectData {
+            styles: sample::styles(),
+            songs: vec![SongEntry {
+                id: format!("n{n}"),
+                title: format!("Song of {n}"),
+                artist: "Artist".into(),
+                bpm_text: "150".into(),
+                length: 120.0,
+                charts,
+                ..SongEntry::default()
+            }],
+            style: Some("dance-single".into()),
+            ..SelectData::default()
+        }
+    };
+    let theme = Rc::new(Infinito::new());
+    for (size, design) in [
+        ([1280.0, 720.0], DESIGN),
+        ([844.0, 390.0], COMPACT),
+        ([390.0, 844.0], COMPACT),
+    ] {
+        let mut row_of_five: Option<[f32; 4]> = None;
+        let mut panel_of_five: Option<[f32; 4]> = None;
+        for n in [5, 6, 7, 8] {
+            let env = env(&theme);
+            let mut h = harness(size, design);
+            let room = ddi_ui::state::room::RoomClient::shared(0, 1);
+            room.borrow_mut().set_rules_seen(true);
+            h.push(
+                SelectScreen::new(
+                    env.clone(),
+                    song(n),
+                    None,
+                    Rc::new(|_, _, _: &Env, _| {}),
+                    Rc::new(|_, _| {}),
+                )
+                .with_room(room, Rc::new(|_, _| {})),
+            );
+            h.run(0.6);
+            let what = format!("{size:?} {n} charts");
+            let texts = h.texts();
+            let mut buttons = Vec::new();
+            for (k, decimal) in decimals.iter().enumerate() {
+                let Some(b) = h.ui.bounds(&format!("Chart{k}")) else {
+                    continue;
+                };
+                let m = h.ui.bounds_of(&format!("Chart{k}"), "Meter").unwrap();
+                let want = format!("{decimal:.1}");
+                assert!(texts.contains(&want), "{what}: no {want} in {texts:?}");
+                assert!(
+                    m[0] >= b[0] + 2.0 && m[2] <= b[2] - 2.0,
+                    "{what}: Chart{k}'s number {m:?} outside its button {b:?}"
+                );
+                buttons.push(b);
+            }
+            assert_eq!(buttons.len(), n, "{what}: a place per chart");
+            for pair in buttons.windows(2) {
+                assert!(pair[0][2] <= pair[1][0], "{what}: {pair:?}");
+            }
+            let row = [buttons[0][0], buttons[0][1], buttons[n - 1][2], buttons[0][3]];
+            eprintln!(
+                "{what}: buttons {:.1} wide, the row {:.1} to {:.1}",
+                buttons[0][2] - buttons[0][0],
+                row[0],
+                row[2]
+            );
+            // The row spans what five did; the panel is as it was.
+            match row_of_five {
+                None => row_of_five = Some(row),
+                Some(five) => {
+                    assert!(
+                        (row[0] - five[0]).abs() < 0.5 && (row[2] - five[2]).abs() < 0.5,
+                        "{what}: the row {row:?}, five's {five:?}"
+                    );
+                }
+            }
+            let panel = h.ui.bounds("RoomPlayers");
+            assert_eq!(panel.is_some(), design == DESIGN, "{what}: the panel");
+            if let Some(panel) = panel {
+                let info = h.ui.bounds("Info").expect("the song");
+                assert!(row[3] <= panel[1] && panel[1] >= info[3], "{what}: {row:?} {panel:?}");
+                match panel_of_five {
+                    None => panel_of_five = Some(panel),
+                    Some(five) => assert_eq!(panel, five, "{what}: the panel moved"),
+                }
+            }
+        }
+    }
+    ratings::set_mode(ratings::Source::Song, false);
+}

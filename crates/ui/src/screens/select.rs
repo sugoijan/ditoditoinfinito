@@ -2745,6 +2745,11 @@ impl SelectScreen {
             if by_name && let Some(m) = part(&mut b, "Meter") {
                 look::ellipsized(m, cell - 8.0);
             }
+            // A number wider than a narrow button (a room's short side
+            // with more than five places, round AF): smaller, to fit.
+            if !by_name && let Some(m) = part(&mut b, "Meter") {
+                fit_number(m, cell - 4.0);
+            }
             crate::widgets::play(&mut b, c.difficulty.name());
             if crate::state::ratings::ever_shown() {
                 faint(&mut b, "Meter", c.meter_is_songs());
@@ -2779,17 +2784,24 @@ impl SelectScreen {
     }
 
     /// How many places a row of chart buttons has for `len` charts: five
-    /// on a short song's side (a phone's, a room's); on the skill radar's
-    /// side as many as the charts, five at least and [`LADDER_ROWS`] at
-    /// most, as the ladder showed them, so that a press never moves the
-    /// buttons under the pointer (a window scrolling with the chart chosen
-    /// would put the chosen one where the next press lands, and play it).
+    /// on a phone's song select; on the skill radar's side and in a room
+    /// (round AF, "Yes, fixed places in rooms too": its short side, wide
+    /// or a phone's) as many as the charts, five at least and
+    /// [`LADDER_ROWS`] at most, as the ladder showed them, so that a press
+    /// never moves the buttons under the pointer (a window scrolling with
+    /// the chart chosen would put the chosen one where the next press
+    /// lands, and play it). Past eight a window follows the chart chosen.
     fn chart_places(&self, len: usize) -> usize {
-        if self.layout.radar {
+        if self.layout.radar || self.room.is_some() {
             len.clamp(5, LADDER_ROWS)
         } else {
             5
         }
+    }
+
+    /// The most chart buttons a row has ([`SelectScreen::chart_places`]).
+    fn chart_places_max(&self) -> usize {
+        self.chart_places(LADDER_ROWS)
     }
 
     /// The ladder's window for `len` charts with `pick` chosen: its
@@ -4159,6 +4171,21 @@ fn wheel<'a>(
     }
 }
 
+/// A chart button's number `m` (a run of text) no wider than `w`: its
+/// size made smaller where the run at its size is wider (the theme's
+/// numbers are monospaced, [`look::mono_width`]); never larger.
+fn fit_number(m: &mut Actor, w: f32) {
+    if let Kind::Text(t) = &mut m.kind {
+        let mut style = t.style().clone();
+        let size = style.size();
+        let wide = look::mono_width(t.text(), size);
+        if wide > w && w > 0.0 {
+            style.size_64 = ((size * w / wide) * 64.0).floor().max(64.0) as u32;
+            t.set_style(style);
+        }
+    }
+}
+
 /// `n` items from the one that keeps `pick` in view: (first, count).
 fn window(len: usize, pick: Option<usize>, fits: usize) -> (usize, usize) {
     if len <= fits {
@@ -4341,7 +4368,7 @@ impl Screen for SelectScreen {
                 }
                 v.push(Focusable::new(n));
             }
-            v.extend((0..5).map(|k| Focusable::new(format!("Chart{k}"))));
+            v.extend((0..self.chart_places_max()).map(|k| Focusable::new(format!("Chart{k}"))));
         } else {
             for n in [
                 "Back",
@@ -4363,7 +4390,7 @@ impl Screen for SelectScreen {
                 if self.style_button_shown() {
                     v.push(Focusable::new("StyleButton"));
                 }
-                v.extend((0..5).map(|k| Focusable::new(format!("Chart{k}"))));
+                v.extend((0..self.chart_places_max()).map(|k| Focusable::new(format!("Chart{k}"))));
             } else if self.layout.radar {
                 // The skill radar's side: the style tabs and the chart
                 // buttons (the radar is no control).
