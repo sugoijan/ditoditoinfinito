@@ -281,9 +281,18 @@ is and nothing is removed.
 - **The number**: an original `dance-single` chart's `Estimate::level`
   (1 to 19) where the estimate qualifies it (`within_scalar_domain`: 48+
   playable heads, at most 1,200 source notes, 15 to 180 s, no lifts),
-  wherever MSD's number shows, whole everywhere (a ladder row and the
-  prompt too, where MSD shows a tenth); its decimal to a tenth in the
-  radar's side's detail. Elsewhere (not Single, a generated version,
+  wherever MSD's number shows. Since round AD (2026-11-19, the
+  maintainer: "A tenth everywhere") its decimal to a tenth everywhere it
+  shows (the list's chips, the chart buttons, a ladder row, the prompt,
+  the Play button, a room's lines, the radar's side's detail; "11.3"), its
+  rounded level nowhere (`Shown::whole` and `fine` alike for it; whole
+  before). The list's chips squeeze a number wider than their cell to it
+  (the theme's `maxwidth,24` on `Meter<k>`: "18.8", 28 px at 14 px, about
+  six sevenths; two digits as they were, so the song's and MSD's chips
+  draw as before), the chart buttons fit it as they are
+  (`the_estimates_tenths_fit_the_chips_and_the_chart_buttons`, at the
+  design's size, 600×480 and a phone's, the radar's places and the
+  ladder's side). Elsewhere (not Single, a generated version,
   outside the domain, an error) the song's number, fainter, as MSD's
   rule. Everything that decides by a chart's meter keeps the song's.
   `ratings::shown`, `Shown`.

@@ -473,20 +473,21 @@ pub enum Shown {
 }
 
 impl Shown {
-    /// Whole, as the list's chips and the chart buttons show it.
+    /// As the list's chips and the chart buttons show it: MSD whole, the
+    /// estimate's decimal to a tenth (its rounded level is shown nowhere:
+    /// round AD, 2026-11-19, the maintainer: "A tenth everywhere").
     pub fn whole(&self) -> String {
         match self {
             Shown::Msd(m) => format!("{}", m.round() as i64),
-            Shown::Estimate(level, _) => level.to_string(),
+            Shown::Estimate(_, d) => format!("{d:.1}"),
         }
     }
 
-    /// As a ladder's row and the prompt show it: MSD to a tenth, the
-    /// estimate's level.
+    /// As a ladder's row and the prompt show it: both to a tenth.
     pub fn fine(&self) -> String {
         match self {
             Shown::Msd(m) => format!("{m:.1}"),
-            Shown::Estimate(level, _) => level.to_string(),
+            Shown::Estimate(_, d) => format!("{d:.1}"),
         }
     }
 
@@ -1137,6 +1138,11 @@ mod tests {
             shown(Some(digest(5)), "dance-single", true),
             Some(Shown::Estimate(14, 14.27))
         );
+        // To a tenth everywhere it shows (round AD).
+        let e = Shown::Estimate(14, 14.27);
+        assert_eq!((e.whole(), e.fine(), e.detail()), ("14.3".into(), "14.3".into(), "14.3".into()));
+        let m = Shown::Msd(21.44);
+        assert_eq!((m.whole(), m.fine()), ("21".into(), "21.4".into()));
         assert_eq!(shown(Some(digest(5)), "dance-single", false), None, "a version");
         assert_eq!(shown(Some(digest(5)), "dance-double", true), None);
         assert_eq!(standing("a", Some(digest(5)), "dance-single", true), Standing::Profile(p));

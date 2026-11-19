@@ -561,11 +561,15 @@ impl Infinito {
                 call(&mut cell, "xy", &[x, cy]);
                 self.colored(&mut cell, "Full", "Cell");
                 self.colored(&mut cell, "Empty", "CellEmpty");
-                let meter = at(
+                let mut meter = at(
                     self.num(&format!("Meter{k}"), "", 14.0, &format!("Difficulty.{d}")),
                     x,
                     cy,
                 );
+                // Inside its cell: a rating to a tenth ("18.8", the DDI
+                // estimate's, round AD) squeezed to it, two digits as
+                // they are.
+                call(&mut meter, "maxwidth", &[24.0]);
                 // The best's lamp, a line under the cell.
                 let mut lamp = round(
                     quad(&format!("Lamp{k}"), [18.0, 3.0], self.c("Lamp.Clear")),

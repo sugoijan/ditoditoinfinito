@@ -2555,3 +2555,138 @@ const THEME_OFF_PINNED: [u64; 24] = [
     17038983878928361525,
     8779959774794916449,
 ];
+
+/// Under "Chart ratings: DDI estimate" every number is the estimate to a
+/// tenth (round AD): the list's five chips stay inside their cells and
+/// apart, and the chart buttons' numbers inside their buttons, at the
+/// design's size and the smallest wide window.
+#[test]
+fn the_estimates_tenths_fit_the_chips_and_the_chart_buttons() {
+    use ddi_library::manifest::ChartEstimate;
+    use ddi_ui::screens::data::{ChartEntry, Difficulty, SelectData, SongEntry};
+    use ddi_ui::screens::select::SelectScreen;
+    use ddi_ui::state::ratings;
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    ratings::set_mode(ratings::Source::Estimate, false);
+    let decimals = [18.84_f32, 10.04, 19.96, 11.11, 14.27, 17.77, 12.5];
+    let difficulties = [
+        Difficulty::Beginner,
+        Difficulty::Easy,
+        Difficulty::Medium,
+        Difficulty::Hard,
+        Difficulty::Challenge,
+        Difficulty::Edit,
+        Difficulty::Edit,
+    ];
+    let songs = (0..4u128)
+        .map(|s| SongEntry {
+            id: format!("s{s}"),
+            title: format!("Song {s}"),
+            artist: "Artist".into(),
+            bpm_text: "150".into(),
+            length: 120.0,
+            charts: difficulties
+                .iter()
+                .enumerate()
+                .map(|(k, d)| {
+                    let digest = ddi_chart::ChartDigest(100 * s + k as u128);
+                    ratings::remember_estimate(
+                        digest,
+                        ChartEstimate {
+                            decimal: decimals[k],
+                            level: decimals[k].round() as u8,
+                            scalar: true,
+                            studied: true,
+                            profile: None,
+                        },
+                    );
+                    ChartEntry {
+                        style: "dance-single".into(),
+                        difficulty: *d,
+                        meter: 9,
+                        notes: 300,
+                        index: k,
+                        name: if k >= 5 { format!("Edit {k}") } else { String::new() },
+                        digest: Some(digest),
+                        ..ChartEntry::default()
+                    }
+                })
+                .collect(),
+            ..SongEntry::default()
+        })
+        .collect();
+    let data = SelectData {
+        styles: sample::styles(),
+        songs,
+        style: Some("dance-single".into()),
+        ..SelectData::default()
+    };
+    let theme = Rc::new(Infinito::new());
+    // The ladder's side, the radar's (its chart buttons), each at the
+    // design's size and the smallest wide window; a phone's buttons.
+    for (size, design, radar) in [
+        ([1280.0, 720.0], DESIGN, false),
+        ([600.0, 480.0], DESIGN, false),
+        ([1280.0, 720.0], DESIGN, true),
+        ([600.0, 480.0], DESIGN, true),
+        ([844.0, 390.0], COMPACT, false),
+    ] {
+        ratings::set_mode(ratings::Source::Estimate, radar);
+        let compact = design == COMPACT;
+        let env = env(&theme);
+        let mut h = harness(size, design);
+        h.push(SelectScreen::new(
+            env.clone(),
+            data.clone(),
+            Some("s1"),
+            Rc::new(|_, _, _: &Env, _| {}),
+            Rc::new(|_, _| {}),
+        ));
+        h.run(0.6);
+        let texts = h.texts();
+        for want in ["18.8", "10.0", "20.0", "11.1", "14.3"].iter().skip(usize::from(compact)) {
+            assert!(texts.iter().any(|t| t == want), "{size:?}: no {want} in {texts:?}");
+        }
+        // The list's rows: each chip's number inside its cell, apart.
+        let mut rows = 0;
+        for i in 0..40 {
+            let row = format!("Wheel#{i}");
+            let Some(cell0) = h.ui.bounds_of(&row, "Cell0") else {
+                continue;
+            };
+            if h.ui.bounds_of(&row, "Meter0").is_none() || cell0[2] - cell0[0] < 1.0 {
+                continue;
+            }
+            rows += 1;
+            let mut last_right = f32::MIN;
+            for k in 0..5 {
+                let cell = h.ui.bounds_of(&row, &format!("Cell{k}")).unwrap();
+                let m = h.ui.bounds_of(&row, &format!("Meter{k}")).unwrap();
+                assert!(
+                    m[0] >= cell[0] - 0.5 && m[2] <= cell[2] + 0.5,
+                    "{size:?} {row} Meter{k} {m:?} outside its cell {cell:?}"
+                );
+                assert!(m[0] > last_right, "{size:?} {row} Meter{k} touches the one before");
+                last_right = m[2];
+            }
+        }
+        assert!(compact || rows > 0, "{size:?}: no rows found");
+        // The chart buttons.
+        let mut buttons = 0;
+        for k in 0..8 {
+            let Some(b) = h.ui.bounds(&format!("Chart{k}")) else {
+                continue;
+            };
+            let m = h.ui.bounds_of(&format!("Chart{k}"), "Meter").unwrap();
+            buttons += 1;
+            assert!(
+                m[0] >= b[0] + 2.0 && m[2] <= b[2] - 2.0,
+                "{size:?} Chart{k}'s number {m:?} outside its button {b:?}"
+            );
+        }
+        if radar || compact {
+            assert!(buttons >= 5, "{size:?}: {buttons} chart buttons");
+        }
+    }
+    ratings::set_mode(ratings::Source::Song, false);
+}

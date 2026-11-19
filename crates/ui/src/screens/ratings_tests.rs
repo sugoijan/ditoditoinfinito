@@ -525,7 +525,7 @@ fn every_chart_keeps_its_button_on_the_radar_s_side() {
 
 /// Round Z2: the three choices' numbers on the bundled songs' charts, by
 /// the calculators' own values (nothing copied): the song's own; MSD,
-/// whole, on four lanes; the DDI estimate's level on original Single
+/// whole, on four lanes; the DDI estimate to a tenth on original Single
 /// charts whose number it qualifies, the song's elsewhere (fainter).
 #[test]
 fn the_three_choices_number_the_bundled_charts() {
@@ -574,12 +574,11 @@ fn the_three_choices_number_the_bundled_charts() {
             let est = ddi_rating::estimate(&song, *index).ok().filter(|e| e.within_scalar_domain);
             match est {
                 Some(e) => {
-                    assert_eq!(c.meter_text(), e.level.to_string(), "{what}");
-                    assert_eq!(
-                        c.shown_rating().unwrap().detail(),
-                        format!("{:.1}", (e.decimal * 100.0).round() / 100.0),
-                        "{what}"
-                    );
+                    // To a tenth everywhere (round AD).
+                    let tenth = format!("{:.1}", (e.decimal * 100.0).round() / 100.0);
+                    assert_eq!(c.meter_text(), tenth, "{what}");
+                    assert_eq!(c.meter_text_fine(), tenth, "{what}");
+                    assert_eq!(c.shown_rating().unwrap().detail(), tenth, "{what}");
                     checked += 1;
                 }
                 None => assert!(c.meter_is_songs(), "{what}: the song's, fainter"),
