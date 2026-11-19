@@ -1108,6 +1108,12 @@ impl Bot {
         if self.order.is_none() && room.borrow().view() != RoomView::Select {
             let order = room.borrow_mut().take_stage_order();
             if let Some(order) = order {
+                // A stage it is not in (it joined during its play, round
+                // AA): watched, never played or reported as its own.
+                if order.watching {
+                    self.say(format!("watching stage {} (not in it)", order.number));
+                    return;
+                }
                 // A person's moment to press Ready.
                 self.ready_at = now + 700 + mix(self.seed, now) % 1800;
                 self.order = Some(order);

@@ -404,7 +404,7 @@ fn score_of(row: &StageRow, percent: bool) -> String {
             (None, None) => String::new(),
         },
         None => match row.run {
-            Some(Run::Live { score, .. }) => score.to_string(),
+            Some(Run::Live { score, .. } | Run::Failed { score, .. }) => score.to_string(),
             _ => String::new(),
         },
     };
@@ -416,13 +416,16 @@ fn score_of(row: &StageRow, percent: bool) -> String {
 fn life_of(row: &StageRow) -> String {
     let left =
         row.placement.is_some_and(|p| p.finish == Finish::Forfeit) || row.run == Some(Run::Forfeit);
+    // Failed and played on (revision 15): when, said as failed.
+    let failed = row.placement.is_some_and(|p| p.finish == Finish::Failed)
+        || matches!(row.run, Some(Run::Failed { .. }));
     let out = row
         .detail
         .as_ref()
         .and_then(|d| d.out_at_ms)
         .map(|ms| ms as f32 / 1_000.0)
         .or(match row.run {
-            Some(Run::Out { at }) => Some(at as f32),
+            Some(Run::Out { at } | Run::Failed { at, .. }) => Some(at as f32),
             _ => None,
         });
     let life = row
@@ -433,7 +436,9 @@ fn life_of(row: &StageRow) -> String {
             Some(Run::Live { life, .. }) => Some(life),
             _ => None,
         });
-    if let Some(at) = out {
+    if let Some(at) = out.filter(|_| failed) {
+        m::table_failed(UiText::data(super::super::data::clock(at))).into()
+    } else if let Some(at) = out {
         m::table_out(UiText::data(super::super::data::clock(at))).into()
     } else if left {
         m::table_left().into()

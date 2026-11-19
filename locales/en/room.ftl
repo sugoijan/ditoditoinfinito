@@ -1768,6 +1768,13 @@ room-table-playing = Still playing…
 #   $time (String) - the song's minute and second ("1:02")
 room-table-out = Out { $time }
 
+# The same for a player whose life ran out on the easiest chart under
+# Charts: Adaptive's "Play on": failed then, and played on to the end
+# (feedback round AA).
+# Variables:
+#   $time (String) - the song's minute and second ("1:02")
+room-table-failed = Failed { $time }
+
 # A row's life column for a player who left the stage (about 6 letters).
 room-table-left = Left
 

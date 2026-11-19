@@ -780,6 +780,7 @@ room-table-award-value = +{ $points }
 room-table-playing = プレイ中…
 
 room-table-out = アウト { $time }
+room-table-failed = 失敗 { $time }
 
 room-table-left = 退出
 room-table-stepped = ↓ { $chart }
