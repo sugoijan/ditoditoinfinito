@@ -2457,7 +2457,9 @@ comes or goes). The testing parameters (`gfx`, `auto`, `bias`,
 route (`#/select?perf=1`, `#/mp?mpcpus=16`, `#/options?lang=ja`;
 `crate::router::Route::current`'s first read), and later on the routes
 each was always read on; `gfx`, `auto`, `bias` and `slow` stay for the
-session. The skill
+session, and `mpfakechat` (with `mpfakechatimg`) for the tab's session,
+through a reload and the trips through Twitch (`sessionStorage`'s
+`ddi.mpfakechat`; `mpfakechat=0` ends it). The skill
 lists the routes and their parameters (`#/play`, replays, calibration,
 `#/video-check`, `#/skin-preview`, `#/ui-test`, `#/ui-dev`), what
 `__DDI_DEBUG` carries, and a recipe for each screen and feature; song

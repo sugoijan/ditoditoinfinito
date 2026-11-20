@@ -7,6 +7,7 @@
 
 pub(crate) use crate::route::{PlayRoute, Route, has_bars};
 use crate::route::{fallback_parent, param_name, params, percent_decode, split_hash};
+use ddi_platform::storage::{self, Area};
 
 impl Route {
     /// The route's address, with the testing parameters kept for the
@@ -25,6 +26,9 @@ impl Route {
         let at_load = !LOADED.with(|l| l.replace(true));
         keep_testing_at(&hash, at_load);
         share_switch(&hash);
+        if at_load {
+            restore_chat(&hash);
+        }
         multiplayer_params(&hash, at_load);
         lang_switch(&hash);
         Route::parse(&hash)
@@ -161,6 +165,27 @@ fn share_switch(hash: &str) {
     }
 }
 
+/// `sessionStorage`: TESTING ONLY, the scripted chat's `mpfakechat` and
+/// `mpfakechatimg` as last given (`<what>\n<images>`), for the tab's
+/// session.
+const CHAT_KEPT: &str = "ddi.mpfakechat";
+
+/// The page loaded on an address without `mpfakechat`: the scripted chat
+/// the tab's session was given before (a reload, the way back from a trip
+/// through Twitch), as it was given.
+fn restore_chat(hash: &str) {
+    let given = split_hash(hash)
+        .1
+        .is_some_and(|q| params(q).any(|(k, _)| k == "mpfakechat"));
+    if given {
+        return;
+    }
+    if let Some(kept) = storage::get(Area::Session, CHAT_KEPT) {
+        let (what, images) = kept.split_once('\n').unwrap_or((kept.as_str(), ""));
+        crate::chat::script(what, (!images.is_empty()).then_some(images));
+    }
+}
+
 /// The multiplayer prototype's testing parameters
 /// (`docs/plans/multiplayer-prototype-progress.md`), read from the address
 /// the page loads on, whatever its route, and from the start route's or
@@ -244,8 +269,18 @@ fn multiplayer_params(hash: &str, at_load: bool) {
     // chat beside every play where Options → Display's Twitch chat in
     // rooms is on (`crate::chat`), its images from `mpfakechatimg=<path>`
     // where given; `mpfakechat=0` stops it.
+    // Kept for the tab's session (round SF): a reload, and the trips
+    // through Twitch (signing in, Twitch access), come back to an address
+    // without it ([`restore_chat`]).
     if let Some(what) = param("mpfakechat") {
-        crate::chat::script(&what, param("mpfakechatimg").as_deref());
+        let images = param("mpfakechatimg");
+        crate::chat::script(&what, images.as_deref());
+        if what == "0" {
+            storage::remove(Area::Session, CHAT_KEPT);
+        } else {
+            let kept = format!("{what}\n{}", images.unwrap_or_default());
+            let _ = storage::set(Area::Session, CHAT_KEPT, &kept);
+        }
     }
     if let Some(after) = param("mpfakeroom").and_then(|s| s.parse::<f64>().ok()) {
         crate::fake_room::want(after);
