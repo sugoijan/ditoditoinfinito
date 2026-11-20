@@ -285,10 +285,14 @@ pub fn touch_cut(plan: &crate::touch_controls::Controls, lane: usize, size: f32)
     let gh = (group[3] - group[1]).max(1.0);
     let k = size / gw.max(gh);
     let pad = matches!(first.kind, Kind::Tile { .. });
-    // A group of buttons shows the side it is on: shifted that way.
+    // A group of buttons, or one of two pads, shows the side it is on:
+    // shifted that way.
+    let two = plan.groups.len() > 1;
     let shift = match first.kind {
         Kind::Button { group: 0 } => -size * 0.12,
         Kind::Button { .. } => size * 0.12,
+        Kind::Tile { pad: 0, .. } if two => -size * 0.12,
+        Kind::Tile { .. } if two => size * 0.12,
         Kind::Tile { .. } => 0.0,
     };
     let mid = [(group[0] + group[2]) / 2.0, (group[1] + group[3]) / 2.0];
