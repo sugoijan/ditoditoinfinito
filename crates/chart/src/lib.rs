@@ -10,6 +10,7 @@
 
 pub mod digest;
 pub mod formats;
+pub mod groove;
 pub mod layout;
 pub mod model;
 pub mod simplify;
