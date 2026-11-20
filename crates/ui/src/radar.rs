@@ -394,8 +394,19 @@ pub struct Placed {
 /// `numbers` is the caption's number, then a spoke's each.
 pub fn place(size: [f32; 2], words: &Words, numbers: &[String]) -> Placed {
     if let Some(caption) = EDGE.with(std::cell::Cell::get) {
-        return place_edge(size, words, numbers, caption);
+        // The labels at the edges where that gives the shape more room
+        // (eight short labels: the corners free the diagonals); else
+        // beyond the spokes' ends (seven wide side labels, MSD's, keep
+        // more room there).
+        let edge = place_edge(size, words, numbers, caption);
+        let end = place_at_ends(size, words, numbers);
+        return if caption == Caption::Center || edge.radius >= end.radius { edge } else { end };
     }
+    place_at_ends(size, words, numbers)
+}
+
+/// The labels beyond the spokes' ends (round Z1's rule).
+fn place_at_ends(size: [f32; 2], words: &Words, numbers: &[String]) -> Placed {
     let mut text = (size[1] / 16.0).clamp(9.0, 13.0).floor();
     while text >= 9.0 {
         let full = fit(size, text, words.full, words.overall, numbers);
@@ -423,7 +434,7 @@ pub enum Caption {
 }
 
 thread_local! {
-    static EDGE: std::cell::Cell<Option<Caption>> = const { std::cell::Cell::new(None) };
+    static EDGE: std::cell::Cell<Option<Caption>> = const { std::cell::Cell::new(Some(Caption::Corner)) };
 }
 
 /// TESTING AID: the labels at the radar's edges and corners rather than
@@ -464,7 +475,10 @@ fn edge_at(
     let [w, h] = size;
     let m = pad(size);
     let n = names.len();
-    let cap_w = width_of(overall, text) + text * 0.5 + width_of(&numbers[0], text + 4.0);
+    // Widths estimated a little wide: a script's own faces (the long
+    // pseudo-language's accents) draw wider than the estimate.
+    const SLACK: f32 = 1.2;
+    let cap_w = (width_of(overall, text) + text * 0.5 + width_of(&numbers[0], text + 4.0)) * SLACK;
     let cap_h = line(text + 4.0);
     let cap = match caption {
         Caption::Corner => [-w / 2.0 + m, -h / 2.0 + m, -w / 2.0 + m + cap_w, -h / 2.0 + m + cap_h],
@@ -474,7 +488,7 @@ fn edge_at(
     let mut labels: Vec<Rect> = (0..n)
         .map(|k| {
             let [dx, dy] = direction(k, n);
-            let tw = width_of(&names[k], text).max(width_of(&numbers[k + 1], text + NUMBER_UP));
+            let tw = width_of(&names[k], text).max(width_of(&numbers[k + 1], text + NUMBER_UP)) * SLACK;
             let th = line(text) + line(text + NUMBER_UP);
             let x0 = if dx > 0.25 {
                 w / 2.0 - m - tw
@@ -493,10 +507,11 @@ fn edge_at(
             [x0, y0, x0 + tw, y0 + th]
         })
         .collect();
-    // A label the corner's caption would cover goes under it.
+    // A label the corner's caption would come near goes under it.
+    let near = [cap[0], cap[1], cap[2] + text * 0.5, cap[3] + 2.0];
     if caption == Caption::Corner {
         for r in &mut labels {
-            if overlap(*r, cap) {
+            if overlap(*r, near) {
                 let dy = cap[3] + 2.0 - r[1];
                 r[1] += dy;
                 r[3] += dy;

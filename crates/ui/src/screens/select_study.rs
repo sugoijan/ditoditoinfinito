@@ -579,12 +579,48 @@ fn set_title(info: &mut Actor, title: &str) {
     }
 }
 
+/// The room kept between a title running past the song side and the list's
+/// rows, and for the heart after it.
+const TITLE_GAP: f32 = 12.0;
+const HEART_ROOM: f32 = 34.0;
+
 impl SelectScreen {
+    /// The title's room in B2 (`None`: the block's own): from its left to
+    /// where the list's rows can reach at the title's height whatever the
+    /// list's scroll (the rows drift right by their distance from the
+    /// wheel's focus line, `Look::wheel`: the nearest a row can come to the
+    /// title is half a row nearer than the band's foot), less the heart's
+    /// room. Alone; a room's list has its tabs and status line at its top.
+    pub(super) fn title_room(&self) -> Option<f32> {
+        let g = self.study_wide()?;
+        if g.layout != SelectLayout::TwinsTwo || g.text_style != "top" || self.room.is_some() {
+            return None;
+        }
+        let l = &self.layout;
+        let [sx, sy, sw] = l.song;
+        let [wx, wy, _, wh] = l.wheel;
+        // The title's line, 36 high, in the screen's frame.
+        let foot = sy + g.text[1] + 36.0;
+        let focus = wy + wh * 0.5;
+        let d = ((focus - foot) / l.row - 0.5).max(0.0);
+        let drift = self.env.look.wheel("Wheel", d).map_or(0.0, |p| p.x);
+        let inset = self.env.metric("Select.Wheel.Inset", 0.0);
+        // A row's plate starts 8 in from the list's edge (the look's row
+        // inset for the focus outline).
+        let clear = wx + inset + 8.0 + drift - TITLE_GAP;
+        let room = (clear - sx - g.text[0]).max(sw - g.text[0]) - HEART_ROOM;
+        Some(room)
+    }
+
     /// `l` as the study's candidate (if one is chosen) has it.
     pub(super) fn study_layout(&self, mut l: Layout) -> Layout {
         l.study = None;
-        let Some(c) = select_layout() else {
-            return l;
+        // B2 is song select's wide song side (alone; a room's until its
+        // three parts are built keeps its short side).
+        let c = match select_layout() {
+            Some(c) => c,
+            None if !l.chips && self.room.is_none() => SelectLayout::TwinsTwo,
+            None => return l,
         };
         let h = l.ladder[0] + l.ladder[1] - l.song[1];
         if c == SelectLayout::TwinsTwo {
@@ -703,7 +739,8 @@ impl SelectScreen {
 
     /// The radar Round 2 expects for this screen (`None`: today's rule).
     pub(super) fn study_radar(&self, compact: bool) -> Option<bool> {
-        (select_layout() == Some(SelectLayout::TwinsTwo)).then(|| {
+        let b2 = select_layout().map_or(self.room.is_none(), |c| c == SelectLayout::TwinsTwo);
+        b2.then(|| {
             if self.room.is_some() {
                 !compact && ROOM_FORM.with(Cell::get) != RoomForm::OnDemand
             } else {
@@ -730,7 +767,11 @@ impl SelectScreen {
                 let mut cover = env.component("SongCover", "Panel", &Spec::new([cs, cs], ""), "Cover", [cx, cy]);
                 cover.name = "Cover".into();
                 let [tx, ty, tw, th] = g.text;
-                let style = if round5().on && g.text_style == "top" { "top5" } else { g.text_style };
+                let style = if (round5().on || g.layout == SelectLayout::TwinsTwo) && g.text_style == "top" {
+                    "top5"
+                } else {
+                    g.text_style
+                };
                 let text = env.component(
                     "SongInfo.Text",
                     "Panel",
@@ -895,6 +936,13 @@ impl SelectScreen {
             return;
         };
         set_title(info, &song.title);
+        // B2's title may run past the side into the width the list's
+        // curve leaves clear at its height.
+        if let Some(w) = self.title_room()
+            && let Some(t) = part(info, "Title")
+        {
+            look::ellipsized(t, w);
+        }
         // The art: the preview movie while its frames come, else the
         // cover, else the banner; the blurred copy of the still under it.
         let still = song.jacket.as_deref().or(song.banner.as_deref());
@@ -977,7 +1025,7 @@ impl SelectScreen {
             f.kind = Kind::Frame(buttons);
         }
         // Round 5: the chosen chart's notes in the line under the title.
-        if round5().on
+        if (round5().on || g.layout == SelectLayout::TwinsTwo)
             && let Some(info) = hit::find_mut(root, "Info")
         {
             let notes = match pick.map(|p| charts[p]) {
@@ -1027,7 +1075,7 @@ impl SelectScreen {
             lines.push(first.join(" · "));
         }
         // (Round 5: the notes are in the line under the title.)
-        if !self.song().is_some_and(SongEntry::away) && !round5().on {
+        if !self.song().is_some_and(SongEntry::away) && !round5().on && g.layout != SelectLayout::TwinsTwo {
             lines.push(msg::chart_notes(c.notes).into());
         }
         if !c.credit.is_empty() {

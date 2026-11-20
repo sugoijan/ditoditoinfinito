@@ -3600,6 +3600,9 @@ impl SelectScreen {
         // One line, as wide as the song's column: the notices' texts (cut
         // to fit), then their links.
         let [x0, _, width] = l.song;
+        // The wide layout's line runs on to the list (over the header's
+        // foot, where nothing of the song side is).
+        let width = if l.compact { width } else { (l.wheel[0] - x0 - 8.0).max(width) };
         let y = if l.upright {
             l.song[1] + l.play_y - l.play_h / 2.0 - 16.0
         } else if l.compact {

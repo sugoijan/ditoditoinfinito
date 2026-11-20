@@ -35,13 +35,7 @@ fn song_select_draws_in_the_theme() {
         [pixels[i], pixels[i + 1], pixels[i + 2]]
     };
     let close = |a: [u8; 3], b: [u8; 3]| a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= 3);
-    // The selected chart's plate (Hard, the fourth row) and the selected
-    // song's in the wheel.
-    assert!(
-        close(at(480, 590), [0x22, 0x1e, 0x2b]),
-        "ladder {:?}",
-        at(480, 590)
-    );
+    // The selected song's row in the wheel.
     assert!(
         close(at(1050, 405), [0x24, 0x1f, 0x2d]),
         "wheel {:?}",
@@ -50,8 +44,9 @@ fn song_select_draws_in_the_theme() {
     // The ground between them, tinted by the backdrop but dark.
     let g = at(610, 300);
     assert!(g.iter().all(|&c| c < 70), "ground {g:?}");
-    // The banner, decoded from the bundled song: not its placeholder.
-    let b = at(300, 170);
+    // The banner, decoded from the bundled song, in the cover square: not
+    // its placeholder.
+    let b = at(160, 310);
     assert!(!close(b, [0x1f, 0x1b, 0x28]), "banner {b:?}");
     assert_eq!(env.state.borrow().song, "Some Things Must");
 }

@@ -1435,6 +1435,7 @@ impl Look for Infinito {
 
     fn place_measured(&self, root: &mut Actor, measure: &mut dyn ddi_actor::text::TextMeasure) {
         place_after_bpm(root, measure);
+        song_cover::place_heart(root, measure);
     }
 
     fn animate_component(

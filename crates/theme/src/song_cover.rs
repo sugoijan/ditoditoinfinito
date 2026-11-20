@@ -276,3 +276,37 @@ impl Infinito {
         )
     }
 }
+
+/// B2's heart right after the title as drawn (the title's measured width,
+/// squeezed to its room at most), so a title running past the song side
+/// carries its heart along.
+pub(crate) fn place_heart(root: &mut Actor, measure: &mut dyn ddi_actor::text::TextMeasure) {
+    let Some(path) = ddi_ui::hit::find(root, "NotesLabel") else {
+        return;
+    };
+    // The block holding the title band: two up from the label.
+    if path.len() < 2 {
+        return;
+    }
+    let Some(block) = ddi_ui::hit::actor_at_mut(root, &path[..path.len() - 2]) else {
+        return;
+    };
+    let width = block.children_mut().iter_mut().find(|a| a.name == "Title").and_then(|t| {
+        t.measure(measure);
+        let Kind::Text(x) = &t.kind else {
+            return None;
+        };
+        let advance = x.metrics()?.advance;
+        let max = x.max_width;
+        Some(if max > 0.0 { advance.min(max) } else { advance })
+    });
+    let Some(width) = width else {
+        return;
+    };
+    if let Some(slot) = block.children_mut().iter_mut().find(|a| a.name == "FavoriteSlot") {
+        let x = width + 10.0 + FAVORITE * 0.5;
+        if (slot.current().pos[0] - x).abs() > 0.01 {
+            call(slot, "x", &[x]);
+        }
+    }
+}

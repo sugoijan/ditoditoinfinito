@@ -265,10 +265,10 @@ fn a_chart_button_marks_a_generated_version_with_a_dot() {
 fn the_wheel_makes_room_for_the_selected_row() {
     let t = Infinito::new();
     let w = |d| t.wheel("Wheel", d).unwrap();
-    // The selected row (88) centered on the line; neighbours 6 from it.
-    assert_eq!(w(0.0).y, -11.0);
-    assert_eq!(w(1.0).y, 17.0);
-    assert_eq!(w(-1.0).y, -11.0);
+    // The selected row (76) centered on the line; neighbours 6 from it.
+    assert_eq!(w(0.0).y, -10.0);
+    assert_eq!(w(1.0).y, 16.0);
+    assert_eq!(w(-1.0).y, -10.0);
     assert_eq!(w(2.0).x, 20.0);
     assert!((w(3.0).alpha - 0.67).abs() < 1e-5);
     assert_eq!(w(10.0).alpha, 0.3);
@@ -469,14 +469,15 @@ fn the_screens_in_the_theme() {
         "160",
         "2:26",
         "HARD",
-        "595 notes · steps by -YOSEFU-",
+        "595",
+        "Steps by -YOSEFU-",
         "13",
     ] {
         assert!(texts.iter().any(|x| x == t), "no {t:?} in {texts:?}");
     }
     // The meter in its difficulty's color.
     let hard = parse_color("#e8584a").unwrap();
-    let meter = h.ui.actor("Ladder.Row3").unwrap();
+    let meter = h.ui.actor("Chart3").unwrap();
     let mut m = meter.clone();
     let mm = ddi_ui::widgets::part(&mut m, "Meter").unwrap();
     assert_eq!(mm.current().diffuse[0], hard);
@@ -600,7 +601,7 @@ fn bests_and_the_footer_in_the_theme() {
         assert!(texts.iter().any(|x| x == t), "no {t:?} in {texts:?}");
     }
     let fc = parse_color("#4ea3f0").unwrap();
-    let mut row = h.ui.actor("Ladder.Row3").unwrap().clone();
+    let mut row = h.ui.actor("Chart3").unwrap().clone();
     let lamp = ddi_ui::widgets::part(&mut row, "Lamp").unwrap();
     assert_eq!(lamp.current().diffuse[0], fc);
     // Hints left, links right: apart.
@@ -735,10 +736,12 @@ fn a_flick_leaves_no_gap_on_the_wheels_line() {
     );
 }
 
-/// A song's jacket shows beside its banner, its CD title in the banner's
-/// corner; a song without them shows its banner across.
+/// The song's one picture (`SongCover`): its jacket, whole over its own
+/// blurred copy, its CD title in the square's corner; without a jacket its
+/// banner whole over the banner's blurred copy; with neither, the title
+/// plate.
 #[test]
-fn jackets_and_cd_titles_show_with_the_banner() {
+fn the_cover_square_shows_the_jacket_else_the_banner_else_the_title() {
     use ddi_ui::screens::select::SelectScreen;
     let theme = Rc::new(Infinito::new());
     let env = env(&theme);
@@ -750,65 +753,62 @@ fn jackets_and_cd_titles_show_with_the_banner() {
         .unwrap();
     song.jacket = Some("songs/some-things-must/jacket.png".into());
     song.cd_title = Some("songs/some-things-must/cd.png".into());
-    let mut h = harness([1280.0, 720.0], DESIGN);
-    h.push(SelectScreen::new(
-        env.clone(),
-        d.clone(),
-        Some("some-things-must"),
-        Rc::new(|_, _, _: &Env, _| {}),
-        Rc::new(|_, _| {}),
-    ));
-    h.run(0.6);
-    let source = |h: &Harness, name: &str| -> Option<String> {
-        let a = h.actor(name);
-        let Kind::Sprite(s) = &a.kind else {
-            panic!("{name}")
+    let shown = |d: &ddi_ui::screens::data::SelectData, id: &str| {
+        let mut h = harness([1280.0, 720.0], DESIGN);
+        h.push(SelectScreen::new(
+            env.clone(),
+            d.clone(),
+            Some(id),
+            Rc::new(|_, _, _: &Env, _| {}),
+            Rc::new(|_, _| {}),
+        ));
+        h.run(0.6);
+        let mut info = h.actor("Info").clone();
+        let mut source = |name: &str| -> Option<(String, bool)> {
+            let a = ddi_ui::widgets::part(&mut info, name).expect(name);
+            let Kind::Sprite(s) = &a.kind else {
+                panic!("{name}")
+            };
+            a.visible
+                .then(|| h.ui.texture_source(s.texture))
+                .flatten()
+                .map(|t| (t.source.to_string(), t.blurred))
         };
-        a.visible
-            .then(|| h.ui.texture_source(s.texture))
-            .flatten()
-            .map(|t| t.source.to_string())
+        let art = source("CoverArt");
+        let blur = source("CoverBlur");
+        let cd = source("CdTitle");
+        let plate = ddi_ui::widgets::part(&mut info, "CoverPlaceholder").is_some_and(|p| p.visible);
+        let cover = h.ui.bounds_of("Info", "Cover").unwrap();
+        (art, blur, cd, plate, cover)
     };
-    assert_eq!(
-        source(&h, "Jacket").as_deref(),
-        Some("songs/some-things-must/jacket.png")
-    );
-    assert_eq!(
-        source(&h, "CdTitle").as_deref(),
-        Some("songs/some-things-must/cd.png")
-    );
-    assert!(source(&h, "BannerShort").is_some());
-    let jacket = h.ui.bounds("Jacket").unwrap();
-    let short = h.ui.bounds("BannerShort").unwrap();
-    // Square, at the right of the narrower banner, as tall.
-    assert!(((jacket[2] - jacket[0]) - (jacket[3] - jacket[1])).abs() < 0.5);
-    assert!(short[2] <= jacket[0]);
-    assert!((short[3] - jacket[3]).abs() < 0.5);
-    // Without: the banner across, nothing else.
-    let mut h = harness([1280.0, 720.0], DESIGN);
-    let mut plain = d;
-    for s in &mut plain.songs {
-        s.jacket = None;
-        s.cd_title = None;
-    }
-    h.push(SelectScreen::new(
-        env.clone(),
-        plain,
-        Some("some-things-must"),
-        Rc::new(|_, _, _: &Env, _| {}),
-        Rc::new(|_, _| {}),
-    ));
-    h.run(0.6);
-    assert_eq!(source(&h, "Jacket"), None);
-    assert_eq!(source(&h, "BannerShort"), None);
-    assert_eq!(source(&h, "CdTitle"), None);
+    let jacket = "songs/some-things-must/jacket.png".to_string();
+    let (art, blur, cd, plate, cover) = shown(&d, "some-things-must");
+    assert_eq!(art, Some((jacket.clone(), false)));
+    assert_eq!(blur, Some((jacket, true)));
+    assert_eq!(cd.map(|c| c.0).as_deref(), Some("songs/some-things-must/cd.png"));
+    assert!(!plate);
+    // A square, 256 at the design's size.
+    assert!(((cover[2] - cover[0]) - 256.0).abs() < 0.5, "{cover:?}");
+    assert!(((cover[2] - cover[0]) - (cover[3] - cover[1])).abs() < 0.5);
+    // A banner only: the banner whole over its blurred copy.
+    let (art, blur, cd, plate, _) = shown(&d, "sweeteners");
+    let banner = "songs/sweeteners/banner.jpg".to_string();
+    assert_eq!(art, Some((banner.clone(), false)));
+    assert_eq!(blur, Some((banner, true)));
+    assert_eq!(cd, None);
+    assert!(!plate);
+    // Neither: the title plate.
+    let id = d.songs.iter().find(|s| s.banner.is_none() && s.jacket.is_none()).unwrap().id.clone();
+    let (art, blur, _, plate, _) = shown(&d, &id);
+    assert_eq!((art, blur), (None, None));
+    assert!(plate);
 }
 
-/// The shell's preview movie shows in the banner's place, cover-fitted,
-/// while it names the song shown (the jacket's narrower banner with a
-/// jacket); the banner again when it stops or the selection moves on.
+/// The shell's preview movie plays inside the cover square, whole, over
+/// the still's blurred copy, while it names the song shown; the still
+/// again when it stops or the selection moves on.
 #[test]
-fn the_preview_movie_takes_the_banners_place_while_the_shell_draws_it() {
+fn the_preview_movie_plays_in_the_cover_square_while_the_shell_draws_it() {
     use ddi_actor::Fit;
     use ddi_ui::screens::select::{
         FEED, Feed, PREVIEW_MOVIE, SelectCall, SelectScreen, SharedFeed,
@@ -834,12 +834,11 @@ fn the_preview_movie_takes_the_banners_place_while_the_shell_draws_it() {
         ),
     );
     h.run(0.6);
-    // The left side's (the wheel's rows have banners too).
-    let shown = |h: &Harness, name: &str| -> Option<(String, Fit)> {
+    let shown = |h: &Harness| -> Option<(String, Fit)> {
         let mut info = h.actor("Info").clone();
-        let a = ddi_ui::widgets::part(&mut info, name).expect(name);
+        let a = ddi_ui::widgets::part(&mut info, "CoverArt").expect("the art");
         let Kind::Sprite(s) = &a.kind else {
-            panic!("{name}")
+            panic!("CoverArt")
         };
         a.visible
             .then(|| h.ui.texture_source(s.texture))
@@ -847,9 +846,9 @@ fn the_preview_movie_takes_the_banners_place_while_the_shell_draws_it() {
             .map(|t| (t.source.to_string(), s.fit))
     };
     let first = env.state.borrow().song_id.clone();
-    let banner = shown(&h, "Banner").expect("the song's banner");
-    assert_ne!(banner.0, PREVIEW_MOVIE);
-    assert_eq!(banner.1, Fit::Stretch);
+    let still = shown(&h).expect("the song's banner");
+    assert_ne!(still.0, PREVIEW_MOVIE);
+    assert_eq!(still.1, Fit::Contain);
     let tell = |h: &mut Harness, song: Option<&str>| {
         feed.borrow_mut().preview_movie = Some(song.map(str::to_string));
         h.ui.broadcast(ddi_ui::Message::new(FEED));
@@ -857,16 +856,13 @@ fn the_preview_movie_takes_the_banners_place_while_the_shell_draws_it() {
     };
     // The movie of another song changes nothing here.
     tell(&mut h, Some("another"));
-    assert_eq!(shown(&h, "Banner"), Some(banner.clone()));
+    assert_eq!(shown(&h), Some(still.clone()));
     tell(&mut h, Some(&first));
-    assert_eq!(
-        shown(&h, "Banner"),
-        Some((PREVIEW_MOVIE.to_string(), Fit::Cover))
-    );
-    // Stopped: the banner again, stretched as before.
+    assert_eq!(shown(&h), Some((PREVIEW_MOVIE.to_string(), Fit::Contain)));
+    // Stopped: the still again.
     tell(&mut h, None);
-    assert_eq!(shown(&h, "Banner"), Some(banner.clone()));
-    // Shown, then the selection moves on: the next song's banner (the
+    assert_eq!(shown(&h), Some(still.clone()));
+    // Shown, then the selection moves on: the next song's still (the
     // shell is told, and stops the movie).
     tell(&mut h, Some(&first));
     calls.borrow_mut().clear();
@@ -882,23 +878,7 @@ fn the_preview_movie_takes_the_banners_place_while_the_shell_draws_it() {
         "{:?}",
         calls.borrow()
     );
-    assert_ne!(
-        shown(&h, "Banner").map(|b| b.0).as_deref(),
-        Some(PREVIEW_MOVIE)
-    );
-    // With a jacket: the narrower banner shows it.
-    let mut jacketed = data;
-    for s in &mut jacketed.songs {
-        s.jacket = Some(format!("songs/{}/jacket.png", s.id));
-    }
-    feed.borrow_mut().data = Some(jacketed);
-    h.ui.broadcast(ddi_ui::Message::new(FEED));
-    h.run(0.1);
-    tell(&mut h, Some(&now));
-    assert_eq!(
-        shown(&h, "BannerShort").map(|b| b.0).as_deref(),
-        Some(PREVIEW_MOVIE)
-    );
+    assert_ne!(shown(&h).map(|b| b.0).as_deref(), Some(PREVIEW_MOVIE));
 }
 
 /// Many styles: the tabs never run into the wheel; named charts by name;
@@ -971,7 +951,8 @@ fn many_styles_named_charts_and_counts_in_the_theme() {
         h.run(0.2);
     }
     let texts = h.texts();
-    assert!(texts.iter().any(|t| t == "HYPER EDIT"), "{texts:?}");
+    // A named chart without a number is its button's name.
+    assert!(texts.iter().any(|t| t.starts_with("Hyper E") || t == "HYPER EDIT"), "{texts:?}");
     // A search: the packs' counts.
     h.key("Slash", "/");
     h.sync("some", [4, 4], None);
@@ -1519,7 +1500,18 @@ fn song_select_upright_by_touch_keys_and_pad() {
     let env = env(&theme);
     let state = env.state.clone();
     let mut h = harness([390.0, 844.0], COMPACT);
-    h.push(sample::select_screen(&env, None));
+    // Every song in the open pack, so the list runs past the screen.
+    let mut d = sample::select();
+    for song in &mut d.songs {
+        song.pack = None;
+    }
+    h.push(ddi_ui::screens::select::SelectScreen::new(
+        env.clone(),
+        d,
+        Some("some-things-must"),
+        Rc::new(|_, _, _: &Env, _| {}),
+        Rc::new(|_, _| {}),
+    ));
     h.run(0.6);
     // Keys: single Down moves the wheel, double Left changes the chart.
     let song = state.borrow().song.clone();
@@ -1544,19 +1536,20 @@ fn song_select_upright_by_touch_keys_and_pad() {
     h.tap(ddi_ui::PointerKind::Touch, "Chart1");
     h.run(0.2);
     assert_ne!(state.borrow().chart, picked);
-    // A flick up the wheel moves it as far as the finger and on.
+    // A flick up the wheel moves it as far as the finger and on (a pack
+    // opened first, so the list is longer than the screen).
     let wheel = h.ui.bounds("Wheel").unwrap();
     let x = (wheel[0] + wheel[2]) / 2.0;
-    let before = h.texts();
-    h.drag(
-        ddi_ui::PointerKind::Touch,
-        [x, wheel[3] - 20.0],
-        [x, wheel[1] + 20.0],
-        0.12,
-        6,
-    );
+    let before = (h.texts(), state.borrow().scroll);
+    // From the list's foot on the screen (its rows run on below it) to
+    // its head.
+    let [_, wy, _, wh] = state.borrow().wheel;
+    let k = 390.0 / 480.0;
+    let (foot, head) = ((wy + wh - 20.0) * k, (wy + 20.0) * k);
+    let _ = wheel;
+    h.drag(ddi_ui::PointerKind::Touch, [x, foot], [x, head], 0.12, 6);
     h.run(1.5);
-    assert_ne!(h.texts(), before, "a flick scrolls the wheel");
+    assert_ne!((h.texts(), state.borrow().scroll), before, "a flick scrolls the wheel");
     // A tap on a row selects it (a song's, or a pack's header).
     let before = (
         state.borrow().song_id.clone(),
@@ -2194,7 +2187,8 @@ fn song_selects_spots_are_its_parts() {
         inside(best) && best[2] - best[0] < 160.0,
         "{best:?} in {row:?}"
     );
-    assert!(best[2] <= level[0], "the best before the level");
+    // (A chart button holds its level and its lamp: the best is the
+    // button.)
     let screen = ring(ddi_ui::Mark::Screen);
     assert!(screen[3] <= 64.0, "{screen:?}");
 }
@@ -2259,10 +2253,10 @@ fn summary(a: &Actor, out: &mut Vec<String>) {
 /// a screen opened on that song shows (their rows are refilled, not made
 /// again, and the tabs kept while their counts and selection hold).
 #[test]
-fn refilled_ladder_rows_and_kept_tabs_match_ones_made_afresh() {
+fn refilled_chart_buttons_and_kept_tabs_match_ones_made_afresh() {
     fn state(h: &Harness) -> Vec<String> {
         let mut out = Vec::new();
-        summary(h.actor("Ladder"), &mut out);
+        summary(h.actor("Charts"), &mut out);
         summary(h.actor("Tabs"), &mut out);
         out
     }
@@ -2464,16 +2458,14 @@ fn song_selects_footer_hints_never_overlap() {
     }
 }
 
-/// With "Skill radar: Off" song select draws in the theme exactly as it
-/// did before the radar took the ladder's place (round Z1): a hash of each
-/// draw list (`ddi_ui::testing::rounded`), recorded on the code before,
-/// over the sample library at three sizes, Chart ratings on the song's and
-/// on MSD (the bundled charts' numbers as the manifest gives them), and
-/// after a chart and a song changed by keys; a phone's sideways too.
-/// Recorded again in round AE, whose list rows show one chart's level
-/// and best in the place of the five level chips.
+/// Song select draws in the theme as pinned: a hash of each draw list
+/// (`ddi_ui::testing::rounded`) over the sample library at three sizes,
+/// Chart ratings on the song's and on MSD, and after a chart and a song
+/// changed by keys; a phone's sideways too. Recorded again with the song
+/// side's square and radar (`docs/plans/song-navigation.md`, "The song
+/// side"), round SLB.
 #[test]
-fn song_select_with_the_radar_off_draws_in_the_theme_as_pinned() {
+fn song_select_draws_in_the_theme_as_pinned() {
     use ddi_ui::screens::select::SelectScreen;
     use ddi_ui::state::ratings;
     use std::hash::{DefaultHasher, Hash, Hasher};
@@ -2527,31 +2519,31 @@ fn song_select_with_the_radar_off_draws_in_the_theme_as_pinned() {
         }
     }
     ratings::set_mode(ddi_ui::state::ratings::Source::Song, false);
-    assert_eq!(got, THEME_OFF_PINNED, "{got:?}");
+    assert_eq!(got, THEME_PINNED, "{got:?}");
 }
 
-const THEME_OFF_PINNED: [u64; 24] = [
-    961844337856104095,
-    11163235818027493003,
-    3412205291634525976,
-    13660537527811530485,
-    17406333334040583960,
-    1475523141092204417,
-    961844337856104095,
-    11163235818027493003,
-    3412205291634525976,
-    2096631347111801466,
-    8063847042139315681,
-    10074167075107863200,
-    11196450303767606532,
-    13011281625963291997,
-    10320574033528533808,
-    1262965641311292135,
-    8150957479042137151,
-    16465344824985674711,
-    11196450303767606532,
-    13011281625963291997,
-    10320574033528533808,
+const THEME_PINNED: [u64; 24] = [
+    2004274495615136981,
+    9112896865145909310,
+    5102047970783235404,
+    2105221289305705714,
+    17558964294045863915,
+    14119360563255091357,
+    2004274495615136981,
+    9112896865145909310,
+    5102047970783235404,
+    9807268506653823833,
+    15642091438724328585,
+    11697215667106593396,
+    11009322325528701358,
+    8481217646414314718,
+    6047450136163166876,
+    18039876380470255346,
+    16117214794717413455,
+    1167774424983469877,
+    11009322325528701358,
+    8481217646414314718,
+    6047450136163166876,
     6506989735503659457,
     14097999949330615018,
     916317321653497389,
@@ -2844,4 +2836,49 @@ fn a_rooms_chart_row_fits_a_place_per_chart_with_the_estimates_tenths() {
         }
     }
     ratings::set_mode(ratings::Source::Song, false);
+}
+
+/// The song's title runs past the song side's right edge into the width
+/// the list's curve leaves clear at its height, and never over a row of
+/// the list wherever it is scrolled (every song here has the same long
+/// title, so the title shown is that one at every place).
+#[test]
+fn a_long_title_uses_the_lists_clear_width_and_never_meets_a_row() {
+    use ddi_ui::screens::select::SelectScreen;
+    assert!(ddi_l10n::force("en"));
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let mut d = sample::select();
+    for s in &mut d.songs {
+        s.title = "The Extraordinarily Long Title of a Song That Never Seems to End (Extended Mix)".into();
+    }
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(SelectScreen::new(
+        env.clone(),
+        d,
+        Some("some-things-must"),
+        Rc::new(|_, _, _: &Env, _| {}),
+        Rc::new(|_, _| {}),
+    ));
+    h.run(0.6);
+    let side_right = 32.0 + 528.0;
+    let mut past = false;
+    for step in 0..30 {
+        let title = h.ui.bounds_of("Info", "Title").expect("the title");
+        past |= title[2] > side_right + 20.0;
+        for k in 0..60 {
+            let Some(row) = h.ui.bounds(&format!("Wheel#{k}")) else {
+                continue;
+            };
+            if row[3] <= row[1] || row[2] <= row[0] {
+                continue;
+            }
+            let apart = title[2] <= row[0] || row[2] <= title[0] || title[3] <= row[1] || row[3] <= title[1];
+            assert!(apart, "step {step}: the title {title:?} meets row {k} {row:?}");
+        }
+        h.key("ArrowDown", "ArrowDown");
+        h.run(if step % 3 == 0 { 0.05 } else { 0.4 });
+    }
+    assert!(past, "the title used the list's clear width");
+    ddi_l10n::unforce();
 }

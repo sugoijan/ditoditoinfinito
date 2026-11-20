@@ -145,7 +145,7 @@ fn choosing_a_chart_by_pointer_cancels_a_pending_song_move() {
     for kind in [PointerKind::Mouse, PointerKind::Touch] {
         let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
         h.key("ArrowRight", "ArrowRight");
-        h.tap(kind, "Ladder.Row2");
+        h.tap(kind, "Chart2");
         h.run(0.6);
         assert_eq!(s.borrow().song, "Some Things Must");
         assert_eq!(s.borrow().chart.as_deref(), Some("Medium 10"));
@@ -506,7 +506,7 @@ fn recording(data: SelectData, size: [f32; 2], design: [f32; 2]) -> (Harness, Sh
 }
 
 #[test]
-fn the_ladder_picks_and_lights_what_it_shows() {
+fn the_chart_buttons_pick_and_light_what_they_show() {
     let (mut h, s) = recording(sample::select(), [1280.0, 720.0], DESIGN);
     // Pump single: six charts, all shown at 720 high, Hard 16 picked.
     tab(&mut h);
@@ -514,17 +514,17 @@ fn the_ladder_picks_and_lights_what_it_shows() {
     h.run(0.3);
     assert_eq!(s.borrow().chart.as_deref(), Some("Hard 16"));
     for k in 0..6 {
-        assert!(h.ui.bounds(&format!("Ladder.Row{k}")).is_some(), "row {k}");
+        assert!(h.ui.bounds(&format!("Chart{k}")).is_some(), "button {k}");
     }
-    // The first row is Beginner 1; the fifth (Hard) is the pick.
-    h.tap(PointerKind::Mouse, "Ladder.Row0");
+    // The first button is Beginner 1; the fifth (Hard) is the pick.
+    h.tap(PointerKind::Mouse, "Chart0");
     h.run(0.2);
     assert_eq!(s.borrow().chart.as_deref(), Some("Beginner 1"));
-    h.tap(PointerKind::Mouse, "Ladder.Row4");
+    h.tap(PointerKind::Mouse, "Chart4");
     h.run(0.2);
     assert_eq!(s.borrow().chart.as_deref(), Some("Hard 16"));
-    // A tap on the picked row plays it.
-    h.tap(PointerKind::Mouse, "Ladder.Row4");
+    // A tap on the picked button plays it.
+    h.tap(PointerKind::Mouse, "Chart4");
     h.run(0.2);
     assert_eq!(s.borrow().status, "PLAYED Some Things Must Hard 16");
 }
@@ -550,8 +550,8 @@ fn a_named_version_is_named_with_its_version() {
     assert_eq!(&*super::select::chart_text(&c, "EDIT 7"), "EDIT 7");
 }
 
-/// A generated (assisted) version is marked where its chart is picked: on
-/// the ladder's line under it, and on a phone on Play, as its results
+/// A generated (assisted) version is marked where its chart is picked: in
+/// the chosen chart's lines, and on a phone on Play, as its results
 /// mark it (its button's dot is the theme's, `ddi-theme`'s tests).
 #[test]
 fn generated_versions_are_marked_where_they_are_picked() {
@@ -581,20 +581,8 @@ fn generated_versions_are_marked_where_they_are_picked() {
             .iter()
             .any(|c| c.ends_with(" (without-center)"))
     );
-    let notes: Vec<(String, String)> = (0..8)
-        .filter_map(|k| {
-            let mut row = h.ui.actor(&format!("Ladder.Row{k}"))?.clone();
-            Some((text(&mut row, "Title")?, text(&mut row, "Subtitle")?))
-        })
-        .collect();
-    assert!(notes.iter().any(|(label, _)| label == "Hard"), "{notes:?}");
-    for (label, notes) in &notes {
-        assert_eq!(
-            label == "Hard",
-            notes.starts_with("Without center · "),
-            "{label}: {notes}"
-        );
-    }
+    // The chosen chart's lines say its version.
+    assert!(h.texts().iter().any(|t| t == "Without center"), "{:?}", h.texts());
     let compact_label = |d: SelectData| {
         let (mut h, s) = recording(d, [844.0, 390.0], COMPACT);
         h.run(0.3);
@@ -623,18 +611,7 @@ fn generated_versions_are_marked_where_they_are_picked() {
             .iter()
             .any(|c| c.ends_with(" (from-pump-single)"))
     );
-    let mut row = (0..8)
-        .filter_map(|k| h.ui.actor(&format!("Ladder.Row{k}")).cloned())
-        .find(|r| {
-            let mut r = r.clone();
-            text(&mut r, "Title").as_deref() == Some("Hard")
-        })
-        .unwrap();
-    assert!(
-        text(&mut row, "Subtitle")
-            .unwrap()
-            .starts_with("From Pump single · ")
-    );
+    assert!(h.texts().iter().any(|t| t == "From Pump single"), "{:?}", h.texts());
     let label = compact_label(d);
     assert!(
         label.starts_with("PLAY HARD") && !label.contains("ASSIST"),
@@ -661,7 +638,7 @@ fn song_select_shows_a_pointer_over_songs_and_a_text_cursor_over_the_search() {
     assert_eq!(cursor(h.hover(h.centre(&row))), Some(Cursor::Pointer));
     assert_eq!(cursor(h.hover(h.centre("Search"))), Some(Cursor::Text));
     assert_eq!(
-        cursor(h.hover(h.centre("Ladder.Row0"))),
+        cursor(h.hover(h.centre("Chart0"))),
         Some(Cursor::Pointer)
     );
 }
