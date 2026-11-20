@@ -409,15 +409,13 @@ two motions:
 - **Across**: items cross the screen right to left in rows, each at a
   speed that keeps it on screen the same time whatever its length, a row
   taken only when its last item has cleared the edge. Niconico's way.
-- **Falling**: items fall in columns. In the side space where there is
-  some; behind everything where a room's miniatures fill it.
+- **Falling**: items fall from the top over the whole width.
 
-A stage that shows opponents' small fields uses Falling whatever the
-device chose (the maintainer, 2026-11-20: Across reads poorly behind the
-miniatures); a solo play and a watched stage keep the choice. A play
-whose field leaves no side space (a phone held upright) shows emotes
-alone, whatever the room and the device allow ("Animated emotes (round
-TW4)").
+Since round TW5 both cover the whole screen, behind the play's field, the
+opponents' fields and the HUD, in the device's chosen style everywhere,
+messages on a phone held upright too ("Round TW5" at the end: the
+maintainer's words; this replaces TW4's Falling beside opponents' fields
+and emotes alone without side space).
 
 Both styles, with emotes and with messages, come in one release
 (answer 10).
@@ -453,12 +451,14 @@ each gets a message when Twitch sends it.
 
 ### C9. Floods and budgets
 
-Named `chat-overlay-v0`, every number provisional:
+Named `chat-overlay-v1` since round TW5 (`chat-overlay-v0` retired:
+its runs drawn once with "×N" are gone; "Round TW5" at the end), every
+number provisional:
 
-- At most 40 items on screen and 8 new ones a second; one item a chatter
-  every 2 s.
-- An emote-only item shows up to 5 emotes; a run of the same one is
-  drawn once with a count.
+- At most 80 messages and 160 emotes on screen and 20 new messages a
+  second; one a chatter every 2 s.
+- A message brings its first 8 emotes, every one drawn by itself; the
+  rest are left out.
 - A message is one line, cut at 60 graphemes.
 - When full, new items are dropped, never queued: late chat is worse
   than missing chat.
@@ -1013,3 +1013,171 @@ Waiting for the spike, beside what TW3 listed: the providers' real
 answers for animated emotes (7TV's `animated` and file names, BTTV's
 `animated`, FFZ's `animated` object), and real emote files through the
 proxy.
+
+## Round TW5 (2026-11-20): the chat as an effect behind the fields
+
+The maintainer, after seeing the scripted chat: "I see the emotes demo
+now. I think it's a good start but it's different than what I had in
+mind. The 4x <emote> is sort of the opposite of what I want, I don't
+want to summarize emotes, I want to let them show individually to make
+some visual impression. Also, the across didn't work (it showed as
+falling) the falling was avoiding the field/miniatures but I want them
+to be behind the fields not in between them, it's not necessarily going
+to be easy to read or to notice everything, but that's fine, it should
+work like an added effect to convey what's going on in chat while the
+play is going." And, the same day: "Allow messages on upright phones
+too." So the layer is an ambient effect, not something to read. This
+replaces, of what C6, C9, "Placing" (round TW2) and round TW4 said:
+
+- **The summarizing** (C9: "a run of the same one is drawn once with a
+  count", five runs a message): every emote is drawn by itself. Four
+  of an emote in a message are four; ten chatters sending one emote are
+  ten. There never was a filter turning repeated messages into a count
+  (a chatter's 2 s is shedding, not summarizing).
+- **The routing around the play** (Across's rows clear of the receptors'
+  rows and the HUD, from the side away from the receptors; Falling's
+  columns in the side space clear of the miniatures, below the score):
+  both styles cover the whole screen, behind the play's field, every
+  miniature, the HUD and the judgment. The field filter's band still dims
+  the layer in the lanes (it is drawn into the backdrop under the
+  filter), which is what keeps the notes readable; no keep-out was kept.
+- **Falling forced beside opponents' fields** (round TW4, from a
+  description the maintainer has now seen built): the device's chosen
+  style is the style everywhere.
+- **Emotes alone where the field leaves no side space** (round TW4): a
+  phone held upright shows messages too; the room's ceiling and the
+  device's option alone decide what shows.
+
+What stays: the room's ceiling and the device's option, the testing
+switch, C11's filters, moderation taking an item off (a scattered
+message's every emote with it), animated emotes and `anim-limits-v0`,
+one host clock, the hold under load, the layer over a work's back
+layers, judging identical with the chat on and off.
+
+### `chat-overlay-v1` (PROVISIONAL, `ddi_chat::overlay::CHAT_OVERLAY_V1`)
+
+| | v0 | v1 |
+|---|---|---|
+| Emotes a message brings | 5 runs, a run drawn once with "×N" | the first 8, each drawn; the rest left out (counted in the debug state's `cut`) |
+| On screen | 40 items | 80 messages and 160 emotes |
+| New a second | 8 items | 20 messages |
+| One chatter | every 2 s | every 2 s |
+| Where | rows and columns around the field, the HUD and the miniatures | the whole screen |
+| Past the budgets or the room | dropped | dropped (never queued, never a number) |
+
+A message is dropped whole when it would pass a budget. The space is
+the budget that bites in a burst: an item comes in only where nothing
+else is still coming in across its width (and where it cannot catch the
+one ahead of it), so a hype of 25 chatters a second fills the entering
+edge and the rest finds no room (in the study's `burst` script, of 147
+messages about half placed, the rest no room). A message of fifty
+emotes is eight emotes on screen: never the screen's.
+
+### The look: three candidates
+
+`ddi_chat::overlay::LOOKS`, shown to the maintainer in pictures and
+frame sequences (`target/scratch/mp/tw5/gallery.html`, not committed):
+
+- **as-built**: items a line tall (a 22nd of the screen's height),
+  emotes as tall as the text, every item alike: a burst reads as rows
+  of a grid.
+- **larger**: emotes 1.6 lines in an emote-only item and 1.35 inline in
+  a message's line, the text a line, centered with them; sizes vary by
+  up to 15% and times on screen by up to 20% from item to item.
+- **scattered** (recommended, `chat-overlay-v1`'s own until the
+  maintainer chooses): as larger, sizes ±20% and times ±25%, and an
+  emote-only message's emotes each coming in by itself, 0.12 s apart, at
+  a place of its own: a burst is a cloud of emotes rather than rows. A
+  message with words keeps its emotes inline.
+
+Nothing garish: the one quiet text color, the option's opacity, the
+filter's dimming; reduced motion still stands everything in fixed places
+(anywhere on the screen now) and holds every emote on its first frame.
+`mpfakechatlook=<name>` (desktop `--mp-dev-chat-look NAME`) draws
+another candidate for a walk.
+
+No "Still emotes" option for now (decided 2026-11-20).
+
+### The global-emotes demo (TESTING ONLY, `ddi_chat::global`)
+
+The maintainer: "We could also test a demo with an assortment of global
+animated emotes from all 4 providers." `mpfakechat=global` (desktop
+`--mp-dev-chat global`) reads the four providers' global sets by the
+real chat's code: 7TV's, BetterTTV's and FrankerFaceZ's asked directly,
+through our proxy after a failure; Twitch's, which no page may read
+without a token, through a new route of our server,
+`GET <api>/emotes/twitch-api/chat/emotes/global`: Helix's Get Global
+Emotes asked by the server with the app's own token (client
+credentials), under the proxy's grammar, cap, cache and rate. From each
+set an assortment (6 animated, 3 still, by a hash of their ids: two runs
+alike), played in bursts and singly; the images asked as a real chat's
+(directly, then the proxy). "Emotes from: Twitch" asks no other
+provider. `__DDI_DEBUG.chat.global` says what each provider answered;
+`providers` and `proxied` the images by provider and the hosts that
+needed the proxy.
+
+The third-party lists as they answered on 2026-11-20 (recorded once with
+the maintainer's leave, kept local, never committed) showed the shapes
+the parsers now follow, and what is left out of what is drawn: 7TV's
+zero-width emotes (the set's `flags` bit 1: overlays meant for the emote
+before), BetterTTV's and FrankerFaceZ's modifiers, FrankerFaceZ's hidden
+emotes and its sets outside `default_sets`; 7TV's word is the set's
+`name` (an alias where it differs from `data.name`), its file `2x.webp`
+exactly (AVIF and GIF files are listed beside it). Read so: 7TV 42
+emotes, 18 animated; BetterTTV 56, one animated; FrankerFaceZ 9, none
+animated (its `animated` object stays written from the documentation).
+So the demo's assortment has animated emotes where a provider has them:
+7TV six, BetterTTV one, FrankerFaceZ none. The committed fixtures are
+shaped as those answers, their names and ids invented; Twitch's is
+written from its documentation. UNVERIFIED until the maintainer runs it.
+
+### Built and walked (round TW5, 2026-11-20)
+
+Tests: no count is ever drawn (`no_count_is_ever_drawn`, a property over
+random floods: every drawn item shows its message's emotes, the first
+eight, a repeated one as often as it came; `Glyphs` has no count any
+more), the per-message and on-screen caps, both styles' places over the
+whole screen (`both_styles_go_over_the_whole_screen`: positions behind
+the field's band and behind a miniature's slot), moving items never
+overlapping in any look, the scattered look, the chosen style holding in
+a stage of eight CPUs offscreen on desktop
+(`animated_emotes_move_and_the_chosen_style_holds_everywhere`: emotes
+drawn inside the player's field and inside miniatures' slots), a phone
+held upright showing messages; the demo's reads, choices and report
+(`ddi_chat::global`), its fixtures as files played offscreen
+(`the_global_emotes_demo_plays_from_its_fixtures`), the server's route.
+
+Walked in Chrome and Firefox (`target/scratch/mp/tw5/walks/chat.mjs`,
+every request outside localhost aborted) and on desktop offscreen: a solo
+play in each style, a practice stage of eight CPUs in each style (emotes
+behind the main field and the miniatures), reduced motion (every emote
+still, the clock at 0, fixed places over the whole screen), a phone held
+upright with messages, and the global-emotes demo over its fixtures
+(every set read, BetterTTV's set and images and Twitch's through the
+proxy's paths, `proxied` naming their hosts; "Emotes from: Twitch"
+asking no other provider). No count anywhere in any walk.
+
+Frame costs, main-thread milliseconds a frame (means; the web's frame
+recorder's whole frame, `perf=1`; desktop's offscreen recorded frame,
+medians in brackets). The machine's load average was 15 to 21 through
+these runs (other work on it), so they read high and noisy; the chat's
+own part is the steadier number.
+
+| | off | on (`demo`) | flood (50/s) | animated burst |
+|---|---|---|---|---|
+| Desktop, alone, 1280×720 | 0.39 (0.15) | 0.76 (0.29) | 1.01 (0.58) | 0.27 (0.20) |
+| Desktop, eight CPUs | 0.67 (0.44) | 1.21 (0.63) | 1.29 (0.70) | 0.56 (0.48) |
+| Desktop, phone upright | 0.14 (0.10) | 0.20 (0.15) | 0.35 (0.28) | 0.19 (0.17) |
+| Chrome (WebGPU), 1280×720 | 0.53 | 0.75 | | 0.71 |
+| Chrome, phone (390×844 at 3×) | 0.57 | 0.78 | | 0.72 |
+| Firefox (WebGL2), 1280×720 | 1.03 | 1.20 | | 2.33 (shedding: the layer held) |
+| Firefox, phone | 1.42 | 2.48 | | 1.43 |
+
+TW4's were 0.09 / 0.17 / 0.19 (desktop), 0.46 / 0.55–0.62 / 0.68–0.91
+(Chrome) and 0.80 / 1.00 / 1.02 (Firefox) at a lower load. The chat's own
+part: desktop medians 0.05 to 0.31 ms (0.09 to 0.19 in TW4's flood), the
+web's 0.11 to 0.4 ms. More on screen costs more (up to 80 messages and
+160 emotes, against 40 items): the text runs are the larger part, the
+emotes stay one batch from the atlas, the scene's batches are unchanged
+(31 alone, 71 with eight CPUs, with the chat on or off), and the caps
+bound it: the most a frame drew was 95 items and 95 emotes.

@@ -13191,10 +13191,52 @@ fix), screens and shells only; the server is untouched.
   `mpfakechat=0` ending it. Walked in Chrome: a full load of the way
   back and a play show the chat (null without the kept switch).
 
+## Round TW5: the chat as an effect behind the fields (no change to the room model, 2026-11-20)
+
+`docs/plans/multiplayer-twitch.md`, "Round TW5". The maintainer, having
+seen the scripted chat: emotes are not to be summarized ("The 4x <emote>
+is sort of the opposite of what I want"), and the chat goes behind the
+fields, not between them ("it should work like an added effect to
+convey what's going on in chat while the play is going"); then "Allow
+messages on upright phones too." Built:
+
+- `chat-overlay-v1` (`ddi_chat::overlay::CHAT_OVERLAY_V1`): every emote
+  drawn by itself (no "×N" anywhere; `Glyphs::Count` and the item's runs
+  removed), a message's first eight emotes, 80 messages and 160 emotes
+  on screen, 20 new messages a second, a chatter's 2 s; full is dropped.
+- Both styles over the whole screen, behind the field, the miniatures
+  and the HUD, the filter's band dimming the lanes; the keep-outs
+  (receptors' rows, the HUD, columns clear of the miniatures) removed;
+  no forced Falling; messages on a phone held upright
+  (`ddi_shell::chat::area`; `shown` and `Area::keeping_clear` gone).
+- Three looks shown in pictures (`ddi_chat::overlay::LOOKS`: as-built,
+  larger, scattered; `target/scratch/mp/tw5/gallery.html`), scattered
+  the default as recommended; `mpfakechatlook`, `--mp-dev-chat-look`;
+  the `burst` script (a hype: many chatters, one emote).
+- The global-emotes demo (`ddi_chat::global`, `mpfakechat=global`,
+  `--mp-dev-chat global`, TESTING ONLY): the four providers' global sets
+  read by the real parsers (directly, then the proxy), Twitch's through
+  the server's new `emotes/twitch-api/chat/emotes/global` (the app's
+  token), an assortment played in bursts, `__DDI_DEBUG.chat.global`. The
+  parsers follow the shapes of the third-party lists recorded once on
+  2026-11-20 (kept local): 7TV's zero-width emotes, BetterTTV's and
+  FrankerFaceZ's modifiers and FrankerFaceZ's hidden ones and
+  non-default sets left out, 7TV's set name as the word and `2x.webp`
+  exactly; an opt-in local test reads the recorded lists
+  (`DDI_EMOTE_LISTS`). Run by the maintainer only; the server deploys
+  first.
+
+**A player now sees** nothing new: the chat's rows stay behind the
+testing switch. With the switch: the chat as above, Options → Display's
+descriptions saying it moves behind the fields over the whole screen.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `chat-overlay-v1` (2026-11-20, round TW5): every emote drawn by itself; a message's first 8 emotes; at most 80 messages and 160 emotes on screen, 20 new messages a second, one a chatter every 2 s; dropped when full or without a free place, never queued | `ddi_chat::overlay::CHAT_OVERLAY_V1`, `ddi_chat::item::Cut` | None while the chat is hidden; then: a burst of emotes fills the screen behind the fields, past the budgets or the space the rest is left out | The numbers once real chats are seen |
+| The chat's look (2026-11-20, round TW5): `scattered` (emotes 1.6 lines, inline 1.35, sizes ±20%, times on screen ±25%, an emote-only message's emotes each by itself 0.12 s apart) of three candidates | `ddi_chat::overlay::LOOKS`, `CHAT_OVERLAY_V1.look` | As above | The maintainer's choice of look (the gallery) |
+| The global-emotes demo's assortment (2026-11-20, round TW5): 6 animated and 3 still emotes a provider by a hash of their ids, more stills where fewer are animated; Twitch's global set through the server with the app's token | `ddi_chat::global`, the server's `emotes::TWITCH_API` | None: TESTING ONLY | Whether the parsers read the real answers (the maintainer's run) |
 | `anim-limits-v0` (2026-11-20, round TW4): an emote image at most 2 MiB and 1024 pixels a side, else refused; an animation at most 1000 frames and 64 megapixels of decoding (each frame's area or the canvas's, the larger, summed), else its first frame still; 64 frames kept at most (128 atlas units), thinned evenly; a frame of 10 ms or less read as 100 ms; animated frames at most 768 of the atlas's 1024 cells, the least recently drawn animation sent away, else a still first frame; desktop's decoding deadline 1.5 s | `ddi_chat::anim`, `ddi_chat::cache::ANIMATED_UNITS`, `ddi_desktop::chat` | None while the chat is hidden; then: a huge or hostile emote shows still or not at all; a long animation plays at a lower frame rate; past about twelve long animations at once, a new one shows still | The numbers once real chats are seen (the spike) |
 | `room-preload-v1` (2026-11-19, round RL2; v1 2026-11-20, round DB): every listed song downloaded ahead by default (listings and banners first, then two songs at once: a stage's, the picker's, the newest), never a movie, nothing from a stage's countdown to its end, only the stage's song while it gathers readiness; Likely next the newest eight up to 128 MB beside those two (v0: four, 64 MB) | `ddi_ui::state::room::PRELOAD_V1`, `preload.rs` | A list of eight 5 MB songs is on every device in a few seconds on a fast link (40 MB); a pick's loading wait ends at once | The numbers; whether banners should come under Off too |
 | `room-have-v0` (2026-11-19, round RL2): who has which listed song, said by each device at most every five seconds, at most 64 ranges | `ddi_room::live::have` (`HAVE_EVERY_MS`, `MAX_RANGES`) | The rows' "11 of 12 have it"; the picker's warning | The five seconds |

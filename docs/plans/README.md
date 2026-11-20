@@ -63,7 +63,11 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   server with bots and two browsers; round TW4 the maintainer's
   decisions of 2026-11-20 (animated emotes on both shells, within
   limits read before decoding; Falling beside opponents' fields; emotes
-  alone on a phone held upright; the chat over a work's back layers).
+  alone on a phone held upright; the chat over a work's back layers);
+  round TW5 an ambient effect (every emote drawn by itself,
+  `chat-overlay-v1`, over the whole screen behind the fields in the
+  chosen style, three looks to choose from, and a global-emotes demo for
+  the maintainer to run).
   The Twitch client is
   unverified until the maintainer's spike, and the chat's transports wait
   for it. A streaming host's Twitch bans and blocks

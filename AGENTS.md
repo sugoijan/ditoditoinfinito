@@ -990,12 +990,11 @@ Rust and the browser are implementation details, not advertised features.
   pictures `PlayView::stage_links`;
   the room host's chat behind the play, `crates/shell/src/chat.rs`
   (`ChatView`: the session's chat events into `ddi_chat::overlay` on the
-  host's clock, placed clear of the receptors' rows and the HUD, the
-  rows from the side away from the receptors, Falling's columns in the
-  side space clear of the miniatures where there is room; Falling
-  whatever was chosen where the play shows opponents' fields, emotes
-  alone where the field leaves no side space (a phone held upright),
-  `chat::shown`, `ddi_chat::overlay::shown`; drawn by the
+  host's clock, over the whole screen behind the field, the miniatures
+  and the HUD in the device's chosen style everywhere (round TW5: an
+  ambient effect, nothing routed around, messages on a phone held
+  upright too; the field filter's band dims it in the lanes),
+  `chat::area`; every emote drawn by itself, never a count; drawn by the
   play's own 2D painter, which then draws twice a frame, into a layer
   the backdrop shows under the field, `Renderer::set_chat_layer`; its
   emotes from one atlas, `ddi_chat::cache`, fetched through
@@ -1314,15 +1313,23 @@ Rust and the browser are implementation details, not advertised features.
   huge refused, or their first frame still), the frames kept and which
   is drawn when (`anim.rs`, round TW4), a message made into an item
   after C11's filters
-  (`item.rs`), `chat-overlay-v0`'s budgets, the moderation events and
-  the two motions on the host's clock (`overlay.rs`: Across, Falling,
-  reduced motion's fixed places; what a play's layout lets it show,
-  `shown`), the emote images kept and their atlas cells, an animated
-  emote's frames within their budget, `ANIMATED_UNITS` (`cache.rs`),
-  and the scripted chat (`script.rs`, TESTING ONLY; its animated emotes
-  drawn in code, `anim:`, and as GIF and WebP files made by code,
-  `cargo run -p ddi-desktop --example chat_images -- <dir>`).
-  Pure, natively tested.
+  (`item.rs`: every emote a piece of its own, eight a message),
+  `chat-overlay-v1`'s budgets (round TW5: no emote summarized, budgets
+  in emotes), the moderation events and the two motions over the whole
+  screen on the host's clock (`overlay.rs`: Across, Falling, reduced
+  motion's fixed places; the looks shown to the maintainer, `LOOKS`,
+  scattered by default), the emote images kept and their atlas cells,
+  an animated emote's frames within their budget, `ANIMATED_UNITS`
+  (`cache.rs`), the scripted chat (`script.rs`, TESTING ONLY; its
+  animated emotes drawn in code, `anim:`, and as GIF and WebP files made
+  by code, `cargo run -p ddi-desktop --example chat_images -- <dir>`)
+  and the global-emotes demo (`global.rs`, TESTING ONLY: the four
+  providers' real global sets read by the real parsers, Twitch's
+  through our server's `emotes/twitch-api/chat/emotes/global`; fixtures
+  shaped as the providers' answers recorded 2026-11-20, names and ids
+  invented; the recorded lists themselves stay local, read by
+  `DDI_EMOTE_LISTS=<dir> cargo test -p ddi-chat --test emote_lists --
+  --ignored`). Pure, natively tested.
 - `crates/importer-protocol/` the platform-free framed app/helper IPC contract (serde
   and plain data only; no SDK/networking or filesystem).
 - `crates/share-protocol/` songs shared by link's wire contract
