@@ -915,9 +915,13 @@ Rust and the browser are implementation details, not advertised features.
   `docs/plans/multiplayer-twitch.md`, part C): its source advanced on
   the host's clock in the session's tick, never judged, logged or
   replayed, `PlaySession::chat`; today the scripted chat alone (TESTING
-  ONLY, `chat::set_scripted`), in any play where Options → Display's
+  ONLY, `chat::set_scripted`, which is also the testing switch,
+  `ddi_ui::state::twitch::chat_testing`), where Options → Display's
   "Twitch chat in rooms" is on; `chat::room_ceiling` the one answer to
-  the room's ceiling (the script's line until rooms carry it).
+  the room's ceiling: in a room's stage the room's own
+  (`RoomState::twitch`'s chat, carried by `StageSetup::chat`, a
+  `ddi_ui::state::twitch::RoomChat`; none, no layer at all), outside a
+  room the script's line, for tests (round TW3).
   Parts of a frame timed for a shell's frame recorder (`perf.rs`: a
   clock set only while the web's `perf=1` records; the battle's
   advance). Platform-free, natively tested on a fake clock.
@@ -2153,7 +2157,11 @@ Rust and the browser are implementation details, not advertised features.
   from that beat, as `mpdevmines=BEAT`; TESTING ONLY, `--mp-dev-chat
   FILE|NAME`, a scripted chat beside every play where Options →
   Display's Twitch chat in rooms is on, as the web's `mpfakechat`,
-  `ddi_chat::script`), `--share IDS|pack:NAME
+  `ddi_chat::script`; it is the testing switch that shows the chat's
+  rows, Options → Display's and Host options' Show my Twitch chat,
+  hidden otherwise until the transports to Twitch exist,
+  `ddi_ui::state::twitch::chat_testing`; CPU practice's stages take its
+  line as their room's ceiling), `--share IDS|pack:NAME
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--mp-bots --api URL [--host] [--join LINK] [--guests N] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]

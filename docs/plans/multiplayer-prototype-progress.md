@@ -12959,6 +12959,40 @@ locally: the kick with bots, the sweep at a pick over sockets, slow/refused Twit
 and the secret `TWITCH_LINK_KEY` (`openssl rand -hex 32`); then the game. People in
 rooms are told to reload (revision 18).
 
+## Round TW3: the Twitch halves joined and walked (still room model revision 18, 2026-11-20)
+
+`docs/plans/multiplayer-twitch.md`, "Round TW3". Joined: a stage's chat is
+capped by its room's ceiling (`StageSetup::chat`, `chat::room_ceiling`; no
+layer where the room shows none; the audience none); "Twitch chat in
+rooms" turned on without the chat's scope takes the device through Twitch
+(`Online::connect_twitch_chat`; desktop's trip dialog shows the attempt's
+code, for Host options' trips too); the chat's rows (Options → Display's,
+Host options' "Show my Twitch chat") show only under the testing switch,
+the scripted chat (`ddi_ui::state::twitch::chat_testing`).
+
+**A player now sees** Moderate and Kick, Host options' "Twitch bans", the
+status lines of a kick, a trip refused or canceled and a setting that
+ended by itself, the neutral refusal on an invite's page, and Options →
+Data's "Twitch access"; nothing of the chat.
+
+**Walked** on a local server (scratch configuration with the TW1 patch,
+the development provider's fake Twitch; `target/scratch/mp/tw3/`): bots'
+kicks between and during stages (the forfeit last, 0 points; back by the
+invite), the mirror over raw sockets (at turning on, at a pick, at join,
+a timeout's end, slow, refused), a co-host's refused kicks, Chrome and
+Firefox through every row and trip, the chat in practice (eight CPUs) and
+online stages in both styles and both ceilings, desktop offscreen, the
+singleplayer smoke check. Found and fixed: guest bots never loaded a
+bundled stage's song; the players panel's heading took no tap; the
+refused newcomer's page said "You can join now" too; nothing told the
+owner their access ended or the room its setter left; the server's fake
+Twitch could not be made slow, down or refused (`POST
+/auth/fake/twitch`, server `66bcf3d`).
+
+Open: a disconnect from another device leaves cached answers keeping
+people out up to five minutes; waiting for the spike: Helix, the chat's
+transports, the providers' sets.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

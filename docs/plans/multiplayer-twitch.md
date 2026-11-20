@@ -4,7 +4,9 @@ Status: designed (2026-11-20), and built as far as it can be without
 Twitch itself: round TW1 (room model revision 18, see "Round TW1" in
 `multiplayer-prototype-progress.md`) the model, Kick, the link and the
 mirror behind a fake Twitch; round TW2 part C's pieces that need no
-Twitch ("T1 and T2" below, and its section at the end). The Twitch client
+Twitch ("T1 and T2" below, and its section at the end); round TW3 joined
+the two and walked them on a local server (its section at the end). The
+Twitch client
 is unverified until step 0's spike, and the chat's transports wait for
 it. The maintainer answered
 the design round's ten questions and the three that followed from them
@@ -729,3 +731,74 @@ read well and leave the field and the miniatures alone: recommended as
 the style where a stage shows miniatures. On a phone held upright there
 is no side space and either style crosses the lanes: recommended, emotes
 alone there (or none).
+
+## Round TW3 (2026-11-20): the halves joined, then walked for real
+
+- **The room's ceiling** (C1): a stage's order carries the room's chat
+  (`StageSetup::chat`, `ddi_ui::state::twitch::RoomChat`: the ceiling
+  and the channel's id and login, from `RoomState::twitch`), and
+  `ddi_session::chat::room_ceiling` answers from it in a room's stage: a
+  device never shows more, and a room that shows none builds no layer.
+  The audience has none (C13). Outside a room the scripted chat's own
+  line still stands for a ceiling, for tests; CPU practice, which has no
+  host's Twitch, takes it under the testing switch.
+- **A device's scope**: "Twitch chat in rooms" turned on where the
+  person's Twitch access lacks `user:read:chat` starts TW1's trip for the
+  closed set `chat` (`Online::connect_twitch_chat`): the web leaves the
+  page, back to the room kept (else the multiplayer home), and the
+  setting is made by itself once `/me` says the scope is there; desktop
+  shows the trip's dialog over Options or Host options (the attempt's
+  code to type, which no screen showed before: a Host options trip on
+  desktop could not be finished), and a canceled trip changes nothing and
+  says so. Its description says Options → Data disconnects it.
+- **The testing switch** (`ddi_ui::state::twitch::chat_testing`): the
+  scripted chat (`mpfakechat`, `--mp-dev-chat`) turns it on. Until the
+  transports exist, Options → Display's chat rows and Host options' "Show
+  my Twitch chat" show only under it.
+
+**What a player sees after this round** (nothing of it is deployed: the
+server and the game deploy together for revision 18): in an online room,
+the Players pop-up's Moderate and Kick for the host and co-hosts; the
+host's Host options row "Twitch bans: Off / Bans / Bans and blocks",
+whose first step takes them through Twitch and back, the setting made by
+itself; the status lines for a kick, for a refused or canceled trip, and,
+new here, for the setting ending by itself (the owner's access ended, or
+the one who set it left); a person kept out sees "You can't join this
+room." on the invite page and nothing else of why; Options → Data's
+"Twitch access" row with Disconnect. Nothing of the chat: its rows are
+hidden, and no room has a chat to show.
+
+**The walks** (local server on a scratch configuration, the development
+provider's fake Twitch; scripts and logs in `target/scratch/mp/tw3/`):
+bots (a host bot's kick between stages and during one, a forfeit placed
+last with no points, the guest back by its invite), the mirror over raw
+sockets (a barred member removed when the mirror is turned on and at the
+next pick, the others seeing a leave; the neutral refusal at join; a
+timeout ending lets the person back within a second of its end; Twitch
+slow: let in, refused at the next ticket; the host's link refused: off,
+nobody removed, the host told; a co-host's kick of the host or of another
+co-host refused by the room), Chrome and Firefox (Host options' rows, the
+trips and a canceled one, Moderate and Kick as host and co-host, the
+kicked person's notice and way back, the refused newcomer's page,
+Options → Data's Disconnect turning the room's mirror off at once), the
+chat in a practice stage of eight CPUs and in an online stage, both
+styles, at Emotes and at Emotes and messages, a device at Off drawing
+nothing, on both browsers and desktop offscreen; and the singleplayer
+smoke check. What they found, fixed: guest bots never loaded a bundled
+stage's song (no library); a tap on the players panel's heading did
+nothing; the refused newcomer's page said "You can join now" above "You
+can't join this room."; nothing told the owner that their access ended
+or the room that the setter left (B3, B8); the server had no way to make
+its fake Twitch slow, down or refused (`POST /auth/fake/twitch`).
+
+Left as they are, for the maintainer: an answer kept five minutes still
+keeps a person out after the host disconnected from another device (the
+game that disconnects turns the setting off at once; the server learns
+the link is gone only when the answers run out); a bot that is kicked
+during a stage plays it on locally and its report is refused (harmless,
+a development tool's).
+
+Waiting for the spike: the Helix client, the chat's transports and the
+subscribe route, the providers' sets and images fetched for real; then
+the chat's rows are shown to players.
+

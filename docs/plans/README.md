@@ -57,7 +57,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   model, Kick, the Twitch link and the mirror on the server behind a fake
   Twitch, Host options' rows and the emote proxy; round TW2 the chat (the
   pure crate `crates/chat`, the options, the layer under the field with
-  its emote atlas, both styles, the scripted chat). The Twitch client is
+  its emote atlas, both styles, the scripted chat); round TW3 joined them
+  (the room's ceiling, a device's trip for the chat's scope, the chat's
+  rows behind a testing switch) and walked them for real on a local
+  server with bots and two browsers. The Twitch client is
   unverified until the maintainer's spike, and the chat's transports wait
   for it. A streaming host's Twitch bans and blocks
   keeping people out of the room (the host's token on the server, checked
