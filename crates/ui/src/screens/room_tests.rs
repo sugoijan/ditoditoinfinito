@@ -2022,12 +2022,13 @@ fn pills(h: &Harness) -> Vec<String> {
         .collect()
 }
 
-/// A room's header has singleplayer's pills (the player's own speed and
-/// modifiers apply in a stage), but where singleplayer shows the player's
-/// ruleset's options it shows the match's rules in their few words:
-/// a room plays DDI under the match's rules, whatever the player's own.
+/// A room's header has the player's own speed and modifiers (they apply
+/// in a stage) and nothing of a ruleset: where singleplayer shows the
+/// player's ruleset's options a room shows none, the match's rules being
+/// the Rules button's and the status line's to say (the maintainer,
+/// 2026-11-20: "Playing with DDI" there was too much information).
 #[test]
-fn a_rooms_header_shows_the_matchs_rules_in_place_of_the_players_ruleset() {
+fn a_rooms_header_shows_the_players_modifiers_and_no_ruleset() {
     let env = env();
     let mut data = library("dance-single");
     data.mods = vec!["×2.5".into(), "Reverse".into()];
@@ -2043,15 +2044,14 @@ fn a_rooms_header_shows_the_matchs_rules_in_place_of_the_players_ruleset() {
     ));
     h.run(0.5);
     assert_eq!(pills(&h), ["×2.5", "Reverse", "ITG", "Fail off"]);
-    // A room: the match's rules (the usual ones: "DDI"), then Hard
-    // timing and Boos where the match has them.
+    // A room: the modifiers alone, whatever the match's rules.
     let room = RoomClient::shared(0, 1);
     room.borrow_mut().set_rules_seen(true);
     let orders = Orders::default();
     let mut h = harness();
     h.push(sample::room_select(&env, room.clone(), data.clone()).with_room(room.clone(), shell(&room, &orders)));
     h.run(0.5);
-    assert_eq!(pills(&h), ["×2.5", "Reverse", "DDI"]);
+    assert_eq!(pills(&h), ["×2.5", "Reverse"]);
     let mut rules = room.borrow().rules().clone();
     rules.difficulty = ddi_room::MatchDifficulty::Hard;
     rules.boos = true;
@@ -2059,7 +2059,7 @@ fn a_rooms_header_shows_the_matchs_rules_in_place_of_the_players_ruleset() {
     let mut h = harness();
     h.push(sample::room_select(&env, room.clone(), data).with_room(room.clone(), shell(&room, &orders)));
     h.run(0.5);
-    assert_eq!(pills(&h), ["×2.5", "Reverse", "DDI · Hard timing · Boos"]);
+    assert_eq!(pills(&h), ["×2.5", "Reverse"]);
 }
 
 /// Feedback round B, as built in round SLB: the players are always on the
@@ -6064,17 +6064,20 @@ fn the_rooms_screens_draw_as_pinned() {
 /// "host": its "Show my Twitch chat" row shows only under the testing
 /// switch now (the test runs without it). Round DB moved "host": its
 /// song list's note says hosts and co-hosts may fill the whole list.
+/// 2026-11-20 moved all ten: a room's header no longer says "Playing
+/// with DDI", and in practice's six the selected row is drawn after the
+/// others so that its outline lies over the next row.
 const PINNED: [(&str, u64); 10] = [
-    ("select", 6294184724527765777),
-    ("rules", 1214659751631822932),
-    ("add", 2225472520787210080),
-    ("add-level", 14232239212772555064),
-    ("players", 7610287161435627024),
-    ("standings", 6217252037303736305),
-    ("online-select", 9359307383711192609),
-    ("online-member", 3482401827223415051),
-    ("online-players", 15010800377283620634),
-    ("host", 16279385975497969518),
+    ("select", 13509585143535770591),
+    ("rules", 14785720766870047911),
+    ("add", 13453012965053624897),
+    ("add-level", 2278696716197688419),
+    ("players", 17214481519957413378),
+    ("standings", 15460005836634710404),
+    ("online-select", 10615776614815906896),
+    ("online-member", 15243893308354409267),
+    ("online-players", 9025170978183320670),
+    ("host", 18271816611870926806),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's

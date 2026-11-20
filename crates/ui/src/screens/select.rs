@@ -2135,20 +2135,14 @@ impl SelectScreen {
     }
 
     /// The header's pills: the player's own modifiers, then their
-    /// ruleset's options, or in a room the match's rules in a few words
-    /// (`super::room::rules_words_in`: a room's stages are DDI under the
-    /// match's rules, whatever the player's own ruleset).
+    /// ruleset's options. In a room only the modifiers: its stages are
+    /// played under the match's rules, which the Rules button and the
+    /// status line say, never in the header (the maintainer, 2026-11-20:
+    /// "Playing with DDI" there was too much information).
     fn pills(&self) -> Vec<String> {
         let mut out = self.data.mods.clone();
-        match &self.room {
-            Some(rm) => {
-                let r = rm.room.borrow();
-                let rules = r.rules();
-                out.push(
-                    super::room::match_rules_words(&r, rules).into(),
-                );
-            }
-            None => out.extend(self.data.rules.iter().cloned()),
+        if self.room.is_none() {
+            out.extend(self.data.rules.iter().cloned());
         }
         out
     }
