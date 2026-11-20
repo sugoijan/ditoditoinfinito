@@ -323,6 +323,12 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   started on every route. Round Z2: the DDI estimate (`crates/rating`) as
   a third choice, a try, its matched-level skill profile on the radar.
   Round AD (2026-11-19): the estimate to a tenth everywhere it shows.
+  Round SLB (2026-11-20): the radar always there (no option), the DDI
+  estimate the default, rated for everyone; From the song draws the
+  Groove radar (StepMania 5.1's radar values, `ddi_chart::groove`).
+  Song select's new song side, list and a room's players panel:
+  [song-navigation.md](song-navigation.md), "The song's side", "In a
+  room".
 
 - [The DDI ruleset](ddi-ruleset.md) (2026-11-12): rounds 1 (the
   engine), 2 (the screens: Options' rows, the default with the move

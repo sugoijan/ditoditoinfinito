@@ -12866,6 +12866,24 @@ from a stage's countdown to its results in either browser.
 - Bests on a downloaded room song's row (it has none).
 - Under Off nothing is fetched ahead, banners included.
 
+## Round SLB: song select in three parts (screens only, still room model revision 17, 2026-11-20)
+
+The new song select the maintainer chose after the select-layout study
+(`docs/plans/song-navigation.md`, "The song's side" and "In a room"): a
+room's song select keeps the song's side where solo has it, then the
+list, then the players panel at the screen's right (foldable to a rail,
+the fold this device's; icons and marks for the words, which a pop-over
+and the Players pop-up give). Nothing of the room's model, the wire or
+the server changed. L folds the panel where it shows (the Players pop-up
+opens from its head, a row, More); a phone keeps L for the pop-up.
+
+- For later (not built): the "Leader" targeting choice's name confuses
+  hosts ("leader" read as "host", which is why the host's mark is a house
+  and not a crown): a better word for that policy.
+- Open: a controller's own control for the fold (the study proposed the
+  right stick's press; the menus have no such action yet, so More holds
+  "Fold the players").
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

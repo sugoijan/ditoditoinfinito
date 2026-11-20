@@ -448,6 +448,19 @@ pixel fidelity. Its fictitious songs and people are sample content. The live
 implementation should reuse the shared selection components and input behavior,
 not introduce an unrelated card gallery or a new list convention.
 
+Built, 2026-11-20 (round SLB, after the select-layout study; replaces
+the panel under the song described next): the room's wide layout is in
+three parts, the song's side where solo has it, the list, and the
+**players panel at the screen's right** as a panel of the frame (a line
+from the header's bar to the footer's, a quieter ground), foldable to a
+40 px rail of state icons by its handle, L or More, the fold kept per
+device; rows of a monotone state icon, the marks (a golden house for the
+host, a silver one for a co-host, a wrench for an administrator, the
+note for the one choosing), the name, and at the right the place, a
+CPU's pips or a bot's head; the words in a pop-over and the Players
+pop-up (`docs/plans/song-navigation.md`, "In a room"). Phones keep the
+strip.
+
 Built, 2026-11-12 (the maintainer's feedback on the prototype: the
 players visible without pressing Players): the participant column is the
 **players panel under the song**, not a column at the far left. In a

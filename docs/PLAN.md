@@ -595,7 +595,12 @@ Chart ratings (2026-11-18, decision 84): MSD, Etterna's chart difficulty,
 translated for four keys (`crates/msd/`) and shown in place of the songs'
 numbers, with a skill radar on song select, each behind an option Off by
 default, until a rating of the game's own replaces it
-([`msd-ratings.md`](plans/msd-ratings.md)).
+([`msd-ratings.md`](plans/msd-ratings.md)). Since 2026-11-20 (round SLB)
+the radar is always there, the DDI estimate is the default, and From the
+song draws a Groove radar of StepMania 5.1's radar values; song select's
+song side is a title band over two squares (the cover and the radar), and
+a room's song select has its players as a foldable panel at the right
+([`song-navigation.md`](plans/song-navigation.md)).
 
 Additional onigiri-free charts (2026-10-18): Options can expose 5-key →
 Single, 7-key → Solo, 9A → Double and 9B → Techno 8-panel versions alongside

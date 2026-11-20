@@ -33,7 +33,9 @@ Rust and the browser are implementation details, not advertised features.
   `formats/ffr.rs`), 48 ticks per beat, exact
   StepMania timing semantics, and the `.ssc`/`.sm` writer the chart
   editor saves with (`formats/sm_write.rs`: what is read is written back
-  equal). Pure, natively tested.
+  equal), and a chart's Groove values as StepMania 5.1 computes its radar
+  values (`groove.rs`, its `CalculateRadarValues` restated, credited in
+  `credits/THIRD_PARTY.toml`). Pure, natively tested.
 - `crates/engine/` deterministic gameplay: clock, judge, rulesets, scoring, gauges,
   scroll, calibration maths; a battle's shocks in a play (`battle.rs`:
   `HazardJudge` beside the chart's judge, `Player::add_hazards`, events
@@ -482,16 +484,20 @@ Rust and the browser are implementation details, not advertised features.
   `crates/ui/src/radar.rs` a chart's skill radar (MSD's seven skillsets
   as shares of its overall, drawn from quads: the fill seven triangles
   cut by turned frame clips; the theme's `Radar.*` colors; each spoke's
-  name and number round it by `radar::place`'s label rule), with Options
-  → Display's Skill radar On in the wide layout's chart ladder's place
-  under a row of chart buttons (`fill_radar_side`; a line in its place
-  where the chart has none, `ratings::Standing`; a phone's and a room's
-  short side show none; MSD's seven skillsets, or under the DDI estimate
-  its eight skills' costs at the chart's matched level,
-  `ddi_library::manifest::matched_profile`); `crate::state::ratings` the
+  name and number by `radar::place`'s label rule, at the square's edges
+  and corners where that gives the shape more room), always shown (no
+  option since round SLB) as the second of the wide song side's two
+  squares beside the cover (`docs/plans/song-navigation.md`, "The song's
+  side"; a line in its place where the chart has none,
+  `ratings::Standing`; phones show none): MSD's seven skillsets, the DDI
+  estimate's eight skills' costs at the chart's matched level,
+  `ddi_library::manifest::matched_profile`, or under From the song the
+  Groove radar's five values (`ChartInfo::groove`, `ChartEntry::groove`,
+  every chart at once); `crate::state::ratings` the
   chart ratings' state (`docs/plans/msd-ratings.md`: Chart ratings, the
-  song's, MSD or the DDI estimate, `ratings::Source`, and Skill radar,
-  both Off by default and then doing nothing; the bundled songs' MSD and
+  song's, MSD or the DDI estimate, `ratings::Source`, the DDI estimate by
+  default since round SLB, `Settings::ratings_moved`, rated in the
+  background for everyone; the bundled songs' MSD and
   estimates from their manifest, `ChartInfo::msd`, `ChartInfo::estimate`,
   the estimates kept under `ddi.estimate.v1`; the rest rated in the background by a
   shell, desktop's `crate::ratings` thread, the web's worker, one song at
@@ -1766,15 +1772,16 @@ Rust and the browser are implementation details, not advertised features.
   one swap, the old view's parts out and the new one's in, at once under
   reduced motion; `crates/desktop/tests/room_picker_offscreen.rs` draws
   the views over the fake room). The players
-  are always there (feedback round B): a room's wide layout has the
-  song's side short (`Layout::for_room`: a small banner, the title and a
-  line, the style button only where the room plays more than one style,
-  `RoomClient::style_playable`, one row of chart buttons, no ladder) and
-  the players panel under it (`room::players_panel`, `RoomPlayers`: a
-  line a player with the place, the name and role or stars, the state
-  in words and the match points; the host's and the others' the same); a
-  phone's host has them as one line over the list
-  (`room::players_strip`); a tap on either opens the Players pop-up.
+  are always there (feedback round B; round SLB): a room's wide layout
+  is in three parts, the song's side where solo has it, the list, and
+  the players panel at the screen's right (`screens/select_players.rs`,
+  `RoomPlayers`: a panel of the frame foldable to a rail by its handle,
+  L or More, `Settings::players_folded`; a row a monotone state icon,
+  `room::StateIcon`, the marks, `room::Marks`: a golden or silver house,
+  a wrench, the note, then the name; the place, a CPU's pips or a bot's
+  head at the right; the words in a pop-over and the Players pop-up); a
+  phone has them as one line over the list (`room::players_strip`); a
+  tap on the strip, the panel's head or a row opens the Players pop-up.
   `screens/room.rs` what the
   room's screens share (`RoomCall`, the per-frame `Pump`, the status and
   rows, a person's state for a stage in the room's order, `person_state`

@@ -188,6 +188,39 @@ Single alone; a room's style is its own).
 The table of what came back where before this, row by row:
 `docs/plans/multiplayer-prototype-progress.md`, "Feedback round E2".
 
+**The room in three parts** (2026-11-20, round SLB; online rooms and CPU
+practice alike): the song's side exactly where solo has it, the list,
+and **the players panel at the screen's right** (`select_players.rs`),
+210 wide at 1280×720, a panel of the frame: a 1 px line from the
+header's bar to the footer's at its left edge, a quieter ground from the
+line to the screen's edge, the list's scrollbar against the line.
+
+- Its head says Players and the count; a tap on it opens the Players
+  pop-up. A row: a monotone state icon, then the person's marks where
+  they have any (a golden house for the host, a silver one for a
+  co-host, a wrench for an administrator, which every member's copy of
+  the room already says in words, "Admin"; the note for the one choosing
+  the songs: the marks displace the name, no slot is kept), the name
+  (the "You" badge after one's own), and at the right the place in the
+  match once a stage counts, a CPU's level as five pips, a bot's head.
+  The words behind them: a pop-over beside the row on a mouse's hover or
+  a touch's tap (a second tap, or a click, opens the Players pop-up).
+  Rows that do not fit are counted on a last line that opens the pop-up.
+- **Folding**: a chevron handle on the line at the head, L, and the
+  room's More ("Fold the players", a controller's way: More is West)
+  fold it to a 40 px rail (the count, one state icon a player; a tap on
+  it opens the panel again), the list taking the width; a 0.2 s slide
+  (none under reduced motion). The fold is this device's
+  (`Settings::players_folded`), open by default, never changed by
+  itself. L opens the Players pop-up only where there is no panel (a
+  phone: its strip, More).
+- What the room's short side showed: the status line stays over the
+  list (and the tabs); "Added by" and the song's state stay on the
+  rows; the chart chosen in words is the strip's; a song not on this
+  device says "Not loaded yet" on its title plate.
+- Phones keep the room's short side (now with the cover square) and the
+  players strip with its pop-up.
+
 ## Favorites (2026-11-18)
 
 The maintainer: "let's add a 'favorite' feature, so that songs can be
@@ -281,6 +314,34 @@ a click never slides the row under the pointer; in the wide room's
 column beside the banner the row keeps its width and the buttons are
 narrower (44.8 for five, 36.5 for six, 30.6 for seven, 26.1 for eight
 at 1280×720), a number wider than its button set smaller to fit.
+
+## The song's side (2026-11-20, round SLB)
+
+The select-layout study's B2, as the maintainer decided it (its pictures
+and findings were the study's; this is what is built), replacing the
+radar's side above and the ladder:
+
+- **The wide layout**: a title band (the title on one line, squeezed then
+  cut, running past the side into the width the list's curve leaves clear
+  at its height, never over a row; the heart after it; the artist; then
+  LENGTH · NOTES · BPM, NOTES the chosen chart's), then **two equal
+  squares, the cover and the radar** (256 at 1280×720, the side 528),
+  the style tabs, the row of chart buttons (a fixed place a chart, up to
+  eight) and the chosen chart's strip. Taller windows give the height to
+  the strip, then center the block.
+- **The cover** (the look's `SongCover`): the song's cover; else its
+  banner whole over the same picture zoomed and blurred; else a title
+  plate. The preview movie plays whole in the square over the blur,
+  fading in over the art in 0.25 s and back when it ends (at once under
+  reduced motion, at once on another song). The list's rows keep their
+  banner thumbnails.
+- **The list**: rows 56, the selected 76; its width what the song side
+  (and in a room the players panel) leaves.
+- **Phones (both ways up)**: the short side with the cover square, the
+  title and the line beside it, the style button and the chart buttons;
+  no radar.
+
+The gestures are the radar side's (above).
 
 ## A song's row (2026-11-19, round AE)
 

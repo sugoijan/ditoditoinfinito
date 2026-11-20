@@ -428,3 +428,53 @@ limits. Their radar and the all-level API retain the 900-note limit.
 The manifest reader uses `within_matched_profile_domain`, with the earlier
 all-level flag as the fallback for older estimator JSON. The cache rule
 version makes previously stored estimates eligible for recomputation.
+
+## Round SLB (2026-11-20): the radar always there, three sources, the Groove radar
+
+The maintainer's decisions after the song-select layout study
+(`docs/plans/song-navigation.md`, "The song's side"):
+
+- **The radar is always there**: the "Skill radar" option is gone (a
+  stored `skill_radar` is ignored), and with it the radar-Off form and
+  the solo chart ladder. On the wide layout the radar is the second of
+  the song side's two squares (256 at 1280×720), beside the cover; its
+  labels sit against the square's edges and corners where that gives the
+  shape more room, else beyond the spokes' ends (`radar::place`), the
+  caption in the upper left corner. Phones have no radar.
+- **Chart ratings: From the song / MSD / DDI estimate**, each with its
+  radar. **DDI estimate is the default** (eight spokes,
+  `relative-profile-v0`; charts it does not cover say so in the square).
+  Stored settings that still said "From the song" moved to DDI estimate
+  once (`Settings::ratings_moved`); MSD stays MSD; a choice made after
+  the move stays. Rating runs in the background for everyone (from song
+  select's opening, paused during a play, cached as before).
+- **From the song: the Groove radar.** The song's own numbers, and in the
+  square five spokes (Stream, Voltage, Air, Freeze, Chaos; en and ja as
+  messages, `select-radar-groove-*`), the caption the chart's own number
+  ("Song 9"). The values are StepMania 5.1's radar values,
+  `ddi_chart::groove`, its `NoteDataUtil::CalculateRadarValues` (the
+  `5_1-new` branch at `7cbaff8c`, MIT-style; `credits/THIRD_PARTY.toml`,
+  `REUSE.toml`) restated in Rust: per judged row (outside warps and fake
+  segments) its taps, hold and roll heads and lifts are notes; stream
+  is notes a second over 7; voltage the most notes from any note's row
+  back eight beats (both ends in) over 8, times the chart's last row as
+  beats over the seconds ("evenly spaced"), over 10; air the jump rows a
+  second; freeze the holds a second (rolls left out); chaos the rows of
+  any note, judged or not, off the eighth-note grid, a second, halved.
+  StepMania writes them uncapped and its radar clamps each to 0–1 as it
+  draws, which ours does too; a spoke's number is a hundred times its
+  value (it may pass 100). The seconds are the song's length as song
+  select shows it (the library's `length`, the end of the last note of
+  its playable charts; StepMania takes the music's), else the chart's
+  own span. Every chart of every layout has them at once: the library's
+  scan and the bundled songs' manifest carry them
+  (`ChartInfo::groove`, to the thousandth), the web's older imports get
+  them once at load (written back), desktop's cache was bumped (14);
+  nothing is rated in the background for them.
+- What the first, from-memory version had wrong against the source:
+  stream counted a hold twice (StepMania counts each judged note once);
+  voltage took fixed eight-beat windows (StepMania's is rolling, from
+  each note back) and counted holds twice; freeze counted rolls; chaos
+  left out the rows of mines, fakes and unjudged notes (StepMania counts
+  any row) while counting rows the timing does not judge in the others;
+  the last row did not follow StepMania's per-lane `GetLastRow`.

@@ -605,3 +605,17 @@ outside their hit trees and clips; its size is corrected for UI scale and
 pixel ratio. Shells honor `Cursor::Hidden`; desktop balances AppKit hide/unhide
 on macOS to avoid winit's invisible-GIF issue. Gameplay retains its existing
 pointer hiding and quit-button behavior.
+
+## Song select's song side (2026-11-20, round SLB)
+
+The select-layout study's B2 built (`docs/plans/song-navigation.md`, "The
+song's side"): the look's `SongCover` (the cover, else the banner whole
+over its cached Gaussian copy at brightness 0.55 and saturation 0.85,
+else a title plate; `CoverMovie`, the preview movie's sprite, faded by
+the screen), `SongInfo.Text` (the title band: the title, the artist, then
+LENGTH · NOTES · BPM) and `SongInfo.Short` (a phone's: the square beside
+the title). The room's players panel, its state icons and marks (a
+golden and a silver house, a wrench, a note, five pips, a bot's head) are
+vector shapes in the look's colors (`Star.Gold`, `Star.Silver`, `Muted`,
+`Secondary`, `Faint`, `Line2`, `Plate`), drawn by
+`crates/ui/src/screens/select_players.rs`.
