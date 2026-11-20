@@ -349,6 +349,26 @@ mod tests {
     }
 
     #[test]
+    fn a_touch_cut_shows_the_lanes_group_or_pad_its_own_lit() {
+        use crate::touch_controls::{Choice, Screen, Style, plan};
+        let layout = Layout::builtin("dance-single").unwrap();
+        let screen = Screen::new([390.0, 844.0], [0.0; 4]);
+        let parts = |style, lane| {
+            let c = plan(&layout, screen, Choice { style, ..Choice::default() }).unwrap();
+            let cut = touch_cut(&c, lane, 48.0);
+            let ddi_actor::Kind::Frame(children) = &cut.kind else {
+                panic!("a frame");
+            };
+            assert!(cut.decoration);
+            children.len()
+        };
+        // The left group's two buttons and the screen's edge.
+        assert_eq!(parts(Style::Buttons, 0), 3);
+        // The whole pad.
+        assert_eq!(parts(Style::Pad, 2), 9);
+    }
+
+    #[test]
     fn the_brief_demo_visits_every_lane_once_then_stops() {
         for id in ["dance-single", "danoni-7", "pump-double"] {
             let controls = Controls::new(&Layout::builtin(id).unwrap(), &Settings::default());
