@@ -1,18 +1,26 @@
 //! The chat layer's items over time (C6, C8, C9, C10, C11): what comes in
-//! within `chat-overlay-v0`'s budgets, what the moderation events take
+//! within `chat-overlay-v1`'s budgets, what the moderation events take
 //! off, where each item goes and how it moves, all on the host's clock
 //! (seconds), never the song's. Deterministic from the events, the
 //! clock, the [`Options`] and the [`Area`]: the shells measure the text
 //! and say which emote images are ready; nothing here draws.
 //!
-//! - **Across**: rows, right to left, each item at a speed that keeps it
-//!   on screen the same time whatever its length; a row takes a new item
-//!   only once its last one has cleared the right edge and cannot be
-//!   caught before it leaves (niconico's rule).
-//! - **Falling**: columns, top to bottom, every item at one speed, a
-//!   column taking a new item once its last one has come a line down.
-//! - Reduced motion: nothing travels; items take free places in the rows
-//!   (or the columns' cells), fade in, stay and fade out.
+//! The layer is an ambient effect behind the play (round TW5, the
+//! maintainer, 2026-11-20: "I want them to be behind the fields not in
+//! between them, it's not necessarily going to be easy to read or to
+//! notice everything, but that's fine"): items go over the whole screen,
+//! behind the play's field, the opponents' fields and the HUD (the field
+//! filter's band dims them in the lanes), and every emote is drawn by
+//! itself, never summarized.
+//!
+//! - **Across**: items cross the whole screen right to left, each at a
+//!   speed that keeps it on screen its own time whatever its length, at a
+//!   height of its own; an item never starts where another is still
+//!   coming in, nor where it would catch one before that one leaves
+//!   (niconico's rule, over any heights rather than rows).
+//! - **Falling**: the same, falling from the top over the whole width.
+//! - Reduced motion: nothing travels; items take free places anywhere on
+//!   the screen, fade in, stay and fade out.
 //!
 //! Full means dropped, never queued: late chat is worse than missing
 //! chat.
@@ -24,15 +32,75 @@ use crate::eventsub::Event;
 use crate::item::{Content, Cut, Left, Piece};
 use crate::{Level, Style};
 
-/// `chat-overlay-v0`'s numbers (C9). Every one PROVISIONAL.
+/// How the items look (round TW5's candidates, shown to the maintainer in
+/// pictures; PROVISIONAL until they choose).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Look {
+    pub name: &'static str,
+    /// An emote's height in an emote-only item, in lines.
+    pub emote: f32,
+    /// An emote's height inline in a message's line, in lines (the text
+    /// is a line tall).
+    pub inline: f32,
+    /// Each item's size varies by up to this share either way (0: every
+    /// item the same).
+    pub vary_size: f32,
+    /// Each item's time on screen varies by up to this share either way,
+    /// so a burst does not move as one block.
+    pub vary_speed: f32,
+    /// An emote-only message's emotes each an item of their own, coming
+    /// in this many seconds apart, each at a place of its own (0: one item,
+    /// its emotes in a row).
+    pub scatter: f64,
+}
+
+/// As built in round TW4, every emote drawn: items a line tall, emotes as
+/// tall as the text, all alike.
+pub const LOOK_AS_BUILT: Look = Look {
+    name: "as-built",
+    emote: 1.0,
+    inline: 1.0,
+    vary_size: 0.0,
+    vary_speed: 0.0,
+    scatter: 0.0,
+};
+
+/// Emotes larger than the text, sizes and speeds varying a little.
+pub const LOOK_LARGER: Look = Look {
+    name: "larger",
+    emote: 1.6,
+    inline: 1.35,
+    vary_size: 0.15,
+    vary_speed: 0.2,
+    scatter: 0.0,
+};
+
+/// As [`LOOK_LARGER`], an emote-only message's emotes each coming in by
+/// itself, a little apart, so a burst is a cloud rather than rows.
+pub const LOOK_SCATTERED: Look = Look {
+    name: "scattered",
+    emote: 1.6,
+    inline: 1.35,
+    vary_size: 0.2,
+    vary_speed: 0.25,
+    scatter: 0.12,
+};
+
+/// The candidates, by name (the tests' and the studies' pick).
+pub const LOOKS: [Look; 3] = [LOOK_AS_BUILT, LOOK_LARGER, LOOK_SCATTERED];
+
+/// `chat-overlay-v1`'s numbers (C9, round TW5). Every one PROVISIONAL.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rules {
     pub name: &'static str,
-    /// Items on screen at most (waiting for their images included).
+    /// Messages on screen at most (waiting for their images included; a
+    /// scattered message counts once).
     pub on_screen: usize,
-    /// New items a second at most.
+    /// Emotes on screen at most, every one counted.
+    pub emotes_on_screen: usize,
+    /// New messages a second at most.
     pub per_second: usize,
-    /// Seconds between two items of one chatter, at least.
+    /// Seconds between two messages of one chatter, at least.
     pub per_chatter: f64,
     pub cut: Cut,
     /// Seconds an item waits for its emotes' images before it goes
@@ -44,16 +112,22 @@ pub struct Rules {
     pub falling: f64,
     pub still: f64,
     pub fade: f64,
+    pub look: Look,
 }
 
-/// `chat-overlay-v0` (`crate::RULES_NAME`).
-pub const CHAT_OVERLAY_V0: Rules = Rules {
+/// `chat-overlay-v1` (`crate::RULES_NAME`): no summarizing, budgets for
+/// emotes as individual things. A message brings eight emotes at most;
+/// the screen holds 80 messages and 160 emotes at most, 20 new messages a
+/// second, one a chatter every 2 s; the rest is dropped (and the space on
+/// screen drops more: an item that finds no free place is left out).
+pub const CHAT_OVERLAY_V1: Rules = Rules {
     name: crate::RULES_NAME,
-    on_screen: 40,
-    per_second: 8,
+    on_screen: 80,
+    emotes_on_screen: 160,
+    per_second: 20,
     per_chatter: 2.0,
     cut: Cut {
-        emotes: 5,
+        emotes: 8,
         graphemes: 60,
     },
     wait: 1.0,
@@ -61,6 +135,7 @@ pub const CHAT_OVERLAY_V0: Rules = Rules {
     falling: 8.0,
     still: 5.0,
     fade: 0.4,
+    look: LOOK_LARGER,
 };
 
 /// A device's choices for the layer.
@@ -86,225 +161,70 @@ pub enum Readiness {
     Failed,
 }
 
-/// Where items go, in the target's pixels.
+/// Where items go: the whole target, in its pixels (round TW5: behind
+/// everything, nothing routed around).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Area {
     pub size: [f32; 2],
-    /// An item's height.
+    /// A line of text's height; emotes are [`Look::emote`] lines tall.
     pub line: f32,
-    /// The rows' tops (Across), in the order they are taken.
-    pub rows: Vec<f32>,
-    /// The columns (Falling).
-    pub columns: Vec<Column>,
 }
 
-/// A column of Falling: its left and right edges, and where its items
-/// come in and go out.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Column {
-    pub x: [f32; 2],
-    pub y: [f32; 2],
+impl Area {
+    pub fn new(size: [f32; 2], line: f32) -> Area {
+        Area {
+            size,
+            line: line.max(1.0),
+        }
+    }
 }
 
-/// Rows a line apart and a fifth of a line between.
-const PITCH: f32 = 1.2;
-/// Room between items in a row or a column, in lines.
-const GAP: f32 = 0.8;
+/// Room between items, along their way, in lines.
+const GAP: f32 = 0.5;
+/// Room between items side by side, in lines.
+const BESIDE: f32 = 0.12;
+/// The places across an item's way are this many lines apart.
+const STEP: f32 = 0.25;
 /// An emote at most this many times as wide as tall.
 const WIDEST: f32 = 4.0;
 /// The space between pieces and after a chatter's name, in lines.
 const SPACE: f32 = 0.3;
-/// An item narrowed to fit a column, to this share at most (a longer
-/// one is cut to the width that takes).
-const NARROWEST: f32 = 0.75;
+/// Places a still item (reduced motion) tries before it is left out.
+const STILL_TRIES: u64 = 96;
 
-/// A column's least width at `level`, pixels: room for a short message,
-/// or for two emotes.
-fn column_least(level: Level, line: f32) -> f32 {
-    (if level == Level::Messages { 4.5 } else { 2.5 }) * line
-}
-
-/// The side space either side of the field's `band` on a `width` target,
-/// half a line in from each edge.
-fn sides(width: f32, line: f32, band: [f32; 2]) -> [[f32; 2]; 2] {
-    let margin = line * 0.5;
-    [[margin, band[0] - margin], [band[1] + margin, width - margin]]
-}
-
-/// What a play's frame shows of the chat, from the device's choices
-/// (`level` under the room's ceiling, `style`) and the play's layout
-/// (round TW4, the maintainer's decisions of 2026-11-20):
-///
-/// - a stage that shows opponents' small fields beside the player's own
-///   (`miniatures`) uses Falling whatever the choice: Across's rows read
-///   poorly behind the miniatures, Falling's columns go beside them;
-///   a solo play and a watched stage keep the choice;
-/// - a play with no side space beside the field (`side_space` false,
-///   [`Area::side_space`]: a phone held upright) shows emotes alone:
-///   there any item crosses the lanes, and a message reads worst.
-pub fn shown(level: Level, style: Style, miniatures: bool, side_space: bool) -> (Level, Style) {
-    let level = if side_space { level } else { level.min(Level::Emotes) };
-    let style = if miniatures { Style::Falling } else { style };
-    (level, style)
-}
-
-impl Area {
-    /// The area for a `size` target with items `line` tall: rows down the
-    /// whole height but half a line at the top and the bottom, taken from
-    /// the top; Falling's columns in the side space beside the field's
-    /// `band` (left and right edges) clear of `obstacles` (the miniatures'
-    /// slots, `[left, top, right, bottom]`) where there is room for a
-    /// column there, else over the side space behind them, else over the
-    /// whole width (a phone held upright), each the whole height.
-    pub fn new(
-        size: [f32; 2],
-        line: f32,
-        band: [f32; 2],
-        obstacles: &[[f32; 4]],
-        level: Level,
-    ) -> Area {
-        let [w, h] = size;
-        let line = line.max(1.0);
-        let margin = line * 0.5;
-        let widest = if level == Level::Messages { 14.0 } else { 5.0 } * line;
-        let narrowest = column_least(level, line);
-        let sides = sides(w, line, band);
-        let wide_enough = |r: &[f32; 2]| r[1] - r[0] >= narrowest;
-        // The side space less the obstacles' widths.
-        let mut free: Vec<[f32; 2]> = Vec::new();
-        for side in sides.iter().filter(|s| wide_enough(s)) {
-            let mut parts = vec![*side];
-            for o in obstacles {
-                let (a, b) = (o[0] - margin, o[2] + margin);
-                parts = parts
-                    .into_iter()
-                    .flat_map(|p| {
-                        if b <= p[0] || a >= p[1] {
-                            vec![p]
-                        } else {
-                            vec![[p[0], a.min(p[1])], [b.max(p[0]), p[1]]]
-                        }
-                    })
-                    .filter(|p| p[1] > p[0])
-                    .collect();
-            }
-            free.extend(parts.into_iter().filter(wide_enough));
-        }
-        let spaces: Vec<[f32; 2]> = if !free.is_empty() {
-            free
-        } else {
-            let behind: Vec<[f32; 2]> = sides.into_iter().filter(wide_enough).collect();
-            if behind.is_empty() {
-                vec![[margin, w - margin]]
-            } else {
-                behind
-            }
-        };
-        let mut columns = Vec::new();
-        for s in spaces {
-            let n = ((s[1] - s[0]) / widest).ceil().max(1.0);
-            let each = (s[1] - s[0]) / n;
-            for k in 0..n as usize {
-                let x = s[0] + each * k as f32;
-                columns.push(Column {
-                    x: [x, x + each],
-                    y: [0.0, h],
-                });
-            }
-        }
-        let pitch = line * PITCH;
-        let rows = (0..)
-            .map(|k| margin + pitch * k as f32)
-            .take_while(|y| y + line <= h - margin)
-            .collect();
-        Area {
-            size,
-            line,
-            rows,
-            columns,
-        }
-    }
-
-    /// Whether a `width` target with items `line` tall has side space
-    /// beside the field's `band` (left and right edges): a side wide
-    /// enough for a column of messages (Falling's least, 4.5 lines and
-    /// the margins). Where neither side is, as on a phone held upright,
-    /// any item crosses the lanes, and the layer shows emotes alone
-    /// (round TW4, [`shown`]).
-    pub fn side_space(width: f32, line: f32, band: [f32; 2]) -> bool {
-        let line = line.max(1.0);
-        let least = column_least(Level::Messages, line);
-        sides(width, line, band)
-            .iter()
-            .any(|s| s[1] - s[0] >= least)
-    }
-
-    /// The area kept clear of `keep_out` (`[left, top, right, bottom]`:
-    /// the receptors' rows, the HUD): no row crosses one (a row crosses
-    /// the whole width), and a column starts below one over it in the top
-    /// half and ends above one under it in the bottom half; the rows taken
-    /// from the bottom first where `from_bottom` (the receptors at the
-    /// top: the chat as far from them as it can be).
-    pub fn keeping_clear(mut self, keep_out: &[[f32; 4]], from_bottom: bool) -> Area {
-        let line = self.line;
-        let gap = line * 0.25;
-        self.rows.retain(|&y| {
-            keep_out
-                .iter()
-                .all(|k| y + line + gap <= k[1] || y >= k[3] + gap)
-        });
-        if from_bottom {
-            self.rows.reverse();
-        }
-        let half = self.size[1] / 2.0;
-        for c in &mut self.columns {
-            for k in keep_out {
-                if k[2] <= c.x[0] || k[0] >= c.x[1] {
-                    continue;
-                }
-                if k[3] <= half {
-                    c.y[0] = c.y[0].max(k[3] + gap);
-                } else if k[1] >= half {
-                    c.y[1] = c.y[1].min(k[1] - gap);
-                }
-            }
-        }
-        self.columns.retain(|c| c.y[1] - c.y[0] >= line * 3.0);
-        self
-    }
-}
-
-/// A piece of an item as placed: its offset from the item's left and
-/// its width, pixels at the item's own size.
+/// A piece of an item as placed: its offset from the item's left, its
+/// width and its height (centered in the item's), pixels at the item's
+/// own size.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Laid {
     pub what: Glyphs,
     pub x: f32,
     pub width: f32,
+    pub height: f32,
 }
 
-/// What a laid piece draws.
+/// What a laid piece draws: a name, text or one emote. There is no count:
+/// four emotes are four pieces (round TW5).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Glyphs {
     /// The chatter's name leading the item.
     Name(String),
     Text(String),
     Emote(Emote),
-    /// A run's count after its emote (`×3`).
-    Count(String),
 }
 
 /// An item as drawn this frame.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Drawn<'a> {
     pub id: u64,
-    /// Its box's top left, pixels; its height the area's line times
+    /// Its box's top left, pixels; its size `width` by `height` times
     /// `scale`.
     pub x: f32,
     pub y: f32,
     pub scale: f32,
     pub alpha: f32,
     pub width: f32,
+    pub height: f32,
     pub laid: &'a [Laid],
 }
 
@@ -312,49 +232,108 @@ pub struct Drawn<'a> {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Stats {
     pub messages: u64,
+    /// Items placed (a scattered message's emotes each one).
     pub shown: u64,
     /// Left out by C11 (commands, links, cheers, shared chat) or empty.
     pub left_out: u64,
-    /// Dropped by a budget: 40 on screen, 8 a second, a chatter's 2 s.
+    /// Dropped by a budget: the messages or the emotes on screen, the
+    /// messages a second, a chatter's 2 s.
     pub full: u64,
     pub rate: u64,
     pub chatter: u64,
     /// Dropped while frames ran late.
     pub shed: u64,
-    /// No room in any row or column when its turn came.
+    /// No free place when its turn came.
     pub no_room: u64,
     /// Its emotes never came and nothing else was left.
     pub no_image: u64,
     /// Taken off by a moderation event.
     pub removed: u64,
+    /// Emotes a message brought past its eight, left out.
+    pub cut: u64,
 }
 
 struct Waiting {
     id: u64,
     since: f64,
+    /// Not placed before this second (a scattered message's later
+    /// emotes).
+    due: f64,
     content: Content,
+    /// Split from a scattered message: its emotes' images are in.
+    part: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Lane {
-    Row(usize),
-    Column(usize),
-    /// Reduced motion: a row's or a column's cell (`k`).
-    Fixed(usize, usize),
+enum Motion {
+    Across,
+    Falling,
+    Still,
 }
 
 struct Shown {
     id: u64,
     content: Content,
     laid: Vec<Laid>,
-    width: f32,
+    /// Its size at scale 1, and its scale.
+    size: [f32; 2],
     scale: f32,
-    lane: Lane,
+    motion: Motion,
     /// Where it was at `born`, and its velocity, pixels a second.
     at: [f32; 2],
     velocity: [f32; 2],
     born: f64,
     ends: f64,
+}
+
+impl Shown {
+    fn box_size(&self) -> [f32; 2] {
+        self.size.map(|v| v * self.scale)
+    }
+
+    fn top_left(&self, now: f64) -> [f32; 2] {
+        let t = (now - self.born).max(0.0) as f32;
+        [self.at[0] + self.velocity[0] * t, self.at[1] + self.velocity[1] * t]
+    }
+
+    /// How far its leading edge is past the edge it came in at, and its
+    /// length along its way (`area`'s `size`).
+    fn lead(&self, now: f64, size: [f32; 2]) -> (f32, f32) {
+        let [x, y] = self.top_left(now);
+        let [w, h] = self.box_size();
+        match self.motion {
+            Motion::Across => (size[0] - x, w),
+            _ => (y + h, h),
+        }
+    }
+
+    /// Its extent across its way.
+    fn beside(&self) -> [f32; 2] {
+        let [w, h] = self.box_size();
+        match self.motion {
+            Motion::Across => [self.at[1], self.at[1] + h],
+            _ => [self.at[0], self.at[0] + w],
+        }
+    }
+}
+
+/// A number from `id` and `salt`, the same every time (splitmix64).
+fn hash(id: u64, salt: u64) -> u64 {
+    let mut z = id
+        .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        .wrapping_add(salt.wrapping_mul(0xbf58_476d_1ce4_e5b9));
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
+}
+
+/// A share in `-1..=1` from `id` and `salt`.
+fn spread(id: u64, salt: u64) -> f32 {
+    (hash(id, salt) % 20_001) as f32 / 10_000.0 - 1.0
+}
+
+fn gcd(a: usize, b: usize) -> usize {
+    if b == 0 { a } else { gcd(b, a % b) }
 }
 
 /// The layer's state over a play.
@@ -389,14 +368,6 @@ impl Overlay {
         self.options
     }
 
-    /// What the play's layout lets this frame show ([`shown`]): the level
-    /// new items are made at and the style they are placed in. Items
-    /// already on screen go on as they were placed.
-    pub fn set_shown(&mut self, level: Level, style: Style) {
-        self.options.level = level;
-        self.options.style = style;
-    }
-
     pub fn rules(&self) -> &Rules {
         &self.rules
     }
@@ -422,6 +393,29 @@ impl Overlay {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Messages on screen or waiting (a scattered message's items once).
+    pub fn messages(&self) -> usize {
+        let mut ids: Vec<&str> = self
+            .waiting
+            .iter()
+            .map(|w| &*w.content.message_id)
+            .chain(self.shown.iter().map(|s| &*s.content.message_id))
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids.len()
+    }
+
+    /// Emotes on screen or waiting, every one.
+    pub fn emotes(&self) -> usize {
+        self.waiting
+            .iter()
+            .map(|w| &w.content)
+            .chain(self.shown.iter().map(|s| &s.content))
+            .map(|c| c.emotes().count())
+            .sum()
     }
 
     /// The emotes items wait for (each once, in order): what a shell's
@@ -474,7 +468,9 @@ impl Overlay {
                         return;
                     }
                 };
-                if self.len() >= self.rules.on_screen {
+                if self.messages() >= self.rules.on_screen
+                    || self.emotes() + content.emotes().count() > self.rules.emotes_on_screen
+                {
                     self.stats.full += 1;
                     return;
                 }
@@ -499,12 +495,14 @@ impl Overlay {
                 }
                 self.chatters.insert(content.chatter_id.clone(), now);
                 self.admitted.push_back(now);
-                let id = self.next;
-                self.next += 1;
+                self.stats.cut += content.left_out as u64;
+                let id = self.take_id();
                 self.waiting.push(Waiting {
                     id,
                     since: now,
+                    due: now,
                     content,
+                    part: false,
                 });
             }
             Event::Delete { message_id } => self.remove(|c| c.message_id == *message_id),
@@ -512,6 +510,12 @@ impl Overlay {
             Event::Clear => self.remove(|_| true),
             Event::Other(_) => {}
         }
+    }
+
+    fn take_id(&mut self) -> u64 {
+        let id = self.next;
+        self.next += 1;
+        id
     }
 
     fn remove(&mut self, which: impl Fn(&Content) -> bool) {
@@ -533,193 +537,206 @@ impl Overlay {
         measure: &mut dyn FnMut(&str) -> f32,
     ) {
         self.shown.retain(|s| s.ends > now);
+        let look = self.rules.look;
         let waiting = std::mem::take(&mut self.waiting);
+        let mut later = Vec::new();
         for w in waiting {
-            let states: Vec<Readiness> = w.content.emotes().map(ready).collect();
-            let due = now - w.since >= self.rules.wait;
-            if !due && states.contains(&Readiness::Waiting) {
-                self.waiting.push(w);
+            if w.due > now {
+                later.push(w);
                 continue;
             }
-            // Falling's columns take a line no wider than their widest
-            // narrowed allows; a row takes the screen's width.
-            let most = match self.options.style {
-                Style::Falling => {
-                    area.columns
-                        .iter()
-                        .map(|c| c.x[1] - c.x[0])
-                        .fold(0.0, f32::max)
-                        / NARROWEST
+            let states: Vec<Readiness> = w.content.emotes().map(ready).collect();
+            let due = w.part || now - w.since >= self.rules.wait;
+            if !due && states.contains(&Readiness::Waiting) {
+                later.push(w);
+                continue;
+            }
+            // A scattered message: each of its emotes ready an item of its
+            // own, coming in a little apart.
+            let emotes: Vec<Emote> = w
+                .content
+                .emotes()
+                .filter(|e| matches!(ready(e), Readiness::Ready { .. }))
+                .cloned()
+                .collect();
+            if !w.part && look.scatter > 0.0 && w.content.emote_only() && emotes.len() > 1 {
+                for (k, e) in emotes.into_iter().enumerate() {
+                    let id = if k == 0 { w.id } else { self.take_id() };
+                    later.push(Waiting {
+                        id,
+                        since: w.since,
+                        due: now + look.scatter * k as f64,
+                        content: Content {
+                            pieces: vec![Piece::Emote(e)],
+                            left_out: 0,
+                            ..w.content.clone()
+                        },
+                        part: true,
+                    });
                 }
-                Style::Across => area.size[0] * 0.9,
+                continue;
+            }
+            // A row of emotes as wide as the screen allows (its eight are
+            // its cap); a line of text, Falling's narrower.
+            let most = match self.options.style {
+                Style::Falling if !w.content.emote_only() => (area.line * 14.0).min(area.size[0] * 0.9),
+                _ => area.size[0] * 0.9,
             };
-            let Some((laid, width)) = lay(&w.content, area.line, most, ready, measure) else {
+            let Some((laid, size)) = lay(&w.content, area.line, look, most, ready, measure) else {
                 self.stats.no_image += 1;
                 continue;
             };
-            if self.place(w.id, w.content, laid, width, now, area) {
+            if self.place(w.id, w.content, laid, size, now, area) {
                 self.stats.shown += 1;
             } else {
                 self.stats.no_room += 1;
             }
         }
+        // Those split now come in after the others waiting.
+        later.sort_by(|a, b| a.due.total_cmp(&b.due).then(a.id.cmp(&b.id)));
+        self.waiting = later;
     }
 
-    /// Puts an item in a free row or column; whether there was one.
+    /// Puts an item in a free place; whether there was one.
     fn place(
         &mut self,
         id: u64,
         content: Content,
         laid: Vec<Laid>,
-        width: f32,
+        size: [f32; 2],
         now: f64,
         area: &Area,
     ) -> bool {
         let r = self.rules;
-        let [w, _] = area.size;
+        let look = r.look;
+        let [sw, sh] = area.size;
         let line = area.line;
-        let pitch = line * PITCH;
-        let gap = line * GAP;
-        let rows = area.rows.len();
+        let margin = line * 0.25;
+        let scale = 1.0 + look.vary_size * spread(id, 1);
+        let [w, h] = size.map(|v| v * scale);
+        let time = 1.0 + f64::from(look.vary_speed * spread(id, 2));
+        let motion = if self.options.reduced {
+            Motion::Still
+        } else {
+            match self.options.style {
+                Style::Across => Motion::Across,
+                Style::Falling => Motion::Falling,
+            }
+        };
         let mut shown = Shown {
             id,
             content,
             laid,
-            width,
-            scale: 1.0,
-            lane: Lane::Row(0),
+            size,
+            scale,
+            motion,
             at: [0.0; 2],
             velocity: [0.0; 2],
             born: now,
             ends: now,
         };
-        let placed = match (self.options.style, self.options.reduced) {
-            (Style::Across, false) => {
-                let speed = (w + width) / r.across as f32;
-                let free = (0..rows).find(|&row| {
-                    let last = self
-                        .shown
-                        .iter()
-                        .filter(|s| s.lane == Lane::Row(row))
-                        .max_by(|a, b| a.born.total_cmp(&b.born));
-                    let Some(p) = last else { return true };
-                    let t = (now - p.born) as f32;
-                    // Its right end has cleared the right edge…
-                    let right = p.at[0] + p.width + p.velocity[0] * t;
-                    if right > w - gap {
-                        return false;
-                    }
-                    // …and the new one cannot catch it before it leaves.
-                    let left_for = (p.ends - now) as f32;
-                    left_for <= 0.0 || w - speed * left_for >= gap
-                });
-                free.map(|row| {
-                    shown.lane = Lane::Row(row);
-                    shown.at = [w, area.rows[row]];
-                    shown.velocity = [-speed, 0.0];
-                    shown.ends = now + r.across;
-                })
-            }
-            (Style::Falling, false) => {
-                // The free column whose last item is oldest.
-                let free = (0..area.columns.len())
-                    .filter_map(|c| {
-                        let [top, bottom] = area.columns[c].y;
-                        let speed = (bottom - top + line) / r.falling as f32;
-                        let last = self
-                            .shown
-                            .iter()
-                            .filter(|s| s.lane == Lane::Column(c))
-                            .map(|s| s.born)
-                            .fold(f64::NEG_INFINITY, f64::max);
-                        let came = (now - last) as f32 * speed;
-                        (came >= pitch + gap * 0.5).then_some((c, last))
-                    })
-                    .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
-                free.map(|(c, _)| {
-                    let Column { x: [x0, x1], y: [top, bottom] } = area.columns[c];
-                    let speed = (bottom - top + line) / r.falling as f32;
-                    let s = ((x1 - x0) / width.max(1.0)).clamp(NARROWEST, 1.0);
-                    shown.scale = s;
-                    shown.lane = Lane::Column(c);
-                    shown.at = [x0 + ((x1 - x0) - width * s).max(0.0) / 2.0, top - line * s];
-                    shown.velocity = [0.0, speed];
-                    shown.ends = now + r.falling * f64::from((bottom - top + line * s) / (bottom - top + line));
-                })
-            }
-            (Style::Across, true) => {
-                // The row with fewest items, at the first place that fits.
-                let margin = line * 0.5;
-                let mut order: Vec<usize> = (0..rows).collect();
-                let count = |row: usize, shown: &[Shown]| {
-                    shown.iter().filter(|s| matches!(s.lane, Lane::Fixed(r, _) if r == row)).count()
+        let placed = match motion {
+            Motion::Across | Motion::Falling => {
+                let across = motion == Motion::Across;
+                // Its way's length, its length along it, its width across.
+                let (length, along, beside, room) = if across {
+                    (sw, w, h, sh)
+                } else {
+                    (sh, h, w, sw)
                 };
-                order.sort_by_key(|&row| (count(row, &self.shown), row));
-                order.into_iter().find_map(|row| {
-                    let mut taken: Vec<[f32; 2]> = self
-                        .shown
-                        .iter()
-                        .filter(|s| matches!(s.lane, Lane::Fixed(r, _) if r == row))
-                        .map(|s| [s.at[0], s.at[0] + s.width])
-                        .collect();
-                    taken.sort_by(|a, b| a[0].total_cmp(&b[0]));
-                    // From a place of its own in each row, so items do
-                    // not all line up at the left.
-                    let start = margin + (w - 2.0 * margin) * ((row as f32 * 0.618).fract() * 0.5);
-                    let candidates = std::iter::once(start)
-                        .chain(taken.iter().map(|t| t[1] + gap))
-                        .chain(std::iter::once(margin));
-                    for x in candidates {
-                        if x + width > w - margin {
-                            continue;
+                let seconds = if across { r.across } else { r.falling } * time;
+                let speed = (length + along) / seconds as f32;
+                let ends = now + seconds;
+                let gap = line * GAP;
+                let side = line * BESIDE;
+                let span = room - 2.0 * margin - beside;
+                let places = if span < 0.0 {
+                    1
+                } else {
+                    (span / (line * STEP)).floor() as usize + 1
+                };
+                // The places in an order of the item's own: a burst is
+                // spread over the screen, never stacked from one edge.
+                let start = (hash(id, 3) % places as u64) as usize;
+                let stride = [97, 89, 61, 37, 23, 13, 7, 5, 3, 1]
+                    .into_iter()
+                    .find(|s| gcd(*s, places) == 1)
+                    .unwrap_or(1);
+                let others: Vec<(f32, f32, [f32; 2], f32, f64)> = self
+                    .shown
+                    .iter()
+                    .filter(|s| s.motion == motion)
+                    .map(|s| {
+                        let (lead, along) = s.lead(now, area.size);
+                        let v = s.velocity[0].abs().max(s.velocity[1].abs());
+                        (lead, along, s.beside(), v, s.ends)
+                    })
+                    .collect();
+                let free = (0..places).map(|k| (start + k * stride) % places).find(|&k| {
+                    let p = if span < 0.0 {
+                        (room - beside) / 2.0
+                    } else {
+                        margin + line * STEP * k as f32
+                    };
+                    others.iter().all(|&(lead, o_along, [a, b], v, o_ends)| {
+                        if p + beside + side <= a || p >= b + side {
+                            return true;
                         }
-                        if taken.iter().all(|t| x + width + gap <= t[0] || x >= t[1] + gap) {
-                            return Some((row, x));
+                        // The other's tail has come in by a gap…
+                        if lead - o_along < gap {
+                            return false;
                         }
+                        // …and this one does not catch it before either
+                        // has gone.
+                        let t = (o_ends.min(ends) - now).max(0.0) as f32;
+                        speed * t + gap <= lead - o_along + v * t
+                    })
+                });
+                free.map(|k| {
+                    let p = if span < 0.0 {
+                        (room - beside) / 2.0
+                    } else {
+                        margin + line * STEP * k as f32
+                    };
+                    if across {
+                        shown.at = [sw, p];
+                        shown.velocity = [-speed, 0.0];
+                    } else {
+                        shown.at = [p, -h];
+                        shown.velocity = [0.0, speed];
                     }
-                    None
-                })
-                .map(|(row, x)| {
-                    shown.lane = Lane::Fixed(row, 0);
-                    shown.at = [x, area.rows[row]];
-                    shown.ends = now + r.still;
+                    shown.ends = ends;
                 })
             }
-            (Style::Falling, true) => {
-                let mut best: Option<(usize, usize, usize)> = None;
-                for (c, column) in area.columns.iter().enumerate() {
-                    let [top, bottom] = column.y;
-                    let cells = (((bottom - top) / pitch).floor().max(1.0)) as usize;
-                    let used: Vec<usize> = self
-                        .shown
-                        .iter()
-                        .filter_map(|s| match s.lane {
-                            Lane::Fixed(col, k) if col == c => Some(k),
-                            _ => None,
+            Motion::Still => {
+                // A free place anywhere, tried in an order of its own.
+                let side = line * BESIDE * 2.0;
+                let xs = ((sw - 2.0 * margin - w) / (line * 0.5)).floor().max(0.0) as u64 + 1;
+                let ys = ((sh - 2.0 * margin - h) / (line * STEP)).floor().max(0.0) as u64 + 1;
+                let taken: Vec<[f32; 4]> = self
+                    .shown
+                    .iter()
+                    .filter(|s| s.motion == Motion::Still)
+                    .map(|s| {
+                        let [w, h] = s.box_size();
+                        [s.at[0], s.at[1], s.at[0] + w, s.at[1] + h]
+                    })
+                    .collect();
+                (0..STILL_TRIES)
+                    .map(|k| {
+                        let x = margin + (hash(id, 10 + 2 * k) % xs) as f32 * line * 0.5;
+                        let y = margin + (hash(id, 11 + 2 * k) % ys) as f32 * line * STEP;
+                        [x, y]
+                    })
+                    .find(|&[x, y]| {
+                        taken.iter().all(|t| {
+                            x + w + side <= t[0] || x >= t[2] + side || y + h + side <= t[1] || y >= t[3] + side
                         })
-                        .collect();
-                    // Cells spread down the column: every other first.
-                    let free = (0..cells)
-                        .step_by(2)
-                        .chain((1..cells).step_by(2))
-                        .find(|k| !used.contains(k));
-                    if let Some(k) = free
-                        && best.is_none_or(|b| used.len() < b.2)
-                    {
-                        best = Some((c, k, used.len()));
-                    }
-                }
-                best.map(|(c, k, _)| {
-                    let Column { x: [x0, x1], y: [top, _] } = area.columns[c];
-                    let s = ((x1 - x0) / width.max(1.0)).clamp(NARROWEST, 1.0);
-                    shown.scale = s;
-                    shown.lane = Lane::Fixed(c, k);
-                    shown.at = [
-                        x0 + ((x1 - x0) - width * s).max(0.0) / 2.0,
-                        top + pitch * k as f32,
-                    ];
-                    shown.ends = now + r.still;
-                })
+                    })
+                    .map(|at| {
+                        shown.at = at;
+                        shown.ends = now + r.still;
+                    })
             }
         };
         if placed.is_some() {
@@ -735,40 +752,46 @@ impl Overlay {
         let fade = self.rules.fade;
         self.shown.iter().filter(move |s| s.ends > now).map(move |s| {
             let t = (now - s.born).max(0.0);
-            // Standing still, or falling in a column that starts or ends
-            // within the screen: faded in and out.
-            let alpha = if matches!(s.lane, Lane::Fixed(..) | Lane::Column(_)) {
+            // Standing still: faded in and out. Moving items come in and
+            // leave at the screen's edges.
+            let alpha = if s.motion == Motion::Still {
                 let into = (t / fade).min(1.0);
                 let out = ((s.ends - now) / fade).min(1.0);
                 into.min(out).max(0.0) as f32
             } else {
                 1.0
             };
+            let [x, y] = s.top_left(now);
             Drawn {
                 id: s.id,
-                x: s.at[0] + s.velocity[0] * t as f32,
-                y: s.at[1] + s.velocity[1] * t as f32,
+                x,
+                y,
                 scale: s.scale,
                 alpha,
-                width: s.width,
+                width: s.size[0],
+                height: s.size[1],
                 laid: &s.laid,
             }
         })
     }
 }
 
-/// `content`'s pieces laid on one line `line` tall, `most` pixels wide at
-/// most: the name, the text (cut with an ellipsis where it would run
-/// past), the emotes whose images are ready (the others left out), a
-/// run's count after its emote. `None` where nothing is left.
+/// `content`'s pieces laid on one line, `most` pixels wide at most: the
+/// name, the text (a line tall, cut with an ellipsis where it would run
+/// past), every emote whose image is ready (the others left out; each
+/// [`Look::emote`] lines tall in an emote-only item, [`Look::inline`] in a
+/// line of text). Its pieces and its size; `None` where nothing is left.
 fn lay(
     content: &Content,
     line: f32,
+    look: Look,
     most: f32,
     ready: &dyn Fn(&Emote) -> Readiness,
     measure: &mut dyn FnMut(&str) -> f32,
-) -> Option<(Vec<Laid>, f32)> {
+) -> Option<(Vec<Laid>, [f32; 2])> {
     let space = line * SPACE;
+    let emote_only = content.emote_only();
+    let eh = line * if emote_only { look.emote } else { look.inline };
     let mut laid = Vec::new();
     let mut x = 0.0f32;
     if let Some(name) = &content.name {
@@ -777,11 +800,11 @@ fn lay(
             what: Glyphs::Name(name.clone()),
             x: 0.0,
             width: w,
+            height: line,
         });
         x = w + space * 1.5;
     }
     let mut body = false;
-    let emote_only = content.emote_only();
     'pieces: for p in &content.pieces {
         match p {
             Piece::Text(t) => {
@@ -814,6 +837,7 @@ fn lay(
                         what: Glyphs::Text(text),
                         x,
                         width: w,
+                        height: line,
                     });
                     x += w;
                     break 'pieces;
@@ -823,36 +847,28 @@ fn lay(
                     what: Glyphs::Text(text),
                     x,
                     width: w,
+                    height: line,
                 });
                 x += w;
             }
-            Piece::Emote { emote, count } => {
+            Piece::Emote(emote) => {
                 let Readiness::Ready { aspect } = ready(emote) else {
                     continue;
                 };
-                let w = line * aspect.clamp(0.25, WIDEST);
-                let text = (*count > 1).then(|| format!("×{count}"));
-                let cw = text.as_deref().map_or(0.0, &mut *measure);
-                if body && x + w + cw > most {
+                let w = eh * aspect.clamp(0.25, WIDEST);
+                if body && x + w > most {
                     break 'pieces;
                 }
                 laid.push(Laid {
                     what: Glyphs::Emote(emote.clone()),
                     x,
                     width: w,
+                    height: eh,
                 });
                 x += w;
                 body = true;
-                if let Some(text) = text {
-                    laid.push(Laid {
-                        what: Glyphs::Count(text),
-                        x,
-                        width: cw,
-                    });
-                    x += cw;
-                }
                 if emote_only {
-                    x += space;
+                    x += eh * 0.15;
                 }
             }
         }
@@ -862,9 +878,10 @@ fn lay(
     }
     // A trailing space left after the last emote.
     if emote_only {
-        x -= space;
+        x -= eh * 0.15;
     }
-    Some((laid, x.max(1.0)))
+    let height = laid.iter().map(|l| l.height).fold(0.0, f32::max);
+    Some((laid, [x.max(1.0), height.max(1.0)]))
 }
 
 #[cfg(test)]

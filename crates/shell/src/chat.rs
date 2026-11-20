@@ -1,13 +1,14 @@
 //! A room host's Twitch chat behind the play, placed and drawn
 //! (`docs/plans/multiplayer-twitch.md`, C6, C7, C9, C10): the session's
 //! chat events (`ddi_session::chat`) taken into the layer
-//! (`ddi_chat::overlay`) on the host's clock, its items placed in the
-//! play's free space (the rows over the whole screen, Falling's columns
-//! in the side space clear of the miniatures where there is room), and
-//! drawn by the play's own 2D painter into a texture the backdrop shows
-//! under the field (`ddi_render::Renderer::set_chat_layer`): the text
-//! through the platform's runs as the lyrics' is, the emotes from one
-//! atlas (one batch).
+//! (`ddi_chat::overlay`) on the host's clock, its items placed over the
+//! whole screen in the device's chosen style (round TW5: an ambient
+//! effect behind the play's field, the opponents' fields and the HUD,
+//! nothing routed around them; the field filter's band dims it in the
+//! lanes), and drawn by the play's own 2D painter into a texture the
+//! backdrop shows under the field (`ddi_render::Renderer::set_chat_layer`):
+//! the text through the platform's runs as the lyrics' is, the emotes
+//! from one atlas (one batch), every one by itself.
 //!
 //! It is the first thing shed when the play's frames run late: no new
 //! items while the last measured second was late (the signal the dancing
@@ -22,7 +23,7 @@
 use ddi_actor::text::{TextMeasure, TextStyle};
 use ddi_chat::cache::{ATLAS, Answer, EmoteCache, Fetch, Got, Via, fit};
 use ddi_chat::emotes::Emote;
-use ddi_chat::overlay::{Area, CHAT_OVERLAY_V0, Glyphs, Options, Overlay};
+use ddi_chat::overlay::{Area, CHAT_OVERLAY_V1, Glyphs, Look, Options, Overlay, Rules};
 use ddi_render::texture_cache::TextureKey;
 use ddi_render::{DrawList, Painter, Quad, Renderer};
 use ddi_session::chat::ChatLayer;
@@ -34,12 +35,32 @@ pub const FONT: &str = "system-ui, \"Noto Sans\", sans-serif";
 /// The text's size over an item's height.
 const TEXT_SIZE: f32 = 0.62;
 
-/// The chat's one quiet color, its names' and the counts', and the soft
-/// shadow under the text.
+/// The chat's one quiet color, its names', and the soft shadow under the
+/// text.
 const TEXT: [f32; 3] = [0.93, 0.92, 0.98];
 const NAME: [f32; 3] = [0.72, 0.78, 0.98];
-const COUNT: [f32; 3] = [0.82, 0.82, 0.88];
 const SHADOW: [f32; 3] = [0.02, 0.0, 0.05];
+
+thread_local! {
+    static LOOK: std::cell::Cell<Option<Look>> = const { std::cell::Cell::new(None) };
+}
+
+/// TESTING ONLY: the look plays from now on are drawn in (round TW5's
+/// candidates, [`ddi_chat::overlay::LOOKS`], for the pictures shown to
+/// the maintainer; the web's `mpfakechatlook`, desktop's
+/// `--mp-dev-chat-look`); `None`, `chat-overlay-v1`'s own.
+pub fn set_look(look: Option<Look>) {
+    LOOK.with(|l| l.set(look));
+}
+
+/// The rules a play's chat is laid by: `chat-overlay-v1`, in the look
+/// [`set_look`] set where one is.
+pub fn rules() -> Rules {
+    Rules {
+        look: LOOK.with(std::cell::Cell::get).unwrap_or(CHAT_OVERLAY_V1.look),
+        ..CHAT_OVERLAY_V1
+    }
+}
 
 /// The atlas's source for the painter.
 const ATLAS_SOURCE: &str = "chat:emotes";
@@ -98,9 +119,11 @@ pub struct ChatDrawn {
     pub anim_ms: u64,
     /// Each emote drawn this frame (which frame of it showed).
     pub emotes_drawn: Vec<EmoteDrawn>,
-    /// The level and the style this frame's layout let it show
-    /// ([`shown`]).
+    /// The level and the style shown (the device's, under the room's
+    /// ceiling: the same everywhere since round TW5).
     pub shown: Option<(ddi_chat::Level, ddi_chat::Style)>,
+    /// The look's name (`chat-overlay-v1`'s, or a candidate's).
+    pub look: &'static str,
     /// The texts drawn, for tests (each item's text pieces joined).
     pub texts: Vec<String>,
     /// Where each item was, `[x, y, width, height]` target pixels.
@@ -150,7 +173,7 @@ impl ChatView {
         let c = chat.config();
         ChatView {
             overlay: Overlay::new(
-                CHAT_OVERLAY_V0,
+                rules(),
                 Options {
                     level: c.level,
                     style: c.style,
@@ -219,13 +242,11 @@ impl ChatView {
         renderer: &mut Renderer,
         chat: &ChatLayer,
         (size, format): ([u32; 2], wgpu::TextureFormat),
-        (area, (level, style)): (&Area, (ddi_chat::Level, ddi_chat::Style)),
+        area: &Area,
         now: f64,
         fetch: &mut dyn FnMut(&Fetch) -> bool,
         fetched: Vec<(Fetch, Option<Decoded>)>,
     ) {
-        // What this frame's layout lets it show ([`shown`]).
-        self.overlay.set_shown(level, style);
         let accepting = !self.shed;
         for (n, at, event) in chat.since(self.seen) {
             self.overlay.receive(event, at, accepting);
@@ -321,6 +342,7 @@ impl ChatView {
             animated: self.cache.animated(),
             anim_ms,
             shown: Some((self.overlay.options().level, self.overlay.options().style)),
+            look: self.overlay.rules().look.name,
             opacity: 0.0,
             ..ChatDrawn::default()
         };
@@ -331,17 +353,16 @@ impl ChatView {
         for d in self.overlay.drawn(now) {
             drawn.items += 1;
             let s = d.scale;
-            let h = line * s;
+            let h = d.height * s;
             let text_style = TextStyle::new(FONT, line * TEXT_SIZE * s);
             let ty = d.y + (h - text_style.line_height()) / 2.0;
             let mut words = String::new();
             for l in d.laid {
                 let x = d.x + l.x * s;
                 match &l.what {
-                    Glyphs::Name(t) | Glyphs::Text(t) | Glyphs::Count(t) => {
+                    Glyphs::Name(t) | Glyphs::Text(t) => {
                         let color = match &l.what {
                             Glyphs::Name(_) => NAME,
-                            Glyphs::Count(_) => COUNT,
                             _ => TEXT,
                         };
                         let [r, g, b] = SHADOW;
@@ -358,25 +379,25 @@ impl ChatView {
                         let Some(cell) = self.cache.cell_at(e, anim_ms) else {
                             continue;
                         };
-                        let pad = h * 0.04;
+                        // Its own height, centered in the item's.
+                        let eh = l.height * s;
+                        let pad = eh * 0.04;
+                        let top = d.y + (h - eh) / 2.0;
+                        let rect = [x, top + pad, x + l.width * s, top + eh - pad];
                         let first = self.cache.cell(e).unwrap_or(cell);
                         drawn.emotes_drawn.push(EmoteDrawn {
                             item: d.id,
-                            rect: [x, d.y + pad, x + l.width * s, d.y + h - pad],
+                            rect,
                             cell: [cell[0], cell[1]],
                             first: [first[0], first[1]],
                             animated: e.animated,
                         });
                         let [cx, cy, cw, ch] = cell.map(|v| v as f32);
                         let [aw, ah] = ATLAS.map(|v| v as f32);
-                        let pad = h * 0.04;
                         emotes.push(Quad {
                             texture: Some(atlas_id),
                             uv: [cx / aw, cy / ah, (cx + cw) / aw, (cy + ch) / ah],
-                            ..Quad::plain(
-                                [x, d.y + pad, x + l.width * s, d.y + h - pad],
-                                [1.0, 1.0, 1.0, d.alpha],
-                            )
+                            ..Quad::plain(rect, [1.0, 1.0, 1.0, d.alpha])
                         });
                         drawn.emotes += 1;
                         words.push('◆');
@@ -484,45 +505,13 @@ pub fn proxied(f: &Fetch) -> bool {
     f.via == Via::Proxy
 }
 
-/// What a play's frame shows of `config`'s chat (round TW4,
-/// [`ddi_chat::overlay::shown`]): Falling where the play shows
-/// opponents' small fields beside its own field (`miniatures`), emotes
-/// alone where a `size` target (`ratio` pixels a logical one) leaves no
-/// side space beside the field's `band` (a phone held upright).
-pub fn shown(
-    config: &ddi_session::chat::ChatConfig,
-    size: [u32; 2],
-    band: [f32; 2],
-    ratio: f32,
-    miniatures: bool,
-) -> (ddi_chat::Level, ddi_chat::Style) {
+/// Where the chat goes in a play: the whole of a `size` target (round
+/// TW5: behind the field, the opponents' fields and the HUD, nothing
+/// routed around), its lines sized for the screen, `ratio` target pixels
+/// a logical one.
+pub fn area(size: [u32; 2], ratio: f32) -> Area {
     let [w, h] = size.map(|v| v as f32);
-    let side = Area::side_space(w, line_for([w, h], ratio), band);
-    ddi_chat::overlay::shown(config.level, config.style, miniatures, side)
-}
-
-/// Where the chat goes in a play: a `size` target, the field's `band`
-/// (left and right edges), the miniatures' slots (`[x, y, width,
-/// height]`), what it keeps clear of (`keep_out`, `[left, top, right,
-/// bottom]`: the receptors' rows and the HUD), `ratio` target pixels a
-/// logical one, at `level`; rows taken from the bottom first where the
-/// receptors are at the top (`from_bottom`).
-pub fn area(
-    size: [u32; 2],
-    band: [f32; 2],
-    slots: &[[f32; 4]],
-    keep_out: &[[f32; 4]],
-    from_bottom: bool,
-    ratio: f32,
-    level: ddi_chat::Level,
-) -> Area {
-    let [w, h] = size.map(|v| v as f32);
-    let obstacles: Vec<[f32; 4]> = slots
-        .iter()
-        .map(|[x, y, sw, sh]| [*x, *y, x + sw, y + sh])
-        .collect();
-    Area::new([w, h], line_for([w, h], ratio), band, &obstacles, level)
-        .keeping_clear(keep_out, from_bottom)
+    Area::new([w, h], line_for([w, h], ratio))
 }
 
 #[cfg(test)]
@@ -612,37 +601,26 @@ mod tests {
         }
     }
 
-    /// Round TW4: Falling beside opponents' fields, the choice kept in a
-    /// solo play; emotes alone on a phone held upright, where the field
-    /// leaves no side space.
+    /// Round TW5: the area is the whole screen, whatever the play's
+    /// layout (a phone held upright included).
     #[test]
-    fn opponents_fields_fall_and_an_upright_phone_shows_emotes_alone() {
-        use ddi_chat::{Level, Style};
-        let chat = ChatLayer::new(ChatConfig {
-            level: Level::Messages,
-            style: Style::Across,
-            names: false,
-            emotes_from: ddi_chat::EmotesFrom::TwitchAndOthers,
-            opacity: 0.6,
-            source: ChatSource::Script(ddi_chat::script::Script::builtin("demo").unwrap()),
-        });
-        let c = chat.config();
-        // 1280×720, a stage's field in the middle.
-        let band = [485.0, 795.0];
-        assert_eq!(shown(c, [1280, 720], band, 1.0, false), (Level::Messages, Style::Across));
-        assert_eq!(shown(c, [1280, 720], band, 1.0, true), (Level::Messages, Style::Falling));
-        // A phone held upright (390×844 logical at 3×): the field fills
-        // the width.
-        let phone = [1170, 2532];
-        assert_eq!(
-            shown(c, phone, [30.0, 1140.0], 3.0, false),
-            (Level::Emotes, Style::Across)
-        );
-        // The same phone on its side has room beside the field.
-        assert_eq!(
-            shown(c, [2532, 1170], [900.0, 1630.0], 3.0, false),
-            (Level::Messages, Style::Across)
-        );
+    fn the_area_is_the_whole_screen() {
+        for (size, ratio) in [([1280, 720], 1.0), ([1170, 2532], 3.0), ([2532, 1170], 3.0)] {
+            let a = area(size, ratio);
+            assert_eq!(a.size, size.map(|v| v as f32));
+            assert_eq!(a.line, line_for(a.size, ratio));
+        }
+    }
+
+    /// The look set for tests, else `chat-overlay-v1`'s.
+    #[test]
+    fn the_look_is_v1s_unless_a_test_sets_one() {
+        assert_eq!(rules(), CHAT_OVERLAY_V1);
+        set_look(Some(ddi_chat::overlay::LOOK_SCATTERED));
+        assert_eq!(rules().look.name, "scattered");
+        assert_eq!(rules().on_screen, CHAT_OVERLAY_V1.on_screen);
+        set_look(None);
+        assert_eq!(rules(), CHAT_OVERLAY_V1);
     }
 
     #[test]

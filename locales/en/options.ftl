@@ -501,14 +501,14 @@ options-opponent-fields-description = In a multiplayer stage, a small field for 
 options-twitch-chat = Twitch chat in rooms
 options-twitch-chat-emotes = Emotes
 options-twitch-chat-messages = Emotes and messages
-options-twitch-chat-description = In a room whose host shows their Twitch chat, the chat moves behind the fields during play, never more of it than the host allows, and on a phone held upright its emotes alone. Reading chat needs your permission on Twitch: turning it on takes you through Twitch to allow it, and Options → Data can disconnect it.
+options-twitch-chat-description = In a room whose host shows their Twitch chat, the chat moves behind the fields during play, never more of it than the host allows. Reading chat needs your permission on Twitch: turning it on takes you through Twitch to allow it, and Options → Data can disconnect it.
 
 # How the chat moves behind the fields: crossing the screen from right
-# to left, or falling in columns.
+# to left, or falling from the top.
 options-chat-style = Chat style
 options-chat-style-across = Across
 options-chat-style-falling = Falling
-options-chat-style-description = Across: the chat crosses the screen from right to left. Falling: it falls in columns beside your field, or behind everything where opponents' fields fill the sides. A stage that shows opponents' fields always uses Falling.
+options-chat-style-description = Across: the chat crosses the whole screen from right to left. Falling: it falls from the top over the whole screen. Either way it moves behind your field, opponents' fields and the scores.
 
 # Whether each chat message starts with the name of who wrote it. Off by
 # default.

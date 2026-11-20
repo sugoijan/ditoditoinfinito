@@ -1,7 +1,9 @@
 //! A message made into an item (C6, C9, C11): a row of emotes (an
-//! emote-only item: up to five, a run of the same one drawn once with a
-//! count), or one line of text with its emotes inline, cut at 60
-//! graphemes. What C11 leaves out never becomes an item: commands (a
+//! emote-only item), or one line of text with its emotes inline, cut at 60
+//! graphemes. Every emote is its own piece, drawn by itself: four of the
+//! same one are four, never one with a count (`chat-overlay-v1`, round
+//! TW5); a message brings at most [`Cut::emotes`] of them, the rest left
+//! out. What C11 leaves out never becomes an item: commands (a
 //! leading `!`), messages with a link, cheers, and messages from another
 //! channel's shared chat.
 
@@ -15,8 +17,8 @@ use crate::eventsub::{ChatMessage, Fragment};
 #[derive(Clone, Debug, PartialEq)]
 pub enum Piece {
     Text(String),
-    /// An emote drawn once; `count` times in a row in the message.
-    Emote { emote: Emote, count: u16 },
+    /// An emote, drawn by itself.
+    Emote(Emote),
 }
 
 /// What an item shows, before it is placed.
@@ -28,13 +30,16 @@ pub struct Content {
     /// The chatter's display name leading it ("Chatter names: On").
     pub name: Option<String>,
     pub pieces: Vec<Piece>,
+    /// Emotes of the message past [`Cut::emotes`], left out.
+    pub left_out: usize,
 }
 
 impl Content {
-    /// Its emotes, each once.
+    /// Its emotes, in order, every one (a repeated one as often as it
+    /// comes).
     pub fn emotes(&self) -> impl Iterator<Item = &Emote> {
         self.pieces.iter().filter_map(|p| match p {
-            Piece::Emote { emote, .. } => Some(emote),
+            Piece::Emote(emote) => Some(emote),
             Piece::Text(_) => None,
         })
     }
@@ -42,7 +47,7 @@ impl Content {
     /// Whether it has emotes alone.
     pub fn emote_only(&self) -> bool {
         self.pieces.iter().all(|p| match p {
-            Piece::Emote { .. } => true,
+            Piece::Emote(_) => true,
             Piece::Text(t) => t.trim().is_empty(),
         })
     }
@@ -59,10 +64,11 @@ pub enum Left {
     Empty,
 }
 
-/// The limits an item is cut to (part of `chat-overlay-v0`).
+/// The limits an item is cut to (part of `chat-overlay-v1`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Cut {
-    /// Runs of emotes an emote-only item shows.
+    /// Emotes a message brings at most (the first ones; the rest are left
+    /// out, never counted on screen).
     pub emotes: usize,
     /// Graphemes of a line (an emote counts as one).
     pub graphemes: usize,
@@ -190,24 +196,20 @@ pub fn content(
     }) {
         return Err(Left::Link);
     }
-    // Runs of the same emote, the spaces between them passed over.
+    // Every emote a piece of its own, the first `cut.emotes` of them; the
+    // text between them as it came.
     let mut pieces: Vec<Piece> = Vec::new();
+    let mut emotes = 0;
+    let mut left_out = 0;
     for w in words {
         match w {
             Word::Emote(e) => {
-                // The same emote after only spaces: one more of the run.
-                let gap = matches!(pieces.last(), Some(Piece::Text(t)) if t.trim().is_empty());
-                let before = if gap { pieces.len().checked_sub(2) } else { pieces.len().checked_sub(1) };
-                if let Some(Piece::Emote { emote, count }) = before.and_then(|i| pieces.get_mut(i))
-                    && *emote == e
-                {
-                    *count = count.saturating_add(1);
-                    if gap {
-                        pieces.pop();
-                    }
+                if emotes == cut.emotes {
+                    left_out += 1;
                     continue;
                 }
-                pieces.push(Piece::Emote { emote: e, count: 1 });
+                emotes += 1;
+                pieces.push(Piece::Emote(e));
             }
             Word::Text(t) => match pieces.last_mut() {
                 Some(Piece::Text(had)) => had.push_str(&t),
@@ -216,14 +218,13 @@ pub fn content(
         }
     }
     let emote_only = pieces.iter().all(|p| match p {
-        Piece::Emote { .. } => true,
+        Piece::Emote(_) => true,
         Piece::Text(t) => t.trim().is_empty(),
     });
     let pieces = if level == Level::Emotes || emote_only {
         let emotes: Vec<Piece> = pieces
             .into_iter()
-            .filter(|p| matches!(p, Piece::Emote { .. }))
-            .take(cut.emotes)
+            .filter(|p| matches!(p, Piece::Emote(_)))
             .collect();
         if emotes.is_empty() {
             return Err(Left::Empty);
@@ -240,6 +241,7 @@ pub fn content(
         chatter_id: message.chatter_id.clone(),
         name: (names && !message.chatter_name.is_empty()).then(|| message.chatter_name.clone()),
         pieces,
+        left_out,
     })
 }
 
@@ -276,7 +278,7 @@ fn cut_line(pieces: Vec<Piece>, most: usize) -> Vec<Piece> {
                     out.push(Piece::Text(s));
                 }
             }
-            e @ Piece::Emote { .. } => {
+            e @ Piece::Emote(_) => {
                 left -= 1;
                 out.push(e);
             }
@@ -291,7 +293,7 @@ mod tests {
     use crate::emotes::{Image, Provider, Source};
 
     const CUT: Cut = Cut {
-        emotes: 5,
+        emotes: 8,
         graphemes: 60,
     };
 
@@ -354,15 +356,9 @@ mod tests {
             c.pieces,
             [
                 Piece::Text("Hi chat ".into()),
-                Piece::Emote {
-                    emote: Emote::twitch("25"),
-                    count: 1
-                },
+                Piece::Emote(Emote::twitch("25")),
                 Piece::Text(" ".into()),
-                Piece::Emote {
-                    emote: Emote::new(Provider::SevenTv, "c"),
-                    count: 1
-                },
+                Piece::Emote(Emote::new(Provider::SevenTv, "c")),
                 Piece::Text(" nice".into()),
             ]
         );
@@ -373,8 +369,10 @@ mod tests {
         );
     }
 
+    /// Round TW5: every emote is drawn by itself, a repeated one as often
+    /// as it comes, never one with a count.
     #[test]
-    fn under_emotes_only_the_emotes_show_and_runs_count() {
+    fn under_emotes_only_the_emotes_show_each_by_itself() {
         let m = message(vec![
             kappa(),
             t(" "),
@@ -387,16 +385,13 @@ mod tests {
         assert_eq!(
             c.pieces,
             [
-                Piece::Emote {
-                    emote: Emote::twitch("25"),
-                    count: 3
-                },
-                Piece::Emote {
-                    emote: Emote::new(Provider::SevenTv, "c"),
-                    count: 1
-                },
+                Piece::Emote(Emote::twitch("25")),
+                Piece::Emote(Emote::twitch("25")),
+                Piece::Emote(Emote::twitch("25")),
+                Piece::Emote(Emote::new(Provider::SevenTv, "c")),
             ]
         );
+        assert_eq!(c.left_out, 0);
         // No emote: no item.
         assert_eq!(
             content(&message(vec![t("hello")]), &sets(), Level::Emotes, false, CUT),
@@ -404,21 +399,31 @@ mod tests {
         );
     }
 
+    /// A message of fifty emotes brings its first eight, the rest left
+    /// out (and said so, for the debug state), in an emote-only message
+    /// and inline in a line of text alike.
     #[test]
-    fn an_emote_only_item_shows_five_runs() {
+    fn a_message_brings_eight_emotes_at_most() {
         let mut f = Vec::new();
-        for i in 0..8 {
+        for i in 0..50 {
             f.push(Fragment::Emote {
-                text: format!("e{i}"),
-                id: i.to_string(),
+                text: "Kappa".into(),
+                id: if i % 2 == 0 { "25".into() } else { i.to_string() },
                 still: true,
                 animated: false,
             });
             f.push(t(" "));
         }
-        let c = content(&message(f), &sets(), Level::Messages, false, CUT).unwrap();
-        assert_eq!(c.pieces.len(), 5);
+        let c = content(&message(f.clone()), &sets(), Level::Messages, false, CUT).unwrap();
+        assert_eq!(c.pieces.len(), 8);
+        assert_eq!(c.left_out, 42);
         assert!(c.emote_only());
+        assert_eq!(c.emotes().filter(|e| e.id == "25").count(), 4);
+        f.insert(0, t("so many "));
+        let c = content(&message(f), &sets(), Level::Messages, false, CUT).unwrap();
+        assert_eq!(c.emotes().count(), 8);
+        assert_eq!(c.left_out, 42);
+        assert!(!c.emote_only());
     }
 
     #[test]
@@ -492,13 +497,7 @@ mod tests {
             },
         ];
         let c = content(&message(f), &sets(), Level::Messages, false, CUT).unwrap();
-        assert_eq!(
-            c.pieces[0],
-            Piece::Emote {
-                emote: Emote::twitch("emotesv2_9").moving(),
-                count: 1
-            }
-        );
+        assert_eq!(c.pieces[0], Piece::Emote(Emote::twitch("emotesv2_9").moving()));
         assert!(matches!(&c.pieces[1], Piece::Text(t) if t == "Odd"));
     }
 }

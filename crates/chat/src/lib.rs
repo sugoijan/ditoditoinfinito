@@ -11,10 +11,11 @@
 //!   directly and through our server's proxy (C4, C5).
 //! - [`item`]: a message made into an item, a row of emotes or a line of
 //!   text with emotes inline, after C11's filters.
-//! - [`overlay`]: C9's budgets (`chat-overlay-v0`), the moderation events
-//!   and the two motions (C6: Across and Falling; C10: reduced motion's
-//!   fixed places), on the host's clock. Deterministic from the events,
-//!   the clock, the options and the area.
+//! - [`overlay`]: C9's budgets (`chat-overlay-v1`: every emote drawn by
+//!   itself, never summarized), the moderation events and the two motions
+//!   over the whole screen behind the play (C6: Across and Falling; C10:
+//!   reduced motion's fixed places), on the host's clock. Deterministic
+//!   from the events, the clock, the options and the area.
 //! - [`anim`]: an image's container read before it is decoded, its
 //!   limits (`anim-limits-v0`: the hostile and the huge refused), the
 //!   frames of an animated emote kept and which is drawn when (round
@@ -38,7 +39,11 @@ pub mod script;
 use serde::{Deserialize, Serialize};
 
 /// The flood rules' name and version (C9; every number PROVISIONAL).
-pub const RULES_NAME: &str = "chat-overlay-v0";
+/// `chat-overlay-v1` since round TW5: no emote summarized as a count, the
+/// budgets in emotes, the layer over the whole screen; `chat-overlay-v0`
+/// (runs of an emote drawn once with "×N", five runs a message, 40 items,
+/// rows and columns routed around the fields) retired.
+pub const RULES_NAME: &str = "chat-overlay-v1";
 
 /// How much of the chat a device shows (Options → Display, "Twitch chat
 /// in rooms"), and the room's ceiling over it (C1).
@@ -67,7 +72,7 @@ pub enum Style {
     /// Rows crossing the screen right to left (niconico's way).
     #[default]
     Across,
-    /// Columns falling, in the side space where there is some.
+    /// Falling from the top over the whole width.
     Falling,
 }
 

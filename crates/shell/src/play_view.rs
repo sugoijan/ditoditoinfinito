@@ -1769,45 +1769,14 @@ impl<H: PlayHost> PlayView<H> {
         let under = self.renderer.under_miniatures();
         under.clear();
         crate::attack_links::draw_behind(under, &links, screen.ratio);
-        // The room host's chat (`crate::chat`): in the space the field
-        // and the miniatures leave, drawn into the layer the backdrop
-        // shows under them, before the field's passes.
+        // The room host's chat (`crate::chat`): over the whole screen in
+        // the device's style, drawn into the layer the backdrop shows under
+        // the field, the miniatures and the HUD, before the field's passes
+        // (round TW5: behind them all, nothing routed around them).
         if let (Some(view), Some(chat), Some((painter, _))) =
             (self.chat.as_mut(), session.chat(), self.overlay.as_mut())
         {
-            let slots: Vec<[f32; 4]> = fields
-                .iter()
-                .flat_map(|f| f.slots.iter().map(|s| s.rect))
-                .collect();
-            // Clear of the receptors' rows and the HUD (behind the field
-            // the filter darkens it; past the receptors it would cross
-            // the notes' judging place), the rows from the side away
-            // from the receptors.
-            let mut clear = Vec::new();
-            if !render.no_field {
-                clear.extend(ddi_render::scene::hud_areas(&geo, span));
-                clear.extend(ddi_render::scene::receptor_areas(&geo, &session.layout));
-            }
-            // A stage with opponents' small fields beside the player's own
-            // falls; a watched stage (no field of the player's own) and a
-            // solo play keep the device's style; no side space, emotes
-            // alone (round TW4).
-            let shown = crate::chat::shown(
-                chat.config(),
-                target.size,
-                [band_box[0], band_box[2]],
-                screen.ratio,
-                !render.no_field && !slots.is_empty(),
-            );
-            let area = crate::chat::area(
-                target.size,
-                [band_box[0], band_box[2]],
-                &slots,
-                &clear,
-                !render.reverse,
-                screen.ratio,
-                shown.0,
-            );
+            let area = crate::chat::area(target.size, screen.ratio);
             let fetched = host.take_emotes();
             let began = host.seconds();
             view.frame(
@@ -1816,7 +1785,7 @@ impl<H: PlayHost> PlayView<H> {
                 &mut self.renderer,
                 chat,
                 (target.size, target.format),
-                (&area, shown),
+                &area,
                 moment.now.0,
                 &mut |f| host.fetch_emote(f),
                 fetched,

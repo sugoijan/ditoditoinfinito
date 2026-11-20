@@ -2,6 +2,7 @@ use super::*;
 use crate::eventsub::{ChatMessage, Fragment};
 
 const LINE: f32 = 30.0;
+const SIZE: [f32; 2] = [1280.0, 720.0];
 
 fn options(style: Style, reduced: bool) -> Options {
     Options {
@@ -12,12 +13,19 @@ fn options(style: Style, reduced: bool) -> Options {
     }
 }
 
+fn rules(look: Look) -> Rules {
+    Rules {
+        look,
+        ..CHAT_OVERLAY_V1
+    }
+}
+
 fn overlay(style: Style, reduced: bool) -> Overlay {
-    Overlay::new(CHAT_OVERLAY_V0, options(style, reduced), EmoteSets::default())
+    Overlay::new(CHAT_OVERLAY_V1, options(style, reduced), EmoteSets::default())
 }
 
 fn area() -> Area {
-    Area::new([1280.0, 720.0], LINE, [500.0, 780.0], &[], Level::Messages)
+    Area::new(SIZE, LINE)
 }
 
 fn say(id: u32, chatter: u32, text: &str) -> Event {
@@ -32,20 +40,37 @@ fn say(id: u32, chatter: u32, text: &str) -> Event {
     })
 }
 
-fn kappa(id: u32, chatter: u32) -> Event {
+fn emote(id: &str) -> Fragment {
+    Fragment::Emote {
+        text: format!("e{id}"),
+        id: id.into(),
+        still: true,
+        animated: false,
+    }
+}
+
+/// An emote-only message of `ids`, a space between each.
+fn emotes(id: u32, chatter: u32, ids: &[&str]) -> Event {
+    let mut fragments = Vec::new();
+    for (k, e) in ids.iter().enumerate() {
+        if k > 0 {
+            fragments.push(Fragment::Text(" ".into()));
+        }
+        fragments.push(emote(e));
+    }
     Event::Message(ChatMessage {
         id: format!("m{id}"),
         chatter_id: format!("u{chatter}"),
-        text: "Kappa".into(),
-        fragments: vec![Fragment::Emote {
-            text: "Kappa".into(),
-            id: "25".into(),
-            still: true,
-            animated: false,
-        }],
+        chatter_name: format!("User{chatter}"),
+        text: ids.join(" "),
+        fragments,
         kind: "text".into(),
         ..ChatMessage::default()
     })
+}
+
+fn kappa(id: u32, chatter: u32) -> Event {
+    emotes(id, chatter, &["25"])
 }
 
 /// Ten pixels a character.
@@ -61,21 +86,25 @@ fn advance(o: &mut Overlay, now: f64) {
     o.advance(now, &area(), &ready, &mut measure);
 }
 
+fn emotes_in(d: &Drawn) -> usize {
+    d.laid.iter().filter(|l| matches!(l.what, Glyphs::Emote(_))).count()
+}
+
 #[test]
-fn at_most_eight_new_items_a_second() {
+fn at_most_twenty_new_messages_a_second() {
     let mut o = overlay(Style::Across, false);
     for i in 0..50 {
         o.receive(&say(i, i, "hi"), 0.01 * f64::from(i), true);
     }
-    assert_eq!(o.len(), 8);
-    assert_eq!(o.stats().rate, 42);
+    assert_eq!(o.len(), 20);
+    assert_eq!(o.stats().rate, 30);
     // A second later there is room again.
     o.receive(&say(100, 100, "hi"), 1.05, true);
-    assert_eq!(o.len(), 9);
+    assert_eq!(o.len(), 21);
 }
 
 #[test]
-fn one_item_a_chatter_every_two_seconds() {
+fn one_message_a_chatter_every_two_seconds() {
     let mut o = overlay(Style::Across, false);
     o.receive(&say(1, 7, "a"), 0.0, true);
     o.receive(&say(2, 7, "b"), 1.9, true);
@@ -84,21 +113,49 @@ fn one_item_a_chatter_every_two_seconds() {
     assert_eq!(o.stats().chatter, 1);
 }
 
+/// The screen holds 80 messages and 160 emotes at most; past them a
+/// message is dropped whole (never queued, never summarized).
 #[test]
-fn forty_on_screen_at_most_and_full_drops() {
-    let mut o = overlay(Style::Falling, false);
-    let mut t = 0.0;
-    let mut n = 0;
-    while t < 20.0 {
-        for _ in 0..8 {
-            o.receive(&say(n, n, "x"), t, true);
-            n += 1;
+fn the_messages_and_the_emotes_on_screen_are_capped() {
+    for style in [Style::Across, Style::Falling] {
+        let mut o = overlay(style, false);
+        let mut t = 0.0;
+        let mut n = 0;
+        while t < 20.0 {
+            for _ in 0..20 {
+                o.receive(&say(n, n, "x"), t, true);
+                n += 1;
+            }
+            advance(&mut o, t);
+            assert!(o.messages() <= 80, "{} at {t}", o.messages());
+            t += 1.0;
         }
-        advance(&mut o, t);
-        assert!(o.len() <= 40, "{} at {t}", o.len());
-        t += 1.0;
+        assert!(o.stats().full + o.stats().no_room > 0);
     }
-    assert!(o.stats().full + o.stats().no_room > 0);
+    // Emotes: eight a message, 160 on screen at most.
+    let mut o = overlay(Style::Across, false);
+    let eight = ["1", "2", "3", "4", "5", "6", "7", "8"];
+    for i in 0..19 {
+        o.receive(&emotes(i, i, &eight), 0.0, true);
+        o.receive(&emotes(100 + i, 100 + i, &eight), 1.0, true);
+    }
+    assert_eq!(o.emotes(), 160);
+    assert!(o.stats().full >= 18, "{:?}", o.stats());
+}
+
+/// A message of fifty emotes brings eight: the rest left out, said in
+/// the statistics, never a count on screen.
+#[test]
+fn a_message_of_fifty_emotes_shows_eight() {
+    let mut o = overlay(Style::Across, false);
+    let ids: Vec<String> = (0..50).map(|i| (i % 3).to_string()).collect();
+    let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+    o.receive(&emotes(1, 1, &ids), 0.0, true);
+    advance(&mut o, 0.0);
+    let d = o.drawn(0.0).next().unwrap();
+    assert_eq!(emotes_in(&d), 8);
+    assert_eq!(d.laid.len(), 8, "eight emotes and nothing else");
+    assert_eq!(o.stats().cut, 42);
 }
 
 #[test]
@@ -148,87 +205,111 @@ fn deletes_and_clears_take_items_off_at_once() {
     assert_eq!(o.stats().removed, 3);
 }
 
+/// Across: every item crosses the whole screen in its own time whatever
+/// its length, from the right edge to past the left one.
 #[test]
-fn across_takes_a_row_only_once_its_last_item_cleared_the_edge() {
-    let mut o = overlay(Style::Across, false);
+fn across_crosses_the_whole_screen() {
+    let mut o = Overlay::new(rules(LOOK_AS_BUILT), options(Style::Across, false), EmoteSets::default());
     o.receive(&say(1, 1, &"a".repeat(20)), 0.0, true);
     advance(&mut o, 0.0);
-    o.receive(&say(2, 2, "short"), 0.1, true);
-    advance(&mut o, 0.1);
-    let ys: Vec<f32> = o.drawn(0.1).map(|d| d.y).collect();
-    // Still on the first row's edge: the second goes a row down.
-    assert_eq!(ys.len(), 2);
-    assert!(ys[1] > ys[0]);
-    // Long after, the first row is free again.
-    o.receive(&say(3, 3, "later"), 3.0, true);
-    advance(&mut o, 3.0);
-    let last = o.drawn(3.0).last().unwrap();
-    assert_eq!(last.y, ys[0]);
-    // Every item crosses in the same time whatever its length: on screen
-    // until its time is up, off the left edge then.
     let d = o.drawn(0.0).next().unwrap();
-    assert_eq!(d.x, 1280.0);
-    let gone = o.drawn(CHAT_OVERLAY_V0.across - 1e-3).next().unwrap();
-    assert!((gone.x + gone.width).abs() < 1.0);
+    assert_eq!(d.x, SIZE[0]);
+    let gone = o.drawn(CHAT_OVERLAY_V1.across - 1e-3).next().unwrap();
+    assert!((gone.x + gone.width).abs() < 1.0, "{}", gone.x);
 }
 
+/// In any frame, two moving items never overlap, whatever their lengths,
+/// sizes and speeds (the looks that vary them too), in both styles.
 #[test]
-fn across_never_lets_a_fast_item_catch_a_slow_one() {
-    // Short and long items mixed: in any frame, two items of a row never
-    // overlap.
-    let mut o = overlay(Style::Across, false);
-    let mut n = 0;
-    for f in 0..1200 {
-        let now = f64::from(f) / 60.0;
-        if f % 9 == 0 {
-            let len = [1, 90, 3, 60, 1, 120, 10][(n % 7) as usize];
-            o.receive(&say(n, n, &"b".repeat(len)), now, true);
-            n += 1;
-        }
-        advance(&mut o, now);
-        let drawn: Vec<_> = o.drawn(now).collect();
-        for a in &drawn {
-            for b in &drawn {
-                if a.id < b.id && a.y == b.y {
-                    let apart = a.x + a.width <= b.x || b.x + b.width <= a.x;
-                    assert!(apart, "{} and {} overlap at {now}", a.id, b.id);
+fn moving_items_never_overlap() {
+    for look in LOOKS {
+        for style in [Style::Across, Style::Falling] {
+            let mut o = Overlay::new(rules(look), options(style, false), EmoteSets::default());
+            let mut n = 0;
+            for f in 0..1200 {
+                let now = f64::from(f) / 60.0;
+                if f % 5 == 0 {
+                    let e = if n % 3 == 0 {
+                        emotes(n, n, &["1", "2", "2", "3"][..(n % 4 + 1) as usize])
+                    } else {
+                        let len = [1, 90, 3, 60, 1, 120, 10][(n % 7) as usize];
+                        say(n, n, &"b".repeat(len))
+                    };
+                    o.receive(&e, now, true);
+                    n += 1;
+                }
+                advance(&mut o, now);
+                let drawn: Vec<_> = o.drawn(now).collect();
+                for a in &drawn {
+                    for b in &drawn {
+                        if a.id < b.id {
+                            let (aw, ah) = (a.width * a.scale, a.height * a.scale);
+                            let (bw, bh) = (b.width * b.scale, b.height * b.scale);
+                            let apart = a.x + aw <= b.x + 0.01
+                                || b.x + bw <= a.x + 0.01
+                                || a.y + ah <= b.y + 0.01
+                                || b.y + bh <= a.y + 0.01;
+                            assert!(apart, "{} {style:?}: {} and {} overlap at {now}", look.name, a.id, b.id);
+                        }
+                    }
                 }
             }
+            assert!(o.stats().shown > 50, "{} {style:?}: {:?}", look.name, o.stats());
         }
     }
-    assert!(o.stats().shown > 50);
+}
+
+/// Round TW5: the places cover the whole screen, behind the play's field
+/// (the middle) and behind an opponent's miniature (a corner) alike;
+/// nothing is routed around them.
+#[test]
+fn both_styles_go_over_the_whole_screen() {
+    // The field's band in the middle, a miniature at the top right.
+    let field = [500.0, 0.0, 780.0, 720.0];
+    let miniature = [1050.0, 30.0, 1250.0, 260.0];
+    for style in [Style::Across, Style::Falling] {
+        for reduced in [false, true] {
+            let mut o = overlay(style, reduced);
+            let mut behind_field = false;
+            let mut behind_miniature = false;
+            let mut across: [f32; 2] = [f32::MAX, f32::MIN];
+            for f in 0..1800u32 {
+                let now = f64::from(f) / 60.0;
+                if f % 6 == 0 {
+                    o.receive(&kappa(f, f), now, true);
+                }
+                advance(&mut o, now);
+                for d in o.drawn(now) {
+                    let (w, h) = (d.width * d.scale, d.height * d.scale);
+                    let inside = |r: [f32; 4]| d.x >= r[0] && d.x + w <= r[2] && d.y >= r[1] && d.y + h <= r[3];
+                    behind_field |= inside(field);
+                    behind_miniature |= inside(miniature);
+                    let (lo, hi) = if style == Style::Across && !reduced {
+                        (d.y, d.y + h)
+                    } else {
+                        (d.x, d.x + w)
+                    };
+                    across = [across[0].min(lo), across[1].max(hi)];
+                }
+            }
+            let room = if style == Style::Across && !reduced { SIZE[1] } else { SIZE[0] };
+            assert!(behind_field, "{style:?} {reduced}: behind the field");
+            assert!(behind_miniature, "{style:?} {reduced}: behind a miniature");
+            assert!(across[0] < LINE && across[1] > room - LINE, "{style:?} {reduced}: {across:?}");
+        }
+    }
 }
 
 #[test]
-fn falling_columns_use_the_side_space_and_go_behind_miniatures_when_full() {
-    let free = Area::new([1280.0, 720.0], LINE, [500.0, 780.0], &[], Level::Messages);
-    assert!(free.columns.iter().all(|c| c.x[1] <= 500.0 || c.x[0] >= 780.0));
-    assert!(free.columns.len() >= 2);
-    // Miniatures over the right side: columns on the left alone.
-    let right = [[800.0, 0.0, 1270.0, 720.0]];
-    let a = Area::new([1280.0, 720.0], LINE, [500.0, 780.0], &right, Level::Messages);
-    assert!(a.columns.iter().all(|c| c.x[1] <= 500.0));
-    // Miniatures over both sides: columns behind them.
-    let both = [[10.0, 0.0, 490.0, 720.0], [790.0, 0.0, 1270.0, 720.0]];
-    let a = Area::new([1280.0, 720.0], LINE, [500.0, 780.0], &both, Level::Messages);
-    assert!(!a.columns.is_empty());
-    assert!(a.columns.iter().all(|c| c.x[1] <= 500.0 || c.x[0] >= 780.0));
-    // A phone held upright: no side space, columns over the whole width.
-    let phone = Area::new([390.0, 844.0], LINE, [20.0, 370.0], &[], Level::Messages);
-    assert_eq!(phone.columns.first().map(|c| c.x[0]), Some(LINE * 0.5));
-}
-
-#[test]
-fn falling_items_come_down_and_spread_over_the_columns() {
+fn falling_items_come_down_from_the_top() {
     let mut o = overlay(Style::Falling, false);
     for i in 0..4 {
         o.receive(&say(i, i, "hey"), 0.0, true);
     }
     advance(&mut o, 0.0);
-    let xs: Vec<f32> = o.drawn(0.0).map(|d| d.x).collect();
-    let mut unique = xs.clone();
-    unique.dedup();
-    assert_eq!(unique.len(), xs.len(), "{xs:?}");
+    let ds: Vec<_> = o.drawn(0.0).collect();
+    assert_eq!(ds.len(), 4);
+    assert!(ds.iter().all(|d| d.y + d.height * d.scale <= 0.01), "from above the top");
     let y0 = o.drawn(0.0).next().unwrap().y;
     let y1 = o.drawn(1.0).next().unwrap().y;
     assert!(y1 > y0);
@@ -236,26 +317,27 @@ fn falling_items_come_down_and_spread_over_the_columns() {
 
 #[test]
 fn reduced_motion_stands_still_and_fades() {
-    let mut o = overlay(Style::Across, true);
-    o.receive(&say(1, 1, "still"), 0.0, true);
-    advance(&mut o, 0.0);
-    let a = o.drawn(0.1).next().unwrap();
-    let b = o.drawn(2.0).next().unwrap();
-    assert_eq!((a.x, a.y), (b.x, b.y));
-    assert!(a.alpha < 1.0 && b.alpha == 1.0);
-    let late = o.drawn(CHAT_OVERLAY_V0.still - 0.1).next().unwrap();
-    assert!(late.alpha < 1.0);
-    assert_eq!(o.drawn(CHAT_OVERLAY_V0.still + 0.1).count(), 0);
-    // Falling's cells too.
-    let mut o = overlay(Style::Falling, true);
-    for i in 0..3 {
-        o.receive(&say(i, i, "x"), 0.0, true);
+    for style in [Style::Across, Style::Falling] {
+        let mut o = overlay(style, true);
+        o.receive(&say(1, 1, "still"), 0.0, true);
+        advance(&mut o, 0.0);
+        let a = o.drawn(0.1).next().unwrap();
+        let b = o.drawn(2.0).next().unwrap();
+        assert_eq!((a.x, a.y), (b.x, b.y));
+        assert!(a.alpha < 1.0 && b.alpha == 1.0);
+        let late = o.drawn(CHAT_OVERLAY_V1.still - 0.1).next().unwrap();
+        assert!(late.alpha < 1.0);
+        assert_eq!(o.drawn(CHAT_OVERLAY_V1.still + 0.1).count(), 0);
+        let mut o = overlay(style, true);
+        for i in 0..30 {
+            o.receive(&kappa(i, i), 0.0, true);
+        }
+        advance(&mut o, 0.0);
+        let at: Vec<(f32, f32)> = o.drawn(1.0).map(|d| (d.x, d.y)).collect();
+        let later: Vec<(f32, f32)> = o.drawn(3.0).map(|d| (d.x, d.y)).collect();
+        assert_eq!(at, later);
+        assert_eq!(at.len(), 20);
     }
-    advance(&mut o, 0.0);
-    let at: Vec<(f32, f32)> = o.drawn(1.0).map(|d| (d.x, d.y)).collect();
-    let later: Vec<(f32, f32)> = o.drawn(3.0).map(|d| (d.x, d.y)).collect();
-    assert_eq!(at, later);
-    assert_eq!(at.len(), 3);
 }
 
 #[test]
@@ -263,12 +345,7 @@ fn an_item_waits_a_second_for_its_emotes_then_goes_without() {
     let mut o = overlay(Style::Across, false);
     let mut m = say(1, 1, "hi ");
     if let Event::Message(c) = &mut m {
-        c.fragments.push(Fragment::Emote {
-            text: "Kappa".into(),
-            id: "25".into(),
-            still: true,
-            animated: false,
-        });
+        c.fragments.push(emote("25"));
     }
     o.receive(&m, 0.0, true);
     let waiting = |_: &Emote| Readiness::Waiting;
@@ -284,66 +361,125 @@ fn an_item_waits_a_second_for_its_emotes_then_goes_without() {
     assert_eq!(o.stats().no_image, 1);
 }
 
+/// Names lead; four of an emote are four emotes, side by side, never one
+/// with a count.
 #[test]
-fn names_lead_and_runs_show_their_count() {
+fn names_lead_and_every_emote_is_drawn() {
     let mut o = Overlay::new(
-        CHAT_OVERLAY_V0,
+        CHAT_OVERLAY_V1,
         Options {
             names: true,
             ..options(Style::Across, false)
         },
         EmoteSets::default(),
     );
-    let mut m = say(1, 1, "");
-    if let Event::Message(c) = &mut m {
-        c.fragments = (0..3)
-            .flat_map(|_| {
-                [
-                    Fragment::Emote {
-                        text: "Kappa".into(),
-                        id: "25".into(),
-                        still: true,
-                        animated: false,
-                    },
-                    Fragment::Text(" ".into()),
-                ]
-            })
-            .collect();
-        c.text = "Kappa Kappa Kappa ".into();
-    }
-    o.receive(&m, 0.0, true);
+    o.receive(&emotes(1, 1, &["25", "25", "25", "25"]), 0.0, true);
     advance(&mut o, 0.0);
     let d = o.drawn(0.0).next().unwrap();
     let what: Vec<&Glyphs> = d.laid.iter().map(|l| &l.what).collect();
-    assert_eq!(
-        what,
-        [
-            &Glyphs::Name("User1".into()),
-            &Glyphs::Emote(Emote::twitch("25")),
-            &Glyphs::Count("×3".into()),
-        ]
-    );
+    let kappa = Glyphs::Emote(Emote::twitch("25"));
+    assert_eq!(what, [&Glyphs::Name("User1".into()), &kappa, &kappa, &kappa, &kappa]);
     assert!(d.laid[1].x > d.laid[0].width);
+    assert!(d.laid.windows(2).all(|w| w[1].x >= w[0].x + w[0].width), "side by side");
+}
+
+/// A property over scripted floods: the emotes drawn are every emote
+/// admitted, one for one: each drawn item shows its message's emotes, the
+/// first eight of them, a repeated one as often as it came.
+#[test]
+fn no_count_is_ever_drawn() {
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut rand = move || {
+        seed ^= seed >> 12;
+        seed ^= seed << 25;
+        seed ^= seed >> 27;
+        seed.wrapping_mul(0x2545_f491_4f6c_dd1d)
+    };
+    for look in [LOOK_AS_BUILT, LOOK_LARGER] {
+        for style in [Style::Across, Style::Falling] {
+            let mut o = Overlay::new(rules(look), options(style, false), EmoteSets::default());
+            let mut expected: HashMap<String, usize> = HashMap::new();
+            let mut seen = 0;
+            let mut id = 0u32;
+            for f in 0..900u32 {
+                let now = f64::from(f) / 60.0;
+                for _ in 0..(rand() % 3) {
+                    let n = 1 + (rand() % 20) as usize;
+                    let ids: Vec<String> = (0..n).map(|_| (rand() % 4).to_string()).collect();
+                    let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+                    id += 1;
+                    expected.insert(format!("m{id}"), n.min(8));
+                    o.receive(&emotes(id, id, &ids), now, true);
+                }
+                advance(&mut o, now);
+                for d in o.drawn(now) {
+                    assert!(d.laid.iter().all(|l| matches!(l.what, Glyphs::Emote(_))));
+                    let message = &o.shown.iter().find(|s| s.id == d.id).unwrap().content.message_id;
+                    assert_eq!(emotes_in(&d), expected[message], "{}", look.name);
+                    seen += 1;
+                }
+            }
+            assert!(seen > 1000, "{seen}");
+        }
+    }
+}
+
+/// The scattered look: an emote-only message's emotes each an item of
+/// their own, coming in a little apart at places of their own; a delete
+/// takes them all.
+#[test]
+fn a_scattered_message_is_each_emote_by_itself() {
+    let mut o = Overlay::new(rules(LOOK_SCATTERED), options(Style::Across, false), EmoteSets::default());
+    o.receive(&emotes(1, 1, &["25", "25", "25", "25"]), 0.0, true);
+    for f in 0..60 {
+        advance(&mut o, f64::from(f) / 60.0);
+    }
+    let ds: Vec<_> = o.drawn(1.0).collect();
+    assert_eq!(ds.len(), 4);
+    assert!(ds.iter().all(|d| emotes_in(d) == 1));
+    let mut ys: Vec<f32> = ds.iter().map(|d| d.y).collect();
+    ys.dedup();
+    assert!(ys.len() > 1, "at places of their own: {ys:?}");
+    let mut xs: Vec<f32> = ds.iter().map(|d| d.x).collect();
+    xs.sort_by(f32::total_cmp);
+    xs.dedup();
+    assert_eq!(xs.len(), 4, "coming in apart");
+    assert_eq!(o.messages(), 1);
+    o.receive(
+        &Event::Delete {
+            message_id: "m1".into(),
+        },
+        1.1,
+        true,
+    );
+    assert!(o.is_empty());
 }
 
 #[test]
 fn the_same_events_and_clock_give_the_same_layer() {
-    let run = |style, reduced| {
-        let mut o = overlay(style, reduced);
+    let run = |look, style, reduced| {
+        let mut o = Overlay::new(rules(look), options(style, reduced), EmoteSets::default());
         let mut out = Vec::new();
         for f in 0..600 {
             let now = f64::from(f) / 60.0;
             if f % 4 == 0 {
-                o.receive(&say(f, f % 13, &"w".repeat((f % 30) as usize + 1)), now, f % 50 != 0);
+                let e = if f % 8 == 0 {
+                    emotes(f, f % 13, &["1", "1", "2"])
+                } else {
+                    say(f, f % 13, &"w".repeat((f % 30) as usize + 1))
+                };
+                o.receive(&e, now, f % 50 != 0);
             }
             advance(&mut o, now);
             out.extend(o.drawn(now).map(|d| (d.id, d.x.to_bits(), d.y.to_bits(), d.alpha.to_bits())));
         }
         out
     };
-    for style in [Style::Across, Style::Falling] {
-        for reduced in [false, true] {
-            assert_eq!(run(style, reduced), run(style, reduced));
+    for look in LOOKS {
+        for style in [Style::Across, Style::Falling] {
+            for reduced in [false, true] {
+                assert_eq!(run(look, style, reduced), run(look, style, reduced));
+            }
         }
     }
 }
@@ -351,7 +487,7 @@ fn the_same_events_and_clock_give_the_same_layer() {
 #[test]
 fn off_shows_nothing() {
     let mut o = Overlay::new(
-        CHAT_OVERLAY_V0,
+        CHAT_OVERLAY_V1,
         Options {
             level: Level::Off,
             ..options(Style::Across, false)
@@ -364,83 +500,78 @@ fn off_shows_nothing() {
 }
 
 #[test]
-fn rows_and_columns_keep_clear_of_the_receptors_and_the_hud() {
-    // The receptors' row near the top, the score at the top right.
-    let keep = [[495.0, 80.0, 785.0, 140.0], [1100.0, 50.0, 1270.0, 110.0]];
-    let a = area().keeping_clear(&keep, true);
-    assert!(a.rows.iter().all(|&y| y + LINE <= 80.0 || y >= 140.0));
-    // From the bottom first.
-    assert!(a.rows.windows(2).all(|w| w[0] > w[1]));
-    assert!(a.rows[0] > 600.0);
-    // The right side's columns begin below the score.
-    let right: Vec<&Column> = a.columns.iter().filter(|c| c.x[1] > 1100.0).collect();
-    assert!(!right.is_empty() && right.iter().all(|c| c.y[0] > 110.0));
-    let left: Vec<&Column> = a.columns.iter().filter(|c| c.x[1] <= 500.0).collect();
-    assert!(left.iter().all(|c| c.y[0] == 0.0));
-    // An item placed first goes in the bottom row.
-    let mut o = overlay(Style::Across, false);
-    o.receive(&say(1, 1, "hi"), 0.0, true);
-    o.advance(0.0, &a, &ready, &mut measure);
-    assert_eq!(o.drawn(0.0).next().unwrap().y, a.rows[0]);
-}
-
-#[test]
-fn a_line_too_wide_for_falling_is_cut_with_an_ellipsis() {
-    let narrow = Area::new([1280.0, 720.0], LINE, [200.0, 1080.0], &[], Level::Messages);
-    // Columns 170 pixels wide: a line of 227 at most.
-    let widest = narrow.columns.iter().map(|c| c.x[1] - c.x[0]).fold(0.0, f32::max);
+fn a_line_too_wide_is_cut_with_an_ellipsis() {
+    // Falling's lines are 14 lines wide at most.
     let mut o = overlay(Style::Falling, false);
-    o.receive(&say(1, 1, &"w".repeat(50)), 0.0, true);
-    o.advance(0.0, &narrow, &ready, &mut measure);
+    o.receive(&say(1, 1, &"w".repeat(80)), 0.0, true);
+    advance(&mut o, 0.0);
     let d = o.drawn(0.0).next().unwrap();
-    assert!(d.width * d.scale <= widest + 0.5, "{} {widest}", d.width);
+    assert!(d.width <= LINE * 14.0 + 0.5, "{}", d.width);
     let Glyphs::Text(t) = &d.laid[0].what else {
         panic!()
     };
     assert!(t.ends_with('…'), "{t}");
 }
 
-/// Round TW4: a stage with opponents' small fields uses Falling whatever
-/// was chosen; a play with no side space (a phone held upright) shows
-/// emotes alone; a solo play keeps the device's choices.
+/// The chosen style is the style: a message under "Emotes" shows its
+/// emotes alone, under "Emotes and messages" its text too, in either
+/// style; nothing about the screen's shape changes either.
 #[test]
-fn opponents_fields_force_falling_and_no_side_space_shows_emotes_alone() {
-    assert_eq!(shown(Level::Messages, Style::Across, false, true), (Level::Messages, Style::Across));
-    assert_eq!(shown(Level::Messages, Style::Across, true, true), (Level::Messages, Style::Falling));
-    assert_eq!(shown(Level::Messages, Style::Falling, true, false), (Level::Emotes, Style::Falling));
-    assert_eq!(shown(Level::Emotes, Style::Across, false, false), (Level::Emotes, Style::Across));
-    assert_eq!(shown(Level::Off, Style::Across, false, false).0, Level::Off);
-    // The side space: a 1280×720 play has some, a phone held upright and
-    // a field over the whole width none.
-    assert!(Area::side_space(1280.0, LINE, [500.0, 780.0]));
-    assert!(!Area::side_space(390.0, LINE, [20.0, 370.0]));
-    assert!(!Area::side_space(1280.0, LINE, [100.0, 1180.0]));
-    // A message with text and an emote, made under the emotes-only rule:
-    // its emotes alone.
-    let mut o = overlay(Style::Across, false);
-    o.set_shown(Level::Emotes, Style::Falling);
+fn the_level_and_the_style_are_the_devices() {
     let mixed = Event::Message(ChatMessage {
         id: "m1".into(),
         chatter_id: "u1".into(),
         text: "hello Kappa".into(),
-        fragments: vec![
-            Fragment::Text("hello ".into()),
-            Fragment::Emote {
-                text: "Kappa".into(),
-                id: "25".into(),
-                still: true,
-                animated: false,
-            },
-        ],
+        fragments: vec![Fragment::Text("hello ".into()), emote("25")],
         kind: "text".into(),
         ..ChatMessage::default()
     });
-    o.receive(&mixed, 0.0, true);
-    o.receive(&say(2, 2, "words alone"), 0.0, true);
-    advance(&mut o, 0.0);
-    let drawn: Vec<_> = o.drawn(0.0).collect();
-    assert_eq!(drawn.len(), 1, "the words alone are left out");
-    assert!(drawn[0].laid.iter().all(|l| matches!(l.what, Glyphs::Emote(_))));
-    // Placed in a column, falling.
-    assert!(o.drawn(1.0).next().unwrap().y > drawn[0].y);
+    // A phone held upright: messages too (round TW5).
+    let phone = Area::new([1170.0, 2532.0], 84.0);
+    for level in [Level::Emotes, Level::Messages] {
+        for style in [Style::Across, Style::Falling] {
+            let mut o = Overlay::new(
+                CHAT_OVERLAY_V1,
+                Options {
+                    level,
+                    ..options(style, false)
+                },
+                EmoteSets::default(),
+            );
+            o.receive(&mixed, 0.0, true);
+            o.receive(&say(2, 2, "words alone"), 0.0, true);
+            o.advance(0.0, &phone, &ready, &mut measure);
+            let drawn: Vec<_> = o.drawn(0.0).collect();
+            if level == Level::Emotes {
+                assert_eq!(drawn.len(), 1, "the words alone are left out");
+                assert!(drawn[0].laid.iter().all(|l| matches!(l.what, Glyphs::Emote(_))));
+            } else {
+                assert_eq!(drawn.len(), 2);
+            }
+            assert_eq!(o.options().style, style);
+        }
+    }
+}
+
+/// The looks' sizes: an emote-only item's emotes and a line's inline ones
+/// as tall as the look says, the text a line, centered together.
+#[test]
+fn the_look_sizes_emotes_and_text() {
+    for look in LOOKS {
+        let mut o = Overlay::new(rules(look), options(Style::Across, false), EmoteSets::default());
+        o.receive(&kappa(1, 1), 0.0, true);
+        let mut m = say(2, 2, "hi ");
+        if let Event::Message(c) = &mut m {
+            c.fragments.push(emote("25"));
+        }
+        o.receive(&m, 0.0, true);
+        advance(&mut o, 0.0);
+        let ds: Vec<_> = o.drawn(0.0).collect();
+        let only = ds.iter().find(|d| d.laid.len() == 1).unwrap();
+        assert!((only.height - LINE * look.emote).abs() < 0.01);
+        let line = ds.iter().find(|d| d.laid.len() == 2).unwrap();
+        assert_eq!(line.laid[0].height, LINE);
+        assert!((line.laid[1].height - LINE * look.inline).abs() < 0.01);
+        assert!((line.height - LINE * look.inline.max(1.0)).abs() < 0.01);
+    }
 }

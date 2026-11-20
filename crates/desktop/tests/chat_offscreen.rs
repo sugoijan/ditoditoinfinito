@@ -90,6 +90,10 @@ struct Played {
     shown: Vec<(Level, Style)>,
     /// The animation clock at its most, milliseconds.
     anim_ms: u64,
+    /// Emotes drawn behind the player's own field and behind an
+    /// opponent's miniature, in any frame (round TW5).
+    behind_field: bool,
+    behind_miniature: bool,
 }
 
 fn stat(v: &[f64]) -> String {
@@ -236,6 +240,24 @@ fn play(s: &Scenario) -> Option<Played> {
             }
         }
         played.timeline.push((song_t, chat.as_ref().map_or(0, |c| c.items)));
+        if let (Some(c), Some(fields)) = (&chat, host.opponent_fields()) {
+            // The player's own field between the two sides' miniatures.
+            let left = fields.slots.iter().filter(|s| s.left).map(|s| s.rect[0] + s.rect[2]).fold(0.0, f32::max);
+            let right = fields
+                .slots
+                .iter()
+                .filter(|s| !s.left)
+                .map(|s| s.rect[0])
+                .fold(size[0] as f32, f32::min);
+            for e in &c.emotes_drawn {
+                let [x0, y0, x1, y1] = e.rect;
+                played.behind_field |= x0 > left + 20.0 && x1 < right - 20.0;
+                played.behind_miniature |= fields.slots.iter().any(|s| {
+                    let [sx, sy, sw, sh] = s.rect;
+                    x0 >= sx && x1 <= sx + sw && y0 >= sy && y1 <= sy + sh
+                });
+            }
+        }
         if in_measure {
             if measured >= 20 {
                 played.record.push(recorded);
@@ -348,7 +370,8 @@ fn a_practice_stage_shows_the_rooms_chat_under_the_testing_switch() {
 }
 
 /// The scripted chat drawn under the field in both styles: its
-/// messages in several scripts with their emotes inline, a run's count,
+/// messages in several scripts with their emotes inline, every emote by
+/// itself,
 /// what C11 leaves out left out, the delete and the clears taking items
 /// off, and reduced motion standing still.
 #[test]
@@ -372,7 +395,10 @@ fn the_scripted_chat_is_drawn_in_both_styles() {
         let has = |needle: &str| p.texts.iter().any(|t| t.contains(needle));
         assert!(has("こんにちは"), "{}: {:?}", s.name, p.texts);
         assert!(has("مرحبا"), "{}", s.name);
-        assert!(has("×4"), "{}: a run's count {:?}", s.name, p.texts);
+        // Round TW5: "Kappa Kappa Kappa Kappa" is four emotes, never one
+        // with a count.
+        assert!(has("◆◆◆◆"), "{}: four emotes {:?}", s.name, p.texts);
+        assert!(!has("×"), "{}: no count {:?}", s.name, p.texts);
         assert!(!has("!song") && !has("example.com"), "{}: left out", s.name);
         assert!(p.stats.left_out >= 2, "{}: {:?}", s.name, p.stats);
         assert!(p.stats.removed >= 1, "{}: {:?}", s.name, p.stats);
@@ -518,12 +544,14 @@ fn crop_difference(size: [u32; 2], (pa, a): (&[u8], [f32; 4]), (pb, b): (&[u8], 
 }
 
 /// Round TW4: animated emotes move, every copy of one on the same frame,
-/// held still under reduced motion; a stage with opponents' fields falls
-/// whatever was chosen (a solo play keeps Across); a phone held upright
-/// shows emotes alone. `DDI_OFFSCREEN_PPM=<dir>` keeps the pictures.
+/// held still under reduced motion. Round TW5: the device's style is the
+/// style everywhere (a stage with opponents' fields keeps Across), the
+/// emotes go behind the player's field and behind the miniatures, and a
+/// phone held upright shows messages too. `DDI_OFFSCREEN_PPM=<dir>` keeps
+/// the pictures.
 #[test]
-fn animated_emotes_move_and_the_layout_decides_the_style() {
-    // A practice stage of eight CPUs, Across chosen: Falling, and two
+fn animated_emotes_move_and_the_chosen_style_holds_everywhere() {
+    // A practice stage of eight CPUs, Across chosen: Across, and two
     // pictures a quarter of a second apart.
     let eight = Scenario {
         cpus: Some(8),
@@ -531,12 +559,13 @@ fn animated_emotes_move_and_the_layout_decides_the_style() {
         level: Level::Emotes,
         script: "emotes",
         shots: vec![6.0, 6.25],
-        ..Scenario::new("tw4-eight-animated")
+        ..Scenario::new("tw5-eight-animated")
     };
     let Some(p) = play(&eight) else {
         return;
     };
-    assert_eq!(p.shown, [(Level::Emotes, Style::Falling)], "{}", eight.name);
+    assert_eq!(p.shown, [(Level::Emotes, Style::Across)], "{}", eight.name);
+    assert!(p.behind_field && p.behind_miniature, "{}: behind the fields", eight.name);
     assert!(p.anim_ms > 5000, "{}", p.anim_ms);
     let [(_, pa, Some(ca)), (_, pb, Some(cb))] = &p.seen[..] else {
         panic!("{}: two shots with the chat", eight.name)
@@ -581,15 +610,18 @@ fn animated_emotes_move_and_the_layout_decides_the_style() {
     eprintln!("animated emotes' pixels changed by {moving:.1} on average, still ones' by {still:.1}");
     assert!(moving > still + 4.0, "moving {moving:.1}, still {still:.1}");
 
-    // Alone, Across stays Across.
-    let alone = Scenario {
+    // Falling chosen in the same stage: Falling, behind the fields too.
+    let falling = Scenario {
+        cpus: Some(8),
+        style: Style::Falling,
         level: Level::Emotes,
         script: "emotes",
         shots: vec![6.0],
-        ..Scenario::new("tw4-alone-across")
+        ..Scenario::new("tw5-eight-falling")
     };
-    let p = play(&alone).unwrap();
-    assert_eq!(p.shown, [(Level::Emotes, Style::Across)]);
+    let p = play(&falling).unwrap();
+    assert_eq!(p.shown, [(Level::Emotes, Style::Falling)]);
+    assert!(p.behind_field && p.behind_miniature, "{}: behind the fields", falling.name);
 
     // Reduced motion: every emote its first frame, the clock at zero.
     let reduced = Scenario {
@@ -598,7 +630,7 @@ fn animated_emotes_move_and_the_layout_decides_the_style() {
         script: "emotes",
         reduced: true,
         shots: vec![6.0, 6.25],
-        ..Scenario::new("tw4-eight-reduced")
+        ..Scenario::new("tw5-eight-reduced")
     };
     let p = play(&reduced).unwrap();
     assert_eq!(p.anim_ms, 0);
@@ -613,16 +645,16 @@ fn animated_emotes_move_and_the_layout_decides_the_style() {
         }
     }
 
-    // A phone held upright: emotes alone, whatever the device allows.
+    // A phone held upright: messages too (round TW5).
     let phone = Scenario {
         size: [390, 844],
         level: Level::Messages,
         script: "demo",
         shots: vec![4.6, 9.5],
-        ..Scenario::new("tw4-phone-upright")
+        ..Scenario::new("tw5-phone-upright")
     };
     let p = play(&phone).unwrap();
-    assert_eq!(p.shown, [(Level::Emotes, Style::Across)]);
-    assert!(p.texts.iter().all(|t| t.chars().all(|c| c == '◆' || c == '×' || c.is_ascii_digit())), "{:?}", p.texts);
+    assert_eq!(p.shown, [(Level::Messages, Style::Across)]);
+    assert!(p.texts.iter().any(|t| t.chars().any(char::is_alphabetic)), "{:?}", p.texts);
 }
 
