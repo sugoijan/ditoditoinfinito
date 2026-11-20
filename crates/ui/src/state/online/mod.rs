@@ -196,6 +196,8 @@ pub struct Seated {
 }
 
 enum Want {
+    /// Round TW1: the Twitch access disconnected; `/me` read again.
+    TwitchDisconnected,
     Me,
     Logout,
     NewAttempt,
@@ -450,6 +452,38 @@ impl Online {
         self.changed();
     }
 
+    /// Connect the person's Twitch access for `scopes` (round TW1,
+    /// `bans,blocks,chat`), then go on to `dest`: a sign-in's trip through
+    /// Twitch, asking for those scopes (and what the access has).
+    pub fn connect_twitch(&mut self, dest: Dest, scopes: &str) {
+        match self.config.platform {
+            Platform::Web => {
+                self.redirect = Some(Redirect::Page(api::connect_path(&dest.route(), scopes)));
+                self.sign_in = SignIn::Completing { dest };
+            }
+            Platform::Desktop => {
+                self.start(api::connect_attempt(&dest.route(), scopes), Want::NewAttempt);
+                self.sign_in = SignIn::Starting { dest };
+            }
+        }
+        self.changed();
+    }
+
+    /// The person's Twitch access as `/me` last said it.
+    pub fn twitch(&self) -> Option<&api::TwitchAccess> {
+        match &self.account {
+            Account::SignedIn(me) => Some(&me.twitch),
+            _ => None,
+        }
+    }
+
+    /// Disconnect the person's Twitch access (A4): deleted on the server,
+    /// revoked at Twitch; `/me` read again after.
+    pub fn disconnect_twitch(&mut self) {
+        self.start(api::twitch_disconnect(), Want::TwitchDisconnected);
+        self.changed();
+    }
+
     /// Desktop: the browser again, on the same attempt (a new opening;
     /// the server takes only the latest one's return).
     pub fn open_browser_again(&mut self) {
@@ -643,6 +677,10 @@ impl Online {
 
     fn answered(&mut self, id: u64, want: Want, response: ApiResponse) {
         match want {
+            Want::TwitchDisconnected => {
+                let _ = response;
+                self.start(api::me(), Want::Me);
+            }
             Want::External => {
                 self.answers.insert(id, response);
                 return;

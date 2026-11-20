@@ -209,6 +209,11 @@ pub struct FakeServer {
     /// Twitch's answers, [`FakeServer::bar`]): refused at a join and a
     /// ticket and removed at a sweep while the room's mirror is on.
     barred: std::collections::BTreeSet<Identity>,
+    /// What each person's Twitch access grants (the features' words,
+    /// `bans`, `blocks`, `chat`), as the server's `TwitchLink` would say
+    /// ([`FakeServer::grant_twitch`]): `POST /rooms/<id>/twitch` answers
+    /// `409 scope_missing` for what it lacks.
+    pub(crate) twitch_grants: BTreeMap<Identity, Vec<String>>,
 }
 
 /// The server's bounds on one member (`../ddi-server`'s `room.rs`,
@@ -334,6 +339,7 @@ impl FakeServer {
             signed_out: Default::default(),
             haves: Default::default(),
             barred: Default::default(),
+            twitch_grants: Default::default(),
             audience,
             room_name,
         }
@@ -402,6 +408,13 @@ impl FakeServer {
                     .is_none_or(|b| b.by != a.by || b.mirror < a.mirror)
         });
         Ok(if swept { self.sweep() } else { Vec::new() })
+    }
+
+    /// `identity`'s Twitch access grants `features` from now on (a trip
+    /// through Twitch done).
+    pub fn grant_twitch(&mut self, identity: &Identity, features: &[&str]) {
+        self.twitch_grants
+            .insert(identity.clone(), features.iter().map(|f| f.to_string()).collect());
     }
 
     /// Every open socket of `participant` closed with `code`.

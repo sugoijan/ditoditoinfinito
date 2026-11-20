@@ -3936,6 +3936,10 @@ fn host_options_work_by_keyboard_controller_and_a_tap_on_a_row() {
             "Inc.listsize",
             "Dec.whenfull",
             "Inc.whenfull",
+            "Dec.twitchbans",
+            "Inc.twitchbans",
+            "Dec.twitchchat",
+            "Inc.twitchchat",
             "CoHost.2",
             "MakeHost.2",
             "CoHost.3",
@@ -5912,7 +5916,7 @@ fn the_rooms_screens_draw_as_pinned() {
 /// it, the list, the players panel at the right). Round TW1 (revision 18)
 /// moved "online-players" and the "host" drawn over it: the host's
 /// Players pop-up has Moderate at its title's right (practice's has none:
-/// "players" stays).
+/// "players" stays), and Host options its Twitch rows.
 const PINNED: [(&str, u64); 10] = [
     ("select", 6294184724527765777),
     ("rules", 1214659751631822932),
@@ -5923,7 +5927,7 @@ const PINNED: [(&str, u64); 10] = [
     ("online-select", 9359307383711192609),
     ("online-member", 3482401827223415051),
     ("online-players", 15010800377283620634),
-    ("host", 4680235465883222770),
+    ("host", 14227543146397042134),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's
@@ -7137,4 +7141,48 @@ fn practice_has_no_moderate() {
     assert_eq!(top(&h), "room-players");
     assert!(!there(&h, super::room_dialogs::MODERATE));
     assert!(!h.texts().iter().any(|t| t.starts_with("Kick")));
+}
+
+/// Revision 18 (round TW1, B1, C1): the host's Host options have Twitch
+/// bans and Show my Twitch chat; a step that needs Twitch access not yet
+/// connected starts the trip through Twitch (back to the room), and once
+/// connected it sets the room's setting, said to everyone; a member has
+/// no such rows.
+#[test]
+fn host_options_set_the_rooms_twitch_after_the_trip() {
+    use ddi_room::{Identity, TwitchMirror};
+    let t = Three::new(false);
+    let (ea, eb) = (env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    assert!(!t.bob.borrow().may_set_twitch());
+    open_players(&mut ha);
+    press(&mut ha, "HostOptions");
+    assert_eq!(top(&ha), "room-host");
+    assert!(has(&ha, "Twitch bans") && has(&ha, "Show my Twitch chat"), "{:?}", ha.texts());
+    // No Twitch access yet: the step asks for the trip.
+    press(&mut ha, "Inc.twitchbans");
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    let trip = {
+        let r = t.alice.borrow();
+        let o = r.online_link().unwrap().online().clone();
+        o.borrow().sign_in_state().clone()
+    };
+    assert!(
+        !matches!(trip, crate::state::online::SignIn::Idle),
+        "the trip through Twitch started: {trip:?}"
+    );
+    assert_eq!(t.server.borrow().state().twitch, None);
+    // Connected: the same step sets it, for everyone.
+    t.server
+        .borrow_mut()
+        .grant_twitch(&Identity::new("dev:alice"), &["bans"]);
+    press(&mut ha, "Inc.twitchbans");
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    let set = t.server.borrow().state().twitch.clone().expect("set");
+    assert_eq!(set.mirror, TwitchMirror::Bans);
+    assert_eq!(t.bob.borrow().twitch().map(|t| t.mirror), Some(TwitchMirror::Bans));
+    assert!(has(&ha, "alice's Twitch bans and chat apply."), "{:?}", ha.texts());
 }

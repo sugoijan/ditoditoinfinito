@@ -194,6 +194,63 @@ pub struct Me {
     pub admin: bool,
     #[serde(default)]
     pub expires_at_ms: i64,
+    /// What the person's Twitch access lets the game turn on (round TW1,
+    /// `docs/plans/multiplayer-twitch.md` A): none from a server before it.
+    #[serde(default)]
+    pub twitch: TwitchAccess,
+}
+
+/// The person's Twitch access as `/me` says it: the features it grants
+/// (`bans`, `blocks`, `chat`), whose account, and once that Twitch ended
+/// it (A3). The game never holds a Twitch token.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TwitchAccess {
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub features: Vec<String>,
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub login: Option<String>,
+    #[serde(default)]
+    pub ended: bool,
+}
+
+fn null_as_default<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + serde::Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
+}
+
+/// The features (`TwitchAccess::features`' words) a room's Twitch setting
+/// needs.
+pub fn twitch_needs(mirror: ddi_room::TwitchMirror, chat: ddi_room::TwitchChat) -> Vec<&'static str> {
+    let mut need = Vec::new();
+    if mirror.blocks() {
+        need.push("blocks");
+    } else if mirror.on() {
+        need.push("bans");
+    }
+    if chat.on() {
+        need.push("chat");
+    }
+    need
+}
+
+/// `POST /rooms/<id>/twitch` (round TW1): the room's Twitch setting with
+/// the person's own lists and channel; `409 scope_missing` with `need`
+/// where their Twitch access must be connected for it first.
+pub fn room_twitch(
+    room: &str,
+    mirror: ddi_room::TwitchMirror,
+    chat: ddi_room::TwitchChat,
+) -> ApiRequest {
+    ApiRequest::new(Method::Post, format!("/rooms/{room}/twitch"))
+        .json(serde_json::json!({ "mirror": mirror, "chat": chat }))
+}
+
+/// `POST /auth/twitch/disconnect` (Options → Data's Disconnect).
+pub fn twitch_disconnect() -> ApiRequest {
+    ApiRequest::new(Method::Post, "/auth/twitch/disconnect")
 }
 
 /// A room made (`POST /rooms`).
@@ -409,6 +466,23 @@ pub fn logout() -> ApiRequest {
 /// the game at `route` (`/mp`, `/mp/join/<invite>`, `/mp/room/<id>`).
 pub fn login_path(route: &str) -> String {
     format!("/auth/twitch/login?return={}", percent_encode(route))
+}
+
+/// The web's trip through Twitch for the person's Twitch access (round
+/// TW1): `scopes` the features to connect (`bans,chat`), back to `route`.
+pub fn connect_path(route: &str, scopes: &str) -> String {
+    format!(
+        "/auth/twitch/login?return={}&scopes={}",
+        percent_encode(route),
+        percent_encode(scopes)
+    )
+}
+
+/// Desktop's attempt for the same (signed in: the session goes with it).
+pub fn connect_attempt(route: &str, scopes: &str) -> ApiRequest {
+    ApiRequest::new(Method::Post, "/auth/attempts").json(
+        serde_json::json!({ "return": route, "shows_code": true, "scopes": scopes }),
+    )
 }
 
 /// Desktop's attempt; `shows_code`: this build shows the attempt's code

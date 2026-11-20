@@ -2667,6 +2667,28 @@ impl Screen for HostDialog {
             0.0
         };
         let setting_h = setting_h + list_h;
+        // The room's Twitch setting (revision 18, B1, C1): the owner's (and
+        // the one who set it may turn it off), with whose lists apply.
+        let twitch = {
+            let r = self.room.borrow();
+            r.may_set_twitch().then(|| {
+                let t = r.twitch().cloned();
+                let whose: Vec<String> = match &t {
+                    Some(t) => super::dialog::wrap_lines(
+                        &String::from(m::host_twitch_whose(UiText::data(&t.login))),
+                        inner,
+                        13.0,
+                    ),
+                    None => Vec::new(),
+                };
+                (t, whose)
+            })
+        };
+        let twitch_h = match &twitch {
+            Some((_, whose)) => 2.0 * ROW + whose.len() as f32 * 18.0 + 14.0,
+            None => 0.0,
+        };
+        let setting_h = setting_h + twitch_h;
         // The room's audience, where it has one: how many watch, and the
         // owner's Close the audience / Open the audience.
         let audience = {
@@ -2724,7 +2746,7 @@ impl Screen for HostDialog {
                 c.push(left(t, x0, ay));
                 ay += 18.0;
             }
-            ry += setting_h - audience_h - list_h;
+            ry += setting_h - audience_h - list_h - twitch_h;
         }
         if let Some(rules) = list {
             let labels = (&*m::rules_previous(), &*m::rules_next());
@@ -2764,6 +2786,51 @@ impl Screen for HostDialog {
                 ay += 18.0;
             }
             ry += list_h;
+        }
+        if let Some((t, whose)) = &twitch {
+            let labels = (&*m::rules_previous(), &*m::rules_next());
+            let at = |mid: f32| [x0 + inner - 210.0, x0 + inner - 114.0, x0 + inner - 18.0, mid];
+            let mirror = t.as_ref().map_or(ddi_room::TwitchMirror::Off, |t| t.mirror);
+            let chat = t.as_ref().map_or(ddi_room::TwitchChat::Off, |t| t.chat);
+            let mid = ry + ROW / 2.0;
+            let mut label = env.text("TwitchBans", &m::host_twitch_bans(), 14.0, 400, "Secondary");
+            look::ellipsized(&mut label, inner - 250.0);
+            c.push(left(label, x0, mid));
+            let value = match mirror {
+                ddi_room::TwitchMirror::Off => m::host_twitch_off(),
+                ddi_room::TwitchMirror::Bans => m::host_twitch_bans_only(),
+                ddi_room::TwitchMirror::BansAndBlocks => m::host_twitch_bans_blocks(),
+            };
+            let mut v = env.text("TwitchBans.Value", &value, 14.0, 600, "Text");
+            look::ellipsized(&mut v, 150.0);
+            let edge = (
+                mirror == ddi_room::TwitchMirror::Off,
+                mirror == ddi_room::TwitchMirror::BansAndBlocks,
+            );
+            stepper(&env, &mut c, "twitchbans", labels, v, edge, at(mid));
+            let mid = ry + ROW + ROW / 2.0;
+            let mut label = env.text("TwitchChat", &m::host_twitch_chat(), 14.0, 400, "Secondary");
+            look::ellipsized(&mut label, inner - 250.0);
+            c.push(left(label, x0, mid));
+            let value = match chat {
+                ddi_room::TwitchChat::Off => m::host_twitch_off(),
+                ddi_room::TwitchChat::Emotes => m::host_twitch_emotes(),
+                ddi_room::TwitchChat::EmotesAndMessages => m::host_twitch_messages(),
+            };
+            let mut v = env.text("TwitchChat.Value", &value, 14.0, 600, "Text");
+            look::ellipsized(&mut v, 150.0);
+            let edge = (
+                chat == ddi_room::TwitchChat::Off,
+                chat == ddi_room::TwitchChat::EmotesAndMessages,
+            );
+            stepper(&env, &mut c, "twitchchat", labels, v, edge, at(mid));
+            let mut ay = ry + 2.0 * ROW + 8.0;
+            for (i, line) in whose.iter().enumerate() {
+                let t = env.text(&format!("TwitchWhose{i}"), line, 13.0, 400, "Muted");
+                c.push(left(t, x0, ay));
+                ay += 18.0;
+            }
+            ry += twitch_h;
         }
         if let Some(((_, open), words)) = &audience {
             let mid = ry + ROW / 2.0;
@@ -2929,6 +2996,10 @@ impl Screen for HostDialog {
                 pair(&mut v, "Dec.whenfull".into(), "Inc.whenfull".into());
             }
         }
+        if self.room.borrow().may_set_twitch() {
+            pair(&mut v, "Dec.twitchbans".into(), "Inc.twitchbans".into());
+            pair(&mut v, "Dec.twitchchat".into(), "Inc.twitchchat".into());
+        }
         if self.room.borrow().may_close_audience() {
             v.push(Focusable::new(AUDIENCE));
         }
@@ -2956,6 +3027,9 @@ impl Screen for HostDialog {
     }
 
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+        // Revision 18: the Twitch setting asked needs the person's Twitch
+        // access connected first: the trip through Twitch, back here.
+        let _ = self.room.borrow_mut().take_twitch_trip();
         // No longer an operator's (the role gone, the link gone, nothing
         // left for a co-host to do), or no longer the owner's it was
         // opened as.
@@ -2988,6 +3062,25 @@ impl Screen for HostDialog {
             }
             Input::Activate { name } => {
                 match name.as_str() {
+                    "Dec.twitchbans" | "Inc.twitchbans" | "Dec.twitchchat" | "Inc.twitchchat" => {
+                        use ddi_room::{TwitchChat, TwitchMirror};
+                        let now = self.room.borrow().twitch().cloned();
+                        let mut mirror = now.as_ref().map_or(TwitchMirror::Off, |t| t.mirror);
+                        let mut chat = now.as_ref().map_or(TwitchChat::Off, |t| t.chat);
+                        let step = |k: usize, up: bool, n: usize| {
+                            if up { (k + 1).min(n - 1) } else { k.saturating_sub(1) }
+                        };
+                        let up = name.starts_with("Inc.");
+                        if name.ends_with("bans") {
+                            let k = TwitchMirror::ALL.iter().position(|m| *m == mirror).unwrap_or(0);
+                            mirror = TwitchMirror::ALL[step(k, up, 3)];
+                        } else {
+                            let k = TwitchChat::ALL.iter().position(|c| *c == chat).unwrap_or(0);
+                            chat = TwitchChat::ALL[step(k, up, 3)];
+                        }
+                        self.room.borrow_mut().set_twitch(mirror, chat);
+                        self.rebuild(root, cx);
+                    }
                     "Dec.leaves" | "Inc.leaves" => {
                         let policy = if name == "Inc.leaves" {
                             HostLeaves::Close

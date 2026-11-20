@@ -2341,3 +2341,19 @@ room-kicked-body = You can come back to this room by its invite link.
 room-link-not-admitted = You can't join this room.
 # The notice's text under that title.
 room-not-admitted-body = Other rooms can still be joined by their invite links.
+# Host options' row (round TW1): whose Twitch lists keep people out of the
+# room; the room's owner's setting (about 20 letters).
+room-host-twitch-bans = Twitch bans
+# Its values, and the chat row's Off (about 14 letters each).
+room-host-twitch-off = Off
+room-host-twitch-bans-only = Bans
+room-host-twitch-bans-blocks = Bans and blocks
+# Host options' row: how much of the host's Twitch chat the room may show
+# behind the play (each player still chooses for their own device).
+room-host-twitch-chat = Show my Twitch chat
+room-host-twitch-emotes = Emotes
+room-host-twitch-messages = Emotes and messages
+# Under those rows: whose Twitch account the setting uses.
+# Variables:
+#   $login (String) - that person's Twitch login
+room-host-twitch-whose = { $login }'s Twitch bans and chat apply.

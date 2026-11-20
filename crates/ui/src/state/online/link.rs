@@ -98,6 +98,12 @@ pub struct OnlineLink {
     /// The wall clock of the last tick.
     now_ms: u64,
     rotate_req: Option<u64>,
+    /// The room's Twitch setting asked for (round TW1), answered later.
+    twitch_req: Option<u64>,
+    /// The features the person's Twitch access must connect first for
+    /// the setting asked (`409 scope_missing`), for the screen to start
+    /// the trip through Twitch.
+    twitch_trip: Option<String>,
     grant_reqs: Vec<(u64, StageId, Revision)>,
     grants: Vec<GrantNews>,
     song_grant_reqs: Vec<(u64, ddi_room::RoomSongId)>,
@@ -144,6 +150,8 @@ impl OnlineLink {
             invite_retry_at: 0,
             now_ms: 0,
             rotate_req: None,
+            twitch_req: None,
+            twitch_trip: None,
             grant_reqs: Vec::new(),
             grants: Vec::new(),
             song_grant_reqs: Vec::new(),
@@ -231,6 +239,21 @@ impl OnlineLink {
         if self.invite.is_some() && self.invite_req.is_none() && self.rotate_req.is_none() {
             self.invite_req = Some(self.online.borrow_mut().request(api::invite(&self.room_id)));
         }
+    }
+
+    /// The room's Twitch setting asked of the server (round TW1, `POST
+    /// /rooms/<id>/twitch`): the room says the change when it is made.
+    pub fn set_twitch(&mut self, mirror: ddi_room::TwitchMirror, chat: ddi_room::TwitchChat) {
+        self.twitch_req = Some(
+            self.online
+                .borrow_mut()
+                .request(api::room_twitch(&self.room_id, mirror, chat)),
+        );
+    }
+
+    /// The features to connect before the setting asked (once).
+    pub fn take_twitch_trip(&mut self) -> Option<String> {
+        self.twitch_trip.take()
     }
 
     /// The owner replaces the invite: old links stop working.
@@ -372,6 +395,20 @@ impl OnlineLink {
                     self.invite_asked = false;
                     self.invite_retry_at = now_ms + INVITE_RETRY_MS;
                 }
+            }
+            changed = true;
+        }
+        if let Some(r) = self.take(self.twitch_req) {
+            self.twitch_req = None;
+            if r.status == 409
+                && let Ok(v) = serde_json::from_str::<serde_json::Value>(&r.body)
+                && v["error"] == "scope_missing"
+            {
+                let need: Vec<&str> = v["need"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|n| n.as_str()).collect())
+                    .unwrap_or_default();
+                self.twitch_trip = Some(need.join(","));
             }
             changed = true;
         }

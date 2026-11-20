@@ -524,6 +524,27 @@ pub(crate) mod room {
                     err(401, "signed_out")
                 }
                 (Method::Get, "/me") => ok(&me_of(who)),
+                // Revision 18: the room's Twitch setting, as the server
+                // gives it (`FakeServer::grant_twitch` the access).
+                (Method::Post, "/rooms/Room000001/twitch") => {
+                    let (status, body) = s
+                        .borrow_mut()
+                        .answer_http(
+                            Some(who),
+                            ddi_room::fake::HttpRoom {
+                                name: "After Hours",
+                                grants_anyone: false,
+                            },
+                            ("POST", "/rooms/Room000001/twitch", req.body.as_deref()),
+                            None,
+                        )
+                        .expect("answered");
+                    Some(ApiResponse {
+                        status,
+                        body,
+                        session: None,
+                    })
+                }
                 (Method::Get, "/rooms/Room000001") => ok(
                     r#"{"room_id":"Room000001","name":"After Hours","revision":1,"phase":"lobby","admission":"open","participant":1}"#,
                 ),

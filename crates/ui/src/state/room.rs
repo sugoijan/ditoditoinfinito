@@ -2503,6 +2503,53 @@ impl RoomClient {
         self.send(Command::Remove { participant })
     }
 
+    /// The room's Twitch setting (revision 18): whose lists keep people
+    /// out and how much of their chat the room may show; none: off.
+    pub fn twitch(&self) -> Option<&ddi_room::TwitchSetting> {
+        self.state().twitch.as_ref()
+    }
+
+    /// Whether the local player may change the room's Twitch setting
+    /// (B1, B3): an online room's owner (turn on, change, replace with
+    /// their own), or the one who set it (turn it, or a part, off).
+    pub fn may_set_twitch(&self) -> bool {
+        self.is_online()
+            && self.link_state() == LinkState::Connected
+            && self.my_role().is_some_and(|(_, _)| {
+                self.may(Capability::Twitch) || self.twitch().is_some_and(|t| t.by == self.me)
+            })
+            && self
+                .state()
+                .member(self.me)
+                .is_some_and(|m| !m.is_bot())
+    }
+
+    /// Ask the server for the room's Twitch setting `mirror` and `chat`
+    /// (with the local player's own lists and channel). Where their Twitch
+    /// access lacks a scope, [`RoomClient::take_twitch_trip`] says which.
+    pub fn set_twitch(&mut self, mirror: ddi_room::TwitchMirror, chat: ddi_room::TwitchChat) {
+        if !self.may_set_twitch() {
+            return;
+        }
+        if let Some(l) = self.online_link_mut() {
+            l.set_twitch(mirror, chat);
+        }
+    }
+
+    /// The trip through Twitch the setting asked needs first, once: the
+    /// local player's Twitch access is connected for those features and
+    /// they come back to this room (the setting then asked again).
+    pub fn take_twitch_trip(&mut self) -> Option<String> {
+        let trip = self.online_link_mut()?.take_twitch_trip()?;
+        let link = self.online_link()?;
+        let room = link.room_id().to_string();
+        link.online().borrow_mut().connect_twitch(
+            crate::state::online::Dest::Room(room),
+            &trip,
+        );
+        Some(trip)
+    }
+
     /// The local player's role and admin flag.
     pub fn my_role(&self) -> Option<(Role, bool)> {
         self.state().member(self.me).map(|m| (m.role, m.admin))

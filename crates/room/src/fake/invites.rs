@@ -266,6 +266,50 @@ impl FakeServer {
                     room.name
                 ),
             ),
+            // Revision 18: the room's Twitch setting, as the server's
+            // `POST /rooms/<id>/twitch` gives it (the person's access
+            // checked for what the setting needs).
+            ("POST", p) if p == format!("{rooms}/twitch") => {
+                let b: serde_json::Value =
+                    serde_json::from_str(body.unwrap_or("{}")).unwrap_or_default();
+                let mirror: crate::TwitchMirror =
+                    serde_json::from_value(b["mirror"].clone()).unwrap_or_default();
+                let chat: crate::TwitchChat =
+                    serde_json::from_value(b["chat"].clone()).unwrap_or_default();
+                let mut need = Vec::new();
+                if mirror.blocks() {
+                    need.push("blocks");
+                } else if mirror.on() {
+                    need.push("bans");
+                }
+                if chat.on() {
+                    need.push("chat");
+                }
+                let has = self.twitch_grants.get(&identity).cloned().unwrap_or_default();
+                let missing: Vec<&str> =
+                    need.into_iter().filter(|n| !has.iter().any(|h| h == n)).collect();
+                let member = self.state().member_by_identity(&identity).map(|m| m.id);
+                match member {
+                    None => error(403, "not_a_member"),
+                    Some(_) if !missing.is_empty() => (
+                        409,
+                        serde_json::json!({ "error": "scope_missing", "need": missing }).to_string(),
+                    ),
+                    Some(by) => {
+                        let setting = crate::TwitchSetting {
+                            by,
+                            mirror,
+                            chat,
+                            user_id: format!("dev-{who}"),
+                            login: who.to_string(),
+                        };
+                        match self.set_twitch(by, Some(setting)) {
+                            Ok(_) => (200, "{}".into()),
+                            Err(_) => error(403, "not_allowed"),
+                        }
+                    }
+                }
+            }
             ("POST", p) if p == format!("{rooms}/ticket") && self.signed_out(&identity) => {
                 error(401, "session_expired")
             }
