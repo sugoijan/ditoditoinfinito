@@ -7244,3 +7244,95 @@ fn a_canceled_trip_changes_nothing_and_says_so() {
         Some(crate::state::online::link::LinkNotice::TwitchNotConnected)
     );
 }
+
+/// Round TW3: desktop's trip through Twitch for a Twitch feature (Options'
+/// "Twitch chat in rooms", a room's Host options) shows its own dialog:
+/// the attempt's code to type in the browser's page (which no screen
+/// showed before, so the trip could not be finished), the browser opened,
+/// and, once the access grants the scope, it closes and says so.
+#[test]
+fn desktops_twitch_trip_shows_its_code_and_ends_connected() {
+    use crate::screens::online_home::SignInDialog;
+    use crate::state::online::api::{ApiResponse, Method};
+    use crate::state::online::tests::{ME, ok, rig};
+    use crate::state::online::{Dest, Platform};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    let polls = Rc::new(RefCell::new(0));
+    let p = polls.clone();
+    let r = rig(
+        Platform::Desktop,
+        Box::new(move |req| match (req.method, req.path.as_str()) {
+            (Method::Post, "/auth/attempts") => {
+                assert!(req.body.as_deref().unwrap_or("").contains(r#""scopes":"chat""#), "{req:?}");
+                Some(ApiResponse {
+                    status: 201,
+                    body: r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"http://api/auth/attempts/a1/open","user_code":"ABC234","expires_at_ms":9}"#.into(),
+                    session: None,
+                })
+            }
+            (Method::Get, "/auth/attempts/a1") => {
+                *p.borrow_mut() += 1;
+                if *p.borrow() < 4 {
+                    ok(r#"{"status":"pending","return":"/mp","expires_at_ms":9}"#)
+                } else {
+                    ok(r#"{"status":"done","session_token":"tok","return":"/mp","expires_at_ms":9}"#)
+                }
+            }
+            (Method::Get, "/me") => {
+                let mut me: serde_json::Value = serde_json::from_str(ME).unwrap();
+                let features: Vec<&str> = if *p.borrow() >= 4 { vec!["chat"] } else { vec![] };
+                me["twitch"] = serde_json::json!({ "features": features, "login": "carol" });
+                ok(&me.to_string())
+            }
+            _ => None,
+        }),
+    );
+    r.online.borrow_mut().check();
+    r.online.borrow_mut().poll(0);
+    assert!(r.online.borrow().me().is_some());
+    r.online
+        .borrow_mut()
+        .connect_twitch_chat(Dest::Home, ddi_chat::Level::Messages);
+    let told = Rc::new(RefCell::new(None));
+    let t = told.clone();
+    let env = env();
+    // Desktop's UI: no gesture asked of what opens the browser.
+    let mut h = crate::testing::Harness::with_gestures(
+        super::DESIGN,
+        [1280.0, 720.0],
+        1.0,
+        crate::TextMode::Own,
+        false,
+    );
+    h.push(SignInDialog::connecting(
+        env.clone(),
+        r.online.clone(),
+        Dest::Home,
+        "chat",
+        Some(Rc::new(move |connected, _| *t.borrow_mut() = Some(connected))),
+    ));
+    h.frame(0.016);
+    h.frame(0.016);
+    let code = crate::state::online::api::grouped_code("ABC234");
+    assert!(h.texts().iter().any(|t| t.contains(&code)), "{:?}", h.texts());
+    assert!(
+        h.requests
+            .iter()
+            .any(|q| matches!(q, crate::UiRequest::OpenUrl(u) if u.ends_with("/a1/open"))),
+        "the browser opened"
+    );
+    for _ in 0..40 {
+        h.run(0.5);
+        if told.borrow().is_some() {
+            break;
+        }
+    }
+    assert_eq!(*told.borrow(), Some(true));
+    assert_eq!(
+        crate::state::settings::Settings::load().twitch_chat,
+        ddi_chat::Level::Messages,
+        "made by itself"
+    );
+}

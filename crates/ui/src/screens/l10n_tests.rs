@@ -1620,6 +1620,31 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     shown(&mut h, found);
     r.online.borrow_mut().cancel_sign_in();
     shown(&mut h, found);
+    // Round TW3: desktop's trip through Twitch for a feature, its own
+    // dialog: connecting, the code to type, not connected.
+    let r = rig(
+        Platform::Desktop,
+        Box::new(move |req| match req.path.as_str() {
+            "/auth/attempts" => ok(attempt),
+            "/me" => err(401, "signed_out"),
+            _ => None,
+        }),
+    );
+    r.online.borrow_mut().connect_twitch(Dest::Home, "chat");
+    let mut h = harness();
+    h.push(Home::new(env.clone(), r.online.clone(), quiet()));
+    h.push(super::online_home::SignInDialog::connecting(
+        env.clone(),
+        r.online.clone(),
+        Dest::Home,
+        "chat",
+        None,
+    ));
+    shown(&mut h, found);
+    r.online.borrow_mut().poll(1);
+    shown(&mut h, found);
+    r.online.borrow_mut().cancel_sign_in();
+    shown(&mut h, found);
     // Signed in: the account, Sign out, the invite field and its refusal.
     let r = rig(
         Platform::Desktop,
