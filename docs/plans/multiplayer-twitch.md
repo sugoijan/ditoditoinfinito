@@ -358,7 +358,8 @@ server never sees a message.
 ### C4. Emote sources
 
 Twitch's own emotes come in the message's fragments with their ids; the
-image is `static-cdn.jtvnw.net/emoticons/v2/<id>/static/dark/<scale>`.
+image is `static-cdn.jtvnw.net/emoticons/v2/<id>/static/dark/<scale>`, or
+`…/animated/…` where the fragment's `format` offers one (C5).
 
 Third-party emotes are words in the text, matched against the host's
 channel set and the global set, which each device reads from the
@@ -394,9 +395,11 @@ host's curation is the filter.
 
 ### C5. Still or animated
 
-Still images in the first version (Twitch's `static`, 7TV's `_static`).
-Animated ones later: the browser's `ImageDecoder`, desktop's `image`
-crate. Still emotes read better behind moving notes in any case.
+Animated emotes move, every provider's, on both shells, in both styles
+(the maintainer, 2026-11-20: "We should fully support animated
+emotes."; this replaces the first design's stills only). How, with its
+bounds: "Animated emotes (round TW4)" at the end. Reduced motion shows
+every emote's first frame, still.
 
 ### C6. The styles
 
@@ -454,6 +457,8 @@ Named `chat-overlay-v0`, every number provisional:
   than missing chat.
 - At most 256 emote images kept, four fetched at once, decoded off the
   frame. An item whose emote is not ready in a second goes without it.
+  An animated emote's frames are budgeted apart ("Animated emotes (round
+  TW4)").
 - The overlay is the first thing shed when frames come late: no new
   items while a play's frames are behind.
 
@@ -579,7 +584,9 @@ later, if the study asks for it.
    atlas and the layer, both styles, emotes and messages with the
    moderation events and C11's filters, chatter names, reduced motion's
    fixed places, the settings, the scripted chat.
-4. **Later**: animated emotes, a streamer's own chat in singleplayer.
+4. **Later**: a streamer's own chat in singleplayer. (Animated emotes,
+   once later, were decided for now on 2026-11-20 and built in round
+   TW4.)
 
 Steps 2 and 3 do not depend on each other.
 
@@ -801,4 +808,127 @@ a development tool's).
 Waiting for the spike: the Helix client, the chat's transports and the
 subscribe route, the providers' sets and images fetched for real; then
 the chat's rows are shown to players.
+
+## Animated emotes (round TW4, designed 2026-11-20)
+
+The maintainer decided on 2026-11-20 that animated emotes are fully
+supported: every provider's animated emotes move in the chat layer, on
+both shells, in both styles. The first design (C5) had stills alone.
+The same day's other decisions are built beside it: a stage that shows
+opponents' small fields uses Falling whatever the device chose (Across
+reads poorly behind the miniatures; a solo play and a watched stage keep
+the choice); a play with no side space beside the field (a phone held
+upright) shows emotes alone; and the chat is drawn over a
+Dancing☆Onigiri work's back layers, still under the dancing hand, the
+field filter's band and the field (C7 had it under them).
+
+**What each provider serves.** The addresses asked, directly first and
+through the proxy after a failure (C4), as for stills:
+
+| Provider | Animated where | Address (2×) | Format |
+|---|---|---|---|
+| Twitch | the fragment's `emote.format` has `animated` | `static-cdn.jtvnw.net/emoticons/v2/<id>/animated/dark/2.0` | GIF ("An animated GIF is available for this emote", Get Channel Emotes, read 2026-11-20) |
+| 7TV | the emote's `data.animated` | `cdn.7tv.app/emote/<id>/2x.webp` (the file `2x.webp` of `host.files`; its `static_name` is the still) | animated WebP |
+| BTTV | `animated: true` (`imageType: "gif"`) | `cdn.betterttv.net/emote/<id>/2x`, the same address as a still emote's | GIF |
+| FFZ | the emoticon's `animated` object (`{"1","2","4"}`) | `cdn.frankerfacez.com/emote/<id>/animated/2` | animated WebP |
+
+7TV's and BTTV's shapes are their API's answers as the fixtures record
+them (neither has a documentation page that loads without a script);
+FFZ's public developer page documents `urls` alone, and its `animated`
+object is read as the chat clients read it: PROVISIONAL, for the spike
+to confirm with the providers' real answers. An emote animated by its
+provider is drawn from its animated image; its still is never asked
+for, since the first frame stands for it where a still is wanted.
+
+**Read before decoded** (`ddi_chat::anim`, pure, on both shells): the
+container is read without decoding a pixel (GIF's blocks walked, WebP's
+chunks, PNG's and APNG's chunks, JPEG's frame header): its format, its
+canvas, each frame's size and duration. Its limits, `anim-limits-v0`,
+PROVISIONAL, are checked there, before memory is spent on pixels:
+
+- at most 2 MiB of bytes (read with that cap; the proxy's cap too);
+- each side of the canvas and of every frame at most 1024 pixels;
+- an unknown or broken container refused;
+
+any of these refuses the image (it is never drawn, as a failed fetch);
+and
+
+- at most 1000 frames, and at most 64 megapixels of frames in all (the
+  frames times the canvas: what decoding them costs);
+
+past these the animation is refused and its first frame is shown still.
+A frame's duration is its own (GIF's delay, WebP's and APNG's), a
+duration of 10 ms or less read as 100 ms as the browsers read it; a
+loop count is not read (emotes loop for ever, as chat clients play
+them).
+
+**Frames kept.** At most 64 frames of an emote, and at most 128 of the
+atlas's 64-pixel units (a 4:1 wide emote keeps 32 frames). An animation
+with more is thinned evenly: every *k*-th frame kept, each standing for
+the frames up to the next one kept, its duration their sum, so it plays
+in the same time at a lower rate. Only the kept frames are decoded to
+the atlas's row height (64 pixels); the rest are passed over (a GIF's
+are still composited in turn, which the work limit bounds).
+
+**Where decoded.** Never on the frame's thread where the platform gives
+another way:
+
+- Desktop: on the fetch's own thread (four at most at once): the
+  `image` crate the desktop already links (GIF, WebP, APNG; no new
+  dependency), its own limits set to the same sides and a 64 MiB
+  allocation, the frames iterated, the kept ones scaled, and a deadline
+  of 1.5 s between frames, past which the animation is refused and the
+  first frame stands.
+- The web: the browser's `ImageDecoder` (WebCodecs; Chrome 94, Firefox
+  133, Safari 27.3), asynchronous on the browser's own decoders, asked
+  for the kept frames alone, each scaled by `createImageBitmap` (also
+  asynchronous), drawn into one small canvas and read back once. The
+  probe runs in the page (a walk over at most 2 MiB of headers, well
+  under a millisecond). A browser without `ImageDecoder`, or one that
+  refuses the type, shows the first frame (`createImageBitmap`), as
+  before.
+
+**The atlas.** One atlas, 2048 × 2048 pixels (16 MiB of GPU memory, was
+2048 × 1024, 8 MiB), so the emotes stay one batch: stills and frames
+share its 1024 units of 64 × 64 pixels, an animated emote's frames each
+a cell of its own. All animated emotes' frames take at most 768 units
+(12 MiB; twelve emotes of 64 frames, or many more of fewer); 256 images
+are kept at most as before. A new animation that does not fit sends the
+least recently drawn animated emote away (never one drawn this frame);
+where none can go, it is placed as a still, its first frame in one
+cell: a still first frame rather than nothing. The CPU's part while
+decoding: one canvas frame (4 MiB at the most) and the kept frames
+(2 MiB at the most) a fetch.
+
+**How frames advance.** On the layer's own clock: the host's seconds,
+never the song's, held while the frames run late (the hand's-load
+reading of a late second, which already stops new items, also holds
+every emote on the frame it had, until a good second) and standing at
+zero under reduced motion (every emote's first frame, still). An
+emote's frame is the clock's time within its loop (the sum of its kept
+frames' durations): every copy of an emote on screen shows the same
+frame. Nothing of it is judged, logged or replayed.
+
+**The proxy** (`GET /emotes/<provider>/<path>` on the private server):
+Twitch's `emoticons/v2/<id>/animated/<theme>/<scale>` and FFZ's
+`emote/<id>/animated/<1|2|4>` join its closed list; 7TV's `<n>x.webp` and
+BTTV's `emote/<id>/<n>x` already passed; its 2 MiB cap and its types
+(`image/gif`, `image/webp` among them) are unchanged. Found while
+designing: the game asked for the providers' sets under `emotes/7tv/…`,
+`emotes/bttv/…` and `emotes/ffz/…`, where the server's routes for them
+are `7tv-api`, `bttv-api` and `ffz-api`; the game now asks for those.
+
+**No device option.** The chat's rows are hidden from players until the
+transports exist; reduced motion already stills every emote; and an
+emote moves as its author made it in every chat client. If the study on
+a busy chart finds moving emotes compete with the notes, a "Still
+emotes" choice beside Chat opacity is the place for it.
+
+**The scripted chat** (TESTING ONLY) gains animated emotes:
+`anim:<kind>:<rrggbb>:<frames>:<ms>[:<aspect>]` draws a shape's frames in
+code (turning and pulsing) for both shells, never a file; and real GIF
+and animated WebP files made by code (`cargo run -p ddi-desktop
+--example chat_images -- <dir>`), for a walk through each shell's
+decoder (`mpfakechatimg=<path>`: `<id>.gif` for an animated emote,
+`<id>.png` for a still one).
 
