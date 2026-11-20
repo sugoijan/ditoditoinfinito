@@ -600,6 +600,16 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   controls. Free-text typing is exempt; numeric editing is controller-operable.
   No virtual keyboard; dance-pad hint profiles deferred; browser/OS boundaries
   tracked separately. [Audit](../research/controller-reachability.md).
+- [Touch controls](touch-controls.md) (2026-11-20): built, the look and
+  the default open. Buttons under the thumbs at the bottom corners (up
+  to seven lanes, 44 px and wider) or the dance mat's 3×3 pad (two for
+  the doubles), drawn translucent over the unchanged field while touch
+  is the input source, a slide changing lane only well inside the next
+  target; the option in Options and on the prompt, the prompt's diagram
+  showing each receptor's control, both shells (desktop's untried on a
+  real touch screen); the old full-height columns kept as a legacy
+  choice. Three looks to choose from; Buttons by default changes what
+  every touch player has.
 - [Controller input in the UI core](controller-input-core.md) (2026-10-30):
   done. The `Ui` owns the bindings, the connected pads and the hint
   source, takes pads' edges as they are and releases what each held

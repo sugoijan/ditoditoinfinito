@@ -542,9 +542,23 @@ Rust and the browser are implementation details, not advertised features.
   remembering what each held control pressed so a release or a pad's going
   releases exactly that. `controller_hints.rs`'s `Hints` (the `Ui`'s, read
   through `Cx::hints`) keeps the deliberate input source across screens (the
-  web carries it between hosts, a play's own input sets it), classifies
+  web carries it between hosts, a play's own input sets it; a finger or a
+  pen makes it `Source::Touch`, the web's first one where a finger is the
+  primary pointer), classifies
   controller metadata and resolves hints through the effective
-  dispatcher/play assignment. Overrides
+  dispatcher/play assignment. A play's touch controls
+  (`docs/plans/touch-controls.md`): `crate::touch_controls` places them,
+  pure (`Settings::touch_controls`: Buttons under the thumbs, by default,
+  up to seven lanes and 44 px wide, else the dance mat's pad,
+  `ddi_dance_mat::MatLayout`, two for the doubles, or the legacy Columns;
+  `Settings::touch_hand`, the odd layouts' extra button's side) and finds
+  a finger's lane (`Controls::lane_at`: a slide changes lane only
+  `DEAD_BAND` inside the next target); `ddi_shell::touch_controls` draws
+  them over the unchanged field while touch is the source (the look
+  still open: `touchlook=` on the web, `DDI_TOUCH_LOOK` on desktop,
+  TESTING ONLY); the shells press lanes through them (the web's
+  `web::touch`, desktop's `Shell::touch_lane`); the prompt's diagram shows
+  each receptor's control cut out under it (`prompt_controls::touch_cut`). Overrides
   live separately in `Settings::controller_styles`; raw controls stay numbered
   even under a family override. New Dance Single defaults are LB/LT/RT/RB,
   then D-pad/face alternatives; existing saved/cleared tables are preserved
