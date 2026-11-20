@@ -150,6 +150,11 @@ fn encode(value: &impl Serialize) -> Result<Vec<u8>> {
 fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
     serde_json::from_slice(bytes).map_err(|e| invalid(e.to_string()))
 }
+/// A value as its JSON text reads back, so that it compares equal to the
+/// same value read from a stored file.
+fn as_written<T: serde::Serialize>(value: &T) -> Result<serde_json::Value> {
+    decode(&serde_json::to_vec(value).map_err(|e| invalid(e.to_string()))?)
+}
 fn plain(path: &Path) -> Result<()> {
     let m = fs::symlink_metadata(path).map_err(io)?;
     if m.file_type().is_symlink() {
@@ -474,7 +479,10 @@ impl Store {
             if summary["pack"] != serde_json::json!(s.pack) {
                 return Err(invalid("Catalog pack disagrees with admission summary"));
             }
-            let expected = serde_json::json!({"identitySha256":s.installed.identity_sha256,"sourceIdentitySha256":s.installed.source_identity_sha256,"revisionSha256":s.installed.revision_sha256,"selectors":s.installed.selectors,"entry":s.entry,"files":s.files});
+            // Each part as its own JSON text reads back: a single-precision
+            // number (a chart's Groove values) written by `json!` is widened
+            // and no longer equals the same number read from the summary.
+            let expected = serde_json::json!({"identitySha256":as_written(&s.installed.identity_sha256)?,"sourceIdentitySha256":as_written(&s.installed.source_identity_sha256)?,"revisionSha256":as_written(&s.installed.revision_sha256)?,"selectors":as_written(&s.installed.selectors)?,"entry":as_written(&s.entry)?,"files":as_written(&s.files)?});
             for key in [
                 "identitySha256",
                 "sourceIdentitySha256",
