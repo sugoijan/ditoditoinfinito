@@ -397,20 +397,11 @@ impl SelectScreen {
     }
 
     /// The room's players panel beside the song (`RoomPlayers`; the wide
-    /// layout's, empty elsewhere).
+    /// layout's three parts, at the right; empty elsewhere: a phone has
+    /// its strip).
     pub(super) fn room_players(&self) -> Actor {
-        // The wide layout's three parts: the panel at the right.
-        if let Some(c) = self.players_column() {
-            return if self.room.as_ref().is_some_and(|rm| rm.side != Side::Joining) {
-                self.players_panel(c)
-            } else {
-                frame("RoomPlayers", Vec::new())
-            };
-        }
-        match (&self.room, self.layout.players) {
-            (Some(rm), Some(rect)) if rm.side != Side::Joining => {
-                room::players_panel(&self.env, &rm.room.borrow(), rect)
-            }
+        match self.players_column() {
+            Some(c) if self.room.as_ref().is_some_and(|rm| rm.side != Side::Joining) => self.players_panel(c),
             _ => frame("RoomPlayers", Vec::new()),
         }
     }

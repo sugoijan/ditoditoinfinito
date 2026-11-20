@@ -1251,9 +1251,9 @@ fn the_players_rows_say_each_policy_where_the_match_has_attacks() {
     assert_eq!(rows[0].policy, "Retaliate", "You");
     assert_eq!(rows[1].policy, "Leader");
     assert_eq!(rows[2].policy, "Spread");
-    // Drawn on the panel and in the pop-up.
+    // Drawn in the pop-up (the panel beside the song says it in its
+    // pop-over, `the_players_panel_marks_folds_and_says_a_rows_words`).
     let e = env();
-    let panel = super::room::players_panel(&e, &room.borrow(), [0.0, 0.0, 520.0, 200.0]);
     fn collect(a: &ddi_actor::Actor, out: &mut Vec<String>) {
         if let ddi_actor::Kind::Text(t) = &a.kind {
             out.push(t.text().to_string());
@@ -1267,8 +1267,6 @@ fn the_players_rows_say_each_policy_where_the_match_has_attacks() {
         collect(a, &mut out);
         out
     };
-    let t = texts(&panel);
-    assert!(t.contains(&"Retaliate".to_string()) && t.contains(&"Leader".to_string()), "{t:?}");
     let rows = {
         let r = room.borrow();
         super::room::panel_rows(&r, super::room::player_rows(&r))

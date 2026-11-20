@@ -706,8 +706,6 @@ room-state-failed-unreadable = 曲を読めません
 room-state-failed-changed = 譜面が変更されました
 room-state-failed-plan = 攻撃が不一致
 
-room-panel-points = 得点
-
 room-strip-more = +{ $count }
 
 room-mark-short = { $field }人中 { $place }位 · +{ $points }点

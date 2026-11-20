@@ -1621,10 +1621,6 @@ room-state-failed-changed = Chart changed
 # from the room (they sit the stage out).
 room-state-failed-plan = Attacks differ
 
-# The heading over the players' match points in the players panel on the
-# room's song select (about 8 letters, in small capitals' place).
-room-panel-points = Points
-
 # A phone's one-line strip of the players on the room's song select: after
 # the initials that fit, how many more players there are.
 # Variables:

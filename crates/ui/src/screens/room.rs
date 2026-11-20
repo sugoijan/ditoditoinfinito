@@ -966,8 +966,8 @@ pub struct PlayerRow {
     /// who can play now (not watching, nor waiting for the next match;
     /// in the lineup once a stage's start is committed).
     pub plays: bool,
-    /// The players panel's line ([`players_panel`]): the place in the
-    /// match and the match points, once a stage of it is confirmed.
+    /// A players' line ([`player_line`]): the place in the match and the
+    /// match points, once a stage of it is confirmed.
     pub place: Option<u16>,
     pub points: Option<String>,
     /// A person's role, after the name (Host, Co-host, Admin).
@@ -2857,8 +2857,8 @@ pub fn panel(
 }
 
 /// The match's picks alone, under their heading: what the list's place
-/// holds for a follower whose players are beside the song
-/// ([`players_panel`]).
+/// holds for a follower whose players are beside the song (the players
+/// panel, `select_players.rs`).
 pub fn pick_panel_rows(r: &RoomClient) -> Vec<PanelRow> {
     let picks = pick_rows(r);
     let picked = picks.iter().filter(|p| p.title.is_some()).count();
@@ -2878,11 +2878,6 @@ pub fn pick_panel_rows(r: &RoomClient) -> Vec<PanelRow> {
     rows.extend(picks.into_iter().map(PanelRow::Pick));
     rows
 }
-
-/// The players panel's heading's height, and a row's at most and at least.
-const PLAYERS_HEAD: f32 = 28.0;
-const PLAYERS_ROW: f32 = 40.0;
-const PLAYERS_ROW_MIN: f32 = 30.0;
 
 /// What opens the full list of players from the panel: its line of the
 /// rows that do not fit, and a phone's strip.
@@ -2910,68 +2905,6 @@ fn tone_color(tone: Tone) -> &'static str {
         Tone::Away => "Faint",
         Tone::Failed => "Danger",
     }
-}
-
-/// The players panel (`RoomPlayers`), always shown on the room's song
-/// select beside the song, the host's and the followers' alike: everyone
-/// in the room on a line each (`Players<k>.*`): the place in the match
-/// once a stage is confirmed, the name (You; a role; a CPU's stars and
-/// personality), what they are doing in words, and the match points. In
-/// `[x, y, w, h]`; rows that do not fit are counted on a last line
-/// ([`PLAYERS_MORE`]) that opens the full list.
-pub fn players_panel(env: &Env, r: &RoomClient, [x, y, w, h]: [f32; 4]) -> Actor {
-    let rows = panel_order(player_rows(r));
-    let cap = r.state().policy.max_competitors;
-    let mut c = Vec::new();
-    let title = m::players();
-    let head = look::tracked(env.text("Players.Heading", &title, 11.0, 700, "Faint"), 120);
-    let head_w = look::mono_width(&title, 11.0) + title.chars().count() as f32 * 11.0 * 0.12;
-    c.push(left(head, x, y + 12.0));
-    c.push(left(
-        env.text(
-            "Players.Count",
-            &m::players_count(players_counted(&rows), cap),
-            12.0,
-            400,
-            "Muted",
-        ),
-        x + head_w + 12.0,
-        y + 12.0,
-    ));
-    let placed = rows.iter().any(|p| p.points.is_some());
-    if placed {
-        c.push(right(
-            look::tracked(
-                env.text("Players.Points", &m::panel_points(), 11.0, 700, "Faint"),
-                120,
-            ),
-            x + w - 8.0,
-            y + 12.0,
-        ));
-    }
-    let avail = (h - PLAYERS_HEAD).max(PLAYERS_ROW_MIN);
-    let row = (avail / rows.len().max(1) as f32).clamp(PLAYERS_ROW_MIN, PLAYERS_ROW);
-    let fit = ((avail / row).floor() as usize).max(1);
-    let shown = if rows.len() > fit {
-        fit.saturating_sub(1)
-    } else {
-        rows.len()
-    };
-    let mut ry = y + PLAYERS_HEAD;
-    for (k, p) in rows.iter().enumerate().take(shown) {
-        player_line(env, &mut c, &format!("Players{k}"), p, [x, ry, w, row], placed);
-        ry += row;
-    }
-    if shown < rows.len() {
-        c.push(more_mark(
-            env,
-            PLAYERS_MORE,
-            &m::panel_more_below(rows.len() - shown),
-            [w, 24.0],
-            [x + w / 2.0, ry + row / 2.0],
-        ));
-    }
-    super::frame("RoomPlayers", c)
 }
 
 /// PROVISIONAL (`ready-card-v1`, the feedback round I): a players'
@@ -3082,9 +3015,8 @@ pub fn players_part(
     }
 }
 
-/// One player's line as the room's players panel draws it
-/// ([`players_panel`]; the stage's prompt and the audience's page draw
-/// theirs with it): in `[x, y, w, row]` (`row` tall), the local player's
+/// One player's line as a players' part draws it (the stage's prompt and
+/// the audience's page, [`players_part`]): in `[x, y, w, row]` (`row` tall), the local player's
 /// plate under it, the place where the match is `placed`, the name and
 /// its badge, a CPU's stars or a person's role, the policy's quiet word,
 /// the status and the match points; its parts named from `id`.

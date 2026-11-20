@@ -175,7 +175,6 @@ impl SelectScreen {
             let column = [line + super::players::LINE_GAP, sy, super::players::PANEL_W, h];
             let wx = solo.wheel[0];
             l.chips = false;
-            l.players = None;
             l.song = [sx, sy, side];
             l.wheel = [wx, solo.wheel[1], line - super::players::LIST_GAP - wx, solo.wheel[3]];
             l.info_w = side;

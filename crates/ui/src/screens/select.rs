@@ -444,8 +444,6 @@ struct Layout {
     /// chart buttons and Play go across the song's column: from, wide.
     info_w: f32,
     picker: [f32; 2],
-    /// A room's players panel beside the song (the wide layout's).
-    players: Option<[f32; 4]>,
     /// The compact layouts' side margin.
     margin: f32,
     /// The compact song column's parts, from its top: the info's height,
@@ -513,7 +511,6 @@ impl Layout {
             radar: false,
             info_w: w,
             picker: [0.0, w],
-            players: None,
             margin,
             info_h,
             style_y,
@@ -555,8 +552,7 @@ impl Layout {
                 radar: false,
                 info_w: 300.0,
                 picker: [0.0, 300.0],
-                players: None,
-                margin,
+                    margin,
                 info_h: 140.0,
                 style_y: COMPACT_STYLE_Y,
                 charts_y: COMPACT_CHARTS_Y,
@@ -593,7 +589,6 @@ impl Layout {
             radar: false,
             info_w: m("Select.Song.Width", 560.0),
             picker: [0.0, m("Select.Song.Width", 560.0)],
-            players: None,
             margin: m("Margin", 32.0),
             info_h: 0.0,
             style_y: 0.0,
@@ -631,15 +626,16 @@ impl Layout {
 impl Layout {
     /// A room's layout (`select_room.rs`): the wide one with the song's
     /// side short (a banner as a phone's with the title and a line under
-    /// it, the style button and the chart buttons beside it) and the
-    /// players panel under it, down to where the ladder ended. The compact
-    /// layouts are short already: theirs keep the song's side and show
-    /// the players as a strip over the list.
+    /// it, the style button and the chart buttons beside it), which the
+    /// three parts (`select_side.rs`) lay out again with the players
+    /// panel at the right. The compact layouts are short already: theirs
+    /// keep the song's side and show the players as a strip over the
+    /// list.
     fn for_room(mut self) -> Layout {
         if self.compact {
             return self;
         }
-        let [x, y, w] = self.song;
+        let [_, _, w] = self.song;
         let gap = 16.0;
         self.chips = true;
         self.info_w = 300.0;
@@ -649,9 +645,6 @@ impl Layout {
         self.charts_y = 66.0;
         self.chart_h = 44.0;
         self.play_h = 0.0;
-        let top = y + ROOM_INFO_H + gap;
-        let bottom = self.ladder[0] + self.ladder[1];
-        self.players = Some([x, top, w, (bottom - top).max(60.0)]);
         self
     }
 }
