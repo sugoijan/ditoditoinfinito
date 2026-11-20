@@ -304,6 +304,36 @@ fn with_the_option_off_no_chat_is_built_or_drawn() {
     assert_eq!(off_played.tally, on_played.tally, "judged alike");
 }
 
+/// Round TW3: in a room's stage the room's own ceiling decides (CPU
+/// practice has no host's Twitch; under the testing switch, the scripted
+/// chat's line stands for it): a practice stage of eight CPUs shows the
+/// chat in both styles under the miniatures' fields, and a device at Off
+/// shows none.
+#[test]
+fn a_practice_stage_shows_the_rooms_chat_under_the_testing_switch() {
+    for (style, level) in [
+        (Style::Falling, Level::Messages),
+        (Style::Across, Level::Messages),
+        (Style::Falling, Level::Off),
+    ] {
+        let s = Scenario {
+            cpus: Some(8),
+            style,
+            level,
+            shots: vec![9.0],
+            ..Scenario::new(&format!("stage-{style:?}-{level:?}"))
+        };
+        let Some(p) = play(&s) else {
+            return;
+        };
+        if level == Level::Off {
+            assert!(!p.built && !p.layer, "{}: none", s.name);
+        } else {
+            assert!(p.built && p.layer && p.items > 0, "{}: {p:?}", s.name);
+        }
+    }
+}
+
 /// The scripted chat drawn under the field in both styles: its
 /// messages in several scripts with their emotes inline, a run's count,
 /// what C11 leaves out left out, the delete and the clears taking items
