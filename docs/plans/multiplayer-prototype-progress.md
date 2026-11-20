@@ -13132,6 +13132,65 @@ costs what TW2's flood did (the plan's table).
 Open: the providers' real answers for animated emotes wait for the
 spike.
 
+## Round SF: what the maintainer saw testing revision 19 (2026-11-20, no change to the room model)
+
+Six small items, each reproduced first (a test that fails without its
+fix), screens and shells only; the server is untouched.
+
+- **"Joining the room…" over the song list while connected** (desktop):
+  an online room's song select is built as joining and swaps to its
+  view at the room's first answer; the joining line faded out but stayed
+  in the tree with its entrance (`On`) armed. Desktop keeps the room's
+  song select under the screens it opens (Options, Calibrate, a stage's
+  prompt, play and results), and a screen uncovered plays `On` over its
+  whole tree: a second later the line came back, centered over the list,
+  with the words it had when the room was being joined. The web makes a
+  page per route, so it never showed there; the link's own state was
+  never wrong (the status line). Fixed: the line's entrance is cleared
+  at the swap and the line leaves the tree once faded
+  (`SelectScreen::drop_joining_line`). Tests:
+  `the_joining_line_never_comes_back_over_a_known_room` (UI harness),
+  `room_uncovered_offscreen` (desktop's own Options over the fake room).
+- **The selected row large only while moving, in an online room**: song
+  select measured whether the selected row rests on the wheel's line
+  against the middle of the whole wheel region, while a room's list is
+  shorter (its tabs and status line over it): an online room's selected
+  row is 37 px off that middle, more than half a row, so its room on the
+  line closed at rest (practice's, 20 px off, did not). Fixed: the list's
+  own line (`List::focus_line`). Test:
+  `the_selected_row_stays_large_at_rest_in_an_online_room`.
+- **The tabs pressed by a click or a tap**: the tabs were drawn as
+  buttons but were no focusable and no target (the look's tab plate is
+  unpainted). A click or a tap on a tab's words or plate shows it, a
+  hand over them; the focus stays on the list, M as before. Tests:
+  `a_click_or_a_tap_on_a_tab_shows_it`, `room_tabs_offscreen`. The
+  online room's four pins of drawn output moved (each tab's faint
+  plate).
+- **Desktop's sign-in code** (the sign-in dialog and the Twitch access
+  trip's): the code large on a plate of its own (34 px, the theme's
+  face, grouped as before), the line over it saying to type it; a click,
+  a tap, Enter on it or a pad's confirm copies it (`UiRequest::CopyText`,
+  desktop's clipboard), "Copied" small at the plate's end for two
+  seconds, said once however often it is pressed. The first focus stays
+  "Open the browser again"; Up reaches the plate. New messages
+  `room-sign-in-code-type`, `-copy`, `-copied` (Japanese drafts). The
+  invite page's own sign-in (Join by link signed out) still shows the
+  code in its sentence. Tests:
+  `desktops_sign_in_code_is_large_and_copied_when_pressed`,
+  `sign_in_code_offscreen`.
+- **The coordinator's two commits checked**: drawing the selected row
+  over the others let its shadow take the top of the next row's taps on
+  a phone's layout; the shadow is a decoration now. Test:
+  `a_tap_on_the_row_under_the_selected_one_selects_it`. The header
+  without the match's rules, and the outline over the next row, seen in
+  Chrome.
+- **`mpfakechat` kept for the tab's session** (TESTING ONLY): the trips
+  through Twitch come back to an address without it, which ended the
+  scripted chat and the testing switch; it is now kept in
+  `sessionStorage` (`ddi.mpfakechat`) through a reload and the trips,
+  `mpfakechat=0` ending it. Walked in Chrome: a full load of the way
+  back and a play show the chat (null without the kept switch).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
