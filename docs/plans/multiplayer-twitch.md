@@ -1,8 +1,12 @@
 # The host's Twitch in a room: bans mirrored, chat behind the play
 
-Status: designed (2026-11-20). Part C's pieces that need no Twitch are
-built (round TW2: "T1 and T2" below, and its section at the end); the
-link, the mirror, the kick and the transports are not. The maintainer answered
+Status: designed (2026-11-20), and built as far as it can be without
+Twitch itself: round TW1 (room model revision 18, see "Round TW1" in
+`multiplayer-prototype-progress.md`) the model, Kick, the link and the
+mirror behind a fake Twitch; round TW2 part C's pieces that need no
+Twitch ("T1 and T2" below, and its section at the end). The Twitch client
+is unverified until step 0's spike, and the chat's transports wait for
+it. The maintainer answered
 the design round's ten questions and the three that followed from them
 the same day; they are listed under "The maintainer's answers", and
 where an answer differed from the proposal the answer won.

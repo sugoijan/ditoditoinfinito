@@ -12897,6 +12897,68 @@ domains, the providers' precedence. Waiting: the sockets to Twitch, the
 subscribe route, the providers' sets and images fetched for real, the
 proxy route, the room's ceiling in the model, the Twitch trip.
 
+## Round TW1: the host's Twitch in a room, first half (room model revision 18, 2026-11-20)
+
+`docs/plans/multiplayer-twitch.md`. Built:
+
+- **Model** (`crates/room/src/twitch.rs`, `tests/twitch.rs`): `RoomState::twitch`
+  (`TwitchSetting`: `by`, `TwitchMirror` Off/Bans/BansAndBlocks, `TwitchChat`
+  Off/Emotes/EmotesAndMessages, Twitch id and login; additive), `Command::SetTwitch`
+  (authority only; who may: `RoomState::may_set_twitch`, B3 and answer 11: the owner
+  turns on, changes or replaces with their own; the one who set it may only lower
+  or turn off; it ends when they leave or are removed, not when away),
+  `Command::Remove` (a member's: Kick, `Capability::Kick`, `RoomState::may_kick`,
+  `Event::MemberRemoved`; the authority's: the mirror's, told as `MemberLeft`,
+  review note 3), `Rejection::NotAdmitted`, `InvalidTwitch`, `Capability::Twitch`.
+  Close codes 4403 (kicked) and 4406 (not admitted), `LinkState::Kicked` and
+  `NotAdmitted`, `TicketProblem::NotAdmitted`. `FakeServer::bar`, `sweep` (at each
+  pick and when the mirror is turned on, raised or replaced), `set_twitch`,
+  `grant_twitch`, its HTTP `POST /rooms/<id>/twitch`. A revision-17 room reads
+  as it was (`tests/room-revision-17.json`).
+- **Screens**: the Players pop-up's Moderate (host, co-hosts, an admin who plays;
+  off each time it opens) with Kick on each row the viewer may remove; the status
+  line says who removed whom for 12 s; the removed person's notice and status
+  line ("The host removed you from the room." / "You can't join this room."),
+  More's way home. CPU practice: no Moderate (its pop-up shows the players, the
+  picks and Play or Watch, as before). Host options' "Twitch bans" and "Show my
+  Twitch chat" rows (the owner's, or the setter's to lower), whose lists apply;
+  a step needing access not yet connected starts the trip through Twitch
+  (`Online::connect_twitch`, back to the room; the step is then pressed again).
+- **Server** (`../ddi-server`): kicked sockets closed 4403; `TwitchLink` (a Durable
+  Object a person, the link sealed with AES-256-GCM under `TWITCH_LINK_KEY`, lazy
+  refresh and hourly validation, a refusal deleting it and telling `/me` once,
+  deleted after 30 days unused, at sign-out and by Disconnect); scopes asked from a
+  closed list as a union (`scopes=bans,blocks,chat` on the web's login and the
+  desktop's attempt); `GET /me`'s `twitch`; `POST /auth/twitch/disconnect`;
+  `POST /rooms/<id>/twitch` (`409 scope_missing` with `need`); the mirror at join,
+  ticket (an answer kept five minutes, in memory) and pick and when turned on
+  (2 s deadline, let in when slow or down, setting off when the link is gone);
+  logs count, never name; the emote proxy `GET /emotes/<provider>/<path>`. Twitch's
+  HTTP behind `TwitchApi`: `Helix` UNVERIFIED (written against the documentation,
+  never run), `Fake` under `dev-auth` (a development person's bans, blocks and
+  timeouts from the fake provider's `bans`, `blocks`, `timeouts=name:seconds`).
+- **Bots**: `--kick between|during` (the host kicks the first guest it may, once);
+  a kicked guest bot comes back once by its invite.
+
+Provisional: close codes 4403/4406 (two codes, not one, so the client words each
+end without guessing); `twitch::ANSWER_KEPT_MS` 5 min (so a timeout's end lets a
+person back within five minutes, not at once); `emotes::PER_MINUTE` 240 a person,
+best effort per Worker instance; administrators are never checked at join or ticket.
+
+Not built: Options → Data's "Twitch access" row (Disconnect exists on the server
+and in `Online::disconnect_twitch`, no screen yet); the desktop attempt page's line
+saying what is asked (Twitch's consent screen says it); the chat (step 3) and its
+subscribe route (waits for the spike). Validated locally (scratch config, fake
+Twitch): a link trip, `/me`'s features, `scope_missing`, a banned and a timed-out
+guest refused 403 `not_admitted`, a member refused setting it, Disconnect. Not run
+locally: the kick with bots, the sweep at a pick over sockets, slow/refused Twitch
+(covered by the room crate's and the server's native tests only).
+
+**Deploy**: the server first, with `wrangler.toml`'s additions
+(`target/scratch/mp/tw1/wrangler.patch`: the `TWITCH_LINKS` binding, migration `v4`)
+and the secret `TWITCH_LINK_KEY` (`openssl rand -hex 32`); then the game. People in
+rooms are told to reload (revision 18).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
