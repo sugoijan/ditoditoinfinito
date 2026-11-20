@@ -3767,6 +3767,35 @@ fn a_room_made_shows_no_view_until_it_answers_and_then_the_hosts_once() {
     }
 }
 
+/// Round SF (the maintainer, 2026-11-20: "I keep seeing a 'Joining the
+/// room...' message drawn on top of the song list even though I *am*
+/// already connected"). Desktop keeps the room's song select under the
+/// screens opened over it (Options, Calibrate, a stage's prompt, its play
+/// and results), and a screen uncovered plays `On` over its whole tree
+/// again: the joining line, kept after the view came in, came in again
+/// with its last words a second later. It leaves the tree once it has
+/// gone: covered and back, nothing says joining, whether the room
+/// answered at once or after the line showed.
+#[test]
+fn the_joining_line_never_comes_back_over_a_known_room() {
+    for delay in [0, 1_600] {
+        let env = env();
+        let (clock, alice, mut h) = late_room(delay, &env);
+        frames(&clock, &[&alice], &mut h, 3.0, &[]);
+        assert!(list_shows(&h), "{delay}");
+        assert!(h.ui.actor("RoomJoining").is_none(), "{delay}: gone from the tree");
+        h.push(sample::options_screen(&env, None));
+        frames(&clock, &[&alice], &mut h, 0.6, &[]);
+        assert_eq!(top(&h), "options");
+        h.key("Escape", "Escape");
+        let seen = frames(&clock, &[&alice], &mut h, 3.0, &["RoomJoining"]);
+        assert_eq!(top(&h), "select", "{delay}");
+        assert!(list_shows(&h), "{delay}");
+        assert!(seen[0].iter().all(|a| *a == 0.0), "{delay}: {:?}", seen[0]);
+        assert!(!has(&h, "Joining the room…"), "{delay}: {:?}", h.texts());
+    }
+}
+
 /// A room that answers at once, or while the screen is still coming in
 /// (a server nearby): the line never shows, the bars' own entrance goes
 /// on from where it was (never begun again, never cut short), and the
@@ -7484,3 +7513,4 @@ fn desktops_twitch_trip_shows_its_code_and_ends_connected() {
         "made by itself"
     );
 }
+

@@ -626,17 +626,34 @@ impl SelectScreen {
             }
         }
         let mut problems = ddi_actor::Problems::default();
-        // The joining line goes as the view comes.
+        // The joining line goes as the view comes, for good: nothing
+        // plays its entrance again (a screen over the room and back plays
+        // `On` over the whole tree, round SF), and it leaves the tree once
+        // faded ([`SelectScreen::drop_joining_line`]).
         if from == Side::Joining
             && let Some(at) = old.iter().position(|c| c.name == JOINING)
         {
             let mut line = old.remove(at);
             line.play("Off", &mut problems);
+            line.set_command("On", Vec::new());
             now.push(line);
         }
         if enter {
             let backdrop = (from == Side::Joining).then_some("Backdrop");
             play_parts(now, SIDE_PARTS.into_iter().chain(backdrop), "On");
+        }
+    }
+
+    /// The joining line faded out after the view came in
+    /// ([`SelectScreen::swap_side`]) leaves the tree: a part kept unseen
+    /// would come in again with its last words wherever `On` is played
+    /// over the screen (uncovered on desktop, round SF).
+    fn drop_joining_line(&self, root: &mut Actor) {
+        if self.room.as_ref().is_none_or(|rm| rm.side == Side::Joining) {
+            return;
+        }
+        if let Kind::Frame(children) = &mut root.kind {
+            children.retain(|c| c.name != JOINING || c.tweening());
         }
     }
 
@@ -670,6 +687,7 @@ impl SelectScreen {
     /// results not seen yet, the stage's prompt; the others' song kept on
     /// the host's; the host's resting song told the room.
     pub(super) fn room_update(&mut self, root: &mut Actor, cx: &mut Cx) {
+        self.drop_joining_line(root);
         let Some(rm) = &mut self.room else {
             return;
         };
