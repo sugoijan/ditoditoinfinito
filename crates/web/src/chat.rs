@@ -259,7 +259,8 @@ async fn frames(
 
 /// TESTING ONLY: `mpfakechat=<name or rate>` (`0` stops it), the scripted
 /// chat beside every play (`ddi_session::chat::set_scripted`), its images
-/// from `mpfakechatimg=<path>` (`<path><emote's id>.png`) where given.
+/// from `mpfakechatimg=<path>` (`<path><emote's id>.png`, an animated
+/// one's `.gif`, [`ddi_chat::script::Script::images_at`]) where given.
 pub(crate) fn script(what: &str, images: Option<&str>) {
     if what == "0" {
         ddi_session::chat::set_scripted(None);

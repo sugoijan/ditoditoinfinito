@@ -137,7 +137,10 @@ Rust and the browser are implementation details, not advertised features.
   Dancing☆Onigiri's lyrics, `crates/render/src/lyrics.rs`),
   a layer over the backdrop and under the field, composited by the
   backdrop's own shader with the filter's band (`BackgroundPipeline::
-  set_overlay`, `Renderer::set_chat_layer`: the room host's chat),
+  set_overlay`, `Renderer::set_chat_layer`: the room host's chat; over
+  a Dancing☆Onigiri work's back layers where it has them, a scene
+  segment of its own, `scene::Segment::Overlay`, still under the hand
+  behind the field),
   cached menu Gaussian images (`crates/render/src/gaussian.rs`, recorded once
   on upload before mipmaps, keyed separately from sharp images), Options'
   field preview (`crates/render/src/field_preview.rs`: the demo chart drawn as
@@ -989,12 +992,20 @@ Rust and the browser are implementation details, not advertised features.
   (`ChatView`: the session's chat events into `ddi_chat::overlay` on the
   host's clock, placed clear of the receptors' rows and the HUD, the
   rows from the side away from the receptors, Falling's columns in the
-  side space clear of the miniatures where there is room; drawn by the
+  side space clear of the miniatures where there is room; Falling
+  whatever was chosen where the play shows opponents' fields, emotes
+  alone where the field leaves no side space (a phone held upright),
+  `chat::shown`, `ddi_chat::overlay::shown`; drawn by the
   play's own 2D painter, which then draws twice a frame, into a layer
   the backdrop shows under the field, `Renderer::set_chat_layer`; its
   emotes from one atlas, `ddi_chat::cache`, fetched through
-  `PlayHost::fetch_emote`; no new items from a late second to a good
-  one, the hand's load rule's reading of a second);
+  `PlayHost::fetch_emote` (read before decoded, `ddi_chat::anim::probe`,
+  then decoded off the frame: the web's `ImageDecoder` and
+  `createImageBitmap`, desktop's `image` crate on the fetch's thread);
+  an animated emote's frames each a cell, the frame drawn from the
+  layer's own animation clock, one phase for every copy, held with new
+  items and still under reduced motion; no new items from a late second
+  to a good one, the hand's load rule's reading of a second);
   `crates/shell/src/opponents.rs`: miniature fields in stable slots of the
   side space on both sides, every opponent of a room its own at every
   size (eight at most; each a small copy of the play's field, in its
@@ -1294,12 +1305,20 @@ Rust and the browser are implementation details, not advertised features.
   `docs/plans/multiplayer-twitch.md`, part C): Twitch's EventSub socket
   messages read (`eventsub.rs`; its fixtures in `tests/fixtures/`,
   written from the documentation, not recorded), the four providers'
-  emotes and sets with each still image's address and proxy path
-  (`emotes.rs`), a message made into an item after C11's filters
+  emotes and sets with each image's address and proxy path, an
+  animated emote's animation (`emotes.rs`), an image's container read
+  before it is decoded, `anim-limits-v0`'s limits (the hostile and the
+  huge refused, or their first frame still), the frames kept and which
+  is drawn when (`anim.rs`, round TW4), a message made into an item
+  after C11's filters
   (`item.rs`), `chat-overlay-v0`'s budgets, the moderation events and
   the two motions on the host's clock (`overlay.rs`: Across, Falling,
-  reduced motion's fixed places), the emote images kept and their atlas
-  cells (`cache.rs`), and the scripted chat (`script.rs`, TESTING ONLY).
+  reduced motion's fixed places; what a play's layout lets it show,
+  `shown`), the emote images kept and their atlas cells, an animated
+  emote's frames within their budget, `ANIMATED_UNITS` (`cache.rs`),
+  and the scripted chat (`script.rs`, TESTING ONLY; its animated emotes
+  drawn in code, `anim:`, and as GIF and WebP files made by code,
+  `cargo run -p ddi-desktop --example chat_images -- <dir>`).
   Pure, natively tested.
 - `crates/importer-protocol/` the platform-free framed app/helper IPC contract (serde
   and plain data only; no SDK/networking or filesystem).
