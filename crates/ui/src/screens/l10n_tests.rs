@@ -2616,6 +2616,8 @@ fn every_options_row_is_a_message_or_data() {
                 },
                 audio_profiles,
                 display_profiles,
+                // The chat's rows show while it is on.
+                twitch_chat: ddi_chat::Level::Messages,
                 ..Settings::default()
             };
             let mut model = OptionsModel::new(settings, world);

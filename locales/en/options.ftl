@@ -495,6 +495,38 @@ options-opponent-fields-all = As many as fit
 options-opponent-fields-eight = Up to eight
 options-opponent-fields-description = In a multiplayer stage, a small field for every opponent the screen has room for, or eight at most: those attacking you or attacked by you and your nearest rivals. Up to eight is lighter for the computer in a large room.
 
+# Options → Display: how much of a room host's Twitch chat shows behind
+# the fields during a play on this device (Off, Emotes, Emotes and
+# messages; never more than the room's host allows). Off by default.
+options-twitch-chat = Twitch chat in rooms
+options-twitch-chat-emotes = Emotes
+options-twitch-chat-messages = Emotes and messages
+options-twitch-chat-description = In a room whose host shows their Twitch chat, the chat moves behind the fields during play, never more of it than the host allows. Reading chat needs your permission on Twitch.
+
+# How the chat moves behind the fields: crossing the screen from right
+# to left, or falling in columns.
+options-chat-style = Chat style
+options-chat-style-across = Across
+options-chat-style-falling = Falling
+options-chat-style-description = Across: the chat crosses the screen from right to left. Falling: it falls in columns beside your field, or behind everything where opponents' fields fill the sides.
+
+# Whether each chat message starts with the name of who wrote it. Off by
+# default.
+options-chat-names = Chatter names
+options-chat-names-description = Each chat message starts with the name of who wrote it.
+
+# Which emote services the chat's emotes are fetched from: Twitch's own
+# alone, or also 7TV, BetterTTV and FrankerFaceZ (names of services, kept
+# as they are).
+options-chat-emotes-from = Emotes from
+options-chat-emotes-from-twitch = Twitch
+options-chat-emotes-from-others = Twitch and others
+options-chat-emotes-from-description = Twitch's own emotes alone, or the channel's 7TV, BetterTTV and FrankerFaceZ emotes too. Each image is fetched from where it is kept, which sees this device's address.
+
+# How strongly the chat shows behind the fields, as a percent.
+options-chat-opacity = Chat opacity
+options-chat-opacity-description = How strongly the chat shows behind the fields. Within the lanes the field filter darkens it as it darkens the background.
+
 # Options → Data: how much of an online room's song list this device
 # downloads before the songs are picked (about 20 letters).
 options-room-ahead = Room songs ahead

@@ -348,6 +348,25 @@ pub struct Settings {
     /// the play ([`OpponentFields`]): every one that fits, by default.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub opponent_fields: OpponentFields,
+    /// Options → Display, "Twitch chat in rooms" (`docs/plans/multiplayer-twitch.md`,
+    /// C1): how much of a room host's Twitch chat this device shows behind
+    /// the play, never above the room's ceiling. Off by default (it needs
+    /// the device's own Twitch access to read chat).
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub twitch_chat: ddi_chat::Level,
+    /// "Chat style": the chat crossing the screen or falling (C6).
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub chat_style: ddi_chat::Style,
+    /// "Chatter names": a message led by its chatter's name (C11); off by
+    /// default.
+    pub chat_names: bool,
+    /// "Emotes from": Twitch's own alone, or 7TV's, BTTV's and FFZ's too
+    /// (C4).
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub chat_emotes_from: ddi_chat::EmotesFrom,
+    /// The chat layer's opacity, percent (C7; 60 to start, tuned by a
+    /// study).
+    pub chat_opacity: u8,
     /// How much of an online room's song list this device downloads ahead
     /// (Options → Data, [`RoomAhead`]; `docs/plans/multiplayer-room-songs.md`,
     /// stage 2): none stored is the device's own default
@@ -440,6 +459,9 @@ pub fn volume_to_slider(gain: f32) -> f32 {
 pub fn slider_to_volume(position: f32) -> f32 {
     position.clamp(0.0, 1.0).powi(3)
 }
+
+/// The chat layer's opacity by default, percent (round TW2's study).
+pub const CHAT_OPACITY: u8 = 60;
 
 /// How many of a multiplayer stage's opponents have a field beside the
 /// play (the feedback round E1, `ddi_shell::opponents::arrange_up_to`).
@@ -847,6 +869,11 @@ impl Default for Settings {
             ratings_moved: true,
             players_folded: false,
             opponent_fields: OpponentFields::default(),
+            twitch_chat: ddi_chat::Level::Off,
+            chat_style: ddi_chat::Style::Across,
+            chat_names: false,
+            chat_emotes_from: ddi_chat::EmotesFrom::default(),
+            chat_opacity: CHAT_OPACITY,
             room_ahead: None,
             hand_layout: HandLayout::default(),
             hand_frame_width: 50,

@@ -1224,6 +1224,13 @@ impl OptionsModel {
                     m::opponent_fields_description(),
                 ),
                 choice(
+                    "twitch_chat",
+                    m::twitch_chat(),
+                    labels(&TWITCH_CHAT),
+                    pos(&TWITCH_CHAT, s.twitch_chat),
+                    m::twitch_chat_description(),
+                ),
+                choice(
                     "dancing_hand",
                     m::dancing_hand(),
                     on_off(),
@@ -1381,6 +1388,47 @@ impl OptionsModel {
                 ),
                 demo,
         ];
+        // The chat's own rows under "Twitch chat in rooms" while it is on.
+        if s.twitch_chat != ddi_chat::Level::Off {
+            let at = rows
+                .iter()
+                .position(|r| r.id == "twitch_chat")
+                .map_or(rows.len(), |i| i + 1);
+            let chat = vec![
+                choice(
+                    "chat_style",
+                    m::chat_style(),
+                    labels(&CHAT_STYLES),
+                    pos(&CHAT_STYLES, s.chat_style),
+                    m::chat_style_description(),
+                ),
+                choice(
+                    "chat_names",
+                    m::chat_names(),
+                    on_off(),
+                    s.chat_names as usize,
+                    m::chat_names_description(),
+                ),
+                choice(
+                    "chat_emotes_from",
+                    m::chat_emotes_from(),
+                    labels(&EMOTES_FROM),
+                    pos(&EMOTES_FROM, s.chat_emotes_from),
+                    m::chat_emotes_from_description(),
+                ),
+                row(
+                    "chat_opacity",
+                    m::chat_opacity(),
+                    OptionKind::Stepper(CHAT_OPACITIES.iter().map(|&p| m::percent(u32::from(p)).into()).collect()),
+                    CHAT_OPACITIES
+                        .iter()
+                        .position(|&p| p >= s.chat_opacity)
+                        .unwrap_or(CHAT_OPACITIES.len() - 1),
+                    m::chat_opacity_description(),
+                ),
+            ];
+            rows.splice(at..at, chat);
+        }
         // The hand in a multiplayer stage, under the hand's own row while
         // the hand is on at all.
         if s.dancing_hand {
@@ -2240,6 +2288,21 @@ impl OptionsModel {
             "dancing_hand" => s.dancing_hand = on,
             "dancing_hand_multiplayer" => s.dancing_hand_multiplayer = on,
             "opponent_fields" => s.opponent_fields = at(&OPPONENT_FIELDS, i),
+            "twitch_chat" => {
+                let level = at(&TWITCH_CHAT, i);
+                // Turned on: the device will need Twitch's chat scope
+                // (the Twitch link's integration point, `state::twitch`).
+                if s.twitch_chat == ddi_chat::Level::Off && level != ddi_chat::Level::Off {
+                    crate::state::twitch::want_chat_scope(level);
+                }
+                s.twitch_chat = level;
+            }
+            "chat_style" => s.chat_style = at(&CHAT_STYLES, i),
+            "chat_names" => s.chat_names = on,
+            "chat_emotes_from" => s.chat_emotes_from = at(&EMOTES_FROM, i),
+            "chat_opacity" => {
+                s.chat_opacity = CHAT_OPACITIES.get(i).copied().unwrap_or(crate::state::settings::CHAT_OPACITY)
+            }
             "room_ahead" => s.room_ahead = Some(at(&ROOM_AHEAD, i)),
             "chart_ratings" => {
                 s.chart_ratings = at(&CHART_RATINGS, i);
@@ -3284,6 +3347,25 @@ const CHART_RATINGS: [Labeled<ChartRatings>; 3] = [
     (ChartRatings::Estimate, m::chart_ratings_estimate),
 ];
 
+const TWITCH_CHAT: [Labeled<ddi_chat::Level>; 3] = [
+    (ddi_chat::Level::Off, common::off),
+    (ddi_chat::Level::Emotes, m::twitch_chat_emotes),
+    (ddi_chat::Level::Messages, m::twitch_chat_messages),
+];
+
+const CHAT_STYLES: [Labeled<ddi_chat::Style>; 2] = [
+    (ddi_chat::Style::Across, m::chat_style_across),
+    (ddi_chat::Style::Falling, m::chat_style_falling),
+];
+
+const EMOTES_FROM: [Labeled<ddi_chat::EmotesFrom>; 2] = [
+    (ddi_chat::EmotesFrom::TwitchOnly, m::chat_emotes_from_twitch),
+    (ddi_chat::EmotesFrom::TwitchAndOthers, m::chat_emotes_from_others),
+];
+
+/// The chat layer's opacities offered, percent.
+const CHAT_OPACITIES: [u8; 9] = [20, 30, 40, 50, 60, 70, 80, 90, 100];
+
 const OPPONENT_FIELDS: [Labeled<OpponentFields>; 2] = [
     (OpponentFields::AsManyAsFit, m::opponent_fields_all),
     (OpponentFields::UpToEight, m::opponent_fields_eight),
@@ -3446,6 +3528,47 @@ mod tests {
             find(&m.data(), "profile.display.0").label,
             "Display: 1512×982 (2×), ~120 Hz"
         );
+    }
+
+    /// "Twitch chat in rooms" is Off by default with its rows hidden;
+    /// turned on, its rows show under it, the choices are kept, and the
+    /// wish for Twitch's chat scope is recorded (the Twitch link's
+    /// integration point).
+    #[test]
+    fn the_chat_rows_show_under_twitch_chat_while_it_is_on() {
+        let mut m = model();
+        let ids = |m: &OptionsModel| -> Vec<String> {
+            m.data()
+                .sections
+                .iter()
+                .flat_map(|s| s.options.iter().map(|o| o.id.clone()))
+                .collect()
+        };
+        assert_eq!(find(&m.data(), "twitch_chat").value(), "Off");
+        assert!(!ids(&m).iter().any(|i| i == "chat_style"));
+        crate::state::twitch::want_chat_scope(ddi_chat::Level::Off);
+        m.change("twitch_chat", 2);
+        assert_eq!(m.settings.twitch_chat, ddi_chat::Level::Messages);
+        assert_eq!(
+            crate::state::twitch::chat_scope_wished(),
+            Some(ddi_chat::Level::Messages)
+        );
+        let shown = ids(&m);
+        let at = shown.iter().position(|i| i == "twitch_chat").unwrap();
+        assert_eq!(
+            shown[at + 1..at + 5],
+            ["chat_style", "chat_names", "chat_emotes_from", "chat_opacity"]
+        );
+        assert_eq!(find(&m.data(), "chat_opacity").value(), "60%");
+        m.change("chat_style", 1);
+        m.change("chat_names", 1);
+        m.change("chat_opacity", 2);
+        let stored = Settings::load();
+        assert_eq!(stored.chat_style, ddi_chat::Style::Falling);
+        assert!(stored.chat_names);
+        assert_eq!(stored.chat_opacity, 40);
+        m.change("twitch_chat", 0);
+        assert!(!ids(&m).iter().any(|i| i == "chat_style"));
     }
 
     /// The hand in multiplayer is a row under the hand's, while it is on.

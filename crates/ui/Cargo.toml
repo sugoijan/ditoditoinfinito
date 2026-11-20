@@ -12,6 +12,7 @@ description = "DitoDitoInfinito: screens, input routing, focus, text fields over
 ddi-character.workspace = true
 ddi-actor.workspace = true
 ddi-chart.workspace = true
+ddi-chat.workspace = true
 ddi-engine.workspace = true
 ddi-l10n.workspace = true
 ddi-library.workspace = true

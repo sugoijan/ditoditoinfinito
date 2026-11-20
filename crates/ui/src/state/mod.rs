@@ -15,3 +15,4 @@ pub mod ratings;
 pub mod room;
 pub mod select_view;
 pub mod settings;
+pub mod twitch;
