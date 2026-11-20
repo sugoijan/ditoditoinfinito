@@ -21,6 +21,7 @@ ddi-ui.workspace = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ddi-actor.workspace = true
 ddi-chart.workspace = true
+ddi-chat.workspace = true
 ddi-render.workspace = true
 ddi-platform = { workspace = true, features = ["decode"] }
 ddi-noteskin.workspace = true

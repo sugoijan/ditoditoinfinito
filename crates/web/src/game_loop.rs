@@ -56,6 +56,14 @@ impl PlayHost for Browser {
         web_sys::console::warn_1(&line.into());
     }
 
+    fn fetch_emote(&mut self, fetch: &ddi_chat::cache::Fetch) -> bool {
+        crate::chat::fetch(fetch)
+    }
+
+    fn take_emotes(&mut self) -> Vec<(ddi_chat::cache::Fetch, Option<ddi_shell::chat::Decoded>)> {
+        crate::chat::take()
+    }
+
     fn lua_stopped(&mut self, key: &str, why: &str) {
         let (key, why) = (key.to_string(), why.to_string());
         wasm_bindgen_futures::spawn_local(async move {
@@ -917,6 +925,36 @@ impl GameLoop {
             "hand_load": self.view.hand_load().debug(),
             // The lyrics drawn over the play (their texts).
             "lyrics": self.view.lyrics_shown(),
+            // The room host's chat behind the play (`ddi_shell::chat`;
+            // null without one): what the last frame drew, the layer's
+            // statistics (`chat-overlay-v0`), its images (ready, in
+            // flight, failed, hosts through the proxy), whether new items
+            // are held back, the layer's opacity and the main thread's
+            // milliseconds it took.
+            "chat": self.view.chat_drawn().map(|c| json!({
+                "items": c.items,
+                "runs": c.runs,
+                "emotes": c.emotes,
+                "texts": c.texts,
+                "boxes": c.boxes,
+                "shed": c.shed,
+                "opacity": c.opacity,
+                "ms": c.ms,
+                "layer": self.view.renderer.chat_layer_drawn(),
+                "images": [c.images.0, c.images.1, c.images.2, c.images.3],
+                "stats": {
+                    "messages": c.stats.messages,
+                    "shown": c.stats.shown,
+                    "left_out": c.stats.left_out,
+                    "full": c.stats.full,
+                    "rate": c.stats.rate,
+                    "chatter": c.stats.chatter,
+                    "shed": c.stats.shed,
+                    "no_room": c.stats.no_room,
+                    "no_image": c.stats.no_image,
+                    "removed": c.stats.removed,
+                },
+            })),
             "backdrop": self.backdrop_debug(),
             // The song's scripts: whether they run, why they stopped, the
             // fuel of the last frame, the quads drawn (background,

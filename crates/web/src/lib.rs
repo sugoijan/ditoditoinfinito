@@ -15,6 +15,8 @@ mod boot;
 #[cfg(target_arch = "wasm32")]
 mod calibration;
 #[cfg(target_arch = "wasm32")]
+mod chat;
+#[cfg(target_arch = "wasm32")]
 mod component;
 #[cfg(target_arch = "wasm32")]
 mod components;

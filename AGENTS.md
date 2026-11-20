@@ -2136,7 +2136,10 @@ Rust and the browser are implementation details, not advertised features.
   with the rule Off, for tests and screenshots; development only, `--mp-dev-cpus
   N`, practice against N CPUs beyond the cap, as the web's `mpcpus=N`;
   `--mp-dev-mines BEAT`, a section of battle shocks in each stage's play
-  from that beat, as `mpdevmines=BEAT`), `--share IDS|pack:NAME
+  from that beat, as `mpdevmines=BEAT`; TESTING ONLY, `--mp-dev-chat
+  FILE|NAME`, a scripted chat beside every play where Options →
+  Display's Twitch chat in rooms is on, as the web's `mpfakechat`,
+  `ddi_chat::script`), `--share IDS|pack:NAME
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--mp-bots --api URL [--host] [--join LINK] [--guests N] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
@@ -2402,7 +2405,8 @@ comes or goes). The testing parameters (`gfx`, `auto`, `bias`,
 `crate::ratings`), and the multiplayer ones, `mprules`,
 `mpwatchlink`, `mpattacks`, `mpcpus`, `mpdevmines`, `mpfakeseat`,
 `mpfakeend`, `mpfakematch`, `mpfakeroom`, `mpfakeready`, `mpfakelive`,
-`mpfakefail`, `mpfakeslow`, `mpfakeelsewhere`) take effect given in the address the page loads on, on any
+`mpfakefail`, `mpfakeslow`, `mpfakeelsewhere`, and the scripted chat's
+`mpfakechat`, `mpfakechatimg`) take effect given in the address the page loads on, on any
 route (`#/select?perf=1`, `#/mp?mpcpus=16`, `#/options?lang=ja`;
 `crate::router::Route::current`'s first read), and later on the routes
 each was always read on; `gfx`, `auto`, `bias` and `slow` stay for the

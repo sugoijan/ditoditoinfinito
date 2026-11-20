@@ -176,7 +176,8 @@ fn share_switch(hash: &str) {
 /// watch-only link (`Settings::multiplayer_watch_link`); TESTING ONLY,
 /// `mpfakeseat=1` (`mpfakeend=S`, `mpfakematch=STAGES,CUT,WAIT`) and
 /// `mpfakeroom=S` (`mpfakeready=R`, `mpfakelive=1`, `mpfakefail=N`,
-/// `mpfakeslow=S`, `mpfakeelsewhere=S`). Each
+/// `mpfakeslow=S`, `mpfakeelsewhere=S`), and `mpfakechat=<name or
+/// rate>` (`mpfakechatimg=<path>`), a scripted chat beside the plays. Each
 /// address is read once.
 fn multiplayer_params(hash: &str, at_load: bool) {
     let (path, Some(query)) = split_hash(hash) else {
@@ -239,6 +240,13 @@ fn multiplayer_params(hash: &str, at_load: bool) {
     // at a member told their stage is due, without a server);
     // `mpfakeready=R`, she readies R seconds after she has the stage (the
     // room waiting for her meanwhile: a ready player's Ready screen).
+    // TESTING ONLY (round TW2): `mpfakechat=<name or rate>`, a scripted
+    // chat beside every play where Options → Display's Twitch chat in
+    // rooms is on (`crate::chat`), its images from `mpfakechatimg=<path>`
+    // where given; `mpfakechat=0` stops it.
+    if let Some(what) = param("mpfakechat") {
+        crate::chat::script(&what, param("mpfakechatimg").as_deref());
+    }
     if let Some(after) = param("mpfakeroom").and_then(|s| s.parse::<f64>().ok()) {
         crate::fake_room::want(after);
     }

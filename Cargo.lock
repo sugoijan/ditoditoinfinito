@@ -1527,6 +1527,7 @@ dependencies = [
  "console_error_panic_hook",
  "ddi-actor",
  "ddi-chart",
+ "ddi-chat",
  "ddi-engine",
  "ddi-l10n",
  "ddi-library",

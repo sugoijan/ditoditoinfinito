@@ -287,6 +287,14 @@ impl Script {
         Ok(s)
     }
 
+    /// TESTING ONLY: its emotes' images from `base` instead
+    /// (`<base><id>.png`: a local test server's files).
+    pub fn images_at(&mut self, base: &str) {
+        for e in &mut self.emotes {
+            e.image = format!("{base}{}.png", e.id);
+        }
+    }
+
     /// The room's ceiling this script stands for.
     pub fn ceiling(&self) -> Level {
         self.ceiling
