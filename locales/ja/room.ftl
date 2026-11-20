@@ -959,7 +959,7 @@ room-host-list-size-value = { $count } 曲
 room-host-when-full = リストがいっぱいのとき
 room-host-when-full-remove = 古い曲を削除
 room-host-when-full-refuse = 新しい曲を断る
-room-host-list-note = 一人が追加できる曲は { $count } 曲までです。曲は削除されるかルームが終わるまで残ります。
+room-host-list-note = ホストと共同ホストはリストいっぱいまで、それ以外の人は { $count } 曲まで追加できます。曲は削除されるかルームが終わるまで残ります。
 
 room-ahead-quota = このブラウザにルームの曲を保存する空きがなくなりました。これからは次に遊びそうな曲だけを先にダウンロードします。
 room-status-my-songs-picker = ここで曲をルームに追加できます。次の曲は「ルームの曲」で選んでください。

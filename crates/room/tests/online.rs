@@ -752,6 +752,57 @@ fn the_song_list_is_kept_alike_by_both_authorities_and_every_mirror() {
     assert_eq!((c.status.clone(), c.share.as_deref()), (ContentStatus::Available, Some("share1")));
 }
 
+/// Round DB: a host fills the whole list, past the half anyone else would
+/// be held to, through both authorities alike (a list of two, three songs
+/// added: the third makes room).
+#[test]
+fn a_host_fills_the_whole_song_list_through_both_authorities() {
+    let song = |n: u8| ddi_room::NewSong {
+        key: SongKey::new(format!("s{n:015x}")),
+        card: ddi_room::SongCard {
+            title: format!("Song {n}"),
+            ..ddi_room::SongCard::default()
+        },
+        charts: vec![ddi_room::ChartLine {
+            chart: ChartKey::new(format!("d{n}")),
+            style: "dance-single".into(),
+            difficulty: "Hard".into(),
+            meter: 9,
+        }],
+        bundled: false,
+    };
+    let add = |n| Command::AddSong {
+        song: Box::new(song(n)),
+    };
+    let steps = vec![
+        Step::Connect("dev:alice"),
+        Step::Join("dev:bob", "Bob"),
+        Step::Connect("dev:bob"),
+        Step::Cmd(
+            "dev:alice",
+            Command::SetSongList {
+                rules: ddi_room::ListRules {
+                    size: 2,
+                    when_full: ddi_room::WhenFull::RemoveOldest,
+                },
+            },
+        ),
+        Step::Cmd("dev:alice", add(1)),
+        Step::Cmd("dev:alice", add(2)),
+        Step::Cmd("dev:alice", add(3)),
+    ];
+    let (local, local_answers) = run_local(&steps);
+    let (server, online_answers, mirrors) = run_online(&steps, &[]);
+    assert_eq!(local_answers, online_answers);
+    assert_eq!(local, server);
+    for m in &mirrors {
+        assert_eq!(m, &server);
+    }
+    assert_eq!(local_answers, vec![None; 4]);
+    let titles: Vec<&str> = local.songs.entries.iter().map(|e| e.card.title.as_str()).collect();
+    assert_eq!(titles, ["Song 2", "Song 3"]);
+}
+
 /// The DDI ruleset's round 3: Difficulty and Boos are match rules, saved
 /// like the others, locked with the match, and kept alike by the local
 /// authority, the online one and every mirror; rules that name a ruleset

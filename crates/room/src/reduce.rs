@@ -629,9 +629,11 @@ impl RoomState {
                     return Err(Rejection::AlreadyListed { song: e.id });
                 }
                 let rules = self.songs.rules;
-                if self.songs.added_by(id) >= rules.per_person() {
+                if let Some(quota) = self.song_quota(id)
+                    && self.songs.added_by(id) >= quota
+                {
                     return Err(Rejection::TooManySongs {
-                        limit: u16::try_from(rules.per_person()).unwrap_or(u16::MAX),
+                        limit: u16::try_from(quota).unwrap_or(u16::MAX),
                     });
                 }
                 self.make_room(usize::from(rules.size), rules.when_full, out)?;

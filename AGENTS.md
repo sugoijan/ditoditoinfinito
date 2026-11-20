@@ -1485,7 +1485,8 @@ Rust and the browser are implementation details, not advertised features.
   `RemoveSong`, `SetSongList`, `SetSongContent`, `PickListed`,
   `Capability::AddSongs` through `RoomState::may_add`, `StageContent::song`;
   entries named by `ddi_share_protocol::song_key`, at most 100, a person
-  half the list's size, the oldest not in use removed when full unless the
+  half the list's size but hosts and co-hosts the whole list
+  (`RoomState::song_quota`, round DB), the oldest not in use removed when full unless the
   host refuses new songs; `docs/plans/multiplayer-room-songs.md`; and
   its stage 2, in 17 too, nothing deployed between: who has which listed
   songs, `live/have.rs`, `ClientLive::Have` and `ServerLive::Have`, kept

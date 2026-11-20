@@ -1524,6 +1524,20 @@ impl RoomState {
             })
     }
 
+    /// The most songs `id` may have added to the list, if any: none for a
+    /// host, a co-host or an administrator (who has a co-host's powers),
+    /// held only by the list's size and what a full list does; anyone
+    /// else (once a setting lets everyone add, stage 3) half the list's
+    /// size, [`crate::songs::ListRules::per_person`] (round DB, the
+    /// maintainer, 2026-11-20: "Hosts and co-hosts are exempt").
+    pub fn song_quota(&self, id: ParticipantId) -> Option<usize> {
+        let host = self
+            .members
+            .get(&id)
+            .is_some_and(|m| m.admin || matches!(m.role, crate::member::Role::Owner | crate::member::Role::CoHost));
+        (!host).then(|| self.songs.rules.per_person())
+    }
+
     /// Whether `id` may remove entry `song` from the list: who added it,
     /// or a host.
     pub fn may_remove(&self, id: ParticipantId, song: &crate::songs::RoomSong) -> bool {

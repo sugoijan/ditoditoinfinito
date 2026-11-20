@@ -3553,7 +3553,10 @@ impl RoomClient {
         }
         let s = self.state();
         let rules = s.songs.rules;
-        let mut room_left = rules.per_person().saturating_sub(s.songs.added_by(self.me));
+        let mut room_left = s
+            .song_quota(self.me)
+            .map_or(usize::MAX, |q| q.saturating_sub(s.songs.added_by(self.me)))
+            .min(usize::from(rules.size));
         if rules.when_full == ddi_room::WhenFull::Refuse {
             room_left = room_left.min(usize::from(rules.size).saturating_sub(s.songs.len()));
         }

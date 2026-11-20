@@ -213,14 +213,16 @@ fn removing_is_the_adders_or_a_hosts_and_never_a_song_in_use() {
 }
 
 /// A full list under Remove the oldest (a new room's): the oldest song no
-/// stage not yet over names goes; under Refuse new songs, refused. A
-/// person adds at most half the list's size.
+/// stage not yet over names goes; under Refuse new songs, refused. Hosts,
+/// co-hosts and administrators may fill the whole list (round DB); anyone
+/// else would add at most half its size.
 #[test]
-fn a_full_list_removes_its_oldest_or_refuses_and_a_person_adds_half() {
+fn a_full_list_removes_its_oldest_or_refuses_and_hosts_may_fill_it() {
     let mut r = online();
     let host = r.host;
     let cy = r.cohost("cy");
     let admin = r.join_as("admin", Intent::Watch, true).unwrap();
+    let ana = r.join_as("ana", Intent::Play, false).unwrap();
     assert_eq!(r.s.songs.rules, ListRules::default());
     assert_eq!(r.s.songs.rules.size, 100);
     // Only the owner sets the list's rules, within the bound.
@@ -253,8 +255,13 @@ fn a_full_list_removes_its_oldest_or_refuses_and_a_person_adds_half() {
     for id in &ids {
         r.uploaded(*id);
     }
-    // Half the list's size a person: the host's third is refused.
-    assert_eq!(r.add(host, 5), Err(Rejection::TooManySongs { limit: 2 }));
+    // Hosts are exempt from the half: the whole list each; anyone else
+    // (who may not add in this stage) half of it.
+    assert_eq!(
+        [host, cy, admin, ana].map(|who| r.s.song_quota(who)),
+        [None, None, None, Some(2)]
+    );
+    assert!(!r.s.may_add(ana));
     // The oldest is picked: in use, the next oldest goes for the fifth.
     r.by(
         host,
@@ -301,11 +308,10 @@ fn a_full_list_removes_its_oldest_or_refuses_and_a_person_adds_half() {
     )
     .unwrap();
     assert_eq!(r.s.songs.len(), 4);
-    // (Half of two: one a person, and the admin has one.)
-    assert_eq!(r.add(admin, 6), Err(Rejection::TooManySongs { limit: 1 }));
-    let late = r.cohost("dee");
-    r.add(late, 6).unwrap();
+    // The admin has one of two and adds another all the same.
+    r.add(admin, 6).unwrap();
     assert_eq!(r.keys(), ["Song 1", "Song 6"]);
+    assert_eq!(r.s.song_quota(ana), Some(1));
 }
 
 /// The picker picks a chart of a listed song: the stage's song there at

@@ -2277,12 +2277,14 @@ room-host-when-full = When the list is full
 # songs are refused until one is removed.
 room-host-when-full-remove = Remove the oldest
 room-host-when-full-refuse = Refuse new songs
-# The note under the two rows: what they mean.
+# The note under the two rows: what they mean. Hosts and co-hosts may
+# fill the whole list; anyone else (once a room lets everyone add songs)
+# half of it.
 # Variables:
-#   $count (Number) - how many songs one person may add (half the size)
+#   $count (Number) - how many songs anyone but a host may add (half the size)
 room-host-list-note = { $count ->
-    [one] Each person may add one song. A song stays until it is removed or the room ends.
-   *[other] Each person may add up to { $count } songs. A song stays until it is removed or the room ends.
+    [one] Hosts and co-hosts may fill the whole list; anyone else may add one song. A song stays until it is removed or the room ends.
+   *[other] Hosts and co-hosts may fill the whole list; anyone else may add up to { $count } songs. A song stays until it is removed or the room ends.
 }
 
 ## Stage 2 of the room's song list: songs downloaded ahead.

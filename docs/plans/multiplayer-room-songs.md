@@ -60,7 +60,10 @@ Each is a room model revision of its own; server first, as always.
   (the picker's pick of a listed chart: the stage's song there at once
   with the entry's share; `StageContent::song` names the entry).
 - Bounds: at most 100 songs (`MAX_SONGS`); a person at most half the
-  list's size; at most 32 original charts an entry, styles and
+  list's size, hosts, co-hosts and administrators exempt: they may fill
+  the whole list (`RoomState::song_quota`; round DB, 2026-11-20, the
+  maintainer: "Hosts and co-hosts are exempt"; Host options' note says
+  it); at most 32 original charts an entry, styles and
   difficulties 32 bytes, keys 64 bytes: a full list at its worst is about
   860 KB, typical lists 720 B an entry.
 - An adder who leaves, or is away past the reconnect grace, takes the

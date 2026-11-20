@@ -19,7 +19,8 @@
 //! Bounds ([`MAX_SONGS`], [`ListRules`]): at most a hundred songs, the
 //! list's size a host setting up to it, what happens when it is full
 //! another (remove the oldest not in use, or refuse), and a person at
-//! most half the list's size. A song is uploaded when it is added (the
+//! most half the list's size, hosts and co-hosts the whole list
+//! (`RoomState::song_quota`, round DB). A song is uploaded when it is added (the
 //! server's grant per entry), kept while the room lives and deleted when
 //! it is removed or the room ends; a bundled song everyone has is listed
 //! by its content alone, nothing uploaded ([`RoomSong::bundled`]).
@@ -106,8 +107,9 @@ impl ListRules {
         *self == ListRules::default()
     }
 
-    /// The most songs one person may have added: half the list's size
-    /// (the maintainer, 2026-11-19), at least one.
+    /// The most songs one person who is not a host may have added: half
+    /// the list's size (the maintainer, 2026-11-19), at least one; hosts
+    /// and co-hosts are exempt (`RoomState::song_quota`, 2026-11-20).
     pub fn per_person(&self) -> usize {
         (usize::from(self.size) / 2).max(1)
     }

@@ -289,10 +289,11 @@ fn a_stage_stops_the_downloads_and_running_out_of_room_falls_back() {
 }
 
 /// More's Add this pack: every song of the pack not in the room yet, as
-/// many as the person may add (half the list's size), uploaded one at a
-/// time; its progress said until the last is there.
+/// many as the person may add (a host past half the list's size, round
+/// DB) and the list has room for, uploaded one at a time; its progress
+/// said until the last is there.
 #[test]
-fn a_pack_is_added_up_to_the_person_s_share_and_its_uploads_are_counted() {
+fn a_pack_is_added_up_to_the_list_s_room_and_its_uploads_are_counted() {
     let clock = ManualClock::new(1_000);
     let server = room_with(&clock, &["bob"], RoomPolicy::default().with_live());
     let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
@@ -302,7 +303,7 @@ fn a_pack_is_added_up_to_the_person_s_share_and_its_uploads_are_counted() {
     }
     alice
         .set_song_list(ddi_room::ListRules {
-            size: 6,
+            size: 4,
             when_full: ddi_room::WhenFull::Refuse,
         })
         .unwrap();
@@ -313,13 +314,14 @@ fn a_pack_is_added_up_to_the_person_s_share_and_its_uploads_are_counted() {
     alice.set_library(&pack);
     alice.add_song(&pack[0]).unwrap();
     tick(&clock, &mut [&mut alice, &mut bob], 200);
-    // Three of six a person, one added: two more.
-    assert_eq!(alice.pack_addable(&pack).len(), 2);
+    // A list of four refusing new songs, one added: the host may add
+    // three more (past half of it, two).
+    assert_eq!(alice.pack_addable(&pack).len(), 3);
     assert!(bob.pack_addable(&pack).is_empty(), "a member may not add");
-    assert_eq!(alice.add_pack(&pack), Ok(2));
+    assert_eq!(alice.add_pack(&pack), Ok(3));
     tick(&clock, &mut [&mut alice, &mut bob], 200);
-    assert_eq!(bob.room_songs().len(), 3);
-    assert_eq!(alice.pack_progress(), Some((0, 2)));
+    assert_eq!(bob.room_songs().len(), 4);
+    assert_eq!(alice.pack_progress(), Some((0, 3)));
     uploaded(&server, &alice);
     tick(&clock, &mut [&mut alice, &mut bob], 200);
     assert_eq!(alice.pack_progress(), None);
