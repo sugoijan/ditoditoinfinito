@@ -281,7 +281,7 @@ fn desktop_signs_in_makes_a_room_and_a_guest_joins_it() {
     let (a, b) = (Rc::new(RefCell::new(a)), Rc::new(RefCell::new(b)));
     a.borrow_mut().set_inbox(ddi_desktop::room::inbox());
     // Revision 17: the host adds it to the room's list (as an imported
-    // song: a bundled one would be listed with nothing uploaded), and it
+    // song; a bundled one is uploaded the same since revision 19), and it
     // is uploaded at once under that entry's grant (desktop's sharing
     // code); both see it there.
     let mut song = song;

@@ -2567,7 +2567,7 @@ fn an_online_room_shows_the_host_and_the_follower_and_its_link() {
     let (ea, eb) = (env(), env());
     let orders = Orders::default();
     let mut data = library("dance-single");
-    // An imported song (a bundled one is listed with nothing uploaded).
+    // An imported song (a bundled one is uploaded the same since round DB).
     let mut a = song();
     a.pack = Some("Pack".into());
     data.songs.insert(0, a);

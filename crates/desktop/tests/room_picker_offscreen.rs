@@ -11,7 +11,9 @@
 //! Room songs, the member's, the owner's My songs, then the room's list
 //! once she added three songs from there (uploaded as the server ends
 //! them) for the owner, the co-host (with Pick songs) and the member, and
-//! the member's My songs (nothing to add). `DDI_OFFSCREEN_PPM=<dir>` keeps
+//! the member's My songs (nothing to add; round DB: her library has
+//! alice's songs, every other one with a best, so her Room songs rows show
+//! a grade or NEW). `DDI_OFFSCREEN_PPM=<dir>` keeps
 //! them (`<scene>-<w>x<h>-<lang>.ppm`).
 
 mod common;
@@ -57,9 +59,25 @@ fn the_rooms_song_select_has_the_rooms_songs_and_ones_own() {
             .unwrap();
         // The room's first answer to its owner is a moment on its way.
         server.borrow_mut().fault(ParticipantId(1), Fault::Delay(900));
-        let (mut a, b, c) = (library(0, 0x1000), library(9, 0x9000), library(20, 0x20000));
-        // Alice's songs imported (a bundled song is listed with nothing
-        // uploaded, every device having it).
+        let (mut a, b) = (library(0, 0x1000), library(9, 0x9000));
+        // Round DB: carol's library has alice's songs (by their content),
+        // every other one played with a best: her Room songs rows show its
+        // grade or NEW, as her library's rows do; bob's, who has none of
+        // them, show neither.
+        let mut c = a.clone();
+        for (i, s) in c.songs.iter_mut().enumerate() {
+            s.played = i % 2 == 0;
+            for chart in &mut s.charts {
+                chart.best = s.played.then(|| ddi_ui::screens::data::Best {
+                    grade: "AA".into(),
+                    lamp: "FullCombo".into(),
+                    plays: 1,
+                    ..Default::default()
+                });
+            }
+        }
+        // Alice's songs imported (a bundled song is uploaded the same
+        // since revision 19).
         for s in &mut a.songs {
             s.pack.get_or_insert_with(|| "Alice's Pack".into());
         }
