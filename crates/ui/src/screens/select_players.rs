@@ -35,8 +35,11 @@ use crate::screens::room::{self as rm, HostMark, PlayerRow, StateIcon};
 use crate::screens::{Env, frame, left, right};
 use ddi_l10n::msg::room as m;
 
-/// The players' column's width at 1280 × 720 (the decision's 210).
-pub(super) const PANEL_W: f32 = 210.0;
+/// The players' column's width at 1280 × 720 (round SLB's 210); a
+/// room's balance gives it since round DC (`super::side::RoomBalance`).
+pub(super) fn panel_w() -> f32 {
+    super::side::room_balance().panel
+}
 /// The folded panel's rail's width.
 pub(super) const RAIL: f32 = 40.0;
 /// From the panel's line to its column.
@@ -71,13 +74,13 @@ pub(super) fn row_of(name: &str) -> Option<usize> {
 }
 
 /// Where the panel's line is for a screen `width` wide with side margins
-/// `margin`: `PANEL_W` and its gap in from the margin, or the rail's
-/// width from the edge folded.
+/// `margin`: the panel's width ([`panel_w`]) and its gap in from the
+/// margin, or the rail's width from the edge folded.
 pub(super) fn line_x(width: f32, margin: f32, folded: bool) -> f32 {
     if folded {
         width - RAIL
     } else {
-        width - margin - PANEL_W - LINE_GAP
+        width - margin - panel_w() - LINE_GAP
     }
 }
 
@@ -338,7 +341,7 @@ impl SelectScreen {
         let mut c = Vec::new();
         // The ground: from the line past the screen's edge (so a slide
         // never shows the list's ground under it).
-        let gw = sw - line + PANEL_W + 64.0;
+        let gw = sw - line + panel_w() + 64.0;
         let mut ground = quad("Panel.Ground", [gw, bottom - top], env.color("Plate"));
         call(&mut ground, "diffusealpha", &[0.72]);
         call(&mut ground, "xy", &[line + gw / 2.0, (top + bottom) / 2.0]);

@@ -6118,6 +6118,9 @@ fn a_room_that_could_not_be_made_says_why_in_a_sentence() {
 /// round D1), nothing else. Every one but the follower's again in round W
 /// (favorites): the picker's song select under them draws the song's
 /// heart and the footer's F; a follower's draws neither.
+/// Round DC moved them all: the room's balance (squares of 208, a
+/// players panel of 168, the list wider) under every pop-up, and the
+/// rows' own fix.
 #[test]
 fn the_rooms_screens_draw_as_pinned() {
     use ddi_room::{Finish, Finisher};
@@ -6222,16 +6225,16 @@ fn the_rooms_screens_draw_as_pinned() {
 /// online room's four: each tab has a faint plate of its own under its
 /// words, so a click on the plate around them is the tab's.
 const PINNED: [(&str, u64); 10] = [
-    ("select", 13509585143535770591),
-    ("rules", 14785720766870047911),
-    ("add", 13453012965053624897),
-    ("add-level", 2278696716197688419),
-    ("players", 17214481519957413378),
-    ("standings", 15460005836634710404),
-    ("online-select", 13520944678972280719),
-    ("online-member", 3593085590236305062),
-    ("online-players", 17907416448403294767),
-    ("host", 10157297001562287930),
+    ("select", 1409723276464905846),
+    ("rules", 16654682003949843511),
+    ("add", 18046060427307913317),
+    ("add-level", 61495232555110500),
+    ("players", 15355125971359581996),
+    ("standings", 2078648925402476071),
+    ("online-select", 6323310014290112460),
+    ("online-member", 15885329307818148993),
+    ("online-players", 3138793288985063061),
+    ("host", 11933851927349543688),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's

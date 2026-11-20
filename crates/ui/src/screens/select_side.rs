@@ -122,6 +122,62 @@ fn set_title(info: &mut Actor, title: &str) {
 /// How long the square's preview movie takes to fade in or out.
 pub(super) const MOVIE_FADE: f32 = 0.25;
 
+/// A room's wide layout's balance between its three parts (round DC, the
+/// maintainer: "both the player list and the song info panel are
+/// narrower and the song list is a bit wider"): the song's side's width
+/// (its two squares `(side - 16) / 2` where the height allows) and the
+/// players panel's column's; the list takes what they leave. The phone's
+/// layouts are not balanced so.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RoomBalance {
+    pub id: &'static str,
+    pub side: f32,
+    pub panel: f32,
+}
+
+/// Round SLB's: solo's side (squares of 256), a panel of 210.
+pub const ROOM_BALANCE_SLB: RoomBalance = RoomBalance {
+    id: "slb",
+    side: 528.0,
+    panel: 210.0,
+};
+/// Squares of 224, a panel of 180.
+pub const ROOM_BALANCE_224: RoomBalance = RoomBalance {
+    id: "dc-224",
+    side: 464.0,
+    panel: 180.0,
+};
+/// Squares of 208, a panel of 168.
+pub const ROOM_BALANCE_208: RoomBalance = RoomBalance {
+    id: "dc-208",
+    side: 432.0,
+    panel: 168.0,
+};
+/// Every balance studied (round DC's sheet), round SLB's first.
+pub const ROOM_BALANCES: [RoomBalance; 3] = [ROOM_BALANCE_SLB, ROOM_BALANCE_224, ROOM_BALANCE_208];
+
+/// The balance rooms are drawn with (round DC's study recommended C,
+/// squares of 208 and a panel of 168: the only one where a selected row's
+/// "Some Things Must" is whole at 1280 × 720; the maintainer chooses from
+/// its sheets).
+pub const ROOM_BALANCE: RoomBalance = ROOM_BALANCE_208;
+
+thread_local! {
+    static STUDIED: std::cell::Cell<Option<RoomBalance>> = const { std::cell::Cell::new(None) };
+}
+
+/// TESTING ONLY (round DC's study): rooms drawn with `balance` on this
+/// thread (none: [`ROOM_BALANCE`]), from their next layout.
+#[doc(hidden)]
+pub fn study_room_balance(balance: Option<RoomBalance>) {
+    STUDIED.with(|s| s.set(balance));
+}
+
+/// The balance a room's layout takes now.
+pub(super) fn room_balance() -> RoomBalance {
+    STUDIED.with(|s| s.get()).unwrap_or(ROOM_BALANCE)
+}
+
 /// The room kept between a title running past the song side and the list's
 /// rows, and for the heart after it.
 const TITLE_GAP: f32 = 12.0;
@@ -172,8 +228,12 @@ impl SelectScreen {
             let side = solo.song[2];
             let [sx, sy, _] = solo.song;
             let line = super::players::line_x(l.screen[0], l.margin, folded);
-            let column = [line + super::players::LINE_GAP, sy, super::players::PANEL_W, h];
-            let wx = solo.wheel[0];
+            let column = [line + super::players::LINE_GAP, sy, super::players::panel_w(), h];
+            // The side narrower than solo's (its balance, round DC): the
+            // list starts as much nearer, the gap between them solo's.
+            let balance = room_balance();
+            let side = balance.side.min(side);
+            let wx = solo.wheel[0] - (solo.song[2] - side);
             l.chips = false;
             l.song = [sx, sy, side];
             l.wheel = [wx, solo.wheel[1], line - super::players::LIST_GAP - wx, solo.wheel[3]];

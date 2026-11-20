@@ -13295,6 +13295,24 @@ The server deploys first.
 
 Also in round DC:
 
+- **A room's song select re-balanced** (`docs/plans/song-navigation.md`,
+  "In a room", "Re-balanced in a room"): three balances drawn by the
+  real code at 1280×720, 1024×768, 1440×900, 1920×1080 and a phone held
+  sideways, English and Japanese, three titles, three and twelve people
+  with long names, the panel open and folded
+  (`target/scratch/mp/dc/gallery.html`); built C, squares of 208 and a
+  panel of 168, the list 535 wide where it was 397 (the selected row's
+  "Some Things Must" whole); B (224/180) and round SLB's (256/210) kept
+  for tests (`ROOM_BALANCES`, `study_room_balance`). The maintainer
+  chooses from the sheet. And every list's rows: the wide rows had been
+  built as the compact ones since round SLB (banners smaller than their
+  places, the gaps the maintainer saw); fixed, the title given 10 more
+  (6 compact), a drifted row's title kept clear of its grade. Pins moved:
+  `song_select_draws_in_the_theme_as_pinned` (the wide sizes: the rows)
+  and `the_rooms_screens_draw_as_pinned` (all: the balance under every
+  pop-up); the radar's fit test checks squares of 224 and 208 too (the
+  pseudo-languages' seven and eight names skipped there, as the doubled
+  one's were in 256).
 - **The invite's page's sign-in code on desktop** (the maintainer: "yes,
   the same plate"): joining by a link while signed out, the attempt's
   code is large on round SF's plate under "Type this code in the page

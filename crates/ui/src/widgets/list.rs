@@ -883,6 +883,8 @@ impl List {
             {
                 b.visible = !fast;
             }
+            // How far right the wheel's curve moved the row.
+            let mut drift = 0.0;
             match focus {
                 None => {
                     call(a, "xy", &[0.0, y as f32]);
@@ -891,6 +893,7 @@ impl List {
                 Some(f) => {
                     let mid = (self.offsets[i] + self.offsets[i + 1]) / 2.0 - self.pos;
                     let place = look::wheel(look, &name, ((mid - f) / row) as f32);
+                    drift = place.x;
                     call(a, "xy", &[place.x, y as f32 + place.y]);
                     call(a, "zoom", &[place.zoom]);
                     // In the row's own units.
@@ -921,7 +924,10 @@ impl List {
                     let mid = (self.offsets[i] + self.offsets[i + 1]) / 2.0 - self.pos;
                     let d = ((mid - f) / row).abs().min(1.0) as f32;
                     let weight = 1.0 - d * d * (3.0 - 2.0 * d);
-                    look.wheel_focus(&name, a, w, weight)
+                    // As wide as it is drawn: its right part moved back
+                    // by the curve's drift (round DC: a drifted row's title
+                    // ran into its grade).
+                    look.wheel_focus(&name, a, w - drift.max(0.0), weight)
                 });
             if !continuous && s.selected != Some(selected) {
                 s.selected = Some(selected);

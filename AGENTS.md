@@ -1871,8 +1871,11 @@ Rust and the browser are implementation details, not advertised features.
   reduced motion; `crates/desktop/tests/room_picker_offscreen.rs` draws
   the views over the fake room). The players
   are always there (feedback round B; round SLB): a room's wide layout
-  is in three parts, the song's side where solo has it, the list, and
-  the players panel at the screen's right (`screens/select_players.rs`,
+  is in three parts, the song's side where solo has it (narrower: its
+  squares 208 at 1280×720, solo's 256), the list, and the players panel
+  at the screen's right, 168 wide (round DC's balance, `select_side.rs`'s
+  `ROOM_BALANCE`; the others studied selectable for tests,
+  `study_room_balance`) (`screens/select_players.rs`,
   `RoomPlayers`: a panel of the frame foldable to a rail by its handle,
   L or More, `Settings::players_folded`; a row a monotone state icon,
   `room::StateIcon`, the marks, `room::Marks`: a golden or silver house,

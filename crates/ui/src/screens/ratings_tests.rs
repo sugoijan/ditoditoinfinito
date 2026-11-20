@@ -293,12 +293,19 @@ fn the_radar_s_labels_never_overlap() {
             };
             let numbers: Vec<String> =
                 (0..=spokes).map(|k| radar::number(28.0 + k as f32 * 1.11)).collect();
-            for size in [[338.0, 191.0], [338.0, 208.0], [338.0, 271.0], [338.0, 320.0], [256.0, 256.0]] {
+            // The squares of a room's balances too (round DC: 224, 208).
+            for size in [[338.0, 191.0], [338.0, 208.0], [338.0, 271.0], [338.0, 320.0], [256.0, 256.0], [224.0, 224.0], [208.0, 208.0]] {
                 let [w, h] = size;
                 // Seven or eight names in the doubled pseudo-language do
                 // not fit a square at all (a known limit of the square:
                 // nothing ships that wide).
                 if w == h && lang == "qps-wide" && spokes != 5 {
+                    continue;
+                }
+                // Nor, in a room's smaller squares (round DC), seven or
+                // eight in the accented one (40% longer), nor any in the
+                // doubled one.
+                if w == h && w < 256.0 && (lang == "qps-wide" || (lang == "qps-ploc" && spokes != 5)) {
                     continue;
                 }
                 let p = radar::place(size, &words, &numbers);
@@ -309,6 +316,9 @@ fn the_radar_s_labels_never_overlap() {
                 // squares' shapes small, never overlapping.)
                 let least = match (w == h, lang.starts_with("qps")) {
                     (_, true) => crate::radar::MIN_RADIUS,
+                    // A room's smaller squares (round DC): labels fitted,
+                    // the shape what they leave.
+                    (true, false) if w < 256.0 => crate::radar::MIN_RADIUS,
                     (false, false) => 40.0,
                     (true, false) => 30.0,
                 };

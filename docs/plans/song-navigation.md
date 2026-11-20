@@ -191,7 +191,7 @@ The table of what came back where before this, row by row:
 **The room in three parts** (2026-11-20, round SLB; online rooms and CPU
 practice alike): the song's side exactly where solo has it, the list,
 and **the players panel at the screen's right** (`select_players.rs`),
-210 wide at 1280×720, a panel of the frame: a 1 px line from the
+168 wide at 1280×720 (210 before round DC), a panel of the frame: a 1 px line from the
 header's bar to the footer's at its left edge, a quieter ground from the
 line to the screen's edge, the list's scrollbar against the line.
 
@@ -334,7 +334,8 @@ radar's side above and the ladder:
   cut, running past the side into the width the list's curve leaves clear
   at its height, never over a row; the heart after it; the artist; then
   LENGTH · NOTES · BPM, NOTES the chosen chart's), then **two equal
-  squares, the cover and the radar** (256 at 1280×720, the side 528),
+  squares, the cover and the radar** (256 at 1280×720, the side 528;
+  in a room 208, the side 432: "Re-balanced" below),
   the style tabs, the row of chart buttons (a fixed place a chart, up to
   eight) and the chosen chart's strip. Taller windows give the height to
   the strip, then center the block.
@@ -346,6 +347,26 @@ radar's side above and the ladder:
   banner thumbnails.
 - **The list**: rows 56, the selected 76; its width what the song side
   (and in a room the players panel) leaves.
+
+**Re-balanced in a room** (2026-11-20, round DC; the maintainer: "We can
+re-balance it so both the player list and the song info panel are
+narrower and the song list is a bit wider"): the song's side 432 wide
+(squares of 208), the players panel 168, the list starting as much
+nearer the side as the side narrowed (solo's gap kept), about 535 wide
+at 1280×720 where it was 397, so that a selected row says "Some Things
+Must" whole. Studied in pictures with two other balances (round SLB's
+256/210, and squares of 224 with a panel of 180, which still cut it to
+"Some Things Mu…"): `target/scratch/mp/dc/gallery.html`, made by
+`crates/desktop/tests/room_balance_study.rs` (ignored,
+`DDI_DC_STUDY=<dir>`); the balances are `ROOM_BALANCES`, the one drawn
+`ROOM_BALANCE`, a test's choice `study_room_balance`. What it costs: the
+cover and the radar smaller (the radar's labels still placed by its rule,
+nothing overlapping: the DDI estimate's octagon keeps a radius of about
+53 at 208 against 68, MSD's seven English full names leave it 24 against
+41, the Groove radar's five Japanese names 25 against 49), the
+title band and the artist line cut sooner, longer player names cut
+sooner (never to nothing). The eight chart buttons fit (about 48 wide).
+The phone's layouts are not balanced so. Singleplayer keeps its 256.
 - **Phones (both ways up)**: the short side with the cover square, the
   title and the line beside it, the style button and the chart buttons;
   no radar. The chart buttons have fixed places as everywhere (round DB,
@@ -398,7 +419,23 @@ has no list), shows at its right:
 - A song with no chart in the style says so as before ("no Single
   charts", greyed).
 
-The freed width went to the title and the artist. A room's picker sees
+The freed width went to the title and the artist.
+
+**The rows' spacing** (round DC, the maintainer: "the 'padding' between
+the banner image and the best grade in the song card in a song list seem
+too big, that also contributes for the song title cropping"): since round
+SLB the wide list's rows (pitch 56, made 54 by the list) were built by
+the look as the compact list's (`h < 56`): the banner at the compact
+96×30 (zoomed to 159×50 on the selected row) while the title stood where
+the wide banner ends (112×35 at rest, 185.6×58 selected), 36 and 48
+pixels of empty plate between them; the pack headers too. Fixed
+(`Infinito::compact_row`): the banner fills its place, 14 (16 selected)
+before the title as designed. And the title and artist end 8 before the
+grade's column (the right end's 10 of slack, 6 in the compact lists',
+given to them); a row the wheel's curve moves right keeps its level and
+grade in their column (`List`), so its title's room is narrowed by the
+same drift (before, a drifted row's title ran into its grade). Before and
+after in the gallery's sheets 5 to 8. A room's picker sees
 their own bests (the list is their library). An online room's Room songs
 rows show them too (round DB, 2026-11-20): the best's grade or NEW of
 the chart that would be played where the listed song is in the player's

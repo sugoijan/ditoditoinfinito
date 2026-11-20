@@ -87,6 +87,7 @@ pub const PANEL_HANDLE: &str = players::HANDLE;
 /// short side, a room's three parts.
 #[path = "select_side.rs"]
 mod side;
+pub use side::{ROOM_BALANCE, ROOM_BALANCES, RoomBalance, study_room_balance};
 use side::SongSide;
 
 const SELECT_PARTS: [(&str, super::Edge); 19] = {

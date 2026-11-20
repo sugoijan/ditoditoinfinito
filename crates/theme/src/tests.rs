@@ -2489,7 +2489,10 @@ fn song_selects_footer_hints_never_overlap() {
 /// side"), round SLB; the phone's three again in round SLB2 (its
 /// short side's cover square). Round DB moved the phone's third twice
 /// (the song Down reaches has more than five Single charts: a place for
-/// each, narrower, where five slid before).
+/// each, narrower, where five slid before). Round DC moved the wide
+/// ones: the wide list's rows were built as the compact list's (their
+/// banners smaller than their places), and a row's title ends nearer its
+/// grade, a drifted row's as far before it as the drift brought it.
 #[test]
 fn song_select_draws_in_the_theme_as_pinned() {
     use ddi_ui::screens::select::SelectScreen;
@@ -2549,27 +2552,27 @@ fn song_select_draws_in_the_theme_as_pinned() {
 }
 
 const THEME_PINNED: [u64; 24] = [
-    3929447960376509809,
-    2224196393826753207,
-    2180624927541061875,
-    7625433574510509382,
-    4851439936465766126,
-    17883416728623918812,
-    3929447960376509809,
-    2224196393826753207,
-    2180624927541061875,
+    15767064885738973574,
+    11433175956935895349,
+    17111332973477154422,
+    8841698989188706847,
+    5751167563811200661,
+    3252663928053043789,
+    15767064885738973574,
+    11433175956935895349,
+    17111332973477154422,
     14104443687203936483,
     2702764880049156287,
     3791805471093042694,
-    17554577313065312070,
-    617542558015053935,
-    1019841781868639590,
-    336418219869362909,
-    7119181997384583235,
-    14419057784823968244,
-    17554577313065312070,
-    617542558015053935,
-    1019841781868639590,
+    8187357016111010469,
+    5642115389339174844,
+    500740332161413539,
+    135520689134425287,
+    13679091433717444168,
+    7529470897668488942,
+    8187357016111010469,
+    5642115389339174844,
+    500740332161413539,
     8231656684227529799,
     8882839260221760681,
     7243115711895144043,

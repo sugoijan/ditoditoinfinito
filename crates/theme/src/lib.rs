@@ -374,8 +374,10 @@ const WHEEL_TITLE: f32 = 17.0;
 const WHEEL_TITLE_BIG: f32 = 21.0;
 /// A song row's right end (`song_row`): the chart's level, its best's
 /// grade (or "NEW") beside it, and their margins; the compact list's.
-const WHEEL_RIGHT: f32 = ROW_LEVEL[0] + ROW_LEVEL_W + ROW_GAP + ROW_GRADE_W + 10.0;
-const WHEEL_RIGHT_COMPACT: f32 = ROW_LEVEL_COMPACT[0] + ROW_LEVEL_COMPACT_W + ROW_GAP + 40.0 + 6.0;
+/// The title and the artist end 8 before it (round DC: 10 and 6 nearer,
+/// the slack between them and the grade's column given to the title).
+const WHEEL_RIGHT: f32 = ROW_LEVEL[0] + ROW_LEVEL_W + ROW_GAP + ROW_GRADE_W;
+const WHEEL_RIGHT_COMPACT: f32 = ROW_LEVEL_COMPACT[0] + ROW_LEVEL_COMPACT_W + ROW_GAP + 40.0;
 /// The level's right margin and size; the room it is given (four
 /// characters, "18.8").
 const ROW_LEVEL: [f32; 2] = [14.0, 18.0];
@@ -425,10 +427,20 @@ impl Infinito {
         [h * 3.2, h]
     }
 
-    /// A wheel row `h` high: whether it is the compact list's, its
-    /// plate's height, and the selected row's.
-    fn wheel_row(&self, h: f32) -> (bool, f32, f32) {
-        let compact = h < 56.0;
+    /// Whether a song list's row the list made `h` high is the compact
+    /// lists': the list gives a row its pitch less 2 (`List`), so the wide
+    /// wheel's (`Select.Wheel.Row`, 56 since round SLB) are that less 2.
+    /// (Round DC: the rule was `h < 56`, which since the rows went from 66
+    /// to 56 took the wide wheel's for compact ones: their banners and
+    /// texts at the compact list's sizes under the wide wheel's layout,
+    /// the banner smaller than its place.)
+    fn compact_row(&self, h: f32) -> bool {
+        h < self.m("Select.Wheel.Row") - 2.0
+    }
+
+    /// A wheel row `h` high (`compact`: the compact list's): whether it
+    /// is the compact list's, its plate's height, and the selected row's.
+    fn wheel_row(&self, h: f32, compact: bool) -> (bool, f32, f32) {
         let gap = self.m("Select.Wheel.Gap");
         let row = if compact {
             h - 2.0
@@ -446,9 +458,9 @@ impl Infinito {
     /// The song wheel's row (`h` ≥ 56) or the compact list's, drawn
     /// [`ROW_INSET`] in from the left so the selected row's active
     /// outline lies within the list (which clips at its edges).
-    fn song_row(&self, spec: &Spec) -> Actor {
+    fn song_row(&self, spec: &Spec, compact: bool) -> Actor {
         let [w, h] = [spec.size[0] - 2.0 * ROW_INSET, spec.size[1]];
-        let (compact, row, big) = self.wheel_row(h);
+        let (compact, row, big) = self.wheel_row(h, compact);
         let t = self.m("Motion.Select");
         let grow = big / row;
         // The selected row's shadow (0 8 30 black at a half).
@@ -634,9 +646,9 @@ impl Infinito {
         fav
     }
 
-    fn song_header(&self, spec: &Spec) -> Actor {
+    fn song_header(&self, spec: &Spec, compact: bool) -> Actor {
         let [w, h] = [spec.size[0] - 2.0 * ROW_INSET, spec.size[1]];
-        let (compact, row, big) = self.wheel_row(h);
+        let (compact, row, big) = self.wheel_row(h, compact);
         let t = self.m("Motion.Select");
         let mut line = outline("Line", [0.0, 0.0, w, row], 1.0, self.c("HeaderLine"));
         command_of(&mut line, "Select", "diffusealpha,0");
@@ -1311,17 +1323,18 @@ impl Look for Infinito {
                 f
             }
             "OptionRow.Cursor" => quad("", [w, 2.0], self.c("Accent")),
-            "SongList.Row" => self.song_row(spec),
-            "SongList.Header" => self.song_header(spec),
+            "SongList.Row" => self.song_row(spec, self.compact_row(spec.size[1])),
+            "SongList.Header" => self.song_header(spec, self.compact_row(spec.size[1])),
             "List.Row" => {
-                // A generic row: the song row without its meters.
-                let mut r = self.song_row(&Spec::new([w, h.min(55.0)], ""));
+                // A generic row: the song row without its meters, the
+                // compact list's (as it always was: never 56 high).
+                let mut r = self.song_row(&Spec::new([w, h.min(55.0)], ""), true);
                 if let Kind::Frame(c) = &mut r.kind {
                     c.retain(|a| a.name != "Right");
                 }
                 r
             }
-            "List.Header" => self.song_header(&Spec::new([w, h.min(55.0)], "")),
+            "List.Header" => self.song_header(&Spec::new([w, h.min(55.0)], ""), true),
             // The import report's lines: text alone, no banner box.
             "Report.Row" => {
                 let mut t = at_left(
