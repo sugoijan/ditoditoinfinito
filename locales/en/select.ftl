@@ -231,6 +231,10 @@ select-radar-estimate-overall = DDI
 # charts about as hard (as demanding as usual: the chart's own rating;
 # higher where it stands out). Short.
 select-radar-estimate-unit = Skills, compared with charts this hard
+# Short spoke status below the skill name when the chart cannot exercise this skill.
+select-radar-inactive = Inactive
+# Short spoke status below the skill name when its estimate is unqualified.
+select-radar-unavailable = Unavailable
 # In the radar's place where the estimate has no skill profile for the
 # chart (it is longer or otherwise outside the charts the estimate was
 # studied on). Short and plain.

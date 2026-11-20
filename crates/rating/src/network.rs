@@ -80,7 +80,7 @@ fn model() -> &'static Model {
     })
 }
 
-pub(super) fn predict(chart: &Chart) -> [[f64; 9]; 10] {
+pub(super) fn predict(chart: &Chart) -> ([[f64; 9]; 10], [bool; 8]) {
     const BINS: usize = 16;
     let m = model();
     let rows = &chart.rows;
@@ -179,7 +179,7 @@ pub(super) fn predict(chart: &Chart) -> [[f64; 9]; 10] {
         true,
         chart.mines > 0,
     ];
-    array::from_fn(|i| {
+    let means = array::from_fn(|i| {
         array::from_fn(|j| {
             if !mask[j] {
                 return 0.;
@@ -194,5 +194,6 @@ pub(super) fn predict(chart: &Chart) -> [[f64; 9]; 10] {
             let result = base + scale as f32 * z[i * 9 + j];
             f64::from(if j == 0 { result.min(100.) } else { result })
         })
-    })
+    });
+    (means, array::from_fn(|k| mask[k + 1]))
 }

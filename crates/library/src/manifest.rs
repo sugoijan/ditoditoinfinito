@@ -285,6 +285,17 @@ pub fn groove_of(song: &Song, index: usize, length: f64) -> Option<[f32; 5]> {
     ddi_chart::groove::of(song, index, length).map(|v| v.map(|x| (x * 1000.0).round() / 1000.0))
 }
 
+/// A matched-level skill cost in percentage points, or its explicit display state.
+/// Numeric costs retain the JSON representation of older bundled manifests.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfileSpoke {
+    Inactive,
+    Unavailable,
+    #[serde(untagged)]
+    Numeric(f32),
+}
+
 /// What the game keeps of a chart's DDI estimate (`ddi_rating::Estimate`,
 /// read through its JSON, [`ChartEstimate::from_rating_json`], so nothing
 /// here depends on the estimator): the decimal to the hundredth and the
@@ -298,17 +309,16 @@ pub struct ChartEstimate {
     pub scalar: bool,
     #[serde(default)]
     pub studied: bool,
-    /// Each skill's cost in percentage points of Accuracy at the chart's
-    /// matched level, to the hundredth, never below zero
+    /// Each skill's display state at the chart's matched level. Numeric costs
+    /// are nonnegative percentage points of Accuracy rounded to the hundredth
     /// ([`matched_profile`]; `ddi_engine::cpu::SKILL_NAMES`' order).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub profile: Option<[f32; 8]>,
+    pub profile: Option<[ProfileSpoke; 8]>,
 }
 
-/// How a DDI estimate's profile is read (`docs/plans/msd-ratings.md`, "The
-/// DDI estimate as a source"): kept with the estimator's and the scale's
-/// names, a new rule forgets what an older one made.
-pub const PROFILE_RULE: &str = "matched-level-profile-v1";
+/// Cache version for qualification of the scalar and displayed profile and
+/// for the matched-profile readout. Kept with the estimator and scale IDs.
+pub const PROFILE_RULE: &str = "partial-matched-profile-v3";
 
 /// The skill profile of a chart estimated at `decimal` (1 to 19) from the
 /// estimator's `means` (a row a CPU level, 1 to 10: the balanced Accuracy,
@@ -327,11 +337,15 @@ pub fn matched_profile(decimal: f64, means: &[[f64; 9]; 10]) -> [f64; 8] {
 }
 
 impl ChartEstimate {
-    /// From `ddi_rating::Estimate` as JSON (its `Serialize`): the
-    /// decimal, the level, the two domains, and where the profile is
-    /// qualified [`matched_profile`] of its `means`. `None` where it does
-    /// not read as one.
+    /// Reads the scalar, its qualification, and the per-skill states from
+    /// estimator JSON. Numeric spokes use [`matched_profile`] of the means.
+    /// Older estimates carry a single qualification flag for the full profile.
     pub fn from_rating_json(json: &str) -> Option<ChartEstimate> {
+        #[derive(Deserialize)]
+        struct SpokeMasks {
+            numeric: u8,
+            inactive: u8,
+        }
         #[derive(Deserialize)]
         struct Estimate {
             decimal: f64,
@@ -340,12 +354,28 @@ impl ChartEstimate {
             // Older estimates only qualified a profile in the all-level domain.
             within_studied_domain: bool,
             within_matched_profile_domain: Option<bool>,
+            matched_spokes: Option<SpokeMasks>,
             means: [[f64; 9]; 10],
         }
         let e: Estimate = serde_json::from_str(json).ok()?;
         let hundredth = |x: f64| ((x * 100.0).round() / 100.0) as f32;
         let studied = e.within_matched_profile_domain.unwrap_or(e.within_studied_domain);
-        let profile = studied.then(|| matched_profile(e.decimal, &e.means).map(hundredth));
+        let masks = e.matched_spokes.or(studied.then_some(SpokeMasks {
+            numeric: u8::MAX,
+            inactive: 0,
+        }));
+        let profile = masks.map(|m| {
+            let costs = matched_profile(e.decimal, &e.means);
+            std::array::from_fn(|k| {
+                if m.inactive & (1 << k) != 0 {
+                    ProfileSpoke::Inactive
+                } else if m.numeric & (1 << k) != 0 {
+                    ProfileSpoke::Numeric(hundredth(costs[k]))
+                } else {
+                    ProfileSpoke::Unavailable
+                }
+            })
+        });
         Some(ChartEstimate {
             decimal: hundredth(e.decimal),
             level: e.level,
@@ -612,6 +642,19 @@ mod tests {
             serde_json::from_str(r#"{"index":0,"layout":"x","difficulty":"Hard","meter":1}"#)
                 .unwrap();
         assert_eq!(old.digest, None);
+    }
+
+    #[test]
+    fn chart_profile_json_preserves_numbers_and_spoke_states() {
+        use ProfileSpoke::{Inactive, Numeric, Unavailable};
+        let old = "[0,1,2,3,4,5,6,7]";
+        let mut profile = serde_json::from_str::<[ProfileSpoke; 8]>(old).unwrap();
+        assert_eq!(profile[0], Numeric(0.0));
+        profile[1] = Inactive;
+        profile[2] = Unavailable;
+        let json = serde_json::to_string(&profile).unwrap();
+        assert_eq!(json, r#"[0.0,"inactive","unavailable",3.0,4.0,5.0,6.0,7.0]"#);
+        assert_eq!(serde_json::from_str::<[ProfileSpoke; 8]>(&json).unwrap(), profile);
     }
 
     #[test]

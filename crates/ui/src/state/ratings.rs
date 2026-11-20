@@ -38,7 +38,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use ddi_chart::ChartDigest;
-pub use ddi_library::manifest::{ChartEstimate, PROFILE_RULE};
+pub use ddi_library::manifest::{ChartEstimate, PROFILE_RULE, ProfileSpoke};
 use ddi_platform::storage::{self, Area};
 use serde::{Deserialize, Serialize};
 
@@ -69,7 +69,7 @@ struct StoredEstimates {
 }
 
 /// The names the kept estimates must carry to be read: the estimator's,
-/// its scale's and the profile's rule's.
+/// its scale's and the qualification/readout rule's.
 fn estimate_names() -> (&'static str, &'static str, &'static str) {
     (ddi_rating::ESTIMATOR, ddi_rating::SCALE, PROFILE_RULE)
 }
@@ -77,8 +77,9 @@ fn estimate_names() -> (&'static str, &'static str, &'static str) {
 /// A chart's estimate as kept: its digest (32 hex digits), the decimal in
 /// hundredths (4), the level (2), the flags (1: the number qualified, the
 /// profile qualified, a profile, none at all), then with a profile its
-/// eight costs in hundredths (4 each); `None`, the chart estimated and
-/// none made, kept as its flag alone. 39 or 71 characters.
+/// eight four-character costs in hundredths (`----` for inactive and `????`
+/// for unavailable). An attempted estimate of `None` has just the flag after
+/// the header. Each record is 39 or 71 characters.
 fn encode_estimate(digest: u128, e: Option<&ChartEstimate>) -> String {
     let hundredths = |x: f32| (x.max(0.0) * 100.0).round().min(65535.0) as u16;
     let Some(e) = e else {
@@ -87,7 +88,11 @@ fn encode_estimate(digest: u128, e: Option<&ChartEstimate>) -> String {
     let flags = u8::from(e.scalar) | u8::from(e.studied) << 1 | u8::from(e.profile.is_some()) << 2;
     let mut s = format!("{digest:032x}{:04x}{:02x}{flags:x}", hundredths(e.decimal), e.level);
     for c in e.profile.iter().flatten() {
-        s.push_str(&format!("{:04x}", hundredths(*c)));
+        match c {
+            ProfileSpoke::Numeric(cost) => s.push_str(&format!("{:04x}", hundredths(*cost))),
+            ProfileSpoke::Inactive => s.push_str("----"),
+            ProfileSpoke::Unavailable => s.push_str("????"),
+        }
     }
     s
 }
@@ -117,12 +122,16 @@ fn decode_estimates(text: &str) -> Vec<(u128, Option<ChartEstimate>)> {
                 break;
             };
             at += 32;
-            let mut p = [0f32; 8];
+            let mut p = [ProfileSpoke::Unavailable; 8];
             for (k, c) in p.iter_mut().enumerate() {
-                let Some(v) = hex(&body[k * 4..k * 4 + 4]) else {
-                    return out;
+                *c = match &body[k * 4..k * 4 + 4] {
+                    "----" => ProfileSpoke::Inactive,
+                    "????" => ProfileSpoke::Unavailable,
+                    word => match hex(word) {
+                        Some(v) => ProfileSpoke::Numeric(v as f32 / 100.0),
+                        None => return out,
+                    },
                 };
-                *c = v as f32 / 100.0;
             }
             Some(p)
         } else {
@@ -711,10 +720,8 @@ pub fn status() -> Status {
 pub enum Standing {
     /// Its MSD's eight numbers (the radar's skillsets).
     Rated(Values),
-    /// Its DDI estimate's profile ([`ChartEstimate::profile`]): the eight
-    /// skills' costs, in percentage points (all small: a regular octagon,
-    /// round Z3, `crate::radar::estimate_spokes`).
-    Profile([f32; 8]),
+    /// Its DDI estimate's eight matched-level skill states ([`ChartEstimate::profile`]).
+    Profile([ProfileSpoke; 8]),
     /// Its DDI estimate is outside what it was studied on (no profile).
     Outside,
     /// Waiting to be rated, or being rated (its song is offered, the
@@ -1086,7 +1093,7 @@ mod tests {
             level: decimal.round() as u8,
             scalar: true,
             studied: profile.is_some(),
-            profile,
+            profile: profile.map(|p| p.map(ProfileSpoke::Numeric)),
         }
     }
 
@@ -1096,7 +1103,13 @@ mod tests {
     #[test]
     fn estimates_are_kept_by_digest_and_forgotten_by_a_new_estimator() {
         let p = [1.25, 0.0, 0.0, 3.5, 12.29, 0.0, 0.01, 0.0];
+        let mut partial = estimate_of(19.0, Some(p));
+        partial.studied = false;
+        let spokes = partial.profile.as_mut().unwrap();
+        spokes[5] = ProfileSpoke::Unavailable;
+        spokes[7] = ProfileSpoke::Inactive;
         let kept = [
+            (4, Some(partial)),
             (5u128, Some(estimate_of(14.27, Some(p)))),
             (6, Some(estimate_of(19.0, None))),
             (7, None),
@@ -1150,14 +1163,14 @@ mod tests {
         assert_eq!((m.whole(), m.fine()), ("21".into(), "21.4".into()));
         assert_eq!(shown(Some(digest(5)), "dance-single", false), None, "a version");
         assert_eq!(shown(Some(digest(5)), "dance-double", true), None);
-        assert_eq!(standing("a", Some(digest(5)), "dance-single", true), Standing::Profile(p));
+        assert_eq!(standing("a", Some(digest(5)), "dance-single", true), Standing::Profile(p.map(ProfileSpoke::Numeric)));
         assert_eq!(standing("a", Some(digest(7)), "dance-single", true), Standing::Unrated);
         assert_eq!(standing("a", Some(digest(5)), "dance-double", true), Standing::NoLayout);
         // MSD is not made under the estimate, nor read.
         assert!(!wants_msd());
-        // Another estimator's: forgotten.
+        // A previous qualification rule also requires recomputation.
         let mut stored: StoredEstimates = storage::load(Area::Local, ESTIMATE_KEY).unwrap();
-        stored.rule = "matched-level-profile-v-1".into();
+        stored.rule = "long-scalar-matched-profile-v2".into();
         storage::save(Area::Local, ESTIMATE_KEY, &stored).unwrap();
         reset();
         storage::install(store);
@@ -1181,7 +1194,7 @@ mod tests {
         remember_estimate(digest(2), outside);
         assert_eq!(
             standing("a", Some(digest(1)), "dance-single", true),
-            Standing::Profile([0.1, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0])
+            Standing::Profile([0.1, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0].map(ProfileSpoke::Numeric))
         );
         assert_eq!(standing("a", Some(digest(2)), "dance-single", true), Standing::Outside);
         remember(digest(3), [10.0; 8]);
@@ -1220,9 +1233,17 @@ mod tests {
     fn profile_of(song: &ddi_chart::Song) -> ([f32; 8], usize) {
         let e = estimate_chart(song, 0).expect("estimated");
         assert!(e.studied, "inside the studied domain: {e:?}");
-        let p = e.profile.expect("a profile");
+        let p = profile_costs(&e);
         let largest = (0..8).max_by(|&a, &b| p[a].total_cmp(&p[b])).unwrap();
         (p, largest)
+    }
+
+    fn profile_costs(e: &ChartEstimate) -> [f32; 8] {
+        e.profile.expect("qualified").map(|s| match s {
+            ProfileSpoke::Numeric(c) => c,
+            ProfileSpoke::Inactive => 0.0,
+            ProfileSpoke::Unavailable => panic!("expected a fully qualified chart"),
+        })
     }
 
     fn share(p: &[f32; 8], k: usize) -> f32 {
@@ -1299,7 +1320,7 @@ mod tests {
         use ddi_engine::cpu::SKILL_NAMES;
         let song = pattern(130, &JACK, 480);
         let e = estimate_chart(&song, 0).expect("estimated");
-        let spokes = crate::radar::estimate_spokes(e.decimal, &e.profile.expect("a profile"));
+        let spokes = crate::radar::estimate_spokes(e.decimal, &profile_costs(&e));
         let jack = SKILL_NAMES.iter().position(|n| *n == "JackSpeed").unwrap();
         let base = crate::radar::estimate_base(e.decimal);
         assert!(spokes.iter().all(|s| *s >= base - 1e-6), "{spokes:?}");
@@ -1312,7 +1333,7 @@ mod tests {
         use ddi_engine::cpu::SKILL_NAMES;
         let song = pattern(150, &RND, 600);
         let e = estimate_chart(&song, 0).expect("estimated");
-        let spokes = crate::radar::estimate_spokes(e.decimal, &e.profile.expect("a profile"));
+        let spokes = crate::radar::estimate_spokes(e.decimal, &profile_costs(&e));
         let largest = (0..8).max_by(|&a, &b| spokes[a].total_cmp(&spokes[b])).unwrap();
         assert!(["Stream", "Stamina"].contains(&SKILL_NAMES[largest]), "{spokes:?}");
     }

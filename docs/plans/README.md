@@ -346,7 +346,8 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   radar in the chart ladder's place under a row of chart buttons, its
   numbers always shown, a line where a chart has none; the web's rating
   started on every route. Round Z2: the DDI estimate (`crates/rating`) as
-  a third choice, a try, its matched-level skill profile on the radar.
+  a third choice, a try, its matched-level skill profile on the radar. Partial profiles show each
+  qualified skill in the validated note bands and mark inactive and unavailable skills.
   Round AD (2026-11-19): the estimate to a tenth everywhere it shows.
   Round SLB (2026-11-20): the radar always there (no option), the DDI
   estimate the default, rated for everyone; From the song draws the

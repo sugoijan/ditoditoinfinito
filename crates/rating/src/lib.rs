@@ -24,15 +24,20 @@ pub struct Estimate {
     /// The decimal estimate and its round-half-up display level.
     pub decimal: f64,
     pub level: u8,
-    /// Qualification for `decimal` and `level`: 48+ heads, at most 1,200
-    /// source notes, 15–180 seconds and no lifts.
+    /// Qualification for `decimal` and `level`. Requires 48+ heads and no
+    /// lifts. Through 1,200 source notes the duration is 15–180 seconds.
+    /// At 1,201–4,800 notes duration and playable-head density determine
+    /// qualification within the tested 15–600 second range. At 4,801–8,000
+    /// notes the same rule qualifies only an exact decimal of 19.0.
     pub within_scalar_domain: bool,
-    /// Qualification for the score curve and skill readouts: the scalar
-    /// conditions with at most 900 source notes.
+    /// Qualification for the score curve and skill readouts. Requires 48+
+    /// heads, at most 900 source notes, 15–180 seconds and no lifts.
     pub within_studied_domain: bool,
-    /// Qualification for the song-select profile at the chart's decimal-matched
-    /// CPU level. Extends the 900-note domain to 1,200 on mine-free charts.
+    /// Qualification for the complete song-select profile at the chart's
+    /// decimal-matched CPU level. Use `matched_spokes` for partial profiles.
     pub within_matched_profile_domain: bool,
+    /// Per-skill qualification at the displayed chart level, in SKILL_NAMES order.
+    pub matched_spokes: Option<MatchedSpokes>,
     /// At balanced CPU levels 1–10: mean raw Accuracy, then eight skill costs
     /// (balanced minus weakened Accuracy in percentage points, SKILL_NAMES order).
     pub means: [[f64; 9]; 10],
@@ -41,6 +46,36 @@ pub struct Estimate {
     /// Wider intervals calibrated against the simulation teacher's batch uncertainty.
     pub conservative: Option<Readout>,
 }
+
+/// Bit k describes skill k. A skill in neither mask has no qualified value.
+#[derive(Debug, Serialize)]
+pub struct MatchedSpokes {
+    pub numeric: u8,
+    pub inactive: u8,
+}
+
+impl MatchedSpokes {
+    fn for_chart(chart: &features::Chart, opportunity: [bool; 8]) -> Self {
+        let validated = match chart.source_notes {
+            _ if chart.matched_profile_studied => u8::MAX,
+            1201..=3200 => 0b0000_0100, // Handstream
+            3201..=4800 => 0b0000_1101, // also Stream, Stamina
+            4801..=8000 => 0b0001_1111, // also Jumpstream, JackSpeed
+            _ => 0,
+        };
+        let mut inactive = 0;
+        for (k, present) in opportunity.into_iter().enumerate() {
+            if !present {
+                inactive |= 1 << k;
+            }
+        }
+        Self {
+            numeric: validated & !inactive,
+            inactive,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct Readout {
     pub targets: [Target; 3],
@@ -183,9 +218,10 @@ fn map_rating(chart: &features::Chart, means: &[[f64; 9]; 10]) -> f64 {
 /// `index` is its zero-based index in the imported song.
 pub fn estimate(song: &Song, index: usize) -> Result<Estimate, String> {
     let chart = features::extract(song, index)?;
-    let means = network::predict(&chart);
+    let (means, opportunity) = network::predict(&chart);
     let decimal = map_rating(&chart, &means);
-    let three_keys = chart.rows.iter().any(|r| r.heads >= 3.);
+    let scalar_qualified = chart.qualifies_scalar(decimal);
+    let three_keys = opportunity[2];
     let calibrated = |widths| {
         chart
             .readouts_studied
@@ -195,9 +231,10 @@ pub fn estimate(song: &Song, index: usize) -> Result<Estimate, String> {
         estimator: ESTIMATOR,
         scale: SCALE,
         chart_digest: song.chart_digest(index),
-        within_scalar_domain: chart.scalar_studied,
+        within_scalar_domain: scalar_qualified,
         within_studied_domain: chart.readouts_studied,
         within_matched_profile_domain: chart.matched_profile_studied,
+        matched_spokes: scalar_qualified.then(|| MatchedSpokes::for_chart(&chart, opportunity)),
         decimal,
         level: decimal.round() as u8,
         expected: calibrated(&coefficients::EXPECTED),
@@ -220,7 +257,17 @@ mod tests {
             (901, 120, "M000", true, false, false),
             (1200, 120, "1000", true, true, false),
             (1200, 120, "M000", true, false, false),
-            (1201, 120, "1000", false, false, false),
+            (1201, 120, "1000", false, false, false), // just outside the risk cutoff
+            (1201, 125, "1000", true, false, false),
+            (3200, 120, "1000", true, false, false), // almost 400 seconds
+            (3200, 60, "1000", false, false, false), // over 600 seconds
+            (3200, 120, "L000", false, false, false),
+            (3201, 120, "1000", true, false, false),
+            (4800, 120, "1000", true, false, false),
+            (4801, 120, "1000", false, false, false), // below the ceiling at 600 seconds
+            (4801, 150, "1000", true, false, false),
+            (8000, 250, "1000", true, false, false),
+            (8001, 250, "1000", false, false, false),
             (901, 60, "1000", false, false, false), // over 180 seconds
             (901, 120, "L000", false, false, false),
         ] {
@@ -235,16 +282,23 @@ mod tests {
             .unwrap();
             let estimate = estimate(&song, 0).unwrap();
             assert_eq!(estimate.within_scalar_domain, scalar);
+            if notes > 4800 && scalar {
+                assert_eq!(estimate.decimal, 19.0);
+                let chart = features::extract(&song, 0).unwrap();
+                assert!(!chart.qualifies_scalar(18.999)); // rounds to the same displayed tenth
+            }
             assert_eq!(estimate.within_matched_profile_domain, matched);
             let json = serde_json::to_string(&estimate).unwrap();
             let stored = ddi_library::manifest::ChartEstimate::from_rating_json(&json).unwrap();
-            assert_eq!(stored.profile.is_some(), matched);
+            assert_eq!(stored.scalar, scalar);
+            assert_eq!(stored.profile.is_some(), scalar);
             assert_eq!(stored.studied, matched);
             let mut legacy = serde_json::to_value(&estimate).unwrap();
             legacy
                 .as_object_mut()
                 .unwrap()
                 .remove("within_matched_profile_domain");
+            legacy.as_object_mut().unwrap().remove("matched_spokes");
             let old = ddi_library::manifest::ChartEstimate::from_rating_json(&legacy.to_string())
                 .unwrap();
             assert_eq!(old.profile.is_some(), readouts);
@@ -252,6 +306,73 @@ mod tests {
             assert_eq!(estimate.expected.is_some(), readouts);
             assert_eq!(estimate.conservative.is_some(), readouts);
         }
+    }
+
+    #[test]
+    fn partial_spokes_follow_the_qualified_band_and_chart_opportunities() {
+        use ddi_library::manifest::{ChartEstimate, ProfileSpoke};
+        for (notes, numeric) in [
+            (1200, 255),
+            (1201, 4),
+            (3200, 4),
+            (3201, 13),
+            (4800, 13),
+            (4801, 31),
+            (8000, 31),
+        ] {
+            // One, two and three simultaneous heads. Only Evasion is structurally inactive.
+            let mut remaining = notes;
+            let mut rows = Vec::new();
+            for (row, count) in [("1000", 1), ("0110", 2), ("1110", 3)].into_iter().cycle() {
+                if remaining < count {
+                    break;
+                }
+                rows.push(row);
+                remaining -= count;
+            }
+            rows.extend(std::iter::repeat_n("1000", remaining));
+            rows.resize(rows.len().next_multiple_of(16), "0000");
+            let measures = rows.chunks(16).map(|r| r.join("\n")).collect::<Vec<_>>();
+            let song = parse_sm(&format!(
+                "#BPMS:0=180;#NOTES:dance-single::Hard:1::{};",
+                measures.join(",\n")
+            ))
+            .unwrap();
+            let e = estimate(&song, 0).unwrap();
+            assert!(e.within_scalar_domain, "{notes}");
+            let profile = ChartEstimate::from_rating_json(&serde_json::to_string(&e).unwrap())
+                .unwrap()
+                .profile
+                .unwrap();
+            for (k, state) in profile.iter().enumerate() {
+                match (k, numeric & (1 << k) != 0) {
+                    (7, _) => assert_eq!(*state, ProfileSpoke::Inactive),
+                    (_, true) => {
+                        assert!(matches!(state, ProfileSpoke::Numeric(_)), "{notes} / {k}")
+                    }
+                    _ => assert_eq!(*state, ProfileSpoke::Unavailable),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn long_scalar_uses_playable_heads_for_density() {
+        let charts = ["1000", "M000"].map(|row| {
+            let measure = ["0100", row].repeat(8).join("\n");
+            vec![measure; 125].join(",\n")
+        });
+        let song = parse_sm(&format!(
+            "#BPMS:0=90;#NOTES:dance-single::Hard:1::{};#NOTES:dance-single::Hard:1::{};",
+            charts[0], charts[1]
+        ))
+        .unwrap();
+        let taps = features::extract(&song, 0).unwrap();
+        let mines = features::extract(&song, 1).unwrap();
+        assert_eq!(taps.duration, mines.duration);
+        assert_eq!(taps.heads, 2.0 * mines.heads);
+        assert!(taps.qualifies_scalar(19.));
+        assert!(!mines.qualifies_scalar(19.));
     }
 
     #[test]

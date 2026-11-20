@@ -1643,10 +1643,14 @@ impl SelectScreen {
     /// there is none (`crate::state::ratings::standing`); its shape morphs
     /// from the chart before's (at once under reduced motion).
     fn fill_radar(&mut self, root: &mut Actor) {
-        use crate::state::ratings::Standing;
+        use crate::state::ratings::{ProfileSpoke, Standing};
         use ddi_l10n::msg::select as m;
         let (_, [x, y, w, h]) = self.radar_area();
         let standing = self.radar_standing();
+        let profile = match &standing {
+            Some(Standing::Profile(p)) => Some(p),
+            _ => None,
+        };
         // The spokes' numbers (the caption's first), their shares, and
         // the words: MSD's seven skillsets, or the DDI estimate's eight
         // skills' costs at the chart's matched level, as shares of its
@@ -1662,13 +1666,21 @@ impl SelectScreen {
             // `crate::radar::estimate_spokes`).
             Some(Standing::Profile(p)) => {
                 let decimal = self.chosen_estimate().map_or(1.0, |e| e.decimal);
+                let costs = p.map(|s| match s {
+                    ProfileSpoke::Numeric(c) => c,
+                    ProfileSpoke::Inactive | ProfileSpoke::Unavailable => 0.0,
+                });
                 Some((
                     std::iter::once(crate::radar::number(decimal))
-                        .chain(p.iter().enumerate().map(|(k, c)| {
-                            crate::radar::number(crate::radar::spoke_number(decimal, k, *c))
+                        .chain(p.iter().enumerate().map(|(k, s)| match s {
+                            ProfileSpoke::Numeric(c) => {
+                                crate::radar::number(crate::radar::spoke_number(decimal, k, *c))
+                            }
+                            ProfileSpoke::Inactive => m::radar_inactive().into(),
+                            ProfileSpoke::Unavailable => m::radar_unavailable().into(),
                         }))
                         .collect(),
-                    crate::radar::estimate_spokes(decimal, &p),
+                    crate::radar::estimate_spokes(decimal, &costs),
                     m::radar_estimate_overall().into(),
                 ))
             }
@@ -1700,7 +1712,17 @@ impl SelectScreen {
                     let from = current.unwrap_or_else(|| vec![0.0; to.len()]);
                     self.radar_morph = Some((self.now, from, to.clone()));
                 }
-                let drawn = self.radar_shape_now().filter(|d| d.len() == to.len()).unwrap_or(to);
+                let mut drawn = self.radar_shape_now().filter(|d| d.len() == to.len())
+                    .unwrap_or_else(|| to.clone());
+                if let Some(profile) = profile {
+                    // Numeric values can morph. Structural absences take the chart's
+                    // base radius immediately, and unavailable values leave gaps.
+                    for (k, spoke) in profile.iter().enumerate() {
+                        if !matches!(spoke, ProfileSpoke::Numeric(_)) {
+                            drawn[k] = to[k];
+                        }
+                    }
+                }
                 self.radar_drawn = Some(drawn.clone());
                 let mut full: Vec<String> = [
                     m::radar_stream_full(),
@@ -1751,7 +1773,8 @@ impl SelectScreen {
                 // at 5, 10 and 15); MSD's are quarters of its overall.
                 let marks = crate::radar::estimate_rings();
                 let rings = (drawn.len() == 8).then_some(&marks[..]);
-                Some(crate::radar::radar(&self.env, "Radar", &numbers, &drawn, rings, [w, h], &words))
+                let spokes = crate::radar::Spokes { lengths: &drawn, profile };
+                Some(crate::radar::radar(&self.env, "Radar", &numbers, spokes, rings, [w, h], &words))
             }
             (Some(other), None) => {
                 self.radar_drawn = None;

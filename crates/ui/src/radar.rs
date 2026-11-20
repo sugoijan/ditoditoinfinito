@@ -20,6 +20,7 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use ddi_actor::{Actor, Rgba};
+use ddi_library::manifest::ProfileSpoke;
 
 use crate::look::{call, quad};
 use crate::screens::{Env, frame};
@@ -276,8 +277,20 @@ pub fn shape(shares: &[f32], radius: f32, colors: [Rgba; 4]) -> Actor {
 /// the DDI estimate's difficulty marks, [`estimate_rings`]), else a
 /// quarter of the outer ring apart.
 pub fn shape_with(shares: &[f32], radius: f32, colors: [Rgba; 4], rings: Option<&[f32]>) -> Actor {
+    draw_shape(Spokes { lengths: shares, profile: None }, radius, colors, rings)
+}
+
+/// Lengths may be animated. The current chart's availability always applies.
+#[derive(Clone, Copy)]
+pub struct Spokes<'a> {
+    pub lengths: &'a [f32],
+    pub profile: Option<&'a [ProfileSpoke; 8]>,
+}
+
+fn draw_shape(spokes: Spokes<'_>, radius: f32, colors: [Rgba; 4], rings: Option<&[f32]>) -> Actor {
     let [_, grid, fill, line] = colors;
-    let n = shares.len();
+    let n = spokes.lengths.len();
+    let available = |k: usize| !spokes.profile.is_some_and(|p| p[k] == ProfileSpoke::Unavailable);
     let thin = (radius / 60.0).max(1.0);
     let mut parts = Vec::new();
     // The rings, a quarter of the outer ring apart (or where asked), and
@@ -298,18 +311,29 @@ pub fn shape_with(shares: &[f32], radius: f32, colors: [Rgba; 4], rings: Option<
         parts.push(bar([0.0, 0.0], [x * radius, y * radius], thin, grid));
     }
     // The shape: filled, then outlined, with a dot at each corner.
-    let points = corners(shares, radius);
+    let points = corners(spokes.lengths, radius);
     for k in 0..n {
-        if let Some(s) = sector(points[k], points[(k + 1) % n], fill) {
+        let next = (k + 1) % n;
+        if !available(k) || !available(next) {
+            continue;
+        }
+        if let Some(s) = sector(points[k], points[next], fill) {
             parts.push(s);
         }
     }
     let stroke = (radius / 30.0).max(1.5);
     for k in 0..n {
-        parts.push(bar(points[k], points[(k + 1) % n], stroke, line));
+        let next = (k + 1) % n;
+        if available(k) && available(next) {
+            parts.push(bar(points[k], points[next], stroke, line));
+        }
     }
-    for p in points {
-        let mut dot = quad("", [stroke * 2.2, stroke * 2.2], line);
+    for (k, p) in points.into_iter().enumerate() {
+        if !available(k) {
+            continue;
+        }
+        let name = if spokes.profile.is_some() { format!("Point{k}") } else { String::new() };
+        let mut dot = quad(&name, [stroke * 2.2, stroke * 2.2], line);
         call(&mut dot, "cornerradius", &[stroke * 1.1]);
         call(&mut dot, "xy", &p);
         parts.push(dot);
@@ -644,28 +668,25 @@ fn layout_at(
     }
 }
 
-/// The radar component, `size` (width, height), named `name`, its middle
-/// at the origin: a translucent panel, the shape (`shares`, a spoke each,
-/// which may be a morph's on its way), each spoke's name and number round
-/// it (`numbers[k + 1]`), the caption ("MSD 24.3": `words.overall` and
-/// `numbers[0]`) in its upper left corner; laid out by [`place`]. Drawn only: the panel is named `Panel`, each
-/// label `Label<k>` (its parts `Name` and `Number`), the caption `Caption`.
+/// Draws a radar centered at the origin using [`place`]. Each `Label<k>`
+/// contains its skill name and a number or status from `numbers[k + 1]`.
+/// The caption combines `words.overall` and `numbers[0]`.
 pub fn radar(
     env: &Env,
     name: &str,
     numbers: &[String],
-    shares: &[f32],
+    spokes: Spokes<'_>,
     rings: Option<&[f32]>,
     size: [f32; 2],
     words: &Words,
 ) -> Actor {
     let [w, h] = size;
     let colors = colors(env);
-    let n = shares.len();
+    let n = spokes.lengths.len();
     let p = place(size, words, numbers);
     let mut panel = quad("Panel", [w, h], colors[0]);
     call(&mut panel, "cornerradius", &[h.min(w) * 0.06]);
-    let mut parts = vec![panel, shape_with(shares, p.radius, colors, rings)];
+    let mut parts = vec![panel, draw_shape(spokes, p.radius, colors, rings)];
     let names = if p.full { words.full } else { words.short };
     for (k, rect) in p.labels.iter().enumerate() {
         let [dx, _] = direction(k, n);
@@ -679,7 +700,12 @@ pub fn radar(
         let mut n = env.text("Name", &names[k], p.text, 500, "Secondary");
         call(&mut n, "halign", &[align]);
         call(&mut n, "xy", &[x, rect[1] + line(p.text) / 2.0]);
-        let mut v = env.numbers("Number", &numbers[k + 1], p.text + NUMBER_UP, "Text");
+        let mut v = match spokes.profile.map(|profile| profile[k]) {
+            Some(ProfileSpoke::Inactive | ProfileSpoke::Unavailable) => {
+                env.text("Status", &numbers[k + 1], p.text, 500, "Muted")
+            }
+            _ => env.numbers("Number", &numbers[k + 1], p.text + NUMBER_UP, "Text"),
+        };
         call(&mut v, "halign", &[align]);
         call(&mut v, "xy", &[x, rect[1] + line(p.text) + line(p.text + NUMBER_UP) / 2.0]);
         let mut label = frame(&format!("Label{k}"), vec![n, v]);

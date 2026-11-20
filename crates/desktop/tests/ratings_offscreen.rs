@@ -278,11 +278,9 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
         add("z-stream", "Stream pattern", pattern(150, &RND, 600));
         add("z-jacks", "Jack pattern", pattern(130, &JACK, 480));
         add("z-slow", "Quarter notes", pattern(70, &["1000", "0000", "0000", "0000", "0100", "0000", "0000", "0000"], 600));
-        // Over 900 source notes with mines in it: the number qualifies (to
-        // 1,200), the matched-level profile does not (a chart this long
-        // without mines has one since the estimator's later qualification).
-        let mined: Vec<&str> = RND.iter().copied().chain(["M000"]).collect();
-        add("z-long", "Long stream", pattern(120, &mined, 1100));
+        // Only Handstream qualifies numerically here. Evasion is structurally inactive.
+        add("z-partial", "Partial radar", pattern(150, &["1110", "0001", "1100", "0100"], 1500));
+        add("z-outside", "Outside duration", pattern(60, &RND, 1000));
         let look = Rc::new(ddi_theme::Infinito::new());
         let env = Env::new(look.clone(), Rc::new(|s: &str| s.to_string()));
         env.reduced_motion.set(true);
@@ -297,7 +295,8 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
             ("z-stream", None, ratings::Source::Estimate, "estimate-stream", "shown"),
             ("z-jacks", None, ratings::Source::Estimate, "estimate-jacks", "shown"),
             ("z-slow", None, ratings::Source::Estimate, "estimate-flat", "shown"),
-            ("z-long", None, ratings::Source::Estimate, "estimate-outside", "outside"),
+            ("z-partial", None, ratings::Source::Estimate, "estimate-partial", "shown"),
+            ("z-outside", None, ratings::Source::Estimate, "estimate-outside", "outside"),
         ] {
             ratings::set_mode(source, true);
             let mut ui = Ui::new(ddi_ui::screens::DESIGN, ddi_ui::TextMode::Own, false);
@@ -337,6 +336,14 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
             if want == "shown" {
                 let spokes = if source == ratings::Source::Msd { 7 } else { 8 };
                 assert_apart_n(&ui, &format!("{scene} {lang}"), spokes);
+            }
+            if id == "z-partial" {
+                for k in 0..8 {
+                    assert_eq!(ui.bounds_of("Radar", &format!("Point{k}")).is_some(), matches!(k, 2 | 7));
+                }
+                for (k, expected) in [(0, "Status"), (2, "Number"), (7, "Status")] {
+                    assert!(ui.bounds_of(&format!("Label{k}"), expected).is_some());
+                }
             }
             if let Some(p) = shot {
                 keep(scene, size, lang, &p);

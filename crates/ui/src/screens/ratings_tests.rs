@@ -580,15 +580,19 @@ fn the_estimate_s_radar_draws_each_state() {
         level: decimal.round() as u8,
         scalar: true,
         studied,
-        profile,
+        profile: profile.map(|p| p.map(ratings::ProfileSpoke::Numeric)),
     };
-    // Song 0: Medium with a profile, Hard with tiny costs; song 1: Medium outside,
-    // Hard waiting.
+    // Song 0 has a full Medium profile and a partial Hard profile.
+    // Song 1's Medium falls outside the domain and its Hard is waiting.
     ratings::remember_estimate(
         ddi_chart::ChartDigest(0),
         est(9.44, Some([2.86, 0.0, 0.0, 1.45, 12.29, 0.0, 0.0, 0.0]), true),
     );
-    ratings::remember_estimate(ddi_chart::ChartDigest(1), est(3.0, Some([0.1, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0]), true));
+    use ratings::ProfileSpoke::{Inactive, Numeric, Unavailable};
+    let mut partial = est(16.0, None, false);
+    partial.profile = Some([Unavailable, Unavailable, Numeric(0.0), Unavailable,
+                            Unavailable, Unavailable, Unavailable, Inactive]);
+    ratings::remember_estimate(ddi_chart::ChartDigest(1), partial);
     ratings::remember_estimate(ddi_chart::ChartDigest(10), est(18.2, None, false));
     let mut data = songs();
     // Song 2: Double.
@@ -597,11 +601,14 @@ fn the_estimate_s_radar_draws_each_state() {
     }
     let (mut h, e) = select_at(data, [1280.0, 720.0]);
     let said = |e: &Env| e.state.borrow().radar.clone();
-    // Song 0's Hard (chosen first): no skill stands out, a regular
-    // octagon (round Z3: no words for it any more).
+    // Song 0's Hard has one qualified numeric zero, one inactive skill and six gaps.
     assert_eq!(said(&e), "shown");
     assert!(h.ui.bounds("RadarNote").is_none());
     assert_eq!(e.state.borrow().chart.as_deref(), Some("Hard 9"));
+    let texts = h.texts();
+    assert!(texts.iter().any(|t| t == "Inactive"));
+    assert_eq!(texts.iter().filter(|t| t.as_str() == "Unavailable").count(), 6);
+    assert!(texts.contains(&crate::radar::number(crate::radar::spoke_number(16.0, 2, 0.0))));
     h.tap(PointerKind::Mouse, "Chart0");
     h.run(0.6);
     assert_eq!(said(&e), "shown");

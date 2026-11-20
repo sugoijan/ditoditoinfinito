@@ -282,7 +282,9 @@ is and nothing is removed.
   charts. `ddi_ui::state::ratings::Source` carries the choice.
 - **The number**: an original `dance-single` chart's `Estimate::level`
   (1 to 19) where the estimate qualifies it (`within_scalar_domain`: 48+
-  playable heads, at most 1,200 source notes, 15 to 180 s, no lifts),
+  playable heads, no lifts, and either up to 1,200 source notes over 15–180 s
+  or 1,201–4,800 over 15–600 s passing the frozen duration/density rule,
+  extended to 8,000 only for an exact decimal of 19.0),
   wherever MSD's number shows. Since round AD (2026-11-19, the
   maintainer: "A tenth everywhere") its decimal to a tenth everywhere it
   shows (the list's rows, the chart buttons, a ladder row, the prompt,
@@ -308,8 +310,8 @@ is and nothing is removed.
   by one function, `ddi_library::manifest::ChartEstimate::from_rating_json`
   (the build, desktop's thread, and the page reading the worker's
   answer). Kept by chart digest under `ddi.estimate.v1`, beside
-  `ddi.msd.v1`, with `ddi_rating::ESTIMATOR`, `SCALE` and the profile's
-  rule's name (`PROFILE_RULE`): a new one forgets them. A chart 39
+  `ddi.msd.v1`, with `ddi_rating::ESTIMATOR`, `SCALE` and the version of the
+  qualification and profile rule (`PROFILE_RULE`). A new version refreshes them. A chart 39
   characters (digest, decimal and level, flags), 71 with a profile (its
   eight costs); a chart estimated without result kept as such, so it is
   not estimated again.
@@ -478,3 +480,28 @@ The maintainer's decisions after the song-select layout study
   left out the rows of mines, fakes and unjudged notes (StepMania counts
   any row) while counting rows the timing does not judge in the others;
   the last row did not follow StepMania's per-lane `GetLastRow`.
+
+## Partial DDI profiles at the displayed chart level
+
+Song select reads the estimator's per-spoke qualification on a scalar-qualified
+original Single chart. For each numeric skill it uses the existing matched-level
+cost and the same chart-relative label and radius. These bands use source note
+count and the scalar's full-precision eligibility decision.
+
+| Source notes | Skills eligible for a number |
+|---|---|
+| Up to 900, or through 1,200 without playable mines | All eight |
+| 901–1,200 with playable mines | None |
+| 1,201–3,200 | Handstream |
+| 3,201–4,800 | Stream, Handstream, Stamina |
+| 4,801–8,000 with an exact 19.0 | Stream, Jumpstream, Handstream, Stamina, JackSpeed |
+
+A structurally inactive skill shows **Inactive** at the chart's base radius.
+Without single-head rows this applies to Stream and JackSpeed, without
+two-head rows to Jumpstream, without three- or four-head rows to Handstream,
+without multi-head rows to Chordjack, and without playable mines to Evasion.
+Other unqualified spokes show **Unavailable** with a gap in the plotted data.
+The manifest stores each spoke as a numeric cost or the string `inactive` or
+`unavailable`. Old numeric arrays still deserialize. The versioned device cache
+refreshes imported estimates so it can distinguish structural absence from a
+numeric cost of zero.

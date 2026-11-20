@@ -30,11 +30,38 @@ pub(super) struct Chart {
     pub rows: Vec<Row>,
     pub mines: usize,
     pub duration: f64,
-    pub scalar_studied: bool,
+    pub(super) source_notes: usize,
+    has_lifts: bool,
     pub readouts_studied: bool,
     pub matched_profile_studied: bool,
     pub units: f64,
     pub heads: f64,
+}
+
+impl Chart {
+    pub(super) fn qualifies_scalar(&self, decimal: f64) -> bool {
+        if self.heads < 48.0 || self.has_lifts {
+            return false;
+        }
+        if self.source_notes <= 1200 {
+            return (15.0..=180.0).contains(&self.duration);
+        }
+        if !(15.0..=600.0).contains(&self.duration) || self.source_notes > 8000 {
+            return false;
+        }
+        // Only the upper plateau of the frozen mapping qualified in this band.
+        if self.source_notes > 4800 && decimal != 19.0 {
+            return false;
+        }
+
+        // Frozen long-chart rule. Density counts playable heads, including
+        // hold and roll heads, and excludes mines.
+        let duration = (self.duration.ln() - 5.3788065525642725) / 0.4897688972455666;
+        let density = ((self.heads / self.duration).ln() - 2.0491978721387354) / 0.5077202437864153;
+        let risk =
+            0.04756054481605719 - 0.04640558484658968 * duration - 0.07233864496876079 * density;
+        risk <= 0.0774651151114101
+    }
 }
 
 pub(super) fn extract(song: &Song, index: usize) -> Result<Chart, String> {
@@ -239,18 +266,19 @@ pub(super) fn extract(song: &Song, index: usize) -> Result<Chart, String> {
     if demands.next().is_some() || total_heads == 0. {
         return Err("chart has inconsistent or empty head rows".into());
     }
-    let eligible = total_heads >= 48. && (15.0..=180.).contains(&duration) && !lifts;
+    let short_domain = total_heads >= 48. && !lifts && (15.0..=180.).contains(&duration);
     let notes = chart.notes.len();
     let mines = plan.counts().2;
-    let readouts_studied = eligible && notes <= 900;
+    let readouts_studied = short_domain && notes <= 900;
     Ok(Chart {
         rows,
         mines,
         duration,
         heads: total_heads,
         units: total_units,
-        scalar_studied: eligible && notes <= 1200,
+        source_notes: notes,
+        has_lifts: lifts,
         readouts_studied,
-        matched_profile_studied: readouts_studied || (eligible && mines == 0 && notes <= 1200),
+        matched_profile_studied: readouts_studied || (short_domain && mines == 0 && notes <= 1200),
     })
 }

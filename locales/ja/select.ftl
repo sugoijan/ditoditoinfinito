@@ -90,6 +90,10 @@ select-radar-evasion = 回避
 select-radar-evasion-full = 回避
 select-radar-estimate-overall = DDI
 select-radar-estimate-unit = 同じくらいの難しさの譜面と比べたスキル
+# Short spoke status below the skill name when the chart cannot exercise this skill.
+select-radar-inactive = 対象外
+# Short spoke status below the skill name when its estimate is unqualified.
+select-radar-unavailable = 未評価
 select-radar-outside = 利用できません
 select-radar-estimate-layout = DDI推定はシングルの譜面のみです
 select-radar-estimate-none = この譜面の推定はありません
