@@ -437,21 +437,33 @@ fn study() {
             return;
         }
     }
-    // A frame's cost: off, on, flooded (50 messages a second), alone and
-    // with eight CPUs.
-    for cpus in [None, Some(8)] {
+    // A frame's cost: off, on, flooded (50 messages a second) and a
+    // screen full of animated emotes (round TW4), alone and with eight
+    // CPUs, at 1280×720 and a phone's size held upright
+    // (`DDI_CHAT_COST=<text>` picks those whose names have it).
+    let pick = std::env::var("DDI_CHAT_COST").unwrap_or_default();
+    let sizes = [([1280, 720], "1280"), ([390, 844], "phone")];
+    for (size, at, cpus) in sizes
+        .into_iter()
+        .flat_map(|(size, at)| [None, Some(8)].map(|cpus| (size, at, cpus)))
+    {
         for (what, level, script) in [
             ("off", Level::Off, "demo"),
             ("on", Level::Messages, "demo"),
             ("flood", Level::Messages, "50"),
+            ("animated", Level::Emotes, "animated"),
         ] {
             let s = Scenario {
                 cpus,
                 level,
                 script,
+                size,
                 measure: Some(6.0),
-                ..Scenario::new(&format!("cost-{}-{what}", cpus.unwrap_or(0)))
+                ..Scenario::new(&format!("cost-{at}-{}-{what}", cpus.unwrap_or(0)))
             };
+            if !s.name.contains(&pick) {
+                continue;
+            }
             let p = play(&s).unwrap();
             eprintln!(
                 "{}: {} frames: record {}; chat {}; batches {}; most items {}; stats {:?}",
