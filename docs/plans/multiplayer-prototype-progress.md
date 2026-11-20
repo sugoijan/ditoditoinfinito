@@ -12993,6 +12993,77 @@ Open: a disconnect from another device leaves cached answers keeping
 people out up to five minutes; waiting for the spike: Helix, the chat's
 transports, the providers' sets.
 
+## Round DB: the maintainer's answers on song select, the room's song list and names (room model revision 19, 2026-11-20)
+
+The maintainer's answers of 2026-11-20, each its own commit; the round
+was stopped part-way and finished by a second agent, who reviewed the
+first one's commits.
+
+- **Hosts and co-hosts fill the whole list** (`RoomState::song_quota`:
+  none for a host, a co-host or an administrator; half the list's size
+  for anyone else once stage 3 lets everyone add). Host options' note
+  says it. Tests: `a_full_list_removes_its_oldest_or_refuses_and_hosts_may_fill_it`,
+  `a_host_fills_the_whole_song_list_through_both_authorities` (local and
+  online authority alike), `a_pack_is_added_up_to_the_list_s_room_and_its_uploads_are_counted`.
+- **Bundled songs are uploaded** as any song: `NewSong` has no `bundled`
+  any more, a new entry is Pending until its share is there; a device
+  that has the song by its content still plays its own copy. An entry a
+  room stored before (listed by content, no share) still reads and plays
+  from each device's own copy; a device without it reports it unreadable.
+  **This is why the room model is at revision 19**: a revision-18 client
+  would list a bundled song it never uploads, the entry Pending for
+  ever, so the server refuses it (`update_required`). The exemption above
+  rides in the same revision. `tests/room-revision-18.json` (revision
+  18's own reducer reads it and writes it back the same, checked in a
+  scratch export of `7fd845bc`) loads under 19 with its bundled entry
+  playable: `a_room_stored_by_revision_18_keeps_its_bundled_entry_playable`;
+  the client: `a_bundled_song_is_uploaded_and_a_device_that_has_it_plays_its_own_copy`.
+  Server `de957e9` (README; its test's `NewSong`), deployed first.
+- **An abandoned room's songs are kept a day** past its last report (the
+  server's `ROOM_SONGS_KEPT_SECS`, `RoomConfig::share_life_secs`, server
+  `e115485`, `a_rooms_songs_are_kept_a_day`); the privacy note's sentence
+  says "a day" (page, Credits' fold, both languages).
+- **Likely next is eight songs within 128 MB** (`room-preload-v1`,
+  `PRELOAD_V1`; v0 four within 64 MB), Options' description says it.
+  Test: `likely_next_keeps_to_its_budget_of_bytes`.
+- **A Room songs row shows the player's best grade or NEW** where the
+  listed song is in their library (matched by content), as the library's
+  row; nothing for a song here only from the room
+  (`SongEntry::room_only`) or not here yet; the library sent again (the
+  history read later) remakes the room's list on Room songs, never
+  replacing it (`SelectScreen::room_library_feed`). Tests:
+  `a_room_row_shows_the_players_best_or_new_where_their_library_has_it`;
+  desktop offscreen, `room_picker_offscreen` (the member's rows: AA and
+  NEW; the co-host's, who lacks the songs: neither).
+- **The Groove radar's numbers are whole**, a hundred times the value
+  (already so since round SLB; pinned now:
+  `the_groove_radar_writes_a_hundred_times_its_values_whole`).
+- **A phone's singleplayer chart row has a place per chart**, the rule
+  every layout shares (`SelectScreen::chart_places`: as many as the
+  charts, five at least, eight at most, narrower past five); the sliding
+  five and `chart_places_max` went. `a_phones_chart_row_keeps_a_place_per_chart`
+  (one, five and eight charts, both ways up). The theme's pins moved for
+  the phone's third picture (its song has more than five Single charts).
+- **F follows the typed letter**: already built in round AD
+  (`8e86b6a4`, `the_hearts_key_is_the_typed_letter_f`: code `KeyU`
+  typing f turns the heart, `KeyF` typing u does not); walked again.
+- **`room::players_panel` removed** (nothing drew it since round SLB's
+  three parts), with its layout field and `room-panel-points`.
+- **The announcer's first-time notice in a room**: not reproduced (TW3's
+  picture shows it in its place, under the Players pop-up; Chrome and
+  Firefox at 1024×640, 1280×720, 1920×1080, 844×390 and 390×844 put it
+  where singleplayer has it). Kept so by
+  `the_announcer_notice_sits_in_a_room_where_singleplayer_has_it`.
+- **"Leader" reads "Top score"** (最高スコア, a draft; the glossary has
+  it) in the prompt's row, the play's label, the players panel and
+  pop-up, Rules and the results; identifiers and stored values keep
+  `Leader`. Its description still says what it does: "whoever has the
+  most life" (a question for the maintainer: the name says score).
+
+Also: server `415a958`, the deployed configuration's test expecting the
+Twitch links' binding and migration v4 (round TW1's configuration had
+left it failing).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -13000,7 +13071,7 @@ transports, the providers' sets.
 | `room-preload-v1` (2026-11-19, round RL2; v1 2026-11-20, round DB): every listed song downloaded ahead by default (listings and banners first, then two songs at once: a stage's, the picker's, the newest), never a movie, nothing from a stage's countdown to its end, only the stage's song while it gathers readiness; Likely next the newest eight up to 128 MB beside those two (v0: four, 64 MB) | `ddi_ui::state::room::PRELOAD_V1`, `preload.rs` | A list of eight 5 MB songs is on every device in a few seconds on a fast link (40 MB); a pick's loading wait ends at once | The numbers; whether banners should come under Off too |
 | `room-have-v0` (2026-11-19, round RL2): who has which listed song, said by each device at most every five seconds, at most 64 ranges | `ddi_room::live::have` (`HAVE_EVERY_MS`, `MAX_RANGES`) | The rows' "11 of 12 have it"; the picker's warning | The five seconds |
 | `room-songs-v0` (2026-11-19, round RL1): a room's list at most 100 songs, its size a host setting (5 to 100), the oldest not in use removed when full by default, a person at most half the list's size, hosts and co-hosts exempt (round DB, 2026-11-20); an entry at most 32 original charts | `ddi_room::songs` (`MAX_SONGS`, `ListRules`, `MAX_CHARTS`), `RoomState::song_quota` | A host fills a hundred songs, alone too; a full list loses its oldest song not picked | The bounds |
-| `room-share-life-v0` (2026-11-19, round RL1): a room's shares kept while the room reports itself to the registry, each report moving their expiry to the room's idle life (a week) from then | the server's index (`report`), `RoomConfig::share_life_secs` | A song added to a room lives as long as the room; a room lost without ending leaves its songs a week at most | The week |
+| `room-share-life-v0` (2026-11-19, round RL1; a day since round DB, 2026-11-20): a room's shares kept while the room reports itself to the registry, each report moving their expiry to a day from then (`ROOM_SONGS_KEPT_SECS`; the room's idle life, a week, before) | the server's index (`report`), `RoomConfig::share_life_secs` | A song added to a room lives as long as the room; a room lost without ending leaves its songs a day at most | None (the maintainer's day) |
 | `load-retry-v0` (2026-11-16, round P1b): a failed download of a stage's song tried again after 2 s and 5 s, the room told "loading" meanwhile, then reported failed with Retry offered | `ddi_ui::state::room::LOAD_RETRY_V0_MS`, `RoomClient::retry_load` | A brief network failure costs a few seconds, not the stage; after two more failures, "Download failed" in the lists and Retry on the member's song select | The waits; whether Retry should also show on a Ready screen (there is none without the song) |
 | `quiet-ping-v0` (2026-11-16, round P1b): a live room's clock pinged once a minute between stages, a burst of five at each pick | `ddi_room::LivePolicy::QUIET_PING_V0_MS`, `LiveLink::set_quiet` | None (the estimate at a stage's start is no worse); the room's object woken six times fewer between stages | The minute |
 | A late entry within `late_join_ms` (5 s) of a stage's song's time zero (2026-11-16, round P1b) | `ddi_room::RoomState::late_entry_open`, `Event::EnteredLate` | One who missed the Ready window keeps the Ready screen for those seconds and plays late (the notes before missed) | Whether the bound should be its own number rather than the late join's |

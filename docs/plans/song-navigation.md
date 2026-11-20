@@ -220,6 +220,15 @@ line to the screen's edge, the list's scrollbar against the line.
   device says "Not loaded yet" on its title plate.
 - Phones keep the room's short side (now with the cover square) and the
   players strip with its pop-up.
+- The app's notices (the announcer's first-time "An announcer now speaks
+  in plays…", a storage prompt) sit on the room's song select where
+  singleplayer has them: the wide layout's line under the header over
+  the song's side, a phone's under the chart buttons, clear of the
+  song's side, the room's tabs, its status line and a phone's players
+  strip (round DB, 2026-11-20; checked by
+  `the_announcer_notice_sits_in_a_room_where_singleplayer_has_it`). The
+  overlap reported from round TW3's picture did not reproduce: there the
+  line was in its place, under the Players pop-up.
 
 ## Favorites (2026-11-18)
 
