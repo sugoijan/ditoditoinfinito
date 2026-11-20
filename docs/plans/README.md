@@ -52,6 +52,18 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   1): every listed song downloaded ahead by default into a store of the
   room's own (Options → Data's Room songs ahead), the rows filled in, who
   has what over the live side.
+- [The host's Twitch in a room](multiplayer-twitch.md) (2026-11-20):
+  designed, nothing built. A streaming host's Twitch bans and blocks
+  keeping people out of the room (the host's token on the server, checked
+  at join, ticket and each pick; room model revision 18), a host's or
+  co-host's Kick behind a Moderate toggle, and the host's chat behind
+  the play on each
+  member's device, across the screen or falling, emotes or messages
+  (each device's own socket to Twitch, subscribed by the server with
+  that person's token, so no chat passes through us and the game holds
+  no Twitch token; four emote providers, a proxy behind each for when
+  direct access fails); what was measured of the emote hosts' CORS, what
+  a spike has still to confirm, and the maintainer's thirteen answers.
 - [The audience](multiplayer-audience.md) (2026-11-13): watching a room
   beyond its members, counted and not listed: who is audience (a link of
   its own, offered at the member bound), the public view, relays against
