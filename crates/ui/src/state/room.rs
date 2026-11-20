@@ -64,7 +64,7 @@ use crate::state::online::link::{LinkNotice, OnlineLink};
 use crate::screens::data::{ChartEntry, SongEntry};
 
 mod preload;
-pub use preload::{Listing, PRELOAD_V0, PreloadJob, PreloadProblem, PreloadRules, Stop};
+pub use preload::{Listing, PRELOAD_V1, PreloadJob, PreloadProblem, PreloadRules, Stop};
 
 /// The engine's CPU levels (`ddi_engine::cpu::CPU_LEVELS`, ten, since
 /// `cpu-levels-v1` abilities the same on every chart, with a person's shape

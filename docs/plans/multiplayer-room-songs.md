@@ -138,7 +138,7 @@ Every bot says the room's list as it changes.
 Nothing had been deployed at revision 17, so stage 2's additions to the
 wire (two live messages) stay in it; peers that both speak 17 agree.
 
-### The plan (`crates/ui/src/state/room/preload.rs`, `room-preload-v0`, PROVISIONAL)
+### The plan (`crates/ui/src/state/room/preload.rs`, `room-preload-v1`, PROVISIONAL)
 
 - Each member's device downloads the listed songs its own library does
   not have (a song whose original charts' digests it has, a bundled song
@@ -165,8 +165,9 @@ wire (two live messages) stay in it; peers that both speak 17 agree.
 ### The option
 
 Options → Data, "Room songs ahead": Everything (the default), Likely next
-(the picked song, the picker's, and the newest up to four songs and
-64 MB), Off (a song is fetched when picked, as in stage 1). Per device
+(the picked song, the picker's, and the newest up to eight songs and
+128 MB, `room-preload-v1`; round DB, 2026-11-20, the maintainer; four and
+64 MB before, `room-preload-v0`), Off (a song is fetched when picked, as in stage 1). Per device
 (`Settings::room_ahead`, none stored: the device's own default): on the
 web Likely next where `navigator.connection.saveData` is set or the
 screen's short side is under 600 CSS pixels, else Everything; desktop

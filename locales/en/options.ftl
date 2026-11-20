@@ -538,7 +538,7 @@ options-room-ahead-off = Off
 # Its description: what each choice downloads and what it costs.
 # Variables:
 #   $device (String) - this device's default, one of the choices' names
-options-room-ahead-description = In an online room, get the room's songs before they're picked so a stage starts at once: all of them (a few megabytes each, no movies), the likely next few, or none. Deleted when you leave the room. Default here: { $device }.
+options-room-ahead-description = In an online room, get the room's songs before they're picked so a stage starts at once: all of them (no movies), the likely next eight (128 MB at most), or none. Deleted when you leave the room. Default here: { $device }.
 
 # Where the field and the dancing hand's view go together.
 options-hand-layout = Field + hand layout

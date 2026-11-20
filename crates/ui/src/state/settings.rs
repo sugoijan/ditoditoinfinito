@@ -476,7 +476,7 @@ pub enum OpponentFields {
 }
 
 /// How much of an online room's song list a device downloads ahead of
-/// the picks (`room-preload-v0`, `crate::state::room`'s preload; the
+/// the picks (`room-preload-v1`, `crate::state::room`'s preload; the
 /// maintainer, 2026-11-19: everything by default, a per-device option to
 /// lower it). Movies are never downloaded ahead.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

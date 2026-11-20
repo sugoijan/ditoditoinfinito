@@ -1,5 +1,5 @@
 //! Stage 2 of the room's song list (`docs/plans/multiplayer-room-songs.md`):
-//! the listed songs downloaded ahead (`room-preload-v0`) and who has what
+//! the listed songs downloaded ahead (`room-preload-v1`) and who has what
 //! (`room-have-v0`), from the client's side over the fake room.
 
 use super::live_tests::room_with;
@@ -194,7 +194,7 @@ fn a_stage_stops_the_downloads_and_running_out_of_room_falls_back() {
     for _ in 0..20 {
         tick(&clock, &mut [&mut alice, &mut bob], 100);
     }
-    let all: Vec<SongEntry> = (0..8)
+    let all: Vec<SongEntry> = (0..12)
         .map(|i| packed(&format!("s{i}"), &format!("S{i}"), 20 + i))
         .collect();
     alice.set_library(&all);
@@ -205,7 +205,7 @@ fn a_stage_stops_the_downloads_and_running_out_of_room_falls_back() {
     uploaded(&server, &alice);
     tick(&clock, &mut [&mut alice, &mut bob], 400);
     let ids: Vec<RoomSongId> = bob.room_songs().iter().map(|e| e.id).collect();
-    for _ in 0..2 {
+    for _ in 0..3 {
         for j in bob.take_preload_jobs() {
             if let PreloadJob::Listing { song, share, .. } = j {
                 bob.preload_listed(song, Ok(listing(&share, 6_000_000)));
@@ -262,7 +262,7 @@ fn a_stage_stops_the_downloads_and_running_out_of_room_falls_back() {
     let jobs = bob.take_preload_jobs();
     let next = songs(&jobs);
     assert_eq!(next.len(), 2, "{jobs:?}");
-    assert_eq!(next[0], ids[7]);
+    assert_eq!(next[0], ids[11]);
     // Out of room: Likely next from then, said once on the status line.
     bob.preload_done(next[0], Err(PreloadProblem::Quota));
     assert!(bob.ahead_quota());
@@ -273,9 +273,10 @@ fn a_stage_stops_the_downloads_and_running_out_of_room_falls_back() {
     );
     bob.preload_done(next[1], Err(PreloadProblem::Stopped));
     tick(&clock, &mut [&mut alice, &mut bob], 400);
-    // Likely next: the newest few up to the budget (four of 6 MB).
+    // Likely next: the newest few up to the budget (eight of 6 MB, of
+    // eleven not here).
     let mut planned = Vec::new();
-    for _ in 0..6 {
+    for _ in 0..8 {
         for j in bob.take_preload_jobs() {
             if let PreloadJob::Song { song, .. } = j {
                 planned.push(song);
@@ -285,7 +286,50 @@ fn a_stage_stops_the_downloads_and_running_out_of_room_falls_back() {
         tick(&clock, &mut [&mut alice, &mut bob], 400);
     }
     planned.sort();
-    assert_eq!(planned, vec![ids[4], ids[5], ids[6], ids[7]]);
+    assert_eq!(planned, ids[4..].to_vec());
+}
+
+/// Likely next (round DB, `room-preload-v1`): the newest songs up to eight
+/// and 128 MB in all: three of 40 MB, the fourth past the budget.
+#[test]
+fn likely_next_keeps_to_its_budget_of_bytes() {
+    let clock = ManualClock::new(1_000);
+    let server = room_with(&clock, &["bob"], RoomPolicy::default().with_live());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+    bob.set_ahead(Some(RoomAhead::LikelyNext));
+    for _ in 0..20 {
+        tick(&clock, &mut [&mut alice, &mut bob], 100);
+    }
+    let all: Vec<SongEntry> = (0..6)
+        .map(|i| packed(&format!("b{i}"), &format!("B{i}"), 60 + i))
+        .collect();
+    alice.set_library(&all);
+    for s in &all {
+        alice.add_song(s).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 100);
+    }
+    uploaded(&server, &alice);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let ids: Vec<RoomSongId> = bob.room_songs().iter().map(|e| e.id).collect();
+    let mut planned = Vec::new();
+    for _ in 0..8 {
+        for j in bob.take_preload_jobs() {
+            match j {
+                PreloadJob::Listing { song, share, .. } => {
+                    bob.preload_listed(song, Ok(listing(&share, 40 * 1024 * 1024)));
+                }
+                PreloadJob::Song { song, .. } => {
+                    planned.push(song);
+                    bob.preload_done(song, Ok(()));
+                }
+                _ => {}
+            }
+        }
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+    }
+    planned.sort();
+    assert_eq!(planned, ids[3..].to_vec());
 }
 
 /// More's Add this pack: every song of the pack not in the room yet, as

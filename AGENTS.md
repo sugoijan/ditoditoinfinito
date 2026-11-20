@@ -1741,12 +1741,12 @@ Rust and the browser are implementation details, not advertised features.
   is shared ahead or read for it any more. Stage 2 (still revision 17):
   each member's device downloads the listed songs it does not have ahead
   of the picks into a store of the room's own (`state/room/preload.rs`,
-  `room-preload-v0`: listings and banners first, a stage's song, the
+  `room-preload-v1`: listings and banners first, a stage's song, the
   picker's, the newest; never a movie; none from a stage's countdown to
   its end; `PreloadJob`, `RoomCall::Preload`, `RoomClient::store`,
   `ahead_song`, `have_count`; Options → Data's Room songs ahead,
   `Settings::room_ahead`, a phone's or a data-saving browser's default
-  Likely next), the web's in the library's IndexedDB under `room/<store>/`
+  Likely next, the newest up to eight songs and 128 MB besides those), the web's in the library's IndexedDB under `room/<store>/`
   (`crates/web/src/room_store.rs`), desktop's in the cache folder's
   `rooms/<store>/` (`share::load_with`), each emptied when the room is
   left. A pick that names no entry

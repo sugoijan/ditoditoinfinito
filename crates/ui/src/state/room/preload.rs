@@ -1,5 +1,5 @@
 //! Downloading a room's listed songs ahead of the picks
-//! (`docs/plans/multiplayer-room-songs.md`, stage 2, `room-preload-v0`,
+//! (`docs/plans/multiplayer-room-songs.md`, stage 2, `room-preload-v1`,
 //! PROVISIONAL): each member's device fetches the room's songs it does not
 //! have into a store of the room's own ([`PreloadJob`]: the shell's to do,
 //! answered by [`RoomClient::preload_listed`], [`RoomClient::preload_progress`]
@@ -18,7 +18,7 @@
 //!   any song's bytes, so the rows fill in.
 //! - **In what order**: the song a stage picked and not yet played first,
 //!   then the one the picker is on, then the newest added, then the rest;
-//!   [`PRELOAD_V0`]'s bounded number at once.
+//!   [`PRELOAD_V1`]'s bounded number at once.
 //! - **When**: never from a stage's countdown to its end (`Countdown`,
 //!   `Stage`, `SongCompletion`: a download in flight is stopped, taken up
 //!   again after), while a stage gathers readiness only its song, and not
@@ -45,7 +45,8 @@ use super::{EntryState, LOAD_RETRY_V0_MS, RoomClient, Sharing};
 use crate::screens::data::SongEntry;
 use crate::state::settings::RoomAhead;
 
-/// The numbers of the plan (PROVISIONAL, `room-preload-v0`).
+/// The numbers of the plan (PROVISIONAL, `room-preload-v1`; `-v0`, four
+/// songs within 64 MB for Likely next, retired in round DB).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PreloadRules {
     pub id: &'static str,
@@ -62,12 +63,14 @@ pub struct PreloadRules {
     pub unknown_bytes: u64,
 }
 
-pub const PRELOAD_V0: PreloadRules = PreloadRules {
-    id: "room-preload-v0",
+/// Likely next is eight songs within 128 MB (round DB, the maintainer,
+/// 2026-11-20).
+pub const PRELOAD_V1: PreloadRules = PreloadRules {
+    id: "room-preload-v1",
     at_once: 2,
     listings_at_once: 4,
-    likely_newest: 4,
-    likely_bytes: 64 * 1024 * 1024,
+    likely_newest: 8,
+    likely_bytes: 128 * 1024 * 1024,
     unknown_bytes: 8 * 1024 * 1024,
 };
 
@@ -471,7 +474,7 @@ impl RoomClient {
         let store = self.store();
         // Listings first: every song's banner before any song's bytes.
         let in_flight = self.ahead.got.values().filter(|g| g.listing.asked()).count();
-        let mut room = PRELOAD_V0.listings_at_once.saturating_sub(in_flight);
+        let mut room = PRELOAD_V1.listings_at_once.saturating_sub(in_flight);
         let mut listings_left = false;
         for (_, id, share) in &wanted {
             if gathering && !ranked_first(&wanted, *id) {
@@ -500,7 +503,7 @@ impl RoomClient {
             return;
         }
         let in_flight = self.ahead.got.values().filter(|g| g.song.asked()).count();
-        let mut room = PRELOAD_V0.at_once.saturating_sub(in_flight);
+        let mut room = PRELOAD_V1.at_once.saturating_sub(in_flight);
         for (_, id, share) in &wanted {
             if room == 0 {
                 break;
@@ -569,9 +572,9 @@ impl RoomClient {
                     }
                     let size = match self.ahead.got.get(id).map(|g| &g.listing) {
                         Some(Step::Done(l)) => l.bytes,
-                        _ => PRELOAD_V0.unknown_bytes,
+                        _ => PRELOAD_V1.unknown_bytes,
                     };
-                    if newest >= PRELOAD_V0.likely_newest || bytes + size > PRELOAD_V0.likely_bytes {
+                    if newest >= PRELOAD_V1.likely_newest || bytes + size > PRELOAD_V1.likely_bytes {
                         break;
                     }
                     newest += 1;
