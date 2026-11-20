@@ -1548,7 +1548,6 @@ pub fn new_song(song: &SongEntry) -> Option<ddi_room::NewSong> {
                 })
             })
             .collect(),
-        bundled: song.pack.is_none(),
     })
 }
 
@@ -5942,8 +5941,9 @@ impl RoomClient {
                     store: Some(self.store()),
                     ..LoadJob::from_share(stage, readiness_rev, share, &content.chart, live)
                 },
-                // A listed bundled song (nothing uploaded) this device
-                // does not have: it cannot be read here.
+                // An entry a room stored before revision 19 listed as a
+                // bundled song (nothing uploaded) that this device does
+                // not have: it cannot be read here.
                 (None, None) => {
                     let _ = self.send(Command::ReportLoading {
                         stage,

@@ -22,8 +22,11 @@
 //! most half the list's size, hosts and co-hosts the whole list
 //! (`RoomState::song_quota`, round DB). A song is uploaded when it is added (the
 //! server's grant per entry), kept while the room lives and deleted when
-//! it is removed or the room ends; a bundled song everyone has is listed
-//! by its content alone, nothing uploaded ([`RoomSong::bundled`]).
+//! it is removed or the room ends. A bundled song is uploaded as any
+//! other (revision 19, round DB: the room's share the one source); a
+//! device that has a listed song by its content plays its own copy. An
+//! entry a room stored before listed a bundled song with nothing uploaded
+//! ([`RoomSong::bundled`]), which still reads and plays.
 
 use crate::ids::{ChartKey, ParticipantId, Revision, RoomSongId, SongKey};
 use crate::state::{ContentCard, ContentStatus};
@@ -151,8 +154,11 @@ pub struct RoomSong {
     /// The room's share of it, once uploaded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub share: Option<String>,
-    /// A song bundled with the game, which every device has: listed by its
-    /// content alone, nothing uploaded.
+    /// Listed before room model revision 19 as a song bundled with the
+    /// game, by its content alone, nothing uploaded (no share): only a
+    /// room stored then has such an entry. Every device that has the song
+    /// (by its content, as for any listed song) plays its own copy; one
+    /// that has not cannot load it. Never made since (round DB).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bundled: bool,
 }
@@ -227,8 +233,6 @@ pub struct NewSong {
     pub key: SongKey,
     pub card: SongCard,
     pub charts: Vec<ChartLine>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub bundled: bool,
 }
 
 impl NewSong {

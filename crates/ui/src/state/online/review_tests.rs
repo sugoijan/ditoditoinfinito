@@ -263,7 +263,8 @@ fn song_n(n: u8) -> crate::screens::data::SongEntry {
     s.id = format!("bundled:{n}");
     s.title = format!("Song {n}");
     s.charts[0].digest = Some(ddi_chart::ChartDigest(u128::from(n)));
-    // An imported song's (a bundled one is listed with nothing uploaded).
+    // An imported song's pack (a bundled song has none; both are uploaded
+    // since round DB).
     s.pack = Some("Pack".into());
     s
 }
@@ -317,6 +318,85 @@ fn songs_added_are_uploaded_one_at_a_time_and_a_removed_ones_end_changes_nothing
     assert_eq!(bob.room_songs()[0].share.as_deref(), Some("shareb01"));
 }
 
+
+/// Round DB (revision 19): a bundled song (no pack) added to the room's
+/// list is uploaded as any song, under its entry's grant; a member whose
+/// library has it plays their own copy once it is picked (a load from the
+/// library, nothing downloaded). An entry a room stored before revision 19
+/// listed as bundled (no share) plays the same from a device that has it;
+/// one that has not reports it unreadable.
+#[test]
+fn a_bundled_song_is_uploaded_and_a_device_that_has_it_plays_its_own_copy() {
+    use super::tests::room::person;
+    use ddi_room::{Command, ContentStatus, Loading};
+    let clock = ManualClock::new(1_000);
+    let server = room_of(&clock, &["bob", "carol"]);
+    let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+    let mut carol = client(&server, person(&server, "carol"), "carol", 1_000);
+    tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+    let mut bundled = song_n(7);
+    bundled.pack = None;
+    alice.set_library(std::slice::from_ref(&bundled));
+    bob.set_library(std::slice::from_ref(&bundled));
+    alice.add_song(&bundled).unwrap();
+    tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+    tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+    let entry = alice.room_songs()[0].clone();
+    assert!(!entry.bundled && entry.status == ContentStatus::Pending);
+    let jobs = alice.take_upload_jobs();
+    assert_eq!(jobs.len(), 1, "uploaded as any song");
+    assert_eq!((jobs[0].entry, jobs[0].song.id.as_str()), (Some(entry.id), "bundled:7"));
+    server
+        .borrow_mut()
+        .authority(Command::SetSongContent {
+            song: entry.id,
+            status: ContentStatus::Available,
+            share: Some("share007".into()),
+            charts: None,
+        })
+        .unwrap();
+    alice.song_upload_finished(entry.id, Ok("share007".into()));
+    tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+    let entry = bob.room_songs()[0].clone();
+    assert_eq!(bob.entry_state(&entry), crate::state::room::EntryState::Ready);
+    // A room stored before revision 19: a second bundled song listed by
+    // its content alone, nothing uploaded.
+    let mut stored = song_n(9);
+    stored.pack = None;
+    alice.set_library(&[bundled.clone(), stored.clone()]);
+    bob.set_library(&[bundled.clone(), stored.clone()]);
+    let mut old = entry.clone();
+    old.id = ddi_room::RoomSongId(entry.id.0 + 1);
+    old.key = ddi_room::SongKey::new(crate::state::room::song_key(&stored).unwrap());
+    old.charts[0].chart = ddi_room::ChartKey::new(stored.charts[0].digest.unwrap().to_string());
+    old.share = None;
+    old.bundled = true;
+    old.status = ContentStatus::Available;
+    server.borrow_mut().rewrite(|s| {
+        let list = std::sync::Arc::make_mut(&mut s.songs);
+        list.next = old.id.0 + 1;
+        list.entries.push(old.clone());
+    });
+    tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+    let chart = old.charts[0].chart.clone();
+    alice.pick_listed(old.id, &chart).unwrap();
+    for _ in 0..3 {
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+    }
+    let jobs = bob.take_load_jobs();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!((jobs[0].share.as_deref(), jobs[0].song.as_str()), (None, "bundled:9"), "its own copy");
+    assert!(carol.take_load_jobs().is_empty(), "nothing to read it from");
+    let st = server.borrow().state().clone();
+    let stage = st.upcoming_stage().unwrap();
+    let carol_id = carol.me();
+    assert!(
+        matches!(st.stage(stage).unwrap().prep(carol_id).loading, Loading::Failed { .. }),
+        "{:?}",
+        st.stage(stage).unwrap().prep(carol_id).loading
+    );
+}
 
 /// `who`'s online state over the fake room whose invite endpoint is
 /// `invite`'s: read as it stands, replaced by any operator, failing while

@@ -679,8 +679,8 @@ fn an_older_room_model_is_refused_except_during_a_stage() {
     use ddi_room::{ROOM_MODEL_REVISION, UPDATE_REQUIRED, UpdateRequired, check_model_against};
     let rev = ROOM_MODEL_REVISION;
     assert_eq!(
-        rev, 18,
-        "18: the host's Twitch in a room and Kick (17: the room's song list)"
+        rev, 19,
+        "19: bundled songs uploaded as any (18: the host's Twitch in a room and Kick)"
     );
     assert_eq!(UPDATE_REQUIRED, "update_required");
     // The other way (round R2): a client refuses an authority older than

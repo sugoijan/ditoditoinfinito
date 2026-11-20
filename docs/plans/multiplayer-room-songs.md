@@ -1,7 +1,8 @@
 # A room's own songs
 
 Status: stages 1 and 2 built (rounds RL1 and RL2, room model revision
-17, 2026-11-19, released together); stages 3 and 4 planned.
+17, 2026-11-19, released together); round DB's answers built (revision
+19, 2026-11-20); stages 3 and 4 planned.
 
 The maintainer's request (2026-11-19): "a separation step between the
 local song list and the room's song list, they would still look the same
@@ -50,7 +51,10 @@ Each is a room model revision of its own; server first, as always.
   by the server from the uploaded record. Its card (title, artist, pack),
   its original charts (digest, style, difficulty, level), who added it and
   when, its status (uploading, there, or not the song added), its share,
-  and whether it is a bundled song (listed with nothing uploaded).
+  and, in a room stored before revision 19, whether it is a bundled song
+  listed with nothing uploaded (round DB: a bundled song is uploaded as
+  any other since; such an entry still reads and plays from each device's
+  own copy, and a device without it cannot load it).
 - Commands: `AddSong` (who may: `RoomState::may_add`, the hosts in this
   stage: `Capability::AddSongs`), `RemoveSong` (the adder or a host; never
   a song a stage not yet over names: `SongInUse`), `SetSongList` (the

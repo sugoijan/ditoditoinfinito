@@ -32,7 +32,6 @@ fn new_song(n: u32) -> NewSong {
             pack: "Pack".into(),
         },
         charts: vec![chart_line(n, 0), chart_line(n, 1)],
-        bundled: false,
     }
 }
 
@@ -158,16 +157,22 @@ fn a_host_adds_a_song_and_it_is_there_once_uploaded() {
     assert_eq!(r.keys(), ["Song 1", "Song 2"]);
 }
 
-/// A bundled song everyone has: listed by its content, there at once.
+/// A bundled song is added as any song (round DB, revision 19): uploaded
+/// by its adder, there once the server says so; nothing is listed by its
+/// content alone any more.
 #[test]
-fn a_bundled_song_is_there_at_once() {
+fn a_bundled_song_is_uploaded_as_any() {
     let mut r = online();
     let host = r.host;
     let mut s = new_song(7);
-    s.bundled = true;
+    s.card.pack.clear();
     r.by(host, Command::AddSong { song: Box::new(s) }).unwrap();
     let e = r.listed(7).unwrap();
-    assert!(e.available() && e.bundled && e.share.is_none());
+    assert!(!e.available() && !e.bundled && e.share.is_none());
+    let id = e.id;
+    r.uploaded(id);
+    let e = r.listed(7).unwrap();
+    assert!(e.available() && e.share.is_some());
 }
 
 /// Removing: who added it or a host; never a song a stage not yet over
@@ -461,6 +466,70 @@ fn a_room_stored_by_revision_16_loads_with_an_empty_list() {
     assert!(serde_json::to_value(&state).unwrap().get("songs").is_some());
 }
 
+/// A room stored by revision 18 loads under revision 19 (round DB): the
+/// JSON revision 18's own reducer wrote (`room-revision-18.json`: an
+/// online room with a Twitch setting, an imported song uploaded and a
+/// bundled song listed by its content alone, nothing uploaded, picked for
+/// stage 1) reads as it was and writes back what it reads; its bundled
+/// entry is there with no share and its stage plays on (each device plays
+/// its own copy); the same song is not listed twice; a song added now is
+/// uploaded, bundled or not.
+#[test]
+fn a_room_stored_by_revision_18_keeps_its_bundled_entry_playable() {
+    let text = include_str!("room-revision-18.json");
+    let mut state: RoomState = serde_json::from_str(text).unwrap();
+    let back = serde_json::to_value(&state).unwrap();
+    assert_eq!(
+        back,
+        serde_json::from_str::<serde_json::Value>(text).unwrap(),
+        "written as it was read"
+    );
+    let bundled = state.songs.get(RoomSongId(2)).unwrap().clone();
+    assert!(bundled.bundled && bundled.available() && bundled.share.is_none());
+    let stage = StageId(1);
+    let st = state.stage(stage).unwrap();
+    let content = st.content.as_ref().unwrap();
+    assert_eq!((content.status.clone(), content.share.as_deref(), content.song), (ContentStatus::Available, None, Some(RoomSongId(2))));
+    assert!(!state.content_pending(stage));
+    let host = ParticipantId(1);
+    let readiness_rev = st.readiness_rev;
+    state
+        .apply(
+            Actor::Member(host),
+            Some(state.revision),
+            &Command::ReportLoading {
+                stage,
+                readiness_rev,
+                loading: Loading::Loaded,
+            },
+            Millis(70_000),
+        )
+        .unwrap();
+    let mut again = new_song(9);
+    again.key = bundled.key.clone();
+    assert_eq!(
+        state.apply(
+            Actor::Member(host),
+            Some(state.revision),
+            &Command::AddSong { song: Box::new(again) },
+            Millis(71_000)
+        ),
+        Err(Rejection::AlreadyListed { song: RoomSongId(2) })
+    );
+    let mut more = new_song(3);
+    more.card.pack.clear();
+    state
+        .apply(
+            Actor::Member(host),
+            Some(state.revision),
+            &Command::AddSong { song: Box::new(more) },
+            Millis(72_000),
+        )
+        .unwrap();
+    let added = state.songs.entries.last().unwrap();
+    assert!(!added.bundled && added.status == ContentStatus::Pending);
+}
+
 /// What a list costs (round RL1's measure, `--ignored --nocapture` in a
 /// release build): the state's JSON with a hundred typical entries (five
 /// charts) and at the list's worst (every text at its bound, 32 charts),
@@ -495,7 +564,6 @@ fn room_songs_measure() {
                             meter: 99,
                         })
                         .collect(),
-                    bundled: false,
                 }
             } else {
                 NewSong {
@@ -515,7 +583,6 @@ fn room_songs_measure() {
                             meter: 2 + 3 * k,
                         })
                         .collect(),
-                    bundled: false,
                 }
             };
             r.by(who, Command::AddSong { song: Box::new(song) }).unwrap();

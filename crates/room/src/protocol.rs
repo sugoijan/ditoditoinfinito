@@ -182,7 +182,17 @@ pub fn supported(version: u32) -> bool {
 ///     told to the others as a leave; `Rejection::NotAdmitted`; the
 ///     sockets' closes 4403 and 4406, `LinkState::Kicked` and
 ///     `NotAdmitted`).
-pub const ROOM_MODEL_REVISION: u32 = 18;
+/// 19. round DB (2026-11-20): a bundled song added to the room's list is
+///     uploaded as any other (`NewSong` no longer says `bundled`; an
+///     entry is `Pending` until its share is there), the room's share the
+///     one source, a device that has the song by its content playing its
+///     own copy; an entry a room stored before listed as bundled (no
+///     share) still reads and plays (`RoomSong::bundled`,
+///     `tests/room-revision-18.json`). An older client would list a
+///     bundled song it never uploads, so it is refused. Hosts, co-hosts
+///     and administrators exempt from the per-person half of the list
+///     (`RoomState::song_quota`) rides in the same revision.
+pub const ROOM_MODEL_REVISION: u32 = 19;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being

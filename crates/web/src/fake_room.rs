@@ -523,21 +523,35 @@ impl Fake {
                 }
             });
         }
+        // Alice's uploads answered as the server would: the listed song's
+        // (a bundled song is uploaded as any, round DB) and a stage's.
+        if let Ok(mut a) = self.alice.try_borrow_mut() {
+            for j in a.take_upload_jobs() {
+                match j.entry {
+                    Some(song) => {
+                        let _ = self.server.borrow_mut().authority(Command::SetSongContent {
+                            song,
+                            status: ContentStatus::Available,
+                            share: Some("abc12345".into()),
+                            charts: None,
+                        });
+                        a.song_upload_finished(song, Ok("abc12345".into()));
+                    }
+                    None => {
+                        let _ = self.server.borrow_mut().authority(Command::SetContentStatus {
+                            stage: j.stage,
+                            status: ContentStatus::Available,
+                            share: Some("abc12345".into()),
+                        });
+                        a.upload_finished(j.stage, Ok("abc12345".into()));
+                    }
+                }
+            }
+        }
         if !self.picked {
             return;
         }
         self.elsewhere(now);
-        // Alice's upload answered as the server would.
-        if let Ok(mut a) = self.alice.try_borrow_mut() {
-            for j in a.take_upload_jobs() {
-                let _ = self.server.borrow_mut().authority(Command::SetContentStatus {
-                    stage: j.stage,
-                    status: ContentStatus::Available,
-                    share: Some("abc12345".into()),
-                });
-                a.upload_finished(j.stage, Ok("abc12345".into()));
-            }
-        }
         // Each scripted member's own side of the stage: the song loaded,
         // Ready, the run reported.
         for (i, who) in [self.alice.clone(), self.bob.clone()].into_iter().enumerate() {

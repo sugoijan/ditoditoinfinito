@@ -1465,7 +1465,12 @@ Rust and the browser are implementation details, not advertised features.
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 18 since 2026-11-20: the host's Twitch in a
+  (`ROOM_MODEL_REVISION`, 19 since 2026-11-20: a bundled song added to
+  the room's list uploaded as any other, the room's share the one
+  source, an entry a room stored before listed by its content alone
+  still read and played (`RoomSong::bundled`), and hosts and co-hosts
+  exempt from a person's half of the list (`RoomState::song_quota`);
+  round DB; `tests/room-revision-18.json`; 18 since 2026-11-20: the host's Twitch in a
   room, `crate::twitch` (`RoomState::twitch`, `TwitchSetting`: whose
   bans or bans and blocks keep people out, `TwitchMirror`, and the chat's
   ceiling, `TwitchChat`, the one who set it's while they are a member,
@@ -1485,8 +1490,7 @@ Rust and the browser are implementation details, not advertised features.
   `RemoveSong`, `SetSongList`, `SetSongContent`, `PickListed`,
   `Capability::AddSongs` through `RoomState::may_add`, `StageContent::song`;
   entries named by `ddi_share_protocol::song_key`, at most 100, a person
-  half the list's size but hosts and co-hosts the whole list
-  (`RoomState::song_quota`, round DB), the oldest not in use removed when full unless the
+  half the list's size (hosts and co-hosts exempt since 19), the oldest not in use removed when full unless the
   host refuses new songs; `docs/plans/multiplayer-room-songs.md`; and
   its stage 2, in 17 too, nothing deployed between: who has which listed
   songs, `live/have.rs`, `ClientLive::Have` and `ServerLive::Have`, kept

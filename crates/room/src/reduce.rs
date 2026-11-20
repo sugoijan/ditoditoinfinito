@@ -644,14 +644,10 @@ impl RoomState {
                     charts: song.charts.clone(),
                     by: id,
                     added_at: self.revision.next(),
-                    // A bundled song everyone has: nothing to upload.
-                    status: if song.bundled {
-                        ContentStatus::Available
-                    } else {
-                        ContentStatus::Pending
-                    },
+                    // Uploaded by its adder, a bundled song too (round DB).
+                    status: ContentStatus::Pending,
                     share: None,
-                    bundled: song.bundled,
+                    bundled: false,
                 };
                 self.emit(
                     out,

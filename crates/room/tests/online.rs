@@ -680,7 +680,6 @@ fn the_song_list_is_kept_alike_by_both_authorities_and_every_mirror() {
             difficulty: "Hard".into(),
             meter: 9,
         }],
-        bundled: false,
     };
     let add = |n| Command::AddSong {
         song: Box::new(song(n)),
@@ -769,7 +768,6 @@ fn a_host_fills_the_whole_song_list_through_both_authorities() {
             difficulty: "Hard".into(),
             meter: 9,
         }],
-        bundled: false,
     };
     let add = |n| Command::AddSong {
         song: Box::new(song(n)),
