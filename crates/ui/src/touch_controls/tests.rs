@@ -156,6 +156,26 @@ fn many_lanes_play_the_pad_and_columns_have_no_plan() {
 }
 
 #[test]
+fn buttons_too_narrow_give_way_to_the_pad() {
+    let l = layout("danoni-7");
+    let style = |size| {
+        plan(&l, Screen::new(size, [0.0; 4]), Choice::default())
+            .unwrap()
+            .style
+    };
+    assert_eq!(style(PHONE), Style::Pad);
+    assert_eq!(style(SMALL), Style::Pad);
+    assert_eq!(style(PHONE_SIDE), Style::Buttons);
+    assert_eq!(style(TABLET), Style::Buttons);
+    // Five and six lanes keep their buttons on the smallest phone.
+    for id in ["pump-single", "dance-solo", "danoni-5"] {
+        let c = plan(&layout(id), Screen::new(SMALL, [0.0; 4]), Choice::default()).unwrap();
+        assert_eq!(c.style, Style::Buttons, "{id}");
+        assert!(c.smallest() >= BUTTON_LEAST, "{id}");
+    }
+}
+
+#[test]
 fn every_played_layout_has_every_lane_on_every_screen() {
     for l in played() {
         for size in SCREENS {

@@ -52,6 +52,12 @@ pub enum Hand {
 /// to ten lanes "we can defer it and only support a pad").
 pub const BUTTONS_MOST: usize = 7;
 
+/// The narrowest button drawn (CSS pixels: about 7 mm on a phone, the
+/// platforms' smallest touch target, 44 points): narrower, a layout the
+/// mat has plays the pad on that screen instead (a phone upright for
+/// seven lanes).
+pub const BUTTON_LEAST: f32 = 44.0;
+
 /// How far into another target a sliding finger goes before it presses
 /// that lane instead (CSS pixels).
 pub const DEAD_BAND: f32 = 8.0;
@@ -162,7 +168,8 @@ pub struct Controls {
 }
 
 /// The style a layout plays under `style`: Buttons up to [`BUTTONS_MOST`]
-/// lanes on one row, else the pad; the pad where the mat has the layout,
+/// lanes on one row (and on a screen where they are at least
+/// [`BUTTON_LEAST`] wide, [`plan`]), else the pad; the pad where the mat has the layout,
 /// else Buttons where it may, else the columns.
 pub fn effective(style: Style, layout: &Layout) -> Style {
     let mat = MatLayout::from_id(&layout.id).filter(|m| m.lane_count() == layout.lanes.len());
@@ -182,7 +189,15 @@ pub fn effective(style: Style, layout: &Layout) -> Style {
 /// columns (the shells' own).
 pub fn plan(layout: &Layout, screen: Screen, choice: Choice) -> Option<Controls> {
     match effective(choice.style, layout) {
-        Style::Buttons => Some(buttons(layout, screen, choice.hand)),
+        Style::Buttons => {
+            let b = buttons(layout, screen, choice.hand);
+            if b.smallest() < BUTTON_LEAST
+                && let Some(p) = pad(layout, screen, choice.hand)
+            {
+                return Some(p);
+            }
+            Some(b)
+        }
         Style::Pad => pad(layout, screen, choice.hand),
         Style::Columns => None,
     }
@@ -259,7 +274,7 @@ fn buttons(layout: &Layout, screen: Screen, hand: Hand) -> Controls {
 }
 
 /// The smallest pad drawn beside the field rather than under it.
-const PAD_BESIDE_LEAST: f32 = 3.0 * 52.0 + 2.0 * GAP;
+const PAD_BESIDE_LEAST: f32 = 3.0 * BUTTON_LEAST + 2.0 * GAP;
 /// A pad's largest side (tiles of about 20 mm on a phone).
 const PAD_MOST: f32 = 3.0 * 120.0 + 2.0 * GAP;
 
