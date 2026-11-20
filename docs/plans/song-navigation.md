@@ -339,7 +339,12 @@ radar's side above and the ladder:
   (and in a room the players panel) leaves.
 - **Phones (both ways up)**: the short side with the cover square, the
   title and the line beside it, the style button and the chart buttons;
-  no radar.
+  no radar. The chart buttons have fixed places as everywhere (round DB,
+  2026-11-20, the maintainer): a place for each chart of the style, five
+  at least and eight at most, narrower buttons for more than five, a
+  window of eight following the chart chosen past eight; before, five
+  places slid with the chart chosen (`SelectScreen::chart_places`, one
+  rule for every layout).
 
 The gestures are the radar side's (above).
 

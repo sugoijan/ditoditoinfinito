@@ -529,6 +529,67 @@ fn the_chart_buttons_pick_and_light_what_they_show() {
     assert_eq!(s.borrow().status, "PLAYED Some Things Must Hard 16");
 }
 
+/// Round DB: a phone's singleplayer row of chart buttons has a place per
+/// chart, as a room's and the wide side's have (five at least, eight at
+/// most, narrower buttons for more than five): one, five and eight
+/// charts, both ways up; every button inside the screen, none
+/// overlapping, and a tap on the right-most chooses it with nothing moving
+/// (five slid with the chart chosen before).
+#[test]
+fn a_phones_chart_row_keeps_a_place_per_chart() {
+    let with = |n: usize| {
+        let mut d = sample::select();
+        let song = d.songs.iter_mut().find(|s| s.id == "some-things-must").unwrap();
+        let names = [
+            Difficulty::Beginner,
+            Difficulty::Easy,
+            Difficulty::Medium,
+            Difficulty::Hard,
+            Difficulty::Challenge,
+        ];
+        song.charts = (0..n)
+            .map(|k| ChartEntry {
+                style: "dance-single".into(),
+                difficulty: *names.get(k).unwrap_or(&Difficulty::Edit),
+                meter: 2 + 2 * k as u32,
+                notes: 300,
+                index: k,
+                ..ChartEntry::default()
+            })
+            .collect();
+        d.style = Some("dance-single".into());
+        d
+    };
+    let places = |h: &Harness| -> Vec<[f32; 4]> { (0..9).filter_map(|k| h.ui.bounds(&format!("Chart{k}"))).collect() };
+    for size in [[844.0, 390.0], [390.0, 844.0]] {
+        let mut widths = Vec::new();
+        for n in [1, 5, 8] {
+            let (mut h, s) = recording(with(n), size, COMPACT);
+            h.run(0.3);
+            assert!(s.borrow().compact);
+            let before = places(&h);
+            assert_eq!(before.len(), n, "{size:?}: a place per chart");
+            let width = h.ui.viewport().screen.width;
+            for b in &before {
+                assert!(b[0] >= 0.0 && b[2] <= width, "{size:?} {n}: {b:?} of {width}");
+            }
+            for pair in before.windows(2) {
+                assert!(pair[0][2] <= pair[1][0], "{size:?} {n}: {pair:?}");
+            }
+            widths.push(before[0][2] - before[0][0]);
+            let last = format!("Chart{}", n - 1);
+            h.tap(PointerKind::Touch, &last);
+            h.run(0.3);
+            assert_eq!(places(&h), before, "{size:?} {n}: the tap moved the row");
+            let name = ["Beginner", "Easy", "Medium", "Hard", "Challenge"].get(n - 1).unwrap_or(&"Edit");
+            assert_eq!(s.borrow().chart.as_deref(), Some(format!("{name} {}", 2 * n).as_str()), "{size:?} {n}");
+        }
+        // One and five charts share five places; eight are narrower.
+        assert_eq!(widths[0], widths[1], "{size:?}");
+        assert!(widths[2] < widths[1], "{size:?}: {widths:?}");
+    }
+}
+
 /// A named chart that is a version keeps its source's name, and the
 /// buttons naming it add the version's mark, so that the two read apart.
 #[test]

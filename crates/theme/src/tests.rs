@@ -2400,7 +2400,9 @@ fn song_selects_footer_hints_never_overlap() {
 /// changed by keys; a phone's sideways too. Recorded again with the song
 /// side's square and radar (`docs/plans/song-navigation.md`, "The song
 /// side"), round SLB; the phone's three again in round SLB2 (its
-/// short side's cover square).
+/// short side's cover square). Round DB moved the phone's third twice
+/// (the song Down reaches has more than five Single charts: a place for
+/// each, narrower, where five slid before).
 #[test]
 fn song_select_draws_in_the_theme_as_pinned() {
     use ddi_ui::screens::select::SelectScreen;
@@ -2471,7 +2473,7 @@ const THEME_PINNED: [u64; 24] = [
     5102047970783235404,
     14104443687203936483,
     1718375188588708716,
-    7584724589343386356,
+    12433804479304153879,
     11009322325528701358,
     8481217646414314718,
     6047450136163166876,
@@ -2483,7 +2485,7 @@ const THEME_PINNED: [u64; 24] = [
     6047450136163166876,
     12930723509338919016,
     9229512719784539528,
-    7766973366572467294,
+    14070981653859086718,
 ];
 
 /// Under "Chart ratings: DDI estimate" every number is the estimate to a

@@ -2572,7 +2572,7 @@ impl SelectScreen {
         chart_h: f32,
     ) -> Vec<Actor> {
         let env = &self.env;
-        let places = self.chart_places(charts.len()) as f32;
+        let places = Self::chart_places(charts.len()) as f32;
         let cell = (w - (places - 1.0) * 5.0) / places;
         let mut children = Vec::new();
         for k in 0..n {
@@ -2596,8 +2596,8 @@ impl SelectScreen {
             if by_name && let Some(m) = part(&mut b, "Meter") {
                 look::ellipsized(m, cell - 8.0);
             }
-            // A number wider than a narrow button (a room's short side
-            // with more than five places, round AF): smaller, to fit.
+            // A number wider than a narrow button (a row with more than
+            // five places, rounds AF and DB): smaller, to fit.
             if !by_name && let Some(m) = part(&mut b, "Meter") {
                 fit_number(m, cell - 4.0);
             }
@@ -2634,25 +2634,18 @@ impl SelectScreen {
         children
     }
 
-    /// How many places a row of chart buttons has for `len` charts: five
-    /// on a phone's song select; on the skill radar's side and in a room
-    /// (round AF, "Yes, fixed places in rooms too": its short side, wide
-    /// or a phone's) as many as the charts, five at least and
-    /// [`LADDER_ROWS`] at most, as the ladder showed them, so that a press
-    /// never moves the buttons under the pointer (a window scrolling with
-    /// the chart chosen would put the chosen one where the next press
-    /// lands, and play it). Past eight a window follows the chart chosen.
-    fn chart_places(&self, len: usize) -> usize {
-        if self.layout.radar || self.room.is_some() || self.side_wide().is_some() {
-            len.clamp(5, LADDER_ROWS)
-        } else {
-            5
-        }
-    }
-
-    /// The most chart buttons a row has ([`SelectScreen::chart_places`]).
-    fn chart_places_max(&self) -> usize {
-        self.chart_places(LADDER_ROWS)
+    /// How many places a row of chart buttons has for `len` charts,
+    /// wherever it is (the wide song side, a room's short side, a phone's
+    /// song select: round AF in rooms, "Yes, fixed places in rooms too",
+    /// and round DB on phones in singleplayer, where five slid with the
+    /// chart chosen before): as many as the charts, five at least and
+    /// [`LADDER_ROWS`] at most, the buttons narrower when a song has many,
+    /// so that a press never moves the buttons under the pointer (a window
+    /// scrolling with the chart chosen would put the chosen one where the
+    /// next press lands, and play it). Past eight a window follows the
+    /// chart chosen.
+    fn chart_places(len: usize) -> usize {
+        len.clamp(5, LADDER_ROWS)
     }
 
     /// The ladder's window for `len` charts with `pick` chosen: its
@@ -2660,7 +2653,7 @@ impl SelectScreen {
     /// that all fit; more than fit scroll with the pick.
     fn ladder_window(&self, len: usize, pick: Option<usize>) -> (usize, usize, f32) {
         if self.layout.chips || self.layout.radar || self.side_wide().is_some() {
-            let (first, n) = window(len, pick, self.chart_places(len));
+            let (first, n) = window(len, pick, Self::chart_places(len));
             return (first, n, 44.0);
         }
         let height = self.layout.ladder[1];
@@ -4224,7 +4217,7 @@ impl Screen for SelectScreen {
                 }
                 v.push(Focusable::new(n));
             }
-            v.extend((0..self.chart_places_max()).map(|k| Focusable::new(format!("Chart{k}"))));
+            v.extend((0..LADDER_ROWS).map(|k| Focusable::new(format!("Chart{k}"))));
         } else {
             for n in [
                 "Back",
@@ -4246,7 +4239,7 @@ impl Screen for SelectScreen {
                 if self.style_button_shown() {
                     v.push(Focusable::new("StyleButton"));
                 }
-                v.extend((0..self.chart_places_max()).map(|k| Focusable::new(format!("Chart{k}"))));
+                v.extend((0..LADDER_ROWS).map(|k| Focusable::new(format!("Chart{k}"))));
             } else {
                 // The wide side: the style tabs and the chart buttons
                 // (the radar is no control).
