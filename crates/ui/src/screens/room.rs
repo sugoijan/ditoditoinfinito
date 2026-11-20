@@ -1478,16 +1478,16 @@ fn the_window_keeps_the_players_line_and_reaches_every_other() {
 /// (an online room with one picker at a time; practice has one person
 /// and says nothing).
 fn person_role(s: &ddi_room::RoomState, member: &ddi_room::Member) -> Option<String> {
-    let role: Option<String> = match (member.role, member.admin) {
-        (Role::Owner, _) if s.source == ddi_room::ContentSource::Shared => {
-            Some(m::role_host().into())
-        }
-        (Role::CoHost, _) => Some(m::role_co_host().into()),
-        (Role::Member, true) => Some(m::role_admin().into()),
+    let role: Option<String> = match member.role {
+        Role::Owner if s.source == ddi_room::ContentSource::Shared => Some(m::role_host().into()),
+        Role::CoHost => Some(m::role_co_host().into()),
         _ => None,
     };
+    // An administrator who hosts is both (round SLB: the panel marks
+    // both, a house and a wrench).
+    let admin: Option<String> = member.admin.then(|| m::role_admin().into());
     let picking: Option<String> = picks_shown(s, member).then(|| m::role_picking().into());
-    let words: Vec<String> = [role, picking].into_iter().flatten().collect();
+    let words: Vec<String> = [role, admin, picking].into_iter().flatten().collect();
     (!words.is_empty()).then(|| words.join(" · "))
 }
 

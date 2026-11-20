@@ -7000,8 +7000,11 @@ fn the_players_panel_marks_folds_and_says_a_rows_words() {
             .unwrap();
         (k, ha.ui.bounds(&format!("Players{k}.Name")).unwrap()[0])
     };
-    let ((_, bob_x), (carol, carol_x)) = (at("bob"), at("carol"));
+    let ((bob, bob_x), (carol, carol_x)) = (at("bob"), at("carol"));
     assert!((bob_x - carol_x - 15.0).abs() < 0.5, "{bob_x} {carol_x}");
+    // Both in words too.
+    let says = popover_says(&mut ha, bob);
+    assert!(says.iter().any(|l| l.starts_with("Co-host · Admin")), "{says:?}");
     // A touch: the words first, then the pop-up.
     ha.tap(PointerKind::Touch, &format!("Players.Row{carol}"));
     ha.run(0.3);
