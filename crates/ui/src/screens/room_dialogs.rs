@@ -2684,8 +2684,13 @@ impl Screen for HostDialog {
                 (t, whose)
             })
         };
+        // "Show my Twitch chat" only under the testing switch (round TW3,
+        // `state::twitch::chat_testing`): until the transports to Twitch
+        // exist, a room's chat has no source but the scripted one.
+        let chat_row = crate::state::twitch::chat_rows_shown();
+        let twitch_rows = if chat_row { 2.0 } else { 1.0 };
         let twitch_h = match &twitch {
-            Some((_, whose)) => 2.0 * ROW + whose.len() as f32 * 18.0 + 14.0,
+            Some((_, whose)) => twitch_rows * ROW + whose.len() as f32 * 18.0 + 14.0,
             None => 0.0,
         };
         let setting_h = setting_h + twitch_h;
@@ -2808,23 +2813,26 @@ impl Screen for HostDialog {
                 mirror == ddi_room::TwitchMirror::BansAndBlocks,
             );
             stepper(&env, &mut c, "twitchbans", labels, v, edge, at(mid));
-            let mid = ry + ROW + ROW / 2.0;
-            let mut label = env.text("TwitchChat", &m::host_twitch_chat(), 14.0, 400, "Secondary");
-            look::ellipsized(&mut label, inner - 250.0);
-            c.push(left(label, x0, mid));
-            let value = match chat {
-                ddi_room::TwitchChat::Off => m::host_twitch_off(),
-                ddi_room::TwitchChat::Emotes => m::host_twitch_emotes(),
-                ddi_room::TwitchChat::EmotesAndMessages => m::host_twitch_messages(),
-            };
-            let mut v = env.text("TwitchChat.Value", &value, 14.0, 600, "Text");
-            look::ellipsized(&mut v, 150.0);
-            let edge = (
-                chat == ddi_room::TwitchChat::Off,
-                chat == ddi_room::TwitchChat::EmotesAndMessages,
-            );
-            stepper(&env, &mut c, "twitchchat", labels, v, edge, at(mid));
-            let mut ay = ry + 2.0 * ROW + 8.0;
+            if chat_row {
+                let mid = ry + ROW + ROW / 2.0;
+                let mut label =
+                    env.text("TwitchChat", &m::host_twitch_chat(), 14.0, 400, "Secondary");
+                look::ellipsized(&mut label, inner - 250.0);
+                c.push(left(label, x0, mid));
+                let value = match chat {
+                    ddi_room::TwitchChat::Off => m::host_twitch_off(),
+                    ddi_room::TwitchChat::Emotes => m::host_twitch_emotes(),
+                    ddi_room::TwitchChat::EmotesAndMessages => m::host_twitch_messages(),
+                };
+                let mut v = env.text("TwitchChat.Value", &value, 14.0, 600, "Text");
+                look::ellipsized(&mut v, 150.0);
+                let edge = (
+                    chat == ddi_room::TwitchChat::Off,
+                    chat == ddi_room::TwitchChat::EmotesAndMessages,
+                );
+                stepper(&env, &mut c, "twitchchat", labels, v, edge, at(mid));
+            }
+            let mut ay = ry + twitch_rows * ROW + 8.0;
             for (i, line) in whose.iter().enumerate() {
                 let t = env.text(&format!("TwitchWhose{i}"), line, 13.0, 400, "Muted");
                 c.push(left(t, x0, ay));
@@ -2998,7 +3006,9 @@ impl Screen for HostDialog {
         }
         if self.room.borrow().may_set_twitch() {
             pair(&mut v, "Dec.twitchbans".into(), "Inc.twitchbans".into());
-            pair(&mut v, "Dec.twitchchat".into(), "Inc.twitchchat".into());
+            if crate::state::twitch::chat_rows_shown() {
+                pair(&mut v, "Dec.twitchchat".into(), "Inc.twitchchat".into());
+            }
         }
         if self.room.borrow().may_close_audience() {
             v.push(Focusable::new(AUDIENCE));
@@ -3029,7 +3039,24 @@ impl Screen for HostDialog {
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
         // Revision 18: the Twitch setting asked needs the person's Twitch
         // access connected first: the trip through Twitch, back here.
-        let _ = self.room.borrow_mut().take_twitch_trip();
+        // Desktop's goes through the system browser with a code to type
+        // there: its dialog shows it (round TW3; the web leaves the page).
+        let trip = self.room.borrow_mut().take_twitch_trip();
+        if let Some(scopes) = trip {
+            let r = self.room.borrow();
+            if let Some(link) = r.online_link()
+                && link.online().borrow().platform() == crate::state::online::Platform::Desktop
+            {
+                let dialog = super::online_home::SignInDialog::connecting(
+                    self.env.clone(),
+                    link.online().clone(),
+                    crate::state::online::Dest::Room(link.room_id().to_string()),
+                    &scopes,
+                    None,
+                );
+                cx.overlay(dialog, true);
+            }
+        }
         // No longer an operator's (the role gone, the link gone, nothing
         // left for a co-host to do), or no longer the owner's it was
         // opened as.

@@ -735,6 +735,7 @@ fn adaptive_cost_of_72_cpus() {
             others: 0,
             watching: false,
             live: None,
+            chat: None,
         };
         let t = std::time::Instant::now();
         let ladder = stage_ladder(&song, chart, &setup);

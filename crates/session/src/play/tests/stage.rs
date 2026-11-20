@@ -351,6 +351,52 @@ fn a_stage_is_never_a_replay_a_test_or_the_cpu_demo() {
     assert_eq!(rules.fail, ddi_engine::FailPolicy::Immediate);
 }
 
+/// A stage's chat is its room's (round TW3, C1): CPU practice has no
+/// host's Twitch, so its stage builds no chat layer even where a scripted
+/// chat plays outside rooms; under the testing switch (the scripted chat
+/// set as the stage is ordered) its own line stands for the room's
+/// ceiling, and the device's choice never shows more than the room's.
+#[test]
+fn a_stages_chat_is_its_rooms_and_none_where_it_shows_none() {
+    let song = bundled("beatucada");
+    let settings = Settings {
+        twitch_chat: ddi_chat::Level::Messages,
+        ..Settings::default()
+    };
+    let chat_of = |order: &StageOrder| {
+        let clock: Clock = Rc::new(RefCell::new(0.0));
+        let mut config = SessionConfig::from_settings(&settings, true, None);
+        config.opponents = Some(order.setup.clone());
+        let s = PlaySession::start(
+            &song,
+            CHART,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.0),
+            110.0,
+            FakeInputs::new(&clock),
+        )
+        .unwrap();
+        s.chat().map(|c| c.config().level)
+    };
+    crate::chat::set_scripted(None);
+    let mut first = room(1, 1, 2);
+    let mut now = 0;
+    let order = begin(&song, &mut first, &mut now);
+    assert_eq!(order.chat, None, "practice has no host's Twitch");
+    crate::chat::set_scripted(ddi_chat::script::Script::builtin("flood"));
+    assert_eq!(chat_of(&order), None, "a room that shows none builds none");
+    crate::chat::set_scripted(ddi_chat::script::Script::builtin("emotes"));
+    let mut second = room(1, 1, 2);
+    let order = begin(&song, &mut second, &mut now);
+    assert_eq!(
+        order.chat.as_ref().map(|c| c.ceiling),
+        Some(ddi_chat::Level::Emotes)
+    );
+    assert_eq!(chat_of(&order), Some(ddi_chat::Level::Emotes));
+    crate::chat::set_scripted(None);
+}
+
 /// A voice of `folders` (any line's), each one sound 0.8 s long.
 fn voice_of(folders: &[&str]) -> crate::announcer::SharedVoice<f64> {
     let mut v = crate::announcer::Voice::default();

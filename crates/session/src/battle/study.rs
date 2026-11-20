@@ -81,6 +81,7 @@ pub(super) fn cpu_practice(
         others: 0,
         watching: false,
         live: None,
+        chat: None,
     }
 }
 

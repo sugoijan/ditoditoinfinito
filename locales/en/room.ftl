@@ -2360,3 +2360,12 @@ room-host-twitch-whose = { $login }'s Twitch bans and chat apply.
 # Round TW1b: the status line after a trip through Twitch for the room's
 # Twitch setting ended without connecting it (canceled at Twitch).
 room-twitch-not-connected = Twitch access was not connected: nothing changed.
+# Round TW3: the status line after a trip through Twitch for this
+# device's "Twitch chat in rooms" (Options → Display) connected it.
+room-twitch-chat-on = Twitch chat in rooms is on for this device.
+# Desktop, the dialog of a trip through Twitch for the person's Twitch
+# access (a room's Host options, Options' Twitch chat in rooms), while it
+# starts and while the game reads what was allowed.
+room-twitch-connecting = Connecting Twitch access…
+# The same dialog while the browser is open on Twitch's page.
+room-twitch-connect-waiting = Allow Twitch access in your browser, then come back here.

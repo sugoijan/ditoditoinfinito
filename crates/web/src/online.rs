@@ -46,6 +46,26 @@ pub(crate) fn disconnect_twitch() {
     KEPT.with(Kept::disconnect_twitch);
 }
 
+/// Options' "Twitch chat in rooms" turned on without the chat's scope
+/// (round TW3): the page leaves for the trip through Twitch for `chat`,
+/// back to the room kept, else home, where the setting is made by itself
+/// once the access has the scope (`Online::connect_twitch_chat`).
+pub(crate) fn connect_twitch_chat(level: ddi_chat::Level) {
+    let dest = KEPT.with(Kept::room_id).map_or(Dest::Home, Dest::Room);
+    let path = {
+        let online = current();
+        let mut o = online.borrow_mut();
+        o.connect_twitch_chat(dest, level);
+        match o.take_redirect() {
+            Some(ddi_ui::state::online::Redirect::Page(p)) => Some(p),
+            _ => None,
+        }
+    };
+    if let Some(p) = path {
+        leave_for_sign_in(&p);
+    }
+}
+
 thread_local! {
     /// The session's online state, the online room shown last and the
     /// room watched with its audience.

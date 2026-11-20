@@ -921,6 +921,7 @@ mod preload_tests {
             others: 0,
             watching: false,
             live: None,
+            chat: None,
         });
         p.preload(&song, 0., 0, &settings, &config);
         assert!(p.runtime.is_none(), "a stage made a hand");

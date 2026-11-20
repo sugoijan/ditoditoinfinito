@@ -566,7 +566,21 @@ pub struct SignInDialog {
     dest: Dest,
     seen: u64,
     open: Rc<Cell<bool>>,
+    /// A trip through Twitch for the person's Twitch access (round TW3),
+    /// not a sign-in.
+    connect: Option<Connect>,
 }
+
+/// A connecting [`SignInDialog`]'s trip: the scope sets asked (`chat`,
+/// `bans,blocks`…) and what is told when it ends (connected or not).
+struct Connect {
+    scopes: String,
+    done: Option<ConnectDone>,
+}
+
+/// Told once when a connecting dialog's trip ends: whether the access now
+/// grants every scope set it asked.
+pub type ConnectDone = Rc<dyn Fn(bool, &mut Cx)>;
 
 impl SignInDialog {
     pub fn new(env: Env, online: SharedOnline, dest: Dest, open: Rc<Cell<bool>>) -> Self {
@@ -577,11 +591,58 @@ impl SignInDialog {
             dest,
             seen,
             open,
+            connect: None,
+        }
+    }
+
+    /// Desktop's trip through Twitch for the person's Twitch access
+    /// (round TW3: a room's Host options, Options' "Twitch chat in
+    /// rooms"), already started (`Online::connect_twitch_for`): where it
+    /// stands, the attempt's code to type in the browser's page, Cancel,
+    /// Try again. It runs the online state itself (Options has no room
+    /// under it to), opens the browser, and closes once the trip is over,
+    /// telling `done` whether the access grants `scopes`.
+    pub fn connecting(
+        env: Env,
+        online: SharedOnline,
+        dest: Dest,
+        scopes: &str,
+        done: Option<ConnectDone>,
+    ) -> Self {
+        let mut d = SignInDialog::new(env, online, dest, Rc::new(Cell::new(true)));
+        d.connect = Some(Connect {
+            scopes: scopes.into(),
+            done,
+        });
+        d
+    }
+
+    /// Whether the access grants what a connecting dialog asked.
+    fn granted(&self) -> bool {
+        let Some(c) = &self.connect else {
+            return true;
+        };
+        let o = self.online.borrow();
+        let Some(t) = o.twitch() else {
+            return false;
+        };
+        c.scopes
+            .split(',')
+            .all(|s| t.features.iter().any(|f| f == s.trim()))
+    }
+
+    /// A connecting dialog's trip ended: told once.
+    fn finish(&mut self, connected: bool, cx: &mut Cx) {
+        if let Some(done) = self.connect.as_mut().and_then(|c| c.done.take()) {
+            done(connected, cx);
         }
     }
 
     /// What the dialog says, and its buttons (name, label, component).
     fn content(&self) -> (Vec<String>, Vec<(&'static str, String, &'static str)>) {
+        if self.connect.is_some() {
+            return self.connecting_content();
+        }
         let o = self.online.borrow();
         let intro = |dest: &Dest| -> String {
             match dest {
@@ -619,12 +680,44 @@ impl SignInDialog {
         }
     }
 
+    /// A connecting dialog's words and buttons.
+    fn connecting_content(&self) -> (Vec<String>, Vec<(&'static str, String, &'static str)>) {
+        let o = self.online.borrow();
+        let cancel = ("Cancel", common::cancel().into(), "Button");
+        let retry = ("Retry", m::sign_in_retry().into(), "PlayButton");
+        match o.sign_in_state() {
+            SignIn::Idle | SignIn::Starting { .. } | SignIn::Completing { .. } => {
+                (vec![m::twitch_connecting().into()], vec![cancel])
+            }
+            SignIn::Waiting { code, .. } => (
+                code.iter()
+                    .map(|c| super::online::sign_in_code(c).into())
+                    .chain([m::twitch_connect_waiting().into()])
+                    .collect(),
+                vec![
+                    cancel,
+                    ("Browser", m::sign_in_again_browser().into(), "Button"),
+                ],
+            ),
+            SignIn::Canceled { .. } => (vec![m::twitch_not_connected().into()], vec![cancel, retry]),
+            SignIn::Failed { code, .. } => (
+                vec![super::online::sign_in_failed(code).into()],
+                vec![cancel, retry],
+            ),
+        }
+    }
+
     /// Stops signing in and closes.
-    fn cancel(&self, cx: &mut Cx) {
+    fn cancel(&mut self, cx: &mut Cx) {
         let mut o = self.online.borrow_mut();
         o.cancel_sign_in();
-        o.clear_sign_in();
+        // A connecting trip's cancel is kept (a room's Twitch setting
+        // asked says nothing changed); a sign-in's forgotten.
+        if self.connect.is_none() {
+            o.clear_sign_in();
+        }
         drop(o);
+        self.finish(false, cx);
         cx.close(true);
     }
 }
@@ -655,7 +748,12 @@ impl Screen for SignInDialog {
             lines.extend(wrap_lines(t, w - 48.0, 14.0));
         }
         let h = 160.0 + lines.len() as f32 * 18.0;
-        let (mut c, [x, y]) = super::dialog::shell(&env, screen, [w, h], &m::sign_in_title());
+        let title = if self.connect.is_some() {
+            ddi_l10n::msg::twitch::access()
+        } else {
+            m::sign_in_title()
+        };
+        let (mut c, [x, y]) = super::dialog::shell(&env, screen, [w, h], &title);
         dialog_body(&env, &mut c, &lines, [x, y], w, |_| "Muted");
         let per_row = buttons.len();
         c.extend(button_rows(&env, &buttons, per_row, [x, y, w, h], 220.0));
@@ -673,11 +771,27 @@ impl Screen for SignInDialog {
     }
 
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+        if self.connect.is_some() {
+            // Nothing under Options runs the online state: this does (a
+            // room's link under it polls too, harmlessly), and opens the
+            // browser on the attempt.
+            let redirect = {
+                let mut o = self.online.borrow_mut();
+                o.poll(cx.wall_ms());
+                o.take_redirect()
+            };
+            if let Some(crate::state::online::Redirect::Browser(url)) = redirect {
+                cx.request(crate::UiRequest::OpenUrl(url));
+            }
+        }
         let (version, signed_in, busy) = {
             let o = self.online.borrow();
             (o.version(), o.me().is_some(), o.sign_in_state().busy())
         };
-        if signed_in && !busy {
+        let settled = matches!(self.online.borrow().sign_in_state(), SignIn::Idle);
+        if signed_in && !busy && (self.connect.is_none() || settled) {
+            let granted = self.granted();
+            self.finish(granted, cx);
             self.open.set(false);
             cx.close(false);
             return;
@@ -709,6 +823,11 @@ impl Screen for SignInDialog {
                             Dest::Create => o.private_room(),
                             dest => o.sign_in(dest.clone()),
                         }
+                    }
+                    "Retry" if self.connect.is_some() => {
+                        let scopes = self.connect.as_ref().map(|c| c.scopes.clone());
+                        let mut o = self.online.borrow_mut();
+                        o.connect_twitch(self.dest.clone(), &scopes.unwrap_or_default());
                     }
                     "Retry" => {
                         let mut o = self.online.borrow_mut();

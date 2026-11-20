@@ -2638,6 +2638,7 @@ mod tests {
                 others: 0,
                 watching: false,
                 live: None,
+                chat: None,
             },
             song: SongEntry::default(),
             chart: ChartEntry::default(),

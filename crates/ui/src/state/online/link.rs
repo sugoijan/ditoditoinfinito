@@ -47,8 +47,12 @@ pub enum LinkNotice {
         by: ddi_room::ParticipantId,
     },
     /// Round TW1b: the trip through Twitch for a room's Twitch setting
-    /// ended without the access: nothing changed.
+    /// (or, round TW3, this device's chat) ended without the access:
+    /// nothing changed.
     TwitchNotConnected,
+    /// Round TW3: the trip through Twitch for this device's "Twitch chat
+    /// in rooms" connected it: the setting is on.
+    TwitchChatOn,
 }
 
 /// How long the status line says a join was to watch (from the room's

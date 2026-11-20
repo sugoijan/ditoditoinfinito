@@ -986,3 +986,6 @@ room-host-twitch-emotes = エモート
 room-host-twitch-messages = エモートとメッセージ
 room-host-twitch-whose = { $login }さんのTwitchのバンとチャットが使われます。
 room-twitch-not-connected = Twitchアクセスは接続されませんでした。何も変わっていません。
+room-twitch-chat-on = このデバイスでルームのTwitchチャットを表示します。
+room-twitch-connecting = Twitchアクセスを接続しています…
+room-twitch-connect-waiting = ブラウザでTwitchアクセスを許可してから、ここに戻ってください。

@@ -1008,6 +1008,12 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             }
             _ => player.start(start_ctx, song_offset),
         }
+        // The chat under the room's ceiling in a room's stage (C1): none
+        // where the room shows none. Before the stage's setup is taken.
+        let chat = config
+            .chat
+            .take()
+            .and_then(|c| c.under_room(config.opponents.as_ref()));
         let (battle, late_watch) = stage_battle(
             &mut config,
             &mut player,
@@ -1049,7 +1055,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         inputs.pads_running(Some(settings.fast_pad_poll));
         let lanes = layout.lanes.len();
         Ok(PlaySession {
-            chat: config.chat.map(crate::chat::ChatLayer::new),
+            chat: chat.map(crate::chat::ChatLayer::new),
             volume: config.volume,
             music: Some(music),
             player,

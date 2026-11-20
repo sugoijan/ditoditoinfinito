@@ -12,6 +12,7 @@ use super::Env;
 use super::dialog::ConfirmDialog;
 use super::options::{OPTIONS_CHANGED, OptionsCall, OptionsFeed, OptionsShell};
 use super::options_dialogs::{BindDialog, KeyDialog};
+use super::online_home::ConnectDone;
 use super::options_model::{Act, Effect, OptionsModel, Reset, Sample};
 use crate::message::Message;
 use crate::screen::Cx;
@@ -79,6 +80,14 @@ pub trait OptionsPlatform {
     /// `delete_share` deletes one and reads them again the same way.
     fn list_shares(&self, _into: SharesFeed) {}
     fn delete_share(&self, _id: &str, _into: SharesFeed) {}
+    /// Starts the trip through Twitch for this device's chat (round TW3:
+    /// "Twitch chat in rooms" turned on at `level` where the Twitch access
+    /// lacks the chat's scope; `crate::state::twitch::want_chat_scope`).
+    /// The web leaves the page (the setting made by itself on its return,
+    /// `Online::connect_twitch_chat`); desktop shows the trip's dialog and
+    /// tells `done` how it ended. Where the platform has no online state,
+    /// nothing.
+    fn connect_twitch_chat(&self, _level: ddi_chat::Level, _done: ConnectDone, _cx: &mut Cx) {}
     /// Opens share `id` in the game (its song select, over the options);
     /// `false` where the platform cannot, and the link opens instead.
     fn open_share(&self, _id: &str, _cx: &mut Cx) -> bool {
@@ -150,8 +159,31 @@ fn call_with(
 ) -> Option<super::data::OptionsData> {
     let act = match call {
         OptionsCall::Change { id, index } => {
+            let effect = model.borrow_mut().change(&id, index);
+            // "Twitch chat in rooms" turned on without the chat's scope:
+            // the trip through Twitch first (round TW3), the setting made
+            // once it is there, "nothing changed" when it is not.
+            if let Some(level) = crate::state::twitch::take_chat_trip() {
+                let (model, feed) = (model.clone(), feed.clone());
+                let done: ConnectDone = Rc::new(move |connected, cx| {
+                    {
+                        let mut m = model.borrow_mut();
+                        if connected {
+                            m.settings.twitch_chat = level;
+                            if !m.transient {
+                                m.settings.save();
+                            }
+                            m.notice = ddi_l10n::msg::room::twitch_chat_on().into();
+                        } else {
+                            m.notice = ddi_l10n::msg::room::twitch_not_connected().into();
+                        }
+                    }
+                    send(&model, &feed, cx);
+                });
+                platform.connect_twitch_chat(level, done, cx);
+            }
             // Nothing changed: nothing to show again.
-            let effect = model.borrow_mut().change(&id, index)?;
+            let effect = effect?;
             if effect == Effect::Volume {
                 let (volume, ready) = {
                     let m = model.borrow();

@@ -931,6 +931,8 @@ impl AudienceClient {
                     people,
                     seed,
                 }),
+                // The audience sees no chat (C13).
+                chat: None,
             },
             song: prepared.picked.song,
             chart: prepared.picked.chart,

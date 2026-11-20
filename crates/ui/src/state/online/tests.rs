@@ -381,6 +381,61 @@ fn the_web_leaves_for_the_servers_page_and_resumes_the_join_on_return() {
     assert_eq!(o.sign_in_state(), &SignIn::Canceled { dest: Dest::Home });
 }
 
+/// Round TW3: Options' "Twitch chat in rooms" turned on without the
+/// chat's scope leaves for the trip through Twitch for `chat` (back to the
+/// room kept); back with the scope, the setting is made by itself and
+/// said once; a canceled trip changes nothing and says so.
+#[test]
+fn the_devices_chat_trip_makes_its_setting_on_return_or_changes_nothing() {
+    use crate::state::settings::Settings;
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    let granted = Rc::new(RefCell::new(false));
+    let g = granted.clone();
+    let r = rig(
+        Platform::Web,
+        Box::new(move |req| match (req.method, req.path.as_str()) {
+            (Method::Get, "/me") => {
+                let mut me: serde_json::Value = serde_json::from_str(ME).unwrap();
+                let features: Vec<&str> = if *g.borrow() { vec!["chat"] } else { vec![] };
+                me["twitch"] = serde_json::json!({ "features": features, "login": "carol" });
+                ok(&me.to_string())
+            }
+            _ => panic!("unexpected {req:?}"),
+        }),
+    );
+    let mut o = r.online.borrow_mut();
+    o.check();
+    o.poll(0);
+    assert_eq!(Settings::load().twitch_chat, ddi_chat::Level::Off);
+    o.connect_twitch_chat(Dest::Room("Room000001".into()), ddi_chat::Level::Messages);
+    assert_eq!(
+        o.take_redirect(),
+        Some(Redirect::Page(
+            "/auth/twitch/login?return=%2Fmp%2Froom%2FRoom000001&scopes=chat".into()
+        ))
+    );
+    // Canceled at Twitch: nothing changed, said once.
+    o.sign_in_canceled(Dest::Room("Room000001".into()));
+    assert_eq!(o.take_chat_outcome(), Some(false));
+    assert_eq!(o.take_chat_outcome(), None);
+    assert_eq!(Settings::load().twitch_chat, ddi_chat::Level::Off);
+    // Again, and back with the scope: the setting made by itself.
+    o.clear_sign_in();
+    o.connect_twitch_chat(Dest::Room("Room000001".into()), ddi_chat::Level::Messages);
+    let _ = o.take_redirect();
+    *granted.borrow_mut() = true;
+    o.returned(Dest::Room("Room000001".into()));
+    assert_eq!(o.take_chat_outcome(), None, "not before /me says so");
+    o.poll(1);
+    assert_eq!(o.take_chat_outcome(), Some(true));
+    assert_eq!(Settings::load().twitch_chat, ddi_chat::Level::Messages);
+    assert_eq!(
+        ddi_platform::storage::get(ddi_platform::storage::Area::Session, CHAT_WANTED),
+        None,
+        "forgotten"
+    );
+}
+
 #[test]
 fn an_invites_preview_says_each_state_and_a_refused_join_says_why() {
     use crate::screens::online::{admission_text, invite_problem};

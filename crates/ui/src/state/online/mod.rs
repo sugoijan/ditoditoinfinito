@@ -63,6 +63,10 @@ pub enum Account {
 /// Twitch (round TW1b).
 pub const TWITCH_WANTED: &str = "ddi.mp.twitch";
 
+/// Where this device's "Twitch chat in rooms" asked is kept across a trip
+/// through Twitch (round TW3, [`Online::connect_twitch_chat`]).
+pub const CHAT_WANTED: &str = "ddi.mp.twitch.chat";
+
 /// A room's Twitch setting asked, waiting for the person's Twitch access.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TwitchWanted {
@@ -260,6 +264,10 @@ pub struct Online {
     /// The page hidden or shown, and since when (the rooms' clock); none
     /// until the shell says.
     visibility: Option<(bool, u64)>,
+    /// How a trip through Twitch for this device's chat ended (round TW3,
+    /// [`Online::connect_twitch_chat`]): connected, or not (nothing
+    /// changed), until a screen takes it.
+    chat_outcome: Option<bool>,
 }
 
 /// The shell's account of what kind of client it is, asked when a report
@@ -287,6 +295,7 @@ impl Online {
             seated: None,
             seated_to_watch: None,
             redirect: None,
+            chat_outcome: None,
             next_id: 1,
             pending: BTreeMap::new(),
             answers: BTreeMap::new(),
@@ -495,6 +504,64 @@ impl Online {
         self.changed();
     }
 
+    /// Connect the person's Twitch access for this device's chat (round
+    /// TW3, Options' "Twitch chat in rooms" turned on without the scope):
+    /// the trip through Twitch for the closed scope set `chat`, back to
+    /// `dest` (the room kept, else the multiplayer home), the setting at
+    /// `level` kept for the session across the web page's leaving
+    /// ([`CHAT_WANTED`]) and made by itself once the access has the scope
+    /// ([`Online::take_chat_outcome`]).
+    pub fn connect_twitch_chat(&mut self, dest: Dest, level: ddi_chat::Level) {
+        if let Ok(text) = serde_json::to_string(&level) {
+            let _ = ddi_platform::storage::set(ddi_platform::storage::Area::Session, CHAT_WANTED, &text);
+        }
+        self.chat_outcome = None;
+        self.connect_twitch_for(dest, "chat", None);
+    }
+
+    /// This device's chat asked across a trip through Twitch, settled
+    /// once the trip is over: the setting made where the access now has
+    /// the chat's scope (saved; nothing where the setting is already on),
+    /// forgotten where the trip was canceled or failed.
+    fn settle_chat_wish(&mut self) {
+        use ddi_platform::storage::{self, Area};
+        let Some(level) = storage::load::<ddi_chat::Level>(Area::Session, CHAT_WANTED) else {
+            return;
+        };
+        if self.sign_in.busy() || matches!(self.account, Account::Checking | Account::Unknown) {
+            return;
+        }
+        let granted = self
+            .twitch()
+            .is_some_and(|t| t.features.iter().any(|f| f == "chat"));
+        let ended = matches!(self.sign_in, SignIn::Canceled { .. } | SignIn::Failed { .. });
+        if !granted && !ended {
+            // The `/me` before the trip: wait for the next.
+            return;
+        }
+        storage::remove(Area::Session, CHAT_WANTED);
+        if granted {
+            let mut s = crate::state::settings::Settings::load();
+            if s.twitch_chat == ddi_chat::Level::Off {
+                s.twitch_chat = level;
+                s.save();
+            }
+        }
+        self.chat_outcome = Some(granted);
+        self.changed();
+    }
+
+    /// How the trip for this device's chat ended, once: connected (the
+    /// setting made) or not (nothing changed).
+    pub fn take_chat_outcome(&mut self) -> Option<bool> {
+        self.chat_outcome.take()
+    }
+
+    /// Desktop or the web.
+    pub fn platform(&self) -> Platform {
+        self.config.platform
+    }
+
     /// The room's Twitch setting a trip through Twitch was for, where it
     /// is room `room`'s and the trip is over: the setting itself where
     /// the access now grants what it needs (to be sent), or none and
@@ -563,6 +630,7 @@ impl Online {
         };
         self.polling = false;
         self.sign_in = SignIn::Canceled { dest };
+        self.settle_chat_wish();
         self.changed();
     }
 
@@ -570,6 +638,7 @@ impl Online {
     /// (`?signin=canceled`).
     pub fn sign_in_canceled(&mut self, dest: Dest) {
         self.sign_in = SignIn::Canceled { dest };
+        self.settle_chat_wish();
         self.changed();
     }
 
@@ -749,12 +818,14 @@ impl Online {
                             self.epoch += 1;
                             self.resume(dest);
                         }
+                        self.settle_chat_wish();
                     }
                     Err(p) if p.signed_out() => {
                         self.note_problem(&p);
                         if let Some(dest) = dest {
                             self.sign_in = SignIn::Failed { dest, code: p.code };
                         }
+                        self.settle_chat_wish();
                     }
                     Err(p) => {
                         self.account = Account::Unreachable;

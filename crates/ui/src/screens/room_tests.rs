@@ -3938,8 +3938,8 @@ fn host_options_work_by_keyboard_controller_and_a_tap_on_a_row() {
             "Inc.whenfull",
             "Dec.twitchbans",
             "Inc.twitchbans",
-            "Dec.twitchchat",
-            "Inc.twitchchat",
+            // "Show my Twitch chat" only under the testing switch (round
+            // TW3).
             "CoHost.2",
             "MakeHost.2",
             "CoHost.3",
@@ -5916,7 +5916,9 @@ fn the_rooms_screens_draw_as_pinned() {
 /// it, the list, the players panel at the right). Round TW1 (revision 18)
 /// moved "online-players" and the "host" drawn over it: the host's
 /// Players pop-up has Moderate at its title's right (practice's has none:
-/// "players" stays), and Host options its Twitch rows.
+/// "players" stays), and Host options its Twitch rows. Round TW3 moved
+/// "host": its "Show my Twitch chat" row shows only under the testing
+/// switch now (the test runs without it).
 const PINNED: [(&str, u64); 10] = [
     ("select", 6294184724527765777),
     ("rules", 1214659751631822932),
@@ -5927,7 +5929,7 @@ const PINNED: [(&str, u64); 10] = [
     ("online-select", 9359307383711192609),
     ("online-member", 3482401827223415051),
     ("online-players", 15010800377283620634),
-    ("host", 14227543146397042134),
+    ("host", 6296197917129500735),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's
@@ -7161,6 +7163,13 @@ fn host_options_set_the_rooms_twitch_after_the_trip() {
     open_players(&mut ha);
     press(&mut ha, "HostOptions");
     assert_eq!(top(&ha), "room-host");
+    // Show my Twitch chat only under the testing switch (round TW3).
+    crate::state::twitch::set_chat_testing(None);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    assert!(has(&ha, "Twitch bans") && !has(&ha, "Show my Twitch chat"), "{:?}", ha.texts());
+    crate::state::twitch::set_chat_testing(Some(ddi_chat::Level::Messages));
+    press(&mut ha, "Close");
+    press(&mut ha, "HostOptions");
     assert!(has(&ha, "Twitch bans") && has(&ha, "Show my Twitch chat"), "{:?}", ha.texts());
     // No Twitch access yet: the step asks for the trip.
     press(&mut ha, "Inc.twitchbans");
@@ -7202,6 +7211,7 @@ fn a_canceled_trip_changes_nothing_and_says_so() {
     let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
     t.settle(400, &mut [&mut ha]);
     open_players(&mut ha);
+    crate::state::twitch::set_chat_testing(Some(ddi_chat::Level::Messages));
     press(&mut ha, "HostOptions");
     press(&mut ha, "Inc.twitchchat");
     t.settle(400, &mut [&mut ha]);

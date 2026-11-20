@@ -681,6 +681,16 @@ impl OptionsPlatform for Web {
         }
     }
 
+    // Round TW3: the page leaves for the trip through Twitch.
+    fn connect_twitch_chat(
+        &self,
+        level: ddi_chat::Level,
+        _done: ddi_ui::screens::online_home::ConnectDone,
+        _cx: &mut Cx,
+    ) {
+        crate::online::connect_twitch_chat(level);
+    }
+
     fn held(&self, id: &str) -> HashSet<String> {
         self.0
             .pads

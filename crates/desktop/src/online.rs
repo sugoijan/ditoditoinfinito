@@ -39,6 +39,33 @@ pub fn disconnect_twitch() {
     KEPT.with(Kept::disconnect_twitch);
 }
 
+/// Options' "Twitch chat in rooms" turned on without the chat's scope
+/// (round TW3): the trip through Twitch for `chat`, its dialog over
+/// Options (the attempt's code to type in the browser's page), back to the
+/// room kept, else home; `done` told how it ended.
+pub fn connect_twitch_chat(
+    env: &ddi_ui::screens::Env,
+    level: ddi_chat::Level,
+    done: ddi_ui::screens::online_home::ConnectDone,
+    cx: &mut ddi_ui::Cx,
+) {
+    let online = current();
+    let dest = KEPT
+        .with(Kept::room_id)
+        .map_or(ddi_ui::state::online::Dest::Home, ddi_ui::state::online::Dest::Room);
+    online.borrow_mut().connect_twitch_chat(dest.clone(), level);
+    cx.overlay(
+        ddi_ui::screens::online_home::SignInDialog::connecting(
+            env.clone(),
+            online,
+            dest,
+            "chat",
+            Some(done),
+        ),
+        true,
+    );
+}
+
 thread_local! {
     /// The run's online state, the online room shown last and the room
     /// watched with its audience.

@@ -5,9 +5,11 @@
 //! (`ddi_shell::chat`).
 //!
 //! Today its one source is the scripted chat (TESTING ONLY: the web's
-//! `mpfakechat`, desktop's `--mp-dev-chat`), connected to any play; the
-//! device's socket to Twitch (C2) is another round's, and will connect it
-//! only in a room's stage.
+//! `mpfakechat`, desktop's `--mp-dev-chat`); the device's socket to
+//! Twitch (C2) is another round's. In a room's stage the room's own
+//! ceiling caps it ([`room_ceiling`], round TW3), and a room that shows
+//! no chat has no layer at all; outside a room the scripted chat's own
+//! line stands for a ceiling, for tests.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -16,6 +18,7 @@ use ddi_chat::emotes::EmoteSets;
 use ddi_chat::eventsub::{Event, Message};
 use ddi_chat::script::{Player, Script};
 use ddi_chat::{EmotesFrom, Level, Style};
+use ddi_ui::state::room::StageSetup;
 use ddi_ui::state::settings::Settings;
 
 thread_local! {
@@ -23,8 +26,11 @@ thread_local! {
 }
 
 /// TESTING ONLY: plays `script` as the chat of every play from now on
-/// (the shells' `mpfakechat` and `--mp-dev-chat`); `None` stops it.
+/// (the shells' `mpfakechat` and `--mp-dev-chat`); `None` stops it. It
+/// is also the testing switch that shows the chat's rows
+/// (`ddi_ui::state::twitch::chat_testing`).
 pub fn set_scripted(script: Option<Script>) {
+    ddi_ui::state::twitch::set_chat_testing(script.as_ref().map(Script::ceiling));
     SCRIPTED.with(|s| *s.borrow_mut() = script);
 }
 
@@ -34,12 +40,15 @@ pub fn scripted() -> bool {
 }
 
 /// THE ROOM'S CEILING (C1), the one place it is answered: how much of the
-/// host's chat the room allows. Rooms do not carry it yet (the model's
-/// `RoomState::twitch`, revision 18, is another round's): until then it
-/// is the scripted chat's own line, and Off without one. Its caller
-/// passes the room's state once there is one.
-pub fn room_ceiling(script: Option<&Script>) -> Level {
-    script.map_or(Level::Off, Script::ceiling)
+/// host's chat a play may show. In a room's stage (`stage`), the room's
+/// own (`RoomState::twitch`'s chat choice, carried by the stage's setup,
+/// `StageSetup::chat`; Off where the room shows none); outside a room,
+/// TESTING ONLY, the scripted chat's own line, and Off without one.
+pub fn room_ceiling(stage: Option<&StageSetup>, script: Option<&Script>) -> Level {
+    match stage {
+        Some(stage) => stage.chat.as_ref().map_or(Level::Off, |c| c.ceiling),
+        None => script.map_or(Level::Off, Script::ceiling),
+    }
 }
 
 /// What a play's chat shows, from the device's settings.
@@ -64,20 +73,31 @@ pub enum ChatSource {
 }
 
 impl ChatConfig {
-    /// The chat a play shows under `settings`, if any: the scripted
-    /// chat's, in any play, where the device's choice under the room's
-    /// ceiling is not Off. (A room's own chat is the transports' round's.)
+    /// The device's chat under `settings`, if any: its choice ("Twitch
+    /// chat in rooms") over the scripted chat, the only source until the
+    /// transports exist. The room's ceiling is applied as the play
+    /// starts ([`ChatConfig::under_room`]).
     pub fn for_play(settings: &Settings) -> Option<ChatConfig> {
         let script = SCRIPTED.with(|s| s.borrow().clone())?;
-        let level = settings.twitch_chat.under(room_ceiling(Some(&script)));
-        (level != Level::Off).then(|| ChatConfig {
-            level,
+        (settings.twitch_chat != Level::Off).then(|| ChatConfig {
+            level: settings.twitch_chat,
             style: settings.chat_style,
             names: settings.chat_names,
             emotes_from: settings.chat_emotes_from,
             opacity: f32::from(settings.chat_opacity.min(100)) / 100.0,
             source: ChatSource::Script(script),
         })
+    }
+
+    /// This chat as a play shows it, under the room's ceiling
+    /// ([`room_ceiling`]: `stage`'s in a room's stage): never more than
+    /// the room allows, and none where that is Off.
+    pub fn under_room(mut self, stage: Option<&StageSetup>) -> Option<ChatConfig> {
+        let script = match &self.source {
+            ChatSource::Script(s) => Some(s),
+        };
+        self.level = self.level.under(room_ceiling(stage, script));
+        (self.level != Level::Off).then_some(self)
     }
 }
 
@@ -170,12 +190,48 @@ mod tests {
         };
         set_scripted(None);
         assert_eq!(ChatConfig::for_play(&s), None);
-        assert_eq!(room_ceiling(None), Level::Off);
+        assert_eq!(room_ceiling(None, None), Level::Off);
+        assert_eq!(ddi_ui::state::twitch::chat_testing(), None);
         set_scripted(Script::builtin("emotes"));
-        assert_eq!(ChatConfig::for_play(&s).map(|c| c.level), Some(Level::Emotes));
+        assert_eq!(ddi_ui::state::twitch::chat_testing(), Some(Level::Emotes));
+        let shown = |s: &Settings, stage: Option<&StageSetup>| {
+            ChatConfig::for_play(s).and_then(|c| c.under_room(stage)).map(|c| c.level)
+        };
+        // Outside a room: the scripted chat's own line (tests only).
+        assert_eq!(shown(&s, None), Some(Level::Emotes));
+        // A room's stage: the room's ceiling, whatever the script says.
+        let mut stage = setup();
+        assert_eq!(shown(&s, Some(&stage)), None, "a room that shows none has no layer");
+        stage.chat = Some(ddi_ui::state::twitch::RoomChat {
+            ceiling: Level::Messages,
+            channel_id: "1".into(),
+            login: "host".into(),
+        });
+        assert_eq!(shown(&s, Some(&stage)), Some(Level::Messages));
+        s.twitch_chat = Level::Emotes;
+        assert_eq!(shown(&s, Some(&stage)), Some(Level::Emotes), "never above the device's");
         s.twitch_chat = Level::Off;
-        assert_eq!(ChatConfig::for_play(&s), None);
+        assert_eq!(shown(&s, Some(&stage)), None);
         set_scripted(None);
+        assert_eq!(ddi_ui::state::twitch::chat_testing(), None);
+    }
+
+    fn setup() -> StageSetup {
+        StageSetup {
+            stage: ddi_room::StageId(1),
+            number: 1,
+            of: 1,
+            battle: ddi_room::BattlePreset::GaugeSurvivalV0,
+            rules: Default::default(),
+            me: ddi_room::ParticipantId(1),
+            targeting: Default::default(),
+            cpus: Vec::new(),
+            dev_mines_at_beat: None,
+            others: 0,
+            watching: false,
+            live: None,
+            chat: None,
+        }
     }
 
     #[test]

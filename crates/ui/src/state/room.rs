@@ -664,6 +664,12 @@ pub struct StageSetup {
     /// plays are streamed to this one and its attacks are the room's (a
     /// play given its room's client, `ddi_session::battle::Battle::with_live`).
     pub live: Option<LiveOrder>,
+    /// The room's chat as the stage is ordered (C1, room model revision
+    /// 18, `crate::state::twitch::RoomChat`): the host's ceiling and
+    /// channel, from `RoomState::twitch`; none where the room shows no
+    /// chat (an audience's seat never has one, C13). A device never shows
+    /// more than it (`ddi_session::chat::room_ceiling`).
+    pub chat: Option<crate::state::twitch::RoomChat>,
 }
 
 impl StageSetup {
@@ -2567,6 +2573,15 @@ impl RoomClient {
             return;
         };
         let (online, room) = (link.online().clone(), link.room_id().to_string());
+        // Round TW3: a trip for this device's chat, back here.
+        let chat = online.borrow_mut().take_chat_outcome();
+        if let Some(on) = chat {
+            self.set_link_notice(Some(if on {
+                LinkNotice::TwitchChatOn
+            } else {
+                LinkNotice::TwitchNotConnected
+            }));
+        }
         let Some((wanted, canceled)) = online.borrow_mut().take_twitch_wanted(&room) else {
             return;
         };
@@ -5154,6 +5169,14 @@ impl RoomClient {
                         })
                         .collect(),
                 }),
+                // The room's chat (revision 18); CPU practice has no
+                // host's Twitch: the scripted chat's line under the
+                // testing switch alone.
+                chat: if self.is_online() {
+                    crate::state::twitch::RoomChat::of(self.twitch())
+                } else {
+                    crate::state::twitch::RoomChat::practice()
+                },
             },
             song: picked.song,
             chart: picked.chart,

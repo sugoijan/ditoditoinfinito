@@ -519,6 +519,15 @@ impl OptionsPlatform for Desktop {
         self.0.held.borrow().get(id).cloned().unwrap_or_default()
     }
 
+    fn connect_twitch_chat(
+        &self,
+        level: ddi_chat::Level,
+        done: ddi_ui::screens::online_home::ConnectDone,
+        cx: &mut Cx,
+    ) {
+        crate::online::connect_twitch_chat(&self.0.env, level, done, cx);
+    }
+
     fn changed(&self, model: &OptionsModel) {
         self.0.env.follow_cursor(&model.settings);
         // As the preview shows them: on the layout picked for it.
