@@ -1366,10 +1366,18 @@ impl<H: PlayHost> PlayView<H> {
                     .map(|c| (c, spec))
             });
         // The quit button, clear of the field's receptors and the insets
-        // (and above the touch controls while they show).
+        // (and above the touch controls of the screen's left half while
+        // they show: the quit button is at the left).
+        let lifted = touch
+            .as_ref()
+            .filter(|(_, s)| s.shown)
+            .and_then(|(c, _)| {
+                let r = screen.ratio.max(f32::MIN_POSITIVE);
+                c.left_group(w / r).map(|g| h / r - g[1])
+            });
         let quit = screen.quit.map(|mut insets| {
-            if let Some((c, _)) = touch.as_ref().filter(|(_, s)| s.shown) {
-                insets[2] = insets[2].max(h / screen.ratio.max(f32::MIN_POSITIVE) - c.top());
+            if let Some(by) = lifted {
+                insets[2] = insets[2].max(by);
             }
             ddi_render::scene::quit_button(&geo, &session.layout, screen.ratio, insets)
         });
@@ -1396,10 +1404,16 @@ impl<H: PlayHost> PlayView<H> {
                     session.battle().is_some(),
                 )
             })
-            .map(|q| match touch.as_ref().filter(|(_, s)| s.shown) {
-                // Above the quit button, away from the touch controls.
-                Some(_) => crate::play_volume::place_way(q, [w, h], screen.ratio, false),
-                None => crate::play_volume::place(q, [w, h], screen.ratio),
+            .map(|q| {
+                // Above the quit button, away from the touch controls
+                // under it, where there is room above it (under Reverse
+                // the quit button is at the top, the volume as ever).
+                let room = q[1] - 3.0 * q[2] - 8.0 * screen.ratio;
+                if lifted.is_some() && room >= 0.0 {
+                    crate::play_volume::place_way(q, [w, h], screen.ratio, false)
+                } else {
+                    crate::play_volume::place(q, [w, h], screen.ratio)
+                }
             });
         self.volume
             .frame(volume_place, screen.ratio, session.volume(), moment.now.0);
@@ -1490,6 +1504,16 @@ impl<H: PlayHost> PlayView<H> {
             let [x, y, r] = quit_place;
             [x - r, y - r, x + r, y + r]
         });
+        // The touch controls while they show (and the volume lifted above
+        // the quit button with them).
+        if let Some((c, _)) = touch.as_ref().filter(|(_, s)| s.shown) {
+            let r = screen.ratio;
+            keep_out.extend(c.groups.iter().map(|g| g.map(|v| v * r)));
+            if let Some(v) = volume_place {
+                let [x, y, vr] = v.button;
+                keep_out.push([x - vr, y - vr, x + vr, y + vr]);
+            }
+        }
 
         // What a line of who attacks whom keeps clear of besides the band
         // and the miniatures (`crate::attack_links`): the HUD and the

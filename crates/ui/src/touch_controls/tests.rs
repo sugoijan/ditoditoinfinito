@@ -244,6 +244,8 @@ fn a_lone_pad_sits_beside_the_field_on_a_wide_screen() {
     assert!(right[0] > field[1], "{right:?}");
     let left = at(Hand::Left);
     assert!(left[2] < field[0], "{left:?}");
+    // Room above it for the quit button and the volume.
+    assert!(left[1] >= QUIT_ROOM + MARGIN - 0.01, "{left:?}");
     // Upright: under the field, centered.
     let c = single(PHONE, Style::Pad);
     let g = c.groups[0];

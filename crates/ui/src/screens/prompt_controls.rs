@@ -207,7 +207,7 @@ pub(super) fn draw(
         for (i, cap) in caps.iter().enumerate().skip(start).take(count) {
             let x = left + (i - start) as f32 * cell + cell / 2.0;
             if let Some(plan) = &touch {
-                let mut cut = touch_cut(plan, i, (cell - 6.0).min(56.0));
+                let mut cut = touch_cut(plan, i, (cell - 10.0).min(48.0));
                 cut.name = format!("TouchCut{i}");
                 call(&mut cut, "xy", &[x, y + cell + 18.0]);
                 actors.push(cut);
@@ -313,10 +313,21 @@ pub fn touch_cut(plan: &crate::touch_controls::Controls, lane: usize, size: f32)
         parts.push(q);
     }
     if !pad {
-        // The screen's bottom edge under the buttons.
+        // The screen's corner the buttons sit in: its bottom edge under
+        // them and its side beside them.
+        let bottom = gh * k / 2.0 + 4.0;
         let mut edge = quad("", [size * 1.25, 1.5], [1.0, 1.0, 1.0, 0.35]);
-        call(&mut edge, "xy", &[0.0, gh * k / 2.0 + 4.0]);
+        call(&mut edge, "xy", &[0.0, bottom]);
         parts.push(edge);
+        let side = if shift < 0.0 {
+            shift - gw * k / 2.0 - 4.0
+        } else {
+            shift + gw * k / 2.0 + 4.0
+        };
+        let tall = gh * k + 8.0;
+        let mut wall = quad("", [1.5, tall], [1.0, 1.0, 1.0, 0.35]);
+        call(&mut wall, "xy", &[side, bottom - tall / 2.0]);
+        parts.push(wall);
     }
     let mut a = super::frame("TouchCut", parts);
     a.decoration = true;
@@ -362,8 +373,8 @@ mod tests {
             assert!(cut.decoration);
             children.len()
         };
-        // The left group's two buttons and the screen's edge.
-        assert_eq!(parts(Style::Buttons, 0), 3);
+        // The left group's two buttons and the screen's corner.
+        assert_eq!(parts(Style::Buttons, 0), 4);
         // The whole pad.
         assert_eq!(parts(Style::Pad, 2), 9);
     }

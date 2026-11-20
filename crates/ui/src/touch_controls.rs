@@ -275,6 +275,9 @@ fn buttons(layout: &Layout, screen: Screen, hand: Hand) -> Controls {
 
 /// The smallest pad drawn beside the field rather than under it.
 const PAD_BESIDE_LEAST: f32 = 3.0 * BUTTON_LEAST + 2.0 * GAP;
+/// What a pad beside the field at the screen's left leaves above it: the
+/// quit button and the volume over it (each 44 px, gaps of 8).
+pub const QUIT_ROOM: f32 = 2.0 * 44.0 + 3.0 * GAP;
 /// The most of the screen's height a pad under the field takes.
 const PAD_TALL: f32 = 0.42;
 /// A pad's largest side (tiles of about 20 mm on a phone).
@@ -300,7 +303,13 @@ fn pad(layout: &Layout, screen: Screen, hand: Hand) -> Option<Controls> {
             Hand::Right => beside_right,
             Hand::Left => beside_left,
         };
-        let side = room.min(tall).min(PAD_MOST);
+        // A pad at the left leaves the quit button and the volume their
+        // room above it.
+        let high = match hand {
+            Hand::Right => tall,
+            Hand::Left => tall - QUIT_ROOM,
+        };
+        let side = room.min(high).min(PAD_MOST);
         if w > h && side >= PAD_BESIDE_LEAST {
             let x = match hand {
                 Hand::Right => sr - side,
@@ -316,7 +325,10 @@ fn pad(layout: &Layout, screen: Screen, hand: Hand) -> Option<Controls> {
             squares.push([x, sb - side, x + side, sb]);
         }
     } else {
-        let side = beside_left.min(beside_right).min(tall).min(PAD_MOST);
+        let side = beside_left
+            .min(beside_right)
+            .min(tall - QUIT_ROOM)
+            .min(PAD_MOST);
         if w > h && side >= PAD_BESIDE_LEAST {
             squares.push([sl, sb - side, sl + side, sb]);
             squares.push([sr - side, sb - side, sr, sb]);
