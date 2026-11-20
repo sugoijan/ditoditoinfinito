@@ -1154,6 +1154,15 @@ impl Bot {
         } else {
             ddi_ui::state::settings::RoomAhead::Off
         }));
+        // The bundled songs every device has (revision 17): a listed one
+        // is loaded from them, never downloaded (round TW3: a guest bot
+        // knew none, and never loaded a bundled stage's song). A host's
+        // own library is set again with its Rules.
+        let bundled: Vec<SongEntry> = crate::library::bundled()
+            .iter()
+            .map(ddi_ui::state::select_view::plain_song_entry)
+            .collect();
+        room.set_library(&bundled);
         self.news = Some(tx);
         self.room = Some(Rc::new(RefCell::new(room)));
         self.say(format!("in room {id}"));
