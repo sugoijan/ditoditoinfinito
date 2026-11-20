@@ -1461,7 +1461,21 @@ Rust and the browser are implementation details, not advertised features.
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 17 since 2026-11-19: an online room's own song
+  (`ROOM_MODEL_REVISION`, 18 since 2026-11-20: the host's Twitch in a
+  room, `crate::twitch` (`RoomState::twitch`, `TwitchSetting`: whose
+  bans or bans and blocks keep people out, `TwitchMirror`, and the chat's
+  ceiling, `TwitchChat`, the one who set it's while they are a member,
+  `RoomState::may_set_twitch`; `Command::SetTwitch`, the authority's,
+  `Event::TwitchChanged`, `Capability::Twitch`) and removal
+  (`Command::Remove`: a host's or a co-host's Kick, `Capability::Kick`,
+  `RoomState::may_kick`, `Event::MemberRemoved`, sockets closed 4403,
+  `LinkState::Kicked`; or the authority's for the mirror, told to the
+  others as a leave, 4406, `LinkState::NotAdmitted`,
+  `Rejection::NotAdmitted`, `403 not_admitted`; `FakeServer::bar`,
+  `sweep`, `set_twitch`; the Players pop-up's Moderate,
+  `room_dialogs::MODERATE`; `docs/plans/multiplayer-twitch.md`;
+  `tests/twitch.rs`, `tests/room-revision-17.json` read with none);
+  17 since 2026-11-19: an online room's own song
   list, `crate::songs` (`RoomState::songs`, behind a shared pointer and
   stored by the server in a row of its own; `Command::AddSong`,
   `RemoveSong`, `SetSongList`, `SetSongContent`, `PickListed`,

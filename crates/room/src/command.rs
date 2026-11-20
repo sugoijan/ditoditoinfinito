@@ -14,6 +14,7 @@ use crate::member::{Capability, Connection, Intent, Member, Role};
 use crate::phase::{Interruption, Phase, PhaseKind};
 use crate::rules::{Access, Admission, CapExceeded, MatchRules, PlayRules, RulesProblem};
 use crate::songs::{ChartLine, ListRules, NewSong, Removal, RoomSong};
+use crate::twitch::TwitchSetting;
 use crate::state::{
     Closure, ContentCard, ContentStatus, HostLeaves, Loading, MatchEnding, SitOutReason, Spotlight,
     StageContent,
@@ -235,6 +236,21 @@ pub enum Command {
         participant: ParticipantId,
         on: bool,
     },
+    /// Remove `participant` from the room (room model revision 18,
+    /// `docs/plans/multiplayer-twitch.md` B5 and B9). From a member, a
+    /// host's or a co-host's Kick (`Capability::Kick`, whom:
+    /// `RoomState::may_kick`): told to everyone
+    /// ([`Event::MemberRemoved`]), the person's sockets closed 4403
+    /// ("The host removed you from the room."); a kick bans nobody: they
+    /// may come back by the invite. From the authority, the mirror's (the
+    /// host's Twitch lists bar them, checked by the server): told to the
+    /// others as their leaving ([`Event::MemberLeft`], review note 3:
+    /// nobody learns that the host banned or blocked them), their sockets
+    /// closed 4406 ("You can't join this room."). Either way, during a
+    /// stage they play it is a forfeit, as leaving is.
+    Remove {
+        participant: ParticipantId,
+    },
 
     // The authority alone.
     /// A person entered (or returned to) the room, as the authority
@@ -326,6 +342,16 @@ pub enum Command {
     CloseRoom {
         reason: Closure,
     },
+    /// The room's Twitch setting made `twitch` (none: off) at member
+    /// `member`'s asking (room model revision 18, B1, B3, C1): the
+    /// server's, once it checked the person's Twitch access has the scopes
+    /// the setting needs. Who may make which change is the model's
+    /// (`RoomState::may_set_twitch`).
+    SetTwitch {
+        member: ParticipantId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        twitch: Option<TwitchSetting>,
+    },
 }
 
 /// What happened. Applying a revision's events to the previous revision's
@@ -342,6 +368,19 @@ pub enum Event {
     },
     MemberLeft {
         participant: ParticipantId,
+    },
+    /// A host's or a co-host's Kick ([`Command::Remove`] from a member,
+    /// room model revision 18): `participant` is out of the room as one
+    /// who left is (their record and results stay), removed by `by`.
+    MemberRemoved {
+        participant: ParticipantId,
+        by: ParticipantId,
+    },
+    /// The room's Twitch setting ([`Command::SetTwitch`]; none also when
+    /// the one who set it left the room).
+    TwitchChanged {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        twitch: Option<TwitchSetting>,
     },
     ConnectionChanged {
         participant: ParticipantId,
@@ -706,6 +745,14 @@ pub enum Rejection {
     /// A song described past the list's bounds (`NewSong::fits`), or list
     /// rules out of theirs.
     InvalidSong,
+    /// Revision 18: the host's Twitch lists keep this person out (a ban,
+    /// a timeout or a block, never told apart: "You can't join this
+    /// room."). The server's answer to a join or a ticket (`403
+    /// not_admitted`).
+    NotAdmitted,
+    /// Revision 18: a Twitch setting past its bounds
+    /// (`TwitchSetting::fits`).
+    InvalidTwitch,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

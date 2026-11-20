@@ -71,6 +71,7 @@ impl Client {
             let t = self.server.borrow_mut().ticket(&self.who);
             self.link.ticket(t.map_err(|r| match r {
                 Rejection::RoomClosed => TicketProblem::RoomClosed,
+                Rejection::NotAdmitted => TicketProblem::NotAdmitted,
                 _ => TicketProblem::NotAMember,
             }));
         }
@@ -2221,4 +2222,175 @@ fn a_usage_report_goes_once_a_socket_and_says_how_the_last_one_ended() {
     );
     assert_eq!(s.usage_reports().len(), 2);
     assert_eq!(s.sockets(), 2);
+}
+
+/// Room model revision 18 (round TW1): a kick, a co-host's kick of the
+/// host refused, the room's Twitch setting and the mirror's removal
+/// through both authorities: the same room, the same answers, every mirror
+/// equal (Cy and Dee have no socket; the mirror's removal reads as Dee's
+/// leaving).
+#[test]
+fn a_kick_and_the_twitch_setting_are_kept_alike_by_both_authorities_and_every_mirror() {
+    let alice = ParticipantId(1);
+    let cy = ParticipantId(4);
+    let dee = ParticipantId(5);
+    let mut steps = script();
+    steps.push(Step::Join("dev:cy", "Cy"));
+    steps.push(Step::Join("dev:dee", "Dee"));
+    // Bob, a co-host, may not kick the host: refused.
+    steps.push(Step::Cmd("dev:bob", Command::Remove { participant: alice }));
+    steps.push(Step::Cmd("dev:alice", Command::Remove { participant: cy }));
+    steps.push(Step::Authority(Command::SetTwitch {
+        member: alice,
+        twitch: Some(ddi_room::TwitchSetting {
+            by: alice,
+            mirror: ddi_room::TwitchMirror::Bans,
+            chat: ddi_room::TwitchChat::Emotes,
+            user_id: "1001".into(),
+            login: "alice".into(),
+        }),
+    }));
+    steps.push(Step::Authority(Command::Remove { participant: dee }));
+    let (local, local_answers) = run_local(&steps);
+    let (server, online_answers, mirrors) = run_online(&steps, &[]);
+    assert_eq!(local_answers, online_answers);
+    assert_eq!(local, server, "the server's room is the local one");
+    for m in &mirrors {
+        assert_eq!(m, &server, "a client's mirror is the room");
+    }
+    let n = local_answers.len();
+    assert_eq!(
+        local_answers[n - 2],
+        Some(Rejection::Unauthorized {
+            capability: ddi_room::Capability::Kick
+        })
+    );
+    assert_eq!(local_answers[n - 1], None);
+    assert!(local.member(cy).unwrap().left && local.member(dee).unwrap().left);
+    assert!(local.twitch.as_ref().is_some_and(|t| t.mirror.on()));
+}
+
+/// A kick ends the kicked one's link as Kicked (4403), after the room told
+/// everyone; they come back by the invite (a join) and connect again.
+#[test]
+fn a_kick_ends_the_link_and_the_invite_admits_them_again() {
+    let clock = ManualClock::new(1_000);
+    let (server, mut alice, mut bob) = two(&clock);
+    let seq = alice.send(Command::Remove {
+        participant: ParticipantId(2),
+    });
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(alice.answer(seq), Some(&None));
+    assert_eq!(bob.link.link(), LinkState::Kicked);
+    assert!(bob.link.link().ended());
+    assert!(alice.room().member(ParticipantId(2)).unwrap().left);
+    assert!(
+        server.borrow().sockets() == 1,
+        "the kicked one's socket closed"
+    );
+    // Back by the invite: the same row, connected again.
+    server
+        .borrow_mut()
+        .join(Identity::new("dev:bob"), "Bob", Intent::Play)
+        .unwrap();
+    bob.link.restart();
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(bob.link.link(), LinkState::Connected);
+    assert!(!alice.room().member(ParticipantId(2)).unwrap().left);
+}
+
+/// The mirror (revision 18, a fake Twitch's barred identity): a barred
+/// newcomer is refused at the join; one barred while inside is removed at
+/// the next pick, their link ending as NotAdmitted (4406) while the others
+/// see a leave; their ticket refused; an unban (a timeout's end) lets them
+/// back at once. Bots and observing administrators are never checked.
+#[test]
+fn the_mirror_refuses_at_the_join_and_removes_at_the_pick() {
+    let clock = ManualClock::new(1_000);
+    let (server, mut alice, mut bob) = two(&clock);
+    let alice_id = ParticipantId(1);
+    let mine = ddi_room::TwitchSetting {
+        by: alice_id,
+        mirror: ddi_room::TwitchMirror::Bans,
+        chat: ddi_room::TwitchChat::Off,
+        user_id: "1001".into(),
+        login: "alice".into(),
+    };
+    // Barred before the mirror is on: nothing happens.
+    server.borrow_mut().bar(&Identity::new("dev:eve"), true);
+    server.borrow_mut().bar(&Identity::new("bot:eve"), true);
+    let swept = server.borrow_mut().set_twitch(alice_id, Some(mine)).unwrap();
+    assert!(swept.is_empty());
+    pump_all(&mut [&mut alice, &mut bob]);
+    // A barred newcomer: refused; a barred bot: let in.
+    assert_eq!(
+        server
+            .borrow_mut()
+            .join(Identity::new("dev:eve"), "Eve", Intent::Play),
+        Err(Rejection::NotAdmitted)
+    );
+    assert!(server
+        .borrow_mut()
+        .join(Identity::new("bot:eve"), "Bot", Intent::Play)
+        .is_ok());
+    // Bob barred while inside: still in until the next pick.
+    server.borrow_mut().bar(&Identity::new("dev:bob"), true);
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(bob.link.link(), LinkState::Connected);
+    let seq = alice.send(pick(1));
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(alice.answer(seq), Some(&None));
+    assert_eq!(bob.link.link(), LinkState::NotAdmitted);
+    let bob_row = alice.room().member(ParticipantId(2)).unwrap();
+    assert!(bob_row.left);
+    // To Alice it was a leave: her mirror's last revisions say no removal.
+    assert_eq!(alice.room(), server.borrow().state());
+    // His ticket and his join are refused; the bot stays.
+    assert_eq!(
+        server.borrow_mut().ticket(&Identity::new("dev:bob")),
+        Err(Rejection::NotAMember)
+    );
+    assert_eq!(
+        server
+            .borrow_mut()
+            .join(Identity::new("dev:bob"), "Bob", Intent::Play),
+        Err(Rejection::NotAdmitted)
+    );
+    // Unbanned (the timeout ended): back at once.
+    server.borrow_mut().bar(&Identity::new("dev:bob"), false);
+    server
+        .borrow_mut()
+        .join(Identity::new("dev:bob"), "Bob", Intent::Play)
+        .unwrap();
+    bob.link.restart();
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(bob.link.link(), LinkState::Connected);
+}
+
+/// A barred member's ticket (a reconnect) is refused as not admitted and
+/// ends the link so.
+#[test]
+fn a_barred_members_ticket_ends_the_link_as_not_admitted() {
+    let clock = ManualClock::new(1_000);
+    let (server, mut alice, mut bob) = two(&clock);
+    server
+        .borrow_mut()
+        .set_twitch(
+            ParticipantId(1),
+            Some(ddi_room::TwitchSetting {
+                by: ParticipantId(1),
+                mirror: ddi_room::TwitchMirror::BansAndBlocks,
+                chat: ddi_room::TwitchChat::Off,
+                user_id: "1001".into(),
+                login: "alice".into(),
+            }),
+        )
+        .unwrap();
+    server.borrow_mut().bar(&Identity::new("dev:bob"), true);
+    server.borrow_mut().drop_socket(ParticipantId(2));
+    for _ in 0..20 {
+        clock.advance(1_000);
+        pump_all(&mut [&mut alice, &mut bob]);
+    }
+    assert_eq!(bob.link.link(), LinkState::NotAdmitted);
 }

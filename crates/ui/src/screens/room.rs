@@ -772,6 +772,10 @@ fn phase_status(r: &RoomClient) -> UiText {
             // Stopped for the person's newer device (round P1b): More's
             // Use this device, and the notice, bring it back.
             LinkState::OpenedElsewhere => return m::link_opened_elsewhere(),
+            // Revision 18: removed by a host, or not let in (one neutral
+            // line for a ban, a timeout and a block).
+            LinkState::Kicked => return m::link_kicked(),
+            LinkState::NotAdmitted => return m::link_not_admitted(),
             // The room's authority is newer: a reload (More's Reload on
             // the web), or a newer desktop build.
             LinkState::UpdateRequired if r.on_web() => return m::update_reload(),
@@ -800,6 +804,15 @@ fn phase_status(r: &RoomClient) -> UiText {
             LinkNotice::AudienceOpened => m::audience_opened_notice(),
             LinkNotice::BackHere => back_here(r),
             LinkNotice::AheadQuota => m::ahead_quota(),
+            LinkNotice::Kicked { who, by } => {
+                let name = |id| {
+                    r.state()
+                        .member(id)
+                        .map(person_name)
+                        .unwrap_or_default()
+                };
+                m::kicked_someone(UiText::data(name(who)), UiText::data(name(by)))
+            }
         };
     }
     let s = r.state();
@@ -962,6 +975,10 @@ pub struct PlayerRow {
     /// Host options (the row is drawn on a faint plate named
     /// [`person_row_name`]). Set by the pop-up, never by the rows' maker.
     pub manage: bool,
+    /// The Players pop-up with Moderate on (revision 18): the row has a
+    /// Kick button ([`kick_button_name`]), for a person the viewer may
+    /// remove. Set by the pop-up, never by the rows' maker.
+    pub kick: bool,
     /// The marks song select's players panel draws before the name
     /// (`select-b2`): what [`PlayerRow::role`] says in words.
     pub marks: Marks,
@@ -1330,6 +1347,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     policy: policy(member.targeting()),
                     id: Some(member.id.0),
                     manage: false,
+                    kick: false,
                     marks: person_marks(s, member),
                     bot: member.is_bot(),
                     icon: person_icon(s, member, part.as_ref(), prep.as_ref()),
@@ -1355,6 +1373,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     policy: policy(member.targeting()),
                     id: None,
                     manage: false,
+                    kick: false,
                     marks: Marks::default(),
                     bot: false,
                     icon: cpu_icon(s.participation(member.id).as_ref()),
@@ -1385,6 +1404,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                 policy: policy(spec.targeting.unwrap_or_default()),
                 id: None,
                 manage: false,
+                kick: false,
                 marks: Marks::default(),
                 bot: false,
                 icon: StateIcon::Ready,
@@ -1829,10 +1849,14 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
             items.push((RETRY_LOAD.to_string(), m::retry_download().into()));
         }
     }
-    // Never in the room (feedback round AA): its way out is the home.
+    // Never in the room (feedback round AA), or out of it (revision 18:
+    // removed, not let in): its way out is the home.
     let never_in = matches!(
         r.link_state(),
-        LinkState::SignInToEnter | LinkState::NotAMember
+        LinkState::SignInToEnter
+            | LinkState::NotAMember
+            | LinkState::Kicked
+            | LinkState::NotAdmitted
     );
     let leave = if never_in {
         m::multiplayer_home()
@@ -1931,6 +1955,17 @@ pub const OPENED_ELSEWHERE: &str = "room-opened-elsewhere";
 /// signed in and no member ([`LinkState::NotAMember`]).
 pub const NEVER_IN: &str = "room-never-in";
 
+/// The Kick button on person `id`'s row of the Players pop-up, while
+/// Moderate is on (revision 18).
+pub fn kick_button_name(id: u64) -> String {
+    format!("Kick.{id}")
+}
+
+/// The notice to someone out of the room (revision 18): removed by a host
+/// ([`LinkState::Kicked`]) or not let in ([`LinkState::NotAdmitted`]),
+/// with the way to the multiplayer home.
+pub const REMOVED: &str = "room-removed";
+
 /// The notice a link's end asks the person to act on, once each time
 /// (`RoomClient::take_opened_elsewhere`): the room opened on another
 /// device (round P1b), or a room's page opened by someone never in it
@@ -1977,6 +2012,27 @@ pub fn tell_opened_elsewhere(env: &Env, room: &SharedRoom, cx: &mut Cx) {
                 )
                 .with_no(&common::close())
                 .named(NEVER_IN),
+                true,
+            );
+            return;
+        }
+        // Revision 18: removed by a host, or not let in.
+        LinkState::Kicked | LinkState::NotAdmitted => {
+            let (title, body) = if state == LinkState::Kicked {
+                (m::link_kicked(), m::kicked_body())
+            } else {
+                (m::link_not_admitted(), m::not_admitted_body())
+            };
+            cx.overlay(
+                super::dialog::ConfirmDialog::new(
+                    env.clone(),
+                    &title,
+                    &body,
+                    &m::multiplayer_home(),
+                    home,
+                )
+                .with_no(&common::close())
+                .named(REMOVED),
                 true,
             );
             return;
@@ -2716,6 +2772,24 @@ pub fn panel(
                     look::call(&mut plate, "cornerradius", &[6.0]);
                     children.push(plate);
                 }
+                // Moderate on (revision 18): Kick at the row's right, the
+                // state and the policy to its left.
+                let kick_w = if let (true, Some(id)) = (p.kick, p.id) {
+                    let label = m::kick();
+                    let bw = (look::mono_width(&label, 14.0) + 24.0).clamp(72.0, w * 0.3);
+                    children.push(super::dialog::button(
+                        env,
+                        &kick_button_name(id),
+                        &label,
+                        [x + w - bw / 2.0, ry + h / 2.0 - 2.0],
+                        bw,
+                        "Button",
+                    ));
+                    bw + 10.0
+                } else {
+                    0.0
+                };
+                let (x_end, w) = (x + w - kick_w, w - kick_w);
                 let color = if p.me { "Text" } else { "Secondary" };
                 let state_w = look::mono_width(&p.state, 13.0).min(w * 0.45);
                 let (parts, _) = name_and_badge(
@@ -2747,13 +2821,13 @@ pub fn panel(
                 let color = if p.ready && !p.cpu { "Accent" } else { "Muted" };
                 let mut state = env.text(&format!("Panel{k}.State"), &p.state, 13.0, 600, color);
                 look::ellipsized(&mut state, w * 0.45);
-                children.push(right(state, x + w, ry + 13.0));
+                children.push(right(state, x_end, ry + 13.0));
                 // Their attack policy, quietly, under the state.
                 if !p.policy.is_empty() {
                     let mut policy =
                         env.text(&format!("Panel{k}.Policy"), &p.policy, 12.0, 400, "Faint");
                     look::ellipsized(&mut policy, w * 0.3);
-                    children.push(right(policy, x + w, ry + 31.0));
+                    children.push(right(policy, x_end, ry + 31.0));
                 }
             }
         }

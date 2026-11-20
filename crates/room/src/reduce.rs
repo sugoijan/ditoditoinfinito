@@ -472,18 +472,30 @@ impl RoomState {
             }
             Command::Leave => {
                 let id = self.own(actor)?;
-                // Cancel first, so the departure also clears the readiness
-                // the canceled start held.
-                self.cancel_if_committed(id, out);
-                self.emit(out, Event::MemberLeft { participant: id });
-                self.drop_uploads_of(id, out);
-                // A host's leaving passes the room on (or ends it) before
-                // the pick they held goes to its owner: the new one.
-                self.settle_host(out);
-                self.release_pick(id, out);
-                if self.closed.is_none() && self.spotlight.as_ref().is_some_and(|s| s.by == id) {
-                    self.emit(out, Event::SpotlightChanged { spotlight: None });
-                }
+                self.depart(id, Event::MemberLeft { participant: id }, out);
+                Ok(())
+            }
+            Command::Remove { participant } => {
+                let id = *participant;
+                let gone = match actor {
+                    // A host's Kick, told to everyone.
+                    Actor::Member(by) => {
+                        self.may_kick(by, id)?;
+                        Event::MemberRemoved { participant: id, by }
+                    }
+                    // The mirror's: to the others, a member leaving.
+                    Actor::Authority => {
+                        let m = self.members.get(&id).ok_or(Rejection::UnknownParticipant)?;
+                        if m.is_cpu() {
+                            return Err(Rejection::NotAHuman);
+                        }
+                        if m.left {
+                            return Err(Rejection::NotPresent);
+                        }
+                        Event::MemberLeft { participant: id }
+                    }
+                };
+                self.depart(id, gone, out);
                 Ok(())
             }
             Command::ReportOutcome { stage, run, detail } => {
@@ -1088,6 +1100,35 @@ impl RoomState {
                 self.emit(out, Event::RoomClosed { reason: *reason });
                 Ok(())
             }
+            Command::SetTwitch { member, twitch } => {
+                Self::authority_only(actor)?;
+                let to = twitch.clone().filter(|t| t.on());
+                self.may_set_twitch(*member, to.as_ref())?;
+                if self.twitch != to {
+                    self.emit(out, Event::TwitchChanged { twitch: to });
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// `id` is out of the room (`gone`: their leaving, or their removal):
+    /// a start they were committed to canceled first (so the departure
+    /// also clears the readiness it held), their uploads dropped, the room
+    /// passed on (or ended) where they were its host before the pick they
+    /// held goes to its owner (the new one), their resting song cleared,
+    /// and the room's Twitch setting ended where it was theirs (B3).
+    fn depart(&mut self, id: ParticipantId, gone: Event, out: &mut Vec<Event>) {
+        self.cancel_if_committed(id, out);
+        self.emit(out, gone);
+        self.drop_uploads_of(id, out);
+        self.settle_host(out);
+        self.release_pick(id, out);
+        if self.closed.is_none() && self.spotlight.as_ref().is_some_and(|s| s.by == id) {
+            self.emit(out, Event::SpotlightChanged { spotlight: None });
+        }
+        if self.closed.is_none() && self.twitch.as_ref().is_some_and(|t| t.by == id) {
+            self.emit(out, Event::TwitchChanged { twitch: None });
         }
     }
 
@@ -2205,7 +2246,7 @@ impl RoomState {
                     m.connection = Connection::Connected;
                 }
             }
-            Event::MemberLeft { participant } => {
+            Event::MemberLeft { participant } | Event::MemberRemoved { participant, .. } => {
                 if let Some(m) = self.members.get_mut(participant) {
                     m.left = true;
                     m.connection = Connection::Disconnected;
@@ -2258,6 +2299,9 @@ impl RoomState {
                 }
             }
             Event::AccessChanged { access } => self.access = *access,
+            Event::TwitchChanged { twitch } => {
+                self.twitch = twitch.clone();
+            }
             Event::HostLeavesChanged { policy } => {
                 self.hosting = Hosting {
                     if_host_leaves: *policy,

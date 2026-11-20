@@ -966,3 +966,14 @@ room-status-my-songs-picker = ここで曲をルームに追加できます。�
 room-status-my-songs-adder = ここで曲をルームに追加できます。
 room-add-pack = このパックをルームに追加（{ $count }曲）
 room-status-adding-pack = パックをルームに追加中：{ $count }曲中{ $done }曲をアップロード済み。
+
+room-moderate = { $on ->
+    [1] 管理モード：オン
+   *[other] 管理モード：オフ
+}
+room-kick = 退出させる
+room-kicked-someone = { $by }さんが{ $name }さんをルームから退出させました。
+room-link-kicked = ホストによってルームから退出させられました。
+room-kicked-body = 招待リンクからこのルームに戻ることができます。
+room-link-not-admitted = このルームには参加できません。
+room-not-admitted-body = 他のルームには、その招待リンクから参加できます。

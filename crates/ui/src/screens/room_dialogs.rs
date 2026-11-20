@@ -2173,6 +2173,14 @@ pub struct PlayersDialog {
     /// may act on them (as built): a tap anywhere on the row, its name
     /// and words included, opens Host options on them.
     managed: Vec<Option<u64>>,
+    /// The local player may remove people (revision 18, as built): the
+    /// Moderate toggle is offered (never in CPU practice).
+    moderates: bool,
+    /// Moderate is on: each row they may remove has Kick. Off each time
+    /// the pop-up opens, so nobody is removed by a slip.
+    moderate: bool,
+    /// The Kick buttons shown (as built), by person.
+    kicks: Vec<u64>,
 }
 
 impl PlayersDialog {
@@ -2185,6 +2193,9 @@ impl PlayersDialog {
             manages: false,
             chooses: false,
             managed: Vec::new(),
+            moderates: false,
+            moderate: false,
+            kicks: Vec::new(),
         }
     }
 
@@ -2249,6 +2260,22 @@ impl Screen for PlayersDialog {
                 }
             }
         }
+        // Revision 18: Moderate, and while it is on Kick on each row the
+        // local player may remove.
+        self.moderates = r.may_moderate();
+        self.moderate &= self.moderates;
+        self.kicks.clear();
+        if self.moderate {
+            for row in &mut rows {
+                if let PanelRow::Player(p) = row
+                    && let Some(id) = p.id
+                    && r.may_kick(ddi_room::ParticipantId(id))
+                {
+                    p.kick = true;
+                    self.kicks.push(id);
+                }
+            }
+        }
         drop(r);
         self.managed = rows
             .iter()
@@ -2290,6 +2317,19 @@ impl Screen for PlayersDialog {
         self.first = first;
         c.push(p);
         c.push(super::dialog::foot_button(&env, "Close", &common::close(), [x, y, w, h]));
+        if self.moderates {
+            // The title's row, at the right: Moderate On or Off.
+            let label = m::moderate(u32::from(self.moderate));
+            let bw = (look::mono_width(&label, 15.0) + 32.0).clamp(120.0, w * 0.45);
+            c.push(button(
+                &env,
+                MODERATE,
+                &label,
+                [x + w - 24.0 - bw / 2.0, y + 30.0],
+                bw,
+                "Button",
+            ));
+        }
         // The foot's buttons from the left: Play or Watch (the player's
         // own), then the host's Host options.
         let mut bx = x + 24.0;
@@ -2330,12 +2370,20 @@ impl Screen for PlayersDialog {
     fn focusables(&self) -> Vec<Focusable> {
         // Close first: the pop-up opens on it, as everyone's; the foot's
         // other buttons to its left, in their order.
-        let mut row: Vec<&str> = Vec::new();
+        let kicks: Vec<String> = self
+            .kicks
+            .iter()
+            .map(|&id| super::room::kick_button_name(id))
+            .collect();
+        let mut row: Vec<&str> = kicks.iter().map(String::as_str).collect();
         if self.chooses {
             row.push(INTENT);
         }
         if self.manages {
             row.push(HOST_OPTIONS);
+        }
+        if self.moderates {
+            row.push(MODERATE);
         }
         row.push("Close");
         let link = |i: usize| Focusable {
@@ -2376,6 +2424,20 @@ impl Screen for PlayersDialog {
             }
             Input::Activate { name } if name == INTENT => {
                 super::room::toggle_intent(&self.room);
+                Handled::Yes
+            }
+            Input::Activate { name } if name == MODERATE => {
+                self.moderate = !self.moderate;
+                super::rebuild_keeping_focus(self, root, cx, MODERATE);
+                Handled::Yes
+            }
+            Input::Activate { name } if name.starts_with("Kick.") => {
+                if let Some(id) = name.strip_prefix("Kick.").and_then(|n| n.parse().ok())
+                    && self.moderate
+                {
+                    let _ = self.room.borrow_mut().kick(ddi_room::ParticipantId(id));
+                    super::rebuild_keeping_focus(self, root, cx, MODERATE);
+                }
                 Handled::Yes
             }
             Input::Activate { name } if name == HOST_OPTIONS => {
@@ -2420,6 +2482,10 @@ fn host_leaves_about(r: &crate::state::room::RoomClient) -> UiText {
 
 /// The Players pop-up's button that opens Host options (the host's).
 pub const HOST_OPTIONS: &str = "HostOptions";
+
+/// The Players pop-up's Moderate toggle (revision 18): the host's and the
+/// co-hosts', off each time it opens; while on, rows have Kick.
+pub const MODERATE: &str = "Moderate";
 
 /// Host options' button that closes or opens the room's audience.
 pub const AUDIENCE: &str = "Audience";

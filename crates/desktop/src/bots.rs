@@ -158,6 +158,18 @@ pub struct Options {
     /// (stage 2 of the room's song list: everything), unless
     /// `--no-ahead` (load tests: a song read only when picked).
     pub ahead: bool,
+    /// The host kicks a guest once (`--kick between|during`, room model
+    /// revision 18, DEVELOPMENT TOOL): the first guest it may remove,
+    /// between stages (once a stage settled) or during a stage's play (a
+    /// forfeit). A kicked guest bot comes back once by its invite.
+    pub kick: Option<KickWhen>,
+}
+
+/// When `--kick` kicks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KickWhen {
+    Between,
+    During,
 }
 
 impl Default for Options {
@@ -193,6 +205,7 @@ impl Default for Options {
             charts: None,
             life_out: None,
             ahead: true,
+            kick: None,
         }
     }
 }
@@ -246,6 +259,10 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
                        enters the stage late where the room lets it
   --quit-after S       the last guest bot leaves each stage's play S seconds
                        into its song (a forfeit, as a person's quit)
+  --kick WHEN          the host kicks the first guest it may once, WHEN
+                       between (stages, once one settled) or during (a
+                       stage's play: a forfeit); a kicked guest bot comes
+                       back once by its invite
   --last-at-ready      with --last-after N: the host marks stage N the last
                        song on its Ready card once picked, not at its pick
   --charts C           the host's Rules: as-picked or adaptive charts
@@ -329,6 +346,13 @@ impl Options {
                         None => None,
                     };
                     o.cpus = Some((n, level));
+                }
+                "--kick" => {
+                    o.kick = Some(match value(i, a)?.as_str() {
+                        "between" => KickWhen::Between,
+                        "during" => KickWhen::During,
+                        _ => return Err("--kick takes between or during".into()),
+                    });
                 }
                 "--ready-late" => {
                     let s = value(i, a)?
@@ -905,6 +929,9 @@ struct Host {
     /// Someone else chooses the songs (they took the pick over): who, as
     /// last said.
     following: Option<Option<ddi_room::ParticipantId>>,
+    /// `--kick`: when, and whether done.
+    kick: Option<KickWhen>,
+    kicked: bool,
 }
 
 enum Role {
@@ -957,6 +984,8 @@ struct Bot {
     done: bool,
     /// Downloads the room's songs ahead (`--no-ahead`: not).
     ahead: bool,
+    /// A kicked guest came back by its invite already (once).
+    came_back: bool,
 }
 
 impl Bot {
@@ -1183,6 +1212,30 @@ impl Bot {
             }
             LinkState::Left => {
                 self.say("left the room");
+                self.done = true;
+                Self::forget_store(room);
+            }
+            // Revision 18: removed by the host; back once by the invite
+            // (a kick bans nobody).
+            LinkState::Kicked => {
+                Self::forget_store(room);
+                if !self.came_back && matches!(self.role, Role::Guest(Some(_))) {
+                    self.say("removed by the host; coming back by the invite");
+                    self.came_back = true;
+                    self.room = None;
+                    self.news = None;
+                    self.order = None;
+                    self.play = None;
+                    self.asked = false;
+                    self.said = Said::default();
+                    let _ = self.online.borrow_mut().take_entered();
+                } else {
+                    self.say("removed by the host");
+                    self.done = true;
+                }
+            }
+            LinkState::NotAdmitted => {
+                self.say("not admitted to this room; leaving");
                 self.done = true;
                 Self::forget_store(room);
             }
@@ -1529,6 +1582,9 @@ impl Bot {
         if !connected || !operator {
             return;
         }
+        if let Some(when) = host.kick.filter(|_| !host.kicked) {
+            Self::kick_once(host, room, when, say);
+        }
         if !host.rules {
             host.rules = true;
             let mut rules = room.borrow().rules().clone();
@@ -1789,6 +1845,50 @@ impl Bot {
     /// With `--add` the list's songs in its order; else the host's songs,
     /// each added to the list first where it is not there. A song is
     /// rested on, then picked once it is uploaded.
+    /// `--kick` (revision 18): the first guest the host may remove,
+    /// between stages once a stage settled, or during a stage's play.
+    fn kick_once(host: &mut Host, room: &SharedRoom, when: KickWhen, say: &mut dyn FnMut(String)) {
+        let target = {
+            let r = room.borrow();
+            let s = r.state();
+            let now_ok = match when {
+                KickWhen::During => matches!(s.phase, ddi_room::Phase::Stage { .. }),
+                KickWhen::Between => {
+                    matches!(
+                        s.phase,
+                        ddi_room::Phase::Intermission { .. }
+                            | ddi_room::Phase::Preparing { window: None, .. }
+                            | ddi_room::Phase::MatchResults
+                            | ddi_room::Phase::Lobby
+                    ) && s.current.as_ref().is_some_and(|m| {
+                        m.stages.iter().any(|st| st.play.as_ref().is_some_and(|p| p.result.is_some()))
+                    })
+                }
+            };
+            if !now_ok {
+                return;
+            }
+            s.members
+                .values()
+                .find(|m| r.may_kick(m.id))
+                .map(|m| {
+                    let name = match &m.kind {
+                        ddi_room::MemberKind::Human { name, .. } => name.clone(),
+                        ddi_room::MemberKind::Cpu { .. } => String::new(),
+                    };
+                    (m.id, name)
+                })
+        };
+        let Some((id, name)) = target else {
+            return;
+        };
+        host.kicked = true;
+        say(format!("kicking {name}"));
+        if let Err(e) = room.borrow_mut().kick(id) {
+            say(format!("the kick was refused: {e:?}"));
+        }
+    }
+
     fn pick_listed(host: &mut Host, room: &SharedRoom, now: u64, say: &mut dyn FnMut(String)) {
         let entry = if !host.songs.is_empty() {
             let at = host.next % host.songs.len();
@@ -2195,6 +2295,8 @@ pub fn run_with(o: Options, token: &str) -> i32 {
                 not_before: 0,
                 waiting_said: false,
                 following: None,
+                kick: o.kick,
+                kicked: false,
             }))
         } else {
             Role::Guest(o.join.clone())
@@ -2213,6 +2315,7 @@ pub fn run_with(o: Options, token: &str) -> i32 {
             order: None,
             ready_at: 0,
             late: o.ready_late.filter(|_| n + 1 == count && !(o.host && n == 0)),
+            came_back: false,
             quit_after: o.quit_after.filter(|_| n + 1 == count && !(o.host && n == 0)),
             play: None,
             matches: 0,

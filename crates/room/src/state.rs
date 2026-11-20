@@ -65,6 +65,15 @@ pub struct RoomState {
     /// reads with none, and one that never had one is written without it.
     #[serde(default, skip_serializing_if = "songs_untouched")]
     pub songs: std::sync::Arc<RoomSongs>,
+    /// The host's Twitch in the room (room model revision 18,
+    /// [`crate::twitch`]): whose bans (and blocks) keep people out, and
+    /// how much of their chat the room may show; none: off. Set only by
+    /// the authority ([`crate::Command::SetTwitch`]), which holds the
+    /// person's Twitch access; ends when that person leaves the room. A
+    /// room stored before reads with none, and one that never had it is
+    /// written without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub twitch: Option<crate::twitch::TwitchSetting>,
 }
 
 fn songs_untouched(songs: &std::sync::Arc<RoomSongs>) -> bool {
@@ -860,6 +869,7 @@ impl RoomState {
             hosting: Hosting::default(),
             closed: None,
             songs: Default::default(),
+            twitch: None,
         }
     }
 
@@ -943,6 +953,99 @@ impl RoomState {
     /// the room.
     pub fn observes(&self, m: &Member) -> bool {
         m.admin && m.role == Role::Member && m.intent == Intent::Watch
+    }
+
+    /// Whether `by` may remove `target` from the room now (B9, a host's
+    /// Kick, `Capability::Kick`): the host anyone but themselves; a
+    /// co-host (or an administrator who plays) ordinary members only,
+    /// never the host, another co-host or an administrator; nobody an
+    /// administrator who observes, nor a CPU (CPUs leave by the roster).
+    /// Taken in every phase: during a stage the kicked one plays, it is a
+    /// forfeit, as leaving is.
+    pub fn may_kick(&self, by: ParticipantId, target: ParticipantId) -> Result<(), crate::Rejection> {
+        use crate::Rejection;
+        let unauthorized = Rejection::Unauthorized {
+            capability: Capability::Kick,
+        };
+        let kicker = self.members.get(&by).ok_or(Rejection::NotAMember)?;
+        if kicker.left {
+            return Err(Rejection::NotPresent);
+        }
+        if kicker.is_cpu() || !can(kicker.role, kicker.admin, Capability::Kick, self.phase.kind()) {
+            return Err(unauthorized);
+        }
+        let m = self
+            .members
+            .get(&target)
+            .ok_or(Rejection::UnknownParticipant)?;
+        if m.is_cpu() {
+            return Err(Rejection::NotAHuman);
+        }
+        if m.left {
+            return Err(Rejection::NotPresent);
+        }
+        if target == by || self.observes(m) {
+            return Err(unauthorized);
+        }
+        if kicker.role == Role::Owner || (m.role == Role::Member && !m.admin) {
+            Ok(())
+        } else {
+            Err(unauthorized)
+        }
+    }
+
+    /// Whether `by` may remove `target` ([`RoomState::may_kick`]).
+    pub fn can_kick(&self, by: ParticipantId, target: ParticipantId) -> bool {
+        self.may_kick(by, target).is_ok()
+    }
+
+    /// Whether member `member` may make the room's Twitch setting `to`
+    /// (none, or one with nothing on: off), as B3 has it: the owner turns
+    /// it on, changes it or replaces it with their own (their own lists:
+    /// `to.by` is them); the one who set it may turn it, or a part of it,
+    /// off, host or not; nobody else changes it. Never a bot nor a CPU
+    /// (no Twitch of theirs).
+    pub fn may_set_twitch(
+        &self,
+        member: ParticipantId,
+        to: Option<&crate::twitch::TwitchSetting>,
+    ) -> Result<(), crate::Rejection> {
+        use crate::Rejection;
+        let unauthorized = Rejection::Unauthorized {
+            capability: Capability::Twitch,
+        };
+        let m = self.members.get(&member).ok_or(Rejection::NotAMember)?;
+        if m.left {
+            return Err(Rejection::NotPresent);
+        }
+        if m.is_cpu() || m.is_bot() {
+            return Err(Rejection::NotAHuman);
+        }
+        let owner = can(m.role, m.admin, Capability::Twitch, self.phase.kind());
+        let set_it = self.twitch.as_ref().is_some_and(|t| t.by == member);
+        match to.filter(|t| t.on()) {
+            None => {
+                if self.twitch.is_none() || owner || set_it {
+                    Ok(())
+                } else {
+                    Err(unauthorized)
+                }
+            }
+            Some(t) => {
+                if !t.fits() {
+                    return Err(Rejection::InvalidTwitch);
+                }
+                if t.by != member {
+                    return Err(unauthorized);
+                }
+                let lowered = self.twitch.as_ref().is_some_and(|now| now.lowered_to(t));
+                if owner || (set_it && lowered) {
+                    Ok(())
+                } else {
+                    Err(unauthorized)
+                }
+            }
+        }
     }
 
     /// What the host's leaving the room now would do, by the room's

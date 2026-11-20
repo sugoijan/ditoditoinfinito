@@ -173,7 +173,16 @@ pub fn supported(version: u32) -> bool {
 ///     `StageContent::song`, `Capability::AddSongs`, the public view's
 ///     `songs`): an online room's songs added by its hosts, uploaded when
 ///     added and picked from the list.
-pub const ROOM_MODEL_REVISION: u32 = 17;
+/// 18. round TW1 (2026-11-20, `docs/plans/multiplayer-twitch.md` B10):
+///     the host's Twitch in a room (`crate::twitch`, `RoomState::twitch`,
+///     `Command::SetTwitch`, `Event::TwitchChanged`: the mirror's choice
+///     and the chat's ceiling, set by the authority) and removal
+///     (`Command::Remove`, a host's or a co-host's Kick,
+///     `Capability::Kick`, `Event::MemberRemoved`, or the mirror's,
+///     told to the others as a leave; `Rejection::NotAdmitted`; the
+///     sockets' closes 4403 and 4406, `LinkState::Kicked` and
+///     `NotAdmitted`).
+pub const ROOM_MODEL_REVISION: u32 = 18;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being

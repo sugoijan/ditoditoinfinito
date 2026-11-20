@@ -39,6 +39,13 @@ pub enum LinkNotice {
     /// while downloading the room's songs ahead (the web's quota): said
     /// once for [`JOINED_TO_WATCH_MS`], Likely next from then on.
     AheadQuota,
+    /// Room model revision 18: a host or a co-host (`by`) removed `who`
+    /// from the room (a kick is told to everyone; the mirror's removal is
+    /// a leave and never said).
+    Kicked {
+        who: ddi_room::ParticipantId,
+        by: ddi_room::ParticipantId,
+    },
 }
 
 /// How long the status line says a join was to watch (from the room's
@@ -319,6 +326,9 @@ impl OnlineLink {
         if let Some(notice) = self.notice {
             match self.notice_until {
                 None if notice == LinkNotice::AheadQuota => {
+                    self.notice_until = Some(now_ms + JOINED_TO_WATCH_MS);
+                }
+                None if matches!(notice, LinkNotice::Kicked { .. }) => {
                     self.notice_until = Some(now_ms + JOINED_TO_WATCH_MS);
                 }
                 None if !matches!(notice, LinkNotice::JoinedToWatch | LinkNotice::BackHere) => {

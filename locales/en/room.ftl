@@ -2311,3 +2311,33 @@ room-add-pack = { $count ->
 #   $done (Number) - songs uploaded
 #   $count (Number) - the pack's songs being added
 room-status-adding-pack = Adding the pack to the room: { $done } of { $count } uploaded.
+
+## Round TW1 (room model revision 18): a host's Kick and who may join.
+
+# The Players pop-up's toggle at its top right, for the host and the
+# co-hosts: while it is on, each person they may remove has a Kick button
+# on their row. It is off each time the pop-up opens (about 16 letters).
+# Variables:
+#   $on (Number) - 1 while it is on, 0 while it is off
+room-moderate = { $on ->
+    [1] Moderate: On
+   *[other] Moderate: Off
+}
+# The button on a person's row while Moderate is on: removes them from
+# the room at once (they may come back by the invite; about 8 letters).
+room-kick = Kick
+# The status line said to everyone when a host or co-host removed someone.
+# Variables:
+#   $name (String) - the person removed
+#   $by (String) - who removed them
+room-kicked-someone = { $by } removed { $name } from the room.
+# The status line, and a notice's title, for the person a host or co-host
+# removed from the room.
+room-link-kicked = The host removed you from the room.
+# The notice's text under that title: they may come back by the invite.
+room-kicked-body = You can come back to this room by its invite link.
+# The status line, a notice's title and an invite page's line for someone
+# the room does not let in. One neutral sentence: never says why.
+room-link-not-admitted = You can't join this room.
+# The notice's text under that title.
+room-not-admitted-body = Other rooms can still be joined by their invite links.

@@ -5909,7 +5909,10 @@ fn the_rooms_screens_draw_as_pinned() {
 /// browsing the room's songs where they followed, Host options' song
 /// list rows). Round SLB moved all ten: the room's song select under
 /// every one of them is in three parts now (the song's side as solo has
-/// it, the list, the players panel at the right).
+/// it, the list, the players panel at the right). Round TW1 (revision 18)
+/// moved "online-players" and the "host" drawn over it: the host's
+/// Players pop-up has Moderate at its title's right (practice's has none:
+/// "players" stays).
 const PINNED: [(&str, u64); 10] = [
     ("select", 6294184724527765777),
     ("rules", 1214659751631822932),
@@ -5919,8 +5922,8 @@ const PINNED: [(&str, u64); 10] = [
     ("standings", 6217252037303736305),
     ("online-select", 9359307383711192609),
     ("online-member", 3482401827223415051),
-    ("online-players", 14620503791004483404),
-    ("host", 16113327886632301515),
+    ("online-players", 15010800377283620634),
+    ("host", 4680235465883222770),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's
@@ -7040,4 +7043,98 @@ fn the_players_panel_marks_folds_and_says_a_rows_words() {
     // More folds it too (a controller's way: West).
     press(&mut ha, "More");
     assert!(has(&ha, "Fold the players"), "{:?}", ha.texts());
+}
+
+/// Revision 18 (round TW1, B9): the Players pop-up's Moderate, the host's
+/// and the co-hosts', off each time it opens; while on, Kick on each row
+/// they may remove (a co-host never the host). A kick removes at once:
+/// the one kicked is told "The host removed you from the room." with the
+/// way home, the others who removed whom; the invite admits them again.
+#[test]
+fn moderate_shows_kick_and_a_kick_removes_at_once() {
+    use ddi_room::{Identity, Intent, LinkState, ParticipantId};
+    let t = Three::new(true);
+    let (ea, eb, ec) = (env(), env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    let mut hc = online_select(&ec, &t.carol, songs_of(&["Charlie One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    // Carol, a member, has no Moderate.
+    open_players(&mut hc);
+    assert_eq!(top(&hc), "room-players");
+    assert!(!there(&hc, super::room_dialogs::MODERATE));
+    hc.key("Escape", "Escape");
+    hc.run(0.3);
+    // Bob, a co-host: Moderate off at first, no Kick anywhere.
+    open_players(&mut hb);
+    assert!(there(&hb, super::room_dialogs::MODERATE));
+    assert!(has(&hb, "Moderate: Off"), "{:?}", hb.texts());
+    assert!(!there(&hb, "Kick.3") && !there(&hb, "Kick.1"));
+    hb.tap(PointerKind::Mouse, super::room_dialogs::MODERATE);
+    hb.run(0.3);
+    assert!(has(&hb, "Moderate: On"), "{:?}", hb.texts());
+    // A co-host kicks a member, never the host.
+    assert!(there(&hb, "Kick.3") && !there(&hb, "Kick.1") && !there(&hb, "Kick.2"));
+    hb.key("Escape", "Escape");
+    hb.run(0.3);
+    // Opened again: off again.
+    open_players(&mut hb);
+    assert!(has(&hb, "Moderate: Off"), "{:?}", hb.texts());
+    hb.key("Escape", "Escape");
+    hb.run(0.3);
+    // Alice, the host, by keyboard: Moderate, then Kick on Carol's row.
+    open_players(&mut ha);
+    for _ in 0..8 {
+        if ha.ui.focused() == Some(super::room_dialogs::MODERATE) {
+            break;
+        }
+        ha.key("ArrowLeft", "ArrowLeft");
+        ha.run(0.2);
+    }
+    assert_eq!(ha.ui.focused(), Some(super::room_dialogs::MODERATE));
+    ha.key("Enter", "Enter");
+    ha.run(0.3);
+    assert!(there(&ha, "Kick.2") && there(&ha, "Kick.3"), "the host kicks a co-host too");
+    for _ in 0..8 {
+        if ha.ui.focused() == Some("Kick.3") {
+            break;
+        }
+        ha.key("ArrowLeft", "ArrowLeft");
+        ha.run(0.2);
+    }
+    assert_eq!(ha.ui.focused(), Some("Kick.3"));
+    ha.key("Enter", "Enter");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    // Carol is out, told so with the way home; the others told who.
+    assert_eq!(t.carol.borrow().link_state(), LinkState::Kicked);
+    assert!(t.alice.borrow().state().member(ParticipantId(3)).unwrap().left);
+    assert_eq!(top(&hc), super::room::REMOVED, "{:?}", hc.texts());
+    assert!(has(&hc, "The host removed you from the room."), "{:?}", hc.texts());
+    assert!(!there(&ha, "Kick.3"), "her row is gone");
+    hb.run(0.3);
+    assert!(has(&hb, "alice removed carol from the room."), "{:?}", hb.texts());
+    // Back by the invite: in again.
+    t.server
+        .borrow_mut()
+        .join(Identity::new("dev:carol"), "carol", Intent::Play)
+        .unwrap();
+    assert!(!t.server.borrow().state().member(ParticipantId(3)).unwrap().left);
+}
+
+/// CPU practice has nobody to kick: its Players pop-up shows the players,
+/// the picks and Play or Watch, never Moderate.
+#[test]
+fn practice_has_no_moderate() {
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    open_players(&mut h);
+    assert_eq!(top(&h), "room-players");
+    assert!(!there(&h, super::room_dialogs::MODERATE));
+    assert!(!h.texts().iter().any(|t| t.starts_with("Kick")));
 }

@@ -299,6 +299,16 @@ pub enum Capability {
     /// operator's in this stage. The one check of it is
     /// `RoomState::may_add`, which a later setting opens to everyone.
     AddSongs,
+    /// Remove someone from the room (room model revision 18,
+    /// `crate::Command::Remove`, the Players pop-up's Kick): the host's
+    /// and the co-hosts' (and an administrator's, who has a co-host's
+    /// powers); whom each may remove is `RoomState::may_kick`.
+    Kick,
+    /// Turn the room's Twitch setting on, change it or replace it
+    /// (revision 18, `crate::Command::SetTwitch`, which the authority
+    /// gives the room): the owner's alone (the lists are their own). The
+    /// one who set it may turn it off too (`RoomState::may_set_twitch`).
+    Twitch,
 }
 
 /// Whether a member with `role` (and `admin`) may use `capability` in a
@@ -314,7 +324,9 @@ pub fn can(role: Role, admin: bool, capability: Capability, phase: PhaseKind) ->
         | Capability::LetPlay
         | Capability::CloseAudience
         | Capability::ReplaceInvite
-        | Capability::AddSongs => operator,
+        | Capability::AddSongs
+        | Capability::Kick => operator,
+        Capability::Twitch => role == Role::Owner,
         Capability::Advance => {
             operator && !matches!(phase, PhaseKind::Stage | PhaseKind::SongCompletion)
         }

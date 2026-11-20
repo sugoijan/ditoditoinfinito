@@ -185,6 +185,9 @@ pub fn invite_problem(p: &Problem) -> UiText {
         "room_closed" | "room_unknown" => m::invite_room_closed(),
         "admission_closed" => m::invite_closed(),
         "room_full" => m::invite_full(),
+        // Revision 18: the host's Twitch lists keep them out; one neutral
+        // line for a ban, a timeout and a block.
+        "not_admitted" => m::link_not_admitted(),
         "unreachable" => m::invite_unreachable(),
         // A relay that could not reach the room in time: try again
         // shortly (the server's `503 relay_unready`).

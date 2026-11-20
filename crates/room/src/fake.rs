@@ -205,6 +205,10 @@ pub struct FakeServer {
     /// Who has which listed songs, by socket (`crate::live::have`): in
     /// memory beside the sockets, as the server keeps it.
     haves: crate::live::Haves,
+    /// The identities the host's Twitch lists bar (revision 18, a fake
+    /// Twitch's answers, [`FakeServer::bar`]): refused at a join and a
+    /// ticket and removed at a sweep while the room's mirror is on.
+    barred: std::collections::BTreeSet<Identity>,
 }
 
 /// The server's bounds on one member (`../ddi-server`'s `room.rs`,
@@ -329,8 +333,87 @@ impl FakeServer {
             admins: Default::default(),
             signed_out: Default::default(),
             haves: Default::default(),
+            barred: Default::default(),
             audience,
             room_name,
+        }
+    }
+
+    /// `identity` barred by the host's Twitch lists from now on, or no
+    /// longer (an unban, a timeout ended: nothing is kept of them), as the
+    /// server's checks would answer (revision 18, B4). Nothing happens to
+    /// someone inside until the next sweep ([`FakeServer::sweep`]).
+    pub fn bar(&mut self, identity: &Identity, barred: bool) {
+        if barred {
+            self.barred.insert(identity.clone());
+        } else {
+            self.barred.remove(identity);
+        }
+    }
+
+    /// Whether the room's mirror keeps `identity` out now: its mirror on,
+    /// the identity barred, and someone the mirror checks (never a bot,
+    /// never an administrator who observes, B7).
+    pub fn bars(&self, identity: &Identity) -> bool {
+        let state = self.state();
+        let on = state.twitch.as_ref().is_some_and(|t| t.mirror.on());
+        let observes = state
+            .member_by_identity(identity)
+            .is_some_and(|m| !m.left && state.observes(m));
+        on && !identity.is_bot() && !observes && self.barred.contains(identity)
+    }
+
+    /// The server's sweep (at a pick, and when the mirror is turned on or
+    /// replaced, B4): every present member the lists bar removed as the
+    /// authority (told to the others as a leave), their sockets closed
+    /// 4406. Who was removed.
+    pub fn sweep(&mut self) -> Vec<ParticipantId> {
+        let barred: Vec<ParticipantId> = self
+            .state()
+            .members
+            .values()
+            .filter(|m| m.present_person())
+            .filter(|m| m.identity().is_some_and(|i| self.bars(i)))
+            .map(|m| m.id)
+            .collect();
+        for &p in &barred {
+            if self.authority(Command::Remove { participant: p }).is_ok() {
+                self.close_member(p, close::NOT_ADMITTED);
+            }
+        }
+        barred
+    }
+
+    /// The room's Twitch setting made `twitch` at `member`'s asking, as
+    /// the server's `POST /rooms/<id>/twitch` gives it (the scopes taken
+    /// as checked): a mirror turned on or replaced sweeps the room.
+    pub fn set_twitch(
+        &mut self,
+        member: ParticipantId,
+        twitch: Option<crate::TwitchSetting>,
+    ) -> Result<Vec<ParticipantId>, Rejection> {
+        let before = self.state().twitch.clone();
+        self.authority(Command::SetTwitch { member, twitch })?;
+        let after = self.state().twitch.clone();
+        let swept = after.as_ref().is_some_and(|a| {
+            a.mirror.on()
+                && before
+                    .as_ref()
+                    .is_none_or(|b| b.by != a.by || b.mirror < a.mirror)
+        });
+        Ok(if swept { self.sweep() } else { Vec::new() })
+    }
+
+    /// Every open socket of `participant` closed with `code`.
+    fn close_member(&mut self, participant: ParticipantId, code: u16) {
+        let theirs: Vec<u64> = self
+            .conns
+            .iter()
+            .filter(|(_, c)| c.open && c.participant == participant)
+            .map(|(k, _)| *k)
+            .collect();
+        for k in theirs {
+            self.close_conn(k, code);
         }
     }
 
@@ -457,6 +540,12 @@ impl FakeServer {
         {
             return Ok(m.id);
         }
+        // Revision 18: the host's Twitch lists, for a newcomer and for a
+        // member who comes back (B4); never an administrator, who may
+        // enter to observe.
+        if self.bars(&identity) && !self.admins.contains(&identity) {
+            return Err(Rejection::NotAdmitted);
+        }
         let admin = self.admins.contains(&identity);
         let admitted = self.authority.admit(identity, name.into(), admin, intent);
         self.route(None);
@@ -552,6 +641,7 @@ impl FakeServer {
         }
         let refusal = |r: Rejection| match r {
             Rejection::RoomClosed => (410, "room_closed"),
+            Rejection::NotAdmitted => (403, "not_admitted"),
             _ => (403, "not_a_member"),
         };
         if self.state().closed.is_some() {
@@ -606,6 +696,10 @@ impl FakeServer {
             .filter(|m| !m.left)
             .map(|m| m.id)
             .ok_or(Rejection::NotAMember)?;
+        // Revision 18: checked at each ticket too (B4).
+        if self.bars(identity) {
+            return Err(Rejection::NotAdmitted);
+        }
         let t = format!("ticket-{}", self.next_ticket);
         self.next_ticket += 1;
         self.tickets.insert(t.clone(), id);
@@ -997,6 +1091,10 @@ impl FakeServer {
                     self.push(conn, &reply);
                     return;
                 }
+                let pick = matches!(
+                    envelope.cmd,
+                    Command::Pick { .. } | Command::PickListed { .. }
+                );
                 self.graces();
                 self.authority.submit(*envelope);
                 let accepted = self.send_out(Some((conn, &client, seq)));
@@ -1005,6 +1103,10 @@ impl FakeServer {
                 // ended the room for the others.
                 if leave && accepted {
                     self.close_conn(conn, close::LEFT);
+                }
+                // A pick: the server's sweep of the host's lists (B4).
+                if pick && accepted {
+                    self.sweep();
                 }
                 self.close_if_ended();
             }
@@ -1066,11 +1168,18 @@ impl FakeServer {
         let mut accepted = false;
         for envelope in self.authority.poll() {
             match &envelope.msg {
-                ServerMessage::Events { .. } => {
+                ServerMessage::Events { events } => {
                     // Written once for every socket.
                     if let Ok(text) = serde_json::to_string(&envelope) {
                         for k in self.open_conns(false) {
                             self.push_frame(k, Frame::Text(text.clone()), true);
+                        }
+                    }
+                    // A kick: the one kicked hears of it, then every socket
+                    // of theirs is closed 4403.
+                    for e in events {
+                        if let Event::MemberRemoved { participant, .. } = e {
+                            self.close_member(*participant, close::KICKED);
                         }
                     }
                 }

@@ -271,6 +271,7 @@ impl FakeServer {
             }
             ("POST", p) if p == format!("{rooms}/ticket") => match self.ticket_answer(&identity) {
                 Ok(body) => (200, body),
+                Err(crate::Rejection::NotAdmitted) => error(403, "not_admitted"),
                 Err(_) => error(403, "not_a_member"),
             },
             (_, p) if p == format!("{rooms}/invite") => match operator {

@@ -84,6 +84,7 @@ mod reduce;
 pub mod rules;
 pub mod songs;
 pub mod state;
+pub mod twitch;
 
 pub use authority::{Clock, LocalAuthority, ManualClock, RoomAuthority};
 pub use awards::{
@@ -118,3 +119,4 @@ pub use state::{
     Seat, SitOutReason, Spotlight, Stage, StageContent, StagePlay, StageStanding, Standing,
     Succession,
 };
+pub use twitch::{TwitchChat, TwitchMirror, TwitchSetting};

@@ -2108,6 +2108,84 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
             found,
         );
     }
+    // Revision 18 (round TW1): Fay kicked (her notice and More) and Gus
+    // not let in (his notice); the others' line, Moderate and Kick (walked
+    // in `room_tests`' Moderate test) and the invite page's word for a
+    // join refused so.
+    {
+        let mut kept = Vec::new();
+        for who in ["fay", "gus"] {
+            server
+                .borrow_mut()
+                .join(Identity::new(format!("dev:{who}")), who, ddi_room::Intent::Play)
+                .unwrap();
+            let online = person(&server, who);
+            let room = Rc::new(std::cell::RefCell::new(client(&server, online, who, 1_000)));
+            let mut h = harness();
+            h.push(sample::room_screen(env, room.clone()));
+            kept.push((room, h));
+        }
+        for _ in 0..3 {
+            step(400);
+            for (room, h) in kept.iter_mut() {
+                tick(&clock, &mut [&mut room.borrow_mut()], 100);
+                h.run(0.3);
+            }
+        }
+        let fay = server
+            .borrow()
+            .state()
+            .member_by_identity(&Identity::new("dev:fay"))
+            .unwrap()
+            .id;
+        let gus = server
+            .borrow()
+            .state()
+            .member_by_identity(&Identity::new("dev:gus"))
+            .unwrap()
+            .id;
+        // (Alice's link ended above: the close codes stand for the kick.)
+        server.borrow_mut().fault(fay, Fault::Close(ddi_room::online::close::KICKED));
+        server.borrow_mut().fault(gus, Fault::Close(ddi_room::online::close::NOT_ADMITTED));
+        for _ in 0..3 {
+            step(400);
+            for (room, h) in kept.iter_mut() {
+                tick(&clock, &mut [&mut room.borrow_mut()], 100);
+                h.run(0.3);
+            }
+        }
+        shown(&mut ha, found);
+        for (room, h) in kept.iter_mut() {
+            assert!(
+                matches!(
+                    room.borrow().link_state(),
+                    ddi_room::LinkState::Kicked | ddi_room::LinkState::NotAdmitted
+                ),
+                "{:?}",
+                room.borrow().link_state()
+            );
+            assert_eq!(super::test_kit::top(h), super::room::REMOVED);
+            shown(h, found);
+            h.tap(PointerKind::Mouse, "Cancel");
+            h.run(0.3);
+            h.tap(PointerKind::Mouse, "More");
+            shown(h, found);
+        }
+        checked(
+            vec![
+                super::online::invite_problem(&crate::state::online::api::Problem {
+                    status: 403,
+                    code: "not_admitted".into(),
+                })
+                .into(),
+                ddi_l10n::msg::room::kicked_someone(ddi_l10n::UiText::data("a"), ddi_l10n::UiText::data("b")).into(),
+                ddi_l10n::msg::room::moderate(0).into(),
+                ddi_l10n::msg::room::moderate(1).into(),
+                ddi_l10n::msg::room::kick().into(),
+            ],
+            found,
+        );
+    }
     // Round D1's sentences: why a room could not be made (the operator's
     // switches and caps, another reason), a room its operator closed (a
     // member's status line, an audience seat's), an account's joins.

@@ -2470,6 +2470,39 @@ impl RoomClient {
         self.send(Command::MakeHost { participant })
     }
 
+    /// Whether the local player moderates the room's people (room model
+    /// revision 18, the Players pop-up's Moderate): an online room's host
+    /// or co-host (or an administrator who operates), connected, with
+    /// someone they may kick. CPU practice has nobody to kick.
+    pub fn may_moderate(&self) -> bool {
+        self.is_online()
+            && self.link_state() == LinkState::Connected
+            && self.may(Capability::Kick)
+            && self
+                .state()
+                .members
+                .keys()
+                .any(|&id| self.state().can_kick(self.me, id))
+    }
+
+    /// Whether the local player may kick `participant` now
+    /// (`ddi_room::RoomState::may_kick`: the host anyone but themselves, a
+    /// co-host ordinary members only).
+    pub fn may_kick(&self, participant: ParticipantId) -> bool {
+        self.is_online()
+            && self.link_state() == LinkState::Connected
+            && self.state().can_kick(self.me, participant)
+    }
+
+    /// Kick `participant` out of the room (B9): at once; they may come
+    /// back by the invite. Nothing is sent where it may not be.
+    pub fn kick(&mut self, participant: ParticipantId) -> Result<(), Refusal> {
+        if !self.may_kick(participant) {
+            return Ok(());
+        }
+        self.send(Command::Remove { participant })
+    }
+
     /// The local player's role and admin flag.
     pub fn my_role(&self) -> Option<(Role, bool)> {
         self.state().member(self.me).map(|m| (m.role, m.admin))
@@ -2671,7 +2704,9 @@ impl RoomClient {
         }
         let state = self.link_state();
         let never_in = matches!(state, LinkState::SignInToEnter | LinkState::NotAMember);
-        if state != LinkState::OpenedElsewhere && !never_in {
+        // Removed from the room (revision 18): told once, as a stop is.
+        let removed = matches!(state, LinkState::Kicked | LinkState::NotAdmitted);
+        if state != LinkState::OpenedElsewhere && !never_in && !removed {
             if !state.ended() {
                 // The link went on (signed in, joining again): its next
                 // end is told anew.
@@ -5526,7 +5561,23 @@ impl RoomClient {
                     }
                     self.version += 1;
                 }
-                ServerMessage::Events { .. } | ServerMessage::Snapshot { .. } => {
+                ServerMessage::Events { events } => {
+                    // A kick is told to everyone (revision 18): the
+                    // status line says who removed whom, but to the one
+                    // removed, whose own words come with the link's end.
+                    let me = self.me;
+                    let kicked = events.iter().rev().find_map(|e| match e {
+                        ddi_room::Event::MemberRemoved { participant, by } if *participant != me => {
+                            Some((*participant, *by))
+                        }
+                        _ => None,
+                    });
+                    if let (Some((who, by)), Link::Online(l)) = (kicked, &mut self.link) {
+                        l.set_notice(Some(LinkNotice::Kicked { who, by }));
+                    }
+                    self.version += 1;
+                }
+                ServerMessage::Snapshot { .. } => {
                     self.version += 1;
                 }
                 _ => {}

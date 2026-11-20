@@ -1,0 +1,292 @@
+{
+  "room": "room",
+  "revision": 7,
+  "policy": {
+    "max_competitors": 73,
+    "max_members": 384,
+    "admin_reserve": 4,
+    "max_stages": 16,
+    "history": 8,
+    "readiness": {
+      "id": "hosted-deadline-v2",
+      "window_ms": 30000,
+      "loading_grace_ms": 45000,
+      "countdown_ms": 3000,
+      "min_ready_humans": 1,
+      "min_competitors": 2
+    },
+    "outcomes": {
+      "id": "self-reported-v0",
+      "after_song_end_ms": 60000,
+      "stage_cap_ms": 1200000
+    },
+    "live": {
+      "id": "live-v1",
+      "prelude_ms": 1000,
+      "timing": "live-v2",
+      "quiet_ping_ms": 60000
+    },
+    "audience": {
+      "id": "audience-v0"
+    }
+  },
+  "source": "shared",
+  "access": {
+    "admission": "open",
+    "invite_generation": 1
+  },
+  "members": [
+    [
+      1,
+      {
+        "id": 1,
+        "kind": {
+          "human": {
+            "identity": "twitch:host",
+            "name": "Host"
+          }
+        },
+        "role": "owner",
+        "admin": false,
+        "intent": "play",
+        "connection": "connected",
+        "left": false
+      }
+    ],
+    [
+      2,
+      {
+        "id": 2,
+        "kind": {
+          "human": {
+            "identity": "twitch:ana",
+            "name": "ana"
+          }
+        },
+        "role": "member",
+        "admin": false,
+        "intent": "play",
+        "connection": "connected",
+        "left": false
+      }
+    ],
+    [
+      3,
+      {
+        "id": 3,
+        "kind": {
+          "human": {
+            "identity": "twitch:cy",
+            "name": "cy"
+          }
+        },
+        "role": "co_host",
+        "admin": false,
+        "intent": "play",
+        "connection": "connected",
+        "left": false
+      }
+    ],
+    [
+      4,
+      {
+        "id": 4,
+        "kind": {
+          "human": {
+            "identity": "twitch:admin",
+            "name": "admin"
+          }
+        },
+        "role": "member",
+        "admin": true,
+        "intent": "watch",
+        "connection": "connected",
+        "left": false
+      }
+    ]
+  ],
+  "next": {
+    "rules": {
+      "stages": 3,
+      "seats": 73,
+      "cpu": {
+        "mode": "off",
+        "opponent": {
+          "level": 0,
+          "seed": 0
+        }
+      },
+      "return_each_stage": true,
+      "mid_match_entry": true,
+      "battle": "provisional-standard",
+      "awards": "placement_points_v1",
+      "ruleset": "ddi",
+      "easiest": "play_on",
+      "life_out_any_chart": true,
+      "shocks": "four"
+    },
+    "saved_at": 7,
+    "review": null
+  },
+  "playlist": [
+    {
+      "id": 4,
+      "content": null,
+      "content_changed_at": 0,
+      "readiness_rev": 0,
+      "prep": [],
+      "play": null
+    },
+    {
+      "id": 5,
+      "content": null,
+      "content_changed_at": 0,
+      "readiness_rev": 0,
+      "prep": [],
+      "play": null
+    },
+    {
+      "id": 6,
+      "content": null,
+      "content_changed_at": 0,
+      "readiness_rev": 0,
+      "prep": [],
+      "play": null
+    }
+  ],
+  "current": {
+    "id": 1,
+    "rules": {
+      "stages": 3,
+      "seats": 73,
+      "cpu": {
+        "mode": "off",
+        "opponent": {
+          "level": 0,
+          "seed": 0
+        }
+      },
+      "return_each_stage": true,
+      "mid_match_entry": true,
+      "battle": "provisional-standard",
+      "awards": "placement_points_v1",
+      "ruleset": "ddi",
+      "easiest": "play_on",
+      "life_out_any_chart": true,
+      "shocks": "four"
+    },
+    "roster": [
+      [
+        1,
+        {
+          "first_stage": 1,
+          "out_for_match": false
+        }
+      ],
+      [
+        2,
+        {
+          "first_stage": 1,
+          "out_for_match": false
+        }
+      ],
+      [
+        3,
+        {
+          "first_stage": 1,
+          "out_for_match": false
+        }
+      ]
+    ],
+    "stages": [
+      {
+        "id": 1,
+        "content": {
+          "id": {
+            "song": "s000000000000001",
+            "chart": "d1-0"
+          },
+          "status": "available",
+          "share": "share001",
+          "card": {
+            "title": "Song 1",
+            "artist": "Artist",
+            "difficulty": "Easy",
+            "meter": 3,
+            "style": "dance-single"
+          },
+          "song": 1
+        },
+        "content_changed_at": 7,
+        "readiness_rev": 1,
+        "prep": [],
+        "play": null
+      },
+      {
+        "id": 2,
+        "content": null,
+        "content_changed_at": 0,
+        "readiness_rev": 0,
+        "prep": [],
+        "play": null
+      },
+      {
+        "id": 3,
+        "content": null,
+        "content_changed_at": 0,
+        "readiness_rev": 0,
+        "prep": [],
+        "play": null
+      }
+    ]
+  },
+  "phase": {
+    "preparing": {
+      "stage": 1,
+      "window": {
+        "deadline": 75000,
+        "readiness_rev": 1,
+        "loading_until": 45000
+      }
+    }
+  },
+  "history": [],
+  "counters": {
+    "participant": 5,
+    "matches": 2,
+    "stage": 7
+  },
+  "picking": {
+    "picker": 1
+  },
+  "hosting": {
+    "if_host_leaves": "pass_on"
+  },
+  "songs": {
+    "entries": [
+      {
+        "id": 1,
+        "key": "s000000000000001",
+        "card": {
+          "title": "Song 1",
+          "artist": "Artist",
+          "pack": "Pack"
+        },
+        "charts": [
+          {
+            "chart": "d1-0",
+            "style": "dance-single",
+            "difficulty": "Easy",
+            "meter": 3
+          }
+        ],
+        "by": 1,
+        "added_at": 5,
+        "status": "available",
+        "share": "share001"
+      }
+    ],
+    "next": 2,
+    "changed_at": 6
+  }
+}

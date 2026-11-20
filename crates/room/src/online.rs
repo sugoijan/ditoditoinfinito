@@ -52,6 +52,15 @@ pub mod close {
     /// for ever; it connects again only when its person asks ("Use this
     /// device", `OnlineAuthority::restart`).
     pub const OPENED_ELSEWHERE: u16 = 4429;
+    /// A host or a co-host removed the member (room model revision 18,
+    /// `Command::Remove`, a Kick): every socket of theirs closed so
+    /// (`LinkState::Kicked`). They may come back by the invite.
+    pub const KICKED: u16 = 4403;
+    /// The host's Twitch lists keep the member out (revision 18, the
+    /// mirror's removal): every socket of theirs closed so
+    /// (`LinkState::NotAdmitted`), never told apart from a ban, a timeout
+    /// or a block.
+    pub const NOT_ADMITTED: u16 = 4406;
 }
 
 /// A message on a socket: JSON text or binary (live play's frames,
@@ -184,6 +193,14 @@ pub enum LinkState {
     ServerBehind {
         attempt: u32,
     },
+    /// A host or a co-host removed this person from the room (4403,
+    /// revision 18): "The host removed you from the room." The invite
+    /// admits them again.
+    Kicked,
+    /// The host's Twitch lists keep this person out (4406, a join's or a
+    /// ticket's `403 not_admitted`, revision 18): "You can't join this
+    /// room.", the same words for a ban, a timeout and a block.
+    NotAdmitted,
 }
 
 impl LinkState {
@@ -199,6 +216,8 @@ impl LinkState {
                 | Self::Left
                 | Self::UpdateRequired
                 | Self::OpenedElsewhere
+                | Self::Kicked
+                | Self::NotAdmitted
         )
     }
 }
@@ -210,6 +229,9 @@ pub enum TicketProblem {
     SignedOut,
     /// `403 not_a_member`.
     NotAMember,
+    /// `403 not_admitted` (revision 18): the host's Twitch lists keep
+    /// this person out.
+    NotAdmitted,
     /// `404 room_unknown`, `410 room_closed`.
     RoomClosed,
     /// `403 update_required`: this client's room model is older than the
@@ -616,6 +638,7 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
             Err(TicketProblem::SignedOut) => self.end(LinkState::SignInToEnter),
             Err(TicketProblem::NotAMember) if self.reached => self.end(LinkState::Left),
             Err(TicketProblem::NotAMember) => self.end(LinkState::NotAMember),
+            Err(TicketProblem::NotAdmitted) => self.end(LinkState::NotAdmitted),
             Err(TicketProblem::RoomClosed) => self.end(LinkState::Closed),
             Err(TicketProblem::UpdateRequired) => self.end(LinkState::UpdateRequired),
             Err(TicketProblem::ServerBehind) => {
@@ -843,6 +866,8 @@ impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
                         close::ROOM_CLOSED => self.end(LinkState::Closed),
                         close::LEFT => self.end(LinkState::Left),
                         close::OPENED_ELSEWHERE => self.end(LinkState::OpenedElsewhere),
+                        close::KICKED => self.end(LinkState::Kicked),
+                        close::NOT_ADMITTED => self.end(LinkState::NotAdmitted),
                         _ => self.retry_later(),
                     }
                 }
@@ -884,7 +909,9 @@ impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
             | LinkState::Closed
             | LinkState::Left
             | LinkState::UpdateRequired
-            | LinkState::OpenedElsewhere => Connection::Disconnected,
+            | LinkState::OpenedElsewhere
+            | LinkState::Kicked
+            | LinkState::NotAdmitted => Connection::Disconnected,
         }
     }
 }
