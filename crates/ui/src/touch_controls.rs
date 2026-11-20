@@ -275,6 +275,8 @@ fn buttons(layout: &Layout, screen: Screen, hand: Hand) -> Controls {
 
 /// The smallest pad drawn beside the field rather than under it.
 const PAD_BESIDE_LEAST: f32 = 3.0 * BUTTON_LEAST + 2.0 * GAP;
+/// The most of the screen's height a pad under the field takes.
+const PAD_TALL: f32 = 0.42;
 /// A pad's largest side (tiles of about 20 mm on a phone).
 const PAD_MOST: f32 = 3.0 * 120.0 + 2.0 * GAP;
 
@@ -307,8 +309,9 @@ fn pad(layout: &Layout, screen: Screen, hand: Hand) -> Option<Controls> {
             squares.push([x, sb - side, x + side, sb]);
         } else {
             // Under the field, centered: as wide as the screen lets it,
-            // no taller than about half the screen.
-            let side = (sr - sl).min(tall * 0.5).clamp(1.0, PAD_MOST);
+            // its top under the screen's middle (the judgment and the
+            // combo stay clear).
+            let side = (sr - sl).min(tall * PAD_TALL).clamp(1.0, PAD_MOST);
             let x = (sl + sr - side) / 2.0;
             squares.push([x, sb - side, x + side, sb]);
         }
@@ -320,7 +323,7 @@ fn pad(layout: &Layout, screen: Screen, hand: Hand) -> Option<Controls> {
         } else {
             // Side by side at the bottom, each in its half.
             let side = (((sr - sl) - MIDDLE) / 2.0)
-                .min(tall * 0.5)
+                .min(tall * PAD_TALL)
                 .clamp(1.0, PAD_MOST);
             squares.push([sl, sb - side, sl + side, sb]);
             squares.push([sr - side, sb - side, sr, sb]);
