@@ -804,6 +804,7 @@ fn phase_status(r: &RoomClient) -> UiText {
             LinkNotice::AudienceOpened => m::audience_opened_notice(),
             LinkNotice::BackHere => back_here(r),
             LinkNotice::AheadQuota => m::ahead_quota(),
+            LinkNotice::TwitchNotConnected => m::twitch_not_connected(),
             LinkNotice::Kicked { who, by } => {
                 let name = |id| {
                     r.state()

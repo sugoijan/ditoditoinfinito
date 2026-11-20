@@ -7175,14 +7175,44 @@ fn host_options_set_the_rooms_twitch_after_the_trip() {
         "the trip through Twitch started: {trip:?}"
     );
     assert_eq!(t.server.borrow().state().twitch, None);
-    // Connected: the same step sets it, for everyone.
+    // Round TW1b: back from Twitch with the access, the setting is made
+    // by itself (no second press), for everyone.
     t.server
         .borrow_mut()
         .grant_twitch(&Identity::new("dev:alice"), &["bans"]);
-    press(&mut ha, "Inc.twitchbans");
+    let online = t.alice.borrow().online_link().unwrap().online().clone();
+    online
+        .borrow_mut()
+        .returned(crate::state::online::Dest::Room("Room000001".into()));
+    t.settle(400, &mut [&mut ha, &mut hb]);
     t.settle(400, &mut [&mut ha, &mut hb]);
     let set = t.server.borrow().state().twitch.clone().expect("set");
     assert_eq!(set.mirror, TwitchMirror::Bans);
     assert_eq!(t.bob.borrow().twitch().map(|t| t.mirror), Some(TwitchMirror::Bans));
     assert!(has(&ha, "alice's Twitch bans and chat apply."), "{:?}", ha.texts());
+}
+
+/// Round TW1b: a trip through Twitch canceled changes nothing and the
+/// status line says so; the setting asked is forgotten.
+#[test]
+fn a_canceled_trip_changes_nothing_and_says_so() {
+    let t = Three::new(false);
+    let ea = env();
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    t.settle(400, &mut [&mut ha]);
+    open_players(&mut ha);
+    press(&mut ha, "HostOptions");
+    press(&mut ha, "Inc.twitchchat");
+    t.settle(400, &mut [&mut ha]);
+    let online = t.alice.borrow().online_link().unwrap().online().clone();
+    online
+        .borrow_mut()
+        .sign_in_canceled(crate::state::online::Dest::Room("Room000001".into()));
+    t.settle(400, &mut [&mut ha]);
+    assert_eq!(t.server.borrow().state().twitch, None);
+    assert_eq!(
+        t.alice.borrow().link_notice(),
+        Some(crate::state::online::link::LinkNotice::TwitchNotConnected)
+    );
 }

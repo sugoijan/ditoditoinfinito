@@ -417,6 +417,11 @@ impl FakeServer {
             .insert(identity.clone(), features.iter().map(|f| f.to_string()).collect());
     }
 
+    /// What `identity`'s Twitch access grants, as `/me` says it.
+    pub fn twitch_features(&self, identity: &Identity) -> Vec<String> {
+        self.twitch_grants.get(identity).cloned().unwrap_or_default()
+    }
+
     /// Every open socket of `participant` closed with `code`.
     fn close_member(&mut self, participant: ParticipantId, code: u16) {
         let theirs: Vec<u64> = self

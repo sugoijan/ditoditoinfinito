@@ -2357,3 +2357,6 @@ room-host-twitch-messages = Emotes and messages
 # Variables:
 #   $login (String) - that person's Twitch login
 room-host-twitch-whose = { $login }'s Twitch bans and chat apply.
+# Round TW1b: the status line after a trip through Twitch for the room's
+# Twitch setting ended without connecting it (canceled at Twitch).
+room-twitch-not-connected = Twitch access was not connected: nothing changed.

@@ -46,6 +46,9 @@ pub enum LinkNotice {
         who: ddi_room::ParticipantId,
         by: ddi_room::ParticipantId,
     },
+    /// Round TW1b: the trip through Twitch for a room's Twitch setting
+    /// ended without the access: nothing changed.
+    TwitchNotConnected,
 }
 
 /// How long the status line says a join was to watch (from the room's
@@ -104,6 +107,8 @@ pub struct OnlineLink {
     /// the setting asked (`409 scope_missing`), for the screen to start
     /// the trip through Twitch.
     twitch_trip: Option<String>,
+    /// The setting last asked, for the trip to make it after.
+    twitch_asked: Option<(ddi_room::TwitchMirror, ddi_room::TwitchChat)>,
     grant_reqs: Vec<(u64, StageId, Revision)>,
     grants: Vec<GrantNews>,
     song_grant_reqs: Vec<(u64, ddi_room::RoomSongId)>,
@@ -152,6 +157,7 @@ impl OnlineLink {
             rotate_req: None,
             twitch_req: None,
             twitch_trip: None,
+            twitch_asked: None,
             grant_reqs: Vec::new(),
             grants: Vec::new(),
             song_grant_reqs: Vec::new(),
@@ -244,6 +250,7 @@ impl OnlineLink {
     /// The room's Twitch setting asked of the server (round TW1, `POST
     /// /rooms/<id>/twitch`): the room says the change when it is made.
     pub fn set_twitch(&mut self, mirror: ddi_room::TwitchMirror, chat: ddi_room::TwitchChat) {
+        self.twitch_asked = Some((mirror, chat));
         self.twitch_req = Some(
             self.online
                 .borrow_mut()
@@ -252,8 +259,9 @@ impl OnlineLink {
     }
 
     /// The features to connect before the setting asked (once).
-    pub fn take_twitch_trip(&mut self) -> Option<String> {
-        self.twitch_trip.take()
+    pub fn take_twitch_trip(&mut self) -> Option<(String, Option<(ddi_room::TwitchMirror, ddi_room::TwitchChat)>)> {
+        let trip = self.twitch_trip.take()?;
+        Some((trip, self.twitch_asked))
     }
 
     /// The owner replaces the invite: old links stop working.

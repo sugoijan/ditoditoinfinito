@@ -523,7 +523,13 @@ pub(crate) mod room {
                 (Method::Get, "/me") if s.borrow().signed_out(&identity) => {
                     err(401, "signed_out")
                 }
-                (Method::Get, "/me") => ok(&me_of(who)),
+                // With the Twitch access the fake grants (round TW1b).
+                (Method::Get, "/me") => {
+                    let features = s.borrow().twitch_features(&identity);
+                    let mut me: serde_json::Value = serde_json::from_str(&me_of(who)).unwrap();
+                    me["twitch"] = serde_json::json!({ "features": features, "login": who });
+                    ok(&me.to_string())
+                }
                 // Revision 18: the room's Twitch setting, as the server
                 // gives it (`FakeServer::grant_twitch` the access).
                 (Method::Post, "/rooms/Room000001/twitch") => {

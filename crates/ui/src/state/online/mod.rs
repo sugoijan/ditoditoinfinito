@@ -59,6 +59,18 @@ pub enum Account {
     Unreachable,
 }
 
+/// Where a room's Twitch setting asked is kept across a trip through
+/// Twitch (round TW1b).
+pub const TWITCH_WANTED: &str = "ddi.mp.twitch";
+
+/// A room's Twitch setting asked, waiting for the person's Twitch access.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TwitchWanted {
+    pub room: String,
+    pub mirror: ddi_room::TwitchMirror,
+    pub chat: ddi_room::TwitchChat,
+}
+
 /// Where signing in leads: the game's route it returns to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Dest {
@@ -456,6 +468,20 @@ impl Online {
     /// `bans,blocks,chat`), then go on to `dest`: a sign-in's trip through
     /// Twitch, asking for those scopes (and what the access has).
     pub fn connect_twitch(&mut self, dest: Dest, scopes: &str) {
+        self.connect_twitch_for(dest, scopes, None);
+    }
+
+    /// [`Online::connect_twitch`] for a room's Twitch setting asked
+    /// (`wanted`: the room, the mirror and the chat): kept for the session
+    /// across the web page's leaving (`ddi.mp.twitch`, as the sign-in's
+    /// `ddi.mp.after`) and made by itself once the access is there
+    /// (round TW1b, [`Online::take_twitch_wanted`]).
+    pub fn connect_twitch_for(&mut self, dest: Dest, scopes: &str, wanted: Option<TwitchWanted>) {
+        if let Some(w) = &wanted
+            && let Ok(text) = serde_json::to_string(w)
+        {
+            let _ = ddi_platform::storage::set(ddi_platform::storage::Area::Session, TWITCH_WANTED, &text);
+        }
         match self.config.platform {
             Platform::Web => {
                 self.redirect = Some(Redirect::Page(api::connect_path(&dest.route(), scopes)));
@@ -467,6 +493,31 @@ impl Online {
             }
         }
         self.changed();
+    }
+
+    /// The room's Twitch setting a trip through Twitch was for, where it
+    /// is room `room`'s and the trip is over: the setting itself where
+    /// the access now grants what it needs (to be sent), or none and
+    /// `canceled` where the trip ended without it. Forgotten either way.
+    pub fn take_twitch_wanted(&mut self, room: &str) -> Option<(TwitchWanted, bool)> {
+        use ddi_platform::storage::{self, Area};
+        let w: TwitchWanted = storage::load(Area::Session, TWITCH_WANTED)?;
+        if w.room != room || self.sign_in.busy() || matches!(self.account, Account::Checking) {
+            return None;
+        }
+        let me = match &self.account {
+            Account::SignedIn(me) => me,
+            _ => return None,
+        };
+        let needs = api::twitch_needs(w.mirror, w.chat);
+        let granted = needs.iter().all(|n| me.twitch.features.iter().any(|f| f == n));
+        let canceled = matches!(self.sign_in, SignIn::Canceled { .. });
+        if !granted && !canceled {
+            // The `/me` before the trip: wait for the next.
+            return None;
+        }
+        storage::remove(Area::Session, TWITCH_WANTED);
+        Some((w, !granted))
     }
 
     /// The person's Twitch access as `/me` last said it.

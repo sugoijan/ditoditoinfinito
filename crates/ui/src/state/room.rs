@@ -2540,14 +2540,41 @@ impl RoomClient {
     /// local player's Twitch access is connected for those features and
     /// they come back to this room (the setting then asked again).
     pub fn take_twitch_trip(&mut self) -> Option<String> {
-        let trip = self.online_link_mut()?.take_twitch_trip()?;
+        let (trip, asked) = self.online_link_mut()?.take_twitch_trip()?;
         let link = self.online_link()?;
         let room = link.room_id().to_string();
-        link.online().borrow_mut().connect_twitch(
+        let wanted = asked.map(|(mirror, chat)| crate::state::online::TwitchWanted {
+            room: room.clone(),
+            mirror,
+            chat,
+        });
+        link.online().borrow_mut().connect_twitch_for(
             crate::state::online::Dest::Room(room),
             &trip,
+            wanted,
         );
         Some(trip)
+    }
+
+    /// Round TW1b: back from a trip through Twitch for this room's
+    /// setting, the setting asked made by itself (no second press), or,
+    /// the trip canceled, the status line says nothing changed.
+    fn finish_twitch_trip(&mut self) {
+        if self.link_state() != LinkState::Connected {
+            return;
+        }
+        let Some(link) = self.online_link() else {
+            return;
+        };
+        let (online, room) = (link.online().clone(), link.room_id().to_string());
+        let Some((wanted, canceled)) = online.borrow_mut().take_twitch_wanted(&room) else {
+            return;
+        };
+        if canceled {
+            self.set_link_notice(Some(LinkNotice::TwitchNotConnected));
+        } else {
+            self.set_twitch(wanted.mirror, wanted.chat);
+        }
     }
 
     /// The local player's role and admin flag.
@@ -2914,6 +2941,7 @@ impl RoomClient {
         if now_ms > self.now_ms() {
             self.clock.set(now_ms);
         }
+        self.finish_twitch_trip();
         let before = self.link_state();
         if let Link::Online(l) = &mut self.link
             && l.tick(now_ms)
