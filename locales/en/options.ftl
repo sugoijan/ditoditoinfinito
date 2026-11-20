@@ -1412,11 +1412,11 @@ options-touch-controls = Touch controls
 options-touch-controls-buttons = Buttons
 options-touch-controls-pad = Pad
 options-touch-controls-columns = Columns (old)
-options-touch-controls-description = How you play on a touch screen. Buttons sit under your thumbs at the bottom left and right, in the order of the arrows; layouts of eight lanes and more play the pad. Pad is a 3×3 pad like the dance mat, with each arrow on its panel (two pads side by side for doubles). Columns is the old way: the screen cut in a column for each lane, and is going away.
+options-touch-controls-description = How you play on a touch screen. Buttons sit under your thumbs at the bottom corners; eight lanes and more play the pad. Pad is a 3×3 pad like the dance mat. Columns is the old way, going away.
 # Where a layout with an odd number of lanes (pump's five, the 5-key and
 # 7-key modes) puts its extra button, and where a pad goes beside the
 # field on a wide screen.
 options-touch-hand = Extra button
 options-touch-hand-right = Right side
 options-touch-hand-left = Left side
-options-touch-hand-description = Which side gets the extra button when a layout has an odd number of lanes, and where a single pad sits beside the field on a wide screen. The left side may suit left-handed players.
+options-touch-hand-description = Which side gets the extra button when a layout has an odd number of lanes, and where a single pad sits on a wide screen.
