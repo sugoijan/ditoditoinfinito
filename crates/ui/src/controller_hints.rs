@@ -331,8 +331,10 @@ impl Cap {
         }
     }
 }
-/// The input the hints follow: the keyboard, or the controller in `slot`
-/// whose identity is `id` (`Gamepad.id`).
+/// The input the hints follow: the keyboard, the controller in `slot`
+/// whose identity is `id` (`Gamepad.id`), or a touch screen (a finger or
+/// a pen on the menus or the play: a play then shows its touch controls,
+/// `docs/plans/touch-controls.md`; a key or a pad hides them again).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Source {
     #[default]
@@ -341,6 +343,19 @@ pub enum Source {
         slot: u32,
         id: String,
     },
+    Touch,
+}
+
+impl Source {
+    /// A controller is the source.
+    pub fn is_pad(&self) -> bool {
+        matches!(self, Source::Pad { .. })
+    }
+
+    /// A touch screen is the source.
+    pub fn is_touch(&self) -> bool {
+        *self == Source::Touch
+    }
 }
 
 /// What hints are drawn from: the controller bindings and the styles the

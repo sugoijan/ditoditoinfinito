@@ -937,7 +937,7 @@ impl Ui {
         if self.hints.controls() == &controls && self.hints.styles() == &styles {
             return;
         }
-        let pad = self.hints.source() != &hints::Source::Keyboard;
+        let pad = self.hints.source().is_pad();
         self.hints = Rc::new(self.hints.with_controls(controls, styles));
         if pad {
             self.hints_changed();
@@ -984,9 +984,10 @@ impl Ui {
             };
             self.raw(release);
         }
-        let was_pad = self.hints.source() != &hints::Source::Keyboard;
+        let was_pad = self.hints.source().is_pad();
         let source = match self.hints.source() {
             hints::Source::Pad { slot, id } if there(*slot, id) => self.hints.source().clone(),
+            hints::Source::Touch => hints::Source::Touch,
             _ => hints::Source::Keyboard,
         };
         self.hints = Rc::new(self.hints.with_pads(pads, source));
@@ -1002,11 +1003,18 @@ impl Ui {
             hints::Source::Pad { slot, id } if self.hints.pad_at(slot, &id).is_some() => {
                 hints::Source::Pad { slot, id }
             }
+            hints::Source::Touch => hints::Source::Touch,
             _ => hints::Source::Keyboard,
         };
         if self.hints.source() != &source {
+            // The screens draw a controller's hints; between the keyboard
+            // and a touch screen they draw the same (the prompt's diagram
+            // reads the source as it draws), so nothing is rebuilt then.
+            let pads = self.hints.source().is_pad() || source.is_pad();
             self.hints = Rc::new(self.hints.with_source(source));
-            self.hints_changed();
+            if pads {
+                self.hints_changed();
+            }
         }
     }
 
@@ -2939,6 +2947,11 @@ impl Ui {
             PointerPhase::Down => {
                 if e.kind == PointerKind::Mouse && e.buttons & buttons::PRIMARY == 0 {
                     return;
+                }
+                // A finger or a pen: the touch screen is the source (a
+                // play shows its touch controls); a mouse changes nothing.
+                if e.kind != PointerKind::Mouse {
+                    self.set_source(hints::Source::Touch);
                 }
                 self.ring_shown = false;
                 let gesture = e.kind == PointerKind::Mouse;

@@ -358,3 +358,31 @@ fn the_settings_leave_the_hints_alone() {
     h.run(0.1);
     assert_eq!(h.ui.hints(), &before);
 }
+
+#[test]
+fn a_finger_makes_touch_the_source_until_a_key_or_a_pad() {
+    use ddi_ui::event::PointerKind;
+    let mut h = harness();
+    h.pads(vec![pad("Pad", 0)]);
+    assert_eq!(h.ui.hints().source(), &Source::Keyboard);
+    // A mouse changes nothing; a finger or a pen is touch.
+    h.tap_at(PointerKind::Mouse, [10.0, 10.0]);
+    assert_eq!(h.ui.hints().source(), &Source::Keyboard);
+    h.tap_at(PointerKind::Touch, [10.0, 10.0]);
+    assert!(h.ui.hints().source().is_touch());
+    assert!(!h.ui.hints().active(), "no controller's hints for touch");
+    // Carried to another UI as it is (the web's hosts, a play's input).
+    let mut next = harness();
+    next.ui.set_source(Source::Touch);
+    assert!(next.ui.hints().source().is_touch());
+    // The connected pads changing keep it.
+    h.pads(vec![pad("Pad", 0), pad("Other", 1)]);
+    assert!(h.ui.hints().source().is_touch());
+    // A key hands it to the keyboard, a pad's press to the pad.
+    h.key("ArrowUp", "ArrowUp");
+    assert_eq!(h.ui.hints().source(), &Source::Keyboard);
+    h.tap_at(PointerKind::Pen, [10.0, 10.0]);
+    assert!(h.ui.hints().source().is_touch());
+    h.edge(edge("Pad", 0, "button:0", true));
+    assert!(h.ui.hints().source().is_pad());
+}
