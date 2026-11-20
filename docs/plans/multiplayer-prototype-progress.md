@@ -13050,9 +13050,10 @@ first one's commits.
 - **`room::players_panel` removed** (nothing drew it since round SLB's
   three parts), with its layout field and `room-panel-points`.
 - **The announcer's first-time notice in a room**: not reproduced (TW3's
-  picture shows it in its place, under the Players pop-up; Chrome and
-  Firefox at 1024×640, 1280×720, 1920×1080, 844×390 and 390×844 put it
-  where singleplayer has it). Kept so by
+  picture shows it in its place, under the Players pop-up; Chrome at
+  1024×640, 1280×720, 1920×1080, 844×390 and 390×844 and Firefox at
+  1280×720 put it where singleplayer has it, in the fake room and on a
+  local server). Kept so by
   `the_announcer_notice_sits_in_a_room_where_singleplayer_has_it`.
 - **"Leader" reads "Top score"** (最高スコア, a draft; the glossary has
   it) in the prompt's row, the play's label, the players panel and
@@ -13063,6 +13064,24 @@ first one's commits.
 Also: server `415a958`, the deployed configuration's test expecting the
 Twitch links' binding and migration v4 (round TW1's configuration had
 left it failing).
+
+**Walked** (`target/scratch/mp/db/`, pictures in `shots/`): song select
+in Chrome and Firefox, wide and a phone's both ways up (the Groove
+radar's whole numbers under From the song; the heart on a synthetic
+non-US key event, code `KeyU` typing f, and not on `KeyF` typing u; a
+phone's row of five places, one chart in one of them, a tap moving
+nothing); an online room on a local server (revision 19, the scratch
+configuration, the development provider), host and guest in Chrome and
+again in Firefox: the host shrinks the list to five refusing new songs
+(Host options' note: "anyone else may add up to 2 songs") and adds all
+four bundled songs, each uploaded under its entry's grant and there
+with its share; the guest sees them ready from his own copies, NEW,
+and fetches no share file; a bundled song picked, both readied and
+played it to the stage's results; the notice where singleplayer has
+it. A revision-18 client is refused by that server with
+`update_required` at a join (409) and a ticket (403). Desktop offscreen:
+`room_picker_offscreen` (the rows' AA and NEW). The singleplayer smoke
+check passed in both browsers.
 
 ## Provisional choices
 
