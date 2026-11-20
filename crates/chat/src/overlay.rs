@@ -118,6 +118,36 @@ const SPACE: f32 = 0.3;
 /// one is cut to the width that takes).
 const NARROWEST: f32 = 0.75;
 
+/// A column's least width at `level`, pixels: room for a short message,
+/// or for two emotes.
+fn column_least(level: Level, line: f32) -> f32 {
+    (if level == Level::Messages { 4.5 } else { 2.5 }) * line
+}
+
+/// The side space either side of the field's `band` on a `width` target,
+/// half a line in from each edge.
+fn sides(width: f32, line: f32, band: [f32; 2]) -> [[f32; 2]; 2] {
+    let margin = line * 0.5;
+    [[margin, band[0] - margin], [band[1] + margin, width - margin]]
+}
+
+/// What a play's frame shows of the chat, from the device's choices
+/// (`level` under the room's ceiling, `style`) and the play's layout
+/// (round TW4, the maintainer's decisions of 2026-11-20):
+///
+/// - a stage that shows opponents' small fields beside the player's own
+///   (`miniatures`) uses Falling whatever the choice: Across's rows read
+///   poorly behind the miniatures, Falling's columns go beside them;
+///   a solo play and a watched stage keep the choice;
+/// - a play with no side space beside the field (`side_space` false,
+///   [`Area::side_space`]: a phone held upright) shows emotes alone:
+///   there any item crosses the lanes, and a message reads worst.
+pub fn shown(level: Level, style: Style, miniatures: bool, side_space: bool) -> (Level, Style) {
+    let level = if side_space { level } else { level.min(Level::Emotes) };
+    let style = if miniatures { Style::Falling } else { style };
+    (level, style)
+}
+
 impl Area {
     /// The area for a `size` target with items `line` tall: rows down the
     /// whole height but half a line at the top and the bottom, taken from
@@ -137,8 +167,8 @@ impl Area {
         let line = line.max(1.0);
         let margin = line * 0.5;
         let widest = if level == Level::Messages { 14.0 } else { 5.0 } * line;
-        let narrowest = if level == Level::Messages { 4.5 } else { 2.5 } * line;
-        let sides = [[margin, band[0] - margin], [band[1] + margin, w - margin]];
+        let narrowest = column_least(level, line);
+        let sides = sides(w, line, band);
         let wide_enough = |r: &[f32; 2]| r[1] - r[0] >= narrowest;
         // The side space less the obstacles' widths.
         let mut free: Vec<[f32; 2]> = Vec::new();
@@ -193,6 +223,20 @@ impl Area {
             rows,
             columns,
         }
+    }
+
+    /// Whether a `width` target with items `line` tall has side space
+    /// beside the field's `band` (left and right edges): a side wide
+    /// enough for a column of messages (Falling's least, 4.5 lines and
+    /// the margins). Where neither side is, as on a phone held upright,
+    /// any item crosses the lanes, and the layer shows emotes alone
+    /// (round TW4, [`shown`]).
+    pub fn side_space(width: f32, line: f32, band: [f32; 2]) -> bool {
+        let line = line.max(1.0);
+        let least = column_least(Level::Messages, line);
+        sides(width, line, band)
+            .iter()
+            .any(|s| s[1] - s[0] >= least)
     }
 
     /// The area kept clear of `keep_out` (`[left, top, right, bottom]`:
@@ -343,6 +387,14 @@ impl Overlay {
 
     pub fn options(&self) -> Options {
         self.options
+    }
+
+    /// What the play's layout lets this frame show ([`shown`]): the level
+    /// new items are made at and the style they are placed in. Items
+    /// already on screen go on as they were placed.
+    pub fn set_shown(&mut self, level: Level, style: Style) {
+        self.options.level = level;
+        self.options.style = style;
     }
 
     pub fn rules(&self) -> &Rules {

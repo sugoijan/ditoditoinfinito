@@ -396,3 +396,47 @@ fn a_line_too_wide_for_falling_is_cut_with_an_ellipsis() {
     };
     assert!(t.ends_with('…'), "{t}");
 }
+
+/// Round TW4: a stage with opponents' small fields uses Falling whatever
+/// was chosen; a play with no side space (a phone held upright) shows
+/// emotes alone; a solo play keeps the device's choices.
+#[test]
+fn opponents_fields_force_falling_and_no_side_space_shows_emotes_alone() {
+    assert_eq!(shown(Level::Messages, Style::Across, false, true), (Level::Messages, Style::Across));
+    assert_eq!(shown(Level::Messages, Style::Across, true, true), (Level::Messages, Style::Falling));
+    assert_eq!(shown(Level::Messages, Style::Falling, true, false), (Level::Emotes, Style::Falling));
+    assert_eq!(shown(Level::Emotes, Style::Across, false, false), (Level::Emotes, Style::Across));
+    assert_eq!(shown(Level::Off, Style::Across, false, false).0, Level::Off);
+    // The side space: a 1280×720 play has some, a phone held upright and
+    // a field over the whole width none.
+    assert!(Area::side_space(1280.0, LINE, [500.0, 780.0]));
+    assert!(!Area::side_space(390.0, LINE, [20.0, 370.0]));
+    assert!(!Area::side_space(1280.0, LINE, [100.0, 1180.0]));
+    // A message with text and an emote, made under the emotes-only rule:
+    // its emotes alone.
+    let mut o = overlay(Style::Across, false);
+    o.set_shown(Level::Emotes, Style::Falling);
+    let mixed = Event::Message(ChatMessage {
+        id: "m1".into(),
+        chatter_id: "u1".into(),
+        text: "hello Kappa".into(),
+        fragments: vec![
+            Fragment::Text("hello ".into()),
+            Fragment::Emote {
+                text: "Kappa".into(),
+                id: "25".into(),
+                still: true,
+            },
+        ],
+        kind: "text".into(),
+        ..ChatMessage::default()
+    });
+    o.receive(&mixed, 0.0, true);
+    o.receive(&say(2, 2, "words alone"), 0.0, true);
+    advance(&mut o, 0.0);
+    let drawn: Vec<_> = o.drawn(0.0).collect();
+    assert_eq!(drawn.len(), 1, "the words alone are left out");
+    assert!(drawn[0].laid.iter().all(|l| matches!(l.what, Glyphs::Emote(_))));
+    // Placed in a column, falling.
+    assert!(o.drawn(1.0).next().unwrap().y > drawn[0].y);
+}

@@ -1788,6 +1788,17 @@ impl<H: PlayHost> PlayView<H> {
                 clear.extend(ddi_render::scene::hud_areas(&geo, span));
                 clear.extend(ddi_render::scene::receptor_areas(&geo, &session.layout));
             }
+            // A stage with opponents' small fields beside the player's own
+            // falls; a watched stage (no field of the player's own) and a
+            // solo play keep the device's style; no side space, emotes
+            // alone (round TW4).
+            let shown = crate::chat::shown(
+                chat.config(),
+                target.size,
+                [band_box[0], band_box[2]],
+                screen.ratio,
+                !render.no_field && !slots.is_empty(),
+            );
             let area = crate::chat::area(
                 target.size,
                 [band_box[0], band_box[2]],
@@ -1795,7 +1806,7 @@ impl<H: PlayHost> PlayView<H> {
                 &clear,
                 !render.reverse,
                 screen.ratio,
-                chat.config().level,
+                shown.0,
             );
             let fetched = host.take_emotes();
             let began = host.seconds();
@@ -1805,7 +1816,7 @@ impl<H: PlayHost> PlayView<H> {
                 &mut self.renderer,
                 chat,
                 (target.size, target.format),
-                &area,
+                (&area, shown),
                 moment.now.0,
                 &mut |f| host.fetch_emote(f),
                 fetched,

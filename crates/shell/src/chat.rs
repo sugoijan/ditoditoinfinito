@@ -157,11 +157,13 @@ impl ChatView {
         renderer: &mut Renderer,
         chat: &ChatLayer,
         (size, format): ([u32; 2], wgpu::TextureFormat),
-        area: &Area,
+        (area, (level, style)): (&Area, (ddi_chat::Level, ddi_chat::Style)),
         now: f64,
         fetch: &mut dyn FnMut(&Fetch) -> bool,
         fetched: Vec<(Fetch, Option<Decoded>)>,
     ) {
+        // What this frame's layout lets it show ([`shown`]).
+        self.overlay.set_shown(level, style);
         let accepting = !self.shed;
         for (n, at, event) in chat.since(self.seen) {
             self.overlay.receive(event, at, accepting);
@@ -392,6 +394,23 @@ pub fn proxied(f: &Fetch) -> bool {
     f.via == Via::Proxy
 }
 
+/// What a play's frame shows of `config`'s chat (round TW4,
+/// [`ddi_chat::overlay::shown`]): Falling where the play shows
+/// opponents' small fields beside its own field (`miniatures`), emotes
+/// alone where a `size` target (`ratio` pixels a logical one) leaves no
+/// side space beside the field's `band` (a phone held upright).
+pub fn shown(
+    config: &ddi_session::chat::ChatConfig,
+    size: [u32; 2],
+    band: [f32; 2],
+    ratio: f32,
+    miniatures: bool,
+) -> (ddi_chat::Level, ddi_chat::Style) {
+    let [w, h] = size.map(|v| v as f32);
+    let side = Area::side_space(w, line_for([w, h], ratio), band);
+    ddi_chat::overlay::shown(config.level, config.style, miniatures, side)
+}
+
 /// Where the chat goes in a play: a `size` target, the field's `band`
 /// (left and right edges), the miniatures' slots (`[x, y, width,
 /// height]`), what it keeps clear of (`keep_out`, `[left, top, right,
@@ -460,6 +479,39 @@ mod tests {
         };
         v.second(stall, 60.0, 15.0);
         assert!(!v.shedding(), "a stall is not load");
+    }
+
+    /// Round TW4: Falling beside opponents' fields, the choice kept in a
+    /// solo play; emotes alone on a phone held upright, where the field
+    /// leaves no side space.
+    #[test]
+    fn opponents_fields_fall_and_an_upright_phone_shows_emotes_alone() {
+        use ddi_chat::{Level, Style};
+        let chat = ChatLayer::new(ChatConfig {
+            level: Level::Messages,
+            style: Style::Across,
+            names: false,
+            emotes_from: ddi_chat::EmotesFrom::TwitchAndOthers,
+            opacity: 0.6,
+            source: ChatSource::Script(ddi_chat::script::Script::builtin("demo").unwrap()),
+        });
+        let c = chat.config();
+        // 1280×720, a stage's field in the middle.
+        let band = [485.0, 795.0];
+        assert_eq!(shown(c, [1280, 720], band, 1.0, false), (Level::Messages, Style::Across));
+        assert_eq!(shown(c, [1280, 720], band, 1.0, true), (Level::Messages, Style::Falling));
+        // A phone held upright (390×844 logical at 3×): the field fills
+        // the width.
+        let phone = [1170, 2532];
+        assert_eq!(
+            shown(c, phone, [30.0, 1140.0], 3.0, false),
+            (Level::Emotes, Style::Across)
+        );
+        // The same phone on its side has room beside the field.
+        assert_eq!(
+            shown(c, [2532, 1170], [900.0, 1630.0], 3.0, false),
+            (Level::Messages, Style::Across)
+        );
     }
 
     #[test]
