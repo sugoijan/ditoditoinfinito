@@ -38,7 +38,9 @@ struct Params {
     source_linear: f32,
     // 1: added to what is under it.
     add: f32,
-    _pad: f32,
+    // 1: the texture's colors are premultiplied by its alpha (a layer a
+    // painter drew over transparent: the chat's, `Overlay`).
+    premultiplied: f32,
 };
 
 // How much of the sprite shows at texture coordinates `uv`: nothing in its
@@ -107,6 +109,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // sprites, blended, so the first layer shows through the second's.
     let a = c.a * params.alpha * crop_alpha(in.uv);
     var rgb = c.rgb;
+    if (params.premultiplied > 0.5) {
+        rgb = c.rgb / max(c.a, 1.0 / 255.0);
+    }
     if (params.source_linear > 0.5) {
         rgb = linear_to_srgb(rgb);
     }

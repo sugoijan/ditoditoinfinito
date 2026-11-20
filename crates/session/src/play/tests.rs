@@ -2564,3 +2564,51 @@ fn a_volume_changed_during_a_play_judges_the_same_from_the_same_presses() {
     );
     assert_eq!((quiet.4, moved.4), (settings.volume, 0.3));
 }
+
+/// A scripted chat beside a play (`crate::chat`, round TW2): the play
+/// judges, scores and logs exactly as without it, at any frame rate, and
+/// the chat's events come on the host's clock; with the option Off (the
+/// default) no chat is built at all.
+#[test]
+fn a_chat_beside_the_play_changes_nothing_of_it() {
+    let song = bundled("beatucada");
+    let play = |chat: bool, fps: f64| {
+        let settings = Settings {
+            twitch_chat: if chat {
+                ddi_chat::Level::Messages
+            } else {
+                ddi_chat::Level::Off
+            },
+            ..Settings::default()
+        };
+        crate::chat::set_scripted(ddi_chat::script::Script::builtin("flood"));
+        let clock: Clock = Rc::new(RefCell::new(100.0));
+        let config = SessionConfig::from_settings(&settings, true, None);
+        crate::chat::set_scripted(None);
+        assert_eq!(config.chat.is_some(), chat);
+        let mut s = PlaySession::start(
+            &song,
+            1,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.012),
+            110.0,
+            FakeInputs::new(&clock),
+        )
+        .unwrap();
+        let Some(SessionEvent::Finished { results, facts, .. }) = run(&mut s, &clock, fps, 200.0)
+        else {
+            panic!("no end");
+        };
+        let events = s.chat().map(|c| c.counts().0);
+        (format!("{results:?}"), format!("{:?}", facts.log), events)
+    };
+    for fps in [60.0, 37.0] {
+        let (results, log, none) = play(false, fps);
+        assert_eq!(none, None);
+        let (with_results, with_log, events) = play(true, fps);
+        assert!(events.unwrap() > 1000, "{events:?}");
+        assert_eq!(results, with_results);
+        assert_eq!(log, with_log);
+    }
+}

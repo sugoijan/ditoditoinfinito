@@ -135,6 +135,9 @@ Rust and the browser are implementation details, not advertised features.
   platform: the browser on the web, cosmic-text natively; drawn over a
   play too, through an sRGB surface where there is no plain view, for
   Dancing☆Onigiri's lyrics, `crates/render/src/lyrics.rs`),
+  a layer over the backdrop and under the field, composited by the
+  backdrop's own shader with the filter's band (`BackgroundPipeline::
+  set_overlay`, `Renderer::set_chat_layer`: the room host's chat),
   cached menu Gaussian images (`crates/render/src/gaussian.rs`, recorded once
   on upload before mipmaps, keyed separately from sharp images), Options'
   field preview (`crates/render/src/field_preview.rs`: the demo chart drawn as
@@ -908,6 +911,13 @@ Rust and the browser are implementation details, not advertised features.
   out of it a field too, `Battle::own_seat`), and the stage's moments in the third person,
   `WatchMoment`; an online room's stage has nothing to watch yet and
   ends as before).
+  A room host's Twitch chat beside a play (`chat.rs`,
+  `docs/plans/multiplayer-twitch.md`, part C): its source advanced on
+  the host's clock in the session's tick, never judged, logged or
+  replayed, `PlaySession::chat`; today the scripted chat alone (TESTING
+  ONLY, `chat::set_scripted`), in any play where Options → Display's
+  "Twitch chat in rooms" is on; `chat::room_ceiling` the one answer to
+  the room's ceiling (the script's line until rooms carry it).
   Parts of a frame timed for a shell's frame recorder (`perf.rs`: a
   clock set only while the web's `perf=1` records; the battle's
   advance). Platform-free, natively tested on a fake clock.
@@ -971,6 +981,16 @@ Rust and the browser are implementation details, not advertised features.
   under reduced motion; the theme's `Attack.Line` and `Attack.Glow`
   (`ddi_theme::attack_colors`); `PlayView::links_drawn`, and for tests'
   pictures `PlayView::stage_links`;
+  the room host's chat behind the play, `crates/shell/src/chat.rs`
+  (`ChatView`: the session's chat events into `ddi_chat::overlay` on the
+  host's clock, placed clear of the receptors' rows and the HUD, the
+  rows from the side away from the receptors, Falling's columns in the
+  side space clear of the miniatures where there is room; drawn by the
+  play's own 2D painter, which then draws twice a frame, into a layer
+  the backdrop shows under the field, `Renderer::set_chat_layer`; its
+  emotes from one atlas, `ddi_chat::cache`, fetched through
+  `PlayHost::fetch_emote`; no new items from a late second to a good
+  one, the hand's load rule's reading of a second);
   `crates/shell/src/opponents.rs`: miniature fields in stable slots of the
   side space on both sides, every opponent of a room its own at every
   size (eight at most; each a small copy of the play's field, in its

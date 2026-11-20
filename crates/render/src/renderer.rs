@@ -313,6 +313,19 @@ impl Renderer {
             .render_backdrop(device, queue, encoder, view, width, height, backdrop);
     }
 
+    /// A layer drawn over the backdrop and under the field from the next
+    /// frame on (the room host's chat, `docs/plans/multiplayer-twitch.md`,
+    /// C7): `texture`, premultiplied, the target's size, in the play's 2D
+    /// painter's format, at `opacity`; `None` draws none.
+    pub fn set_chat_layer(&mut self, device: &wgpu::Device, layer: Option<(&wgpu::Texture, f32)>) {
+        self.background.set_overlay(device, layer);
+    }
+
+    /// Whether a chat layer is drawn.
+    pub fn chat_layer_drawn(&self) -> bool {
+        self.background.has_overlay()
+    }
+
     /// The backgrounds' own pipeline: what a play's movie decks put their
     /// frames on.
     pub fn background_mut(&mut self) -> &mut BackgroundPipeline {
@@ -723,7 +736,11 @@ impl Renderer {
             ),
         };
         let layers = !self.stage_back.is_empty() || !self.field_underlay.is_empty();
-        let behind = layers || (opts.background > 0.0 && self.background.shows(&opts.backdrop));
+        // A layer over the backdrop (the room host's chat) is behind the
+        // field too: the filter darkens it in the lanes.
+        let behind = layers
+            || self.background.has_overlay()
+            || (opts.background > 0.0 && self.background.shows(&opts.backdrop));
         let path = filter_path(
             opts.field_filter,
             !layout.lanes.is_empty() && !opts.no_field,
@@ -986,6 +1003,7 @@ impl Renderer {
             }
             if n == 0 {
                 self.background.draw(&mut pass, &background);
+                self.background.draw_overlay(&mut pass, &background);
             }
             for segment in &scene.order[pass_plan.segments.clone()] {
                 match segment {

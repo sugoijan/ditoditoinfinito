@@ -11,6 +11,7 @@ description = "DitoDitoInfinito: one play session for both shells (the play, cal
 [dependencies]
 ddi-actor.workspace = true
 ddi-chart.workspace = true
+ddi-chat.workspace = true
 ddi-engine.workspace = true
 ddi-library.workspace = true
 ddi-lua.workspace = true

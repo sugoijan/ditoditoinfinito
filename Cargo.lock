@@ -1165,6 +1165,7 @@ dependencies = [
  "csscolorparser",
  "ddi-actor",
  "ddi-chart",
+ "ddi-chat",
  "ddi-desktop",
  "ddi-engine",
  "ddi-icon",
@@ -1408,6 +1409,7 @@ version = "0.1.0"
 dependencies = [
  "ddi-actor",
  "ddi-chart",
+ "ddi-chat",
  "ddi-engine",
  "ddi-l10n",
  "ddi-library",
@@ -1435,6 +1437,7 @@ dependencies = [
  "ddi-actor",
  "ddi-character",
  "ddi-chart",
+ "ddi-chat",
  "ddi-dance-mat",
  "ddi-engine",
  "ddi-hand-plan",

@@ -92,12 +92,18 @@ pub struct Area {
     pub size: [f32; 2],
     /// An item's height.
     pub line: f32,
-    /// Top and bottom of the rows (Across).
-    pub rows: [f32; 2],
-    /// The columns' left and right edges (Falling), and their top and
-    /// bottom.
-    pub columns: Vec<[f32; 2]>,
-    pub column_span: [f32; 2],
+    /// The rows' tops (Across), in the order they are taken.
+    pub rows: Vec<f32>,
+    /// The columns (Falling).
+    pub columns: Vec<Column>,
+}
+
+/// A column of Falling: its left and right edges, and where its items
+/// come in and go out.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Column {
+    pub x: [f32; 2],
+    pub y: [f32; 2],
 }
 
 /// Rows a line apart and a fifth of a line between.
@@ -113,12 +119,12 @@ const NARROWEST: f32 = 0.5;
 
 impl Area {
     /// The area for a `size` target with items `line` tall: rows down the
-    /// whole height but a line at the top and the bottom; Falling's
-    /// columns in the side space beside the field's `band` (left and
-    /// right edges) clear of `obstacles` (the miniatures' slots,
-    /// `[left, top, right, bottom]`) where there is room for a column
-    /// there, else over the side space behind them, else over the whole
-    /// width (a phone held upright).
+    /// whole height but half a line at the top and the bottom, taken from
+    /// the top; Falling's columns in the side space beside the field's
+    /// `band` (left and right edges) clear of `obstacles` (the miniatures'
+    /// slots, `[left, top, right, bottom]`) where there is room for a
+    /// column there, else over the side space behind them, else over the
+    /// whole width (a phone held upright), each the whole height.
     pub fn new(
         size: [f32; 2],
         line: f32,
@@ -169,16 +175,57 @@ impl Area {
             let each = (s[1] - s[0]) / n;
             for k in 0..n as usize {
                 let x = s[0] + each * k as f32;
-                columns.push([x, x + each]);
+                columns.push(Column {
+                    x: [x, x + each],
+                    y: [0.0, h],
+                });
             }
         }
+        let pitch = line * PITCH;
+        let rows = (0..)
+            .map(|k| margin + pitch * k as f32)
+            .take_while(|y| y + line <= h - margin)
+            .collect();
         Area {
             size,
             line,
-            rows: [line, (h - line).max(line)],
+            rows,
             columns,
-            column_span: [0.0, h],
         }
+    }
+
+    /// The area kept clear of `keep_out` (`[left, top, right, bottom]`:
+    /// the receptors' rows, the HUD): no row crosses one (a row crosses
+    /// the whole width), and a column starts below one over it in the top
+    /// half and ends above one under it in the bottom half; the rows taken
+    /// from the bottom first where `from_bottom` (the receptors at the
+    /// top: the chat as far from them as it can be).
+    pub fn keeping_clear(mut self, keep_out: &[[f32; 4]], from_bottom: bool) -> Area {
+        let line = self.line;
+        let gap = line * 0.25;
+        self.rows.retain(|&y| {
+            keep_out
+                .iter()
+                .all(|k| y + line + gap <= k[1] || y >= k[3] + gap)
+        });
+        if from_bottom {
+            self.rows.reverse();
+        }
+        let half = self.size[1] / 2.0;
+        for c in &mut self.columns {
+            for k in keep_out {
+                if k[2] <= c.x[0] || k[0] >= c.x[1] {
+                    continue;
+                }
+                if k[3] <= half {
+                    c.y[0] = c.y[0].max(k[3] + gap);
+                } else if k[1] >= half {
+                    c.y[1] = c.y[1].min(k[1] - gap);
+                }
+            }
+        }
+        self.columns.retain(|c| c.y[1] - c.y[0] >= line * 3.0);
+        self
     }
 }
 
@@ -468,7 +515,7 @@ impl Overlay {
         let line = area.line;
         let pitch = line * PITCH;
         let gap = line * GAP;
-        let rows = (((area.rows[1] - area.rows[0]) / pitch).floor().max(0.0)) as usize;
+        let rows = area.rows.len();
         let mut shown = Shown {
             id,
             content,
@@ -503,17 +550,17 @@ impl Overlay {
                 });
                 free.map(|row| {
                     shown.lane = Lane::Row(row);
-                    shown.at = [w, area.rows[0] + pitch * row as f32];
+                    shown.at = [w, area.rows[row]];
                     shown.velocity = [-speed, 0.0];
                     shown.ends = now + r.across;
                 })
             }
             (Style::Falling, false) => {
-                let [top, bottom] = area.column_span;
-                let speed = (bottom - top + line) / r.falling as f32;
                 // The free column whose last item is oldest.
                 let free = (0..area.columns.len())
                     .filter_map(|c| {
+                        let [top, bottom] = area.columns[c].y;
+                        let speed = (bottom - top + line) / r.falling as f32;
                         let last = self
                             .shown
                             .iter()
@@ -525,13 +572,14 @@ impl Overlay {
                     })
                     .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
                 free.map(|(c, _)| {
-                    let [x0, x1] = area.columns[c];
+                    let Column { x: [x0, x1], y: [top, bottom] } = area.columns[c];
+                    let speed = (bottom - top + line) / r.falling as f32;
                     let s = ((x1 - x0) / width.max(1.0)).clamp(NARROWEST, 1.0);
                     shown.scale = s;
                     shown.lane = Lane::Column(c);
                     shown.at = [x0 + ((x1 - x0) - width * s).max(0.0) / 2.0, top - line * s];
                     shown.velocity = [0.0, speed];
-                    shown.ends = now + r.falling;
+                    shown.ends = now + r.falling * f64::from((bottom - top + line * s) / (bottom - top + line));
                 })
             }
             (Style::Across, true) => {
@@ -568,15 +616,15 @@ impl Overlay {
                 })
                 .map(|(row, x)| {
                     shown.lane = Lane::Fixed(row, 0);
-                    shown.at = [x, area.rows[0] + pitch * row as f32];
+                    shown.at = [x, area.rows[row]];
                     shown.ends = now + r.still;
                 })
             }
             (Style::Falling, true) => {
-                let [top, bottom] = area.column_span;
-                let cells = (((bottom - top) / pitch).floor().max(1.0)) as usize;
                 let mut best: Option<(usize, usize, usize)> = None;
-                for c in 0..area.columns.len() {
+                for (c, column) in area.columns.iter().enumerate() {
+                    let [top, bottom] = column.y;
+                    let cells = (((bottom - top) / pitch).floor().max(1.0)) as usize;
                     let used: Vec<usize> = self
                         .shown
                         .iter()
@@ -597,7 +645,7 @@ impl Overlay {
                     }
                 }
                 best.map(|(c, k, _)| {
-                    let [x0, x1] = area.columns[c];
+                    let Column { x: [x0, x1], y: [top, _] } = area.columns[c];
                     let s = ((x1 - x0) / width.max(1.0)).clamp(NARROWEST, 1.0);
                     shown.scale = s;
                     shown.lane = Lane::Fixed(c, k);
@@ -622,7 +670,9 @@ impl Overlay {
         let fade = self.rules.fade;
         self.shown.iter().filter(move |s| s.ends > now).map(move |s| {
             let t = (now - s.born).max(0.0);
-            let alpha = if matches!(s.lane, Lane::Fixed(..)) {
+            // Standing still, or falling in a column that starts or ends
+            // within the screen: faded in and out.
+            let alpha = if matches!(s.lane, Lane::Fixed(..) | Lane::Column(_)) {
                 let into = (t / fade).min(1.0);
                 let out = ((s.ends - now) / fade).min(1.0);
                 into.min(out).max(0.0) as f32

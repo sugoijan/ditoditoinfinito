@@ -12,6 +12,7 @@ description = "DitoDitoInfinito: the desktop shell (a window running the UI core
 ddi-actor.workspace = true
 # The field preview's demo and options (`src/field_preview.rs`).
 ddi-chart.workspace = true
+ddi-chat.workspace = true
 ddi-engine.workspace = true
 ddi-library = { workspace = true, features = ["nfkd"] }
 # The music's decoders (`decode-all`: MP3, Ogg Vorbis and Opus, FLAC,

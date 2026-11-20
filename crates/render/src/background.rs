@@ -43,6 +43,8 @@ pub const BLACK: usize = usize::MAX - 1;
 /// Uniform slots of a frame: sharp content, ambient base and soft content,
 /// for each draw (an image can be drawn several times).
 const SLOTS: u64 = 3 * DRAWS as u64;
+/// The overlay's slot ([`Overlay`]), after the draws'.
+const OVERLAY_SLOT: u64 = SLOTS;
 /// `blur.wgsl`'s `Blur` uniform.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
@@ -92,7 +94,8 @@ struct Params {
     source_linear: f32,
     /// 1: added to what is under it (`BlendMode_Add`).
     add: f32,
-    _pad: f32,
+    /// 1: the texture's colors are premultiplied ([`Overlay`]).
+    premultiplied: f32,
 }
 
 /// What to show behind the field in one frame: each background layer's
@@ -307,6 +310,8 @@ pub struct Prepared {
     alphas: [f32; 3],
     dirty: [bool; 2],
     key: Option<FilterKey>,
+    /// The overlay is drawn ([`BackgroundPipeline::set_overlay`]).
+    overlay: bool,
 }
 
 /// A filtered source: compose into `a`, blur through `b` back into `a`.
@@ -362,6 +367,24 @@ pub struct BackgroundPipeline {
     stride: u64,
     /// The target holds linear light (sRGB, or a float stand-in).
     srgb: bool,
+    /// A layer drawn over the backdrop ([`BackgroundPipeline::set_overlay`]).
+    overlay: Option<Overlay>,
+    /// The overlay's parameters as last written (bytes).
+    overlay_written: Vec<u8>,
+}
+
+/// A layer over the backdrop and under the field: a texture a painter drew
+/// over transparent (premultiplied), the whole target's size, drawn over
+/// the whole target at an opacity of its own, the field filter's band
+/// darkening it with the background (the room host's chat,
+/// `docs/plans/multiplayer-twitch.md`, C7).
+struct Overlay {
+    image: Image,
+    /// The texture it was made for, and whether sampling it gives
+    /// linear light (an sRGB texture).
+    texture: wgpu::Texture,
+    linear: bool,
+    opacity: f32,
 }
 
 impl BackgroundPipeline {
@@ -420,7 +443,7 @@ impl BackgroundPipeline {
             .max(std::mem::size_of::<Params>() as u64);
         let params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ddi-background-params"),
-            size: stride * SLOTS,
+            size: stride * (SLOTS + 1),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -485,6 +508,8 @@ impl BackgroundPipeline {
             format,
             stride,
             srgb: linear,
+            overlay: None,
+            overlay_written: Vec::new(),
         }
     }
 
@@ -766,6 +791,80 @@ impl BackgroundPipeline {
         true
     }
 
+    /// The layer drawn over the backdrop from the next frame on
+    /// ([`Overlay`]): `texture` (premultiplied, the target's size; a plain
+    /// or an sRGB format) at `opacity`, or none.
+    pub fn set_overlay(&mut self, device: &wgpu::Device, layer: Option<(&wgpu::Texture, f32)>) {
+        let Some((texture, opacity)) = layer else {
+            self.overlay = None;
+            return;
+        };
+        if self.overlay.as_ref().is_none_or(|o| o.texture != *texture) {
+            self.overlay = Some(Overlay {
+                image: self.make_image(device, texture),
+                texture: texture.clone(),
+                linear: texture.format().is_srgb(),
+                opacity,
+            });
+            self.overlay_written.clear();
+        }
+        if let Some(o) = self.overlay.as_mut() {
+            o.opacity = opacity.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Whether a layer is drawn over the backdrop.
+    pub fn has_overlay(&self) -> bool {
+        self.overlay.as_ref().is_some_and(|o| o.opacity > 0.0)
+    }
+
+    /// The overlay's parameters for this frame: the whole target, the
+    /// band as the backdrop's.
+    fn prepare_overlay(&mut self, queue: &wgpu::Queue, band: Option<([f32; 2], f32)>) -> bool {
+        let Some(o) = self.overlay.as_ref().filter(|o| o.opacity > 0.0) else {
+            return false;
+        };
+        let (band, keep) = band.unwrap_or(([0.0, 0.0], 1.0));
+        let params = Params {
+            rect: [0.0, 0.0, 1.0, 1.0],
+            uv_scale: [1.0, 1.0],
+            uv_offset: [0.0, 0.0],
+            local: [0.0, 0.0, 1.0, 1.0],
+            crop: [0.0; 4],
+            fade: [0.0; 4],
+            tint: [1.0; 4],
+            brightness: 1.0,
+            alpha: o.opacity,
+            kr: 0.0,
+            kb: 0.0,
+            full_range: 0.0,
+            linear_out: if self.srgb { 1.0 } else { 0.0 },
+            band,
+            band_keep: keep,
+            source_linear: if o.linear { 1.0 } else { 0.0 },
+            add: 0.0,
+            premultiplied: 1.0,
+        };
+        let bytes = bytemuck::bytes_of(&params);
+        if self.overlay_written != bytes {
+            queue.write_buffer(&self.params, OVERLAY_SLOT * self.stride, bytes);
+            self.overlay_written = bytes.to_vec();
+        }
+        true
+    }
+
+    /// Draws the overlay over the whole target, after [`BackgroundPipeline::draw`].
+    pub fn draw_overlay(&self, pass: &mut wgpu::RenderPass<'_>, prepared: &Prepared) {
+        let Some(o) = self.overlay.as_ref().filter(|_| prepared.overlay) else {
+            return;
+        };
+        let (w, h) = prepared.target;
+        pass.set_viewport(0.0, 0.0, w, h, 0.0, 1.0);
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &o.image.group, &[(OVERLAY_SLOT * self.stride) as u32]);
+        pass.draw(0..6, 0..1);
+    }
+
     /// Registers a filled texture (from
     /// [`BackgroundPipeline::create_texture`]); returns its id.
     pub fn add_texture(&mut self, device: &wgpu::Device, texture: &wgpu::Texture) -> usize {
@@ -1024,6 +1123,7 @@ impl BackgroundPipeline {
             alphas: reveal.alphas(),
             ..Default::default()
         };
+        prepared.overlay = self.prepare_overlay(queue, band);
         if brightness <= 0.0 {
             return prepared;
         }
@@ -1163,7 +1263,7 @@ impl BackgroundPipeline {
                     band_keep: filter.1,
                     source_linear: if source_linear { 1.0 } else { 0.0 },
                     add: if draw.add { 1.0 } else { 0.0 },
-                    _pad: 0.0,
+                    premultiplied: 0.0,
                 };
                 let at = ((3 * k + slot) * self.stride) as usize;
                 bytes[at..at + std::mem::size_of::<Params>()]

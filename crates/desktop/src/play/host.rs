@@ -579,6 +579,23 @@ impl Host {
         r.view.as_ref()?.opponent_fields().cloned()
     }
 
+    /// The room host's chat as the play's last frame drew it (tests).
+    pub fn chat_drawn(&self) -> Option<ddi_shell::chat::ChatDrawn> {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return None;
+        };
+        r.view.as_ref()?.chat_drawn().cloned()
+    }
+
+    /// Whether the play's last frame composited a chat layer under the
+    /// field (tests).
+    pub fn chat_layer_drawn(&self) -> bool {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return false;
+        };
+        r.view.as_ref().is_some_and(|v| v.chat_layer_drawn())
+    }
+
     /// How many opponents' miniatures the play's last frame drew (tests).
     pub fn miniatures_drawn(&self) -> usize {
         let Stage::Playing(r, ..) = &self.stage else {

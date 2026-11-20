@@ -192,6 +192,9 @@ pub struct SessionConfig {
     /// starts at the room's instant, its moments are streamed and the
     /// others' come.
     pub live: Option<crate::battle::live::LiveHandle>,
+    /// A room host's chat shown behind the play (`crate::chat`): its
+    /// source and the device's choices; nothing of it judged or logged.
+    pub chat: Option<crate::chat::ChatConfig>,
 }
 
 impl SessionConfig {
@@ -224,6 +227,7 @@ impl SessionConfig {
             opponents: None,
             stage_rules: None,
             live: None,
+            chat: crate::chat::ChatConfig::for_play(settings),
         }
     }
 
@@ -430,6 +434,9 @@ impl<I: Inputs> Drop for Running<I> {
 }
 
 pub struct PlaySession<A: AudioBackend, I: Inputs> {
+    /// A room host's chat beside the play, advanced on the host's clock
+    /// in [`PlaySession::tick`] (`crate::chat`); never judged or logged.
+    chat: Option<crate::chat::ChatLayer>,
     pub player: Player,
     pub layout: Layout,
     /// The ruleset played by, fresh (its windows and gauge for the
@@ -1042,6 +1049,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         inputs.pads_running(Some(settings.fast_pad_poll));
         let lanes = layout.lanes.len();
         Ok(PlaySession {
+            chat: config.chat.map(crate::chat::ChatLayer::new),
             volume: config.volume,
             music: Some(music),
             player,
@@ -1147,6 +1155,10 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
 
     /// Advance to the current host time. Returns judge events for effects.
     pub fn tick(&mut self, host_now: HostTime) -> (Vec<JudgeEvent>, Option<SessionEvent>) {
+        // The chat on the host's clock, beside the play and apart from it.
+        if let Some(c) = self.chat.as_mut() {
+            c.advance(host_now.0);
+        }
         let mut events = Vec::new();
         let mut frame_dt = 0.0;
         if let Some(last) = self.last_frame_host {
@@ -2296,6 +2308,11 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             *h = ev.pressed;
         }
         out.extend(self.player.input(ev));
+    }
+
+    /// The room host's chat beside the play, if it shows one.
+    pub fn chat(&self) -> Option<&crate::chat::ChatLayer> {
+        self.chat.as_ref()
     }
 
     pub fn frame_interval(&self) -> f64 {

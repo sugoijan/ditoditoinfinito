@@ -113,17 +113,17 @@ loop 30
 1.8 say dee PogU catJAM wideHappy LilZ
 2.2 say eve !song
 2.6 say finn free stuff at example.com/free
-3.0 say @gone gus this message is deleted in eight seconds
+3.0 say @gone gus this message is deleted three seconds later
 3.4 say hana 🎉🎉🎉 nice combo 🎉
 3.8 say ivan Привет всем, удачи
 4.2 say jo PogU PogU PogBTTV
 4.6 say tom hello hello Kappa
 5.0 emotes 6 2
+6.0 delete @gone
 7.5 say tom still here LUL
 8.0 flood 50 2
-11.0 delete @gone
 11.5 say tom one more from tom
-12.5 clear-user tom
+12.0 clear-user tom
 13.0 say kai 加油！ catJAM
 14.0 emotes 4 3
 17.0 say lee that was clean wideHappy

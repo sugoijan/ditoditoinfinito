@@ -15,6 +15,7 @@ ddi-hand-plan.workspace = true
 serde_json.workspace = true
 ddi-actor.workspace = true
 ddi-chart.workspace = true
+ddi-chat.workspace = true
 ddi-engine.workspace = true
 ddi-l10n.workspace = true
 ddi-library.workspace = true

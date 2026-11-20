@@ -45,6 +45,9 @@ pub const TEXTURE_BUDGET: u64 = 96 << 20;
 /// 2,000 of them on 13–14 pages; a screen shows a few dozen).
 pub const TEXT_BUDGET: u64 = 8 * (PAGE as u64) * (PAGE as u64);
 
+/// Instances kept over a frame's draws at most ([`Painter::draw`]).
+const FRAME_INSTANCES: usize = 1 << 18;
+
 /// Frames a text page past the budget stays unused before it goes.
 const PAGE_TRIM_FRAMES: u64 = 120;
 
@@ -897,7 +900,14 @@ impl Painter {
             blurred,
             ..
         } = self;
-        instances.clear();
+        // A second draw before the frame is submitted (the play's chat
+        // layer, then its overlay) keeps the first one's instances: the
+        // buffer is written once a frame, at the submit, and every draw's
+        // passes read their own range of it. (A painter never told it was
+        // submitted is not let grow without end.)
+        if new_frame || instances.len() > FRAME_INSTANCES {
+            instances.clear();
+        }
         steps.clear();
         if let Some(raster) = raster.as_deref_mut().filter(|_| new_frame) {
             text.compact(&mut Sink {

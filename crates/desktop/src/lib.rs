@@ -26,6 +26,7 @@ pub mod args;
 pub mod audio;
 pub mod bots;
 pub mod calibrate;
+pub mod chat;
 pub mod clock;
 pub mod devices;
 pub mod display_link;
@@ -459,6 +460,20 @@ pub fn run() {
             d.mines_at_beat = Some(beat);
         }
         ddi_ui::state::room::set_development(d);
+    }
+    // TESTING ONLY (round TW2): `--mp-dev-chat FILE|NAME`, a scripted
+    // chat beside every play, as the web's `mpfakechat` (`crate::chat`,
+    // `ddi_chat::script`): a script's file, or a built-in one (`demo`,
+    // `emotes`, `flood`) or a rate; the room's ceiling is its own line.
+    // Shown where Options → Display's Twitch chat in rooms is on.
+    if let Some(what) = a.value("--mp-dev-chat") {
+        match chat::load_script(what) {
+            Ok(script) => ddi_session::chat::set_scripted(Some(script)),
+            Err(e) => {
+                eprintln!("--mp-dev-chat: {e}");
+                std::process::exit(2);
+            }
+        }
     }
     // `--join LINK|INVITE`: an online room's invite page over the
     // multiplayer home (`crate::online`).

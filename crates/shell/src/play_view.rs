@@ -222,6 +222,20 @@ pub trait PlayHost {
 
     /// The field's passes are about to be recorded on `encoder`.
     fn before_render(&mut self, _device: &wgpu::Device, _encoder: &wgpu::CommandEncoder) {}
+
+    /// Starts fetching a chat emote's image (`crate::chat`): its address,
+    /// decoded off the frame to [`crate::chat::decode_size`] and handed
+    /// back by [`PlayHost::take_emotes`]; false where this shell cannot
+    /// (the fetch fails at once).
+    fn fetch_emote(&mut self, _fetch: &ddi_chat::cache::Fetch) -> bool {
+        false
+    }
+
+    /// The chat's emote images fetched since the last frame (`None`: the
+    /// fetch failed).
+    fn take_emotes(&mut self) -> Vec<(ddi_chat::cache::Fetch, Option<crate::chat::Decoded>)> {
+        Vec::new()
+    }
 }
 
 /// What a frame is drawn into.
@@ -497,6 +511,9 @@ pub struct PlayView<H: PlayHost> {
     lyrics: Option<LyricTrack>,
     lyrics_shown: Vec<String>,
     overlay: Option<(Painter, DrawList)>,
+    /// A room host's chat behind the play (`crate::chat`), drawn by the
+    /// overlay's painter into the layer the backdrop shows.
+    chat: Option<crate::chat::ChatView>,
     /// A stage's opponents' words (`crate::opponents`: "Out", "Stage
     /// won"), once worded.
     shown_words: Option<[String; 6]>,
@@ -600,6 +617,7 @@ impl<H: PlayHost> PlayView<H> {
             lyrics: None,
             lyrics_shown: Vec::new(),
             overlay: None,
+            chat: None,
             shown_words: None,
             fields_for: None,
             routes: Default::default(),
@@ -803,6 +821,9 @@ impl<H: PlayHost> PlayView<H> {
         self.script_movies.stop();
         self.guard.start(self.refresh_hz());
         self.hand_load.start(self.refresh_hz());
+        // The chat anew with the play's own (the layer itself is let go
+        // by the next frame drawn without one).
+        self.chat = None;
         self.dance.set_load(ddi_session::hand_load::HandStep::Full);
     }
 
@@ -966,6 +987,12 @@ impl<H: PlayHost> PlayView<H> {
 
     /// What the 2D pass over the play holds and drew last (its text's
     /// runs drawn and uploaded so far, its draws), once it has drawn.
+    pub fn chat_drawn(&self) -> Option<&crate::chat::ChatDrawn> {
+        self.chat.as_ref().map(crate::chat::ChatView::drawn)
+    }
+
+    /// The 2D pass's counters (the lyrics', the miniatures' words and the
+    /// chat's), if it draws.
     pub fn overlay_stats(&self) -> Option<ddi_render::painter::PainterStats> {
         self.overlay.as_ref().map(|(p, _)| p.stats())
     }
@@ -1172,6 +1199,34 @@ impl<H: PlayHost> PlayView<H> {
         let present = moment
             .present
             .unwrap_or_else(|| session.predicted_present(moment.now));
+        // The 2D pass may draw twice this frame (the chat under the field,
+        // the overlay over it): one frame of its instances from here.
+        if let Some((p, _)) = self.overlay.as_mut() {
+            p.submitted();
+        }
+        // The room host's chat, where the play shows one: its view made,
+        // the 2D pass it is drawn by readied, and its shedding told of a
+        // second that ended late. Without one, no layer is drawn.
+        match session.chat() {
+            Some(chat) => {
+                if self.chat.is_none() {
+                    self.chat = Some(crate::chat::ChatView::new(chat, render.reduced_motion));
+                }
+                if !self.ensure_overlay(device, queue, target.format) {
+                    self.renderer.set_chat_layer(device, None);
+                }
+                let refresh = self.refresh_hz();
+                if let (Some(c), Some(s)) = (self.chat.as_mut(), moment.second) {
+                    c.second(s, refresh, moment.now.0);
+                }
+            }
+            None => {
+                self.chat = None;
+                if self.renderer.chat_layer_drawn() {
+                    self.renderer.set_chat_layer(device, None);
+                }
+            }
+        }
         let frame = session.frame(present);
         // The stage's song second (a followed competitor's frame says
         // its field's own, its view delay behind).
@@ -1714,6 +1769,49 @@ impl<H: PlayHost> PlayView<H> {
         let under = self.renderer.under_miniatures();
         under.clear();
         crate::attack_links::draw_behind(under, &links, screen.ratio);
+        // The room host's chat (`crate::chat`): in the space the field
+        // and the miniatures leave, drawn into the layer the backdrop
+        // shows under them, before the field's passes.
+        if let (Some(view), Some(chat), Some((painter, _))) =
+            (self.chat.as_mut(), session.chat(), self.overlay.as_mut())
+        {
+            let slots: Vec<[f32; 4]> = fields
+                .iter()
+                .flat_map(|f| f.slots.iter().map(|s| s.rect))
+                .collect();
+            // Clear of the receptors' rows and the HUD (behind the field
+            // the filter darkens it; past the receptors it would cross
+            // the notes' judging place), the rows from the side away
+            // from the receptors.
+            let mut clear = Vec::new();
+            if !render.no_field {
+                clear.extend(ddi_render::scene::hud_areas(&geo, span));
+                clear.extend(ddi_render::scene::receptor_areas(&geo, &session.layout));
+            }
+            let area = crate::chat::area(
+                target.size,
+                [band_box[0], band_box[2]],
+                &slots,
+                &clear,
+                !render.reverse,
+                screen.ratio,
+                chat.config().level,
+            );
+            let fetched = host.take_emotes();
+            let began = host.seconds();
+            view.frame(
+                (device, queue, encoder),
+                painter,
+                &mut self.renderer,
+                chat,
+                (target.size, target.format),
+                &area,
+                moment.now.0,
+                &mut |f| host.fetch_emote(f),
+                fetched,
+            );
+            view.set_ms((host.seconds() - began) * 1000.0);
+        }
         // (Booked with the scene: the hand's lap stays its own.)
         if self.load_ms > 0.0 && started && !finished {
             let until = host.seconds() + self.load_ms / 1000.0;
@@ -2242,8 +2340,7 @@ impl<H: PlayHost> PlayView<H> {
         let Some((painter, list)) = self.overlay.as_mut() else {
             return;
         };
-        // The last frame's draws were submitted by the shell.
-        painter.submitted();
+        // (The frame's draws began at the top of `draw`.)
         list.clear();
         {
             let mut measure = painter.measure(1.0);

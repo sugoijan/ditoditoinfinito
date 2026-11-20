@@ -98,11 +98,14 @@ pub struct Desktop {
     /// instead (tests: a play's frames faster than real time, the same
     /// whatever the machine's load; `Host::test_seconds`).
     seconds: Option<std::rc::Rc<dyn Fn() -> f64>>,
+    /// The chat's emote images fetched on threads (`crate::chat`).
+    emotes: crate::chat::Fetcher,
 }
 
 impl Desktop {
     fn new() -> Desktop {
         Desktop {
+            emotes: Default::default(),
             fonts: None,
             font: None,
             fonts_asked: false,
@@ -166,6 +169,14 @@ impl PlayHost for Desktop {
             Some(clock) => clock(),
             None => self.origin.elapsed().as_secs_f64(),
         }
+    }
+
+    fn fetch_emote(&mut self, fetch: &ddi_chat::cache::Fetch) -> bool {
+        self.emotes.fetch(fetch)
+    }
+
+    fn take_emotes(&mut self) -> Vec<(ddi_chat::cache::Fetch, Option<ddi_shell::chat::Decoded>)> {
+        self.emotes.take()
     }
 
     fn before_render(&mut self, device: &wgpu::Device, encoder: &wgpu::CommandEncoder) {
@@ -534,6 +545,16 @@ impl View {
     /// The lyrics the last frame drew.
     pub fn lyrics_shown(&self) -> &[String] {
         self.view.lyrics_shown()
+    }
+
+    /// The room host's chat as the last frame drew it.
+    pub fn chat_drawn(&self) -> Option<&ddi_shell::chat::ChatDrawn> {
+        self.view.chat_drawn()
+    }
+
+    /// Whether the last frame composited a chat layer under the field.
+    pub fn chat_layer_drawn(&self) -> bool {
+        self.view.renderer.chat_layer_drawn()
     }
 
     /// Where the last frame drew a stage's opponents' miniature fields.

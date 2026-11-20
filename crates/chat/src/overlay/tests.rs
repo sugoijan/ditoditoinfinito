@@ -201,20 +201,20 @@ fn across_never_lets_a_fast_item_catch_a_slow_one() {
 #[test]
 fn falling_columns_use_the_side_space_and_go_behind_miniatures_when_full() {
     let free = Area::new([1280.0, 720.0], LINE, [500.0, 780.0], &[], Level::Messages);
-    assert!(free.columns.iter().all(|c| c[1] <= 500.0 || c[0] >= 780.0));
+    assert!(free.columns.iter().all(|c| c.x[1] <= 500.0 || c.x[0] >= 780.0));
     assert!(free.columns.len() >= 2);
     // Miniatures over the right side: columns on the left alone.
     let right = [[800.0, 0.0, 1270.0, 720.0]];
     let a = Area::new([1280.0, 720.0], LINE, [500.0, 780.0], &right, Level::Messages);
-    assert!(a.columns.iter().all(|c| c[1] <= 500.0));
+    assert!(a.columns.iter().all(|c| c.x[1] <= 500.0));
     // Miniatures over both sides: columns behind them.
     let both = [[10.0, 0.0, 490.0, 720.0], [790.0, 0.0, 1270.0, 720.0]];
     let a = Area::new([1280.0, 720.0], LINE, [500.0, 780.0], &both, Level::Messages);
     assert!(!a.columns.is_empty());
-    assert!(a.columns.iter().all(|c| c[1] <= 500.0 || c[0] >= 780.0));
+    assert!(a.columns.iter().all(|c| c.x[1] <= 500.0 || c.x[0] >= 780.0));
     // A phone held upright: no side space, columns over the whole width.
     let phone = Area::new([390.0, 844.0], LINE, [20.0, 370.0], &[], Level::Messages);
-    assert_eq!(phone.columns.first().map(|c| c[0]), Some(LINE * 0.5));
+    assert_eq!(phone.columns.first().map(|c| c.x[0]), Some(LINE * 0.5));
 }
 
 #[test]
@@ -358,4 +358,25 @@ fn off_shows_nothing() {
     o.receive(&say(1, 1, "hi"), 0.0, true);
     advance(&mut o, 0.0);
     assert!(o.is_empty());
+}
+
+#[test]
+fn rows_and_columns_keep_clear_of_the_receptors_and_the_hud() {
+    // The receptors' row near the top, the score at the top right.
+    let keep = [[495.0, 80.0, 785.0, 140.0], [1100.0, 50.0, 1270.0, 110.0]];
+    let a = area().keeping_clear(&keep, true);
+    assert!(a.rows.iter().all(|&y| y + LINE <= 80.0 || y >= 140.0));
+    // From the bottom first.
+    assert!(a.rows.windows(2).all(|w| w[0] > w[1]));
+    assert!(a.rows[0] > 600.0);
+    // The right side's columns begin below the score.
+    let right: Vec<&Column> = a.columns.iter().filter(|c| c.x[1] > 1100.0).collect();
+    assert!(!right.is_empty() && right.iter().all(|c| c.y[0] > 110.0));
+    let left: Vec<&Column> = a.columns.iter().filter(|c| c.x[1] <= 500.0).collect();
+    assert!(left.iter().all(|c| c.y[0] == 0.0));
+    // An item placed first goes in the bottom row.
+    let mut o = overlay(Style::Across, false);
+    o.receive(&say(1, 1, "hi"), 0.0, true);
+    o.advance(0.0, &a, &ready, &mut measure);
+    assert_eq!(o.drawn(0.0).next().unwrap().y, a.rows[0]);
 }

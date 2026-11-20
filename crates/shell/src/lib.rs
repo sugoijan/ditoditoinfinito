@@ -30,6 +30,7 @@
 
 pub mod attack_links;
 pub mod battle_cue;
+pub mod chat;
 pub mod dance;
 pub mod editor_field;
 pub mod field_preview;
