@@ -118,7 +118,10 @@ fn the_sign_in_code_is_large_and_copied_on_a_click() {
             if let Some(p) = pictures.draw(&mut h.ui, size) {
                 common::online::keep(&format!("sign-in-code-{what}"), size, lang, &p);
             }
-            h.tap(PointerKind::Mouse, "Code.Text");
+            // The plate's middle, where the code is written (the plate's
+            // box needs no measured text: without a GPU the frame is laid
+            // out undrawn and the code's own box is not there to aim at).
+            h.tap(PointerKind::Mouse, CODE);
             h.run(0.3);
             let copied: Vec<&UiRequest> = h
                 .requests
