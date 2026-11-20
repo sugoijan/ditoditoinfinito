@@ -1,7 +1,7 @@
 # The host's Twitch in a room: bans mirrored, chat behind the play
 
 Status: designed (2026-11-20). Part C's pieces that need no Twitch are
-being built (round TW2: "T1 and T2" below, and its section at the end); the
+built (round TW2: "T1 and T2" below, and its section at the end); the
 link, the mirror, the kick and the transports are not. The maintainer answered
 the design round's ten questions and the three that followed from them
 the same day; they are listed under "The maintainer's answers", and
@@ -646,3 +646,82 @@ Points for the build:
    mirror. The chat's pure crate, layer, styles and scripted chat are
    built beside them; its transports and the subscribe route after the
    link and the spike.
+
+## Round TW2 (2026-11-20): the chat without Twitch, built
+
+Everything of part C that needs no Twitch, behind the scripted chat;
+nothing in it reaches Twitch or an emote provider.
+
+- **`crates/chat`** (`ddi-chat`, pure): EventSub's messages read
+  (`eventsub.rs`; fixtures in `crates/chat/tests/fixtures/`, written from
+  the documentation and marked so, for the spike to replace or confirm);
+  the four providers' emotes (`emotes.rs`: Twitch's from the fragments,
+  7TV's, BTTV's and FFZ's channel and global sets from their JSON, a
+  channel's word over a global one and 7TV over BTTV over FFZ, each
+  emote's still image's address and its path under the proxy route
+  `GET <api>/emotes/<provider>/<path>`, the sets' addresses the same
+  way; BTTV's animated emotes left out, their still frame undocumented);
+  a message made into an item after C11's filters (`item.rs`); C9's
+  budgets as `chat-overlay-v0` and the two motions (`overlay.rs`); the
+  images kept, four fetched at once, the proxy once after a failure, a
+  host through it for the session, and their cells in one atlas of
+  2048 × 1024 (`cache.rs`); the scripted chat (`script.rs`).
+- **The settings** (Options → Display): Twitch chat in rooms (Off by
+  default), and under it while it is on: Chat style, Chatter names,
+  Emotes from, Chat opacity (60%). The Twitch trip's integration point
+  is `ddi_ui::state::twitch::want_chat_scope`, which the option calls
+  when it is turned on and which only records the wish today.
+- **The layer**: the session holds the chat's source and advances it on
+  the host's clock (`ddi_session::chat`, `PlaySession::chat`; a test
+  that a play with it on judges, scores and logs as without it); the
+  room's ceiling is answered in one place, `ddi_session::chat::room_ceiling`
+  (the scripted chat's own line until `RoomState::twitch`); the shells'
+  play view places and draws it (`ddi_shell::chat`); the renderer
+  composites it over the backdrop (T1 above). Today it is connected to a
+  play only by the scripted chat, in any play; a room's own chat is the
+  transports' round's and will connect it in a room's stage alone.
+- **Placing**, decided while studying: Across's rows never cross the
+  receptors' rows or the HUD and are taken from the side away from the
+  receptors (from the bottom up in the usual scroll), not from the top as
+  niconico's are; Falling's columns are in the side space clear of the
+  miniatures where there is room for a column (4.5 lines for messages,
+  2.5 for emotes), begin below the score, and a line too wide is
+  narrowed to three quarters at most and cut with an ellipsis; behind
+  the miniatures only where the side space has no such room, over the
+  whole width where there is no side space (a phone held upright).
+- **Shedding**: no new items from a late second (the dancing hand's
+  reading: under 90% of the refresh, its warm-up and a one-off stall
+  counting for nothing) to the next good one; what is on screen goes on.
+- **The scripted chat** (TESTING ONLY): the web's `mpfakechat=<demo,
+  emotes, flood or a rate>` (`mpfakechatimg=<path>`: its emotes'
+  pictures fetched from beside the page), desktop's `--mp-dev-chat
+  FILE|NAME`.
+
+Frame costs (2026-11-20, Beatucada's Challenge autoplayed, 1280×720, the
+`demo` script, a flood of 50 messages a second; main-thread milliseconds
+a frame, means):
+
+| | off | on | flooded |
+|---|---|---|---|
+| Desktop, offscreen, the frame recorded, alone | 0.09 | 0.15 | 0.17 |
+| Desktop, eight CPUs in miniature | 0.29 | 0.37 | 0.38 |
+| Chrome (WebGPU), `perf=1` total | 0.56 | 0.61 | 0.68 |
+| Firefox (Playwright's build, WebGL2), `perf=1` total | 0.86 | 1.00 | 1.06 |
+
+The chat's own part is 0.06 to 0.2 ms; the scene's passes, instances,
+batches and WebGL2's conversions are unchanged (the layer is one pass of
+the 2D painter, two draws: its text pages and the emotes' one batch, and
+one textured draw in the backdrop's pass). The GPU's own time was not
+measured. A flood keeps the layer at 40 items: of 750 messages in 15 s,
+88 shown, 475 dropped as full, 180 by the rate.
+
+**The study** (`target/scratch/mp/tw2/sheets/`, not committed): at 40%
+the chat is faint over a bright picture; at 60% it reads and the notes
+stay clear (the filter darkens it in the lanes); at 80% saturated emotes
+in the lanes begin to compete with the notes. Recommended: 60% stays the
+default. With eight miniatures, Across's rows pass behind the miniatures
+and read poorly; Falling's columns in the margins outside the miniatures
+read well and leave the field and the miniatures alone: recommended as
+the style where a stage shows miniatures. On a phone held upright there
+is no side space and either style crosses the lanes: recommended, emotes
+alone there (or none).

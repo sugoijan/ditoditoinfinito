@@ -12884,6 +12884,19 @@ opens from its head, a row, More); a phone keeps L for the pop-up.
   right stick's press; the menus have no such action yet, so More holds
   "Fold the players").
 
+## Round TW2: the host's chat behind the play, without Twitch (2026-11-20, no model change)
+
+`docs/plans/multiplayer-twitch.md`, "Round TW2": the pure chat crate
+(`crates/chat`), Options → Display's chat rows (Off by default), the layer
+under the field on both shells, the emote atlas and cache, and the
+scripted chat (`mpfakechat`, `--mp-dev-chat`, TESTING ONLY). PROVISIONAL:
+`chat-overlay-v0`'s numbers (40 on screen, 8 a second, a chatter's 2 s,
+five emotes, 60 graphemes, a second's wait for images, 7 s across, 8 s
+falling, 5 s standing), the 60% opacity, the link filter's list of
+domains, the providers' precedence. Waiting: the sockets to Twitch, the
+subscribe route, the providers' sets and images fetched for real, the
+proxy route, the room's ceiling in the model, the Twitch trip.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

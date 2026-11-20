@@ -53,8 +53,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   room's own (Options → Data's Room songs ahead), the rows filled in, who
   has what over the live side.
 - [The host's Twitch in a room](multiplayer-twitch.md) (2026-11-20):
-  designed; the chat's pure crate (`crates/chat`, round TW2) built, the
-  rest not. A streaming host's Twitch bans and blocks
+  designed; round TW2 built the chat without Twitch (the pure crate
+  `crates/chat`, the options, the layer under the field with its emote
+  atlas, both styles, the scripted chat); the link, the mirror, the kick
+  and the transports not. A streaming host's Twitch bans and blocks
   keeping people out of the room (the host's token on the server, checked
   at join, ticket and each pick; room model revision 18), a host's or
   co-host's Kick behind a Moderate toggle, and the host's chat behind
