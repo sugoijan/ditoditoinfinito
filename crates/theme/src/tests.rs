@@ -1797,6 +1797,54 @@ fn the_selected_rows_outline_is_drawn_over_the_next_row() {
     }
 }
 
+/// Round SF (checking the commit before): the selected row drawn over
+/// the others takes no tap meant for the row under it. A click or a tap
+/// on that row, at its middle or just under the selected row, selects
+/// it.
+#[test]
+fn a_tap_on_the_row_under_the_selected_one_selects_it() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let state = env.state.clone();
+    for (size, design) in [([1280.0, 720.0], DESIGN), ([390.0, 844.0], COMPACT)] {
+        for near_top in [false, true] {
+            let mut h = harness(size, design);
+            let mut d = sample::select();
+            for song in &mut d.songs {
+                song.pack = None;
+            }
+            h.push(ddi_ui::screens::select::SelectScreen::new(
+                env.clone(),
+                d,
+                None,
+                Rc::new(|_, _, _: &Env, _| {}),
+                Rc::new(|_, _| {}),
+            ));
+            h.run(0.6);
+            let selected = state.borrow().selected_row.clone().expect("a row");
+            let plate = |h: &Harness, name: &str| h.ui.bounds_of(name, "Plate");
+            let sel = plate(&h, &selected).expect("its plate");
+            // The row drawn right under it.
+            let slots = h.ui.actor("Wheel.Items").unwrap();
+            let next = slots
+                .children()
+                .iter()
+                .filter(|a| a.visible && a.name != selected)
+                .filter_map(|a| Some((a.name.clone(), plate(&h, &a.name)?)))
+                .filter(|(_, b)| b[1] >= sel[3] - 1.0)
+                .min_by(|a, b| a.1[1].total_cmp(&b.1[1]))
+                .expect("a row under it");
+            let b = next.1;
+            let y = if near_top { b[1] + 3.0 } else { (b[1] + b[3]) / 2.0 };
+            h.tap_at(ddi_ui::PointerKind::Mouse, [(b[0] + b[2]) / 2.0, y]);
+            h.run(0.6);
+            let now = state.borrow().selected_row.clone();
+            assert_ne!(now.as_deref(), Some(selected.as_str()), "{size:?} top {near_top}: {next:?}");
+            assert_eq!(now.as_deref(), Some(next.0.as_str()), "{size:?} top {near_top}");
+        }
+    }
+}
+
 #[test]
 fn options_pages_and_dialogs_share_one_active_decoration() {
     use ddi_ui::screens::dialog::ConfirmDialog;

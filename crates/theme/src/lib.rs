@@ -463,6 +463,9 @@ impl Infinito {
         );
         call(&mut shadow, "softedge", &[15.0]);
         hide(&mut shadow);
+        // Drawn around the row, never a target: with the selected row
+        // drawn over the others, it took the top of the next row's taps.
+        shadow.decoration = true;
         command_of(
             &mut shadow,
             "Select",
