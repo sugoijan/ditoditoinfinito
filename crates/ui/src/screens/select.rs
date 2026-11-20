@@ -552,7 +552,7 @@ impl Layout {
                 radar: false,
                 info_w: 300.0,
                 picker: [0.0, 300.0],
-                    margin,
+                margin,
                 info_h: 140.0,
                 style_y: COMPACT_STYLE_Y,
                 charts_y: COMPACT_CHARTS_Y,

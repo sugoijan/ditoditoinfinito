@@ -3327,6 +3327,80 @@ fn a_room_row_shows_the_players_best_or_new_where_their_library_has_it() {
     );
 }
 
+/// Round DB (item 9): the announcer's first-time notice ("An announcer
+/// now speaks in plays…") sits on the room's song select where it does in
+/// singleplayer, the wide layout's and a phone's both ways up, and covers
+/// nothing of the room's (its song side, its tabs, its status line, a
+/// phone's players strip) nor is covered by them. (The defect reported
+/// from round TW3's picture did not reproduce: the notice was where
+/// singleplayer has it there too, under the Players pop-up; this keeps it
+/// so.)
+#[test]
+fn the_announcer_notice_sits_in_a_room_where_singleplayer_has_it() {
+    use super::data::Notice;
+    // (Bounds as `[left, top, right, bottom]`.)
+    let overlap = |a: [f32; 4], b: [f32; 4]| a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+    let t = Three::new(false);
+    listed(&t, &["Alpha One", "Bravo One"], 1);
+    t.step(400);
+    let with_notice = || {
+        let mut d = songs_of(&["Alpha One", "Bravo One"]);
+        d.notices = vec![Notice::announcer_on()];
+        d
+    };
+    let orders = Orders::default();
+    for size in [[1280.0, 720.0], [844.0, 390.0], [390.0, 844.0]] {
+        let design = if size[0] == 1280.0 { DESIGN } else { super::COMPACT };
+        let solo = {
+            let env = env();
+            let mut h = Harness::new(design, size, 1.0, TextMode::Own);
+            h.push(super::select::SelectScreen::new(
+                env,
+                with_notice(),
+                Some("alpha-one"),
+                Rc::new(|_, _, _, _| {}),
+                Rc::new(|_, _| {}),
+            ));
+            h.run(0.8);
+            h.ui.bounds("Notice").expect("solo's notice")
+        };
+        let env = env();
+        let mut h = Harness::new(design, size, 1.0, TextMode::Own);
+        h.push(sample::room_select(&env, t.bob.clone(), with_notice()).with_room(t.bob.clone(), shell(&t.bob, &orders)));
+        t.settle(400, &mut [&mut h]);
+        let notice = h.ui.bounds("Notice").expect("the room's notice");
+        assert_eq!(notice[..2], solo[..2], "{size:?}: where singleplayer has it");
+        let link = h.ui.bounds("Notice.Link0").expect("its link");
+        // (The song side's frame reaches a little above its title, under
+        // the link's box, in singleplayer as here: its parts are checked.)
+        let mut others = Vec::new();
+        for name in [
+            "Room.Tab.Room",
+            "Room.Tab.Mine",
+            "Room.Status",
+            "Players.More",
+            "Chart0",
+            "Wheel",
+        ] {
+            others.push((name, h.ui.bounds(name)));
+        }
+        others.push(("Title", h.ui.bounds_of("Info", "Title")));
+        others.push(("Cover", h.ui.bounds_of("Info", "Cover")));
+        assert!(
+            ["Chart0", "Room.Tab.Room", "Room.Status", if design == DESIGN { "Title" } else { "Wheel" }]
+                .iter()
+                .all(|want| others.iter().any(|(n, b)| n == want && b.is_some())),
+            "{size:?}: the song side, the tabs and the status line show: {others:?}"
+        );
+        for (name, b) in others {
+            let Some(b) = b else { continue };
+            for (part, r) in [("text", notice), ("link", link)] {
+                assert!(!overlap(r, b), "{size:?}: the notice's {part} {r:?} over {name} {b:?}");
+            }
+        }
+    }
+}
+
 /// One picker at a time (2026-11-12). The owner picks and everyone else
 /// follows their resting song, the co-host included, who alone has Pick
 /// songs (the header's button, the footer's T). The co-host takes the
