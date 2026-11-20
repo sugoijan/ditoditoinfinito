@@ -412,6 +412,13 @@ two motions:
 - **Falling**: items fall in columns. In the side space where there is
   some; behind everything where a room's miniatures fill it.
 
+A stage that shows opponents' small fields uses Falling whatever the
+device chose (the maintainer, 2026-11-20: Across reads poorly behind the
+miniatures); a solo play and a watched stage keep the choice. A play
+whose field leaves no side space (a phone held upright) shows emotes
+alone, whatever the room and the device allow ("Animated emotes (round
+TW4)").
+
 Both styles, with emotes and with messages, come in one release
 (answer 10).
 
@@ -938,3 +945,71 @@ and animated WebP files made by code (`cargo run -p ddi-desktop
 decoder (`mpfakechatimg=<path>`: `<id>.gif` for an animated emote,
 `<id>.png` for a still one).
 
+### Built and walked (round TW4, 2026-11-20)
+
+All four of the maintainer's decisions of 2026-11-20 are built as
+designed above: animated emotes (every provider's, both shells, both
+styles), Falling beside opponents' fields (`ddi_chat::overlay::shown`,
+`ddi_shell::chat::shown`), emotes alone where the field leaves no side
+space, and the layer over a work's back layers (`scene::Segment::Overlay`).
+
+The rule for "a phone held upright" is the layout's, not the device's:
+no side of the field as wide as Falling's least column of messages
+(4.5 lines and the margins, `Area::side_space`). The play's layout has
+no named upright rule to reuse (the miniatures and lyrics read the
+window's shape each their own way); this one also covers a narrow
+desktop window and a field made as wide as the screen, where any item
+crosses the lanes too.
+
+Found in review and fixed: the work limit counted frames times the
+canvas, so a 1 × 1 canvas with a thousand 1024 × 1024 frames passed it
+(now each frame's own area or the canvas's, the larger, summed); an
+animated WebP frame's own bitstream was not read, so it could claim
+16383 × 16383 where a decoder sizes a buffer before it compares (now
+refused unless it says the frame's size); the web read an answer whole
+before checking its size (now refused by its length, or stopped once a
+streamed answer passes 2 MiB). Each with a test that fails without it.
+
+Frame costs, main-thread milliseconds a frame (means; the frame
+recorder's whole frame on the web, `perf=1`; desktop's offscreen
+recorded frame, the chat's own part 0.05 to 0.08). "Animated" is the
+`animated` script, a screen full of animated emotes (40 items);
+1280×720 and a phone held upright (390 × 844, 3× on the web):
+
+| | off | on (`demo`) | animated | phone off | phone animated |
+|---|---|---|---|---|---|
+| Desktop, alone | 0.09 | 0.17 | 0.19 | 0.09 | 0.17 |
+| Desktop, eight CPUs | 0.31 | 0.39 | 0.38 | 0.31 | 0.37 |
+| Chrome (WebGPU) | 0.46 | 0.55 to 0.62 | 0.68 to 0.91 | 0.64 | 0.68 |
+| Firefox (Playwright's build, WebGL2) | 0.80 | 1.00 | 1.02 | 0.82 | 0.96 |
+
+TW2 measured 0.09 / 0.15 / 0.17 (desktop), 0.56 / 0.61 / 0.68 (Chrome)
+and 0.86 / 1.00 / 1.06 (Firefox) for off, on and flooded: animated
+emotes stay in that range, and the chat's own part on the web is 0.10
+to 0.20 (Chrome's animated pair of runs: 0.68 and 0.91, the second with
+a p95 of 2.2 ms, frames the chat did not cost: its part 0.19). The
+numbers are from runs at a load average of 6 to 14 (other work on the
+machine); a first Firefox run at 40 to 110 read two to three times as
+much, and its layer shed and held its emotes for whole seconds, as
+designed.
+
+Walked with the scripted chat under the testing switch (pictures and
+results under `target/scratch/mp/tw4/shots/`, the walk
+`target/scratch/mp/tw4/walks/chat.mjs`): in Chrome and Firefox, a
+practice stage of eight CPUs with Across chosen fell in columns beside
+the miniatures; its animated emotes from GIF files, from animated WebP
+files (both through the browser's `ImageDecoder`) and drawn in code each
+showed another frame at a read 0.17 to 0.4 s later, every still emote
+the same frame, and every copy of an emote on screen one frame (40 to 56
+copies a read); reduced motion held every emote on its first frame (the
+clock at 0); a solo play kept Across with messages; a phone held upright
+showed emotes alone. Desktop
+offscreen (`chat_offscreen`'s `animated_emotes_move_and_the_layout_decides_the_style`)
+the same, and `works`' `the_chat_is_drawn_over_a_works_back_layers` the
+work's case (no bundled work exists: a generated one, compared with and
+without the chat). Judging with the chat on and off: TW2's test passes.
+
+Waiting for the spike, beside what TW3 listed: the providers' real
+answers for animated emotes (7TV's `animated` and file names, BTTV's
+`animated`, FFZ's `animated` object), and real emote files through the
+proxy.

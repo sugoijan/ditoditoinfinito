@@ -13083,10 +13083,60 @@ it. A revision-18 client is refused by that server with
 `room_picker_offscreen` (the rows' AA and NEW). The singleplayer smoke
 check passed in both browsers.
 
+## Round TW4: the chat's decided changes, animated emotes first (still room model revision 18, 2026-11-20)
+
+`docs/plans/multiplayer-twitch.md`, "Animated emotes (round TW4)" and
+its "Built and walked". The maintainer's decisions of 2026-11-20, built:
+every provider's animated emotes move in the chat layer, on both shells,
+in both styles (an image's container read first, `ddi_chat::anim`,
+`anim-limits-v0`: past 2 MiB, a side over 1024 pixels, or broken,
+refused; past 1000 frames or 64 megapixels of decoding, its first frame
+still; at most 64 frames kept, thinned evenly; decoded off the frame,
+the web's `ImageDecoder`, desktop's `image` crate on the fetch's thread
+under a 1.5 s deadline; the atlas 2048 × 2048, animated frames at most
+768 of its 1024 cells, a still first frame beyond; one animation clock
+on the host's seconds, one phase for every copy, held with new items
+from a late second, still under reduced motion); a stage with
+opponents' fields falls whatever was chosen (the option's description
+says so); a play whose field leaves no side space (a phone held
+upright) shows emotes alone; the layer is drawn over a
+Dancing☆Onigiri work's back layers. No device option for animation
+(the plan says why). The scripted chat gained animated emotes (`anim:`
+shapes, the `animated` script, GIF and WebP files made by code,
+`cargo run -p ddi-desktop --example chat_images`). The game now asks
+the proxy for the providers' sets at their real routes (`7tv-api`,
+`bttv-api`, `ffz-api`).
+
+**A player now sees** nothing new: the chat's rows stay behind the
+testing switch.
+
+**Server** (`../ddi-server`, `605dc63`): the emote proxy passes
+Twitch's `…/animated/<theme>/<scale>` GIFs and FFZ's
+`emote/<id>/animated/<n>` WebPs; deploy it before or with the game (an
+older proxy refuses those paths with 404, and the game then shows the
+word).
+
+**Found in review and fixed** (the round was finished by a second
+agent): the work limit read frames times the canvas (a tiny canvas with
+huge frames passed); an animated WebP frame's own bitstream size was not
+checked (a decoder may size a buffer by it first); the web held a whole
+answer before checking its size. Each with a failing-first test.
+
+**Walked**: Chrome and Firefox (a practice stage of eight CPUs with
+animated GIF, WebP and code-drawn emotes, reduced motion, a solo play in
+Across, a phone held upright, the frame recorder's costs), desktop
+offscreen (the same, and a generated work's back layers under the
+chat), the singleplayer smoke check. A screen full of animated emotes
+costs what TW2's flood did (the plan's table).
+
+Open: the providers' real answers for animated emotes wait for the
+spike.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `anim-limits-v0` (2026-11-20, round TW4): an emote image at most 2 MiB and 1024 pixels a side, else refused; an animation at most 1000 frames and 64 megapixels of decoding (each frame's area or the canvas's, the larger, summed), else its first frame still; 64 frames kept at most (128 atlas units), thinned evenly; a frame of 10 ms or less read as 100 ms; animated frames at most 768 of the atlas's 1024 cells, the least recently drawn animation sent away, else a still first frame; desktop's decoding deadline 1.5 s | `ddi_chat::anim`, `ddi_chat::cache::ANIMATED_UNITS`, `ddi_desktop::chat` | None while the chat is hidden; then: a huge or hostile emote shows still or not at all; a long animation plays at a lower frame rate; past about twelve long animations at once, a new one shows still | The numbers once real chats are seen (the spike) |
 | `room-preload-v1` (2026-11-19, round RL2; v1 2026-11-20, round DB): every listed song downloaded ahead by default (listings and banners first, then two songs at once: a stage's, the picker's, the newest), never a movie, nothing from a stage's countdown to its end, only the stage's song while it gathers readiness; Likely next the newest eight up to 128 MB beside those two (v0: four, 64 MB) | `ddi_ui::state::room::PRELOAD_V1`, `preload.rs` | A list of eight 5 MB songs is on every device in a few seconds on a fast link (40 MB); a pick's loading wait ends at once | The numbers; whether banners should come under Off too |
 | `room-have-v0` (2026-11-19, round RL2): who has which listed song, said by each device at most every five seconds, at most 64 ranges | `ddi_room::live::have` (`HAVE_EVERY_MS`, `MAX_RANGES`) | The rows' "11 of 12 have it"; the picker's warning | The five seconds |
 | `room-songs-v0` (2026-11-19, round RL1): a room's list at most 100 songs, its size a host setting (5 to 100), the oldest not in use removed when full by default, a person at most half the list's size, hosts and co-hosts exempt (round DB, 2026-11-20); an entry at most 32 original charts | `ddi_room::songs` (`MAX_SONGS`, `ListRules`, `MAX_CHARTS`), `RoomState::song_quota` | A host fills a hundred songs, alone too; a full list loses its oldest song not picked | The bounds |
