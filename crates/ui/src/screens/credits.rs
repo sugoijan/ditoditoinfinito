@@ -99,6 +99,8 @@ pub fn privacy(platform: &str) -> Block {
     );
     part(&mut body, pm::privacy_rooms_heading(), pm::privacy_rooms());
     part(&mut body, pm::privacy_songs_heading(), pm::privacy_songs());
+    part(&mut body, pm::privacy_twitch_heading(), pm::privacy_twitch());
+    part(&mut body, pm::privacy_kick_heading(), pm::privacy_kick());
     part(
         &mut body,
         pm::privacy_audience_heading(),
