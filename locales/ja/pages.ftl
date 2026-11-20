@@ -189,7 +189,7 @@ pages-credits-rust-notice-for = 対象：{ $crates }
 ## Desktop's first start: the offer of other games' song folders.
 
 pages-privacy = プライバシー
-pages-privacy-intro = このお知らせは、{ -game-name }とそのオンラインサーバーがあなたについて何を保存し、どれだけの期間保存するかを説明します。最終更新：2026年11月19日。
+pages-privacy-intro = このお知らせは、{ -game-name }とそのオンラインサーバーがあなたについて何を保存し、どれだけの期間保存するかを説明します。最終更新：2026年11月20日。
 pages-privacy-alone-heading = ひとりで遊ぶとき
 pages-privacy-alone = ひとりで遊ぶとき、ゲームはすべてをあなたのデバイスに保存します。{ $platform ->
     [web] 設定、曲、プレイ履歴はブラウザーの保存領域か、コンピューター上のアプリのフォルダーに残ります。

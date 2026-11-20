@@ -413,7 +413,7 @@ pages-credits-rust-notice-for = for { $crates }
 pages-privacy = Privacy
 
 # The note's first paragraph.
-pages-privacy-intro = This note says what { -game-name } and its online server keep about you, and for how long. Last changed on November 19, 2026.
+pages-privacy-intro = This note says what { -game-name } and its online server keep about you, and for how long. Last changed on November 20, 2026.
 
 # A heading inside the note.
 pages-privacy-alone-heading = Playing alone
