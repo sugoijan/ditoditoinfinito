@@ -165,9 +165,9 @@ fn share_switch(hash: &str) {
     }
 }
 
-/// `sessionStorage`: TESTING ONLY, the scripted chat's `mpfakechat` and
-/// `mpfakechatimg` as last given (`<what>\n<images>`), for the tab's
-/// session.
+/// `sessionStorage`: TESTING ONLY, the scripted chat's `mpfakechat`,
+/// `mpfakechatimg` and `mpfakechatlook` as last given
+/// (`<what>\n<images>\n<look>`), for the tab's session.
 const CHAT_KEPT: &str = "ddi.mpfakechat";
 
 /// The page loaded on an address without `mpfakechat`: the scripted chat
@@ -181,8 +181,12 @@ fn restore_chat(hash: &str) {
         return;
     }
     if let Some(kept) = storage::get(Area::Session, CHAT_KEPT) {
-        let (what, images) = kept.split_once('\n').unwrap_or((kept.as_str(), ""));
+        let mut lines = kept.split('\n');
+        let what = lines.next().unwrap_or_default();
+        let images = lines.next().unwrap_or_default();
+        let look = lines.next().unwrap_or_default();
         crate::chat::script(what, (!images.is_empty()).then_some(images));
+        crate::chat::look((!look.is_empty()).then_some(look));
     }
 }
 
@@ -272,13 +276,21 @@ fn multiplayer_params(hash: &str, at_load: bool) {
     // Kept for the tab's session (round SF): a reload, and the trips
     // through Twitch (signing in, Twitch access), come back to an address
     // without it ([`restore_chat`]).
+    // Round TW5: `mpfakechatlook=<as-built|larger|scattered>`, the chat
+    // drawn in one of the looks shown to the maintainer.
     if let Some(what) = param("mpfakechat") {
         let images = param("mpfakechatimg");
+        let look = param("mpfakechatlook");
         crate::chat::script(&what, images.as_deref());
+        crate::chat::look(look.as_deref());
         if what == "0" {
             storage::remove(Area::Session, CHAT_KEPT);
         } else {
-            let kept = format!("{what}\n{}", images.unwrap_or_default());
+            let kept = format!(
+                "{what}\n{}\n{}",
+                images.unwrap_or_default(),
+                look.unwrap_or_default()
+            );
             let _ = storage::set(Area::Session, CHAT_KEPT, &kept);
         }
     }

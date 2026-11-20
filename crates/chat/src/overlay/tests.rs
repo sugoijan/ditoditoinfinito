@@ -20,8 +20,10 @@ fn rules(look: Look) -> Rules {
     }
 }
 
+/// In the look that keeps a message's emotes in one item (most tests
+/// look at whole messages).
 fn overlay(style: Style, reduced: bool) -> Overlay {
-    Overlay::new(CHAT_OVERLAY_V1, options(style, reduced), EmoteSets::default())
+    Overlay::new(rules(LOOK_LARGER), options(style, reduced), EmoteSets::default())
 }
 
 fn area() -> Area {
@@ -366,7 +368,7 @@ fn an_item_waits_a_second_for_its_emotes_then_goes_without() {
 #[test]
 fn names_lead_and_every_emote_is_drawn() {
     let mut o = Overlay::new(
-        CHAT_OVERLAY_V1,
+        rules(LOOK_LARGER),
         Options {
             names: true,
             ..options(Style::Across, false)
@@ -424,6 +426,32 @@ fn no_count_is_ever_drawn() {
     }
 }
 
+/// The same property scattered: every drawn item one emote, and no
+/// message more items than its emotes (eight at most).
+#[test]
+fn scattered_items_are_one_emote_each() {
+    for style in [Style::Across, Style::Falling] {
+        let mut o = Overlay::new(rules(LOOK_SCATTERED), options(style, false), EmoteSets::default());
+        let mut items: HashMap<String, std::collections::HashSet<u64>> = HashMap::new();
+        for f in 0..900u32 {
+            let now = f64::from(f) / 60.0;
+            if f % 3 == 0 {
+                let n = 1 + (f as usize * 7) % 20;
+                let ids: Vec<&str> = (0..n).map(|k| ["1", "2", "3"][k % 3]).collect();
+                o.receive(&emotes(f, f, &ids), now, true);
+            }
+            advance(&mut o, now);
+            for d in o.drawn(now) {
+                assert_eq!(emotes_in(&d), 1);
+                let m = o.shown.iter().find(|s| s.id == d.id).unwrap().content.message_id.clone();
+                items.entry(m).or_default().insert(d.id);
+            }
+        }
+        assert!(items.values().all(|i| i.len() <= 8));
+        assert!(items.values().any(|i| i.len() >= 4), "{style:?}: a message as several items");
+    }
+}
+
 /// The scattered look: an emote-only message's emotes each an item of
 /// their own, coming in a little apart at places of their own; a delete
 /// takes them all.
@@ -445,6 +473,8 @@ fn a_scattered_message_is_each_emote_by_itself() {
     xs.dedup();
     assert_eq!(xs.len(), 4, "coming in apart");
     assert_eq!(o.messages(), 1);
+    // v1's own look (the recommendation) is this one.
+    assert_eq!(CHAT_OVERLAY_V1.look, LOOK_SCATTERED);
     o.receive(
         &Event::Delete {
             message_id: "m1".into(),

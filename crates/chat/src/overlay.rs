@@ -89,6 +89,12 @@ pub const LOOK_SCATTERED: Look = Look {
 /// The candidates, by name (the tests' and the studies' pick).
 pub const LOOKS: [Look; 3] = [LOOK_AS_BUILT, LOOK_LARGER, LOOK_SCATTERED];
 
+/// A candidate by its name (TESTING ONLY: the web's `mpfakechatlook`,
+/// desktop's `--mp-dev-chat-look`).
+pub fn look_named(name: &str) -> Option<Look> {
+    LOOKS.into_iter().find(|l| l.name == name)
+}
+
 /// `chat-overlay-v1`'s numbers (C9, round TW5). Every one PROVISIONAL.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rules {
@@ -135,7 +141,8 @@ pub const CHAT_OVERLAY_V1: Rules = Rules {
     falling: 8.0,
     still: 5.0,
     fade: 0.4,
-    look: LOOK_LARGER,
+    // Round TW5's recommendation, for the maintainer to confirm.
+    look: LOOK_SCATTERED,
 };
 
 /// A device's choices for the layer.
@@ -566,9 +573,11 @@ impl Overlay {
                         id,
                         since: w.since,
                         due: now + look.scatter * k as f64,
+                        // The chatter's name leads the first alone.
                         content: Content {
                             pieces: vec![Piece::Emote(e)],
                             left_out: 0,
+                            name: if k == 0 { w.content.name.clone() } else { None },
                             ..w.content.clone()
                         },
                         part: true,

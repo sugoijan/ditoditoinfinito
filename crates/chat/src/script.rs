@@ -19,6 +19,7 @@
 //! 4.0 flood 50 2                # 50 messages a second for 2 s
 //! 6.0 emotes 20 2               # 20 emote-only messages a second for 2 s
 //! 7.0 animated 20 2             # the same, of the animated emotes alone
+//! 7.5 hype 25 2 PogU            # 25 chatters a second for 2 s, PogU alone
 //! 8.0 delete @gone
 //! 9.0 clear-user alice
 //! 10.0 clear
@@ -52,6 +53,9 @@ enum Step {
         emotes: bool,
         /// Its emotes the animated ones alone.
         animated: bool,
+        /// Its emotes this word alone (a hype: many chatters sending one
+        /// emote, round TW5).
+        word: Option<String>,
     },
     Delete(String),
     ClearUser(String),
@@ -175,6 +179,24 @@ loop 10
 0.0 animated 12 10
 ";
 
+/// Round TW5's look study: a few messages, a hype (many chatters sending
+/// one emote, once to a few times each), a mixed burst of emotes and one
+/// of animated ones.
+const BURST: &str = "\
+ceiling messages
+loop 20
+0.0 say ann PogU
+0.8 say ben nice one catJAM
+1.5 say cid Kappa
+2.5 hype 25 2 PogU
+6.0 say dee that was clean wideHappy
+6.5 say eve こんにちは！がんばって LUL
+7.0 emotes 15 3
+11.0 animated 15 3
+15.0 say fay gg PartyKappa catDance
+16.0 say gus what a run LilZ
+";
+
 /// A flood, then its moderation.
 const FLOOD: &str = "\
 ceiling messages
@@ -186,7 +208,8 @@ loop 12
 ";
 
 impl Script {
-    /// A built-in script by name (`demo`, `emotes`, `animated`, `flood`),
+    /// A built-in script by name (`demo`, `emotes`, `animated`, `burst`,
+    /// `flood`),
     /// or a rate:
     /// a number of messages a second, mixed.
     pub fn builtin(name: &str) -> Option<Script> {
@@ -194,6 +217,7 @@ impl Script {
             "demo" | "1" | "" => DEMO.to_string(),
             "emotes" => EMOTES.to_string(),
             "animated" => ANIMATED.to_string(),
+            "burst" => BURST.to_string(),
             "flood" => FLOOD.to_string(),
             rate => {
                 let r: f64 = rate.parse().ok().filter(|r: &f64| r.is_finite() && *r > 0.0)?;
@@ -292,17 +316,27 @@ impl Script {
                                 text: text.join(" "),
                             }
                         }
-                        "flood" | "emotes" | "animated" => {
+                        "flood" | "emotes" | "animated" | "hype" => {
                             let nums: Vec<f64> =
-                                rest.iter().filter_map(|w| w.parse().ok()).collect();
+                                rest.iter().take(2).filter_map(|w| w.parse().ok()).collect();
                             let [rate, seconds] = nums[..] else {
                                 return Err(err("flood <a second> <seconds>"));
+                            };
+                            let word = if what == "hype" {
+                                Some(
+                                    rest.get(2)
+                                        .ok_or_else(|| err("hype <a second> <seconds> <emote>"))?
+                                        .to_string(),
+                                )
+                            } else {
+                                None
                             };
                             Step::Flood {
                                 rate: rate.clamp(0.0, 1000.0),
                                 seconds: seconds.max(0.0),
                                 emotes: what != "flood",
                                 animated: what == "animated",
+                                word,
                             }
                         }
                         "delete" => Step::Delete(
@@ -398,9 +432,9 @@ pub struct Player {
     seed: u64,
 }
 
-/// A flood running: from, until, its rate, (emote-only, animated alone),
-/// messages sent.
-type Flood = (f64, f64, f64, (bool, bool), u64);
+/// A flood running: from, until, its rate, (emote-only, animated alone,
+/// one word alone), messages sent.
+type Flood = (f64, f64, f64, (bool, bool, Option<String>), u64);
 
 const BROADCASTER: &str = "1971641";
 
@@ -454,7 +488,7 @@ impl Player {
             let upto = ((t.min(*until) - *from) * *rate).floor().max(0.0) as u64;
             while *sent < upto {
                 *sent += 1;
-                let m = self.flood_message(*emotes);
+                let m = self.flood_message(emotes);
                 out.push(m);
             }
         }
@@ -473,20 +507,24 @@ impl Player {
         x.wrapping_mul(0x2545_f491_4f6c_dd1d)
     }
 
-    fn flood_message(&mut self, (emotes, animated): (bool, bool)) -> String {
+    fn flood_message(&mut self, (emotes, animated, word): &(bool, bool, Option<String>)) -> String {
+        let (emotes, animated) = (*emotes, *animated);
         let who = format!("viewer{}", self.rand() % 400);
-        let words: Vec<String> = self
-            .script
-            .emotes
-            .iter()
-            .filter(|e| !animated || e.animated)
-            .map(|e| e.word.clone())
-            .collect();
+        let words: Vec<String> = match word {
+            Some(w) => vec![w.clone()],
+            None => self
+                .script
+                .emotes
+                .iter()
+                .filter(|e| !animated || e.animated)
+                .map(|e| e.word.clone())
+                .collect(),
+        };
         let text = if emotes && !words.is_empty() {
             let n = 1 + (self.rand() % 4) as usize;
             let w = words[(self.rand() % words.len() as u64) as usize].clone();
             let mut v = vec![w; n];
-            if self.rand().is_multiple_of(3) {
+            if word.is_none() && self.rand().is_multiple_of(3) {
                 v.push(words[(self.rand() % words.len() as u64) as usize].clone());
             }
             v.join(" ")
@@ -517,7 +555,8 @@ impl Player {
                 seconds,
                 emotes,
                 animated,
-            } => self.floods.push((at, at + seconds, rate, (emotes, animated), 0)),
+                word,
+            } => self.floods.push((at, at + seconds, rate, (emotes, animated, word), 0)),
             Step::Delete(label) => {
                 if let Some((_, id)) = self.labels.iter().find(|(l, _)| *l == label) {
                     out.push(notification(
@@ -739,7 +778,7 @@ mod tests {
 
     #[test]
     fn the_built_in_scripts_parse() {
-        for name in ["demo", "emotes", "flood", "animated", "25"] {
+        for name in ["demo", "emotes", "flood", "animated", "burst", "25"] {
             let s = Script::builtin(name).unwrap_or_else(|| panic!("{name}"));
             assert!(!s.steps.is_empty(), "{name}");
         }
@@ -789,6 +828,25 @@ mod tests {
         // The loop's second round.
         let n = events(&mut p, 12.0).len();
         assert_eq!(n, 400 + 100);
+    }
+
+    /// Round TW5: a hype is many chatters sending one emote.
+    #[test]
+    fn a_hype_is_one_emote_from_many_chatters() {
+        let mut p = Player::new(Script::parse("emote PogU twitch 1 shape:square:00ff00\nemote LUL twitch 2 shape:circle:ff0000\n0.0 hype 20 1 PogU\n").unwrap());
+        let got = events(&mut p, 1.0);
+        let messages: Vec<&crate::eventsub::ChatMessage> = got
+            .iter()
+            .filter_map(|m| match m {
+                Message::Notification(Event::Message(c)) => Some(c),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(messages.len(), 20);
+        assert!(messages.iter().all(|m| m.text.split(' ').all(|w| w == "PogU")));
+        let chatters: std::collections::HashSet<&str> = messages.iter().map(|m| &*m.chatter_id).collect();
+        assert!(chatters.len() > 10, "{}", chatters.len());
+        assert!(Script::parse("0.0 hype 20 1").is_err());
     }
 
     #[test]

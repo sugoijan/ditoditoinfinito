@@ -475,6 +475,19 @@ pub fn run() {
             }
         }
     }
+    // TESTING ONLY (round TW5): `--mp-dev-chat-look NAME`, the chat drawn
+    // in one of the looks shown to the maintainer (`as-built`, `larger`,
+    // `scattered`; `ddi_chat::overlay::LOOKS`), as the web's
+    // `mpfakechatlook`.
+    if let Some(name) = a.value("--mp-dev-chat-look") {
+        match ddi_chat::overlay::look_named(name) {
+            Some(look) => ddi_shell::chat::set_look(Some(look)),
+            None => {
+                eprintln!("--mp-dev-chat-look: as-built, larger or scattered");
+                std::process::exit(2);
+            }
+        }
+    }
     // `--join LINK|INVITE`: an online room's invite page over the
     // multiplayer home (`crate::online`).
     if a.has("--join") && !online::set_join(a.value("--join").unwrap_or_default()) {

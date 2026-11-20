@@ -45,6 +45,8 @@ struct Scenario {
     shots: Vec<f64>,
     /// Measures frames from this song second.
     measure: Option<f64>,
+    /// The look drawn in (round TW5's candidates; none: v1's own).
+    look: Option<ddi_chat::overlay::Look>,
 }
 
 impl Scenario {
@@ -61,6 +63,7 @@ impl Scenario {
             script: "demo",
             shots: Vec::new(),
             measure: None,
+            look: None,
         }
     }
 }
@@ -127,6 +130,7 @@ fn play(s: &Scenario) -> Option<Played> {
     settings.dancing_hand = false;
     settings.save();
     ddi_session::chat::set_scripted(ddi_chat::script::Script::builtin(s.script));
+    ddi_shell::chat::set_look(s.look);
     let screen = if s.cpus.is_some() { "start" } else { "select" };
     let (mut ui, env) = common::ui::theme(screen, common::ui::lowercase(), size, s.reduced);
     ui.update(0.5);
@@ -291,6 +295,7 @@ fn play(s: &Scenario) -> Option<Played> {
         played.tally = format!("{:?}", p.session.player.tally());
     }
     ddi_session::chat::set_scripted(None);
+    ddi_shell::chat::set_look(None);
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
     Some(played)
 }
@@ -381,10 +386,13 @@ fn the_scripted_chat_is_drawn_in_both_styles() {
         (Style::Falling, false),
         (Style::Across, true),
     ] {
+        // In the look that keeps a message's emotes in one item, so that
+        // its four are seen together.
         let s = Scenario {
             style,
             reduced,
             shots: vec![4.5, 13.0],
+            look: Some(ddi_chat::overlay::LOOK_LARGER),
             ..Scenario::new(&format!("styles-{style:?}-{reduced}"))
         };
         let Some(p) = play(&s) else {
@@ -500,6 +508,64 @@ fn study() {
                 stat(&p.batches),
                 p.items,
                 p.stats
+            );
+        }
+    }
+}
+
+/// Round TW5's study of the emotes' look (`docs/plans/multiplayer-twitch.md`,
+/// "Round TW5"): each candidate (`ddi_chat::overlay::LOOKS`) in both
+/// styles, alone and in a stage of eight CPUs, on a phone held upright
+/// and under reduced motion, over the `burst` script (a hype of one
+/// emote, a mixed burst, an animated one); a picture of each moment and a
+/// sequence of frames a tenth of a second apart through the hype, kept
+/// in `DDI_OFFSCREEN_PPM=<dir>` (`DDI_CHAT_STUDY=<text>` picks those
+/// whose names have it).
+#[test]
+#[ignore]
+fn look_study() {
+    let only = std::env::var("DDI_CHAT_STUDY").unwrap_or_default();
+    // The script starts about 0.8 s before the song: its hype at 1.7 to
+    // 3.7 s of the song, the mixed burst 6.2 to 9.2, the animated one
+    // 10.2 to 13.2, the last messages from 14.2.
+    let hype: Vec<f64> = (0..12).map(|k| 2.4 + 0.1 * f64::from(k)).collect();
+    let moments = [4.5, 8.5, 12.5, 15.8];
+    for look in ddi_chat::overlay::LOOKS {
+        for (who, cpus, size, style, reduced) in [
+            ("alone", None, [1280, 720], Style::Across, false),
+            ("alone", None, [1280, 720], Style::Falling, false),
+            ("eight", Some(8), [1280, 720], Style::Across, false),
+            ("eight", Some(8), [1280, 720], Style::Falling, false),
+            ("phone", None, [390, 844], Style::Across, false),
+            ("phone", None, [390, 844], Style::Falling, false),
+            ("reduced", Some(8), [1280, 720], Style::Across, true),
+        ] {
+            let mut shots: Vec<f64> = hype.clone();
+            shots.extend(moments);
+            let s = Scenario {
+                cpus,
+                size,
+                style,
+                reduced,
+                level: Level::Messages,
+                script: "burst",
+                look: Some(look),
+                shots,
+                ..Scenario::new(&format!(
+                    "look-{}-{who}-{}",
+                    look.name,
+                    format!("{style:?}").to_lowercase()
+                ))
+            };
+            if !s.name.contains(&only) {
+                continue;
+            }
+            let Some(p) = play(&s) else {
+                return;
+            };
+            eprintln!(
+                "{}: most items {}, most emotes {}, stats {:?}",
+                s.name, p.items, p.emotes, p.stats
             );
         }
     }
