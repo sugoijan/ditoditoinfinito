@@ -352,6 +352,16 @@ fn groove_number(x: f32) -> String {
     format!("{}", (x.max(0.0) * 100.0).round() as i64)
 }
 
+/// Round DB (the maintainer, 2026-11-20): the Groove radar's numbers are
+/// whole numbers, a hundred times the value: 0.83 reads 83, a value past
+/// 1 reads past 100.
+#[cfg(test)]
+#[test]
+fn the_groove_radar_writes_a_hundred_times_its_values_whole() {
+    let read: Vec<String> = [0.83, 1.12, 0.0, 0.005, 0.994, -0.2].into_iter().map(groove_number).collect();
+    assert_eq!(read, ["83", "112", "0", "1", "99", "0"]);
+}
+
 /// Text read from a song's files (its title, artist, a chart's name):
 /// data, none where there is none.
 fn data(s: &str) -> String {
