@@ -94,8 +94,9 @@ Each is a room model revision of its own; server first, as always.
   room's end deletes all its shares as before.
 - A room's shares are kept while it lives: each report the room sends the
   registry (a minute while anyone is connected, on any change) moves their
-  expiry to the room's idle life (a week by default) from then. A room
-  gone without a word leaves them at most that long; a room whose sockets
+  expiry to a day from then (`ROOM_SONGS_KEPT_SECS`; round DB, 2026-11-20,
+  the maintainer: "kept a day"; the room's idle life, a week, before). A
+  room gone without a word leaves them at most that long; a room whose sockets
   all close ends two minutes later and deletes them.
 - The index finds a room's shares by an indexed `room_id` column.
 - `room_shares` (a room's shares at most) 64 → 256.
