@@ -2394,3 +2394,36 @@ fn a_barred_members_ticket_ends_the_link_as_not_admitted() {
     }
     assert_eq!(bob.link.link(), LinkState::NotAdmitted);
 }
+
+/// Round TW1b (B7): an administrator who joins to play is checked like
+/// anyone; one who comes to observe is not.
+#[test]
+fn the_mirror_checks_a_playing_administrator_not_an_observing_one() {
+    let clock = ManualClock::new(1_000);
+    let (server, _alice, _bob) = two(&clock);
+    server
+        .borrow_mut()
+        .set_twitch(
+            ParticipantId(1),
+            Some(ddi_room::TwitchSetting {
+                by: ParticipantId(1),
+                mirror: ddi_room::TwitchMirror::Bans,
+                chat: ddi_room::TwitchChat::Off,
+                user_id: "1001".into(),
+                login: "alice".into(),
+            }),
+        )
+        .unwrap();
+    for who in ["dev:pat", "dev:obs"] {
+        server.borrow_mut().set_admin(&Identity::new(who), true);
+        server.borrow_mut().bar(&Identity::new(who), true);
+    }
+    assert_eq!(
+        server.borrow_mut().join(Identity::new("dev:pat"), "Pat", Intent::Play),
+        Err(Rejection::NotAdmitted)
+    );
+    assert!(server
+        .borrow_mut()
+        .join(Identity::new("dev:obs"), "Obs", Intent::Watch)
+        .is_ok());
+}

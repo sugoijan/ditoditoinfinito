@@ -559,9 +559,10 @@ impl FakeServer {
             return Ok(m.id);
         }
         // Revision 18: the host's Twitch lists, for a newcomer and for a
-        // member who comes back (B4); never an administrator, who may
-        // enter to observe.
-        if self.bars(&identity) && !self.admins.contains(&identity) {
+        // member who comes back (B4); an administrator only where they
+        // come to observe is not (B7: watching, no role).
+        let observes = self.admins.contains(&identity) && intent == Intent::Watch;
+        if self.bars(&identity) && !observes {
             return Err(Rejection::NotAdmitted);
         }
         let admin = self.admins.contains(&identity);
