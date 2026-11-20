@@ -68,28 +68,8 @@ pub(crate) fn take() -> Vec<(Fetch, Option<Decoded>)> {
 }
 
 async fn decode(url: &str) -> Result<Decoded, String> {
-    let resp = gloo::net::http::Request::get(url)
-        .send()
-        .await
-        .map_err(|e| format!("GET: {e}"))?;
-    if !resp.ok() {
-        return Err(format!("HTTP {}", resp.status()));
-    }
-    let raw: web_sys::Response = resp.into();
-    let blob: web_sys::Blob = JsFuture::from(raw.blob().map_err(|e| format!("{e:?}"))?)
-        .await
-        .map_err(|e| format!("{e:?}"))?
-        .dyn_into()
-        .map_err(|_| "not a blob")?;
-    if blob.size() > anim::MOST_BYTES as f64 {
-        return Err(anim::Refusal::TooLarge.to_string());
-    }
-    let buffer: js_sys::ArrayBuffer = JsFuture::from(blob.array_buffer())
-        .await
-        .map_err(|e| format!("{e:?}"))?
-        .dyn_into()
-        .map_err(|_| "no bytes")?;
-    let bytes = Uint8Array::new(&buffer).to_vec();
+    let bytes = read(url).await?;
+    let buffer = Uint8Array::from(&bytes[..]).buffer();
     let probe = anim::probe(&bytes).map_err(|e| e.to_string())?;
     let size = decode_size(probe.size);
     if let Verdict::Animated(kept) = probe.verdict() {
@@ -99,7 +79,63 @@ async fn decode(url: &str) -> Result<Decoded, String> {
             Err(e) => web_sys::console::warn_1(&format!("chat emote {url}: {e}; its first frame").into()),
         }
     }
+    let parts = js_sys::Array::of1(&buffer);
+    let options = web_sys::BlobPropertyBag::new();
+    options.set_type(probe.format.mime());
+    let blob = web_sys::Blob::new_with_buffer_source_sequence_and_options(&parts, &options)
+        .map_err(|e| crate::web::js_err("Blob", e))?;
     still(&blob, size).await
+}
+
+/// The bytes at `url`, at most
+/// [`anim::MOST_BYTES`]: refused from the answer's length where it says
+/// more, else read piece by piece and stopped once past it, so an answer
+/// larger than an emote is never held whole.
+async fn read(url: &str) -> Result<Vec<u8>, String> {
+    let too_large = || anim::Refusal::TooLarge.to_string();
+    let resp = gloo::net::http::Request::get(url)
+        .send()
+        .await
+        .map_err(|e| format!("GET: {e}"))?;
+    if !resp.ok() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let raw: web_sys::Response = resp.into();
+    let headers = raw.headers();
+    let header = |name: &str| headers.get(name).ok().flatten();
+    if header("content-length")
+        .and_then(|l| l.trim().parse::<u64>().ok())
+        .is_some_and(|l| l > anim::MOST_BYTES as u64)
+    {
+        return Err(too_large());
+    }
+    let Some(body) = raw.body() else {
+        return Ok(Vec::new());
+    };
+    let reader: web_sys::ReadableStreamDefaultReader =
+        body.get_reader().dyn_into().map_err(|_| "no reader")?;
+    let mut out = Vec::new();
+    loop {
+        let chunk = JsFuture::from(reader.read())
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        if Reflect::get(&chunk, &"done".into())
+            .ok()
+            .and_then(|d| d.as_bool())
+            .unwrap_or(true)
+        {
+            return Ok(out);
+        }
+        if let Ok(value) = Reflect::get(&chunk, &"value".into())
+            && let Ok(piece) = value.dyn_into::<Uint8Array>()
+        {
+            if out.len() + piece.length() as usize > anim::MOST_BYTES {
+                let _ = reader.cancel();
+                return Err(too_large());
+            }
+            out.extend(piece.to_vec());
+        }
+    }
 }
 
 /// The first frame (a still image's only one), scaled to `size`.
