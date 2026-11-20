@@ -278,21 +278,54 @@ pub fn set_addresses(provider: Provider, channel: &str) -> Vec<Image> {
     }
 }
 
-type List = Vec<(String, Emote, Image)>;
+/// Where each provider's global set is read (C4's rule: directly first,
+/// through the proxy after a failure; round TW5's global-emotes demo).
+/// Twitch's own has no address a device may ask without a token: our
+/// server asks Helix for it with the app's token, through the proxy alone
+/// (`emotes/twitch-api/chat/emotes/global`, an empty direct address).
+pub fn global_address(provider: Provider) -> Option<Image> {
+    let api = |host: &str, route: &str, path: &str| Image {
+        url: if host.is_empty() {
+            String::new()
+        } else {
+            format!("https://{host}{path}")
+        },
+        proxy: Some(format!("emotes/{route}{path}")),
+    };
+    match provider {
+        Provider::Twitch => Some(api("", "twitch-api", "/chat/emotes/global")),
+        Provider::SevenTv => Some(api("7tv.io", "7tv-api", "/v3/emote-sets/global")),
+        Provider::Bttv => Some(api("api.betterttv.net", "bttv-api", "/3/cached/emotes/global")),
+        Provider::Ffz => Some(api("api.frankerfacez.com", "ffz-api", "/v1/set/global")),
+        Provider::Test => None,
+    }
+}
+
+/// A list of emotes read from a set: each one's word, the emote and its
+/// image.
+pub type List = Vec<(String, Emote, Image)>;
 
 fn json(text: &str) -> Option<Value> {
     serde_json::from_str(text).ok()
 }
 
 /// 7TV's emotes of a set (`{"emotes": [...]}`): each one's name in the set
-/// (an alias where it has one) and its 2× file: the animated WebP of an
-/// animated emote, else the still one.
+/// (an alias where it has one: the set's `name`, not `data.name`) and its
+/// 2× WebP file (`2x.webp` exactly: the files list AVIF and GIF beside
+/// it): the animated one of an animated emote, else its still
+/// (`static_name`). A zero-width emote (the set's `flags` bit 1: an
+/// overlay meant to sit on the emote before it) is left out: drawn alone
+/// it would be a picture out of place (round TW5; the shape as 7TV's
+/// global set answered 2026-11-20).
 fn seven_tv_emotes(set: &Value) -> List {
     let Some(list) = set.get("emotes").and_then(Value::as_array) else {
         return Vec::new();
     };
     list.iter()
         .filter_map(|e| {
+            if e.get("flags").and_then(Value::as_u64).is_some_and(|f| f & 1 != 0) {
+                return None;
+            }
             let name = e.get("name")?.as_str()?;
             let id = e.get("id")?.as_str()?;
             let data = e.get("data");
@@ -310,11 +343,7 @@ fn seven_tv_emotes(set: &Value) -> List {
                 .and_then(|h| h.get("files"))
                 .and_then(Value::as_array)
                 .and_then(|files| {
-                    files.iter().find(|f| {
-                        f.get("name")
-                            .and_then(Value::as_str)
-                            .is_some_and(|n| n.starts_with("2x"))
-                    })
+                    files.iter().find(|f| f.get("name").and_then(Value::as_str) == Some("2x.webp"))
                 })
                 .and_then(|f| {
                     if animated {
@@ -354,6 +383,11 @@ fn bttv_emotes(list: Option<&Value>) -> List {
     };
     list.iter()
         .filter_map(|e| {
+            // A modifier is an effect word on the emote before it, not a
+            // picture to draw alone (round TW5).
+            if e.get("modifier").and_then(Value::as_bool) == Some(true) {
+                return None;
+            }
             let code = e.get("code")?.as_str()?;
             let id = e.get("id")?.as_str()?;
             // An animated one's image is its animation (a GIF) at the
@@ -390,6 +424,12 @@ fn ffz_set(set: &Value) -> List {
     };
     list.iter()
         .filter_map(|e| {
+            // A modifier (an effect on the emote before it) and a hidden
+            // emote are not drawn (round TW5).
+            let flag = |k: &str| e.get(k).and_then(Value::as_bool) == Some(true);
+            if flag("modifier") || flag("hidden") {
+                return None;
+            }
             let name = e.get("name")?.as_str()?;
             let id = e.get("id").and_then(|i| {
                 i.as_u64()
@@ -432,7 +472,10 @@ pub fn ffz_room(text: &str) -> List {
         .unwrap_or_default()
 }
 
-/// FFZ's globals from `/v1/set/global`: its default sets alone.
+/// FFZ's globals from `/v1/set/global`: its default sets alone (the
+/// others in its answer are not global for everyone). None of them was
+/// animated on 2026-11-20: the reading of an `animated` object is written
+/// from the documentation.
 pub fn ffz_global(text: &str) -> List {
     let Some(v) = json(text) else {
         return Vec::new();
@@ -450,6 +493,39 @@ pub fn ffz_global(text: &str) -> List {
         .iter()
         .filter_map(|k| v.get("sets").and_then(|s| s.get(k)))
         .flat_map(ffz_set)
+        .collect()
+}
+
+/// Twitch's global emotes from Helix's Get Global Emotes (`{"data":
+/// [{"id", "name", "format": ["static", "animated"], ...}], "template"}`,
+/// round TW5, as our server answers it): each one's name, the emote
+/// (animated where its `format` lists `animated`) and its image, dark
+/// theme, 2×, as a message's fragment would give it ([`twitch_image`],
+/// [`twitch_animated_image`]; the `template` the documentation gives is
+/// the same address). UNVERIFIED against Twitch's real answer.
+pub fn twitch_global(text: &str) -> List {
+    let Some(v) = json(text) else {
+        return Vec::new();
+    };
+    let Some(list) = v.get("data").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    list.iter()
+        .filter_map(|e| {
+            let id = e.get("id")?.as_str().filter(|i| !i.is_empty())?;
+            let name = e.get("name")?.as_str().filter(|n| !n.is_empty())?;
+            let formats: Vec<&str> = e
+                .get("format")
+                .and_then(Value::as_array)
+                .map(|f| f.iter().filter_map(Value::as_str).collect())
+                .unwrap_or_default();
+            let emote = Emote::twitch(id);
+            if formats.contains(&"animated") {
+                Some((name.to_string(), emote.moving(), twitch_animated_image(id)))
+            } else {
+                Some((name.to_string(), emote, twitch_image(id)))
+            }
+        })
         .collect()
 }
 
@@ -512,8 +588,11 @@ mod tests {
         assert!(user[0].1.animated);
         assert!(!user[1].1.animated);
         assert!(user[1].2.url.ends_with("/2x_static.webp"));
+        // The set's name for an emote (an alias), a zero-width one left
+        // out, the 2x WebP among AVIF and GIF files.
         let global = seven_tv_global(&fixture("7tv-global.json"));
         assert_eq!(words(&global), ["Clap", "catJAM"]);
+        assert!(global[0].2.url.ends_with("/2x.webp"), "{}", global[0].2.url);
     }
 
     #[test]
@@ -530,6 +609,7 @@ mod tests {
             user[0].2.url,
             "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/2x"
         );
+        // A modifier left out.
         let global = bttv_global(&fixture("bttv-global.json"));
         assert_eq!(words(&global), [":tf:", "DatSauce"]);
     }
@@ -546,8 +626,9 @@ mod tests {
         );
         assert_eq!(room[0].2.url, "https://cdn.frankerfacez.com/emote/28136/2");
         assert_eq!(room[0].2.proxy.as_deref(), Some("emotes/ffz/emote/28136/2"));
+        // The default sets alone, a hidden emote and modifiers left out.
         let global = ffz_global(&fixture("ffz-global.json"));
-        assert_eq!(words(&global), ["ZreknarF"]);
+        assert_eq!(words(&global), ["ZreknarF", "FzSecond"]);
     }
 
     #[test]
@@ -576,6 +657,33 @@ mod tests {
         // A Twitch emote's image without a set; none offline.
         assert!(sets.image(&Emote::twitch("25")).is_some());
         assert_eq!(EmoteSets::offline().image(&Emote::twitch("25")), None);
+    }
+
+    /// Round TW5: Twitch's global emotes as Helix's documentation shows
+    /// them, the animated ones from their animated image.
+    #[test]
+    fn twitchs_global_emotes_are_read() {
+        let list = twitch_global(&fixture("twitch-global.json"));
+        assert_eq!(
+            words(&list),
+            ["TwitchUnity", "DemoDance", "DemoWave", "DemoGrin", "DemoNod", "Demo Space"]
+        );
+        assert!(!list[0].1.animated && list[1].1.animated);
+        assert_eq!(
+            list[1].2.url,
+            "https://static-cdn.jtvnw.net/emoticons/v2/emotesv2_a11/animated/dark/2.0"
+        );
+        assert_eq!(list[0].2.url, "https://static-cdn.jtvnw.net/emoticons/v2/196892/static/dark/2.0");
+        assert!(twitch_global("{}").is_empty() && twitch_global("not json").is_empty());
+        // The global sets' addresses; Twitch's through the proxy alone.
+        let t = global_address(Provider::Twitch).unwrap();
+        assert_eq!(t.url, "");
+        assert_eq!(t.proxy.as_deref(), Some("emotes/twitch-api/chat/emotes/global"));
+        assert_eq!(
+            global_address(Provider::Bttv).unwrap().url,
+            "https://api.betterttv.net/3/cached/emotes/global"
+        );
+        assert!(global_address(Provider::Test).is_none());
     }
 
     #[test]

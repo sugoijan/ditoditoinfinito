@@ -25,6 +25,10 @@
 //!   an animated emote's frames each a cell, within their budget.
 //! - [`script`]: the scripted chat the tests and the studies play
 //!   (TESTING ONLY, C16): EventSub messages on a clock, never Twitch.
+//! - [`global`]: the global-emotes demo (TESTING ONLY, round TW5): the
+//!   four providers' real global sets read by the real chat's code, a
+//!   scripted chat of an assortment of them, and what each provider
+//!   answered.
 //!
 //! No I/O: the shells bring the sockets, the fetches and the drawing.
 
@@ -32,6 +36,7 @@ pub mod anim;
 pub mod cache;
 pub mod emotes;
 pub mod eventsub;
+pub mod global;
 pub mod item;
 pub mod overlay;
 pub mod script;

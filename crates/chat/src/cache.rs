@@ -108,6 +108,16 @@ pub enum Answer {
     Failed,
 }
 
+/// The host an emote's image is counted by (C4's "a host that needed the
+/// proxy"): its provider's image host, else its address's (round TW5:
+/// so that a test's local addresses keep the providers apart).
+fn host(emote: &Emote, image: &Image) -> String {
+    match emote.provider.image_host() {
+        "" => image.host().to_string(),
+        h => h.to_string(),
+    }
+}
+
 /// The size an image of `size` pixels is drawn into the atlas at: the
 /// cell's height, its width in proportion, [`WIDEST_UNITS`] at most.
 pub fn fit(size: [u32; 2]) -> [u32; 2] {
@@ -157,7 +167,7 @@ impl EmoteCache {
         let image = sets.image(emote);
         let state = if image.is_some() {
             self.queue.push_back(emote.clone());
-            State::Queued(self.via_for(image.as_ref()))
+            State::Queued(self.via_for(emote, image.as_ref()))
         } else {
             State::Failed
         };
@@ -171,9 +181,9 @@ impl EmoteCache {
         );
     }
 
-    fn via_for(&self, image: Option<&Image>) -> Via {
+    fn via_for(&self, emote: &Emote, image: Option<&Image>) -> Via {
         match (image, &self.api) {
-            (Some(i), Some(_)) if i.proxy.is_some() && self.proxied.contains(i.host()) => Via::Proxy,
+            (Some(i), Some(_)) if i.proxy.is_some() && self.proxied.contains(&host(emote, i)) => Via::Proxy,
             _ => Via::Direct,
         }
     }
@@ -229,7 +239,7 @@ impl EmoteCache {
             let retry = via == Via::Direct
                 && self.api.is_some()
                 && entry.image.as_ref().is_some_and(|i| i.proxy.is_some());
-            let host = entry.image.as_ref().map(|i| i.host().to_string());
+            let host = entry.image.as_ref().map(|i| host(emote, i));
             let entry = self.entries.get_mut(emote).expect("there");
             if retry {
                 entry.state = State::Queued(Via::Proxy);
@@ -428,10 +438,37 @@ impl EmoteCache {
         )
     }
 
+    /// Images ready, fetches in flight, failed, and animated ones ready,
+    /// by provider (the global-emotes demo's report, round TW5).
+    pub fn counts_by(&self, provider: crate::emotes::Provider) -> [usize; 4] {
+        let mut out = [0; 4];
+        for (_, entry) in self.entries.iter().filter(|(e, _)| e.provider == provider) {
+            match &entry.state {
+                State::Ready { cells, .. } => {
+                    out[0] += 1;
+                    out[3] += usize::from(cells.len() > 1);
+                }
+                State::Fetching(_) | State::Queued(_) => out[1] += 1,
+                State::Failed => out[2] += 1,
+            }
+        }
+        out
+    }
+
+    /// The hosts that needed the proxy this session, sorted.
+    pub fn proxied_hosts(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.proxied.iter().cloned().collect();
+        v.sort();
+        v
+    }
+
     /// Where a provider's set is read (C4's rule for the sets too): its
     /// address, through the proxy where its host needed it.
     pub fn set_address(&self, image: &Image) -> (String, Via) {
-        let via = self.via_for(Some(image));
+        let via = match &self.api {
+            Some(_) if image.proxy.is_some() && self.proxied.contains(image.host()) => Via::Proxy,
+            _ => Via::Direct,
+        };
         match self.address(image, via) {
             Some(a) => (a, via),
             None => (image.url.clone(), Via::Direct),
@@ -505,6 +542,21 @@ mod tests {
         let (at, via) = c.set_address(&twitch_image("9"));
         assert_eq!(via, Via::Proxy);
         assert!(at.starts_with("https://api.test/x/emotes/twitch/"));
+    }
+
+    /// Round TW5: the counts by provider and the hosts through the proxy,
+    /// for the global-emotes demo's report.
+    #[test]
+    fn counts_by_provider_and_the_proxied_hosts() {
+        let mut c = EmoteCache::new(Some("https://api.test".into()));
+        c.want(&e(1), &sets());
+        c.want(&e(2), &sets());
+        let f = c.start();
+        c.fetched(&f[0].emote, f[0].via, Some(moving(3, 50)));
+        assert_eq!(c.fetched(&f[1].emote, f[1].via, None), Answer::Retry);
+        assert_eq!(c.counts_by(Provider::Twitch), [1, 1, 0, 1]);
+        assert_eq!(c.counts_by(Provider::Bttv), [0; 4]);
+        assert_eq!(c.proxied_hosts(), ["static-cdn.jtvnw.net"]);
     }
 
     #[test]

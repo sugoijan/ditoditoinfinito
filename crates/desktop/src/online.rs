@@ -85,6 +85,12 @@ fn load_token() -> Option<String> {
     (!t.is_empty()).then(|| t.to_string())
 }
 
+/// The run's session with our server, if signed in: what the chat's
+/// emote proxy is asked with (round TW5, `crate::chat`).
+pub(crate) fn session_token() -> Option<String> {
+    load_token()
+}
+
 fn save_token(token: Option<&str>) {
     let Some(path) = token_file() else {
         return;

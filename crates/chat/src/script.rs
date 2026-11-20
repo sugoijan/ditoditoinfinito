@@ -70,7 +70,7 @@ struct ScriptEmote {
     word: String,
     provider: Provider,
     id: String,
-    image: String,
+    image: Image,
     animated: bool,
 }
 
@@ -88,6 +88,10 @@ pub struct Script {
     emotes: Vec<ScriptEmote>,
     steps: Vec<(f64, Step)>,
     period: Option<f64>,
+    /// Its emotes are real ones, asked for as a real chat's are (directly,
+    /// then through our server's proxy at `api`): the global-emotes demo
+    /// (round TW5, [`crate::global`]).
+    online: Option<Option<String>>,
 }
 
 /// A line that could not be read: its number and why.
@@ -234,6 +238,7 @@ impl Script {
             emotes: Vec::new(),
             steps: Vec::new(),
             period: None,
+            online: None,
         };
         for (n, raw) in text.lines().enumerate() {
             let err = |why: &str| ScriptError {
@@ -285,7 +290,7 @@ impl Script {
                         word: word.into(),
                         provider,
                         id: id.into(),
-                        image: image.into(),
+                        image: self::image(image),
                         animated: image.starts_with("anim:"),
                     });
                 }
@@ -367,7 +372,7 @@ impl Script {
     pub fn images_at(&mut self, base: &str) {
         for e in &mut self.emotes {
             let kind = if e.animated { "gif" } else { "png" };
-            e.image = format!("{base}{}.{kind}", e.id);
+            e.image = image(&format!("{base}{}.{kind}", e.id));
         }
     }
 
@@ -376,7 +381,7 @@ impl Script {
     pub fn emote_specs(&self) -> Vec<(String, bool, String)> {
         self.emotes
             .iter()
-            .map(|e| (e.id.clone(), e.animated, e.image.clone()))
+            .map(|e| (e.id.clone(), e.animated, e.image.url.clone()))
             .collect()
     }
 
@@ -385,10 +390,35 @@ impl Script {
         self.ceiling
     }
 
+    /// The API base its real emotes' images are asked through after a
+    /// direct failure (the global-emotes demo's; none for the others).
+    pub fn api(&self) -> Option<String> {
+        self.online.clone().flatten()
+    }
+
+    /// Whether its emotes are real ones (the global-emotes demo).
+    pub fn online(&self) -> bool {
+        self.online.is_some()
+    }
+
+    /// Its emotes: word, emote and image (the debug state's and the
+    /// tests').
+    pub fn emotes(&self) -> Vec<(String, Emote, Image)> {
+        self.emotes
+            .iter()
+            .map(|e| (e.word.clone(), e.emote(), e.image.clone()))
+            .collect()
+    }
+
     /// The emote sets it chats with: offline (no provider is asked), each
-    /// emote's image its own.
+    /// emote's image its own; the global-emotes demo's online, each
+    /// image a provider's.
     pub fn sets(&self) -> EmoteSets {
-        let mut sets = EmoteSets::offline();
+        let mut sets = if self.online.is_some() {
+            EmoteSets::default()
+        } else {
+            EmoteSets::offline()
+        };
         for (provider, list) in [Provider::SevenTv, Provider::Bttv, Provider::Ffz, Provider::Test]
             .map(|p| {
                 (
@@ -396,7 +426,7 @@ impl Script {
                     self.emotes
                         .iter()
                         .filter(|e| e.provider == p)
-                        .map(|e| (e.word.clone(), e.emote(), image(&e.image)))
+                        .map(|e| (e.word.clone(), e.emote(), e.image.clone()))
                         .collect::<Vec<_>>(),
                 )
             })
@@ -404,9 +434,92 @@ impl Script {
             sets.add(Source::Channel(provider), list);
         }
         for e in &self.emotes {
-            sets.set_image(e.emote(), image(&e.image));
+            sets.set_image(e.emote(), e.image.clone());
         }
         sets
+    }
+}
+
+impl Script {
+    /// The global-emotes demo's chat (round TW5, TESTING ONLY): `emotes`
+    /// (word, emote, image: real ones, from the providers' global sets),
+    /// their images asked directly and through `api`'s proxy after a
+    /// failure, said in a loop of 40 s: each one singly, now and then
+    /// with a few words, a mixed burst, a hype of one animated emote, a
+    /// burst of the animated ones, another hype, and a message of several
+    /// providers' emotes. Without emotes, its words alone.
+    pub fn global(emotes: &[(String, Emote, Image)], api: Option<String>) -> Script {
+        let mut s = Script {
+            ceiling: Level::Messages,
+            emotes: emotes
+                .iter()
+                .map(|(word, e, image)| ScriptEmote {
+                    word: word.clone(),
+                    provider: e.provider,
+                    id: e.id.clone(),
+                    image: image.clone(),
+                    animated: e.animated,
+                })
+                .collect(),
+            steps: Vec::new(),
+            period: Some(40.0),
+            online: Some(api),
+        };
+        let words: Vec<&str> = emotes.iter().map(|(w, ..)| w.as_str()).collect();
+        let animated: Vec<&str> = emotes
+            .iter()
+            .filter(|(_, e, _)| e.animated)
+            .map(|(w, ..)| w.as_str())
+            .collect();
+        let say = |chatter: String, text: String| Step::Say {
+            label: None,
+            chatter,
+            text,
+        };
+        // Each emote singly, through the loop's quiet stretches.
+        let quiet: Vec<f64> = (0..60)
+            .map(|k| 0.4 + 0.75 * f64::from(k))
+            .filter(|t| !(6.0..9.5).contains(t) && !(14.0..16.5).contains(t) && !(20.0..23.5).contains(t))
+            .filter(|t| !(28.0..30.5).contains(t) && *t < 38.0)
+            .collect();
+        for (k, t) in quiet.iter().enumerate() {
+            let text = match (words.get(k % words.len().max(1)), k % 4) {
+                (Some(w), 1) => format!("{} {w}", LINES[k % LINES.len()]),
+                (Some(w), 3) => format!("{w} {w}"),
+                (Some(w), _) => (*w).to_string(),
+                (None, _) => LINES[k % LINES.len()].to_string(),
+            };
+            s.steps.push((*t, say(format!("chatter{k}"), text)));
+        }
+        let flood = |rate, seconds, emotes, animated, word: Option<&str>| Step::Flood {
+            rate,
+            seconds,
+            emotes,
+            animated,
+            word: word.map(str::to_string),
+        };
+        s.steps.push((6.0, flood(12.0, 3.0, true, false, None)));
+        if let Some(w) = animated.first() {
+            s.steps.push((14.0, flood(20.0, 2.0, true, false, Some(w))));
+        }
+        if !animated.is_empty() {
+            s.steps.push((20.0, flood(12.0, 3.0, true, true, None)));
+        }
+        if let Some(w) = animated.get(animated.len() / 2) {
+            s.steps.push((28.0, flood(20.0, 2.0, true, false, Some(w))));
+        }
+        // One message of each provider's first emote.
+        let mut firsts: Vec<&str> = Vec::new();
+        for p in [Provider::Twitch, Provider::SevenTv, Provider::Bttv, Provider::Ffz] {
+            if let Some((w, ..)) = emotes.iter().find(|(_, e, _)| e.provider == p) {
+                firsts.push(w);
+            }
+        }
+        if !firsts.is_empty() {
+            s.steps.push((33.0, say("mix".into(), format!("all of them {}", firsts.join(" ")))));
+        }
+        s.steps.sort_by(|a, b| a.0.total_cmp(&b.0));
+        s
     }
 }
 

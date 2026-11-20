@@ -1,9 +1,9 @@
 [
  {
-  "_fixture": "Written from the provider's documented response shape (read 2026-11-20), not recorded: the spike replaces or confirms it. (A response is an array: this note is an entry the reading passes over.)"
+  "_fixture": "Shaped as the provider's answer recorded 2026-11-20 (field names, nesting, types); names and ids invented. (A response is an array: this note is an entry the reading passes over.)"
  },
  {
-  "id": "54fa8f1401e468494b85b537",
+  "id": "600000000000000000000001",
   "code": ":tf:",
   "imageType": "png",
   "animated": false,
@@ -11,11 +11,19 @@
   "modifier": false
  },
  {
-  "id": "54fa903b01e468494b85b53f",
+  "id": "600000000000000000000002",
   "code": "DatSauce",
   "imageType": "png",
   "animated": false,
   "userId": "5561169bd6b9d206222a8c19",
   "modifier": false
+ },
+ {
+  "id": "600000000000000000000003",
+  "code": "w!",
+  "imageType": "png",
+  "animated": false,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": true
  }
 ]

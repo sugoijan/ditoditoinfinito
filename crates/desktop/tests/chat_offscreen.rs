@@ -93,6 +93,10 @@ struct Played {
     shown: Vec<(Level, Style)>,
     /// The animation clock at its most, milliseconds.
     anim_ms: u64,
+    /// The last frame's images by provider and the hosts through the
+    /// proxy (the global-emotes demo).
+    providers: Vec<(&'static str, [usize; 4])>,
+    proxied: Vec<String>,
     /// Emotes drawn behind the player's own field and behind an
     /// opponent's miniature, in any frame (round TW5).
     behind_field: bool,
@@ -129,7 +133,20 @@ fn play(s: &Scenario) -> Option<Played> {
     // The hand rests out of these pictures.
     settings.dancing_hand = false;
     settings.save();
-    ddi_session::chat::set_scripted(ddi_chat::script::Script::builtin(s.script));
+    // `global`: the global-emotes demo over its fixtures as files (round
+    // TW5), never a provider.
+    let script = if s.script == "global" {
+        let dir = std::env::temp_dir().join(format!("ddi-chat-global-play-{}", std::process::id()));
+        ddi_desktop::chat::made::global(&dir).unwrap();
+        Some(ddi_desktop::chat::global_script(
+            ddi_chat::EmotesFrom::TwitchAndOthers,
+            "https://unused.test".into(),
+            Some(format!("{}/", dir.display())),
+        ))
+    } else {
+        ddi_chat::script::Script::builtin(s.script)
+    };
+    ddi_session::chat::set_scripted(script);
     ddi_shell::chat::set_look(s.look);
     let screen = if s.cpus.is_some() { "start" } else { "select" };
     let (mut ui, env) = common::ui::theme(screen, common::ui::lowercase(), size, s.reduced);
@@ -228,6 +245,8 @@ fn play(s: &Scenario) -> Option<Played> {
             played.items = played.items.max(c.items);
             played.emotes = played.emotes.max(c.emotes);
             played.stats = c.stats;
+            played.providers = c.providers.clone();
+            played.proxied = c.proxied.clone();
             played.anim_ms = played.anim_ms.max(c.anim_ms);
             if let Some(shown) = c.shown
                 && !played.shown.contains(&shown)
@@ -569,6 +588,31 @@ fn look_study() {
             );
         }
     }
+}
+
+/// Round TW5: the global-emotes demo played over its fixtures (the four
+/// providers' sets written from their documentation, pictures made by
+/// code, read as files: never a provider): every provider's emotes ready
+/// and drawn, animated ones where the provider has them, BTTV's through
+/// the proxy's paths.
+#[test]
+fn the_global_emotes_demo_plays_from_its_fixtures() {
+    let s = Scenario {
+        script: "global",
+        shots: vec![8.0, 15.0],
+        ..Scenario::new("tw5-global")
+    };
+    let Some(p) = play(&s) else {
+        return;
+    };
+    assert!(p.layer && p.emotes > 10, "{p:?}");
+    for (provider, [ready, _, failed, animated]) in &p.providers {
+        assert!(*ready >= 3, "{provider}: {:?}", p.providers);
+        // FrankerFaceZ's globals had no animated emote on 2026-11-20.
+        assert_eq!(*animated >= 1, *provider != "ffz", "{provider}: animated {:?}", p.providers);
+        assert_eq!(*failed, 0, "{provider}");
+    }
+    assert!(p.proxied.iter().any(|h| h == "cdn.betterttv.net"), "{:?}", p.proxied);
 }
 
 /// Each item's emotes at one frame, in order, by item.

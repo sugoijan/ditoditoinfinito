@@ -466,7 +466,15 @@ pub fn run() {
     // `ddi_chat::script`): a script's file, or a built-in one (`demo`,
     // `emotes`, `flood`) or a rate; the room's ceiling is its own line.
     // Shown where Options → Display's Twitch chat in rooms is on.
-    if let Some(what) = a.value("--mp-dev-chat") {
+    // Round TW5: `--mp-dev-chat global` is the global-emotes demo (the
+    // providers' real global sets, read now; `--mp-dev-chat-at BASE`
+    // serves their addresses from a local folder or server instead).
+    if a.value("--mp-dev-chat") == Some("global") {
+        let from = ddi_ui::state::settings::Settings::load().chat_emotes_from;
+        let at = a.value("--mp-dev-chat-at").map(str::to_string);
+        let script = chat::global_script(from, share::base(), at);
+        ddi_session::chat::set_scripted(Some(script));
+    } else if let Some(what) = a.value("--mp-dev-chat") {
         match chat::load_script(what) {
             Ok(script) => ddi_session::chat::set_scripted(Some(script)),
             Err(e) => {

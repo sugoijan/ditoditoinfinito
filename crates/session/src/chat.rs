@@ -143,6 +143,15 @@ impl ChatLayer {
         &self.sets
     }
 
+    /// Our server's API base its emotes' images are asked through after a
+    /// direct failure: the global-emotes demo's (round TW5); none for a
+    /// scripted chat's own pictures.
+    pub fn api(&self) -> Option<String> {
+        match &self.config.source {
+            ChatSource::Script(s) => s.api(),
+        }
+    }
+
     /// The source's events due by host second `now`, kept for the view.
     pub fn advance(&mut self, now: f64) {
         let start = *self.start.get_or_insert(now);

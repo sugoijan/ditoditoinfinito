@@ -11,9 +11,14 @@
 //! kept, under the crate's own limits and a deadline, else its first
 //! frame, still.
 //!
-//! No request reaches Twitch or an emote provider in this round: the
-//! scripted chat's images are its own shapes (drawn by `ddi_shell::chat`)
-//! or files and addresses its script names (a local test server's).
+//! The scripted chat's images are its own shapes (drawn by
+//! `ddi_shell::chat`) or files and addresses its script names (a local
+//! test server's). One script reaches the providers: the global-emotes
+//! demo (`--mp-dev-chat global`, round TW5, TESTING ONLY,
+//! `ddi_chat::global`), which the maintainer runs: their global sets read
+//! at the start (directly, then through our server's proxy with the
+//! run's session, Twitch's through our server alone), their images as a
+//! real chat's.
 
 use std::io::Cursor;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -55,7 +60,10 @@ impl Fetcher {
         std::thread::Builder::new()
             .name("ddi-chat-emote".into())
             .spawn(move || {
-                let decoded = read(&f.url).and_then(|bytes| decode(&bytes));
+                let decoded = read(&f.url, f.via == ddi_chat::cache::Via::Proxy)
+                    .map_err(|e| eprintln!("chat emote {} ({:?}): {e}", f.url, f.via))
+                    .ok()
+                    .and_then(|bytes| decode(&bytes));
                 let _ = tx.send((f, decoded));
             })
             .is_ok()
@@ -67,23 +75,73 @@ impl Fetcher {
     }
 }
 
-fn read(url: &str) -> Option<Vec<u8>> {
+/// The bytes at `url` ([`MOST_BYTES`] at most): an `http(s)` address
+/// through the shared client (our server's proxy, `proxy`, with the run's
+/// session, which it asks for), else a file's path; or why not.
+fn read(url: &str, proxy: bool) -> Result<Vec<u8>, String> {
     if url.starts_with("http://") || url.starts_with("https://") {
-        let mut answer = crate::share::agent().get(url).call().ok()?;
+        let mut request = crate::share::agent().get(url);
+        if proxy && let Some(token) = crate::online::session_token() {
+            request = request.header("Authorization", format!("Bearer {token}"));
+        }
+        let mut answer = request.call().map_err(|e| e.to_string())?;
         if !answer.status().is_success() {
-            return None;
+            return Err(format!("HTTP {}", answer.status().as_u16()));
         }
         answer
             .body_mut()
             .with_config()
             .limit(MOST_BYTES)
             .read_to_vec()
-            .ok()
+            .map_err(|e| e.to_string())
     } else {
         let path = url.strip_prefix("file://").unwrap_or(url);
-        let meta = std::fs::metadata(path).ok()?;
-        (meta.len() <= MOST_BYTES).then(|| std::fs::read(path).ok())?
+        let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
+        if meta.len() > MOST_BYTES {
+            return Err(anim::Refusal::TooLarge.to_string());
+        }
+        std::fs::read(path).map_err(|e| e.to_string())
     }
+}
+
+/// TESTING ONLY (round TW5): the global-emotes demo's chat
+/// (`--mp-dev-chat global`): the providers' global sets read now, under
+/// the device's "Emotes from" (`from`), each read on a thread of its own,
+/// directly first and through our server's proxy at `api` after a
+/// failure; every provider's address served from `at` instead where
+/// given (`--mp-dev-chat-at`: a local folder or server of fixtures, never
+/// a provider). What each provider answered is printed.
+pub fn global_script(from: ddi_chat::EmotesFrom, api: String, at: Option<String>) -> Script {
+    let mut demo = ddi_chat::global::Demo::new(from, Some(api), at);
+    loop {
+        let reads = demo.start();
+        if reads.is_empty() {
+            break;
+        }
+        let threads: Vec<_> = reads
+            .into_iter()
+            .map(|r| {
+                std::thread::spawn(move || {
+                    let answer = read(&r.url, r.via == ddi_chat::cache::Via::Proxy)
+                        .map(|b| String::from_utf8_lossy(&b).into_owned());
+                    (r, answer)
+                })
+            })
+            .collect();
+        for t in threads {
+            let Ok((r, answer)) = t.join() else { continue };
+            eprintln!(
+                "chat global emotes: {} {:?} {}: {}",
+                ddi_chat::global::provider_name(r.provider),
+                r.via,
+                r.url,
+                answer.as_ref().map_or_else(|e| e.clone(), |t| format!("{} bytes", t.len()))
+            );
+            demo.answered(r.provider, r.via, answer);
+        }
+    }
+    eprintln!("chat global emotes: {}", demo.report());
+    demo.script()
 }
 
 /// An image read ([`anim::probe`]) and decoded to the atlas's row
@@ -292,6 +350,79 @@ pub mod made {
         out
     }
 
+    /// The global-emotes demo's fixtures (round TW5), as the providers'
+    /// hosts would serve them, under `dir` (`<dir><host>/<path>`, the
+    /// proxy's under `<dir>api/`): the four global sets written from the
+    /// providers' documentation (`crates/chat/tests/fixtures/`, never
+    /// recorded) and a picture made by code for each of their emotes (an
+    /// animated one a GIF or an animated WebP as its provider serves it).
+    /// BTTV's set and images are only behind the proxy here, so that a
+    /// walk sees a host need it; Twitch's set is only ever there. The
+    /// files written.
+    pub fn global(dir: &Path) -> std::io::Result<Vec<String>> {
+        use ddi_chat::emotes::Provider;
+        const SETS: [(Provider, &str); 4] = [
+            (Provider::Twitch, include_str!("../../chat/tests/fixtures/twitch-global.json")),
+            (Provider::SevenTv, include_str!("../../chat/tests/fixtures/demo-7tv-global.json")),
+            (Provider::Bttv, include_str!("../../chat/tests/fixtures/demo-bttv-global.json")),
+            (Provider::Ffz, include_str!("../../chat/tests/fixtures/demo-ffz-global.json")),
+        ];
+        let mut out = Vec::new();
+        let mut put = |rel: String, bytes: &[u8]| -> std::io::Result<()> {
+            let path = dir.join(&rel);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(path, bytes)?;
+            out.push(rel);
+            Ok(())
+        };
+        let host_path = |url: &str| url.split_once("://").map_or(url, |(_, r)| r).to_string();
+        for (k, (provider, text)) in SETS.into_iter().enumerate() {
+            let at = ddi_chat::emotes::global_address(provider).expect("a set");
+            let behind_proxy = matches!(provider, Provider::Twitch | Provider::Bttv);
+            if behind_proxy {
+                put(format!("api/{}", at.proxy.clone().unwrap()), text.as_bytes())?;
+            } else {
+                put(host_path(&at.url), text.as_bytes())?;
+            }
+            let list = match provider {
+                Provider::Twitch => ddi_chat::emotes::twitch_global(text),
+                Provider::SevenTv => ddi_chat::emotes::seven_tv_global(text),
+                Provider::Bttv => ddi_chat::emotes::bttv_global(text),
+                _ => ddi_chat::emotes::ffz_global(text),
+            };
+            let kind = ["circle", "triangle", "square", "diamond"][k];
+            for (n, (_, emote, image)) in list.iter().enumerate() {
+                // A color an emote, and now and then a wide one.
+                let h = n as u32 * 47 + k as u32 * 101;
+                let rgb = format!("{:02x}{:02x}{:02x}", 80 + (h * 37) % 170, 80 + (h * 91) % 170, 80 + (h * 53) % 170);
+                let (shape, aspect) = if n % 5 == 4 { ("bar", ":2") } else { (kind, "") };
+                let bytes = if emote.animated {
+                    let spec = format!("anim:{shape}:{rgb}:{}:{}{aspect}", 8 + n % 9, 60 + 10 * (n % 5));
+                    let (size, rgba, durations) = ddi_chat::script::anim_pixels(&spec).expect("frames");
+                    let len = (size[0] * size[1] * 4) as usize;
+                    let frames: Vec<Vec<u8>> = rgba.chunks(len).map(<[u8]>::to_vec).collect();
+                    let ms = durations[0];
+                    match provider {
+                        Provider::Twitch | Provider::Bttv => gif(size, &frames, ms),
+                        _ => webp(size, &frames, ms),
+                    }
+                } else {
+                    let (size, rgba) =
+                        ddi_chat::script::shape_pixels(&format!("shape:{shape}:{rgb}{aspect}")).expect("a shape");
+                    png(size, rgba)
+                };
+                if behind_proxy {
+                    put(format!("api/{}", image.proxy.clone().unwrap()), &bytes)?;
+                } else {
+                    put(host_path(&image.url), &bytes)?;
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Writes every picture `script` names into `dir`: a still one's
     /// `<id>.png`, an animated one's `<id>.gif` and `<id>.webp` (the
     /// scripted chat's `images_at`, the web's `mpfakechatimg`). The files
@@ -418,6 +549,32 @@ mod tests {
         let gif = made::gif([28, 28], &frames([28, 28], 6), 80);
         let d = decode_by(&gif, Instant::now()).unwrap();
         assert_eq!(d.durations.len(), 1);
+    }
+
+    /// Round TW5: the global-emotes demo read from its fixtures as files
+    /// (never a provider): every set read, BTTV's and Twitch's through
+    /// the proxy's paths, and every chosen emote's picture where the
+    /// cache will ask for it.
+    #[test]
+    fn the_global_demo_reads_its_fixtures() {
+        let dir = std::env::temp_dir().join(format!("ddi-chat-global-{}", std::process::id()));
+        made::global(&dir).unwrap();
+        let at = format!("{}/", dir.display());
+        let script = global_script(ddi_chat::EmotesFrom::TwitchAndOthers, "https://unused.test".into(), Some(at.clone()));
+        let emotes = script.emotes();
+        assert_eq!(emotes.len(), 5 + 9 + 9 + 9);
+        assert_eq!(script.api(), Some(format!("{at}api")));
+        for (word, emote, image) in &emotes {
+            let direct = read(&image.url, false);
+            let proxied = read(&image.proxied(&format!("{at}api")).unwrap(), true);
+            let bytes = direct.or(proxied).unwrap_or_else(|e| panic!("{word}: {e}"));
+            let d = decode(&bytes).unwrap_or_else(|| panic!("{word}"));
+            assert_eq!(d.durations.len() > 1, emote.animated, "{word}");
+        }
+        // "Emotes from: Twitch": its emotes alone.
+        let script = global_script(ddi_chat::EmotesFrom::TwitchOnly, "https://unused.test".into(), Some(at));
+        assert!(script.emotes().iter().all(|(_, e, _)| e.provider == ddi_chat::emotes::Provider::Twitch));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The scripted chat's pictures written as files (the walks' images).

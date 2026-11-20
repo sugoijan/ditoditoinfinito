@@ -957,6 +957,20 @@ impl GameLoop {
                 "ms": c.ms,
                 "layer": self.view.renderer.chat_layer_drawn(),
                 "images": [c.images.0, c.images.1, c.images.2, c.images.3],
+                // Round TW5: images by provider (ready, in flight,
+                // failed, animated ready), the hosts that needed our
+                // proxy, the look, and the global-emotes demo's sets as
+                // each provider answered (null without the demo).
+                "providers": c.providers.iter().map(|(p, [ready, flying, failed, animated])| json!({
+                    "provider": p,
+                    "ready": ready,
+                    "in_flight": flying,
+                    "failed": failed,
+                    "animated_ready": animated,
+                })).collect::<Vec<_>>(),
+                "proxied": c.proxied,
+                "look": c.look,
+                "global": crate::chat::global_report(),
                 "stats": {
                     "messages": c.stats.messages,
                     "shown": c.stats.shown,

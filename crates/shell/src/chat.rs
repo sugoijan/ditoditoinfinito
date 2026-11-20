@@ -114,6 +114,11 @@ pub struct ChatDrawn {
     pub images: (usize, usize, usize, usize),
     /// Animated emotes ready and the atlas units their frames take.
     pub animated: (usize, usize),
+    /// Images by provider: ready, in flight, failed, animated ready
+    /// (the global-emotes demo's report, round TW5).
+    pub providers: Vec<(&'static str, [usize; 4])>,
+    /// The hosts that needed our server's proxy this session.
+    pub proxied: Vec<String>,
     /// The animation clock, milliseconds (held while shedding, 0 under
     /// reduced motion).
     pub anim_ms: u64,
@@ -182,8 +187,9 @@ impl ChatView {
                 },
                 chat.sets().clone(),
             ),
-            // The scripted chat's images come from no provider: no proxy.
-            cache: EmoteCache::new(None),
+            // The scripted chat's own pictures come from no provider: no
+            // proxy; the global-emotes demo's real ones through ours.
+            cache: EmoteCache::new(chat.api()),
             seen: 0,
             atlas: None,
             layer: None,
@@ -340,6 +346,16 @@ impl ChatView {
             stats: self.overlay.stats(),
             images: self.cache.counts(),
             animated: self.cache.animated(),
+            providers: [
+                ddi_chat::emotes::Provider::Twitch,
+                ddi_chat::emotes::Provider::SevenTv,
+                ddi_chat::emotes::Provider::Bttv,
+                ddi_chat::emotes::Provider::Ffz,
+            ]
+            .into_iter()
+            .map(|p| (ddi_chat::global::provider_name(p), self.cache.counts_by(p)))
+            .collect(),
+            proxied: self.cache.proxied_hosts(),
             anim_ms,
             shown: Some((self.overlay.options().level, self.overlay.options().style)),
             look: self.overlay.rules().look.name,

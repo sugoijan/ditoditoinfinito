@@ -1,0 +1,101 @@
+[
+ {
+  "_fixture": "Shaped as the provider's answer recorded 2026-11-20 (field names, nesting, types); names and ids invented. (A response is an array: this note is an entry the reading passes over.)"
+ },
+ {
+  "id": "600000000000000000000001",
+  "code": "BtRoll",
+  "imageType": "gif",
+  "animated": true,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": false
+ },
+ {
+  "id": "600000000000000000000002",
+  "code": "BtShake",
+  "imageType": "png",
+  "animated": false,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": false
+ },
+ {
+  "id": "600000000000000000000003",
+  "code": "BtClap",
+  "imageType": "png",
+  "animated": false,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": false
+ },
+ {
+  "id": "600000000000000000000004",
+  "code": "BtBounce",
+  "imageType": "png",
+  "animated": false,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": false
+ },
+ {
+  "id": "600000000000000000000005",
+  "code": "BtNod",
+  "imageType": "png",
+  "animated": false,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": false
+ },
+ {
+  "id": "600000000000000000000006",
+  "code": "BtSpin",
+  "imageType": "png",
+  "animated": false,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": false
+ },
+ {
+  "id": "600000000000000000000007",
+  "code": "BtWink",
+  "imageType": "png",
+  "animated": false,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": false
+ },
+ {
+  "id": "600000000000000000000008",
+  "code": "BtCool",
+  "imageType": "png",
+  "animated": false,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": false
+ },
+ {
+  "id": "600000000000000000000009",
+  "code": "BtHmm",
+  "imageType": "png",
+  "animated": false,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": false
+ },
+ {
+  "id": "60000000000000000000000a",
+  "code": "BtYes",
+  "imageType": "png",
+  "animated": false,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": false
+ },
+ {
+  "id": "60000000000000000000000b",
+  "code": "c!",
+  "imageType": "png",
+  "animated": false,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": true
+ },
+ {
+  "id": "60000000000000000000000c",
+  "code": "h!",
+  "imageType": "png",
+  "animated": false,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": true
+ }
+]

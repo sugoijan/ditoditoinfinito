@@ -1,0 +1,28 @@
+{
+  "_fixture": "Written from Twitch's documentation of Get Global Emotes (dev.twitch.tv/docs/api/reference/chat, read 2026-11-20), not recorded: the maintainer's global-emotes demo replaces or confirms it. Ids and names are made up.",
+  "data": [
+    {"id": "196892", "name": "TwitchUnity",
+     "images": {"url_1x": "https://static-cdn.jtvnw.net/emoticons/v2/196892/static/light/1.0",
+                "url_2x": "https://static-cdn.jtvnw.net/emoticons/v2/196892/static/light/2.0",
+                "url_4x": "https://static-cdn.jtvnw.net/emoticons/v2/196892/static/light/3.0"},
+     "format": ["static"], "scale": ["1.0", "2.0", "3.0"], "theme_mode": ["light", "dark"]},
+    {"id": "emotesv2_a11", "name": "DemoDance",
+     "images": {"url_1x": "https://static-cdn.jtvnw.net/emoticons/v2/emotesv2_a11/static/light/1.0",
+                "url_2x": "https://static-cdn.jtvnw.net/emoticons/v2/emotesv2_a11/static/light/2.0",
+                "url_4x": "https://static-cdn.jtvnw.net/emoticons/v2/emotesv2_a11/static/light/3.0"},
+     "format": ["static", "animated"], "scale": ["1.0", "2.0", "3.0"], "theme_mode": ["light", "dark"]},
+    {"id": "emotesv2_a12", "name": "DemoWave",
+     "images": {"url_1x": "", "url_2x": "", "url_4x": ""},
+     "format": ["static", "animated"], "scale": ["1.0", "2.0", "3.0"], "theme_mode": ["light", "dark"]},
+    {"id": "25", "name": "DemoGrin",
+     "images": {"url_1x": "", "url_2x": "", "url_4x": ""},
+     "format": ["static"], "scale": ["1.0", "2.0", "3.0"], "theme_mode": ["light", "dark"]},
+    {"id": "41", "name": "DemoNod",
+     "images": {"url_1x": "", "url_2x": "", "url_4x": ""},
+     "format": ["static"], "scale": ["1.0", "2.0", "3.0"], "theme_mode": ["dark"]},
+    {"id": "88", "name": "Demo Space",
+     "images": {"url_1x": "", "url_2x": "", "url_4x": ""},
+     "format": ["static"], "scale": ["1.0"], "theme_mode": ["dark"]}
+  ],
+  "template": "https://static-cdn.jtvnw.net/emoticons/v2/{{id}}/{{format}}/{{theme_mode}}/{{scale}}"
+}

@@ -1,13 +1,181 @@
 {
-  "_fixture": "Written from the provider's documented response shape (read 2026-11-20), not recorded: the spike replaces or confirms it.",
-  "default_sets": [3],
-  "sets": {
-    "3": {"id": 3, "_type": 1, "title": "Global Emotes",
-      "emoticons": [
-        {"id": 9, "name": "ZreknarF", "height": 30, "width": 40, "public": true, "urls": {"1": "https://cdn.frankerfacez.com/emote/9/1", "2": "https://cdn.frankerfacez.com/emote/9/2"}}
-      ]},
-    "4330": {"id": 4330, "title": "Not a default set",
-      "emoticons": [{"id": 1, "name": "NotShown", "urls": {"1": "https://cdn.frankerfacez.com/emote/1/1"}}]}
+ "_fixture": "Shaped as the provider's answer recorded 2026-11-20 (field names, nesting, types); names and ids invented.",
+ "default_sets": [
+  3,
+  7002
+ ],
+ "sets": {
+  "3": {
+   "id": 3,
+   "_type": 1,
+   "icon": null,
+   "title": "Default Emoticons",
+   "css": null,
+   "emoticons": [
+    {
+     "id": 9,
+     "name": "ZreknarF",
+     "height": 32,
+     "width": 32,
+     "public": true,
+     "hidden": false,
+     "modifier": false,
+     "modifier_flags": 0,
+     "offset": null,
+     "margins": null,
+     "css": null,
+     "owner": {
+      "_id": 1,
+      "name": "someone",
+      "display_name": "Someone"
+     },
+     "artist": null,
+     "urls": {
+      "1": "https://cdn.frankerfacez.com/emote/9/1",
+      "2": "https://cdn.frankerfacez.com/emote/9/2",
+      "4": "https://cdn.frankerfacez.com/emote/9/4"
+     },
+     "status": 1,
+     "usage_count": 1,
+     "created_at": "2020-01-01T00:00:00.000Z",
+     "last_updated": "2020-01-01T00:00:00.000Z"
+    },
+    {
+     "id": 10,
+     "name": "HiddenOne",
+     "height": 32,
+     "width": 32,
+     "public": true,
+     "hidden": true,
+     "modifier": false,
+     "modifier_flags": 0,
+     "offset": null,
+     "margins": null,
+     "css": null,
+     "owner": {
+      "_id": 1,
+      "name": "someone",
+      "display_name": "Someone"
+     },
+     "artist": null,
+     "urls": {
+      "1": "https://cdn.frankerfacez.com/emote/10/1",
+      "2": "https://cdn.frankerfacez.com/emote/10/2",
+      "4": "https://cdn.frankerfacez.com/emote/10/4"
+     },
+     "status": 1,
+     "usage_count": 1,
+     "created_at": "2020-01-01T00:00:00.000Z",
+     "last_updated": "2020-01-01T00:00:00.000Z"
+    }
+   ]
   },
-  "users": {"4330": ["someone"]}
+  "7001": {
+   "id": 7001,
+   "_type": 1,
+   "icon": null,
+   "title": "Modifiers",
+   "css": null,
+   "emoticons": [
+    {
+     "id": 11,
+     "name": "ffzFlip",
+     "height": 32,
+     "width": 32,
+     "public": true,
+     "hidden": false,
+     "modifier": true,
+     "modifier_flags": 1,
+     "offset": null,
+     "margins": null,
+     "css": null,
+     "owner": {
+      "_id": 1,
+      "name": "someone",
+      "display_name": "Someone"
+     },
+     "artist": null,
+     "urls": {
+      "1": "https://cdn.frankerfacez.com/emote/11/1",
+      "2": "https://cdn.frankerfacez.com/emote/11/2",
+      "4": "https://cdn.frankerfacez.com/emote/11/4"
+     },
+     "status": 1,
+     "usage_count": 1,
+     "created_at": "2020-01-01T00:00:00.000Z",
+     "last_updated": "2020-01-01T00:00:00.000Z"
+    }
+   ]
+  },
+  "7002": {
+   "id": 7002,
+   "_type": 1,
+   "icon": null,
+   "title": "More Emoticons",
+   "css": null,
+   "emoticons": [
+    {
+     "id": 12,
+     "name": "FzSecond",
+     "height": 32,
+     "width": 32,
+     "public": true,
+     "hidden": false,
+     "modifier": false,
+     "modifier_flags": 0,
+     "offset": null,
+     "margins": null,
+     "css": null,
+     "owner": {
+      "_id": 1,
+      "name": "someone",
+      "display_name": "Someone"
+     },
+     "artist": null,
+     "urls": {
+      "1": "https://cdn.frankerfacez.com/emote/12/1",
+      "2": "https://cdn.frankerfacez.com/emote/12/2",
+      "4": "https://cdn.frankerfacez.com/emote/12/4"
+     },
+     "status": 1,
+     "usage_count": 1,
+     "created_at": "2020-01-01T00:00:00.000Z",
+     "last_updated": "2020-01-01T00:00:00.000Z"
+    },
+    {
+     "id": 13,
+     "name": "ffzHyper",
+     "height": 32,
+     "width": 32,
+     "public": true,
+     "hidden": false,
+     "modifier": true,
+     "modifier_flags": 1,
+     "offset": null,
+     "margins": null,
+     "css": null,
+     "owner": {
+      "_id": 1,
+      "name": "someone",
+      "display_name": "Someone"
+     },
+     "artist": null,
+     "urls": {
+      "1": "https://cdn.frankerfacez.com/emote/13/1",
+      "2": "https://cdn.frankerfacez.com/emote/13/2",
+      "4": "https://cdn.frankerfacez.com/emote/13/4"
+     },
+     "status": 1,
+     "usage_count": 1,
+     "created_at": "2020-01-01T00:00:00.000Z",
+     "last_updated": "2020-01-01T00:00:00.000Z"
+    }
+   ]
+  }
+ },
+ "users": {
+  "3": [],
+  "7001": [],
+  "7002": []
+ }
 }

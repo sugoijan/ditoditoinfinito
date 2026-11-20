@@ -11,10 +11,13 @@
 //! canvas read back once. Without `ImageDecoder`, or where it refuses
 //! the type, the first frame, still.
 //!
-//! No request reaches Twitch or an emote provider in this round: the
-//! scripted chat's images are its own shapes (drawn by `ddi_shell::chat`),
-//! or, with `mpfakechatimg=<path>`, files beside the page that a test
-//! serves.
+//! The scripted chat's images are its own shapes (drawn by
+//! `ddi_shell::chat`), or, with `mpfakechatimg=<path>`, files beside the
+//! page that a test serves. One script reaches the providers: the
+//! global-emotes demo (`mpfakechat=global`, round TW5, TESTING ONLY,
+//! `ddi_chat::global`), which the maintainer runs: their global sets read
+//! here (directly, then through our server's proxy, Twitch's through our
+//! server alone), their images as a real chat's.
 
 use std::cell::RefCell;
 
@@ -44,6 +47,54 @@ extern "C" {
 
 thread_local! {
     static BACK: RefCell<Vec<(Fetch, Option<Decoded>)>> = const { RefCell::new(Vec::new()) };
+    /// The global-emotes demo's reads (round TW5).
+    static GLOBAL: RefCell<Option<ddi_chat::global::Demo>> = const { RefCell::new(None) };
+}
+
+/// What each provider answered the global-emotes demo (null without it):
+/// `__DDI_DEBUG.chat.global`.
+pub(crate) fn global_report() -> Option<serde_json::Value> {
+    GLOBAL.with(|g| g.borrow().as_ref().map(ddi_chat::global::Demo::report))
+}
+
+/// TESTING ONLY (round TW5): the global-emotes demo. Its chat plays at
+/// once (its words alone) and again with the emotes of each set as it is
+/// read; every provider's address served from `at` instead where given
+/// (`mpfakechatimg`: a local folder of fixtures, never a provider).
+fn global(at: Option<&str>) {
+    let from = crate::settings::Settings::load().chat_emotes_from;
+    let demo = ddi_chat::global::Demo::new(from, Some(crate::share::base()), at.map(str::to_string));
+    ddi_session::chat::set_scripted(Some(demo.script()));
+    GLOBAL.with(|g| *g.borrow_mut() = Some(demo));
+    wasm_bindgen_futures::spawn_local(async {
+        loop {
+            let reads = GLOBAL.with(|g| g.borrow_mut().as_mut().map(ddi_chat::global::Demo::start));
+            let Some(reads) = reads.filter(|r| !r.is_empty()) else {
+                break;
+            };
+            for r in reads {
+                let answer = read(&r.url)
+                    .await
+                    .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+                let line = format!(
+                    "chat global emotes: {} {:?} {}: {}",
+                    ddi_chat::global::provider_name(r.provider),
+                    r.via,
+                    r.url,
+                    answer.as_ref().map_or_else(|e| e.clone(), |t| format!("{} bytes", t.len()))
+                );
+                web_sys::console::info_1(&line.into());
+                GLOBAL.with(|g| {
+                    if let Some(d) = g.borrow_mut().as_mut() {
+                        d.answered(r.provider, r.via, answer);
+                    }
+                });
+            }
+            if let Some(script) = GLOBAL.with(|g| g.borrow().as_ref().map(ddi_chat::global::Demo::script)) {
+                ddi_session::chat::set_scripted(Some(script));
+            }
+        }
+    });
 }
 
 /// Fetches `f` and decodes it, later; its answer is in [`take`].
@@ -268,13 +319,18 @@ pub(crate) fn look(name: Option<&str>) {
     ddi_shell::chat::set_look(look);
 }
 
-/// TESTING ONLY: `mpfakechat=<name or rate>` (`0` stops it), the scripted
+/// TESTING ONLY: `mpfakechat=<name or rate>` (`0` stops it; `global` the
+/// global-emotes demo, its addresses from `mpfakechatimg` where given), the scripted
 /// chat beside every play (`ddi_session::chat::set_scripted`), its images
 /// from `mpfakechatimg=<path>` (`<path><emote's id>.png`, an animated
 /// one's `.gif`, [`ddi_chat::script::Script::images_at`]) where given.
 pub(crate) fn script(what: &str, images: Option<&str>) {
     if what == "0" {
         ddi_session::chat::set_scripted(None);
+        return;
+    }
+    if what == "global" {
+        global(images);
         return;
     }
     let script = ddi_chat::script::Script::builtin(what).map(|mut s| {
