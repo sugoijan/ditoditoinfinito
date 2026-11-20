@@ -7145,6 +7145,24 @@ fn practice_has_no_moderate() {
     assert!(!h.texts().iter().any(|t| t.starts_with("Kick")));
 }
 
+/// Round TW3: a mouse on the players panel's head word ("Players") opens
+/// the Players pop-up; the words over the head once took the tap, so only
+/// a row opened it.
+#[test]
+fn a_tap_on_the_panels_head_words_opens_the_players() {
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    let at = h.centre("Players.Heading");
+    h.tap_at(PointerKind::Mouse, at);
+    h.run(0.5);
+    assert_eq!(top(&h), "room-players");
+}
+
 /// Revision 18 (round TW1, B1, C1): the host's Host options have Twitch
 /// bans and Show my Twitch chat; a step that needs Twitch access not yet
 /// connected starts the trip through Twitch (back to the room), and once

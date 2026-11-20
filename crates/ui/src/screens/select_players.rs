@@ -411,12 +411,16 @@ impl SelectScreen {
         let env = &self.env;
         let title: String = m::players().into();
         c.push(hit(HEAD, [w, 22.0], [x + w / 2.0, y + 12.0]));
-        c.push(left(
+        // The head's words are its look alone: a tap on them is the head's
+        // (round TW3: they took it, and a tap on "Players" opened nothing).
+        let mut heading = left(
             look::tracked(env.text("Players.Heading", &title, 11.0, 700, "Faint"), 120),
             x,
             y + 12.0,
-        ));
-        c.push(right(
+        );
+        heading.decoration = true;
+        c.push(heading);
+        let mut count = right(
             env.text(
                 "Players.Count",
                 &m::players_count(rm::players_counted(&shown.rows), shown.cap),
@@ -426,7 +430,9 @@ impl SelectScreen {
             ),
             x + w,
             y + 12.0,
-        ));
+        );
+        count.decoration = true;
+        c.push(count);
         let fit = ((h - 30.0) / ROW).floor().max(0.0) as usize;
         let rows = &shown.rows;
         let n = if rows.len() > fit { fit.saturating_sub(1) } else { rows.len() };
