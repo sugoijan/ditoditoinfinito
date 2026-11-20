@@ -487,6 +487,9 @@ Rust and the browser are implementation details, not advertised features.
   distinct until the screen resolves it. Standard-controller binding has
   explicit Capture and navigation phases; raw devices keep guided learning.
   `screens/numbers.rs` supplies controller-editable numeric/compound forms;
+  `screens/code_plate.rs` desktop's sign-in code large on a plate that
+  copies it when pressed (the sign-in dialog's, the Twitch access trip's
+  and an invite page's, `page::Block::Code`);
   `crates/ui/src/radar.rs` a chart's skill radar (MSD's seven skillsets
   as shares of its overall, drawn from quads: the fill seven triangles
   cut by turned frame clips; the theme's `Radar.*` colors; each spoke's

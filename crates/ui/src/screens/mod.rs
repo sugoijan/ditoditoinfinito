@@ -60,6 +60,7 @@
 
 pub mod audience;
 pub mod calibration;
+pub mod code_plate;
 pub mod credits;
 pub mod data;
 pub mod dialog;

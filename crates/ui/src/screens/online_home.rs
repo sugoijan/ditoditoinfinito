@@ -570,16 +570,14 @@ pub struct SignInDialog {
     /// not a sign-in.
     connect: Option<Connect>,
     /// When the code was last copied (the UI's clock): its plate says so
-    /// for [`COPIED_FOR`] seconds.
-    copied: Option<f64>,
+    /// for a moment ([`super::code_plate::Copied`]).
+    copied: super::code_plate::Copied,
 }
 
-/// The sign-in code's plate (round SF): pressed, the code is copied.
+/// The sign-in code's plate (round SF, [`super::code_plate`]): pressed,
+/// the code is copied.
 pub const CODE: &str = "Code";
-/// How long the code's plate says it was copied, in seconds.
-const COPIED_FOR: f64 = 2.0;
-/// The code's plate's height.
-const CODE_H: f32 = 64.0;
+use super::code_plate::CODE_H;
 
 /// A connecting [`SignInDialog`]'s trip: the scope sets asked (`chat`,
 /// `bans,blocks`…) and what is told when it ends (connected or not).
@@ -602,7 +600,7 @@ impl SignInDialog {
             seen,
             open,
             connect: None,
-            copied: None,
+            copied: Default::default(),
         }
     }
 
@@ -615,29 +613,10 @@ impl SignInDialog {
         }
     }
 
-    /// The code's plate (round SF): the code large in the theme's face,
-    /// the length of the dialog's body, centered at `[cx, cy]`, `w`
-    /// wide; at its right end, small, Copy (or Copied a moment after).
+    /// The code's plate ([`super::code_plate::plate`]): the length of
+    /// the dialog's body, centered at `[cx, cy]`, `w` wide.
     fn code_plate(&self, code: &str, [cx, cy]: [f32; 2], w: f32) -> Vec<Actor> {
-        let env = &self.env;
-        let plate = env.component("Button", "Button", &Spec::new([w, CODE_H], ""), CODE, [cx, cy]);
-        let shown: String = UiText::data(code).into();
-        let mut text = look::tracked(env.text("Code.Text", &shown, 34.0, 700, "Text"), 160);
-        call(&mut text, "xy", &[cx, cy]);
-        text.decoration = true;
-        let hint: String = self.copy_words().into();
-        let mut hint = super::right(env.text("Code.Hint", &hint, 12.0, 600, "Muted"), cx + w / 2.0 - 14.0, cy);
-        hint.decoration = true;
-        vec![plate, text, hint]
-    }
-
-    /// The plate's small words: Copy, or Copied a moment after.
-    fn copy_words(&self) -> UiText {
-        if self.copied.is_some() {
-            m::sign_in_code_copied()
-        } else {
-            m::sign_in_code_copy()
-        }
+        super::code_plate::plate(&self.env, CODE, code, self.copied.shown(), [cx, cy], w)
     }
 
     /// Desktop's trip through Twitch for the person's Twitch access
@@ -860,9 +839,8 @@ impl Screen for SignInDialog {
             (o.version(), o.me().is_some(), o.sign_in_state().busy())
         };
         // Copied a moment ago: said once, then Copy again.
-        if self.copied.is_some_and(|t| cx.time() - t >= COPIED_FOR) {
-            self.copied = None;
-            let words: String = self.copy_words().into();
+        if self.copied.expire(cx.time()) {
+            let words: String = super::code_plate::words(false).into();
             crate::widgets::set_text(root, "Code.Hint", &words);
         }
         let settled = matches!(self.online.borrow().sign_in_state(), SignIn::Idle);
@@ -925,9 +903,8 @@ impl Screen for SignInDialog {
                     CODE => {
                         if let Some(code) = self.code() {
                             cx.request(crate::UiRequest::CopyText(code));
-                            let was = self.copied.replace(cx.time());
-                            if was.is_none() {
-                                let words: String = self.copy_words().into();
+                            if self.copied.press(cx.time()) {
+                                let words: String = super::code_plate::words(true).into();
                                 crate::widgets::set_text(root, "Code.Hint", &words);
                             }
                         }

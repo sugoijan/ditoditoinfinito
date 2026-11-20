@@ -13293,6 +13293,36 @@ attack power earned: "Make it attack the top score", and for ties:
 score (the miniatures' numbers), and its line under the policy says so.
 The server deploys first.
 
+Also in round DC:
+
+- **The invite's page's sign-in code on desktop** (the maintainer: "yes,
+  the same plate"): joining by a link while signed out, the attempt's
+  code is large on round SF's plate under "Type this code in the page
+  your browser opened.", copied by a click, a tap, Enter or a pad's
+  confirm, Copied for two seconds. One component for the three places
+  (`ddi_ui::screens::code_plate`: the sign-in dialog, the Twitch access
+  trip's dialog, an invite's page through the page's new
+  `Block::Code`); `room-sign-in-code` (the code inside a sentence) is
+  gone. Tests: `an_invites_page_shows_the_sign_in_code_on_its_plate` in
+  the UI's and desktop's (`sign_in_code_offscreen`, no GPU needed: the
+  click aimed at the plate, found as the page's `button:code` item).
+- **The server's two Twitch list calls on `barbed`'s types** (no new
+  dependency; the server's own commit): Get Banned Users and Get User
+  Block List built by `barbed`'s generated `GetBannedUsersRequest` and
+  `GetUserBlockListRequest` and read by their `…Response::parse`
+  (`banned_request`, `read_banned`, `blocked_request`, `read_blocked`,
+  now native code with native tests); ours the 2 s deadline, the chunks
+  of 100, the mirror's outcomes (2xx an answer, 401 refused, anything
+  else down) and the fake Twitch. Where `barbed` reads differently from
+  the hand-written reader: it decodes a whole answer or nothing, so a
+  `null` (or a number) where the documentation shows a string, in any
+  row, makes the whole list "down" where ours read the rest (a `null`
+  `expires_at` was a ban for good); it takes status 200 alone (ours any
+  2xx: Twitch documents 200); and it refuses to build a request without
+  a token (now refused, as Twitch's 401 would have said) or a client id
+  (now down: the server's own configuration, never the person's). The
+  maintainer's spike decides which reading is right.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

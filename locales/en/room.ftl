@@ -1106,13 +1106,6 @@ room-invite-room-address = That's a room's page address, not its invite link. As
 # Desktop, while signing in: the browser is open on Twitch's page.
 room-sign-in-waiting = Finish signing in with Twitch in your browser, then come back here.
 
-# Desktop, while signing in, above the line before: the code the page the
-# browser opened asks for (the server's page asks the person to type it,
-# so a sign-in link nobody started on this computer can't sign them in).
-# Variables:
-#   $code (String) - six letters and digits, grouped: ABC-DEF
-room-sign-in-code = Type this code in the page your browser opened: { $code }
-
 # Desktop, while signing in and in the dialog connecting Twitch access
 # (round SF): the line over the code, which is shown large under it on a
 # plate of its own (the page the browser opened asks for the code).

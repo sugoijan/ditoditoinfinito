@@ -4,15 +4,18 @@
 //! dialog and the Twitch access trip's show the attempt's code large on a
 //! plate of its own in the game's look, and a click on it asks the shell
 //! to copy it (a request here: the real clipboard is never written by a
-//! test), "Copied" in its place for a moment. Drawn offscreen where there
-//! is a GPU, at 1280×720 and in a small window (`DDI_OFFSCREEN_PPM=<dir>`
-//! keeps `sign-in-code-<what>-<w>x<h>-<lang>.ppm`).
+//! test), "Copied" in its place for a moment. Since round DC an invite's
+//! page shows the same plate while its Join signs in (the maintainer,
+//! 2026-11-20: "yes, the same plate"). Drawn offscreen where there is a
+//! GPU, at 1280×720 and in a small window (`DDI_OFFSCREEN_PPM=<dir>` keeps
+//! `sign-in-code-<what>-<w>x<h>-<lang>.ppm`).
 
 mod common;
 use std::cell::Cell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 
+use ddi_ui::screens::online::{OnlinePage, OnlineScreen};
 use ddi_ui::screens::online_home::{CODE, SignInDialog};
 use ddi_ui::state::online::api::{ApiRequest, ApiResponse, Method};
 use ddi_ui::state::online::{Dest, Http, Online, OnlineConfig, Platform};
@@ -41,6 +44,10 @@ impl Http for Attempt {
             (Method::Get, "/auth/attempts/a1") => {
                 (200, r#"{"status":"pending","return":"/mp","expires_at_ms":9}"#)
             }
+            (Method::Get, p) if p.starts_with("/invites/") => (
+                200,
+                r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"lobby","admission":"open","members":2}"#,
+            ),
             _ => (404, r#"{"error":"not_found"}"#),
         };
         self.out.push_back((
@@ -135,6 +142,77 @@ fn the_sign_in_code_is_large_and_copied_on_a_click() {
             if let Some(p) = pictures.draw(&mut h.ui, size) {
                 common::online::keep(&format!("sign-in-code-{what}-copied"), size, lang, &p);
             }
+        }
+    }
+}
+
+/// An invite's page (round DC): signed out, its Join signs in, and the
+/// attempt's code is on the same plate, copied by a click on the plate
+/// (aimed at the plate's middle: without a GPU the frame is laid out
+/// undrawn and the code's own box is not there to aim at).
+#[test]
+fn an_invites_page_shows_the_sign_in_code_on_its_plate() {
+    common::indexes();
+    let mut pictures = common::gpu::Pictures::new();
+    for (size, lang) in [([1280u32, 720u32], "en"), ([640, 400], "en"), ([1280, 720], "ja")] {
+        assert!(ddi_l10n::set_language(lang));
+        let online = Online::new(
+            Box::new(Attempt {
+                signed_in: false,
+                out: VecDeque::new(),
+            }),
+            OnlineConfig {
+                platform: Platform::Desktop,
+                site: "http://localhost:8080/".into(),
+            },
+        )
+        .shared();
+        online.borrow_mut().check();
+        online.borrow_mut().poll(0);
+        let env = env();
+        let state = env.state.clone();
+        let css = [size[0] as f32, size[1] as f32];
+        let look = ddi_theme::Infinito::new();
+        let design = ddi_ui::screens::design_for(&look, css);
+        let mut h = Harness::with_gestures(design, css, 1.0, TextMode::Own, false);
+        h.ui.set_focus_ring(false);
+        h.push(OnlineScreen::new(
+            env,
+            online.clone(),
+            OnlinePage::Invite("Room000001.abcdefghijABCDEFGHIJ01".into()),
+            Rc::new(|_, _| {}),
+        ));
+        h.run(0.5);
+        online.borrow_mut().poll(0);
+        h.run(0.3);
+        online.borrow_mut().join_invite();
+        online.borrow_mut().poll(0);
+        h.run(0.5);
+        // The plate is the page's item `button:code`.
+        let n = state
+            .borrow()
+            .page_items
+            .iter()
+            .position(|i| i == "button:code")
+            .unwrap_or_else(|| panic!("{size:?} {lang}: {:?}", state.borrow().page_items));
+        let plate = format!("Item{n}");
+        let b = h.ui.bounds(&plate).expect("the code's plate");
+        assert!(b[3] - b[1] >= 60.0, "{b:?}");
+        h.ui.forget_metrics();
+        if let Some(p) = pictures.draw(&mut h.ui, size) {
+            common::online::keep("sign-in-code-invite", size, lang, &p);
+        }
+        h.tap(PointerKind::Mouse, &plate);
+        h.run(0.3);
+        let copied = h
+            .requests
+            .iter()
+            .filter(|r| matches!(r, UiRequest::CopyText(t) if t == "K7M-X3Q"))
+            .count();
+        assert_eq!(copied, 1, "{size:?} {lang}");
+        h.ui.forget_metrics();
+        if let Some(p) = pictures.draw(&mut h.ui, size) {
+            common::online::keep("sign-in-code-invite-copied", size, lang, &p);
         }
     }
 }

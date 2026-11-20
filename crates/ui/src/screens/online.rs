@@ -67,18 +67,26 @@ pub type OnlineShell = Rc<dyn Fn(OnlineCall, &mut Cx)>;
 pub use super::online_home::PRACTICE;
 
 /// What the page keeps beside the online state: the invite field's text
-/// and whether what was opened from it was no invite.
+/// and whether what was opened from it was no invite; when the sign-in
+/// code was copied, and how often what the page shows changed of its
+/// own (the model's version moves with it).
 #[derive(Default)]
 struct Draft {
     invite: String,
     not_one: bool,
+    copied: super::code_plate::Copied,
+    changed: u64,
 }
+
+/// An invite page's sign-in code's plate ([`Block::Code`], round DC):
+/// pressed, the code is copied.
+pub const CODE: &str = "code";
 
 /// The page for `which` as `online` stands.
 fn doc(which: &OnlinePage, online: &Online, draft: &Draft) -> PageDoc {
     match which {
         OnlinePage::Home | OnlinePage::JoinLink => join_doc(draft),
-        OnlinePage::Invite(_) => invite_doc(online),
+        OnlinePage::Invite(_) => invite_doc(online, draft.copied.shown()),
     }
 }
 
@@ -94,10 +102,14 @@ fn account_block(online: &Online) -> Block {
     )
 }
 
-/// Desktop's attempt's code, to type in the page the browser opened
-/// (the server's confirmation page: nothing goes to Twitch without it).
-pub fn sign_in_code(code: &str) -> UiText {
-    m::sign_in_code(UiText::data(api::grouped_code(code)))
+/// Desktop's attempt's code while the browser's page waits for it,
+/// grouped as it is typed there (the server's confirmation page: nothing
+/// goes to Twitch without it).
+fn waiting_code(online: &Online) -> Option<String> {
+    match online.sign_in_state() {
+        SignIn::Waiting { code: Some(c), .. } => Some(api::grouped_code(c)),
+        _ => None,
+    }
 }
 
 /// A failed sign-in, worded: wrong codes typed in the browser's page
@@ -110,16 +122,23 @@ pub fn sign_in_failed(code: &str) -> UiText {
 }
 
 /// Signing in, where it stands (nothing when idle); `retry` offers Try
-/// again after a cancel or a failure (an invite's page has its own Join).
-fn sign_in_blocks(online: &Online, blocks: &mut Vec<Block>, retry: bool) {
+/// again after a cancel or a failure (an invite's page has its own Join);
+/// desktop's code on its plate (round DC: as the sign-in dialog has it),
+/// `copied` saying so.
+fn sign_in_blocks(online: &Online, blocks: &mut Vec<Block>, retry: bool, copied: bool) {
     match online.sign_in_state() {
         SignIn::Idle => {}
         SignIn::Starting { .. } | SignIn::Completing { .. } => {
             blocks.push(Block::Note(m::sign_in_completing().into()));
         }
-        SignIn::Waiting { code, .. } => {
-            if let Some(code) = code {
-                blocks.push(Block::Note(sign_in_code(code).into()));
+        SignIn::Waiting { .. } => {
+            if let Some(code) = waiting_code(online) {
+                blocks.push(Block::Note(m::sign_in_code_type().into()));
+                blocks.push(Block::Code {
+                    id: CODE.into(),
+                    code,
+                    copied,
+                });
             }
             blocks.push(Block::Note(m::sign_in_waiting().into()));
             blocks.push(Block::Actions(vec![
@@ -257,9 +276,10 @@ pub const RELOAD: &str = "reload";
 pub(crate) fn invite_page(online: &Online) -> (Vec<String>, Vec<String>) {
     let mut notes = Vec::new();
     let mut actions = Vec::new();
-    for b in invite_doc(online).blocks {
+    for b in invite_doc(online, false).blocks {
         match b {
             Block::Note(t) => notes.push(t),
+            Block::Code { code, .. } => notes.push(code),
             Block::Actions(a) => actions.extend(a.into_iter().map(|a| a.id)),
             _ => {}
         }
@@ -270,7 +290,7 @@ pub(crate) fn invite_page(online: &Online) -> (Vec<String>, Vec<String>) {
 /// An invite's page's plain lines (tests).
 #[cfg(test)]
 pub(crate) fn invite_texts(online: &Online) -> Vec<String> {
-    invite_doc(online)
+    invite_doc(online, false)
         .blocks
         .into_iter()
         .filter_map(|b| match b {
@@ -280,8 +300,8 @@ pub(crate) fn invite_texts(online: &Online) -> Vec<String> {
         .collect()
 }
 
-/// An invite's page.
-fn invite_doc(online: &Online) -> PageDoc {
+/// An invite's page; `copied`, its sign-in code just copied.
+fn invite_doc(online: &Online, copied: bool) -> PageDoc {
     let mut blocks = Vec::new();
     let view = online.invite();
     let mut joinable = false;
@@ -353,7 +373,7 @@ fn invite_doc(online: &Online) -> PageDoc {
     if !audience_link || online.me().is_some() {
         blocks.push(account_block(online));
     }
-    sign_in_blocks(online, &mut blocks, !joinable && !audience);
+    sign_in_blocks(online, &mut blocks, !joinable && !audience, copied);
     let mut actions = Vec::new();
     if update {
         actions.push(Action::new(RELOAD, m::update_reload_button()).primary());
@@ -472,6 +492,13 @@ impl OnlinePageModel {
                         }),
                         "signout" => o.sign_out(),
                         "browser" => o.open_browser_again(),
+                        // The code to the clipboard, as shown; Copied in
+                        // its place for a moment (`code_plate::Copied`).
+                        CODE => {
+                            let code = waiting_code(&o)?;
+                            cx.request(crate::UiRequest::CopyText(code));
+                            draft.borrow_mut().copied.press(cx.time());
+                        }
                         "cancel" => o.cancel_sign_in(),
                         "retry" => {
                             let dest = match o.sign_in_state() {
@@ -531,7 +558,12 @@ impl OnlinePageModel {
 
 impl PageModel for OnlinePageModel {
     fn version(&self) -> u64 {
-        self.online.borrow().version()
+        // What the page shows of its own (its code's Copied over) moves it
+        // too.
+        self.online
+            .borrow()
+            .version()
+            .wrapping_add(self.draft.borrow().changed << 40)
     }
 
     fn doc(&self) -> PageDoc {
@@ -539,6 +571,12 @@ impl PageModel for OnlinePageModel {
     }
 
     fn tick(&mut self, cx: &mut Cx) {
+        {
+            let mut d = self.draft.borrow_mut();
+            if d.copied.expire(cx.time()) {
+                d.changed += 1;
+            }
+        }
         let now = cx.wall_ms();
         let (redirect, entered, seated) = {
             let mut o = self.online.borrow_mut();

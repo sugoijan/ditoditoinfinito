@@ -254,6 +254,10 @@ fn doc_texts(blocks: &[Block], out: &mut Vec<String>) {
                 out.extend(detail.clone());
                 out.extend(actions.iter().map(|a| a.label.clone()));
             }
+            // The code is data; its plate's words are ours.
+            Block::Code { copied, .. } => {
+                out.push(super::code_plate::words(*copied).into());
+            }
             Block::Gap => {}
         }
     }
@@ -2816,6 +2820,9 @@ fn block_texts(blocks: &[Block], out: &mut Vec<String>) {
                 out.push(text.clone());
                 out.extend(detail.clone());
                 out.extend(actions.iter().map(|a| a.label.clone()));
+            }
+            Block::Code { copied, .. } => {
+                out.push(super::code_plate::words(*copied).into());
             }
             Block::Mono(_) | Block::Gap => {}
         }

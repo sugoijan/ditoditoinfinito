@@ -7654,6 +7654,103 @@ fn desktops_sign_in_code_is_large_and_copied_when_pressed() {
     }
 }
 
+/// Round DC (the maintainer, 2026-11-20: "yes, the same plate"): joining a
+/// room by its link while signed out on desktop shows the attempt's code
+/// on the invite's page as the sign-in dialog does
+/// ([`super::code_plate`]): large on its plate under the line that says
+/// to type it; a click, a tap, Enter or a pad's confirm on it copies it
+/// (a request: the real clipboard is never written by a test), Copied in
+/// place of Copy for two seconds.
+#[test]
+fn an_invites_page_shows_the_sign_in_code_on_its_plate() {
+    use crate::nav::MenuAction;
+    use crate::screens::online::{OnlinePage, OnlineScreen};
+    use crate::state::online::api::{ApiResponse, Method};
+    use crate::state::online::tests::{INVITE, err, ok, rig};
+    use crate::state::online::Platform;
+    for size in [[1280.0, 720.0], [640.0, 400.0]] {
+        let r = rig(
+            Platform::Desktop,
+            Box::new(|req| match (req.method, req.path.as_str()) {
+                (Method::Get, "/me") => err(401, "signed_out"),
+                (Method::Get, p) if p.starts_with("/invites/") => ok(
+                    r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"lobby","admission":"open","members":2}"#,
+                ),
+                (Method::Post, "/auth/attempts") => Some(ApiResponse {
+                    status: 201,
+                    body: r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"http://api/auth/attempts/a1/open","user_code":"K7MX3Q","expires_at_ms":9}"#.into(),
+                    session: None,
+                }),
+                (Method::Get, "/auth/attempts/a1") => {
+                    ok(r#"{"status":"pending","return":"/mp","expires_at_ms":9}"#)
+                }
+                _ => None,
+            }),
+        );
+        r.online.borrow_mut().check();
+        r.online.borrow_mut().poll(0);
+        let mut h = crate::testing::Harness::with_gestures(
+            super::DESIGN,
+            size,
+            1.0,
+            crate::TextMode::Own,
+            false,
+        );
+        h.push(OnlineScreen::new(
+            env(),
+            r.online.clone(),
+            OnlinePage::Invite(INVITE.into()),
+            Rc::new(|_, _| {}),
+        ));
+        h.run(0.5);
+        assert!(h.ui.bounds("Code.Text").is_none(), "no code before signing in");
+        // Sign in (the page's Join, signed out).
+        r.online.borrow_mut().join_invite();
+        r.online.borrow_mut().poll(0);
+        h.run(0.5);
+        let copies = |h: &Harness| -> Vec<String> {
+            h.requests
+                .iter()
+                .filter_map(|q| match q {
+                    crate::UiRequest::CopyText(t) => Some(t.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(said(&h, "Code.Text"), "K7M-X3Q", "{size:?}");
+        assert!(
+            has(&h, "Type this code in the page your browser opened."),
+            "{:?}",
+            h.texts()
+        );
+        let text = h.ui.bounds("Code.Text").expect("drawn");
+        assert!(text[3] - text[1] >= 30.0, "large: {text:?}");
+        assert_eq!(said(&h, "Code.Hint"), "Copy");
+        // A click on its words: copied, said.
+        h.tap(PointerKind::Mouse, "Code.Text");
+        h.run(0.3);
+        assert_eq!(copies(&h), ["K7M-X3Q"]);
+        assert_eq!(said(&h, "Code.Hint"), "Copied");
+        // A tap on the plate's edge, then Enter on it: copied again; the
+        // words back after their moment.
+        let plate = h.ui.bounds("Code.Text").map(|t| [t[0] - 30.0, t[1] - 10.0]).unwrap();
+        h.tap_at(PointerKind::Touch, plate);
+        h.run(0.5);
+        h.key("Enter", "Enter");
+        h.run(0.3);
+        assert_eq!(copies(&h).len(), 3, "{size:?}");
+        assert_eq!(said(&h, "Code.Hint"), "Copied");
+        h.run(2.2);
+        assert_eq!(said(&h, "Code.Hint"), "Copy", "gone after a moment");
+        // A pad's confirm on the focused plate.
+        h.pad(MenuAction::Start, true);
+        h.pad(MenuAction::Start, false);
+        h.run(0.3);
+        assert_eq!(copies(&h).len(), 4);
+        assert!(copies(&h).iter().all(|c| c == "K7M-X3Q"));
+    }
+}
+
 /// Round TW3: desktop's trip through Twitch for a Twitch feature (Options'
 /// "Twitch chat in rooms", a room's Host options) shows its own dialog:
 /// the attempt's code to type in the browser's page (which no screen

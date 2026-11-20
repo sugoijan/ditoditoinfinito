@@ -814,7 +814,11 @@ a development tool's).
 
 Waiting for the spike: the Helix client, the chat's transports and the
 subscribe route, the providers' sets and images fetched for real; then
-the chat's rows are shown to players.
+the chat's rows are shown to players. (Round DC: the Helix client's two
+list calls are `barbed`'s generated request and response types now, the
+rest of it `barbed`'s builders already; none of it run against Twitch.
+Where `barbed` reads an answer differently from the hand-written reader
+it replaced, `docs/plans/multiplayer-prototype-progress.md`, "Round DC".)
 
 ## Animated emotes (round TW4, designed 2026-11-20)
 

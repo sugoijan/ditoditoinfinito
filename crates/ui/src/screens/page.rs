@@ -83,6 +83,15 @@ pub enum Block {
     },
     /// Something to heed, in the look's `Gold`.
     Note(String),
+    /// Desktop's sign-in code, large on its plate ([`super::code_plate`]),
+    /// `copied` saying Copied in place of Copy: pressed (a click, a tap,
+    /// Enter, a pad's confirm), it asks the shell ([`PageCall::Button`]
+    /// with `id`), which copies it.
+    Code {
+        id: String,
+        code: String,
+        copied: bool,
+    },
     /// Blocks on an area of their own, the actor `Zone.<id>`: the shell
     /// finds it under what is dragged over the page, and lights it
     /// ([`PAGE_TARGET`]).
@@ -320,7 +329,18 @@ enum RowKind {
     },
     /// A zone's area, as tall as its row, under its blocks' rows.
     Zone { id: String, indent: f32 },
+    /// A sign-in code's plate ([`Block::Code`]), `indent` from the
+    /// column's left.
+    Code {
+        item: usize,
+        code: String,
+        copied: bool,
+        indent: f32,
+    },
 }
+
+/// A sign-in code's plate's widest ([`Block::Code`]): a dialog's body's.
+const CODE_W: f32 = 472.0;
 
 /// What a focusable item does.
 #[derive(Clone, Debug, PartialEq)]
@@ -487,6 +507,7 @@ impl PageScreen {
             for r in &rows {
                 if let RowKind::Item { item, .. }
                 | RowKind::Button { item, .. }
+                | RowKind::Code { item, .. }
                 | RowKind::Field { item, .. } = r.kind
                     && r.y >= zone.y
                     && r.y + r.h <= zone.y + zone.h
@@ -770,6 +791,23 @@ impl PageScreen {
                     text(rows, y, s, 13.0, 500, "Gold");
                     *y += 4.0;
                 }
+                Block::Code { id, code, copied } => {
+                    let item = items.len();
+                    items.push(Item::Button(id.clone()));
+                    *y += 6.0;
+                    rows.push(Row {
+                        y: *y,
+                        h: super::code_plate::CODE_H,
+                        right: w,
+                        kind: RowKind::Code {
+                            item,
+                            code: code.clone(),
+                            copied: *copied,
+                            indent,
+                        },
+                    });
+                    *y += super::code_plate::CODE_H + 10.0;
+                }
                 Block::Zone { id, body } => {
                     *y += 6.0;
                     let at = rows.len();
@@ -1040,6 +1078,32 @@ impl PageScreen {
                         c.push(slot);
                     }
                 }
+                RowKind::Code {
+                    item,
+                    code,
+                    copied,
+                    indent,
+                } => {
+                    let pw = (r.right - indent).min(CODE_W);
+                    let mut parts = super::code_plate::plate(
+                        env,
+                        &format!("Item{item}"),
+                        code,
+                        *copied,
+                        [indent + pw / 2.0, r.y + r.h / 2.0],
+                        pw,
+                    );
+                    crate::widgets::play(
+                        &mut parts[0],
+                        if self.focus == Some(*item) {
+                            "GainFocus"
+                        } else {
+                            "LoseFocus"
+                        },
+                    );
+                    parts[0].finish_tweening();
+                    c.extend(parts);
+                }
                 RowKind::Zone { id, indent } => {
                     let lit = self.target.as_deref() == Some(id.as_str());
                     let zw = r.right - indent;
@@ -1201,6 +1265,7 @@ impl PageScreen {
             let item = match &r.kind {
                 RowKind::Item { item, .. }
                 | RowKind::Button { item, .. }
+                | RowKind::Code { item, .. }
                 | RowKind::Field { item, .. } => *item,
                 RowKind::Text { .. } | RowKind::Zone { .. } => continue,
             };
@@ -1232,6 +1297,7 @@ impl PageScreen {
         self.rows.iter().find_map(|r| match &r.kind {
             RowKind::Item { item, .. }
             | RowKind::Button { item, .. }
+            | RowKind::Code { item, .. }
             | RowKind::Field { item, .. }
                 if *item == i =>
             {
