@@ -28,6 +28,17 @@ use ddi_ui::state::online::{Http, Kept, Online, OnlineConfig, Platform, SharedOn
 use ddi_ui::state::audience::{AudienceClient, SharedAudience};
 use ddi_ui::state::room::{RoomClient, SharedRoom};
 
+/// The person's Twitch access, for Options → Data's row (round TW1b).
+pub fn twitch_row() -> ddi_ui::screens::options_model::TwitchRow {
+    KEPT.with(Kept::twitch_row)
+}
+
+/// Options → Data's Disconnect (round TW1b): deleted on the server, the
+/// kept room's Twitch setting off where it was this person's.
+pub fn disconnect_twitch() {
+    KEPT.with(Kept::disconnect_twitch);
+}
+
 thread_local! {
     /// The run's online state, the online room shown last and the room
     /// watched with its audience.

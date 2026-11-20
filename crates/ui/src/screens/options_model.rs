@@ -110,11 +110,49 @@ pub struct World {
     /// (`navigator.globalPrivacyControl`): no error report is sent, and
     /// the row says so.
     pub privacy_signal: bool,
+    /// The person's Twitch access as the online state last read it (round
+    /// TW1b, `docs/plans/multiplayer-twitch.md` A4): Data's "Twitch access"
+    /// row.
+    pub twitch: TwitchRow,
+}
+
+/// The person's Twitch access, for Data's row: signed in or not, the
+/// features it grants (`bans`, `blocks`, `chat`), whose account.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TwitchRow {
+    pub signed_in: bool,
+    pub features: Vec<String>,
+    pub login: String,
+}
+
+impl TwitchRow {
+    pub fn connected(&self) -> bool {
+        self.signed_in && !self.features.is_empty()
+    }
+
+    /// The features in words, in the list's order.
+    fn words(&self) -> String {
+        use ddi_l10n::msg::twitch as t;
+        let mut out: Vec<String> = Vec::new();
+        for (f, w) in [
+            ("bans", t::feature_bans as fn() -> UiText),
+            ("blocks", t::feature_blocks),
+            ("chat", t::feature_chat),
+        ] {
+            if self.features.iter().any(|g| g == f) {
+                out.push(w().into());
+            }
+        }
+        out.join(", ")
+    }
 }
 
 /// What a confirmation is for.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Reset {
+    /// The person's Twitch access (round TW1b): deleted on the server and
+    /// revoked at Twitch.
+    Twitch,
     /// Every setting (device calibrations too) but the songs' offsets.
     Settings,
     /// Imported songs, their files and offsets, imported noteskins and
@@ -135,6 +173,11 @@ impl Reset {
     pub fn texts(&self, model: &OptionsModel) -> (String, String, String) {
         let plays = model.world.plays;
         let (title, body, yes) = match self {
+            Reset::Twitch => (
+                ddi_l10n::msg::twitch::confirm(),
+                ddi_l10n::msg::twitch::confirm_body(),
+                ddi_l10n::msg::twitch::disconnect(),
+            ),
             Reset::Settings => (
                 m::confirm_settings(),
                 m::confirm_settings_body(),
@@ -1971,6 +2014,25 @@ impl OptionsModel {
         Some(section("Sharing", m::section_sharing(), rows))
     }
 
+    /// Data's "Twitch access" (round TW1b, A4): what is connected, in
+    /// words, and Disconnect (asked once more); one quiet line of what it
+    /// is for to someone signed out or with nothing connected.
+    fn twitch_row(&self) -> OptionDef {
+        use ddi_l10n::msg::twitch as t;
+        let row = &self.world.twitch;
+        if row.connected() {
+            actions(
+                "twitch",
+                t::access(),
+                [t::disconnect()],
+                t::connected(UiText::data(&row.login), UiText::data(row.words())),
+                t::connected_description(),
+            )
+        } else {
+            actions("twitch", t::access(), Vec::<UiText>::new(), t::none(), t::about())
+        }
+    }
+
     /// The play history and the resets ("Data").
     fn data_section(&self) -> OptionSection {
         let w = &self.world;
@@ -2052,6 +2114,7 @@ impl OptionsModel {
                             .map_or_else(m::room_ahead_everything, |(_, l)| l()),
                     ),
                 ),
+                self.twitch_row(),
                 actions(
                     "privacy",
                     ddi_l10n::msg::pages::privacy(),
@@ -2440,6 +2503,7 @@ impl OptionsModel {
                 Act::Done
             }
             ("privacy", _) => Act::Privacy,
+            ("twitch", _) if self.world.twitch.connected() => Act::Confirm(Reset::Twitch),
             ("history.export", b) => {
                 let buttons = history_buttons(self.world.plays, self.world.importing_plays);
                 match buttons.get(b) {
@@ -2733,6 +2797,11 @@ impl OptionsModel {
                     .retain(|k, _| ddi_library::announcer::is_bundled(k));
             }
             Reset::History => {}
+            // Nothing of the settings: the access is gone from the row.
+            Reset::Twitch => {
+                self.world.twitch.features.clear();
+                self.notice = ddi_l10n::msg::twitch::notice_disconnected().into();
+            }
             // What was chosen and is gone: the built-in speaks for it.
             Reset::Announcer(k) => {
                 if self.settings.announcer.as_deref() == Some(k.as_str()) {
@@ -4480,4 +4549,35 @@ mod tests {
         assert!(m.data().preview.contains(" · Solo · "));
         assert_eq!(m.settings.style, "dance-single");
     }
+
+    /// Round TW1b (A4): Data's "Twitch access" says what is connected in
+    /// words and offers Disconnect, asked once more; signed out or with
+    /// nothing connected, one quiet line and no button.
+    #[test]
+    fn data_says_the_twitch_access_and_disconnects_it() {
+        let none = OptionsModel::new(Settings::default(), World::default());
+        let row = find(&none.data(), "twitch").clone();
+        assert_eq!(row.note, "Nothing connected");
+        assert!(matches!(&row.kind, OptionKind::Actions(b) if b.is_empty()));
+        let world = World {
+            twitch: TwitchRow {
+                signed_in: true,
+                features: vec!["bans".into(), "chat".into()],
+                login: "host".into(),
+            },
+            ..World::default()
+        };
+        let mut m = OptionsModel::new(Settings::default(), world);
+        let row = find(&m.data(), "twitch").clone();
+        assert_eq!(row.note, "host: bans and timeouts, chat");
+        assert!(matches!(&row.kind, OptionKind::Actions(b) if b == &vec!["Disconnect".to_string()]));
+        assert_eq!(m.action("twitch", 0), Act::Confirm(Reset::Twitch));
+        let (title, body, yes) = Reset::Twitch.texts(&m);
+        assert_eq!((title.as_str(), yes.as_str()), ("Disconnect Twitch access?", "Disconnect"));
+        assert!(body.contains("nobody is removed"));
+        m.reset(&Reset::Twitch);
+        assert_eq!(find(&m.data(), "twitch").note, "Nothing connected");
+        assert_eq!(m.action("twitch", 0), Act::Nothing);
+    }
+
 }

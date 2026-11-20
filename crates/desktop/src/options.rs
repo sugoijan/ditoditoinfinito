@@ -240,6 +240,7 @@ pub fn screen(
         library_note: songs.as_ref().map(|s| s.folders_note()).unwrap_or_default(),
         sharing: Settings::load().sharing,
         share_url: crate::share::base(),
+        twitch: crate::online::twitch_row(),
         ..World::default()
     };
     let model = Rc::new(RefCell::new(OptionsModel::new(Settings::load(), world)));
@@ -478,6 +479,10 @@ impl OptionsPlatform for Desktop {
             }
             self.0.list_announcers();
             self.0.refresh();
+        }
+        // Round TW1b: the Twitch access deleted on the server.
+        if *reset == Reset::Twitch {
+            crate::online::disconnect_twitch();
         }
         if matches!(reset, Reset::Songs | Reset::Everything)
             && let Some(s) = &self.0.songs

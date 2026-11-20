@@ -52,6 +52,39 @@ impl Kept {
         o.me().map(|me| me.display_name.clone())
     }
 
+    /// The person's Twitch access as `/me` last said it, for Options →
+    /// Data's row (round TW1b; never made for the asking).
+    pub fn twitch_row(&self) -> crate::screens::options_model::TwitchRow {
+        let Some(online) = self.online.borrow().clone() else {
+            return Default::default();
+        };
+        let o = online.borrow();
+        match o.twitch() {
+            Some(t) => crate::screens::options_model::TwitchRow {
+                signed_in: true,
+                features: t.features.clone(),
+                login: t.login.clone().unwrap_or_default(),
+            },
+            None => Default::default(),
+        }
+    }
+
+    /// Disconnect the person's Twitch access (Data's Disconnect, A4): the
+    /// server deletes it and revokes it at Twitch; the kept room whose
+    /// Twitch setting is theirs turns it off at once (nobody removed),
+    /// rather than at its next check.
+    pub fn disconnect_twitch(&self) {
+        if let Some((_, room)) = self.room.borrow().clone() {
+            let mut r = room.borrow_mut();
+            if r.twitch().is_some_and(|t| t.by == r.me()) {
+                r.set_twitch(ddi_room::TwitchMirror::Off, ddi_room::TwitchChat::Off);
+            }
+        }
+        if let Some(online) = self.online.borrow().clone() {
+            online.borrow_mut().disconnect_twitch();
+        }
+    }
+
     /// Online room `id`'s client: the one kept where it is that room's,
     /// else made by `make` (and joined) in its place, another room kept
     /// left first (told, its socket closed: review3 web-1, never a member

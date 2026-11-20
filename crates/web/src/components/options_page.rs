@@ -146,6 +146,7 @@ impl Component for OptionsPage {
             sharing: settings.sharing,
             share_url: crate::share::base(),
             privacy_signal: crate::errors::privacy_signal(),
+            twitch: crate::online::twitch_row(),
             ..World::default()
         };
         let shared = Rc::new(Shared {
@@ -671,6 +672,8 @@ impl OptionsPlatform for Web {
                     link.send_message(Msg::AnnouncerRemoved(r));
                 });
             }
+            // Round TW1b: the Twitch access deleted on the server.
+            Reset::Twitch => crate::online::disconnect_twitch(),
             // The `plays` and `play_summaries` stores emptied.
             Reset::History => {
                 crate::history::remove_all(move |r| link.send_message(Msg::HistoryReset(r, true)));
