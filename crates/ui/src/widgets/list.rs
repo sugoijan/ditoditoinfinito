@@ -588,7 +588,12 @@ impl List {
     pub fn build(&self, look: &dyn Look) -> Actor {
         let [x, y, w, h] = self.config.rect;
         let name = &self.config.name;
-        let items = named(Kind::Frame(Vec::new()), &format!("{name}.Items"));
+        let mut items = named(Kind::Frame(Vec::new()), &format!("{name}.Items"));
+        // The selected row is drawn after the others (its z, set as the
+        // rows are placed), so what is drawn around it, the active outline,
+        // lies over the next row and not under it; the slots keep their
+        // order.
+        items.draw_by_z = true;
         let mut bar = look::component_or(
             look,
             &format!("{}.Bar", self.config.component),
@@ -909,6 +914,7 @@ impl List {
                 }
             }
             let selected = i == self.selected;
+            call(a, "z", &[if selected { 1.0 } else { 0.0 }]);
             let continuous = self.config.continuous_selection
                 && focus.is_some_and(|f| {
                     let mid = (self.offsets[i] + self.offsets[i + 1]) / 2.0 - self.pos;

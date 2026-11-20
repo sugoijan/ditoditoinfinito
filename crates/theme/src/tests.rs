@@ -1758,6 +1758,45 @@ fn the_song_is_the_only_active_element_even_when_a_chart_is_selected() {
     }
 }
 
+/// The selected row is drawn after every other row, so its outline lies
+/// over the row under it and not behind it; the slots keep their order.
+#[test]
+fn the_selected_rows_outline_is_drawn_over_the_next_row() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    for size in [[1280.0, 720.0], [390.0, 844.0]] {
+        let mut h = harness(size, DESIGN);
+        h.push(sample::select_screen(&env, None));
+        h.run(0.5);
+        for step in 0..3 {
+            let slots = h.ui.actor("Wheel.Items").unwrap();
+            assert!(slots.draw_by_z, "the rows are drawn by their depth");
+            let z = |a: &ddi_actor::Actor| a.current().pos[2];
+            let outlined: Vec<&ddi_actor::Actor> = slots
+                .children()
+                .iter()
+                .filter(|a| {
+                    ddi_ui::hit::find(a, "ActiveOutline")
+                        .and_then(|path| ddi_ui::hit::actor_at(a, &path))
+                        .is_some_and(|outline| outline.visible)
+                })
+                .collect();
+            assert_eq!(outlined.len(), 1, "one row has the outline (step {step})");
+            for other in slots.children() {
+                if !std::ptr::eq(other, outlined[0]) {
+                    assert!(
+                        z(other) < z(outlined[0]),
+                        "{} would be drawn over the selected row's outline",
+                        other.name
+                    );
+                }
+            }
+            h.key("ArrowDown", "ArrowDown");
+            h.run(0.5);
+        }
+    }
+}
+
 #[test]
 fn options_pages_and_dialogs_share_one_active_decoration() {
     use ddi_ui::screens::dialog::ConfirmDialog;
@@ -2462,30 +2501,30 @@ fn song_select_draws_in_the_theme_as_pinned() {
 }
 
 const THEME_PINNED: [u64; 24] = [
-    2004274495615136981,
-    9112896865145909310,
-    5102047970783235404,
-    2105221289305705714,
-    17558964294045863915,
-    14119360563255091357,
-    2004274495615136981,
-    9112896865145909310,
-    5102047970783235404,
+    3929447960376509809,
+    2224196393826753207,
+    2180624927541061875,
+    7625433574510509382,
+    4851439936465766126,
+    17883416728623918812,
+    3929447960376509809,
+    2224196393826753207,
+    2180624927541061875,
     14104443687203936483,
-    1718375188588708716,
-    12433804479304153879,
-    11009322325528701358,
-    8481217646414314718,
-    6047450136163166876,
-    18039876380470255346,
-    16117214794717413455,
-    1167774424983469877,
-    11009322325528701358,
-    8481217646414314718,
-    6047450136163166876,
-    12930723509338919016,
-    9229512719784539528,
-    14070981653859086718,
+    2702764880049156287,
+    3791805471093042694,
+    17554577313065312070,
+    617542558015053935,
+    1019841781868639590,
+    336418219869362909,
+    7119181997384583235,
+    14419057784823968244,
+    17554577313065312070,
+    617542558015053935,
+    1019841781868639590,
+    8231656684227529799,
+    8882839260221760681,
+    7243115711895144043,
 ];
 
 /// Under "Chart ratings: DDI estimate" every number is the estimate to a
