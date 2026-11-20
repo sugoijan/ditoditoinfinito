@@ -50,8 +50,8 @@ const MAX_ANNOUNCERS_WITH_PARAMS: usize = 64;
 /// What a chart's number is ([`Settings::chart_ratings`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChartRatings {
-    /// The number the song's file gives it.
-    #[default]
+    /// The number the song's file gives it (its radar the song's own
+    /// Groove values).
     FromSong,
     /// MSD where the chart has one (four lanes), else the song's.
     Msd,
@@ -60,13 +60,15 @@ pub enum ChartRatings {
     /// since round Z2, `docs/plans/msd-ratings.md`). Stored as
     /// `"Estimate"`; a build before it reads that as an unknown value,
     /// `ddi_engine::lenient`'s default, the song's number (and keeps that
-    /// once it saves the settings).
+    /// once it saves the settings). The default since round SLB
+    /// (2026-11-20, "DDI estimate now"; [`Settings::ratings_moved`]).
+    #[default]
     Estimate,
 }
 
 impl ChartRatings {
     fn is_default(&self) -> bool {
-        *self == ChartRatings::FromSong
+        *self == ChartRatings::Estimate
     }
 }
 
@@ -322,17 +324,22 @@ pub struct Settings {
     pub dancing_hand_multiplayer: bool,
     /// What a chart's number is (Options → Display): the song's own, or
     /// a rating of the game's (MSD for now, `docs/plans/msd-ratings.md`)
-    /// where the chart has one. The song's by default; left out of the
-    /// stored settings at its default, so they read and write as before.
+    /// where the chart has one, and the radar song select draws. The DDI
+    /// estimate by default; left out of the stored settings at its
+    /// default.
     #[serde(
         deserialize_with = "ddi_engine::lenient",
         skip_serializing_if = "ChartRatings::is_default"
     )]
     pub chart_ratings: ChartRatings,
-    /// Song select's skill radar for the chart in focus (Options →
-    /// Display): Off by default, and left out of the stored settings then.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub skill_radar: bool,
+    /// The default of Chart ratings moved from the song's numbers to the
+    /// DDI estimate (once, round SLB: settings that still say the song's
+    /// move; MSD stays; a choice made after it stays). Settings stored
+    /// before it lack the field and read `false`. (The "Skill radar"
+    /// option went with it: the radar is always shown, and a stored
+    /// `skill_radar` is ignored.)
+    #[serde(default = "not_yet")]
+    pub ratings_moved: bool,
     /// How many of a multiplayer stage's opponents have a field beside
     /// the play ([`OpponentFields`]): every one that fits, by default.
     #[serde(deserialize_with = "ddi_engine::lenient")]
@@ -832,8 +839,8 @@ impl Default for Settings {
             ghost: false,
             dancing_hand: true,
             dancing_hand_multiplayer: false,
-            chart_ratings: ChartRatings::FromSong,
-            skill_radar: false,
+            chart_ratings: ChartRatings::Estimate,
+            ratings_moved: true,
             opponent_fields: OpponentFields::default(),
             room_ahead: None,
             hand_layout: HandLayout::default(),
@@ -1051,6 +1058,15 @@ impl Settings {
         // move once (the two cannot be told apart, see `ruleset`), and
         // their kept ITG plays are judged again under DDI so the bests
         // are not empty. Other rulesets were chosen and stay.
+        // Chart ratings' default moved to the DDI estimate: settings still
+        // on the song's numbers move once (a default and a choice cannot
+        // be told apart, see `ruleset`); MSD was chosen and stays.
+        if !self.ratings_moved {
+            self.ratings_moved = true;
+            if self.chart_ratings == ChartRatings::FromSong {
+                self.chart_ratings = ChartRatings::Estimate;
+            }
+        }
         if !self.rules_moved {
             self.rules_moved = true;
             if self.ruleset == OLD_DEFAULT_RULESET {
@@ -1463,7 +1479,8 @@ impl Settings {
             ChartRatings::Msd => Source::Msd,
             ChartRatings::Estimate => Source::Estimate,
         };
-        crate::state::ratings::set_mode(source, self.skill_radar);
+        // The radar is always shown, so ratings are always made.
+        crate::state::ratings::set_mode(source, true);
     }
 
     pub fn rules(&self) -> RuleChoice {
@@ -1882,6 +1899,41 @@ mod tests {
     /// The default ruleset moved from ITG to DDI: stored settings naming
     /// ITG move once and ask for their ITG plays to be judged again; any
     /// other ruleset stays, and ITG chosen after the move stays too.
+    #[test]
+    fn chart_ratings_move_to_the_ddi_estimate_once() {
+        storage::install(Rc::new(MemoryStore::default()));
+        assert_eq!(Settings::default().chart_ratings, ChartRatings::Estimate);
+        assert!(Settings::default().ratings_moved);
+        // As stored before the move: no `ratings_moved`; the song's
+        // numbers left out (their default then) or written, and a
+        // `skill_radar` that is ignored now.
+        let stored = |ratings: Option<&str>| {
+            let mut v = serde_json::to_value(Settings::default()).unwrap();
+            let o = v.as_object_mut().unwrap();
+            o.remove("ratings_moved");
+            o.remove("chart_ratings");
+            if let Some(r) = ratings {
+                o.insert("chart_ratings".into(), r.into());
+            }
+            o.insert("skill_radar".into(), true.into());
+            storage::set(Area::Local, KEY, &v.to_string()).unwrap();
+        };
+        for before in [None, Some("FromSong")] {
+            stored(before);
+            let s = Settings::load();
+            assert_eq!(s.chart_ratings, ChartRatings::Estimate, "{before:?}");
+            assert!(s.ratings_moved);
+        }
+        // MSD was chosen: it stays.
+        stored(Some("Msd"));
+        assert_eq!(Settings::load().chart_ratings, ChartRatings::Msd);
+        // The song's numbers chosen after the move stay.
+        let mut s = Settings::load();
+        s.chart_ratings = ChartRatings::FromSong;
+        s.save();
+        assert_eq!(Settings::load().chart_ratings, ChartRatings::FromSong);
+    }
+
     #[test]
     fn settings_naming_itg_move_to_ddi_once() {
         storage::install(Rc::new(MemoryStore::default()));

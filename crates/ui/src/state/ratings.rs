@@ -1,12 +1,12 @@
 //! Chart ratings of the game's own (`docs/plans/msd-ratings.md`): MSD,
 //! Etterna's chart difficulty (`ddi_msd`), and the DDI estimate, our own
 //! (`ddi_rating`, a try since round Z2: "The DDI estimate as a source"),
-//! shown in place of the simfiles' numbers and as a skill radar, each
-//! behind its option
+//! shown in place of the simfiles' numbers and as song select's radar
 //! ([`Settings::chart_ratings`](crate::state::settings::Settings::chart_ratings):
-//! the song's, MSD or the DDI estimate; `skill_radar`), both Off by
-//! default. The radar follows the choice: the estimate's profile under the
-//! estimate, MSD's skillsets otherwise.
+//! the song's, MSD or the DDI estimate, the estimate by default). The
+//! radar is always shown (round SLB) and follows the choice: the
+//! estimate's profile under the estimate, MSD's skillsets under MSD, the
+//! song's own Groove values under the song's.
 //!
 //! The estimate, where shown, is kept as [`ChartEstimate`] (the bundled
 //! songs' in their manifest, the rest under [`ESTIMATE_KEY`] beside MSD's,

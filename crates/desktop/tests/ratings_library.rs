@@ -17,7 +17,7 @@ use ddi_platform::storage::{self, MemoryStore};
 use ddi_ui::UiEvent;
 use ddi_ui::state::place::MenuPlace;
 use ddi_ui::state::ratings;
-use ddi_ui::state::settings::Settings;
+use ddi_ui::state::settings::{ChartRatings, Settings};
 
 /// A mono 16-bit WAV of silence, `seconds` long, at 8 kHz.
 fn wav(seconds: u32) -> Vec<u8> {
@@ -181,9 +181,9 @@ impl Run {
     }
 }
 
-fn settings(radar: bool) {
+fn settings(source: ChartRatings) {
     let mut s = Settings::load();
-    s.skill_radar = radar;
+    s.chart_ratings = source;
     s.save();
     s.show_ratings();
 }
@@ -202,8 +202,8 @@ fn a_library_songs_radar_comes_once_its_chart_is_rated() {
         songs.start(Arc::new(|| {}));
         scanned(&songs, "Song 03")
     };
-    // A fresh profile, the option On, song select opened at once.
-    settings(true);
+    // A fresh profile on MSD, song select opened at once.
+    settings(ChartRatings::Msd);
     let mut run = Run::open(&dir, &id);
     run.step();
     assert_eq!(run.shown(), id, "the library song shown");
@@ -219,7 +219,7 @@ fn a_library_songs_radar_comes_once_its_chart_is_rated() {
 }
 
 #[test]
-fn a_radar_turned_on_under_song_select_comes_without_a_restart() {
+fn a_source_changed_under_song_select_keeps_its_radar_without_a_restart() {
     common::indexes();
     ddi_desktop::audio::set_headless(true);
     let dir = scratch("turned");
@@ -232,17 +232,16 @@ fn a_radar_turned_on_under_song_select_comes_without_a_restart() {
         songs.start(Arc::new(|| {}));
         scanned(&songs, "Song 02")
     };
-    settings(false);
+    // The song's numbers: the radar all the same (always shown, rating
+    // running for everyone).
+    settings(ChartRatings::FromSong);
     let mut run = Run::open(&dir, &id);
     run.until("song select at rest", 10.0, |r| r.ui.bounds("Info").is_some());
     assert_eq!(run.shown(), id, "the library song shown");
-    for _ in 0..30 {
-        run.step();
-    }
-    assert!(!run.radar(), "Off: none");
-    assert_eq!(ratings::status().pending, 0, "Off: nothing offered");
-    // Turned On as Options turns it (song select underneath).
-    settings(true);
     let took = run.until("the radar", 30.0, Run::radar);
-    eprintln!("radar turned on after {took:.2} s; {:?}", ratings::status());
+    eprintln!("radar from the song's numbers after {took:.2} s; {:?}", ratings::status());
+    // MSD chosen as Options chooses it (song select underneath).
+    settings(ChartRatings::Msd);
+    let took = run.until("the radar", 30.0, Run::radar);
+    eprintln!("radar on MSD after {took:.2} s; {:?}", ratings::status());
 }

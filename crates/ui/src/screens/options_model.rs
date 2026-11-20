@@ -1366,13 +1366,6 @@ impl OptionsModel {
                     m::chart_ratings_description(),
                 ),
                 choice(
-                    "skill_radar",
-                    m::skill_radar(),
-                    on_off(),
-                    s.skill_radar as usize,
-                    m::skill_radar_description(),
-                ),
-                choice(
                     "graphics",
                     m::graphics(),
                     labels(&GRAPHICS),
@@ -2250,10 +2243,6 @@ impl OptionsModel {
             "room_ahead" => s.room_ahead = Some(at(&ROOM_AHEAD, i)),
             "chart_ratings" => {
                 s.chart_ratings = at(&CHART_RATINGS, i);
-                s.show_ratings();
-            }
-            "skill_radar" => {
-                s.skill_radar = on;
                 s.show_ratings();
             }
             "receptor_snap" => s.receptor_snap = on,
