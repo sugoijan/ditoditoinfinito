@@ -60,7 +60,11 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   its emote atlas, both styles, the scripted chat); round TW3 joined them
   (the room's ceiling, a device's trip for the chat's scope, the chat's
   rows behind a testing switch) and walked them for real on a local
-  server with bots and two browsers. The Twitch client is
+  server with bots and two browsers; round TW4 the maintainer's
+  decisions of 2026-11-20 (animated emotes on both shells, within
+  limits read before decoding; Falling beside opponents' fields; emotes
+  alone on a phone held upright; the chat over a work's back layers).
+  The Twitch client is
   unverified until the maintainer's spike, and the chat's transports wait
   for it. A streaming host's Twitch bans and blocks
   keeping people out of the room (the host's token on the server, checked
