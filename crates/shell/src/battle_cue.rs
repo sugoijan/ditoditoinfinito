@@ -667,7 +667,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(policy_word(ddi_session::battle::Targeting::Leader), "Leader");
+        assert_eq!(policy_word(ddi_session::battle::Targeting::Leader), "Top score");
     }
 
     /// A measure as the theme's face draws: half an em a Latin

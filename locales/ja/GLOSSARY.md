@@ -72,7 +72,7 @@ alike. Changes to this list are the maintainer's.
 | targeting (whom a full power bar attacks) | ターゲット |
 | Spread (an attack policy) | 均等 |
 | Retaliate (an attack policy) | 仕返し |
-| Leader (an attack policy) | トップ |
+| Top score (an attack policy; `Leader` in code, renamed for people in round DB: "Leader" read as leading the room) | 最高スコア |
 
 ## Terms the screens' drafts settled on (step 3)
 

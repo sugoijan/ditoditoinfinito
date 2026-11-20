@@ -803,8 +803,10 @@ room-attack-policy-spread = Spread
 # Retaliate: whoever attacked the player last (short, one word).
 room-attack-policy-retaliate = Retaliate
 
-# Leader: whoever has the most life (short, one word).
-room-attack-policy-leader = Leader
+# Top score (the policy the code calls Leader; named so since round DB,
+# a host read "Leader" as leading the room): whoever has the most life
+# (short, two words at most).
+room-attack-policy-leader = Top score
 
 # A small muted line under the life gauge over the field (its right
 # end), while the player's full bar waits: nobody can be attacked right
@@ -829,7 +831,7 @@ room-attack-policy-spread-about = Your attacks go to whoever has been attacked l
 # Retaliate.
 room-attack-policy-retaliate-about = Your attacks go to whoever attacked you last.
 
-# Leader.
+# Top score.
 room-attack-policy-leader-about = Your attacks go to whoever has the most life.
 
 # A note on a stage's results: the last player left was knocked out by

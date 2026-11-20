@@ -454,7 +454,7 @@ room-play-cue-attack-launched = 攻撃発動
 
 room-attack-policy-spread = 均等
 room-attack-policy-retaliate = 仕返し
-room-attack-policy-leader = トップ
+room-attack-policy-leader = 最高スコア
 room-play-attack-waiting = 攻撃先を待機中
 room-targeting = ターゲット
 room-targeting-during-play = プレイ中に切り替え

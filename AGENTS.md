@@ -1374,7 +1374,8 @@ Rust and the browser are implementation details, not advertised features.
   `ATTACKS`, which is `attacks-v3` (2026-11-13): cap and cost 100,
   `POWER_CLASSES_V0` by the match's ruleset; a full bar launched in a
   turning order at the target its `Targeting` picks (Spread, the
-  fewest attacks still to come first; Retaliate; Leader), the match's
+  fewest attacks still to come first; Retaliate; Leader, which people
+  read as "Top score" since round DB), the match's
   Shocks per attack (`MatchRules::shocks`, `ShocksPerAttack`: 2, 4, 6
   or 8, four for a new room, a match stored before the rule eight and
   its next match's draft four; per stage as Attacks at once; the

@@ -1249,7 +1249,7 @@ fn the_players_rows_say_each_policy_where_the_match_has_attacks() {
     room.borrow_mut().set_targeting(Targeting::Retaliate).unwrap();
     let rows = player_rows(&room.borrow());
     assert_eq!(rows[0].policy, "Retaliate", "You");
-    assert_eq!(rows[1].policy, "Leader");
+    assert_eq!(rows[1].policy, "Top score");
     assert_eq!(rows[2].policy, "Spread");
     // Drawn in the pop-up (the panel beside the song says it in its
     // pop-over, `the_players_panel_marks_folds_and_says_a_rows_words`).
@@ -1273,7 +1273,7 @@ fn the_players_rows_say_each_policy_where_the_match_has_attacks() {
     };
     let (popup, _) = super::room::panel(&e, &rows, 0, [0.0, 0.0, 420.0, 600.0]);
     let t = texts(&popup);
-    assert!(t.contains(&"Retaliate".to_string()) && t.contains(&"Leader".to_string()), "{t:?}");
+    assert!(t.contains(&"Retaliate".to_string()) && t.contains(&"Top score".to_string()), "{t:?}");
 }
 
 /// Scrolled into the middle of a long list, the panel's rows end above
