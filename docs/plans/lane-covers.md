@@ -185,9 +185,10 @@ frame, a new selection, leaving song select, reduced motion, failures,
 the setting, `select_shows`, and the schedule looping on `MovieSlots`
 with a fake decoder); the theme's
 `the_preview_movie_takes_the_banners_place_while_the_shell_draws_it`;
-desktop's `preview_movie_offscreen` (a generated hue-cycling H.264
-clip in a scanned folder: frames come, the banner's place changes
-color, another song stops it; VideoToolbox here). In headless Chrome
+desktop's `preview_movie_cover_offscreen` (a generated hue-cycling
+H.264 clip in a scanned folder: frames come, since round SLB fading in
+whole in the cover square over the banner's blur, the banner faded
+out, another song stops it and shows its art; VideoToolbox here). In headless Chrome
 (WebGPU) and Playwright's Firefox (WebGL2) a zip of two songs with
 generated clips imports, each song's movie shows about 0.5 s after it
 is selected and plays at about 30 frames a second (the module decodes
