@@ -526,6 +526,31 @@ impl OptionsModel {
         [self.scroll(), self.notes(), self.arrows()]
             .into_iter()
             .flat_map(|s| s.options)
+            .chain(self.touch_rows())
+    }
+
+    /// Controls' rows for touch screens (`docs/plans/touch-controls.md`):
+    /// the style, then the extra button's side.
+    fn touch_rows(&self) -> [OptionDef; 2] {
+        let s = &self.settings;
+        let mut style = choice(
+            "touch_controls",
+            m::touch_controls(),
+            labels(&TOUCH_STYLES),
+            pos(&TOUCH_STYLES, s.touch_controls),
+            m::touch_controls_description(),
+        );
+        style.heading = Some(m::heading_touch().into());
+        [
+            style,
+            choice(
+                "touch_hand",
+                m::touch_hand(),
+                labels(&TOUCH_HANDS),
+                pos(&TOUCH_HANDS, s.touch_hand),
+                m::touch_hand_description(),
+            ),
+        ]
     }
 
     /// The speeds offered: ×0.25 to ×10 by 0.25, and the one stored when
@@ -1711,6 +1736,8 @@ impl OptionsModel {
                 m::key_description(),
             ));
         }
+        // Touch screens (`docs/plans/touch-controls.md`).
+        rows.extend(self.touch_rows());
         let one_pad = self.layout_is_one_pad();
         for (j, (id, standard, count)) in self.pads().into_iter().enumerate() {
             rows.extend(self.pad_rows(j, &id, standard, count, one_pad));
@@ -2364,6 +2391,8 @@ impl OptionsModel {
             "dancing_hand" => s.dancing_hand = on,
             "dancing_hand_multiplayer" => s.dancing_hand_multiplayer = on,
             "opponent_fields" => s.opponent_fields = at(&OPPONENT_FIELDS, i),
+            "touch_controls" => s.touch_controls = at(&TOUCH_STYLES, i),
+            "touch_hand" => s.touch_hand = at(&TOUCH_HANDS, i),
             "twitch_chat" => {
                 let level = at(&TWITCH_CHAT, i);
                 // Turned on where this device's Twitch access lacks the
@@ -3453,6 +3482,15 @@ const EMOTES_FROM: [Labeled<ddi_chat::EmotesFrom>; 2] = [
 /// The chat layer's opacities offered, percent.
 const CHAT_OPACITIES: [u8; 9] = [20, 30, 40, 50, 60, 70, 80, 90, 100];
 
+const TOUCH_STYLES: [Labeled<crate::touch_controls::Style>; 3] = [
+    (crate::touch_controls::Style::Buttons, m::touch_controls_buttons),
+    (crate::touch_controls::Style::Pad, m::touch_controls_pad),
+    (crate::touch_controls::Style::Columns, m::touch_controls_columns),
+];
+const TOUCH_HANDS: [Labeled<crate::touch_controls::Hand>; 2] = [
+    (crate::touch_controls::Hand::Right, m::touch_hand_right),
+    (crate::touch_controls::Hand::Left, m::touch_hand_left),
+];
 const OPPONENT_FIELDS: [Labeled<OpponentFields>; 2] = [
     (OpponentFields::AsManyAsFit, m::opponent_fields_all),
     (OpponentFields::UpToEight, m::opponent_fields_eight),

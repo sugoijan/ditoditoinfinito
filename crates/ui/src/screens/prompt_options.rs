@@ -1,7 +1,8 @@
 //! The start prompt's play options (`docs/plans/start-prompt.md`): the
 //! few options a player changes between songs, as StepMania's player
 //! options come before each song (`ScreenPlayerOptions`): Speed, Reverse,
-//! Turn, Appearance, Lane cover and the noteskin. Their rows are Options'
+//! Turn, Appearance, Lane cover and the noteskin, and on a touch screen
+//! the touch controls (`docs/plans/touch-controls.md`). Their rows are Options'
 //! own ([`OptionsModel`], never saving), so names, choices and ranges
 //! match; a change applies to this play and its retry only
 //! ([`PlayOverrides`] over the stored settings), and "Save as default"
@@ -15,13 +16,14 @@ use crate::state::settings::Settings;
 
 /// The rows, in their order; `noteskin` is `pump_noteskin` on a pump
 /// layout when pump skins can be chosen.
-const ROWS: [&str; 6] = [
+const ROWS: [&str; 7] = [
     "speed",
     "reverse",
     "turn",
     "appearance",
     "lane_cover",
     "noteskin",
+    "touch_controls",
 ];
 
 /// What a play runs with beyond the stored settings: the prompt's rows
@@ -35,6 +37,7 @@ pub struct PlayOverrides {
     pub cover: Option<CoverMode>,
     pub noteskin: Option<Option<String>>,
     pub pump_noteskin: Option<Option<String>>,
+    pub touch_controls: Option<crate::touch_controls::Style>,
 }
 
 impl PlayOverrides {
@@ -51,6 +54,7 @@ impl PlayOverrides {
             cover: differs(&stored.lane_cover.mode, &played.lane_cover.mode),
             noteskin: differs(&stored.noteskin, &played.noteskin),
             pump_noteskin: differs(&stored.pump_noteskin, &played.pump_noteskin),
+            touch_controls: differs(&stored.touch_controls, &played.touch_controls),
         }
     }
 
@@ -87,6 +91,9 @@ impl PlayOverrides {
         if let Some(v) = &self.pump_noteskin {
             s.pump_noteskin = v.clone();
         }
+        if let Some(v) = self.touch_controls {
+            s.touch_controls = v;
+        }
     }
 
     /// The same over a settings snapshot as stored (a play record's,
@@ -113,6 +120,9 @@ impl PlayOverrides {
         }
         if let Some(x) = self.appearance {
             o.insert("appearance".into(), json(&x));
+        }
+        if let Some(x) = self.touch_controls {
+            o.insert("touch_controls".into(), json(&x));
         }
         let mut within = |outer: &str, inner: &str, x: serde_json::Value| {
             let e = o
@@ -146,6 +156,8 @@ pub struct PlayOptions {
     listed: bool,
     /// Saved as the defaults since the last change.
     saved: bool,
+    /// A touch screen plays: the touch controls' row shows.
+    touch: bool,
 }
 
 impl PlayOptions {
@@ -163,6 +175,7 @@ impl PlayOptions {
             pump: layout.starts_with("pump"),
             listed: false,
             saved: false,
+            touch: false,
         }
     }
 
@@ -172,6 +185,11 @@ impl PlayOptions {
         // Not `complete` for the model: a chosen skin stays chosen.
         self.model.set_noteskins(skins, false, false);
         self.listed |= complete;
+    }
+
+    /// A touch screen plays (the touch controls' row shows).
+    pub fn set_touch(&mut self, touch: bool) {
+        self.touch = touch;
     }
 
     /// The chart's layout (an id), once the song is read.
@@ -196,6 +214,7 @@ impl PlayOptions {
         ROWS.iter()
             .map(|id| if *id == "noteskin" { skin } else { id })
             .filter(|id| self.listed || !id.ends_with("noteskin"))
+            .filter(|id| self.touch || *id != "touch_controls")
             .filter_map(|id| all.iter().find(|o| o.id == id).cloned())
             .map(|mut o| {
                 o.heading = None;

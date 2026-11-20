@@ -348,6 +348,16 @@ pub struct Settings {
     /// the play ([`OpponentFields`]): every one that fits, by default.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub opponent_fields: OpponentFields,
+    /// Options → Controls, "Touch controls" (`docs/plans/touch-controls.md`):
+    /// how a touch screen plays (`crate::touch_controls::Style`): buttons
+    /// under the thumbs by default, the dance mat's pad, or the play
+    /// screen's columns (legacy).
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub touch_controls: crate::touch_controls::Style,
+    /// "Extra button": where an odd layout's extra button goes, and a lone
+    /// pad beside the field (right by default).
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub touch_hand: crate::touch_controls::Hand,
     /// Options → Display, "Twitch chat in rooms" (`docs/plans/multiplayer-twitch.md`,
     /// C1): how much of a room host's Twitch chat this device shows behind
     /// the play, never above the room's ceiling. Off by default (it needs
@@ -869,6 +879,8 @@ impl Default for Settings {
             ratings_moved: true,
             players_folded: false,
             opponent_fields: OpponentFields::default(),
+            touch_controls: Default::default(),
+            touch_hand: Default::default(),
             twitch_chat: ddi_chat::Level::Off,
             chat_style: ddi_chat::Style::Across,
             chat_names: false,
@@ -937,6 +949,14 @@ fn nearest<const N: usize>(v: f32, choices: [f32; N]) -> f32 {
 }
 
 impl Settings {
+    /// The touch controls the player chose (`docs/plans/touch-controls.md`).
+    pub fn touch_choice(&self) -> crate::touch_controls::Choice {
+        crate::touch_controls::Choice {
+            style: self.touch_controls,
+            hand: self.touch_hand,
+        }
+    }
+
     /// The noteskin key chosen for layout `layout` (an id): the pump skin
     /// on a pump layout when one is chosen (and draws them), else
     /// [`Settings::noteskin`].

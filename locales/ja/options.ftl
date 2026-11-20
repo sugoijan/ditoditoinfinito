@@ -54,6 +54,7 @@ options-heading-menus = メニュー
 options-heading-diagnostics = 診断
 options-heading-keyboard = キーボード
 options-heading-controllers = コントローラー
+options-heading-touch = タッチスクリーン
 
 ## Scroll.
 
@@ -682,3 +683,15 @@ options-key-is-start = { $control }はこのコントローラーのStartです�
 
 ## The number forms.
 
+
+## Controls: touch screens (docs/plans/touch-controls.md).
+
+options-touch-controls = タッチ操作
+options-touch-controls-buttons = ボタン
+options-touch-controls-pad = パッド
+options-touch-controls-columns = 列（旧方式）
+options-touch-controls-description = タッチスクリーンでの操作方法です。「ボタン」は左下と右下の親指の位置に、矢印の順にボタンを置きます。8レーン以上のレイアウトはパッドで遊びます。「パッド」はダンスマットのような3×3のパッドで、各矢印がそのパネルの上にあります（ダブルは2つのパッドを並べます）。「列」は旧方式で、画面をレーンごとの列に分けます。この方式は今後なくなります。
+options-touch-hand = 余りのボタン
+options-touch-hand-right = 右側
+options-touch-hand-left = 左側
+options-touch-hand-description = レーン数が奇数のレイアウトで、余りのボタンをどちら側に置くかを選びます。横長の画面でパッドが1つのときは、フィールドの横のこちら側に置きます。左側は左利きの方に向いているかもしれません。
