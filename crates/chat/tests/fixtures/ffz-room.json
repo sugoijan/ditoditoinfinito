@@ -1,0 +1,10 @@
+{
+  "_fixture": "Written from the provider's documented response shape (read 2026-11-20), not recorded: the spike replaces or confirms it.",
+  "room": {"_id": 123, "twitch_id": 1971641, "id": "streamer", "is_group": false, "display_name": "Streamer", "set": 12345},
+  "sets": {"12345": {"id": 12345, "_type": 1, "title": "Channel: Streamer",
+    "emoticons": [
+      {"id": 28136, "name": "LilZ", "height": 32, "width": 32, "public": true, "hidden": false, "modifier": false,
+       "urls": {"1": "https://cdn.frankerfacez.com/emote/28136/1", "2": "https://cdn.frankerfacez.com/emote/28136/2", "4": "https://cdn.frankerfacez.com/emote/28136/4"},
+       "animated": null}
+    ]}}
+}

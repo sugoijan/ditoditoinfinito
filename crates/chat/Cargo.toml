@@ -1,0 +1,14 @@
+[package]
+name = "ddi-chat"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: a room host's Twitch chat behind the play (Twitch's EventSub messages, the emote providers' sets, the flood rules and the layout), pure"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+unicode-segmentation.workspace = true

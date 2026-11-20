@@ -1,0 +1,11 @@
+{
+  "_fixture": "Written from the provider's documented response shape (read 2026-11-20), not recorded: the spike replaces or confirms it.",
+  "id": "5f1abe1ad7c9b1dfb2a4f2a9", "bots": [], "avatar": "",
+  "channelEmotes": [
+    {"id": "5f1b0186cf6d2144653d2970", "code": "PogBTTV", "imageType": "png", "animated": false, "userId": "5f1abe1ad7c9b1dfb2a4f2a9"},
+    {"id": "5f1b0186cf6d2144653d2971", "code": "catJAM", "imageType": "gif", "animated": true, "userId": "5f1abe1ad7c9b1dfb2a4f2a9"}
+  ],
+  "sharedEmotes": [
+    {"id": "54fa925e01e468494b85b54d", "code": "OhMyGoodness", "imageType": "png", "animated": false, "user": {"id": "1", "name": "someone", "displayName": "Someone", "providerId": "2"}}
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "_fixture": "Written from the shapes Twitch's EventSub documentation gives (read 2026-11-20), not recorded: the spike replaces or confirms it.",
+  "metadata": {"message_id": "befa7b53-d79d-478f-86b9-120f112b044e", "message_type": "notification", "message_timestamp": "2023-11-06T18:11:47.492253549Z", "subscription_type": "channel.chat.message_delete", "subscription_version": "1"},
+  "payload": {
+    "subscription": {"id": "0b7f3361-672b-4d39-b307-dd5b576c9b27", "status": "enabled", "type": "channel.chat.message_delete", "version": "1", "condition": {"broadcaster_user_id": "1971641", "user_id": "2914196"}, "transport": {"method": "websocket", "session_id": "AQoQexAWVYKSTIu4ec_2VAxyuhAB"}, "created_at": "2023-11-06T18:11:47.492253549Z", "cost": 0},
+    "event": {
+      "broadcaster_user_id": "1971641", "broadcaster_user_name": "StreamerDude", "broadcaster_user_login": "streamerdude",
+      "target_user_id": "7734", "target_user_name": "Uncool_viewer", "target_user_login": "uncool_viewer",
+      "message_id": "ab24e0b0-2260-4bac-94e4-05eedd4ecd0e"
+    }
+  }
+}

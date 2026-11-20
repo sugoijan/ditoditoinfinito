@@ -1,0 +1,18 @@
+{
+  "_fixture": "Written from the provider's documented response shape (read 2026-11-20), not recorded: the spike replaces or confirms it.",
+  "id": "1971641", "platform": "TWITCH", "username": "streamer", "display_name": "Streamer",
+  "emote_set": {
+    "id": "60b39e943e203cc169dfc106", "name": "Streamer's Emotes",
+    "emotes": [
+      {"id": "60ae7316f7c927fad14e6ca2", "name": "catJAM", "flags": 0,
+       "data": {"id": "60ae7316f7c927fad14e6ca2", "name": "catJAM", "animated": true,
+                "host": {"url": "//cdn.7tv.app/emote/60ae7316f7c927fad14e6ca2",
+                         "files": [{"name": "1x.webp", "static_name": "1x_static.webp", "width": 28, "height": 28, "format": "WEBP"},
+                                   {"name": "2x.webp", "static_name": "2x_static.webp", "width": 56, "height": 56, "format": "WEBP"}]}}},
+      {"id": "61b2a3f0e9bd4b6c3dc7f2a1", "name": "wideHappy", "flags": 0,
+       "data": {"id": "61b2a3f0e9bd4b6c3dc7f2a1", "name": "Happy", "animated": false,
+                "host": {"url": "//cdn.7tv.app/emote/61b2a3f0e9bd4b6c3dc7f2a1",
+                         "files": [{"name": "2x.webp", "static_name": "2x_static.webp", "width": 168, "height": 56, "format": "WEBP"}]}}}
+    ]
+  }
+}

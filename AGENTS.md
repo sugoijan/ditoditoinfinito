@@ -1266,6 +1266,17 @@ Rust and the browser are implementation details, not advertised features.
   (opt-in: `DDI_MSD_ORACLE`, `DDI_MSD_CORPUS`, `DDI_MSD_WRITE_FIXTURE`);
   the oracle's numbers in `tests/fixture.json`, checked natively and under
   WASI. Pure, natively tested.
+- `crates/chat/` a room host's Twitch chat behind the play (`ddi-chat`,
+  `docs/plans/multiplayer-twitch.md`, part C): Twitch's EventSub socket
+  messages read (`eventsub.rs`; its fixtures in `tests/fixtures/`,
+  written from the documentation, not recorded), the four providers'
+  emotes and sets with each still image's address and proxy path
+  (`emotes.rs`), a message made into an item after C11's filters
+  (`item.rs`), `chat-overlay-v0`'s budgets, the moderation events and
+  the two motions on the host's clock (`overlay.rs`: Across, Falling,
+  reduced motion's fixed places), the emote images kept and their atlas
+  cells (`cache.rs`), and the scripted chat (`script.rs`, TESTING ONLY).
+  Pure, natively tested.
 - `crates/importer-protocol/` the platform-free framed app/helper IPC contract (serde
   and plain data only; no SDK/networking or filesystem).
 - `crates/share-protocol/` songs shared by link's wire contract

@@ -1071,6 +1071,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ddi-chat"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "ddi-dance-mat"
 version = "0.1.0"
 dependencies = [

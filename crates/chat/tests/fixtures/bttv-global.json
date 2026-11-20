@@ -1,0 +1,21 @@
+[
+ {
+  "_fixture": "Written from the provider's documented response shape (read 2026-11-20), not recorded: the spike replaces or confirms it. (A response is an array: this note is an entry the reading passes over.)"
+ },
+ {
+  "id": "54fa8f1401e468494b85b537",
+  "code": ":tf:",
+  "imageType": "png",
+  "animated": false,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": false
+ },
+ {
+  "id": "54fa903b01e468494b85b53f",
+  "code": "DatSauce",
+  "imageType": "png",
+  "animated": false,
+  "userId": "5561169bd6b9d206222a8c19",
+  "modifier": false
+ }
+]

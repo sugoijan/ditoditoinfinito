@@ -1,0 +1,13 @@
+{
+  "_fixture": "Written from the provider's documented response shape (read 2026-11-20), not recorded: the spike replaces or confirms it.",
+  "default_sets": [3],
+  "sets": {
+    "3": {"id": 3, "_type": 1, "title": "Global Emotes",
+      "emoticons": [
+        {"id": 9, "name": "ZreknarF", "height": 30, "width": 40, "public": true, "urls": {"1": "https://cdn.frankerfacez.com/emote/9/1", "2": "https://cdn.frankerfacez.com/emote/9/2"}}
+      ]},
+    "4330": {"id": 4330, "title": "Not a default set",
+      "emoticons": [{"id": 1, "name": "NotShown", "urls": {"1": "https://cdn.frankerfacez.com/emote/1/1"}}]}
+  },
+  "users": {"4330": ["someone"]}
+}

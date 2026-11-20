@@ -1,0 +1,13 @@
+{
+  "_fixture": "Written from the provider's documented response shape (read 2026-11-20), not recorded: the spike replaces or confirms it.",
+  "id": "62cdd34e72a832540de95857", "name": "Global Emotes",
+  "emotes": [
+    {"id": "60420a8b77137b000de9e66e", "name": "Clap", "flags": 0,
+     "data": {"id": "60420a8b77137b000de9e66e", "name": "Clap", "animated": true,
+              "host": {"url": "//cdn.7tv.app/emote/60420a8b77137b000de9e66e",
+                       "files": [{"name": "2x.webp", "static_name": "2x_static.webp", "width": 56, "height": 56, "format": "WEBP"}]}}},
+    {"id": "60ae7316f7c927fad14e6ca3", "name": "catJAM", "flags": 0,
+     "data": {"id": "60ae7316f7c927fad14e6ca3", "name": "catJAM", "animated": true,
+              "host": {"url": "//cdn.7tv.app/emote/60ae7316f7c927fad14e6ca3", "files": []}}}
+  ]
+}

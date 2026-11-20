@@ -1,6 +1,8 @@
 # The host's Twitch in a room: bans mirrored, chat behind the play
 
-Status: designed (2026-11-20), nothing built. The maintainer answered
+Status: designed (2026-11-20). Part C's pieces that need no Twitch are
+being built (round TW2: "T1 and T2" below, and its section at the end); the
+link, the mirror, the kick and the transports are not. The maintainer answered
 the design round's ten questions and the three that followed from them
 the same day; they are listed under "The maintainer's answers", and
 where an answer differed from the proposal the answer won.
@@ -507,6 +509,54 @@ room's host"; the option and its screen are a later step.
 - For tests, a scripted chat: the web's `mpfakechat=…` beside
   `mpfakeroom`, desktop's `--mp-dev-chat FILE`. Tests never reach
   Twitch.
+
+## T1 and T2, read in the renderer (round TW2, 2026-11-20)
+
+**T1: where the layer is drawn.** In a texture the backdrop shows, as a
+generated background is, not a pass of the 2D painter at that depth.
+
+- The scene's first pass draws the backdrop (`BackgroundPipeline::draw`,
+  the field filter's band darkened in its shader where it can), then the
+  scene's segments (a work's back layers and the dancing hand behind the
+  field as the skins' quads, the filter's quad where the shaders cannot
+  darken, the field, the miniatures), then the HUD and the text. A
+  painter's pass between the backdrop and the rest would have to split
+  that pass, and the 2D painter's pipelines are made for the surface's
+  plain format: on WebGL2, where a play with a skin draws its scene
+  offscreen in half floats, it would need a second painter in that
+  format, or the scene converted to the plain texture and back over the
+  whole screen (two full-screen conversions a frame, as a skin's quads
+  over the whole screen cost now).
+- Drawn into a texture, the layer costs one pass of the play's own 2D
+  painter into a screen-sized texture in the surface's format (cleared,
+  then its items: the emotes from one atlas in one batch, the text from
+  the painter's pages), and one full-screen textured draw more in the
+  backdrop's pass, on every backend alike, with nothing of the scene's
+  passes changed. On a tiled GPU (Apple's, phones') a split pass would
+  store and load the whole frame once more, which is the same bandwidth
+  as the texture's clear and read; elsewhere the texture costs about one
+  screen of fill more, and only while the layer has items (an empty
+  layer draws nothing and composites nothing).
+- The backdrop's own shader composites it (one draw slot of its own,
+  over the whole target, not the background's frame or entrance, at the
+  layer's opacity), so the field filter's band darkens it with the
+  background in the shader, or by the filter's quad drawn over it, and
+  the notes keep their contrast either way; under a work's back layers
+  and the dancing hand behind the field, which belong to the play's
+  picture.
+
+The play's 2D painter draws twice in a frame for it (the layer before
+the field, the overlay after), its instances kept for the whole frame.
+
+**T2: color glyphs.** The text atlas keeps coverage alone
+(`R8Unorm` pages, a run drawn white and tinted), on both shells:
+cosmic-text's color glyphs are kept by their alpha, and the browser's
+canvas copy keeps the red channel of its premultiplied colors (or the
+alpha, read back). So a Unicode emoji in a message draws in the chat's
+one quiet color as its shape (a silhouette, shaded on Chrome's copy),
+not in its own colors, and is kept: it carries the message's meaning.
+Color emoji would need RGBA pages for the runs that have color glyphs:
+later, if the study asks for it.
 
 ## Steps
 

@@ -1,0 +1,5 @@
+{
+  "_fixture": "Written from the shapes Twitch's EventSub documentation gives (read 2026-11-20), not recorded: the spike replaces or confirms it.",
+  "metadata": {"message_id": "96a3f3b5-5dec-4eed-908e-e11ee657618c", "message_type": "session_welcome", "message_timestamp": "2023-07-19T14:56:51.634234626Z"},
+  "payload": {"session": {"id": "AQoQexAWVYKSTIu4ec_2VAxyuhAB", "status": "connected", "connected_at": "2023-07-19T14:56:51.616329898Z", "keepalive_timeout_seconds": 10, "reconnect_url": null, "recovery_url": null}}
+}
