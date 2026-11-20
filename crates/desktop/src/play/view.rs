@@ -218,6 +218,10 @@ pub struct View {
     /// Where the music's volume takes a press, while it shows
     /// (`ddi_shell::play_volume`).
     pub volume_at: Option<ddi_shell::play_volume::VolumeAt>,
+    /// The touch controls to place and draw this frame, and where the
+    /// last frame placed them (`docs/plans/touch-controls.md`).
+    pub touch_spec: Option<ddi_shell::touch_controls::TouchSpec>,
+    pub touch_at: Option<ddi_ui::touch_controls::Controls>,
     /// The refresh the next frame is for, when the shell's pacing knows
     /// it (`crate::pacing`); else the session predicts it.
     pub present_at: Option<HostTime>,
@@ -265,6 +269,8 @@ impl View {
             watch_at: Vec::new(),
             skip_at: None,
             volume_at: None,
+            touch_spec: None,
+            touch_at: None,
             present_at: None,
         }
     }
@@ -495,6 +501,7 @@ impl View {
             quit: self.quit_shown.then_some([0.0; 4]),
             lyrics: true,
             touch: false,
+            controls: self.touch_spec,
         };
         let drawn = self.view.draw(
             (device, queue, encoder),
@@ -509,6 +516,7 @@ impl View {
         self.watch_at = drawn.watch_at;
         self.skip_at = drawn.skip_at;
         self.volume_at = drawn.volume_at;
+        self.touch_at = drawn.touch;
     }
 
     /// The music's volume's pointer edges since the last frame, at host

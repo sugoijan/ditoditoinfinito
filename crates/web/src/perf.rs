@@ -229,7 +229,8 @@ const MOST_LOAD_MS: f64 = 50.0;
 
 /// An address's `perf` parameter, and the testing aids `load=MS` (each
 /// play frame burns that much main thread, `load=0` none) and
-/// `msdslow=MS` (chart ratings a song every MS), kept for the tab.
+/// `msdslow=MS` (chart ratings a song every MS) and `touchlook=` (the
+/// touch controls' look, [`touch_look`]), kept for the tab.
 pub(crate) fn note_address(query: &str) {
     for kv in query.split('&') {
         let Some(s) = storage() else {
@@ -249,6 +250,12 @@ pub(crate) fn note_address(query: &str) {
                     _ => s.remove_item(MSD_SLOW_KEY),
                 };
             }
+            Some(("touchlook", value)) => {
+                let _ = match ddi_shell::touch_controls::Look::from_name(value) {
+                    Some(look) => s.set_item(TOUCH_LOOK_KEY, look.name()),
+                    None => s.remove_item(TOUCH_LOOK_KEY),
+                };
+            }
             Some(("load", value)) => {
                 let _ = match value.parse::<f64>() {
                     Ok(ms) if ms > 0.0 => s.set_item(LOAD_KEY, &ms.min(MOST_LOAD_MS).to_string()),
@@ -258,6 +265,19 @@ pub(crate) fn note_address(query: &str) {
             _ => {}
         }
     }
+}
+
+/// The tab's look of the touch controls ([`touch_look`]).
+const TOUCH_LOOK_KEY: &str = "ddi.touchlook";
+
+/// A TESTING AID: the touch controls' look while it is chosen
+/// (`touchlook=glass|mat|glyphs`, `docs/plans/touch-controls.md`), kept
+/// for the tab; the default without it.
+pub(crate) fn touch_look() -> ddi_shell::touch_controls::Look {
+    storage()
+        .and_then(|s| s.get_item(TOUCH_LOOK_KEY).ok().flatten())
+        .and_then(|v| ddi_shell::touch_controls::Look::from_name(&v))
+        .unwrap_or_default()
 }
 
 /// The tab's spacing of chart ratings ([`msd_slow_ms`]).

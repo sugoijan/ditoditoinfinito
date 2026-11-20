@@ -119,6 +119,7 @@ impl PlaySession {
         audio: WebAudio,
         buffer: AudioBuffer,
     ) -> Result<PlaySession, String> {
+        crate::web::touch::set_choice(settings.touch_choice());
         let inputs = WebInputs::new(config.gamepads, config.touch_canvas, &audio);
         let render = config.render;
         let core = ddi_session::play::SessionConfig {

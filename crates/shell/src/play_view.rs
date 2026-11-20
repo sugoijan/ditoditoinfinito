@@ -275,6 +275,9 @@ pub struct Screen {
     pub lyrics: bool,
     /// A touch screen: what a key does is said as what a tap does.
     pub touch: bool,
+    /// The touch controls (`docs/plans/touch-controls.md`): placed while
+    /// a play is played, drawn while touch is the input source.
+    pub controls: Option<crate::touch_controls::TouchSpec>,
 }
 
 /// What a frame drew that the shell reads.
@@ -304,6 +307,10 @@ pub struct Drawn {
     /// results, while that shows: the shell sends
     /// `ddi_session::play::TOUCH_SKIP_CONTROL` for a press there.
     pub skip_at: Option<[f32; 4]>,
+    /// The touch controls placed this frame (logical pixels), drawn or
+    /// not: the shell's presses land on them
+    /// (`ddi_ui::touch_controls::Controls::lane_at`).
+    pub touch: Option<ddi_ui::touch_controls::Controls>,
 }
 
 /// The status line's quiet words while a stage is watched (`w`): who is
@@ -522,6 +529,9 @@ pub struct PlayView<H: PlayHost> {
     fields_drawn: Option<crate::opponents::Fields>,
     /// The music's volume beside the quit button (`crate::play_volume`).
     volume: crate::play_volume::PlayVolume,
+    /// The touch controls' lights, and what this frame draws of them.
+    touch: crate::touch_controls::TouchView,
+    touch_frame: Option<crate::touch_controls::TouchFrame>,
     fields_cue: bool,
     /// "Last standing" or "Stage won" as the last frame's status line
     /// said it.
@@ -632,6 +642,8 @@ impl<H: PlayHost> PlayView<H> {
             minis_drawn: 0,
             fields_drawn: None,
             volume: Default::default(),
+            touch: Default::default(),
+            touch_frame: None,
             fields_cue: false,
             standing_drawn: None,
             fields_score: Default::default(),
@@ -1340,10 +1352,38 @@ impl<H: PlayHost> PlayView<H> {
         let [w, h] = target.size.map(|v| v as f32);
         let span = ddi_render::scene::field_span(&session.layout);
         let geo = ddi_render::FieldGeometry::placed(w, h, span, render.reverse, render.place);
-        // The quit button, clear of the field's receptors and the insets.
-        let quit = screen.quit.map(|insets| {
+        // The touch controls, placed over the field as it is (none for a
+        // field watched rather than played).
+        let touch = screen
+            .controls
+            .filter(|_| !render.no_field && watch.is_none())
+            .and_then(|spec| {
+                let r = screen.ratio.max(f32::MIN_POSITIVE);
+                let field = [geo.left / r, (geo.left + geo.arrow * span) / r];
+                let place = ddi_ui::touch_controls::Screen::new([w / r, h / r], spec.insets)
+                    .with_field(field);
+                ddi_ui::touch_controls::plan(&session.layout, place, spec.choice)
+                    .map(|c| (c, spec))
+            });
+        // The quit button, clear of the field's receptors and the insets
+        // (and above the touch controls while they show).
+        let quit = screen.quit.map(|mut insets| {
+            if let Some((c, _)) = touch.as_ref().filter(|(_, s)| s.shown) {
+                insets[2] = insets[2].max(h / screen.ratio.max(f32::MIN_POSITIVE) - c.top());
+            }
             ddi_render::scene::quit_button(&geo, &session.layout, screen.ratio, insets)
         });
+        self.touch_frame = touch
+            .as_ref()
+            .filter(|(_, spec)| spec.shown)
+            .map(|(c, spec)| crate::touch_controls::TouchFrame {
+                controls: c.clone(),
+                glyphs: session.layout.lanes.iter().map(|l| l.glyph.clone()).collect(),
+                held: session.held().to_vec(),
+                now: moment.now.0,
+                reduced: render.reduced_motion,
+                look: spec.look,
+            });
         self.renderer.set_quit_button(quit);
         // The volume beside it, while it shows (none in calibration,
         // whose click track is left as it is, nor in a room's stage on a
@@ -1356,7 +1396,11 @@ impl<H: PlayHost> PlayView<H> {
                     session.battle().is_some(),
                 )
             })
-            .map(|q| crate::play_volume::place(q, [w, h], screen.ratio));
+            .map(|q| match touch.as_ref().filter(|(_, s)| s.shown) {
+                // Above the quit button, away from the touch controls.
+                Some(_) => crate::play_volume::place_way(q, [w, h], screen.ratio, false),
+                None => crate::play_volume::place(q, [w, h], screen.ratio),
+            });
         self.volume
             .frame(volume_place, screen.ratio, session.volume(), moment.now.0);
         // The lyrics at this frame's time, over the field's middle, clear
@@ -2260,7 +2304,12 @@ impl<H: PlayHost> PlayView<H> {
                 || a.followed.is_some()
         });
         self.plate_drawn = None;
-        if lyrics.is_some() || shown.is_some() || attack_shown || volume_place.is_some() {
+        if lyrics.is_some()
+            || shown.is_some()
+            || attack_shown
+            || volume_place.is_some()
+            || self.touch_frame.is_some()
+        {
             let place = (&geo, span, screen.ratio);
             self.draw_overlay((device, queue, encoder), target, place, lyrics, shown, attack);
         } else {
@@ -2274,6 +2323,7 @@ impl<H: PlayHost> PlayView<H> {
             volume_at: self.volume.at(),
             watch_at,
             skip_at,
+            touch: touch.map(|(c, _)| c),
         }
     }
 
@@ -2322,6 +2372,19 @@ impl<H: PlayHost> PlayView<H> {
         };
         // (The frame's draws began at the top of `draw`.)
         list.clear();
+        // The touch controls first, under the rest.
+        if let Some(f) = self.touch_frame.take() {
+            self.touch.draw(
+                list,
+                &f.controls,
+                &f.glyphs,
+                &f.held,
+                f.now,
+                ratio,
+                f.reduced,
+                f.look,
+            );
+        }
         {
             let mut measure = painter.measure(1.0);
             if let Some((lines, place)) = &lyrics {

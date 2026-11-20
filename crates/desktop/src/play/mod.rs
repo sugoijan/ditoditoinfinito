@@ -292,6 +292,14 @@ pub struct Feed {
     pub volume_at: Option<ddi_shell::play_volume::VolumeAt>,
     pub volume_down: bool,
     pub volume_edges: Vec<ddi_shell::play_volume::Edge>,
+    /// The touch controls the play was started with
+    /// (`docs/plans/touch-controls.md`), whether they show (touch is the
+    /// input source), where the last frame placed them (logical pixels)
+    /// and the fingers on them with the lane each holds.
+    pub touch_choice: ddi_ui::touch_controls::Choice,
+    pub touch_shown: bool,
+    pub touch_at: Option<ddi_ui::touch_controls::Controls>,
+    pub touch_fingers: Vec<(u64, usize)>,
     /// The window was hidden or the sound stopped.
     pub interrupted: bool,
     /// The display or the audio device changed.
@@ -551,6 +559,12 @@ impl Play {
             loaded.song.shifted(shift)
         };
         let xruns_at_start = audio.xruns();
+        {
+            let mut f = feed.borrow_mut();
+            f.touch_choice = settings.touch_choice();
+            f.touch_at = None;
+            f.touch_fingers.clear();
+        }
         let inputs = DesktopInputs::new(feed.clone(), request.auto_pad);
         let session = Session::start(
             &song,

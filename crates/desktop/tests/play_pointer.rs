@@ -276,3 +276,46 @@ fn a_press_on_the_skip_plate_ends_the_watch() {
     w.shell.ui.update(0.05);
     assert_eq!(common::ui::top(&w.shell.ui), "results");
 }
+
+#[test]
+fn fingers_on_the_touch_controls_press_slide_and_lift() {
+    use ddi_ui::touch_controls::{Choice, Screen, plan};
+    let mut w = Window::new();
+    w.start(false);
+    w.frames(8);
+    // The controls as the play placed them at this scale (logical
+    // pixels), or the plan's own where nothing is drawn.
+    if w.shell.play.feed.borrow().touch_at.is_none() {
+        let layout = w.shell.play.running().expect("playing").session.layout.clone();
+        w.shell.play.feed.borrow_mut().touch_at =
+            plan(&layout, Screen::new(LOGICAL, [0.0; 4]), Choice::default());
+    }
+    let c = w.shell.play.feed.borrow().touch_at.clone().expect("the controls");
+    let at = |lane: usize| c.targets.iter().find(|t| t.lane == Some(lane)).unwrap().center();
+    let held = |w: &Window| w.shell.play.running().expect("playing").session.held().to_vec();
+    // A finger on Down, a second on Down: one press.
+    assert!(w.shell.touch_lane(1, PointerPhase::Down, at(1)));
+    assert!(w.shell.touch_lane(2, PointerPhase::Down, at(1)));
+    w.frames(2);
+    assert_eq!(held(&w), [false, true, false, false]);
+    assert!(w.shell.ui.hints().source().is_touch(), "touch is the source");
+    // The first slides onto Left: Down stays held by the second.
+    assert!(w.shell.touch_lane(1, PointerPhase::Move, at(0)));
+    w.frames(2);
+    assert_eq!(held(&w), [true, true, false, false]);
+    // The second lifts: Down is let go; the first, off the controls
+    // up the screen, keeps Left.
+    assert!(w.shell.touch_lane(2, PointerPhase::Up, at(1)));
+    assert!(w.shell.touch_lane(1, PointerPhase::Move, [640.0, 100.0]));
+    w.frames(2);
+    assert_eq!(held(&w), [true, false, false, false]);
+    assert!(w.shell.touch_lane(1, PointerPhase::Up, [640.0, 100.0]));
+    w.frames(2);
+    assert_eq!(held(&w), [false; 4]);
+    // A finger far from the controls presses nothing and is still the
+    // play's (no menu under a play).
+    assert!(w.shell.touch_lane(3, PointerPhase::Down, [640.0, 100.0]));
+    assert!(w.shell.touch_lane(3, PointerPhase::Up, [640.0, 100.0]));
+    w.frames(2);
+    assert_eq!(held(&w), [false; 4]);
+}

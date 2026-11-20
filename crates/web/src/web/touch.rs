@@ -1,4 +1,11 @@
-//! Touch lanes for phones and tablets: the play screen split into
+//! Touch lanes for phones and tablets. The touch controls the player
+//! chose (`docs/plans/touch-controls.md`): buttons under the thumbs or the
+//! dance mat's pad, placed by `ddi_ui::touch_controls` as the play's view
+//! drew them this frame ([`set_controls`]), a finger pressing the lane of
+//! the target it lands on and a slide keeping its lane until it is well
+//! inside another's (`Controls::lane_at`); they show while touch is the
+//! input source (a key or a pad hides them, a touch shows them again).
+//! Under the legacy style, Columns, the play screen split into
 //! full-height columns, one per lane, whose boundaries are the midpoints
 //! between adjacent receptors. The outer columns run to the screen edges, so
 //! a finger anywhere below or above a receptor presses its lane whatever the
@@ -78,6 +85,49 @@ thread_local! {
     /// The safe area's insets (top, right, bottom, left, CSS pixels), read
     /// again when the canvas's size changes (a rotation).
     static INSETS: std::cell::Cell<Option<Insets>> = const { std::cell::Cell::new(None) };
+    /// The touch controls the play was started with.
+    static CHOICE: std::cell::Cell<ddi_ui::touch_controls::Choice> =
+        const {
+            std::cell::Cell::new(ddi_ui::touch_controls::Choice {
+                style: ddi_ui::touch_controls::Style::Columns,
+                hand: ddi_ui::touch_controls::Hand::Right,
+            })
+        };
+    /// Where the play's view placed them this frame (CSS pixels of the
+    /// canvas); none under the columns.
+    static CONTROLS: std::cell::RefCell<Option<ddi_ui::touch_controls::Controls>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The touch controls a play starting now plays with.
+pub(crate) fn set_choice(choice: ddi_ui::touch_controls::Choice) {
+    CHOICE.with(|c| c.set(choice));
+}
+
+/// What the play's view places and draws of the touch controls, on a
+/// canvas of `css` size: none under the columns, nor while no play runs;
+/// shown while touch is the input source.
+pub(crate) fn controls_spec(css: (f64, f64)) -> Option<ddi_shell::touch_controls::TouchSpec> {
+    let choice = CHOICE.with(|c| c.get());
+    if choice.style == ddi_ui::touch_controls::Style::Columns || !PLAYING.with(|p| p.get()) {
+        return None;
+    }
+    Some(ddi_shell::touch_controls::TouchSpec {
+        choice,
+        insets: safe_insets(css),
+        shown: crate::ui_host::kept_source().is_touch(),
+        look: crate::perf::touch_look(),
+    })
+}
+
+/// Where the play's view placed the touch controls this frame.
+pub(crate) fn set_controls(controls: Option<ddi_ui::touch_controls::Controls>) {
+    CONTROLS.with_borrow_mut(|c| *c = controls);
+}
+
+/// Where the touch controls are now (`__DDI_DEBUG.touch`).
+pub(crate) fn controls() -> Option<ddi_ui::touch_controls::Controls> {
+    CONTROLS.with_borrow(Clone::clone)
 }
 
 /// Whether a play runs (the quit button may show over it), and whether
@@ -90,6 +140,7 @@ pub(crate) fn set_quit_shown(playing: bool, touch: bool) {
         POLICY_AT.with(|p| p.set(None));
         WATCH_AT.with(|w| w.borrow_mut().clear());
         SKIP_AT.with(|s| s.set(None));
+        CONTROLS.with_borrow_mut(|c| *c = None);
         VOLUME_AT.with(|v| v.set(None));
         VOLUME_EDGES.with(|e| e.borrow_mut().clear());
     }
@@ -382,6 +433,8 @@ impl TouchLanes {
                         // keep working.
                         return;
                     } else {
+                        // A finger: touch is the source, its controls show.
+                        crate::ui_host::keep_source(ddi_ui::controller_hints::Source::Touch);
                         match s.lane_at(event.client_x() as f64, event.client_y() as f64, None) {
                             Some(lane) => Hold::Lane(lane),
                             None => return,
@@ -517,6 +570,17 @@ impl Shared {
     /// is that lane's instead of the touched half's.
     fn lane_at(&self, client_x: f64, client_y: f64, row_of: Option<u8>) -> Option<u8> {
         let rect = self.canvas.get_bounding_client_rect();
+        // The touch controls, where the play placed them.
+        let css = [
+            (client_x - rect.left()) as f32,
+            (client_y - rect.top()) as f32,
+        ];
+        if let Some(lane) = CONTROLS.with_borrow(|c| {
+            c.as_ref()
+                .map(|c| c.lane_at(css, row_of.map(usize::from)))
+        }) {
+            return lane.and_then(|l| u8::try_from(l).ok());
+        }
         let dpr = web_sys::window()
             .map(|w| w.device_pixel_ratio())
             .unwrap_or(1.0);

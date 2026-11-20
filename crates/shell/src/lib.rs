@@ -43,6 +43,7 @@ pub mod play_volume;
 pub mod rivals;
 pub mod scripted;
 pub mod stage;
+pub mod touch_controls;
 
 use ddi_chart::Layout;
 use ddi_noteskin::lua::Env;

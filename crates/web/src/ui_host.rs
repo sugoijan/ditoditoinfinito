@@ -931,9 +931,24 @@ thread_local! {
     static HOSTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// The input the hints followed when the last host closed (or in the
     /// play since): the next host's UI starts from it ([`hand_over`]).
-    static LAST_SOURCE: RefCell<ddi_ui::controller_hints::Source> = RefCell::default();
+    /// Before any input, a touch screen where a finger is the primary
+    /// pointer (`pointer: coarse`: phones, tablets), else the keyboard.
+    static LAST_SOURCE: RefCell<ddi_ui::controller_hints::Source> = RefCell::new(first_source());
     /// The hosts up, to wake for the shell's fade ([`wake_all`]).
     static UP: RefCell<Vec<Weak<RefCell<Host>>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The input source before any input: touch where a finger is the
+/// primary pointer (`docs/plans/touch-controls.md`).
+fn first_source() -> ddi_ui::controller_hints::Source {
+    let coarse = web_sys::window()
+        .and_then(|w| w.match_media("(pointer: coarse)").ok().flatten())
+        .is_some_and(|q| q.matches());
+    if coarse {
+        ddi_ui::controller_hints::Source::Touch
+    } else {
+        ddi_ui::controller_hints::Source::Keyboard
+    }
 }
 
 /// How many UI hosts are alive.
@@ -945,6 +960,12 @@ pub(crate) fn hosts() -> usize {
 /// a play's key or pad press).
 pub(crate) fn keep_source(source: ddi_ui::controller_hints::Source) {
     LAST_SOURCE.with_borrow_mut(|s| *s = source);
+}
+
+/// The input the hints follow now, as last kept: touch shows a play's
+/// touch controls (`docs/plans/touch-controls.md`).
+pub(crate) fn kept_source() -> ddi_ui::controller_hints::Source {
+    LAST_SOURCE.with_borrow(Clone::clone)
 }
 
 /// A new host's UI: the pads connected (`pads`, its hub's) and the input

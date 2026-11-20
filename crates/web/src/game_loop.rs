@@ -694,6 +694,7 @@ impl GameLoop {
                         quit,
                         lyrics: self.framed.is_none(),
                         touch: crate::web::touch::is_touch_screen(),
+                        controls: crate::web::touch::controls_spec(css),
                     },
                 );
                 // Where the quit button is (nowhere while it is not: no
@@ -705,6 +706,8 @@ impl GameLoop {
                 crate::web::touch::set_volume_at(drawn.volume_at);
                 // And a watched stage's fields and its skip.
                 crate::web::touch::set_watch_at(drawn.watch_at, drawn.skip_at);
+                // And the touch controls.
+                crate::web::touch::set_controls(drawn.touch);
                 // The song time of each drawn frame, for tests that read
                 // the screen (the debug state is refreshed every 10 frames).
                 if self.automated
@@ -1014,6 +1017,19 @@ impl GameLoop {
         video["update_ms_max"] = json!(update_ms_max);
         video["guard"] = json!(self.view.guard().guard.state());
         debug["video"] = video;
+        // The touch controls placed (CSS pixels), and whether they show
+        // (`docs/plans/touch-controls.md`).
+        debug["touch"] = json!(crate::web::touch::controls().map(|c| json!({
+                        "style": format!("{:?}", c.style),
+                        "shown": crate::ui_host::kept_source().is_touch(),
+                        "look": crate::perf::touch_look().name(),
+                        "groups": c.groups,
+                        "targets": c.targets.iter().map(|t| json!({
+                            "lane": t.lane,
+                            "rect": t.rect,
+                            "kind": format!("{:?}", t.kind),
+                        })).collect::<Vec<_>>(),
+                    })));
         if let Some(d) = self.view.generated() {
             debug["generated"] = json!({
                 "look": d.look,
@@ -1077,6 +1093,8 @@ impl GameLoop {
                     // The quit button's place while it shows (CSS pixels:
                     // x, y, radius), else null.
                     "quitButton": crate::web::touch::quit_at(),
+                    // The touch controls placed (CSS pixels), and whether
+                    // they show (`docs/plans/touch-controls.md`).
                     "finished": p.finished(),
                     "failed": p.failed(),
                     // The lane covers now ("sudden+ 30%"; null when off).

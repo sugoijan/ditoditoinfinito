@@ -1023,6 +1023,8 @@ impl Host {
                 && readied.request.stage.is_none()
             {
                 let mut o = PlayOptions::new(readied.request.settings(), "", env.platform);
+                // On a touch screen, this play's touch controls too.
+                o.set_touch(self.feed.borrow().touch_shown);
                 let bundled = crate::library::noteskins::bundled();
                 o.set_noteskins(crate::library::noteskins::choices(&bundled), false);
                 o.show(&mut readied.prompt.borrow_mut());
@@ -1954,6 +1956,19 @@ impl Host {
                 .pointer_at
                 .map(|at| at.elapsed().as_secs_f64());
             v.quit_shown = ddi_session::play::quit_shown(false, since);
+            // The touch controls (none under the legacy columns, which
+            // desktop never had).
+            v.touch_spec = {
+                let f = self.feed.borrow();
+                (f.touch_choice.style != ddi_ui::touch_controls::Style::Columns).then(|| {
+                    ddi_shell::touch_controls::TouchSpec {
+                        choice: f.touch_choice,
+                        insets: [0.0; 4],
+                        shown: f.touch_shown,
+                        look: touch_look(),
+                    }
+                })
+            };
             // The music's volume's presses since the last frame: the
             // play's sound follows, its clock, judging and log never
             // hear of it.
@@ -1971,6 +1986,7 @@ impl Host {
             self.feed.borrow_mut().watch_at.clone_from(&v.watch_at);
             self.feed.borrow_mut().skip_at = v.skip_at;
             self.feed.borrow_mut().volume_at = v.volume_at;
+            self.feed.borrow_mut().touch_at.clone_from(&v.touch_at);
             // Where the play showed what its scene can ring.
             if let Some(run) = &r.scene {
                 run.spots.set(ddi_shell::play_spots(v.renderer.hud_spots()));
@@ -2703,4 +2719,13 @@ fn results_action(
         after.set(Some(what()));
         ddi_ui::screens::leave(env, cx, cancel);
     })
+}
+
+/// A TESTING AID: the touch controls' look (`DDI_TOUCH_LOOK=glass|mat|glyphs`,
+/// `docs/plans/touch-controls.md`); the default without it.
+fn touch_look() -> ddi_shell::touch_controls::Look {
+    std::env::var("DDI_TOUCH_LOOK")
+        .ok()
+        .and_then(|v| ddi_shell::touch_controls::Look::from_name(&v))
+        .unwrap_or_default()
 }

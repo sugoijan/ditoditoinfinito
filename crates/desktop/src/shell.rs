@@ -963,6 +963,8 @@ impl Shell {
         // A play's frame is paced (`crate::pacing`): its start, its
         // acquire and its present are timed.
         let paced = self.play.playing();
+        // The touch controls show while touch is the input source.
+        self.play.feed.borrow_mut().touch_shown = self.ui.hints().source().is_touch();
         if paced {
             self.feed_link();
             self.pacer.begin(crate::clock::now().0);
@@ -1323,6 +1325,74 @@ impl Shell {
             host_time: crate::clock::now(),
             slot: 0,
         });
+        true
+    }
+
+    /// A finger `id`'s edge at `pos` (logical pixels) on a play's touch
+    /// controls (`docs/plans/touch-controls.md`): going down on a lane's
+    /// target presses it, a slide keeps its lane until it is well inside
+    /// another's (`Controls::lane_at`), several fingers on one lane hold it
+    /// until the last lifts. Touch becomes the input source (the controls
+    /// show). Whether the play took it.
+    pub fn touch_lane(&mut self, id: u64, phase: PointerPhase, pos: [f32; 2]) -> bool {
+        if !self.play.playing() {
+            return false;
+        }
+        {
+            let mut feed = self.play.feed.borrow_mut();
+            let Some(controls) = feed.touch_at.clone() else {
+                return false;
+            };
+            let now = crate::clock::now();
+            let held = |f: &[(u64, usize)], lane: usize| {
+                f.iter().filter(|(_, l)| *l == lane).count()
+            };
+            let mut edges = Vec::new();
+            let at = feed.touch_fingers.iter().position(|(f, _)| *f == id);
+            match (phase, at) {
+                (PointerPhase::Down, None) => {
+                    feed.touch_shown = true;
+                    if let Some(lane) = controls.lane_at(pos, None) {
+                        if held(&feed.touch_fingers, lane) == 0 {
+                            edges.push((lane, true));
+                        }
+                        feed.touch_fingers.push((id, lane));
+                    }
+                }
+                (PointerPhase::Move, Some(i)) => {
+                    let old = feed.touch_fingers[i].1;
+                    let new = controls.lane_at(pos, Some(old)).unwrap_or(old);
+                    if new != old {
+                        feed.touch_fingers[i].1 = new;
+                        if held(&feed.touch_fingers, old) == 0 {
+                            edges.push((old, false));
+                        }
+                        if held(&feed.touch_fingers, new) == 1 {
+                            edges.push((new, true));
+                        }
+                    }
+                }
+                (PointerPhase::Up | PointerPhase::Cancel, Some(i)) => {
+                    let (_, lane) = feed.touch_fingers.swap_remove(i);
+                    if held(&feed.touch_fingers, lane) == 0 {
+                        edges.push((lane, false));
+                    }
+                }
+                _ => {}
+            }
+            for (lane, pressed) in &edges {
+                feed.edges.push(ddi_platform::RawInput {
+                    device: ddi_platform::DeviceId::Touch,
+                    control: format!("lane:{lane}"),
+                    pressed: *pressed,
+                    host_time: now,
+                    slot: 0,
+                });
+            }
+        }
+        if phase == PointerPhase::Down {
+            self.ui.set_source(ddi_ui::controller_hints::Source::Touch);
+        }
         true
     }
 
@@ -1811,6 +1881,10 @@ impl ApplicationHandler for Shell {
                 let pos = to_logical(t.location, self.scale);
                 self.pointer_over_play();
                 if self.play_pointer(phase, pos) {
+                    return;
+                }
+                // A play's touch controls (`docs/plans/touch-controls.md`).
+                if self.touch_lane(t.id, phase, pos) {
                     return;
                 }
                 self.pointer(t.id + 1, PointerKind::Touch, phase, pos);

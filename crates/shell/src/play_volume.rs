@@ -80,10 +80,16 @@ impl VolumeAt {
 /// bottom half: away from the receptors' row, which the quit button
 /// already keeps clear of); the slider along the same way where it fits,
 /// else beside the button, on the screen.
-pub fn place(quit: [f32; 3], [w, h]: [f32; 2], ratio: f32) -> Place {
+pub fn place(quit: [f32; 3], size: [f32; 2], ratio: f32) -> Place {
+    place_way(quit, size, ratio, quit[1] <= size[1] / 2.0)
+}
+
+/// [`place`] below the quit button (`down`) or above it, whatever half
+/// it is in: above it while touch controls show under it
+/// (`docs/plans/touch-controls.md`).
+pub fn place_way(quit: [f32; 3], [w, h]: [f32; 2], ratio: f32, down: bool) -> Place {
     let [qx, qy, r] = quit;
     let gap = GAP * ratio;
-    let down = qy <= h / 2.0;
     let way = if down { 1.0 } else { -1.0 };
     let by = qy + way * (2.0 * r + gap);
     let button = [qx, by, r];
