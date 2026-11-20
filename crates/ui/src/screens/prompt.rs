@@ -783,6 +783,10 @@ pub struct PromptScreen {
     /// pressed (built again: none).
     caps: RefCell<Vec<Option<crate::keycaps::Keycap>>>,
     keys_active: Option<Option<usize>>,
+    /// The diagram was built for a touch screen (the touch controls under
+    /// the receptors, `docs/plans/touch-controls.md`): built again when
+    /// the input source changes between touch and the rest.
+    touch_built: bool,
     /// The view's strings are to be made again (the state or the hints
     /// changed: a rebuild).
     view_dirty: bool,
@@ -945,6 +949,7 @@ impl PromptScreen {
             lit: None,
             caps: RefCell::default(),
             keys_active: None,
+            touch_built: false,
             view_dirty: true,
             room: None,
             volume: {
@@ -1839,6 +1844,7 @@ impl PromptScreen {
     fn rebuild(&mut self, root: &mut Actor, cx: &mut Cx) {
         self.lit = None;
         self.keys_active = None;
+        self.touch_built = cx.hints().source().is_touch();
         self.view_dirty = true;
         let focused = cx.focused().map(str::to_string);
         let before = std::mem::discriminant(&self.state.borrow().step);
@@ -2512,7 +2518,8 @@ impl Screen for PromptScreen {
             && self
                 .loading
                 .is_some_and(|l| l.shown >= LOADING_FADE && l.shown - dt < LOADING_FADE);
-        if resized || card_gone || self.state.borrow().version != self.built {
+        let touch = cx.hints().source().is_touch() != self.touch_built;
+        if resized || card_gone || touch || self.state.borrow().version != self.built {
             self.rebuild(root, cx);
             self.publish();
         } else {

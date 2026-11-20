@@ -152,6 +152,22 @@ pub(super) fn draw(
     use ddi_actor::{Actor, Kind, Sprite, State};
     let caps = controls.caps(cx.hints());
     let n = caps.len();
+    // On a touch screen, under each receptor the touch control it maps to
+    // (`docs/plans/touch-controls.md`), as a cut of the controls: its
+    // group or its pad, the lane's own lit.
+    let touch = cx
+        .hints()
+        .source()
+        .is_touch()
+        .then(|| {
+            let vp = cx.viewport().screen;
+            crate::touch_controls::plan(
+                &controls.layout,
+                crate::touch_controls::Screen::new([vp.width, vp.height], [0.0; 4]),
+                controls.settings.touch_choice(),
+            )
+        })
+        .flatten();
     let side_labels = caps
         .iter()
         .any(|c| matches!(c,Some(Keycap::Controller(cap)) if cap.side.is_some()));
@@ -190,6 +206,13 @@ pub(super) fn draw(
         actors.push(image);
         for (i, cap) in caps.iter().enumerate().skip(start).take(count) {
             let x = left + (i - start) as f32 * cell + cell / 2.0;
+            if let Some(plan) = &touch {
+                let mut cut = touch_cut(plan, i, (cell - 6.0).min(56.0));
+                cut.name = format!("TouchCut{i}");
+                call(&mut cut, "xy", &[x, y + cell + 18.0]);
+                actors.push(cut);
+                continue;
+            }
             let key = cap.clone();
             let (mut hint, width) = match key {
                 Some(key) => super::key_hint(env, &format!("KeyMotion{i}"), &[key], "", cx),
@@ -234,6 +257,70 @@ pub(super) fn draw(
         [cell * n as f32, cell],
         caps,
     )
+}
+
+/// Lane `lane`'s touch control in `plan`, cut out of the controls: its
+/// pad whole, or its group of buttons with a line for the screen's
+/// bottom edge under it, at the side it is on; the lane's own target lit.
+/// About `size` wide, around its middle.
+pub fn touch_cut(plan: &crate::touch_controls::Controls, lane: usize, size: f32) -> ddi_actor::Actor {
+    use crate::look::{call, quad};
+    use crate::touch_controls::Kind;
+    let own: Vec<&crate::touch_controls::Target> =
+        plan.targets.iter().filter(|t| t.lane == Some(lane)).collect();
+    let Some(first) = own.first() else {
+        return super::frame("TouchCut", Vec::new());
+    };
+    // What is cut: the first target's group (its pad, or its buttons).
+    let group = plan
+        .groups
+        .iter()
+        .copied()
+        .find(|g| {
+            let [x, y] = first.center();
+            x >= g[0] && x <= g[2] && y >= g[1] && y <= g[3]
+        })
+        .unwrap_or(first.rect);
+    let gw = (group[2] - group[0]).max(1.0);
+    let gh = (group[3] - group[1]).max(1.0);
+    let k = size / gw.max(gh);
+    let pad = matches!(first.kind, Kind::Tile { .. });
+    // A group of buttons shows the side it is on: shifted that way.
+    let shift = match first.kind {
+        Kind::Button { group: 0 } => -size * 0.12,
+        Kind::Button { .. } => size * 0.12,
+        Kind::Tile { .. } => 0.0,
+    };
+    let mid = [(group[0] + group[2]) / 2.0, (group[1] + group[3]) / 2.0];
+    let mut parts = Vec::new();
+    for t in &plan.targets {
+        let [x, y] = t.center();
+        if x < group[0] || x > group[2] || y < group[1] || y > group[3] {
+            continue;
+        }
+        let [w, h] = t.size();
+        let lit = t.lane == Some(lane);
+        let color = if lit {
+            [1.0, 1.0, 1.0, 0.95]
+        } else if t.lane.is_some() {
+            [1.0, 1.0, 1.0, 0.32]
+        } else {
+            [1.0, 1.0, 1.0, 0.12]
+        };
+        let mut q = quad("", [w * k, h * k], color);
+        call(&mut q, "cornerradius", &[(w.min(h) * k * 0.18).max(1.0)]);
+        call(&mut q, "xy", &[(x - mid[0]) * k + shift, (y - mid[1]) * k]);
+        parts.push(q);
+    }
+    if !pad {
+        // The screen's bottom edge under the buttons.
+        let mut edge = quad("", [size * 1.25, 1.5], [1.0, 1.0, 1.0, 0.35]);
+        call(&mut edge, "xy", &[0.0, gh * k / 2.0 + 4.0]);
+        parts.push(edge);
+    }
+    let mut a = super::frame("TouchCut", parts);
+    a.decoration = true;
+    a
 }
 
 #[cfg(test)]
