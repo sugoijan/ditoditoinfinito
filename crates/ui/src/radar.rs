@@ -393,16 +393,12 @@ pub struct Placed {
 /// [`MIN_RADIUS`]. Nothing is cut and nothing overlaps.
 /// `numbers` is the caption's number, then a spoke's each.
 pub fn place(size: [f32; 2], words: &Words, numbers: &[String]) -> Placed {
-    if let Some(caption) = EDGE.with(std::cell::Cell::get) {
-        // The labels at the edges where that gives the shape more room
-        // (eight short labels: the corners free the diagonals); else
-        // beyond the spokes' ends (seven wide side labels, MSD's, keep
-        // more room there).
-        let edge = place_edge(size, words, numbers, caption);
-        let end = place_at_ends(size, words, numbers);
-        return if caption == Caption::Center || edge.radius >= end.radius { edge } else { end };
-    }
-    place_at_ends(size, words, numbers)
+    // The labels at the edges where that gives the shape more room (eight
+    // short labels: the corners free the diagonals); else beyond the
+    // spokes' ends (seven wide side labels, MSD's, keep more room there).
+    let edge = place_edge(size, words, numbers);
+    let end = place_at_ends(size, words, numbers);
+    if edge.radius >= end.radius { edge } else { end }
 }
 
 /// The labels beyond the spokes' ends (round Z1's rule).
@@ -423,37 +419,17 @@ fn place_at_ends(size: [f32; 2], words: &Words, numbers: &[String]) -> Placed {
     layout_at(size, 9.0, words.short, words.overall, numbers, MIN_RADIUS).named(false)
 }
 
-/// TESTING AID (the select-layout study's round 5): where the overall's
-/// caption goes when the labels are at the radar's edges.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Caption {
-    /// In the upper left corner (labels it would meet move under it).
-    Corner,
-    /// In the middle of the shape, over it.
-    Center,
-}
-
-thread_local! {
-    static EDGE: std::cell::Cell<Option<Caption>> = const { std::cell::Cell::new(Some(Caption::Corner)) };
-}
-
-/// TESTING AID: the labels at the radar's edges and corners rather than
-/// at the shape's end (`None`: the label rule as shipped).
-pub fn set_edge_layout(c: Option<Caption>) {
-    EDGE.with(|e| e.set(c));
-}
-
 /// Round 5's rule: each label against the radar's edge in its spoke's
 /// direction (top and bottom labels at the top and bottom edges, side
 /// ones at the sides, the diagonal ones in the corners), the shape as
 /// large as the labels and the caption leave it (a label's gap kept
 /// from the shape at its largest); the text as the shipped rule
 /// chooses it, a pixel smaller where two labels would meet.
-fn place_edge(size: [f32; 2], words: &Words, numbers: &[String], caption: Caption) -> Placed {
+fn place_edge(size: [f32; 2], words: &Words, numbers: &[String]) -> Placed {
     let mut text = (size[1] / 16.0).clamp(9.0, 13.0).floor();
     while text >= 9.0 {
-        let full = edge_at(size, text, words.full, words.overall, numbers, caption);
-        let short = edge_at(size, text, words.short, words.overall, numbers, caption);
+        let full = edge_at(size, text, words.full, words.overall, numbers);
+        let short = edge_at(size, text, words.short, words.overall, numbers);
         match (full, short) {
             (Some(f), Some(s)) if f.radius >= (s.radius * 0.8).floor() => return f.named(true),
             (_, Some(s)) => return s.named(false),
@@ -470,7 +446,6 @@ fn edge_at(
     names: &[String],
     overall: &str,
     numbers: &[String],
-    caption: Caption,
 ) -> Option<Placed> {
     let [w, h] = size;
     let m = pad(size);
@@ -480,11 +455,8 @@ fn edge_at(
     const SLACK: f32 = 1.2;
     let cap_w = (width_of(overall, text) + text * 0.5 + width_of(&numbers[0], text + 4.0)) * SLACK;
     let cap_h = line(text + 4.0);
-    let cap = match caption {
-        Caption::Corner => [-w / 2.0 + m, -h / 2.0 + m, -w / 2.0 + m + cap_w, -h / 2.0 + m + cap_h],
-        // Its middle at the shape's middle: drawn over the shape.
-        Caption::Center => [-cap_w / 2.0, -cap_h / 2.0, cap_w / 2.0, cap_h / 2.0],
-    };
+    // The caption in the upper left corner.
+    let cap = [-w / 2.0 + m, -h / 2.0 + m, -w / 2.0 + m + cap_w, -h / 2.0 + m + cap_h];
     let mut labels: Vec<Rect> = (0..n)
         .map(|k| {
             let [dx, dy] = direction(k, n);
@@ -513,13 +485,11 @@ fn edge_at(
         .collect();
     // A label the corner's caption would come near goes under it.
     let near = [cap[0], cap[1], cap[2] + text * 0.5, cap[3] + 2.0];
-    if caption == Caption::Corner {
-        for r in &mut labels {
-            if overlap(*r, near) {
-                let dy = cap[3] + 2.0 - r[1];
-                r[1] += dy;
-                r[3] += dy;
-            }
+    for r in &mut labels {
+        if overlap(*r, near) {
+            let dy = cap[3] + 2.0 - r[1];
+            r[1] += dy;
+            r[3] += dy;
         }
     }
     let gap = text * 0.5;
@@ -529,14 +499,14 @@ fn edge_at(
         if labels[i + 1..].iter().any(|b| overlap(*a, *b)) {
             return None;
         }
-        if caption == Caption::Corner && overlap(*a, cap) {
+        if overlap(*a, cap) {
             return None;
         }
     }
     let mut r = (w.min(h) / 2.0 - m).floor();
     while r >= MIN_RADIUS {
         if labels.iter().all(|l| !meets_shape(grown(l), r, n))
-            && (caption == Caption::Center || !meets_shape(grown(&cap), r, n))
+            && !meets_shape(grown(&cap), r, n)
         {
             return Some(Placed {
                 radius: r,

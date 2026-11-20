@@ -130,17 +130,19 @@ fn a_practice_rooms_place_holds_through_pop_ups_a_rebuild_and_a_stage() {
     assert_eq!(place.0, "p1s5");
     assert_eq!(place.1.as_deref(), Some("Medium 6"));
     assert_eq!(place.3, ["Bundled songs", "Pack B"]);
-    for name in ["Room.Rules", "KeyL", "More"] {
-        if name == "KeyL" {
-            // The players: L (a wide screen has no button for them).
-            h.key("KeyL", "l");
-        } else {
-            h.tap(PointerKind::Mouse, name);
-        }
+    for name in ["Room.Rules", super::select::PANEL_HEAD, "More"] {
+        h.tap(PointerKind::Mouse, name);
         h.run(0.5);
         assert_ne!(top(&h), "select", "{name} opened");
         close(&mut h);
         assert_eq!(shown(&env), place, "after {name}");
+    }
+    // The players panel folded and opened again (L): the place holds.
+    for _ in 0..2 {
+        h.key("KeyL", "l");
+        h.run(0.5);
+        assert_eq!(top(&h), "select");
+        assert_eq!(shown(&env), place, "after L");
     }
     // Rules applied (a stage more).
     h.tap(PointerKind::Mouse, "Room.Rules");

@@ -184,7 +184,6 @@ numbers_weight = 800
 "Select.Banner.Height" = 175
 # A jacket's square beside the banner (the gap between them), and the
 # CD title's box in the banner's corner.
-"Select.Jacket.Gap" = 8
 "Select.CdTitle.Width" = 64
 "Select.CdTitle.Height" = 48
 "Select.Tabs.Y" = 377

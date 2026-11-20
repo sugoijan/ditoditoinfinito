@@ -227,19 +227,11 @@ const LOAD_KEY: &str = "ddi.load";
 /// The most a frame may be made to burn, ms.
 const MOST_LOAD_MS: f64 = 50.0;
 
-/// An address's `perf` parameter, the select-layout study's `sllayout`,
-/// and the testing aids `load=MS` (each
+/// An address's `perf` parameter, and the testing aids `load=MS` (each
 /// play frame burns that much main thread, `load=0` none) and
 /// `msdslow=MS` (chart ratings a song every MS), kept for the tab.
 pub(crate) fn note_address(query: &str) {
     for kv in query.split('&') {
-        // TESTING AID: the select-layout study's candidate song side
-        // (`sllayout=a|b|c|d`; anything else today's), for the page.
-        if let Some(("sllayout", value)) = kv.split_once('=') {
-            use ddi_ui::screens::select::{SelectLayout, set_select_layout};
-            set_select_layout(SelectLayout::parse(value));
-            continue;
-        }
         let Some(s) = storage() else {
             return;
         };

@@ -340,6 +340,10 @@ pub struct Settings {
     /// `skill_radar` is ignored.)
     #[serde(default = "not_yet")]
     pub ratings_moved: bool,
+    /// A room's players panel on song select folded to its rail (L, its
+    /// handle, More; `docs/plans/song-navigation.md`, "In a room"): this
+    /// device's choice, open by default, never changed by itself.
+    pub players_folded: bool,
     /// How many of a multiplayer stage's opponents have a field beside
     /// the play ([`OpponentFields`]): every one that fits, by default.
     #[serde(deserialize_with = "ddi_engine::lenient")]
@@ -841,6 +845,7 @@ impl Default for Settings {
             dancing_hand_multiplayer: false,
             chart_ratings: ChartRatings::Estimate,
             ratings_moved: true,
+            players_folded: false,
             opponent_fields: OpponentFields::default(),
             room_ahead: None,
             hand_layout: HandLayout::default(),

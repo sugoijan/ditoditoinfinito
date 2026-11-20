@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use ddi_actor::{Actor, Fit, Kind, Rgba, Sprite};
+use ddi_actor::{Actor, Kind, Rgba, Sprite};
 use ddi_ui::look::{
     Look, Spec, WheelPlace, call, command_of, mono_width, named, quad, text_weighted, tracked,
 };
@@ -350,55 +350,7 @@ fn max_width(a: &mut Actor, w: f32) {
     ddi_ui::look::ellipsized(a, w.max(1.0));
 }
 
-/// Song select's stat line (wide layout): where the BPM's value starts,
-/// where the design puts the length's label, and the least gap between
-/// them.
-const INFO_BPM_X: f32 = 32.0;
-const INFO_LENGTH_X: f32 = 108.0;
-const INFO_GAP: f32 = 12.0;
 
-/// Moves song select's length and pack (`AfterBpm`) right as far as its
-/// BPM, measured, needs past the design's room (a range, "100–200", in
-/// the numbers' face), and narrows the pack's room as much, so the pack
-/// stays clear of the song's offset at the right.
-fn place_after_bpm(root: &mut Actor, measure: &mut dyn ddi_actor::text::TextMeasure) {
-    let Some(path) = ddi_ui::hit::find(root, "AfterBpm") else {
-        return;
-    };
-    let Some((_, parent)) = path.split_last() else {
-        return;
-    };
-    let Some(info) = ddi_ui::hit::actor_at_mut(root, parent) else {
-        return;
-    };
-    let advance = info
-        .children()
-        .iter()
-        .find(|a| a.name == "Bpm")
-        .and_then(|a| match &a.kind {
-            Kind::Text(t) => t.metrics().map(|m| m.advance),
-            _ => None,
-        });
-    let Some(advance) = advance else {
-        return;
-    };
-    let Some(after) = info.children_mut().get_mut(path[path.len() - 1]) else {
-        return;
-    };
-    let shift = (INFO_BPM_X + advance + INFO_GAP - INFO_LENGTH_X).max(0.0);
-    let was = after.current().pos[0];
-    if (was - shift).abs() < 0.01 {
-        return;
-    }
-    call(after, "x", &[shift]);
-    if let Some(pack) = ddi_ui::hit::find_mut(after, "Pack")
-        && let Kind::Text(t) = &mut pack.kind
-    {
-        t.max_width = (t.max_width + was - shift).max(1.0);
-        pack.forget_metrics();
-        pack.measure(measure);
-    }
-}
 
 /// The song's heart's height on song select's song side (wide, and a
 /// phone's or a room's short side).
@@ -471,12 +423,6 @@ impl Infinito {
     fn wheel_banner_big(&self) -> [f32; 2] {
         let h = (self.m("Select.Wheel.Selected") - 18.0).min(70.0);
         [h * 3.2, h]
-    }
-
-    /// TESTING AID (the select-layout study): a tunable's value changed
-    /// (the list's rows' heights, the song side's and the list's widths).
-    pub fn set_metric(&mut self, name: &str, value: f32) {
-        self.metrics.insert(name.to_string(), value);
     }
 
     /// A wheel row `h` high: whether it is the compact list's, its
@@ -769,163 +715,6 @@ impl Infinito {
         inset(frame("", vec![p, line, middle, right]))
     }
 
-    /// The selected song: banner, titles, BPM, length and pack (narrow:
-    /// title and one line).
-    fn song_info(&self, spec: &Spec) -> Actor {
-        let [w, h] = spec.size;
-        // A phone's (upright: as wide as the screen, as short).
-        let compact = w < 400.0 || h < 220.0;
-        let bh = if compact {
-            (w * 94.0 / 300.0).round()
-        } else {
-            self.m("Select.Banner.Height")
-        };
-        let back = round(
-            plate("BannerBack", [0.0, 0.0], [w, bh], self.c("BannerEmpty")),
-            6.0,
-        );
-        let mut banner = named(Kind::Sprite(Sprite::quad([w, bh])), "Banner");
-        call(&mut banner, "cornerradius", &[6.0]);
-        call(&mut banner, "halign", &[0.0]);
-        call(&mut banner, "valign", &[0.0]);
-        banner.visible = false;
-        // With a jacket: the jacket square at the right of the banner's
-        // place, the banner (cropped to it) in the rest.
-        let gap = self.m("Select.Jacket.Gap");
-        let mut short = named(
-            Kind::Sprite(Sprite::quad([(w - bh - gap).max(1.0), bh])),
-            "BannerShort",
-        );
-        let mut jacket = named(Kind::Sprite(Sprite::quad([bh, bh])), "Jacket");
-        call(&mut jacket, "x", &[w - bh]);
-        for s in [&mut short, &mut jacket] {
-            if let Kind::Sprite(sp) = &mut s.kind {
-                sp.fit = Fit::Cover;
-            }
-            call(s, "cornerradius", &[6.0]);
-            call(s, "halign", &[0.0]);
-            call(s, "valign", &[0.0]);
-            s.visible = false;
-        }
-        let jacket_back = {
-            let mut b = round(
-                plate("JacketBack", [w - bh, 0.0], [bh, bh], self.c("BannerEmpty")),
-                6.0,
-            );
-            b.visible = false;
-            b
-        };
-        // The CD title, a small mark in the banner's lower left corner,
-        // whole (its own shape kept).
-        let scale = if compact {
-            bh / self.m("Select.Banner.Height")
-        } else {
-            1.0
-        };
-        let [cw, ch] = [
-            self.m("Select.CdTitle.Width") * scale,
-            self.m("Select.CdTitle.Height") * scale,
-        ];
-        let inset = 8.0 * scale;
-        let mut cd = named(Kind::Sprite(Sprite::quad([cw, ch])), "CdTitle");
-        if let Kind::Sprite(sp) = &mut cd.kind {
-            sp.fit = Fit::Contain;
-        }
-        call(&mut cd, "halign", &[0.0]);
-        call(&mut cd, "valign", &[0.0]);
-        call(&mut cd, "xy", &[inset, bh - inset - ch]);
-        cd.visible = false;
-        let edge = outline("Edge", [0.0, 0.0, w, bh], 1.0, [1.0, 1.0, 1.0, 0.08]);
-        let mut c = vec![back, banner, short, jacket_back, jacket, cd, edge];
-        if compact {
-            let mut title = at_left(
-                self.text("Title", "", 18.0, 700, "Text"),
-                0.0,
-                bh + 8.0 + 11.0,
-            );
-            // Room at the title's right for the song's heart.
-            max_width(&mut title, w - FAVORITE_SMALL - 10.0);
-            let mut line = at_left(
-                self.text("Line", "", 13.0, 400, "Muted"),
-                0.0,
-                bh + 8.0 + 30.0,
-            );
-            max_width(&mut line, w);
-            c.extend([
-                title,
-                line,
-                favorite_slot(FAVORITE_SMALL, [w - FAVORITE_SMALL * 0.55, bh + 8.0 + 11.0]),
-            ]);
-        } else {
-            let ty = bh + 12.0 + 17.6;
-            let mut title = at_left(self.text("Title", "", 32.0, 700, "Text"), 0.0, ty);
-            max_width(&mut title, w * 0.78);
-            let ay = bh + 12.0 + 35.2 + 2.0 + 10.2;
-            let mut artist = at_left(self.text("Artist", "", 17.0, 400, "Secondary"), 0.0, ay);
-            max_width(&mut artist, w * 0.5);
-            // The credit line (a bundled song's artist and licence), at
-            // the right of the artist's.
-            let mut credit = at_right(self.text("Credit", "", 12.0, 400, "Muted"), w, ay + 2.0);
-            max_width(&mut credit, w * 0.48);
-            let sy = ay + 10.2 + 12.0 + 12.0;
-            // The labels in the language now (BPM is never translated);
-            // a value where the design puts it, or after a longer label.
-            let length_label = ddi_l10n::msg::select::info_length();
-            let pack_label = ddi_l10n::msg::select::info_pack();
-            let after = |label: &str, x: f32, at: f32| {
-                // As wide as drawn: tracked by 0.08 em a letter.
-                let lw = mono_width(label, 12.0) + label.chars().count() as f32 * 12.0 * 0.08;
-                x + (at - x).max(lw + 8.0)
-            };
-            let length_x = after(&length_label, INFO_LENGTH_X, 160.0);
-            let pack_label_x = (length_x + 76.0).max(236.0);
-            let pack_x = after(&pack_label, pack_label_x, pack_label_x + 38.0);
-            c.extend([
-                title,
-                artist,
-                at_left(
-                    tracked(self.text("BpmLabel", "BPM", 12.0, 400, "Muted"), 80),
-                    0.0,
-                    sy + 2.0,
-                ),
-                at_left(self.num("Bpm", "", 20.0, "Text"), INFO_BPM_X, sy),
-                // Moved right as far as a wide BPM needs ("100–200"),
-                // once it is measured (`place_after_bpm`).
-                frame(
-                    "AfterBpm",
-                    vec![
-                        at_left(
-                            tracked(
-                                self.text("LengthLabel", &length_label, 12.0, 400, "Muted"),
-                                80,
-                            ),
-                            INFO_LENGTH_X,
-                            sy + 2.0,
-                        ),
-                        at_left(self.num("Length", "", 20.0, "Text"), length_x, sy),
-                        at_left(
-                            tracked(self.text("PackLabel", &pack_label, 12.0, 400, "Muted"), 80),
-                            pack_label_x,
-                            sy + 2.0,
-                        ),
-                        {
-                            let mut p =
-                                at_left(self.text("Pack", "", 14.0, 600, "Text"), pack_x, sy + 1.0);
-                            max_width(&mut p, w - pack_x - 120.0);
-                            p
-                        },
-                    ],
-                ),
-                // The song's own offset, when set.
-                at_right(self.text("Offset", "", 13.0, 600, "Accent"), w, sy + 1.0),
-                credit,
-                // The song's heart at the title's line's right end.
-                favorite_slot(FAVORITE, [w - FAVORITE * 0.55, ty]),
-            ]);
-        }
-        frame("", c)
-    }
-
     fn style_tab(&self, spec: &Spec) -> Actor {
         let h = spec.size[1];
         let count = spec.items.first().cloned().unwrap_or_default();
@@ -973,80 +762,6 @@ impl Infinito {
         f
     }
 
-    /// A chart of the ladder: its color bar, difficulty, notes and step
-    /// artist, and its meter large in its color.
-    fn ladder_row(&self, spec: &Spec) -> Actor {
-        let [w, h] = spec.size;
-        let d = if DIFFICULTIES.contains(&spec.text.as_str()) {
-            spec.text.as_str()
-        } else {
-            "Edit"
-        };
-        let color = format!("Difficulty.{d}");
-        let mut p = round(plate("Plate", [0.0, 0.0], [w, h], self.c("Row")), 6.0);
-        self.colored(&mut p, "Select", "Selected");
-        self.colored(&mut p, "Deselect", "Row");
-        let mut bar = round(plate("Bar", [0.0, 0.0], [6.0, h], self.c(&color)), 3.0);
-        let label = at_left(
-            tracked(self.text("Label", "", 14.0, 600, "Text"), 100),
-            18.0,
-            h / 2.0,
-        );
-        let mut notes = at_left(
-            self.text("Notes", "", 13.0, 400, "Muted"),
-            18.0 + 120.0,
-            h / 2.0,
-        );
-        // Room for the best (grade, score, lamp) and the meter.
-        max_width(&mut notes, w - 138.0 - 60.0 - 150.0);
-        let mut meter = at_right(
-            self.num("Meter", "", if h < 40.0 { 24.0 } else { 28.0 }, &color),
-            w - 14.0,
-            h / 2.0,
-        );
-        self.difficulty_commands(&mut [&mut bar, &mut meter]);
-        let small = h < 40.0;
-        let grade = at_right(
-            self.num("Grade", "", if small { 15.0 } else { 17.0 }, "Text"),
-            w - 64.0,
-            if small { h / 2.0 } else { h / 2.0 - 7.0 },
-        );
-        let mut score = at_right(
-            self.text("Score", "", 11.0, 400, "Muted"),
-            w - 64.0,
-            h / 2.0 + 10.0,
-        );
-        if small {
-            hide(&mut score);
-        }
-        let mut lamp_text = at_right(
-            tracked(self.text("LampText", "", 11.0, 700, "Muted"), 80),
-            w - 64.0 - 70.0,
-            h / 2.0,
-        );
-        self.lamp_commands_text(&mut lamp_text);
-        let mut lamp = round(
-            plate(
-                "Lamp",
-                [w - 4.0, 6.0],
-                [3.0, h - 12.0],
-                self.c("Lamp.Clear"),
-            ),
-            1.5,
-        );
-        self.lamp_commands(&mut lamp);
-        // Where the best goes (lamp, grade, score), unseen: what points at
-        // a best points there when the chart has none.
-        let best = plate("Best", [w - 176.0, 8.0], [112.0, h - 16.0], [0.0; 4]);
-        frame(
-            "",
-            vec![
-                p, bar, label, notes, best, lamp_text, grade, score, lamp, meter,
-            ],
-        )
-    }
-
-    /// `Lamp.<name>` commands: the lamp's color, or hidden for none.
     fn lamp_commands(&self, a: &mut Actor) {
         hide(a);
         self.lamp_commands_text(a);
@@ -1434,7 +1149,6 @@ impl Look for Infinito {
     }
 
     fn place_measured(&self, root: &mut Actor, measure: &mut dyn ddi_actor::text::TextMeasure) {
-        place_after_bpm(root, measure);
         song_cover::place_heart(root, measure);
     }
 
@@ -1686,12 +1400,10 @@ impl Look for Infinito {
                 let line = plate("Line", [0.0, 0.0], [w, 1.0], self.c("Line"));
                 frame("", vec![p, line])
             }
-            "SongInfo" => self.song_info(spec),
             "SongCover" => self.song_cover(spec),
             "SongInfo.Text" => self.song_text(spec),
             "SongInfo.Short" => self.song_short(spec),
             "StyleTab" => self.style_tab(spec),
-            "ChartLadder.Row" => self.ladder_row(spec),
             "ChartLadder.Empty" => self.ladder_empty(spec),
             "ChartButton" => self.chart_button(spec),
             "Results.Judgement" => self.judgement(spec),

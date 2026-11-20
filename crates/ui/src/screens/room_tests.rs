@@ -96,11 +96,47 @@ fn press(h: &mut Harness, name: &str) {
     h.run(0.5);
 }
 
-/// The Players pop-up, by L (a wide screen has no button for it since
-/// follow-up round F: the panel beside the song, L and More open it).
+/// The Players pop-up: a tap on the wide layout's panel's head (L folds
+/// that panel, round SLB), else L (a phone's strip and More open it too).
 fn open_players(h: &mut Harness) {
-    h.key("KeyL", "l");
+    if h.ui.bounds(super::select::PANEL_HEAD).is_some() {
+        h.tap(PointerKind::Mouse, super::select::PANEL_HEAD);
+    } else {
+        h.key("KeyL", "l");
+    }
     h.run(0.5);
+}
+
+/// What the wide layout's players panel's pop-over says of row `k` (a
+/// mouse over it): its lines, the name first.
+fn popover_says(h: &mut Harness, k: usize) -> Vec<String> {
+    let at = h.centre(&format!("Players.Row{k}"));
+    h.hover(at);
+    h.run(0.1);
+    let lines = (0..6)
+        .map(|i| format!("Popover.Line{i}"))
+        .take_while(|n| there(h, n))
+        .map(|n| said(h, &n))
+        .collect();
+    h.hover([2.0, 2.0]);
+    h.run(0.1);
+    lines
+}
+
+/// The marks the wide layout's players panel draws before `name`'s name
+/// (`Host`, `CoHost`, `Admin`, `Picking`), in order; `None` where no row
+/// shows that name.
+fn row_marks(h: &Harness, name: &str) -> Option<Vec<&'static str>> {
+    let k = (0..80).find(|k| {
+        h.ui.actor(&format!("Players{k}.Name"))
+            .is_some_and(|_| said(h, &format!("Players{k}.Name")) == name)
+    })?;
+    Some(
+        ["Host", "CoHost", "Admin", "Picking"]
+            .into_iter()
+            .filter(|m| there(h, &format!("Players{k}.{m}")))
+            .collect(),
+    )
 }
 
 /// Scrolls the Rules pop-up's rows by the wheel until `name` is shown
@@ -135,6 +171,11 @@ fn reveal(h: &mut Harness, name: &str) {
 
 fn has(h: &Harness, text: &str) -> bool {
     h.texts().iter().any(|t| t == text)
+}
+
+/// Whether `words` are said, on one line or wrapped over several.
+fn says_words(h: &Harness, words: &str) -> bool {
+    h.texts().join(" ").contains(words)
 }
 
 /// Multiplayer is no longer behind a switch (2026-11-14): the start menu
@@ -2023,15 +2064,16 @@ fn a_rooms_header_shows_the_matchs_rules_in_place_of_the_players_ruleset() {
     assert_eq!(pills(&h), ["×2.5", "Reverse", "DDI · Hard timing · Boos"]);
 }
 
-/// Feedback round B: the players are always on the room's song select.
-/// The wide layout has the song's side short (a row of chart buttons, no
-/// ladder, the style button only where there is a style to change to) and
-/// the players panel under it: nine rows without scrolling, You marked, a
-/// CPU's stars, what each is doing, and, once a stage is confirmed, the
-/// place and the match points in the match's order.
+/// Feedback round B, as built in round SLB: the players are always on the
+/// room's song select. The wide layout is in three parts: the song's side
+/// as solo has it (the cover and the radar, the chart buttons, no ladder),
+/// the list, and the players panel at the screen's right, from the
+/// header's bar to the footer's: nine rows without scrolling, You marked,
+/// a CPU's level as pips, each one's state as an icon, and, once a stage
+/// is confirmed, the place in the match's order (the points in the
+/// pop-over and the Players pop-up).
 #[test]
 fn the_players_are_always_beside_the_song() {
-    use crate::stars::{fills, shown};
     use ddi_room::{Finish, Finisher};
     let env = env();
     let room = RoomClient::shared(0, 1);
@@ -2047,42 +2089,34 @@ fn the_players_are_always_beside_the_song() {
     press(&mut h, "Apply");
     assert_eq!(top(&h), "select");
     assert_eq!(view(&env).cpus, 8);
-    // The panel: beside the song, clear of the list and the footer.
-    let [x0, y0, x1, y1] = h.ui.bounds("RoomPlayers").expect("the panel");
+    assert_eq!(view(&env).panel.as_deref(), Some("open"));
+    // The panel: at the right, past the list, between the bars; the
+    // song's side where solo has it.
+    let [x0, y0, x1, y1] = h.ui.visible_bounds("Panel.Ground").expect("the panel");
+    let wheel = h.ui.bounds("Wheel").expect("the list");
     let info = h.ui.bounds("Info").expect("the song");
-    assert!(
-        x0 >= 32.0 && x1 <= 600.0 && y0 >= info[3] && y1 <= 680.0,
-        "{x0} {y0} {x1} {y1}"
-    );
+    assert!(x0 >= wheel[2] && x1 >= 1279.0 && y0 >= 63.0 && y1 <= 681.0, "{x0} {y0} {x1} {y1}");
+    assert!(info[0] >= 31.0 && info[2] <= wheel[0], "{info:?} {wheel:?}");
     assert_eq!(said(&h, "Players.Count"), "9 / 73");
     assert!(!there(&h, "Players.More"), "nine fit without scrolling");
     assert_eq!(said(&h, "Players0.Name"), "You");
     assert!(there(&h, "Players0.Me"), "You is marked");
     let roster = room.borrow().rules().cpu.roster.clone();
     assert_eq!(roster.len(), 8);
+    let rows = super::room::panel_order(super::room::player_rows(&room.borrow()));
     for (k, spec) in roster.iter().enumerate() {
         let id = format!("Players{}", k + 1);
         assert_eq!(said(&h, &format!("{id}.Name")), spec.name.clone().unwrap());
-        assert_eq!(
-            shown(h.actor(&format!("{id}.Stars"))),
-            fills(spec.level + 1),
-            "{id}"
-        );
-        assert_eq!(said(&h, &format!("{id}.State")), "At start");
-        assert!(
-            !there(&h, &format!("{id}.Place")),
-            "no place before a stage"
-        );
-        assert!(!there(&h, &format!("{id}.Points")));
+        assert!(there(&h, &format!("{id}.Icon")));
+        assert_eq!(rows[k + 1].icon, super::room::StateIcon::Ready, "a CPU needs no readiness");
+        assert!(!there(&h, &format!("{id}.Place")), "no place before a stage");
     }
-    assert!(!there(&h, "Players.Points"));
-    // The song's side: chart buttons, no ladder, no tabs; one playable
-    // style, so no style button.
-    assert!(there(&h, "Chart0") && !there(&h, "Ladder.Row0") && !there(&h, "Tab0"));
-    assert!(!h.actor("StyleButton").visible);
-    assert!(has(&h, "HARD 9"), "{:?}", h.texts());
-    // A row opens the full list (the pop-up stays for the picks).
-    press(&mut h, "Players3.Name");
+    // The song's side: chart buttons, no ladder; the cover square and the
+    // radar's place (solo's).
+    assert!(there(&h, "Chart0") && !there(&h, "Ladder.Row0"));
+    assert!(there(&h, "Cover") && there(&h, "RadarSlot"));
+    // A row clicked opens the full list (the pop-up stays for the picks).
+    press(&mut h, "Players.Row3");
     assert_eq!(top(&h), "room-players");
     h.key("Escape", "Escape");
     h.run(0.5);
@@ -2093,7 +2127,7 @@ fn the_players_are_always_beside_the_song() {
     // Ready, on the panel, while the stage gathers.
     room.borrow_mut().set_ready(true).unwrap();
     h.run(0.3);
-    assert_eq!(said(&h, "Players0.State"), "Ready");
+    assert_eq!(super::room::player_rows(&room.borrow())[0].icon, super::room::StateIcon::Ready);
     room.borrow_mut().tick(20_000);
     let mut ids: Vec<_> = order.cpus.iter().map(|c| c.participant).collect();
     ids.insert(1, order.me);
@@ -2113,14 +2147,13 @@ fn the_players_are_always_beside_the_song() {
     h.run(0.5);
     press(&mut h, "Continue");
     assert_eq!(top(&h), "select");
-    // By place now, with the points: the winner, then You.
+    // By place now: the winner, then You; the points in the pop-over.
     let winner = order
         .cpus
         .iter()
         .find(|c| c.participant == first)
         .and_then(|c| c.name.clone())
         .unwrap();
-    assert_eq!(said(&h, "Players.Points"), "Points");
     assert_eq!(
         (said(&h, "Players0.Place"), said(&h, "Players0.Name")),
         ("1".to_string(), winner)
@@ -2130,10 +2163,8 @@ fn the_players_are_always_beside_the_song() {
         ("2".to_string(), "You".to_string())
     );
     assert!(there(&h, "Players1.Me") && !there(&h, "Players0.Me"));
-    assert_eq!(said(&h, "Players0.Points"), "12");
-    assert_eq!(said(&h, "Players1.Points"), "9");
-    // Nine starters: the top-biased table, last earning 1.
-    assert_eq!(said(&h, "Players8.Points"), "1");
+    let says = popover_says(&mut h, 0);
+    assert!(says.iter().any(|l| l.contains("12")), "{says:?}");
 }
 
 /// Past what fits (a development practice's field), the panel counts the
@@ -2141,14 +2172,14 @@ fn the_players_are_always_beside_the_song() {
 #[test]
 fn the_players_panel_counts_those_that_do_not_fit() {
     let env = env();
-    let room = Rc::new(RefCell::new(RoomClient::development(0, 1, 20)));
+    let room = Rc::new(RefCell::new(RoomClient::development(0, 1, 30)));
     room.borrow_mut().set_rules_seen(true);
     let orders = Orders::default();
     let mut h = harness();
     h.push(room_select(&env, room.clone(), "dance-single", &orders));
     h.run(0.5);
     let rows = super::room::player_rows(&room.borrow()).len();
-    assert!(rows > 13, "{rows}");
+    assert!(rows > 24, "{rows}");
     let shown = (0..rows)
         .filter(|k| there(&h, &format!("Players{k}.Name")))
         .count();
@@ -2485,7 +2516,7 @@ fn an_online_rooms_host_has_their_songs_though_the_room_answers_late() {
     assert!(view(&ea).host);
     // The room's songs first (none yet), the host's own on My songs.
     assert_eq!(view(&ea).tab.as_deref(), Some("room"));
-    assert!(has(&ha, "No songs in the room yet. Add songs from My songs."), "{:?}", ha.texts());
+    assert!(says_words(&ha, "No songs in the room yet. Add songs from My songs."), "{:?}", ha.texts());
     ha.key("KeyM", "m");
     ha.run(0.3);
     assert_eq!(view(&ea).tab.as_deref(), Some("mine"));
@@ -2609,9 +2640,9 @@ fn an_online_room_shows_the_host_and_the_follower_and_its_link() {
     assert!(has(&ha, "AFTER HOURS"), "{:?}", ha.texts());
     // Bob's players beside the list (the host's role); the room's list
     // empty, said to each as they may act on it (revision 17).
-    assert!(has(&hb, "Host · Picking"), "{:?}", hb.texts());
-    assert!(has(&hb, "The host hasn't added any songs yet."), "{:?}", hb.texts());
-    assert!(has(&ha, "No songs in the room yet. Add songs from My songs."));
+    assert_eq!(row_marks(&hb, "alice"), Some(vec!["Host", "Picking"]), "{:?}", hb.texts());
+    assert!(says_words(&hb, "The host hasn't added any songs yet."), "{:?}", hb.texts());
+    assert!(says_words(&ha, "No songs in the room yet. Add songs from My songs."));
     assert!(view(&ea).may_add && !view(&eb).may_add);
     // Alice adds her first song from My songs: Enter only adds it.
     ha.key("KeyM", "m");
@@ -2835,22 +2866,26 @@ fn the_panels_lines_say_what_each_player_is_doing() {
     // Each one's own row: their name with the "You" badge (alice's the
     // first line, bob's the second).
     for (h, first, other, state, at, own) in [
-        (&ha, "alice", "bob", "Loading", 1, 0),
-        (&hb, "alice", "bob", "Ready", 0, 1),
+        (&mut ha, "alice", "bob", "Loading", 1, 0),
+        (&mut hb, "alice", "bob", "Ready", 0, 1),
     ] {
         // Dave watches: three of them play (fix round G1, ui-screens-4).
         assert_eq!(said(h, "Players.Count"), "3 / 73");
         assert_eq!(said(h, "Players0.Name"), first);
-        assert_eq!(said(h, "Players0.Role"), "Host · Picking");
+        // The host's marks (a house, the note), the words in the row's
+        // pop-over (round SLB).
+        assert_eq!(row_marks(h, first), Some(vec!["Host", "Picking"]));
+        let says = popover_says(h, 0);
+        assert!(says.iter().any(|l| l.starts_with("Host · Picking")), "{says:?}");
         assert_eq!(said(h, "Players1.Name"), other);
-        assert_eq!(said(h, &format!("Players{at}.State")), state);
+        assert!(popover_says(h, at).contains(&state.to_string()), "{state}");
         assert_eq!(said(h, &format!("Players{own}.Name.BadgeText")), "You");
-        super::test_kit::assert_badge_on_line(h, None, &format!("Players{own}.Name"), 15.0);
+        super::test_kit::assert_badge_on_line(h, None, &format!("Players{own}.Name"), 13.0);
         assert!(!there(h, &format!("Players{}.Name.Badge", 1 - own)));
-        assert_eq!(said(h, "Players2.State"), "Download failed");
-        assert_eq!(said(h, "Players3.State"), "Watching");
-        assert_eq!(ha.ui.bounds("RoomPlayers"), h.ui.bounds("RoomPlayers"));
+        assert!(popover_says(h, 2).contains(&"Download failed".to_string()));
+        assert!(popover_says(h, 3).iter().any(|l| l.contains("Watching")));
     }
+    assert_eq!(ha.ui.bounds("RoomPlayers"), hb.ui.bounds("RoomPlayers"));
     assert_eq!(
         hb.texts().iter().filter(|t| *t == "Players").count(),
         1,
@@ -3264,7 +3299,8 @@ fn a_co_host_takes_the_pick_over_and_the_owner_takes_it_back() {
     let hint = |e: &Env| e.state.borrow().hints.iter().any(|h| h.contains("Pick songs"));
     assert!(hint(&eb) && !hint(&ea) && !hint(&ec), "{:?}", eb.state.borrow().hints);
     // The players' rows mark who chooses, quietly.
-    assert!(has(&hb, "Host · Picking") && has(&hb, "Co-host"), "{:?}", hb.texts());
+    assert_eq!(row_marks(&hb, "alice"), Some(vec!["Host", "Picking"]), "{:?}", hb.texts());
+    assert_eq!(row_marks(&hb, "bob"), Some(vec!["CoHost"]), "{:?}", hb.texts());
     assert!(b.members.iter().any(|m| m.picker && m.name == "alice"));
     // Alice moves to her second song, searches and rests there: the
     // others see it.
@@ -3311,7 +3347,8 @@ fn a_co_host_takes_the_pick_over_and_the_owner_takes_it_back() {
     for v in [&a, &c] {
         assert_eq!(v.status, "bob is choosing the first song.");
     }
-    assert!(has(&ha, "Co-host · Picking") && has(&ha, "Host"), "{:?}", ha.texts());
+    assert_eq!(row_marks(&ha, "alice"), Some(vec!["Host"]), "{:?}", ha.texts());
+    assert_eq!(row_marks(&ha, "bob"), Some(vec!["CoHost", "Picking"]), "{:?}", ha.texts());
     // What the co-host's song select rests on is the room's now.
     for _ in 0..8 {
         t.step(500);
@@ -3480,7 +3517,10 @@ fn no_view(h: &Harness) -> bool {
     !list_shows(h)
         && h.ui.actor("Song").is_none_or(|s| !s.visible)
         && !there(h, "Room.Status")
-        && !there(h, "Panel")
+        // (The song's side's own panels, the radar's, are inside the
+        // hidden song's side.)
+        && h.ui.visible_bounds("Panel").is_none()
+        && !there(h, "Panel.Ground")
         && !there(h, "Players.Heading")
         && !there(h, "Room.Rules")
         && !there(h, "Room.TakePick")
@@ -3779,7 +3819,7 @@ fn the_host_makes_co_hosts_sets_what_leaving_does_and_hands_the_room_over() {
     assert!(has(&ha, "Remove co-host") && has(&ha, "Co-host"));
     assert!(there(&hb, "Room.TakePick") && view(&eb).can_take_pick);
     assert!(!view(&eb).manages_hosts, "a co-host has no such controls");
-    assert!(has(&hc, "Co-host"), "the member's players panel says it");
+    assert_eq!(row_marks(&hc, "bob"), Some(vec!["CoHost"]), "the member's players panel marks it");
     // Remove co-host.
     press(&mut ha, "CoHost.2");
     t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
@@ -4026,7 +4066,7 @@ fn a_room_passed_on_changes_hands_on_everyones_screens() {
     assert_eq!(c.status, "bob is choosing the first song.");
     assert_eq!((role_of(&c, 2), c.picker), ("owner".into(), Some(2)));
     assert!(!c.members.iter().any(|m| m.id == 1), "alice is gone");
-    assert!(has(&hc, "Host · Picking"));
+    assert_eq!(row_marks(&hc, "bob"), Some(vec!["Host", "Picking"]));
     // Bob's link is as it was: the room did not close.
     assert_eq!(b.online.as_ref().unwrap().link, "connected");
 }
@@ -5867,18 +5907,20 @@ fn the_rooms_screens_draw_as_pinned() {
 /// footer's Enter now says the next stage's number under it) and the
 /// online room's four (the two tabs, the empty list's words, a member
 /// browsing the room's songs where they followed, Host options' song
-/// list rows).
+/// list rows). Round SLB moved all ten: the room's song select under
+/// every one of them is in three parts now (the song's side as solo has
+/// it, the list, the players panel at the right).
 const PINNED: [(&str, u64); 10] = [
-    ("select", 16001433830104325910),
-    ("rules", 16042799659378123936),
-    ("add", 17627936778336865441),
-    ("add-level", 12840789705277059974),
-    ("players", 8610800191167024236),
-    ("standings", 8079863096519021899),
-    ("online-select", 11305437190800824916),
-    ("online-member", 16016429419736900636),
-    ("online-players", 4289503775560037037),
-    ("host", 5490122354457034926),
+    ("select", 6294184724527765777),
+    ("rules", 1214659751631822932),
+    ("add", 2225472520787210080),
+    ("add-level", 14232239212772555064),
+    ("players", 7610287161435627024),
+    ("standings", 6217252037303736305),
+    ("online-select", 9359307383711192609),
+    ("online-member", 3482401827223415051),
+    ("online-players", 14620503791004483404),
+    ("host", 16113327886632301515),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's
@@ -5908,7 +5950,8 @@ fn the_you_badge_sits_on_its_names_line_wherever_players_are_listed() {
     h.push(room_select(&env, room.clone(), "dance-single", &orders));
     h.run(0.5);
     let own = badged(&h, |k| format!("Players{k}.Name"));
-    assert_badge_on_line(&h, None, &own, 15.0);
+    // The wide layout's panel's names are 13 px (round SLB).
+    assert_badge_on_line(&h, None, &own, 13.0);
     open_players(&mut h);
     assert_eq!(top(&h), "room-players");
     let own = badged(&h, |k| format!("Panel{k}.Name"));
@@ -6917,4 +6960,81 @@ fn a_press_within_the_rooms_round_trip_after_ready_is_never_lost() {
     frames(&mut hb, 30);
     assert!(!bob.borrow().ready());
     assert!(has(&hb, "Ready"), "{:?}", hb.texts());
+}
+
+/// Round SLB: the wide layout's players panel marks the host with a
+/// golden house, a co-host with a silver one, an administrator with a
+/// wrench (both where a co-host is one) and the one choosing with the
+/// note, the marks displacing the name; a row tapped on a touch screen
+/// says its words in a pop-over, tapped again opens the Players pop-up; L
+/// folds the panel to its rail and opens it again, the list taking the
+/// width, the fold kept on this device and in a new screen; the handle
+/// and the room's More do the same.
+#[test]
+fn the_players_panel_marks_folds_and_says_a_rows_words() {
+    use ddi_room::ParticipantId;
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    let t = Three::new(true);
+    let ea = env();
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    t.settle(400, &mut [&mut ha]);
+    // Bob (a co-host) and Carol are the server's administrators.
+    t.server.borrow_mut().rewrite(|s| {
+        for id in [2, 3] {
+            if let Some(m) = s.members.get_mut(&ParticipantId(id)) {
+                m.admin = true;
+            }
+        }
+    });
+    t.settle(400, &mut [&mut ha]);
+    assert_eq!(view(&ea).panel.as_deref(), Some("open"));
+    assert_eq!(row_marks(&ha, "alice"), Some(vec!["Host", "Picking"]));
+    assert_eq!(row_marks(&ha, "bob"), Some(vec!["CoHost", "Admin"]));
+    assert_eq!(row_marks(&ha, "carol"), Some(vec!["Admin"]));
+    // The marks displace the name: two marks put it one mark further in
+    // than one.
+    let at = |name: &str| {
+        let k = (0..8)
+            .find(|k| there(&ha, &format!("Players{k}.Name")) && said(&ha, &format!("Players{k}.Name")) == name)
+            .unwrap();
+        (k, ha.ui.bounds(&format!("Players{k}.Name")).unwrap()[0])
+    };
+    let ((_, bob_x), (carol, carol_x)) = (at("bob"), at("carol"));
+    assert!((bob_x - carol_x - 15.0).abs() < 0.5, "{bob_x} {carol_x}");
+    // A touch: the words first, then the pop-up.
+    ha.tap(PointerKind::Touch, &format!("Players.Row{carol}"));
+    ha.run(0.3);
+    assert_eq!(top(&ha), "select");
+    assert_eq!(view(&ea).popover, Some(carol));
+    assert_eq!(said(&ha, "Popover.Line0"), "carol");
+    assert!(there(&ha, "Popover.Line1"), "her role in words");
+    ha.tap(PointerKind::Touch, &format!("Players.Row{carol}"));
+    ha.run(0.5);
+    assert_eq!(top(&ha), "room-players");
+    ha.key("Escape", "Escape");
+    ha.run(0.5);
+    // L folds: the rail of icons, the list wider, kept on this device.
+    let wide = ha.ui.bounds("Wheel").unwrap();
+    ha.key("KeyL", "l");
+    ha.run(0.5);
+    assert_eq!(top(&ha), "select");
+    assert_eq!(view(&ea).panel.as_deref(), Some("folded"));
+    assert!(there(&ha, "Panel.Rail") && !there(&ha, "Players0.Name"));
+    let folded = ha.ui.bounds("Wheel").unwrap();
+    assert!(folded[2] - wide[2] > 150.0, "{wide:?} {folded:?}");
+    assert!(crate::state::settings::Settings::load().players_folded);
+    // A new screen keeps the fold.
+    let eb = env();
+    let mut hb = online_select(&eb, &t.alice, songs_of(&["Alpha One"]), &orders);
+    t.settle(400, &mut [&mut hb]);
+    assert_eq!(view(&eb).panel.as_deref(), Some("folded"));
+    // The handle opens it again.
+    press(&mut ha, super::select::PANEL_HANDLE);
+    assert_eq!(view(&ea).panel.as_deref(), Some("open"));
+    assert!(!crate::state::settings::Settings::load().players_folded);
+    assert_eq!(ha.ui.bounds("Wheel").unwrap(), wide);
+    // More folds it too (a controller's way: West).
+    press(&mut ha, "More");
+    assert!(has(&ha, "Fold the players"), "{:?}", ha.texts());
 }

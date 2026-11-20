@@ -1664,6 +1664,11 @@ room-panel-more-above = ▲ { $count } more
 # Variables:
 #   $count (Number) - rows hidden
 room-panel-more-below = ▼ { $count } more
+# In the room's More menu on song select's wide layout: folds the players
+# panel at the screen's right to a narrow rail of state icons (L does the
+# same), and opens it again.
+room-panel-fold = Fold the players
+room-panel-unfold = Show the players
 
 # Refusals said on the status line or in a pop-up.
 room-refused-too-few = Not enough players to start a stage.

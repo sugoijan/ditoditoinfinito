@@ -987,8 +987,26 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
                 return;
             }
             if open == "KeyL" {
-                // The players (no button of theirs on a wide screen).
-                h.key("KeyL", "l");
+                if h.ui.bounds(super::select::PANEL_HEAD).is_some() {
+                    // The wide layout's panel: a row's pop-over, the rail
+                    // (L folds it and opens it again), then the Players
+                    // pop-up from its head.
+                    if let Some(b) = h.ui.bounds("Players.Row0") {
+                        h.hover([(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0]);
+                        h.run(0.1);
+                        shown(h, found);
+                        h.hover([2.0, 2.0]);
+                    }
+                    h.key("KeyL", "l");
+                    h.run(0.3);
+                    shown(h, found);
+                    h.key("KeyL", "l");
+                    h.run(0.3);
+                    h.tap(PointerKind::Mouse, super::select::PANEL_HEAD);
+                } else {
+                    // The players (a phone's strip opens them, and L).
+                    h.key("KeyL", "l");
+                }
                 h.run(0.3);
             } else if h.ui.bounds(open).is_none() {
                 assert!(

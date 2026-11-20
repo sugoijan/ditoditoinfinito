@@ -462,6 +462,13 @@ pub fn player_rows(v: &PublicView) -> Vec<super::room::PlayerRow> {
                 policy: String::new(),
                 id: None,
                 manage: false,
+                marks: Default::default(),
+                bot: false,
+                icon: if p.out_for_match {
+                    super::room::StateIcon::Out
+                } else {
+                    super::room::StateIcon::Idle
+                },
             }
         })
         .collect();

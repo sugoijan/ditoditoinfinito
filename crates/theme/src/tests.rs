@@ -111,42 +111,9 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
             &["Plate", "Chevron", "Cover", "Title", "Count"],
         ),
         (
-            "SongInfo",
-            s(560.0, 280.0, ""),
-            &[
-                "Banner",
-                "BannerShort",
-                "Jacket",
-                "JacketBack",
-                "CdTitle",
-                "Title",
-                "Artist",
-                "Bpm",
-                "Length",
-                "Pack",
-            ],
-        ),
-        (
-            "SongInfo",
-            s(300.0, 140.0, ""),
-            &[
-                "Banner",
-                "BannerShort",
-                "Jacket",
-                "CdTitle",
-                "Title",
-                "Line",
-            ],
-        ),
-        (
             "StyleTab",
             s(0.0, 32.0, "Single").with_items(["5"]),
             &["Plate", "Label", "Count", "Extent"],
-        ),
-        (
-            "ChartLadder.Row",
-            s(560.0, 44.0, "Hard"),
-            &["Plate", "Bar", "Label", "Notes", "Meter", "Best"],
         ),
         (
             "ChartLadder.Empty",
@@ -834,16 +801,20 @@ fn the_preview_movie_plays_in_the_cover_square_while_the_shell_draws_it() {
         ),
     );
     h.run(0.6);
+    // What the square shows at rest: the movie over the art where it has
+    // faded in (`CoverMovie`), else the art.
     let shown = |h: &Harness| -> Option<(String, Fit)> {
         let mut info = h.actor("Info").clone();
-        let a = ddi_ui::widgets::part(&mut info, "CoverArt").expect("the art");
-        let Kind::Sprite(s) = &a.kind else {
-            panic!("CoverArt")
-        };
-        a.visible
-            .then(|| h.ui.texture_source(s.texture))
-            .flatten()
-            .map(|t| (t.source.to_string(), s.fit))
+        for name in ["CoverMovie", "CoverArt"] {
+            let a = ddi_ui::widgets::part(&mut info, name).expect("the art");
+            let Kind::Sprite(s) = &a.kind else {
+                panic!("{name}")
+            };
+            if a.visible && a.current().diffuse[0][3] > 0.99 {
+                return h.ui.texture_source(s.texture).map(|t| (t.source.to_string(), s.fit));
+            }
+        }
+        None
     };
     let first = env.state.borrow().song_id.clone();
     let still = shown(&h).expect("the song's banner");
@@ -852,7 +823,8 @@ fn the_preview_movie_plays_in_the_cover_square_while_the_shell_draws_it() {
     let tell = |h: &mut Harness, song: Option<&str>| {
         feed.borrow_mut().preview_movie = Some(song.map(str::to_string));
         h.ui.broadcast(ddi_ui::Message::new(FEED));
-        h.run(0.1);
+        // Past the movie's fade (0.25 s).
+        h.run(0.4);
     };
     // The movie of another song changes nothing here.
     tell(&mut h, Some("another"));
@@ -2193,42 +2165,6 @@ fn song_selects_spots_are_its_parts() {
     assert!(screen[3] <= 64.0, "{screen:?}");
 }
 
-/// Song select's length and pack stay where the design puts them after
-/// a short BPM and move right as far as a wide one (a range) needs, the
-/// pack's room narrowed as much, and come back.
-#[test]
-fn the_length_follows_a_wide_bpm() {
-    let theme = Infinito::new();
-    let mut info = theme
-        .component("SongInfo", &Spec::new([560.0, 280.0], ""))
-        .unwrap();
-    let mut m = ddi_actor::text::FixedMeasure;
-    let mut place = |info: &mut Actor, bpm: &str| {
-        ddi_ui::widgets::set_text(info, "Bpm", bpm);
-        info.measure(&mut m);
-        theme.place_measured(info, &mut m);
-        let after = ddi_ui::hit::find_mut(info, "AfterBpm").unwrap();
-        let shift = after.current().pos[0];
-        let label = ddi_ui::hit::find_mut(after, "LengthLabel")
-            .unwrap()
-            .current()
-            .pos[0];
-        let pack = match &ddi_ui::hit::find_mut(after, "Pack").unwrap().kind {
-            Kind::Text(t) => t.max_width,
-            _ => unreachable!(),
-        };
-        (shift, label + shift, pack)
-    };
-    let (shift, label, room) = place(&mut info, "150");
-    assert_eq!((shift, label), (0.0, INFO_LENGTH_X));
-    // 7 characters at half an em of 20 px: 70 px from 32, then the gap.
-    let (shift, label, narrower) = place(&mut info, "100–200");
-    assert_eq!(label, INFO_BPM_X + 70.0 + INFO_GAP);
-    assert_eq!(narrower, room - shift);
-    let (shift, label, back) = place(&mut info, "150");
-    assert_eq!((shift, label, back), (0.0, INFO_LENGTH_X, room));
-}
-
 /// What an actor and everything under it show (the active outline, a
 /// decoration left where it was, aside).
 fn summary(a: &Actor, out: &mut Vec<String>) {
@@ -2463,7 +2399,8 @@ fn song_selects_footer_hints_never_overlap() {
 /// Chart ratings on the song's and on MSD, and after a chart and a song
 /// changed by keys; a phone's sideways too. Recorded again with the song
 /// side's square and radar (`docs/plans/song-navigation.md`, "The song
-/// side"), round SLB.
+/// side"), round SLB; the phone's three again in round SLB2 (its
+/// short side's cover square).
 #[test]
 fn song_select_draws_in_the_theme_as_pinned() {
     use ddi_ui::screens::select::SelectScreen;
@@ -2532,9 +2469,9 @@ const THEME_PINNED: [u64; 24] = [
     2004274495615136981,
     9112896865145909310,
     5102047970783235404,
-    9807268506653823833,
-    15642091438724328585,
-    11697215667106593396,
+    14104443687203936483,
+    1718375188588708716,
+    7584724589343386356,
     11009322325528701358,
     8481217646414314718,
     6047450136163166876,
@@ -2544,9 +2481,9 @@ const THEME_PINNED: [u64; 24] = [
     11009322325528701358,
     8481217646414314718,
     6047450136163166876,
-    6506989735503659457,
-    14097999949330615018,
-    916317321653497389,
+    12930723509338919016,
+    9229512719784539528,
+    7766973366572467294,
 ];
 
 /// Under "Chart ratings: DDI estimate" every number is the estimate to a
@@ -2698,9 +2635,9 @@ fn the_estimates_tenths_fit_the_rows_and_the_chart_buttons() {
 }
 
 /// Round AF ("Yes, fixed places in rooms too"): a room's row of chart
-/// buttons has a place per chart, up to eight, in the short song side's
-/// column beside the banner, as wide as it was with five: the buttons
-/// narrower, never the players panel smaller. Under "Chart ratings: DDI
+/// buttons has a place per chart, up to eight, as wide as it was with
+/// five: the buttons narrower, never the players panel smaller (since
+/// round SLB the wide layout's row is solo's, the panel at the right). Under "Chart ratings: DDI
 /// estimate" each button's number to a tenth stays inside its button
 /// (smaller where the button is narrow), at the design's size and on a
 /// phone held either way.
@@ -2826,8 +2763,9 @@ fn a_rooms_chart_row_fits_a_place_per_chart_with_the_estimates_tenths() {
             let panel = h.ui.bounds("RoomPlayers");
             assert_eq!(panel.is_some(), design == DESIGN, "{what}: the panel");
             if let Some(panel) = panel {
-                let info = h.ui.bounds("Info").expect("the song");
-                assert!(row[3] <= panel[1] && panel[1] >= info[3], "{what}: {row:?} {panel:?}");
+                // The panel at the screen's right (round SLB), past the
+                // song's side and its row of buttons.
+                assert!(panel[0] >= row[2], "{what}: {row:?} {panel:?}");
                 match panel_of_five {
                     None => panel_of_five = Some(panel),
                     Some(five) => assert_eq!(panel, five, "{what}: the panel moved"),

@@ -22,13 +22,12 @@
 //!   choose has Pick songs (`RoomClient::may_take_pick`): a button at the
 //!   status line's end (`room::TAKE_PICK`), the room's More, and T with
 //!   its hint in the footer.
-//! - **The players, always** (feedback round B): in a room the song's side
-//!   is short (`Layout::for_room`: a phone's banner with the title and a
-//!   line, the style button only where the room can play more than one
-//!   style, one row of chart buttons and the chart chosen in words), and
-//!   the players panel (`room::players_panel`) takes the room under it. A
-//!   phone has no room beside the song and the list: the players are one
-//!   line over the list (`room::players_strip`), which opens the full list.
+//! - **The players, always** (feedback round B; round SLB): a room's wide
+//!   layout is in three parts, the song's side where solo has it, the
+//!   list, and the players panel at the right (`select_players.rs`),
+//!   foldable to a rail. A phone has no room beside the song and the list:
+//!   the players are one line over the list (`room::players_strip`),
+//!   which opens the full list.
 //! - **The room around it**: the header's Rules and Players (in More on a
 //!   phone), the room's More (invite, stop, leave), and the status line at
 //!   the top of the list's column, under the header (and the tabs). A
@@ -65,6 +64,7 @@ const MORE_TAB: &str = "room-tab";
 const MORE_REMOVE: &str = "room-remove-song";
 const MORE_RETRY_UPLOAD: &str = "room-retry-upload";
 const MORE_ADD_PACK: &str = "room-add-pack";
+const MORE_FOLD: &str = "room-fold-players";
 /// A listed song this device does not have, as the Room songs tab names
 /// it (its entry's id after it).
 use crate::screens::data::ROOM_SONG_ID;
@@ -181,6 +181,12 @@ pub(super) struct RoomMode {
     /// What the debug view was last published for: published again only
     /// when it changes ([`SelectScreen::room_publish`]).
     published: std::cell::RefCell<Option<Published>>,
+    /// The wide layout's players panel folded to its rail (this device's
+    /// `Settings::players_folded`).
+    pub(super) folded: bool,
+    /// The panel's row whose words show in a pop-over (hovered, or tapped
+    /// on a touch screen).
+    pub(super) popover: Option<usize>,
 }
 
 /// What the room's debug view shows depends on: the room's version, the
@@ -192,6 +198,7 @@ type Published = (
     &'static str,
     Vec<String>,
     Option<&'static str>,
+    (Option<&'static str>, Option<usize>),
 );
 
 impl SelectScreen {
@@ -231,6 +238,8 @@ impl SelectScreen {
             time: 0.0,
             quit_at: None,
             left: false,
+            folded: crate::state::settings::Settings::load().players_folded,
+            popover: None,
         });
         // The styles the room can play, the one shown kept where it is
         // among them.
@@ -390,9 +399,13 @@ impl SelectScreen {
     /// The room's players panel beside the song (`RoomPlayers`; the wide
     /// layout's, empty elsewhere).
     pub(super) fn room_players(&self) -> Actor {
-        // TESTING AID: the select-layout study's three-column room.
-        if let Some(c) = self.study_column() {
-            return self.study_players_column(c);
+        // The wide layout's three parts: the panel at the right.
+        if let Some(c) = self.players_column() {
+            return if self.room.as_ref().is_some_and(|rm| rm.side != Side::Joining) {
+                self.players_panel(c)
+            } else {
+                frame("RoomPlayers", Vec::new())
+            };
         }
         match (&self.room, self.layout.players) {
             (Some(rm), Some(rect)) if rm.side != Side::Joining => {
@@ -1253,6 +1266,16 @@ impl SelectScreen {
         let first: Vec<(String, String)> =
             self.favorite_item().into_iter().chain(self.volume_item()).collect();
         let mut last: Vec<(String, String)> = Vec::new();
+        // The wide layout's panel folded or opened (a controller's way to
+        // it: More is West).
+        if self.panel_shown() {
+            let label = if rm.folded {
+                ddi_l10n::msg::room::panel_unfold()
+            } else {
+                ddi_l10n::msg::room::panel_fold()
+            };
+            last.push((MORE_FOLD.into(), label.into()));
+        }
         if rm.side == Side::Listed {
             let label = match rm.tab {
                 Tab::Room => ddi_l10n::msg::room::tab_my_songs(),
@@ -1290,6 +1313,61 @@ impl SelectScreen {
         }
         room::open_more_around(&self.env, &rm.room, self.layout.compact, first, last, cx);
         true
+    }
+
+    /// Whether the wide layout's players panel is shown (the room's three
+    /// parts, its view known).
+    pub(super) fn panel_shown(&self) -> bool {
+        self.players_column().is_some()
+            && self.room.as_ref().is_some_and(|rm| rm.side != Side::Joining)
+    }
+
+    /// The panel folded or unfolded: kept in this device's settings, the
+    /// screen laid out again, the panel sliding from where it was (at
+    /// once under reduced motion).
+    pub(super) fn toggle_panel(&mut self, root: &mut Actor, cx: &mut Cx) {
+        let Some(rm) = &mut self.room else {
+            return;
+        };
+        rm.folded = !rm.folded;
+        rm.popover = None;
+        let folded = rm.folded;
+        let mut s = crate::state::settings::Settings::load();
+        if s.players_folded != folded {
+            s.players_folded = folded;
+            s.save();
+        }
+        let [w, _] = self.layout.screen;
+        let from = super::players::line_x(w, self.layout.margin, !folded);
+        let to = super::players::line_x(w, self.layout.margin, folded);
+        self.relayout(root, cx);
+        if !self.reduced
+            && let Some(panel) = hit::find_mut(root, "RoomPlayers")
+        {
+            look::command_of(
+                panel,
+                "Slide",
+                &format!("stoptweening;x,{};decelerate,{};x,0", from - to, super::players::SLIDE),
+            );
+            crate::widgets::play(panel, "Slide");
+        }
+        self.status(if folded { "players folded".into() } else { "players open".into() });
+    }
+
+    /// The pop-over shows row `k`'s words (none: no pop-over).
+    fn set_popover(&mut self, k: Option<usize>, root: &mut Actor) {
+        let Some(rm) = &mut self.room else {
+            return;
+        };
+        if rm.popover == k {
+            return;
+        }
+        rm.popover = k;
+        self.publish_dirty = true;
+        let players = self.room_players();
+        if let Some(old) = hit::find_mut(root, "RoomPlayers") {
+            crate::screens::refill(old, players);
+        }
     }
 
     fn open_rules(&self, cx: &mut Cx) {
@@ -1344,27 +1422,77 @@ impl SelectScreen {
         root: &mut Actor,
         cx: &mut Cx,
     ) -> Option<Handled> {
-        // A tap on the players (the panel's rows, its line of those that
-        // do not fit, a phone's strip) opens the full list.
+        // The wide layout's panel: its handle and rail fold and unfold it,
+        // its head and its last line open the Players pop-up, a row
+        // clicked opens it too, a row tapped shows its words first (a
+        // second tap opens the pop-up).
+        if let Input::Pointer {
+            target: Some(t),
+            gesture: crate::Gesture::Tap,
+            kind,
+            ..
+        } = input
+            && self.panel_shown()
+        {
+            let folded = self.room.as_ref().is_some_and(|rm| rm.folded);
+            if t.within(super::players::HANDLE) || (folded && t.within(super::players::RAIL_NAME)) {
+                self.toggle_panel(root, cx);
+                return Some(Handled::Yes);
+            }
+            if t.within(super::players::HEAD) || t.within(room::PLAYERS_MORE) {
+                self.open_players(cx);
+                return Some(Handled::Yes);
+            }
+            if let Some(k) = t.chain.iter().find_map(|n| super::players::row_of(n)) {
+                let shown = self.room.as_ref().and_then(|rm| rm.popover);
+                if *kind == crate::PointerKind::Mouse || shown == Some(k) {
+                    self.set_popover(None, root);
+                    self.open_players(cx);
+                } else {
+                    self.set_popover(Some(k), root);
+                }
+                return Some(Handled::Yes);
+            }
+            if t.within("RoomPlayers") {
+                self.set_popover(None, root);
+                return Some(Handled::Yes);
+            }
+        }
+        // A mouse over a row: its words.
+        if let Input::Hover { target } = input
+            && self.panel_shown()
+        {
+            let k = target
+                .as_ref()
+                .and_then(|t| t.chain.iter().find_map(|n| super::players::row_of(n)));
+            self.set_popover(k, root);
+        }
+        // A tap on the players (a phone's strip, the short side's panel)
+        // opens the full list.
         if let Input::Pointer {
             target: Some(t),
             gesture: crate::Gesture::Tap,
             ..
         } = input
             && self.room.is_some()
+            && !self.panel_shown()
             && (t.within("RoomPlayers") || t.within(room::PLAYERS_STRIP))
         {
             self.open_players(cx);
             return Some(Handled::Yes);
         }
-        // L: the players (their button went; the panel beside the song and
-        // More open them too).
+        // L: the wide layout's panel folded or unfolded; elsewhere the
+        // players (the strip and More open them too).
         if let Input::Key(k) = input
             && self.letter_shortcut(k)
             && k.key.eq_ignore_ascii_case("l")
             && self.room.as_ref().is_some_and(|rm| rm.side != Side::Joining)
         {
-            self.open_players(cx);
+            if self.panel_shown() {
+                self.toggle_panel(root, cx);
+            } else {
+                self.open_players(cx);
+            }
             return Some(Handled::Yes);
         }
         // M: the other tab (revision 17).
@@ -1433,6 +1561,11 @@ impl SelectScreen {
             && cx.is_current_screen()
         {
             self.room_left(by, cx);
+        }
+        if crate::screens::menu_pick(msg, room::MORE) == Some(MORE_FOLD) {
+            self.toggle_panel(root, cx);
+            cx.focus("Wheel");
+            return;
         }
         // The list's items (revision 17).
         if let Some(id) = crate::screens::menu_pick(msg, room::MORE)
@@ -1579,19 +1712,27 @@ impl SelectScreen {
                 Tab::Room => "room",
                 Tab::Mine => "mine",
             });
+            let panel = (
+                self.panel_shown().then_some(if rm.folded { "folded" } else { "open" }),
+                rm.popover,
+            );
             let key = {
                 let r = rm.room.borrow();
                 let view = match r.view() {
                     RoomView::Select => "select",
                     RoomView::Prompt(_) => "prompt",
                 };
-                (r.version(), room::seconds_left(&r), r.refusal().cloned(), view, items, tab)
+                (r.version(), room::seconds_left(&r), r.refusal().cloned(), view, items, tab, panel)
             };
             if rm.published.borrow().as_ref() == Some(&key) {
                 return;
             }
             room::publish(&self.env, &rm.room, key.3, key.4.clone());
-            room::publish_dialog(&self.env, |v| v.tab = tab.map(str::to_string));
+            room::publish_dialog(&self.env, |v| {
+                v.tab = tab.map(str::to_string);
+                v.panel = panel.0.map(str::to_string);
+                v.popover = panel.1;
+            });
             *rm.published.borrow_mut() = Some(key);
         }
     }

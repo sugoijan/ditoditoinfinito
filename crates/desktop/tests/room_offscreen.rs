@@ -1,8 +1,8 @@
 //! The multiplayer prototype's practice room drawn offscreen on this
 //! machine's GPU, as the desktop window draws it (`--screen room`):
 //! straight on the room's song select, no Rules by themselves (the hidden
-//! option aside): the header with Rules, Players and More, the song's
-//! side with the players panel under it, the list and the status line,
+//! option aside): the header with More, the song's side, the list and
+//! its status line, the players panel at the right (Rules in the footer),
 //! each inside the window. Without a GPU adapter (CI)
 //! only the pictures are skipped: the rest is checked all the same. `DDI_OFFSCREEN_PPM=<dir>` keeps the picture (`room.ppm`).
 
@@ -48,13 +48,10 @@ fn the_practice_room_draws_its_parts_inside_the_window() {
     let info = ui.bounds("Info").unwrap();
     let status = ui.bounds("Room.Status").unwrap();
     assert!(info[2] <= status[0], "{info:?} {status:?}");
-    // The players under the song, left of the list: the player and the
-    // three CPUs the default rules seat.
+    // The players at the right, past the list and its status line (round
+    // SLB): the player and the three CPUs the default rules seat.
     let players = ui.bounds("RoomPlayers").unwrap();
-    assert!(
-        players[1] >= info[3] && players[2] <= status[0],
-        "{players:?}"
-    );
+    assert!(players[0] >= status[2] && players[2] <= 1280.0, "{players:?}");
     assert_eq!(view.members.len(), 4);
     // Something was drawn: the banner and plates are not the ground alone.
     if let Some(pixels) = pixels {

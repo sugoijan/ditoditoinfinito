@@ -64,8 +64,14 @@ fn the_you_badge_beside_the_name_everywhere() {
         if size[0] >= 1000 {
             inside(panel, "panel");
         }
-        key(&mut ui, "KeyL", "l");
-        frames(&mut ui, 0.5);
+        // The Players pop-up: the wide panel's head (L folds that panel),
+        // a phone's L.
+        if ui.bounds(ddi_ui::screens::select::PANEL_HEAD).is_some() {
+            common::ui::tap(&mut ui, ddi_ui::screens::select::PANEL_HEAD, 0.5);
+        } else {
+            key(&mut ui, "KeyL", "l");
+            frames(&mut ui, 0.5);
+        }
         assert_eq!(top(&ui), "room-players");
         let players = shot(&mut ui, "1-players");
         inside(players, "players");

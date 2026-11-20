@@ -126,6 +126,11 @@ pub struct RoomView {
     pub history: usize,
     /// The screen's own controls: where a shell's debug view finds them.
     pub items: Vec<String>,
+    /// Song select's players panel on the wide layout (`open`, `folded`;
+    /// none: the short side's strip or panel), and the row whose words
+    /// its pop-over shows.
+    pub panel: Option<String>,
+    pub popover: Option<usize>,
     /// The Rules pop-up is open (`first`: the one entering opens, Reset
     /// and OK); its draft (stages, CPUs) and what the room says of it.
     pub rules_open: bool,
@@ -957,6 +962,61 @@ pub struct PlayerRow {
     /// Host options (the row is drawn on a faint plate named
     /// [`person_row_name`]). Set by the pop-up, never by the rows' maker.
     pub manage: bool,
+    /// The marks song select's players panel draws before the name
+    /// (`select-b2`): what [`PlayerRow::role`] says in words.
+    pub marks: Marks,
+    /// A bot (a person signed in as one, `ddi_room::Identity::is_bot`):
+    /// its head at the panel's right.
+    pub bot: bool,
+    /// Their state as song select's players panel draws it, a monotone
+    /// icon ([`StateIcon`]): what [`PlayerRow::status`] says in words.
+    pub icon: StateIcon,
+}
+
+/// A row's state as an icon (song select's players panel and its rail):
+/// the same facts the row's words say ([`person_state`],
+/// [`person_status`]), its shape alone telling it (one ink).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum StateIcon {
+    /// Nothing to say (before a pick, between stages, done).
+    #[default]
+    Idle,
+    /// The pick gathers readiness and their song is not on its way yet.
+    WaitingSong,
+    /// Their song loading, with how far (0 to 1; 0 where not said).
+    Loading(f32),
+    LoadFailed,
+    /// Loaded, Ready not pressed yet.
+    NotReady,
+    Ready,
+    Playing,
+    /// Out of the match.
+    Out,
+    /// Sitting this stage out, or waiting for a later one.
+    SatOut,
+    Left,
+    Watching,
+    /// Not connected now (joining, reconnecting, away).
+    Away,
+}
+
+/// A person's marks on song select's players panel: a house for the host
+/// (golden) or a co-host (silver), a wrench for an administrator (the
+/// server's own, where the room shows the flag to members), a note for
+/// the one choosing the room's songs. Each where [`PlayerRow::role`] says
+/// it in words.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Marks {
+    pub host: Option<HostMark>,
+    pub admin: bool,
+    pub picking: bool,
+}
+
+/// The house's kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostMark {
+    Host,
+    CoHost,
 }
 
 /// The local player's own name as the lists show it (round D, item 5):
@@ -1270,6 +1330,9 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     policy: policy(member.targeting()),
                     id: Some(member.id.0),
                     manage: false,
+                    marks: person_marks(s, member),
+                    bot: member.is_bot(),
+                    icon: person_icon(s, member, part.as_ref(), prep.as_ref()),
                 });
             }
             MemberKind::Cpu { ordinal, opponent } => {
@@ -1292,6 +1355,9 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     policy: policy(member.targeting()),
                     id: None,
                     manage: false,
+                    marks: Marks::default(),
+                    bot: false,
+                    icon: cpu_icon(s.participation(member.id).as_ref()),
                 });
             }
         }
@@ -1319,6 +1385,9 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                 policy: policy(spec.targeting.unwrap_or_default()),
                 id: None,
                 manage: false,
+                marks: Marks::default(),
+                bot: false,
+                icon: StateIcon::Ready,
             });
         }
     }
@@ -1420,6 +1489,84 @@ fn person_role(s: &ddi_room::RoomState, member: &ddi_room::Member) -> Option<Str
     let picking: Option<String> = picks_shown(s, member).then(|| m::role_picking().into());
     let words: Vec<String> = [role, picking].into_iter().flatten().collect();
     (!words.is_empty()).then(|| words.join(" · "))
+}
+
+/// A person's state icon ([`StateIcon`]): their connection's trouble
+/// first, then their seat, then the stage's state as [`person_state`]
+/// words it.
+fn person_icon(
+    s: &ddi_room::RoomState,
+    member: &ddi_room::Member,
+    part: Option<&Participation>,
+    prep: Option<&ddi_room::Prep>,
+) -> StateIcon {
+    if member.connection != Connection::Connected {
+        return StateIcon::Away;
+    }
+    let gathering = matches!(
+        s.phase,
+        Phase::Preparing {
+            window: Some(_),
+            ..
+        }
+    );
+    match part {
+        Some(Participation::Left) => StateIcon::Left,
+        Some(Participation::Watching) => StateIcon::Watching,
+        Some(
+            Participation::WaitingNextMatch
+            | Participation::WaitingNextStage
+            | Participation::WaitingPlace
+            | Participation::SittingOut { .. },
+        ) => StateIcon::SatOut,
+        Some(Participation::OutForMatch) => StateIcon::Out,
+        Some(Participation::ReadyLoaded { .. } | Participation::Committed { .. }) => StateIcon::Ready,
+        Some(Participation::LoadFailed { .. }) => StateIcon::LoadFailed,
+        Some(Participation::Competing { .. } | Participation::WinnerFinishing { .. }) => {
+            StateIcon::Playing
+        }
+        Some(Participation::NotReady { .. } | Participation::ReadyLoading { .. }) if gathering => {
+            match prep.map(|p| &p.loading) {
+                Some(ddi_room::Loading::Loading { permille }) => {
+                    StateIcon::Loading(f32::from(*permille) / 1000.0)
+                }
+                Some(ddi_room::Loading::Retrying) => StateIcon::Loading(0.0),
+                Some(ddi_room::Loading::Loaded) => StateIcon::NotReady,
+                _ => StateIcon::WaitingSong,
+            }
+        }
+        _ => StateIcon::Idle,
+    }
+}
+
+/// A CPU's state icon: it needs no readiness (ready until it plays),
+/// playing, out of the match, else ready.
+fn cpu_icon(part: Option<&Participation>) -> StateIcon {
+    match part {
+        Some(Participation::Competing { .. } | Participation::WinnerFinishing { .. }) => {
+            StateIcon::Playing
+        }
+        Some(Participation::OutForMatch) => StateIcon::Out,
+        Some(Participation::Placed { .. }) => StateIcon::Idle,
+        Some(Participation::SittingOut { .. }) => StateIcon::SatOut,
+        _ => StateIcon::Ready,
+    }
+}
+
+/// A person's marks ([`Marks`]): the same facts [`person_role`] words,
+/// with an administrator who is also host or co-host marked as both
+/// (the flag is in every member's copy of the room).
+fn person_marks(s: &ddi_room::RoomState, member: &ddi_room::Member) -> Marks {
+    let host = match member.role {
+        Role::Owner if s.source == ddi_room::ContentSource::Shared => Some(HostMark::Host),
+        Role::CoHost => Some(HostMark::CoHost),
+        _ => None,
+    };
+    Marks {
+        host,
+        admin: member.admin,
+        picking: picks_shown(s, member),
+    }
 }
 
 /// Whether `member`'s rows mark them as the one choosing the room's

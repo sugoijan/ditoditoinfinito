@@ -722,6 +722,8 @@ room-picks-count = { $stages ->
 
 room-panel-more-above = ▲ ほか{ $count }件
 room-panel-more-below = ▼ ほか{ $count }件
+room-panel-fold = プレイヤー欄をたたむ
+room-panel-unfold = プレイヤー欄を開く
 
 room-refused-too-few = ステージを始めるにはプレイヤーが足りません。
 room-refused-host-only = ホストだけが行えます。

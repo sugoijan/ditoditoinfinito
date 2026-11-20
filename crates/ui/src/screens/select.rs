@@ -1,10 +1,12 @@
 //! Song select, layout A of `docs/plans/theme.md` (the wheel):
 //!
-//! - **Left**, the selected song: banner, title, artist, BPM, length and
-//!   pack (`SongInfo`); the style tabs, lit where the song has charts,
-//!   with how many (`StyleTab`); the chart ladder for that style
-//!   (`ChartLadder.Row`), or a message where it has none
-//!   (`ChartLadder.Empty`).
+//! - **Left**, the selected song (`select_side.rs`, round SLB): a title
+//!   band (title, artist, length · notes · BPM; `SongInfo.Text`) over two
+//!   squares, the cover (`SongCover`) and the chart's radar; the style
+//!   tabs, lit where the song has charts, with how many (`StyleTab`); a
+//!   row of chart buttons for that style, or a message where it has none
+//!   (`ChartLadder.Empty`); the chosen chart's strip. In a room the
+//!   players panel at the right (`select_players.rs`).
 //! - **Right**, the wheel: every song in every style, under pack headers
 //!   that open and close; a song with no chart in the style is greyed
 //!   (`Unavailable`) and can still be selected.
@@ -73,14 +75,19 @@ pub const TAB_ROOM_NAME: &str = room_mode::TAB_ROOM;
 pub const TAB_MINE_NAME: &str = room_mode::TAB_MINE;
 #[path = "select_favorites.rs"]
 mod favorites_mode;
-/// TESTING AID: the select-layout study's candidate song sides.
-#[path = "select_study.rs"]
-mod study;
-pub use study::{
-    ColumnStyle, PlayerIcon, Round5, set_round5, set_staged_places, PlayerMark, PreviewStill, RoomForm, SelectLayout, select_layout, set_column_width, set_preview_still,
-    set_column_style, set_room_form, set_room_side, set_select_layout, set_staged_icons, set_staged_marks,
-};
-use study::Study;
+/// A room's players panel (the wide layout's right part).
+#[path = "select_players.rs"]
+mod players;
+pub use players::{Mark as PanelMark, mark as panel_mark, state_icon};
+/// The wide layout's players panel's head (a tap opens the Players
+/// pop-up) and its handle (folds it).
+pub const PANEL_HEAD: &str = players::HEAD;
+pub const PANEL_HANDLE: &str = players::HANDLE;
+/// The song's side: the wide layout's title band and squares, a phone's
+/// short side, a room's three parts.
+#[path = "select_side.rs"]
+mod side;
+use side::SongSide;
 
 const SELECT_PARTS: [(&str, super::Edge); 19] = {
     use super::Edge::{FooterBar, HeaderBar, Left, None, Right};
@@ -101,7 +108,7 @@ const SELECT_PARTS: [(&str, super::Edge); 19] = {
         ("Wheel.Track", Right),
         ("Wheel.Thumb", Right),
         ("Song", Left),
-        ("RoomPlayers", Left),
+        ("RoomPlayers", Right),
         ("Notices", None),
         ("Backdrop", None),
     ]
@@ -333,14 +340,6 @@ struct RatingsShown {
     offered: usize,
 }
 
-/// The radar side's parts (round Z1): the chart buttons' height, the gap
-/// under them, the chosen chart's lines' column's width and the gap
-/// between it and the radar, and the radar's panel's height at most.
-const RADAR_ROW_H: f32 = 44.0;
-const RADAR_GAP: f32 = 10.0;
-const RADAR_CARD_W: f32 = 210.0;
-const RADAR_CARD_GAP: f32 = 12.0;
-const RADAR_MAX_H: f32 = 320.0;
 /// How long the radar's shape takes to change to another chart's.
 const RADAR_MORPH: f64 = 0.22;
 
@@ -455,9 +454,8 @@ struct Layout {
     wheel: [f32; 4],
     row: f32,
     field: [f32; 4],
-    /// TESTING AID: the select-layout study's candidate, where one is
-    /// chosen (`select_study.rs`).
-    study: Option<Study>,
+    /// The song side's form (`select_side.rs`).
+    side: Option<SongSide>,
 }
 
 impl Layout {
@@ -525,7 +523,7 @@ impl Layout {
             ],
             row: 52.0,
             field: [margin + 52.0, 6.0, w - 52.0 - 52.0, 44.0],
-            study: None,
+            side: None,
         }
     }
 
@@ -567,7 +565,7 @@ impl Layout {
                 ],
                 row: 48.0,
                 field: [margin + 52.0, 6.0, right - margin - 52.0 - 104.0, 44.0],
-                study: None,
+                side: None,
             };
         }
         let design_w = m("Design.Width", 1280.0);
@@ -615,7 +613,7 @@ impl Layout {
                 m("Select.Search.Width", 560.0),
                 42.0,
             ],
-            study: None,
+            side: None,
         }
     }
 }
@@ -887,12 +885,13 @@ pub struct SelectScreen {
     /// The song whose preview movie shows in the banner's place
     /// ([`Feed::preview_movie`]).
     movie: Option<String>,
+    /// The song whose preview movie the square shows now (its fade's
+    /// state, `fade_movie`).
+    movie_shown: std::cell::RefCell<Option<String>>,
     /// The left side is to be filled again (a new song, a new tree).
     left_dirty: bool,
     /// The ladder's window as drawn: its first chart and how many.
     ladder: (usize, usize),
-    /// The width and height the ladder's rows were made at.
-    ladder_rows: Option<(f32, f32)>,
     /// The tabs as made: each style's chart count and the one selected.
     tabs_for: Option<(Vec<usize>, usize)>,
     /// What the wheel is filtered by.
@@ -1032,9 +1031,9 @@ impl SelectScreen {
             gesture_text: String::new(),
             shown: None,
             movie: None,
+            movie_shown: std::cell::RefCell::new(None),
             left_dirty: true,
             ladder: (0, 0),
-            ladder_rows: None,
             tabs_for: None,
             filtered: String::new(),
             publish_dirty: true,
@@ -1631,137 +1630,10 @@ impl SelectScreen {
         ratings::offer(jobs);
     }
 
-    /// The skill radar's side (round Z1, "Skill radar: On" in the wide
-    /// layout), in the ladder's place: the chart buttons in a row (as a
-    /// room's short side has them), then the chosen chart's lines on the
-    /// left (what its ladder row said) and its radar on the right, or one
-    /// quiet line in the radar's place where it has none.
-    fn fill_radar_side(
-        &self,
-        root: &mut Actor,
-        charts: &[&ChartEntry],
-        first: usize,
-        n: usize,
-        pick: Option<usize>,
-    ) {
-        let env = self.env.clone();
-        let w = self.layout.song[2];
-        let top = self.layout.ladder[0] - self.layout.song[1];
-        let mut buttons =
-            self.chart_buttons(charts, first, n, pick, [0.0, w], top + RADAR_ROW_H / 2.0, RADAR_ROW_H);
-        let chosen = pick.map(|p| charts[p]);
-        if charts.is_empty() && self.song().is_some() {
-            let none = msg::no_charts(self.style_label());
-            let mut e = env.component(
-                "ChartLadder.Empty",
-                "Panel",
-                &Spec::new([w, 150.0], none.as_str()),
-                "Ladder.Empty",
-                [0.0, top],
-            );
-            set_text(&mut e, "Title", &none);
-            set_text(&mut e, "Hint", &msg::no_charts_hint());
-            buttons.push(e);
-        }
-        if let Some(f) = hit::find_mut(root, "Charts") {
-            f.kind = Kind::Frame(buttons);
-        }
-        let card = chosen.map(|c| self.chart_card(c)).unwrap_or_default();
-        if let Some(f) = hit::find_mut(root, "ChartCard") {
-            f.kind = Kind::Frame(card);
-        }
-    }
-
     /// The radar's area under the chart buttons: from, wide, high (in the
     /// song side's frame), and the radar's panel's rect in it.
     fn radar_area(&self) -> ([f32; 2], [f32; 4]) {
-        if let Some(a) = self.study_radar_area().or_else(|| self.study_room_radar_area()) {
-            return a;
-        }
-        let l = &self.layout;
-        let top = l.ladder[0] - l.song[1] + RADAR_ROW_H + RADAR_GAP;
-        let h = l.ladder[1] - RADAR_ROW_H - RADAR_GAP;
-        let x = RADAR_CARD_W + RADAR_CARD_GAP;
-        let rw = l.song[2] - x;
-        ([top, h], [x, top, rw, h.min(RADAR_MAX_H)])
-    }
-
-    /// The chosen chart's lines, left of its radar: its difficulty (or
-    /// name), its number as its ladder row showed it, the song's own
-    /// number where that is MSD, its version, its notes, its step artist
-    /// and its best (grade, score, lamp): nothing its row said is lost.
-    fn chart_card(&self, c: &ChartEntry) -> Vec<Actor> {
-        let env = &self.env;
-        let ([top, _], _) = self.radar_area();
-        let cw = RADAR_CARD_W;
-        let color = format!("Difficulty.{}", c.difficulty.name());
-        let mut out = Vec::new();
-        let mut label = env.text("Card.Label", &data(&c.label().to_uppercase()), 14.0, 700, &color);
-        look::ellipsized(&mut label, cw);
-        out.push(left(label, 0.0, top + 9.0));
-        // The game's rating in detail (the estimate's decimal), else as
-        // its row showed it.
-        let detail = c.shown_rating().map_or_else(|| c.meter_text_fine(), |r| r.detail());
-        let mut meter = env.numbers("Card.Meter", &detail, 30.0, &color);
-        if crate::state::ratings::ever_shown() {
-            call(&mut meter, "diffusealpha", &[if c.meter_is_songs() { FAINT } else { 1.0 }]);
-        }
-        out.push(left(meter, 0.0, top + 38.0));
-        let mut lines: Vec<String> = Vec::new();
-        // The song's own number where MSD takes its place, and a generated
-        // version's kind, on one line.
-        let mut first: Vec<String> = Vec::new();
-        if c.shown_rating().is_some() {
-            first.push(msg::chart_song_meter(c.meter).into());
-        }
-        if let Some(version) = c.version {
-            first.push(version_name(version).into());
-        }
-        if !first.is_empty() {
-            lines.push(first.join(" · "));
-        }
-        // (A room's song not here yet: its notes are not known.)
-        if !self.song().is_some_and(SongEntry::away) {
-            lines.push(msg::chart_notes(c.notes).into());
-        }
-        if !c.credit.is_empty() {
-            lines.push(msg::chart_steps_by(&c.credit).into());
-        }
-        // The DDI estimate's radar: what its numbers are.
-        if matches!(self.radar_standing(), Some(crate::state::ratings::Standing::Profile(_))) {
-            lines.push(msg::radar_estimate_unit().into());
-        }
-        let mut y = top + 64.0;
-        for (i, line) in lines.iter().enumerate() {
-            let mut t = env.text(&format!("Card.Line{i}"), line, 12.0, 400, "Muted");
-            look::ellipsized(&mut t, cw);
-            out.push(left(t, 0.0, y));
-            y += 17.0;
-        }
-        // The best: its grade, score and lamp, as the row had them.
-        if let Some(b) = &c.best {
-            y += 6.0;
-            let grade = env.numbers("Card.Grade", &data(&b.grade), 18.0, "Text");
-            let gw = crate::radar::width_of(&b.grade, 18.0) + 10.0;
-            out.push(left(grade, 0.0, y));
-            let score = if b.pending {
-                format!("{} …", b.score)
-            } else {
-                b.score.clone()
-            };
-            let mut s = env.text("Card.Score", &data(&score), 12.0, 400, "Muted");
-            look::ellipsized(&mut s, (cw - gw - 40.0).max(40.0));
-            out.push(left(s, gw, y));
-            let lamp = env.text(
-                "Card.Lamp",
-                &data(&b.lamp_text),
-                11.0,
-                700,
-                &format!("Lamp.{}", b.lamp),
-            );
-            out.push(right(lamp, cw, y));
-        }
-        out
+        self.side_radar_area().unwrap_or(([0.0, 0.0], [0.0; 4]))
     }
 
     /// The chosen chart's skill radar in its place, or the line saying why
@@ -1970,13 +1842,8 @@ impl SelectScreen {
                 None => "no-chart",
             };
         }
-        if !crate::state::ratings::radar_shown() {
-            "off"
-        } else if self.room.is_some() {
-            "room"
-        } else {
-            "phone"
-        }
+        // A phone's short side has no place for one.
+        "phone"
     }
 
     /// The song shown and its neighbours in the list rated first.
@@ -2048,6 +1915,26 @@ impl SelectScreen {
 
     // Building.
 
+    /// Laid out again for the viewport now (a new size, reduced motion,
+    /// a room's panel folded): the tree built again, the same song
+    /// selected, shown as it is (or still coming in).
+    fn relayout(&mut self, root: &mut Actor, cx: &mut Cx) {
+        let vp = cx.viewport().screen;
+        let compact = super::is_compact(&*self.env.look, vp);
+        self.cancel_navigation();
+        self.reduced = self.env.reduced();
+        self.layout = self.side_layout(self.fit_layout([vp.width, vp.height], compact));
+        let selected = self.list.selected();
+        let left = root.tween_time_left();
+        *root = self.build_tree(cx);
+        self.reload();
+        if let Some(s) = selected {
+            self.list.select(s);
+            self.list.finish();
+        }
+        super::relaid(root, left, cx);
+    }
+
     fn build_tree(&mut self, cx: &mut Cx) -> Actor {
         let env = self.env.clone();
         if !self.layout.compact {
@@ -2079,7 +1966,7 @@ impl SelectScreen {
         children.push(wheel);
         if !l.compact {
             let [x, y, _, h] = l.wheel;
-            let bar_x = self.study_scrollbar_x(&l).unwrap_or(screen[0] - 10.0 - 1.5);
+            let bar_x = self.scrollbar_x(&l).unwrap_or(screen[0] - 10.0 - 1.5);
             let track = quad_at(
                 "Wheel.Track",
                 [3.0, h - 24.0],
@@ -2092,29 +1979,16 @@ impl SelectScreen {
             children.extend([track, thumb]);
         }
         // The selected song.
-        let [sx, sy, sw] = l.song;
+        let [sx, sy, _] = l.song;
         let info_h = if l.chips {
             l.info_h
         } else {
             l.tabs_y - sy - 12.0
         };
-        let info = if l.study.is_some() {
-            self.study_info(&l, info_h)
-        } else {
-            env.component(
-                "SongInfo",
-                "Panel",
-                &Spec::new([l.info_w, info_h], ""),
-                "Info",
-                [0.0, 0.0],
-            )
-        };
+        let info = self.side_info(&l, info_h);
         let mut song = vec![info];
         if l.chips {
-            let [px, w] = match l.study {
-                Some(Study::Room(r)) => r.style,
-                _ => l.picker,
-            };
+            let [px, w] = l.picker;
             let mut style = env.component(
                 "StyleButton",
                 "Button",
@@ -2132,10 +2006,6 @@ impl SelectScreen {
             }
             song.push(style);
             song.push(frame("Charts", Vec::new()));
-            if let Some(Study::Room(_)) = l.study {
-                song.push(frame("RadarSlot", Vec::new()));
-                song.extend(self.study_room_extras(&l));
-            }
             // A room's wide layout has no Play: Start on the list picks.
             if l.play_h > 0.0 {
                 let mut play = env.component(
@@ -2149,23 +2019,8 @@ impl SelectScreen {
                 play.visible = !self.following();
                 song.push(play);
             }
-        } else if let Some(Study::Wide(g)) = l.study {
-            song.extend(self.study_parts(&g));
-        } else {
-            song.push(frame("Tabs", Vec::new()));
-            let mut kbd = env.numbers("TabKey", &UiText::data(TAB_LEGEND), 11.0, "Muted");
-            kbd = right(kbd, sw, l.tabs_y - sy + 16.0);
-            song.push(kbd);
-            if l.radar {
-                // The skill radar's side (round Z1): the chart buttons,
-                // the chosen chart's lines and its radar
-                // (`fill_radar_side`).
-                song.push(frame("Charts", Vec::new()));
-                song.push(frame("ChartCard", Vec::new()));
-                song.push(frame("RadarSlot", Vec::new()));
-            } else {
-                song.push(frame("Ladder", Vec::new()));
-            }
+        } else if let Some(SongSide::Wide(g)) = l.side {
+            song.extend(self.side_parts(&g));
         }
         let mut song = frame("Song", song);
         call(&mut song, "xy", &[sx, sy]);
@@ -2381,9 +2236,7 @@ impl SelectScreen {
             ] {
                 set_text(info, p, "");
             }
-            if self.layout.study.is_some() {
-                self.fill_study_info(info, None, cx);
-            }
+            self.fill_side_info(info, None, cx);
             set_image(info, "Banner", None);
             self.fill_heart(root, false);
             return;
@@ -2447,10 +2300,7 @@ impl SelectScreen {
         }
         let cd_title = song.cd_title.as_deref().map(|c| cx.texture(c, 128.0));
         set_image(info, "CdTitle", cd_title);
-        if self.layout.study.is_some() {
-            self.fill_study_info(info, Some(song), cx);
-            self.fill_study_preview(root, Some(song), cx);
-        }
+        self.fill_side_info(info, Some(song), cx);
         self.fill_heart(root, false);
         if self.layout.compact {
             // A room's: its name in the pack's place.
@@ -2608,10 +2458,8 @@ impl SelectScreen {
             let (c, p) = self.charts();
             (c.len(), p)
         };
-        let (first, n, row) = self.ladder_window(len, pick);
+        let (first, n, _) = self.ladder_window(len, pick);
         self.ladder = (first, n);
-        let size = (self.layout.song[2], row);
-        let same_size = self.ladder_rows.replace(size) == Some(size);
         let (charts, pick) = self.charts();
         let style_name = self.style_label();
         if self.layout.chips {
@@ -2665,11 +2513,6 @@ impl SelectScreen {
             }
             if let Some(f) = hit::find_mut(root, "Charts") {
                 f.kind = Kind::Frame(children);
-                // Round 2's room: the buttons beside the style button
-                // whether it shows or not.
-                if let Some(r) = self.study_room() {
-                    call(f, "y", &[r.charts_y - charts_y]);
-                }
             }
             let label = match pick.map(|p| charts[p]) {
                 Some(c) => {
@@ -2693,122 +2536,11 @@ impl SelectScreen {
             };
             super::set(root, "Play", "Label", &label);
             self.room_play_button(root);
-            if self.study_room().is_some_and(|r| r.radar.is_some()) {
-                self.fill_radar(root);
-            }
             return;
         }
-        if let Some(g) = self.study_wide() {
-            self.fill_study_charts(root, &charts, first, n, pick, &g);
-            if g.radar.is_some() {
-                self.fill_radar(root);
-            }
-            return;
-        }
-        if self.layout.radar {
-            self.fill_radar_side(root, &charts, first, n, pick);
+        if let Some(g) = self.side_wide() {
+            self.fill_side_charts(root, &charts, first, n, pick, &g);
             self.fill_radar(root);
-            return;
-        }
-        let w = self.layout.song[2];
-        let top = self.layout.ladder[0] - self.layout.song[1];
-        let gap = env.metric("Select.Ladder.Gap", 5.0);
-        // Rows already made at this size are filled again: they carry
-        // every difficulty's and lamp's command.
-        let mut made = match hit::find_mut(root, "Ladder").map(|f| &mut f.kind) {
-            Some(Kind::Frame(rows)) if same_size => std::mem::take(rows),
-            _ => Vec::new(),
-        }
-        .into_iter()
-        .filter(|a| a.name.starts_with("Ladder.Row"));
-        let mut children = Vec::new();
-        let away = self.song().is_some_and(SongEntry::away);
-        for k in 0..n {
-            let c = charts[first + k];
-            let mut r = made.next().unwrap_or_else(|| {
-                env.component(
-                    "ChartLadder.Row",
-                    "List.Row",
-                    &Spec::new([w, row], c.difficulty.name()),
-                    &format!("Ladder.Row{k}"),
-                    [0.0, top + k as f32 * (row + gap)],
-                )
-            });
-            // The difficulty (never translated) or the chart's own name.
-            set_text(&mut r, "Label", &data(&c.label().to_uppercase()));
-            set_text(&mut r, "Title", &data(&c.label()));
-            let mut notes: String = if away {
-                // A room's song not here yet: its notes are not known.
-                String::new()
-            } else if c.credit.is_empty() {
-                msg::chart_notes(c.notes).into()
-            } else {
-                msg::chart_notes_by(c.notes, &c.credit).into()
-            };
-            // A generated version says what it leaves out or where it
-            // comes from.
-            if let Some(version) = c.version {
-                notes = format!("{} · {notes}", version_name(version));
-            }
-            // Its MSD in the number's place: the song's own number said
-            // in the line, never lost.
-            if c.shown_rating().is_some() {
-                notes = format!("{} · {notes}", msg::chart_song_meter(c.meter));
-            }
-            set_text(&mut r, "Notes", &notes);
-            set_text(&mut r, "Subtitle", &notes);
-            set_text(&mut r, "Meter", &c.meter_text_fine());
-            // The best: grade, score, lamp (the ruleset's readouts);
-            // marked while it waits to be worked out again.
-            match &c.best {
-                Some(b) => {
-                    set_text(&mut r, "Grade", &data(&b.grade));
-                    let score = if b.pending {
-                        format!("{} …", b.score)
-                    } else {
-                        b.score.clone()
-                    };
-                    set_text(&mut r, "Score", &data(&score));
-                    set_text(&mut r, "LampText", &data(&b.lamp_text));
-                    crate::widgets::play(&mut r, &format!("Lamp.{}", b.lamp));
-                }
-                None => {
-                    for p in ["Grade", "Score", "LampText"] {
-                        set_text(&mut r, p, "");
-                    }
-                    crate::widgets::play(&mut r, "Lamp.None");
-                }
-            }
-            crate::widgets::play(&mut r, c.difficulty.name());
-            if crate::state::ratings::ever_shown() {
-                faint(&mut r, "Meter", c.meter_is_songs());
-            }
-            crate::widgets::play(
-                &mut r,
-                if Some(first + k) == pick {
-                    "Select"
-                } else {
-                    "Deselect"
-                },
-            );
-            r.finish_tweening();
-            children.push(r);
-        }
-        if charts.is_empty() && self.song().is_some() {
-            let none = msg::no_charts(&style_name);
-            let mut e = env.component(
-                "ChartLadder.Empty",
-                "Panel",
-                &Spec::new([w, 150.0], none.as_str()),
-                "Ladder.Empty",
-                [0.0, top],
-            );
-            set_text(&mut e, "Title", &none);
-            set_text(&mut e, "Hint", &msg::no_charts_hint());
-            children.push(e);
-        }
-        if let Some(f) = hit::find_mut(root, "Ladder") {
-            f.kind = Kind::Frame(children);
         }
     }
 
@@ -2901,7 +2633,7 @@ impl SelectScreen {
     /// the chart chosen would put the chosen one where the next press
     /// lands, and play it). Past eight a window follows the chart chosen.
     fn chart_places(&self, len: usize) -> usize {
-        if self.layout.radar || self.room.is_some() || self.study_wide().is_some() {
+        if self.layout.radar || self.room.is_some() || self.side_wide().is_some() {
             len.clamp(5, LADDER_ROWS)
         } else {
             5
@@ -2917,7 +2649,7 @@ impl SelectScreen {
     /// first, how many, and their height. Rows shrink (to 32 at least) so
     /// that all fit; more than fit scroll with the pick.
     fn ladder_window(&self, len: usize, pick: Option<usize>) -> (usize, usize, f32) {
-        if self.layout.chips || self.layout.radar || self.study_wide().is_some() {
+        if self.layout.chips || self.layout.radar || self.side_wide().is_some() {
             let (first, n) = window(len, pick, self.chart_places(len));
             return (first, n, 44.0);
         }
@@ -4375,22 +4107,13 @@ impl Screen for SelectScreen {
             return Some(crate::Spot::new("Header", &["Title"]));
         }
         let (first, n) = self.ladder;
-        let (charts, pick) = self.charts();
+        let (_, pick) = self.charts();
         let pick = pick?;
         let k = pick.checked_sub(first).filter(|k| *k < n)?;
-        let played = charts.get(pick).is_some_and(|c| c.best.is_some());
-        let buttons = self.layout.chips || self.layout.radar || self.study_wide().is_some();
-        let row = if buttons {
-            format!("Chart{k}")
-        } else {
-            format!("Ladder.Row{k}")
-        };
+        let row = format!("Chart{k}");
         let parts: &[&str] = match what {
-            Mark::Chart => &[],
+            Mark::Chart | Mark::ChartBest => &[],
             Mark::ChartLevel => &["Meter"],
-            Mark::ChartBest if buttons => &[],
-            Mark::ChartBest if played => &["Grade", "Score", "LampText"],
-            Mark::ChartBest => &["Best"],
             _ => return None,
         };
         Some(crate::Spot::new(row, parts))
@@ -4412,7 +4135,7 @@ impl Screen for SelectScreen {
         let vp = cx.viewport().screen;
         let compact = super::is_compact(&*self.env.look, vp);
         self.reduced = self.env.reduced();
-        self.layout = self.study_layout(self.fit_layout([vp.width, vp.height], compact));
+        self.layout = self.side_layout(self.fit_layout([vp.width, vp.height], compact));
         self.build_tree(cx)
     }
 
@@ -4514,14 +4237,11 @@ impl Screen for SelectScreen {
                     v.push(Focusable::new("StyleButton"));
                 }
                 v.extend((0..self.chart_places_max()).map(|k| Focusable::new(format!("Chart{k}"))));
-            } else if self.layout.radar || self.study_wide().is_some() {
-                // The skill radar's side: the style tabs and the chart
-                // buttons (the radar is no control).
+            } else {
+                // The wide side: the style tabs and the chart buttons
+                // (the radar is no control).
                 v.extend((0..self.data.styles.len()).map(|i| Focusable::new(format!("Tab{i}"))));
                 v.extend((0..LADDER_ROWS).map(|k| Focusable::new(format!("Chart{k}"))));
-            } else {
-                v.extend((0..self.data.styles.len()).map(|i| Focusable::new(format!("Tab{i}"))));
-                v.extend((0..LADDER_ROWS).map(|k| Focusable::new(format!("Ladder.Row{k}"))));
             }
         }
         // The song's heart (a tap or a click on it).
@@ -4621,30 +4341,14 @@ impl Screen for SelectScreen {
                 self.hints = None;
             }
         }
-        // The skill radar turned On or Off (Options over this screen): its
-        // side in the ladder's place, or the ladder again.
-        let radar = self
-            .study_radar(compact)
-            .unwrap_or(self.room.is_none() && !compact && crate::state::ratings::radar_shown());
+        // The radar is the wide layout's.
+        let radar = !compact;
         if [vp.width, vp.height] != self.layout.vp
             || compact != self.layout.compact
             || self.env.reduced() != self.reduced
             || radar != self.layout.radar
         {
-            self.cancel_navigation();
-            self.reduced = self.env.reduced();
-            self.layout = self.study_layout(self.fit_layout([vp.width, vp.height], compact));
-            let selected = self.list.selected();
-            let left = root.tween_time_left();
-            *root = self.build_tree(cx);
-            self.reload();
-            if let Some(s) = selected {
-                self.list.select(s);
-                self.list.finish();
-            }
-            // The first frame of the new tree shows it as it is (or still
-            // coming in).
-            super::relaid(root, left, cx);
+            self.relayout(root, cx);
         }
         if let Some(m) = &self.wheel_motion {
             self.list.visual_scroll(m.sample(cx.time()).0);
@@ -5004,7 +4708,6 @@ impl SelectScreen {
             } if self.plays.is_some()
                 && let Some(k) = t.chain.iter().find_map(|n| {
                     n.strip_prefix("Chart")
-                        .or_else(|| n.strip_prefix("Ladder.Row"))
                         .and_then(|n| n.parse::<usize>().ok())
                 }) =>
             {
@@ -5321,8 +5024,7 @@ impl SelectScreen {
             return Handled::Yes;
         }
         if let Some(k) = name
-            .strip_prefix("Ladder.Row")
-            .or_else(|| name.strip_prefix("Chart"))
+            .strip_prefix("Chart")
             .and_then(|n| n.parse::<usize>().ok())
         {
             self.pick_chart(k, root, cx);

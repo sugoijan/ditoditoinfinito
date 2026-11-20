@@ -79,6 +79,10 @@ impl Infinito {
         call(&mut blur, "diffuse", &[d, d, d, 1.0]);
         call(&mut blur, "saturation", &[COVER_BLUR_SATURATION]);
         let art = picture("CoverArt", [s, s], Fit::Contain, 4.0);
+        // The preview movie, whole over the blurred still, faded in over
+        // the art and out again by the screen (`CoverMovie`).
+        let mut movie = picture("CoverMovie", [s, s], Fit::Contain, 4.0);
+        call(&mut movie, "diffusealpha", &[0.0]);
         // The CD title, a small mark in the lower left corner, whole.
         let scale = (s / 260.0).clamp(0.5, 1.0);
         let [cw, ch] = [
@@ -88,7 +92,7 @@ impl Infinito {
         let mut cd = picture("CdTitle", [cw, ch], Fit::Contain, 0.0);
         call(&mut cd, "xy", &[8.0 * scale, s - 8.0 * scale - ch]);
         let edge = outline_r("CoverEdge", [0.0, 0.0, s, s], 1.0, [1.0, 1.0, 1.0, 0.08], COVER_R);
-        frame("", vec![back, placeholder, blur, art, cd, edge, extent([s, s])])
+        frame("", vec![back, placeholder, blur, art, movie, cd, edge, extent([s, s])])
     }
 
     /// A label (small tracked capitals) and its value on one of the
