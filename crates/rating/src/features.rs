@@ -29,6 +29,7 @@ pub(super) struct Row {
 pub(super) struct Chart {
     pub rows: Vec<Row>,
     pub mines: usize,
+    pub repeated_heads: f64,
     pub duration: f64,
     pub(super) source_notes: usize,
     has_lifts: bool,
@@ -150,6 +151,7 @@ pub(super) fn extract(song: &Song, index: usize) -> Result<Chart, String> {
     let mut near = 0;
     let mut total_units = 0.;
     let mut total_heads = 0.;
+    let mut repeated_heads = 0.;
     for g in groups {
         let t = g.seconds;
         while recent.front().is_some_and(|(old, _)| *old < t - 1.) {
@@ -202,6 +204,7 @@ pub(super) fn extract(song: &Song, index: usize) -> Result<Chart, String> {
             }
         }
         let repeats = f64::from((mask & last_mask).count_ones());
+        repeated_heads += repeats;
         let channels = [
             heads,
             taps,
@@ -275,6 +278,7 @@ pub(super) fn extract(song: &Song, index: usize) -> Result<Chart, String> {
         mines,
         duration,
         heads: total_heads,
+        repeated_heads,
         units: total_units,
         source_notes: notes,
         has_lifts: lifts,

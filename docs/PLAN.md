@@ -602,7 +602,8 @@ song side is a title band over two squares (the cover and the radar), and
 a room's song select has its players as a foldable panel at the right
 ([`song-navigation.md`](plans/song-navigation.md)). DDI song select shows qualified
 skills at the chart's displayed level, marks structurally inactive skills, and
-leaves gaps for unavailable estimates.
+leaves gaps for unavailable estimates. Stream at 1,201–3,200 source notes is
+shown when its pattern and display-sensitivity checks pass.
 
 Additional onigiri-free charts (2026-10-18): Options can expose 5-key →
 Single, 7-key → Solo, 9A → Double and 9B → Techno 8-panel versions alongside

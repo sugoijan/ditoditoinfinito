@@ -4,6 +4,10 @@ mod coefficients;
 mod features;
 mod network;
 mod prior;
+pub mod radar;
+#[rustfmt::skip] // Generated percentile knots retain their tabular layout.
+pub mod radar_table;
+mod stream;
 
 use ddi_chart::{ChartDigest, Song};
 use ddi_engine::cpu::{
@@ -55,10 +59,20 @@ pub struct MatchedSpokes {
 }
 
 impl MatchedSpokes {
-    fn for_chart(chart: &features::Chart, opportunity: [bool; 8]) -> Self {
+    fn for_chart(
+        chart: &features::Chart,
+        opportunity: [bool; 8],
+        decimal: f64,
+        means: &[[f64; 9]; 10],
+    ) -> Self {
         let validated = match chart.source_notes {
             _ if chart.matched_profile_studied => u8::MAX,
-            1201..=3200 => 0b0000_0100, // Handstream
+            1201..=3200 => {
+                let stream = opportunity[0]
+                    && stream::pattern_qualifies(chart)
+                    && radar::stream_display_stable(decimal, means);
+                0b0000_0100 | u8::from(stream) // Handstream and qualified Stream
+            }
             3201..=4800 => 0b0000_1101, // also Stream, Stamina
             4801..=8000 => 0b0001_1111, // also Jumpstream, JackSpeed
             _ => 0,
@@ -234,7 +248,8 @@ pub fn estimate(song: &Song, index: usize) -> Result<Estimate, String> {
         within_scalar_domain: scalar_qualified,
         within_studied_domain: chart.readouts_studied,
         within_matched_profile_domain: chart.matched_profile_studied,
-        matched_spokes: scalar_qualified.then(|| MatchedSpokes::for_chart(&chart, opportunity)),
+        matched_spokes: scalar_qualified
+            .then(|| MatchedSpokes::for_chart(&chart, opportunity, decimal, &means)),
         decimal,
         level: decimal.round() as u8,
         expected: calibrated(&coefficients::EXPECTED),
@@ -293,6 +308,14 @@ mod tests {
             assert_eq!(stored.scalar, scalar);
             assert_eq!(stored.profile.is_some(), scalar);
             assert_eq!(stored.studied, matched);
+            if scalar && matches!(notes, 1201 | 3200) {
+                use ddi_library::manifest::ProfileSpoke;
+                // These single-head charts pass both Stream checks at the band edges.
+                let profile = stored.profile.unwrap();
+                assert!(matches!(profile[0], ProfileSpoke::Numeric(_)));
+                assert_eq!(profile[1], ProfileSpoke::Inactive);
+                assert_eq!(profile[6], ProfileSpoke::Unavailable);
+            }
             let mut legacy = serde_json::to_value(&estimate).unwrap();
             legacy
                 .as_object_mut()

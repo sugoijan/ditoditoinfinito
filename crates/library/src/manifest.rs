@@ -318,7 +318,7 @@ pub struct ChartEstimate {
 
 /// Cache version for qualification of the scalar and displayed profile and
 /// for the matched-profile readout. Kept with the estimator and scale IDs.
-pub const PROFILE_RULE: &str = "partial-matched-profile-v3";
+pub const PROFILE_RULE: &str = "stream-sensitivity-profile-v4";
 
 /// The skill profile of a chart estimated at `decimal` (1 to 19) from the
 /// estimator's `means` (a row a CPU level, 1 to 10: the balanced Accuracy,

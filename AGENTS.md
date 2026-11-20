@@ -1304,7 +1304,9 @@ Rust and the browser are implementation details, not advertised features.
   score curve and calibrated skill profiles (through 900). Song select’s matched-level
   radar carries per-spoke numeric, inactive and unavailable states. Full numeric
   qualification covers 1,200 mine-free source notes and 900 with mines. Longer
-  scalar-qualified charts use the validated skill bands through 8,000. See the crate's
+  scalar-qualified charts use the validated skill bands through 8,000. At
+  1,201–3,200 notes Stream also checks chart patterns and the sensitivity of
+  the shared numeric display in `ddi_rating::radar`. See the crate's
   README for the JSON command, model identity and qualification limits.
 - `crates/msd/` MSD (`ddi-msd`, `docs/plans/msd-ratings.md`): Etterna's
   chart difficulty calculator, MinaCalc version 527 (etternagame/etterna

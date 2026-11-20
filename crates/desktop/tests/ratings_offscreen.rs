@@ -278,7 +278,7 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
         add("z-stream", "Stream pattern", pattern(150, &RND, 600));
         add("z-jacks", "Jack pattern", pattern(130, &JACK, 480));
         add("z-slow", "Quarter notes", pattern(70, &["1000", "0000", "0000", "0000", "0100", "0000", "0000", "0000"], 600));
-        // Only Handstream qualifies numerically here. Evasion is structurally inactive.
+        // Stream passes both lower-band checks. Handstream is numeric and Evasion is inactive.
         add("z-partial", "Partial radar", pattern(150, &["1110", "0001", "1100", "0100"], 1500));
         add("z-outside", "Outside duration", pattern(60, &RND, 1000));
         let look = Rc::new(ddi_theme::Infinito::new());
@@ -339,9 +339,9 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
             }
             if id == "z-partial" {
                 for k in 0..8 {
-                    assert_eq!(ui.bounds_of("Radar", &format!("Point{k}")).is_some(), matches!(k, 2 | 7));
+                    assert_eq!(ui.bounds_of("Radar", &format!("Point{k}")).is_some(), matches!(k, 0 | 2 | 7));
                 }
-                for (k, expected) in [(0, "Status"), (2, "Number"), (7, "Status")] {
+                for (k, expected) in [(0, "Number"), (1, "Status"), (2, "Number"), (7, "Status")] {
                     assert!(ui.bounds_of(&format!("Label{k}"), expected).is_some());
                 }
             }
