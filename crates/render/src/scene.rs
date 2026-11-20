@@ -218,6 +218,11 @@ pub struct SceneOutput {
 pub enum Segment {
     Sprites(std::ops::Range<u32>),
     Quads(std::ops::Range<u32>),
+    /// The layer over the backdrop (the room host's chat,
+    /// `BackgroundPipeline::draw_overlay`) drawn here instead: over a
+    /// work's back layers, under the dancing hand behind the field, the
+    /// field filter and the field (round TW4).
+    Overlay,
 }
 
 /// Cuts the scene into runs as drawing switches between the procedural
@@ -972,6 +977,7 @@ pub fn build(
         srgb_target,
         layer,
         stage,
+        None,
     );
     out
 }
@@ -988,6 +994,7 @@ pub fn build_into(
     srgb_target: bool,
     mut layer: Option<&mut (dyn NoteLayer + '_)>,
     stage: (&[TexQuad], &[TexQuad]),
+    overlay_at: Option<usize>,
 ) {
     // A preview without receptors; no field at all.
     let no_receptors = opts.preview.is_some_and(|p| !p.receptors) || opts.no_field;
@@ -1008,8 +1015,18 @@ pub fn build_into(
         ..Order::default()
     };
     // A work's back layers, over the background and under the field
-    // (`docs/plans/overlays.md`).
-    quads.extend_from_slice(stage.0);
+    // (`docs/plans/overlays.md`), the layer over the backdrop after the
+    // first `overlay_at` of them where it is drawn there.
+    match overlay_at {
+        Some(at) => {
+            let at = at.min(stage.0.len());
+            quads.extend_from_slice(&stage.0[..at]);
+            order.quads(quads.len());
+            order.segments.push(Segment::Overlay);
+            quads.extend_from_slice(&stage.0[at..]);
+        }
+        None => quads.extend_from_slice(stage.0),
+    }
     order.quads(quads.len());
     let drawn = |layer: &Option<&mut (dyn NoteLayer + '_)>, lane: usize, part: LayerPart| {
         layer.as_ref().is_some_and(|l| l.draws(lane, part))

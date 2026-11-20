@@ -769,6 +769,12 @@ impl Renderer {
         } else {
             &self.stage_back
         };
+        // The layer over the backdrop (the room host's chat) goes over a
+        // work's back layers (round TW4), under the dancing hand behind
+        // the field, the filter and the field; without back layers, with
+        // the backdrop as before.
+        let overlay_at = (self.background.has_overlay() && !self.stage_back.is_empty())
+            .then_some(self.stage_back.len());
         scene::build_into(
             &mut scene,
             frame,
@@ -779,6 +785,7 @@ impl Renderer {
             self.srgb,
             layer.as_deref_mut(),
             (back, &self.stage_mask),
+            overlay_at,
         );
         if opts.preview.is_none() {
             // Their bands as the play's field's: its filter's darkness,
@@ -945,7 +952,7 @@ impl Renderer {
                     .iter()
                     .filter_map(|s| match s {
                         Segment::Quads(r) => scene.quads.get(r.start as usize..r.end as usize),
-                        Segment::Sprites(_) => None,
+                        Segment::Sprites(_) | Segment::Overlay => None,
                     })
                     .flat_map(|q| q.iter())
                     .filter(|q| q.blend != crate::textured::QuadBlend::NoEffect)
@@ -1003,11 +1010,14 @@ impl Renderer {
             }
             if n == 0 {
                 self.background.draw(&mut pass, &background);
-                self.background.draw_overlay(&mut pass, &background);
+                if overlay_at.is_none() {
+                    self.background.draw_overlay(&mut pass, &background);
+                }
             }
             for segment in &scene.order[pass_plan.segments.clone()] {
                 match segment {
                     Segment::Sprites(r) => self.sprites.draw_range(&mut pass, r.clone()),
+                    Segment::Overlay => self.background.draw_overlay(&mut pass, &background),
                     Segment::Quads(r) => {
                         self.textured
                             .draw(&mut pass, r.clone(), pass_plan.plain, pass_plan.stencil)
@@ -1296,6 +1306,26 @@ mod tests {
                 width: 107,
                 height: 62
             }
+        );
+    }
+
+    /// The layer over the backdrop drawn between a work's back layers and
+    /// the rest (round TW4) is drawn in a scene pass: between the back
+    /// layers' plain pass and the hand's, where there is a plain view.
+    #[test]
+    fn the_overlay_between_back_layers_is_a_scene_pass() {
+        use Segment::{Overlay, Quads, Sprites};
+        let order = [Quads(0..2), Overlay, Quads(2..3), Sprites(0..4)];
+        assert_eq!(passes(&order, false, NONE), [plan(false, 0..4, true)]);
+        assert_eq!(
+            passes(&order, true, NONE),
+            [
+                plan(false, 0..0, false),
+                plan(true, 0..1, false),
+                plan(false, 1..2, false),
+                plan(true, 2..3, false),
+                plan(false, 3..4, true),
+            ]
         );
     }
 

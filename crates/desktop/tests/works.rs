@@ -216,13 +216,85 @@ fn layer_pack(dir: &std::path::Path) -> PathBuf {
 /// set beside Chrome's of the same pack at 2 s.
 #[test]
 fn a_works_layers_show_in_play() {
-    common::indexes();
-    use ddi_desktop::play::view::View;
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
+    let Some(w) = play_work("layers", None, 2.0) else {
         return;
     };
+    assert_eq!(w.stage, (2, 1), "back: image and text; mask");
+    // The lyrics over the field, in the system's Japanese face.
+    assert_eq!(w.lyrics, ["歌詞のテスト"]);
+    let pixels = &w.pixels;
+    common::shot("works-layers.ppm", pixels, SIZE);
+    let at = |x: u32, y: u32| {
+        let i = ((y * SIZE[0] + x) * 4) as usize;
+        [pixels[i], pixels[i + 1], pixels[i + 2]]
+    };
+    // The back's green square (left of the field), the mask's white disc
+    // and pink band (at the bottom), the back's gradient at the stage's
+    // right edge.
+    let green = at(380, 100);
+    assert!(green[1] > 180 && green[0] < 80, "back's square {green:?}");
+    let disc = at(640, 640);
+    assert!(disc.iter().all(|&c| c > 150), "mask's disc {disc:?}");
+    let band = at(900, 700);
+    assert!(band[0] > 90 && band[1] < 60, "mask's band {band:?}");
+}
+
+/// Round TW4: the room host's chat is drawn over a work's back layers
+/// (still under the field, its filter and the dancing hand), where those
+/// layers covered it before. The same work with the scripted chat
+/// (TESTING ONLY: magenta squares falling) and without, at the same song
+/// second: the chat changes the back image's pixels left of the field.
+/// `DDI_OFFSCREEN_PPM=<dir>` keeps `works-chat.ppm`.
+#[test]
+fn the_chat_is_drawn_over_a_works_back_layers() {
+    let script = ddi_chat::script::Script::parse(
+        "ceiling emotes\nemote Kappa twitch 25 shape:square:ff00ff\nloop 5\n0.0 emotes 8 5\n",
+    )
+    .unwrap();
+    let Some(without) = play_work("chat-off", None, 3.0) else {
+        return;
+    };
+    let with = play_work("chat-on", Some(script), 3.0).expect("a GPU the first time");
+    common::shot("works-chat.ppm", &with.pixels, SIZE);
+    assert_eq!(with.stage, (2, 1));
+    // The back image left of the field (the stage's left part, under
+    // neither the field nor the mask's band): magenta where the chat is.
+    let mut changed = 0;
+    let mut magenta = 0;
+    for y in 60..360u32 {
+        for x in 320..470u32 {
+            let i = ((y * SIZE[0] + x) * 4) as usize;
+            let (a, b) = (&without.pixels[i..i + 3], &with.pixels[i..i + 3]);
+            if a.iter().zip(b).any(|(p, q)| p.abs_diff(*q) > 24) {
+                changed += 1;
+                if b[0] > b[1].saturating_add(60) && b[2] > b[1].saturating_add(60) {
+                    magenta += 1;
+                }
+            }
+        }
+    }
+    assert!(changed > 500 && magenta > 200, "changed {changed}, magenta {magenta}");
+}
+
+const SIZE: [u32; 2] = [1280, 720];
+
+/// What [`play_work`] drew.
+struct Work {
+    pixels: Vec<u8>,
+    /// The back and mask layers' parts drawn.
+    stage: (usize, usize),
+    lyrics: Vec<String>,
+}
+
+/// [`layer_pack`] autoplayed on a fake clock and drawn offscreen through
+/// the play's view at song second `at`, with `chat` as its scripted chat
+/// (Emotes, Falling, at full opacity) or none.
+fn play_work(tag: &str, chat: Option<ddi_chat::script::Script>, at: f64) -> Option<Work> {
+    common::indexes();
+    use ddi_desktop::play::view::View;
+    let adapter = common::gpu::adapter_or_skip()?;
     let (device, queue) = ddi_desktop::gpu::device(&adapter).unwrap();
-    let dir = std::env::temp_dir().join(format!("ddi-works-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("ddi-works-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let pack = layer_pack(&dir);
     let (songs, report) = ddi_desktop::library::scan_folders(std::slice::from_ref(&pack));
@@ -240,8 +312,14 @@ fn a_works_layers_show_in_play() {
     ddi_desktop::library::register_for_tests(&songs);
     let loaded = Rc::new(load::load(&s.entry.id, 48_000).unwrap());
     assert_eq!(loaded.layers.len(), 2);
-    let settings = Settings::default();
-    const SIZE: [u32; 2] = [1280, 720];
+    let mut settings = Settings::default();
+    if chat.is_some() {
+        settings.twitch_chat = ddi_chat::Level::Emotes;
+        settings.chat_style = ddi_chat::Style::Falling;
+        settings.chat_opacity = 100;
+        settings.dancing_hand = false;
+    }
+    ddi_session::chat::set_scripted(chat);
     let mut view = View::new(
         &device,
         &queue,
@@ -304,49 +382,16 @@ fn a_works_layers_show_in_play() {
             render,
             now,
         );
-        if t >= 2.0 {
-            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size: u64::from(SIZE[0] * 4 * SIZE[1]),
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-            encoder.copy_texture_to_buffer(
-                target.texture.as_image_copy(),
-                wgpu::TexelCopyBufferInfo {
-                    buffer: &buffer,
-                    layout: wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(SIZE[0] * 4),
-                        rows_per_image: Some(SIZE[1]),
-                    },
-                },
-                target.texture.size(),
-            );
-            queue.submit(Some(encoder.finish()));
-            let slice = buffer.slice(..);
-            slice.map_async(wgpu::MapMode::Read, |_| {});
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            break slice.get_mapped_range().expect("mapped").to_vec();
-        }
         queue.submit(Some(encoder.finish()));
+        if t >= at {
+            break target.read(&device, &queue);
+        }
     };
-    assert_eq!(view.stage_drawn(), (2, 1), "back: image and text; mask");
-    // The lyrics over the field, in the system's Japanese face.
-    assert_eq!(view.lyrics_shown(), ["歌詞のテスト"]);
-    common::shot("works-layers.ppm", &pixels, SIZE);
-    let at = |x: u32, y: u32| {
-        let i = ((y * SIZE[0] + x) * 4) as usize;
-        [pixels[i], pixels[i + 1], pixels[i + 2]]
-    };
-    // The back's green square (left of the field), the mask's white disc
-    // and pink band (at the bottom), the back's gradient at the stage's
-    // right edge.
-    let green = at(380, 100);
-    assert!(green[1] > 180 && green[0] < 80, "back's square {green:?}");
-    let disc = at(640, 640);
-    assert!(disc.iter().all(|&c| c > 150), "mask's disc {disc:?}");
-    let band = at(900, 700);
-    assert!(band[0] > 90 && band[1] < 60, "mask's band {band:?}");
+    ddi_session::chat::set_scripted(None);
     let _ = std::fs::remove_dir_all(&dir);
+    Some(Work {
+        pixels,
+        stage: view.stage_drawn(),
+        lyrics: view.lyrics_shown().to_vec(),
+    })
 }
