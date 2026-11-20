@@ -13,6 +13,8 @@ ddi-character.workspace = true
 ddi-actor.workspace = true
 ddi-chart.workspace = true
 ddi-chat.workspace = true
+# The dance mat's tiles, for the touch pad (`touch_controls`).
+ddi-dance-mat.workspace = true
 ddi-engine.workspace = true
 ddi-l10n.workspace = true
 ddi-library.workspace = true

@@ -44,6 +44,7 @@ pub mod state;
 pub mod testing;
 pub mod text_field;
 pub mod textures;
+pub mod touch_controls;
 mod ui;
 pub mod widgets;
 

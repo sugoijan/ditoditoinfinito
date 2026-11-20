@@ -1491,6 +1491,7 @@ dependencies = [
  "ddi-character",
  "ddi-chart",
  "ddi-chat",
+ "ddi-dance-mat",
  "ddi-engine",
  "ddi-l10n",
  "ddi-library",
