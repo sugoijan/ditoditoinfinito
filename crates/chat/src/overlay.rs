@@ -114,8 +114,9 @@ const GAP: f32 = 0.8;
 const WIDEST: f32 = 4.0;
 /// The space between pieces and after a chatter's name, in lines.
 const SPACE: f32 = 0.3;
-/// An item narrowed to fit a column, to this share at most.
-const NARROWEST: f32 = 0.5;
+/// An item narrowed to fit a column, to this share at most (a longer
+/// one is cut to the width that takes).
+const NARROWEST: f32 = 0.75;
 
 impl Area {
     /// The area for a `size` target with items `line` tall: rows down the
@@ -136,7 +137,7 @@ impl Area {
         let line = line.max(1.0);
         let margin = line * 0.5;
         let widest = if level == Level::Messages { 14.0 } else { 5.0 } * line;
-        let narrowest = if level == Level::Messages { 7.0 } else { 2.5 } * line;
+        let narrowest = if level == Level::Messages { 4.5 } else { 2.5 } * line;
         let sides = [[margin, band[0] - margin], [band[1] + margin, w - margin]];
         let wide_enough = |r: &[f32; 2]| r[1] - r[0] >= narrowest;
         // The side space less the obstacles' widths.
@@ -488,7 +489,19 @@ impl Overlay {
                 self.waiting.push(w);
                 continue;
             }
-            let Some((laid, width)) = lay(&w.content, area.line, ready, measure) else {
+            // Falling's columns take a line no wider than their widest
+            // narrowed allows; a row takes the screen's width.
+            let most = match self.options.style {
+                Style::Falling => {
+                    area.columns
+                        .iter()
+                        .map(|c| c.x[1] - c.x[0])
+                        .fold(0.0, f32::max)
+                        / NARROWEST
+                }
+                Style::Across => area.size[0] * 0.9,
+            };
+            let Some((laid, width)) = lay(&w.content, area.line, most, ready, measure) else {
                 self.stats.no_image += 1;
                 continue;
             };
@@ -692,50 +705,101 @@ impl Overlay {
     }
 }
 
-/// `content`'s pieces laid on one line `line` tall: the name, the text,
-/// the emotes whose images are ready (the others left out), a run's
-/// count after its emote. `None` where nothing is left.
+/// `content`'s pieces laid on one line `line` tall, `most` pixels wide at
+/// most: the name, the text (cut with an ellipsis where it would run
+/// past), the emotes whose images are ready (the others left out), a
+/// run's count after its emote. `None` where nothing is left.
 fn lay(
     content: &Content,
     line: f32,
+    most: f32,
     ready: &dyn Fn(&Emote) -> Readiness,
     measure: &mut dyn FnMut(&str) -> f32,
 ) -> Option<(Vec<Laid>, f32)> {
     let space = line * SPACE;
     let mut laid = Vec::new();
     let mut x = 0.0f32;
-    let put = |what: Glyphs, width: f32, laid: &mut Vec<Laid>, x: &mut f32| {
+    if let Some(name) = &content.name {
+        let w = measure(name);
         laid.push(Laid {
-            what,
-            x: *x,
-            width,
+            what: Glyphs::Name(name.clone()),
+            x: 0.0,
+            width: w,
         });
-        *x += width;
-    };
+        x = w + space * 1.5;
+    }
     let mut body = false;
-    for p in &content.pieces {
+    let emote_only = content.emote_only();
+    'pieces: for p in &content.pieces {
         match p {
             Piece::Text(t) => {
                 if t.trim().is_empty() && !body {
                     continue;
                 }
-                let w = measure(t);
-                put(Glyphs::Text(t.clone()), w, &mut laid, &mut x);
+                let mut text = t.clone();
+                let mut w = measure(&text);
+                if x + w > most {
+                    // As many graphemes as fit with an ellipsis.
+                    use unicode_segmentation::UnicodeSegmentation;
+                    let g: Vec<&str> = t.graphemes(true).collect();
+                    let (mut lo, mut hi) = (0, g.len());
+                    while lo < hi {
+                        let mid = (lo + hi).div_ceil(2);
+                        let cut = format!("{}…", g[..mid].concat().trim_end());
+                        if x + measure(&cut) <= most {
+                            lo = mid;
+                        } else {
+                            hi = mid - 1;
+                        }
+                    }
+                    if lo == 0 {
+                        break 'pieces;
+                    }
+                    text = format!("{}…", g[..lo].concat().trim_end());
+                    w = measure(&text);
+                    body = true;
+                    laid.push(Laid {
+                        what: Glyphs::Text(text),
+                        x,
+                        width: w,
+                    });
+                    x += w;
+                    break 'pieces;
+                }
                 body |= !t.trim().is_empty();
+                laid.push(Laid {
+                    what: Glyphs::Text(text),
+                    x,
+                    width: w,
+                });
+                x += w;
             }
             Piece::Emote { emote, count } => {
                 let Readiness::Ready { aspect } = ready(emote) else {
                     continue;
                 };
                 let w = line * aspect.clamp(0.25, WIDEST);
-                put(Glyphs::Emote(emote.clone()), w, &mut laid, &mut x);
-                body = true;
-                if *count > 1 {
-                    let text = format!("×{count}");
-                    let w = measure(&text);
-                    put(Glyphs::Count(text), w, &mut laid, &mut x);
+                let text = (*count > 1).then(|| format!("×{count}"));
+                let cw = text.as_deref().map_or(0.0, &mut *measure);
+                if body && x + w + cw > most {
+                    break 'pieces;
                 }
-                if content.emote_only() {
+                laid.push(Laid {
+                    what: Glyphs::Emote(emote.clone()),
+                    x,
+                    width: w,
+                });
+                x += w;
+                body = true;
+                if let Some(text) = text {
+                    laid.push(Laid {
+                        what: Glyphs::Count(text),
+                        x,
+                        width: cw,
+                    });
+                    x += cw;
+                }
+                if emote_only {
                     x += space;
                 }
             }
@@ -745,24 +809,8 @@ fn lay(
         return None;
     }
     // A trailing space left after the last emote.
-    if content.emote_only() {
+    if emote_only {
         x -= space;
-    }
-    if let Some(name) = &content.name {
-        let w = measure(name);
-        let shift = w + space * 1.5;
-        for l in &mut laid {
-            l.x += shift;
-        }
-        laid.insert(
-            0,
-            Laid {
-                what: Glyphs::Name(name.clone()),
-                x: 0.0,
-                width: w,
-            },
-        );
-        x += shift;
     }
     Some((laid, x.max(1.0)))
 }

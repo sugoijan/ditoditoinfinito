@@ -380,3 +380,19 @@ fn rows_and_columns_keep_clear_of_the_receptors_and_the_hud() {
     o.advance(0.0, &a, &ready, &mut measure);
     assert_eq!(o.drawn(0.0).next().unwrap().y, a.rows[0]);
 }
+
+#[test]
+fn a_line_too_wide_for_falling_is_cut_with_an_ellipsis() {
+    let narrow = Area::new([1280.0, 720.0], LINE, [200.0, 1080.0], &[], Level::Messages);
+    // Columns 170 pixels wide: a line of 227 at most.
+    let widest = narrow.columns.iter().map(|c| c.x[1] - c.x[0]).fold(0.0, f32::max);
+    let mut o = overlay(Style::Falling, false);
+    o.receive(&say(1, 1, &"w".repeat(50)), 0.0, true);
+    o.advance(0.0, &narrow, &ready, &mut measure);
+    let d = o.drawn(0.0).next().unwrap();
+    assert!(d.width * d.scale <= widest + 0.5, "{} {widest}", d.width);
+    let Glyphs::Text(t) = &d.laid[0].what else {
+        panic!()
+    };
+    assert!(t.ends_with('…'), "{t}");
+}
