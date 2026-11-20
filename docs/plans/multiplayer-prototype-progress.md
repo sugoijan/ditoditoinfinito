@@ -13083,7 +13083,7 @@ it. A revision-18 client is refused by that server with
 `room_picker_offscreen` (the rows' AA and NEW). The singleplayer smoke
 check passed in both browsers.
 
-## Round TW4: the chat's decided changes, animated emotes first (still room model revision 18, 2026-11-20)
+## Round TW4: the chat's decided changes, animated emotes first (no change to the room model, 2026-11-20)
 
 `docs/plans/multiplayer-twitch.md`, "Animated emotes (round TW4)" and
 its "Built and walked". The maintainer's decisions of 2026-11-20, built:
