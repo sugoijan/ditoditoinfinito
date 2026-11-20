@@ -2390,7 +2390,8 @@ fn a_lane_s_key_is_never_the_policy_s() {
 /// `attacks-v2` (2026-11-13): an attack is over for the ledger once it is
 /// placed, and attacks against one recipient chain; `attacks-v3` (the
 /// same day) keeps the chain within the window of each launch and to the
-/// match's Attacks at once (three by default). Over a
+/// match's Attacks at once (three by default); `attacks-v4` (round DC)
+/// has Top score go by the score each play reported. Over a
 /// long chart with strong CPUs, chains happen: an attack committed
 /// against someone while earlier ones against them had not cleared, its
 /// first shock at or after the last of theirs has cleared (never a
@@ -2399,9 +2400,9 @@ fn a_lane_s_key_is_never_the_policy_s() {
 /// record is the same at 60 and 144 frames a second.
 #[test]
 fn chained_attacks_are_delivered_back_to_back_into_plays_and_cpus() {
-    assert_eq!(crate::battle::attacks::rules().id, "attacks-v3");
+    assert_eq!(crate::battle::attacks::rules().id, "attacks-v4");
     let song = bundled("beatucada");
-    // Strong CPUs aiming at the leader: they pile up on one.
+    // Strong CPUs aiming at the top score: they pile up on one.
     let mut practice = attacks_room(3, 9);
     let mut now = 0;
     let mut order = begin_at(&song, &mut practice, &mut now, LONG);

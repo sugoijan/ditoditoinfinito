@@ -1,0 +1,715 @@
+{
+  "room": "room",
+  "revision": 45,
+  "policy": {
+    "max_competitors": 73,
+    "max_members": 384,
+    "admin_reserve": 4,
+    "max_stages": 16,
+    "history": 8,
+    "readiness": {
+      "id": "hosted-deadline-v2",
+      "window_ms": 30000,
+      "loading_grace_ms": 45000,
+      "countdown_ms": 3000,
+      "min_ready_humans": 1,
+      "min_competitors": 2
+    },
+    "outcomes": {
+      "id": "self-reported-v0",
+      "after_song_end_ms": 60000,
+      "stage_cap_ms": 1200000
+    },
+    "live": {
+      "id": "live-v1",
+      "prelude_ms": 1000,
+      "timing": "live-v2"
+    },
+    "audience": {
+      "id": "audience-v0"
+    }
+  },
+  "source": "shared",
+  "access": {
+    "admission": "open",
+    "invite_generation": 1
+  },
+  "members": [
+    [
+      1,
+      {
+        "id": 1,
+        "kind": {
+          "human": {
+            "identity": "twitch:host",
+            "name": "Host"
+          }
+        },
+        "role": "owner",
+        "admin": false,
+        "intent": "play",
+        "connection": "connected",
+        "left": false
+      }
+    ],
+    [
+      2,
+      {
+        "id": 2,
+        "kind": {
+          "human": {
+            "identity": "twitch:ana",
+            "name": "ana"
+          }
+        },
+        "role": "co_host",
+        "admin": false,
+        "intent": "play",
+        "connection": "connected",
+        "left": false,
+        "targeting": "leader"
+      }
+    ],
+    [
+      3,
+      {
+        "id": 3,
+        "kind": {
+          "human": {
+            "identity": "twitch:ben",
+            "name": "ben"
+          }
+        },
+        "role": "member",
+        "admin": false,
+        "intent": "play",
+        "connection": "connected",
+        "left": false
+      }
+    ],
+    [
+      4,
+      {
+        "id": 4,
+        "kind": {
+          "human": {
+            "identity": "twitch:cy",
+            "name": "cy"
+          }
+        },
+        "role": "member",
+        "admin": false,
+        "intent": "watch",
+        "connection": "connected",
+        "left": false,
+        "watch_only": true
+      }
+    ],
+    [
+      5,
+      {
+        "id": 5,
+        "kind": {
+          "human": {
+            "identity": "twitch:dee",
+            "name": "dee"
+          }
+        },
+        "role": "member",
+        "admin": false,
+        "intent": "play",
+        "connection": "disconnected",
+        "left": true
+      }
+    ],
+    [
+      6,
+      {
+        "id": 6,
+        "kind": {
+          "cpu": {
+            "ordinal": 1,
+            "opponent": {
+              "level": 3,
+              "seed": 11,
+              "personality": "jacks",
+              "name": "Mira",
+              "targeting": "retaliate"
+            }
+          }
+        },
+        "role": "member",
+        "admin": false,
+        "intent": "play",
+        "connection": "connected",
+        "left": false
+      }
+    ],
+    [
+      7,
+      {
+        "id": 7,
+        "kind": {
+          "cpu": {
+            "ordinal": 2,
+            "opponent": {
+              "level": 7,
+              "seed": 12,
+              "name": "Tobi"
+            }
+          }
+        },
+        "role": "member",
+        "admin": false,
+        "intent": "play",
+        "connection": "connected",
+        "left": false
+      }
+    ],
+    [
+      8,
+      {
+        "id": 8,
+        "kind": {
+          "human": {
+            "identity": "twitch:op",
+            "name": "op"
+          }
+        },
+        "role": "member",
+        "admin": true,
+        "intent": "watch",
+        "connection": "connected",
+        "left": false
+      }
+    ],
+    [
+      9,
+      {
+        "id": 9,
+        "kind": {
+          "human": {
+            "identity": "twitch:eve",
+            "name": "eve"
+          }
+        },
+        "role": "member",
+        "admin": false,
+        "intent": "play",
+        "connection": "connected",
+        "left": false
+      }
+    ]
+  ],
+  "next": {
+    "rules": {
+      "stages": 3,
+      "seats": 73,
+      "cpu": {
+        "mode": "roster",
+        "opponent": {
+          "level": 0,
+          "seed": 0
+        },
+        "roster": [
+          {
+            "level": 3,
+            "seed": 11,
+            "personality": "jacks",
+            "name": "Mira",
+            "targeting": "retaliate"
+          },
+          {
+            "level": 7,
+            "seed": 12,
+            "name": "Tobi"
+          }
+        ]
+      },
+      "return_each_stage": true,
+      "mid_match_entry": false,
+      "battle": "gauge-attacks-v0",
+      "awards": "placement_points_v1",
+      "ruleset": "ddi",
+      "difficulty": "hard",
+      "charts": "adaptive",
+      "shocks": "four"
+    },
+    "saved_at": 14,
+    "review": null
+  },
+  "playlist": [
+    {
+      "id": 4,
+      "content": null,
+      "content_changed_at": 0,
+      "readiness_rev": 0,
+      "prep": [],
+      "play": null
+    },
+    {
+      "id": 5,
+      "content": null,
+      "content_changed_at": 0,
+      "readiness_rev": 0,
+      "prep": [],
+      "play": null
+    },
+    {
+      "id": 6,
+      "content": null,
+      "content_changed_at": 0,
+      "readiness_rev": 0,
+      "prep": [],
+      "play": null
+    }
+  ],
+  "current": {
+    "id": 1,
+    "rules": {
+      "stages": 3,
+      "seats": 73,
+      "cpu": {
+        "mode": "roster",
+        "opponent": {
+          "level": 0,
+          "seed": 0
+        },
+        "roster": [
+          {
+            "level": 3,
+            "seed": 11,
+            "personality": "jacks",
+            "name": "Mira",
+            "targeting": "retaliate"
+          },
+          {
+            "level": 7,
+            "seed": 12,
+            "name": "Tobi"
+          }
+        ]
+      },
+      "return_each_stage": true,
+      "mid_match_entry": false,
+      "battle": "gauge-attacks-v0",
+      "awards": "placement_points_v1",
+      "ruleset": "ddi",
+      "difficulty": "hard",
+      "charts": "adaptive",
+      "shocks": "eight"
+    },
+    "roster": [
+      [
+        1,
+        {
+          "first_stage": 1,
+          "out_for_match": false
+        }
+      ],
+      [
+        2,
+        {
+          "first_stage": 1,
+          "out_for_match": false
+        }
+      ],
+      [
+        3,
+        {
+          "first_stage": 1,
+          "out_for_match": false
+        }
+      ],
+      [
+        6,
+        {
+          "first_stage": 1,
+          "out_for_match": false
+        }
+      ],
+      [
+        7,
+        {
+          "first_stage": 1,
+          "out_for_match": false
+        }
+      ]
+    ],
+    "stages": [
+      {
+        "id": 1,
+        "content": {
+          "id": {
+            "song": "song-1",
+            "chart": "digest-1"
+          },
+          "status": "available",
+          "share": "Share001",
+          "card": {
+            "title": "Song 1",
+            "artist": "Artist",
+            "difficulty": "Hard",
+            "meter": 9,
+            "style": "dance-single"
+          },
+          "battle": "fnv1a64:0123456789abcdef"
+        },
+        "content_changed_at": 14,
+        "readiness_rev": 2,
+        "prep": [
+          [
+            1,
+            {
+              "ready": true,
+              "loading": "loaded"
+            }
+          ],
+          [
+            2,
+            {
+              "ready": true,
+              "loading": "loaded"
+            }
+          ],
+          [
+            3,
+            {
+              "ready": true,
+              "loading": "loaded"
+            }
+          ]
+        ],
+        "play": {
+          "lineup": [
+            1,
+            2,
+            3,
+            6,
+            7
+          ],
+          "sat_out": [],
+          "start_at": 4000,
+          "result": {
+            "rule": "eight_player_scaled_v1",
+            "placements": [
+              {
+                "participant": 7,
+                "place": 1,
+                "finish": "survived",
+                "points": {
+                  "num": 12,
+                  "den": 1
+                }
+              },
+              {
+                "participant": 1,
+                "place": 2,
+                "finish": "survived",
+                "points": {
+                  "num": 8,
+                  "den": 1
+                }
+              },
+              {
+                "participant": 2,
+                "place": 3,
+                "finish": "survived",
+                "points": {
+                  "num": 5,
+                  "den": 1
+                }
+              },
+              {
+                "participant": 6,
+                "place": 4,
+                "finish": "eliminated",
+                "points": {
+                  "num": 3,
+                  "den": 1
+                }
+              },
+              {
+                "participant": 3,
+                "place": 5,
+                "finish": "forfeit",
+                "points": {
+                  "num": 0,
+                  "den": 1
+                }
+              }
+            ]
+          },
+          "song_ended": true,
+          "interrupted": false,
+          "reports": [
+            [
+              1,
+              {
+                "live": {
+                  "life_ppm": 800000,
+                  "score": 4200000,
+                  "steps": 1
+                }
+              }
+            ],
+            [
+              2,
+              {
+                "live": {
+                  "life_ppm": 300000,
+                  "score": 2100000,
+                  "steps": 2
+                }
+              }
+            ],
+            [
+              3,
+              "forfeit"
+            ],
+            [
+              6,
+              {
+                "out": {
+                  "at_ms": 41500
+                }
+              }
+            ],
+            [
+              7,
+              {
+                "live": {
+                  "life_ppm": 1000000,
+                  "score": 5000000
+                }
+              }
+            ]
+          ],
+          "song_end_at": 94000,
+          "details": [
+            [
+              1,
+              {
+                "score": 4200000,
+                "percent": 9512,
+                "grade": "AA",
+                "life_ppm": 800000,
+                "max_combo": 321,
+                "tiers": [
+                  100,
+                  80,
+                  20,
+                  5,
+                  2,
+                  1,
+                  3
+                ],
+                "attacks": 2,
+                "received": 1,
+                "shocks": 3,
+                "chart": "Challenge",
+                "harder": true
+              }
+            ],
+            [
+              2,
+              {
+                "score": 2100000,
+                "percent": 9512,
+                "grade": "AA",
+                "life_ppm": 800000,
+                "max_combo": 321,
+                "tiers": [
+                  100,
+                  80,
+                  20,
+                  5,
+                  2,
+                  1,
+                  3
+                ],
+                "attacks": 2,
+                "received": 1,
+                "shocks": 3,
+                "chart": "Medium"
+              }
+            ],
+            [
+              6,
+              {
+                "score": 900000,
+                "percent": 9512,
+                "grade": "AA",
+                "life_ppm": 800000,
+                "out_at_ms": 41500,
+                "max_combo": 321,
+                "tiers": [
+                  100,
+                  80,
+                  20,
+                  5,
+                  2,
+                  1,
+                  3
+                ],
+                "attacks": 2,
+                "received": 1,
+                "shocks": 3
+              }
+            ],
+            [
+              7,
+              {
+                "score": 5000000,
+                "percent": 9512,
+                "grade": "AA",
+                "life_ppm": 800000,
+                "max_combo": 321,
+                "tiers": [
+                  100,
+                  80,
+                  20,
+                  5,
+                  2,
+                  1,
+                  3
+                ],
+                "attacks": 2,
+                "received": 1,
+                "shocks": 3
+              }
+            ]
+          ],
+          "song_zero_at": 5000
+        }
+      },
+      {
+        "id": 2,
+        "content": {
+          "id": {
+            "song": "song-2",
+            "chart": "digest-2"
+          },
+          "status": "available",
+          "share": "Share002",
+          "battle": "fnv1a64:00112233445566ff"
+        },
+        "content_changed_at": 34,
+        "readiness_rev": 2,
+        "prep": [
+          [
+            1,
+            {
+              "ready": true,
+              "loading": "loaded"
+            }
+          ],
+          [
+            2,
+            {
+              "ready": true,
+              "loading": "loaded"
+            }
+          ],
+          [
+            3,
+            {
+              "ready": false,
+              "loading": "loaded"
+            }
+          ]
+        ],
+        "play": {
+          "lineup": [
+            1,
+            2,
+            6,
+            7
+          ],
+          "sat_out": [
+            [
+              3,
+              "not_connected"
+            ]
+          ],
+          "start_at": 1008000,
+          "result": null,
+          "song_ended": false,
+          "interrupted": false,
+          "reports": [
+            [
+              1,
+              {
+                "live": {
+                  "life_ppm": 600000,
+                  "score": 5432100
+                }
+              }
+            ]
+          ],
+          "song_end_at": 1300000,
+          "song_zero_at": 1009000
+        }
+      },
+      {
+        "id": 3,
+        "content": null,
+        "content_changed_at": 0,
+        "readiness_rev": 1,
+        "prep": [],
+        "play": null
+      }
+    ],
+    "changes": [
+      {
+        "from": 2,
+        "rules": {
+          "difficulty": "hard",
+          "battle": "gauge-attacks-v0",
+          "charts": "adaptive",
+          "at_once": "two",
+          "shocks": "eight",
+          "points": "mild"
+        },
+        "saved_at": 33
+      }
+    ]
+  },
+  "phase": {
+    "stage": {
+      "stage": 2
+    }
+  },
+  "history": [],
+  "counters": {
+    "participant": 10,
+    "matches": 2,
+    "stage": 7
+  },
+  "spotlight": {
+    "content": {
+      "song": "song-2",
+      "chart": "digest-2"
+    },
+    "card": {
+      "title": "Song 2",
+      "artist": "Artist",
+      "difficulty": "Hard",
+      "meter": 9,
+      "style": "dance-single"
+    },
+    "by": 2
+  },
+  "picking": {
+    "picker": 2,
+    "shares": [
+      [
+        "digest-1",
+        "Share001"
+      ]
+    ]
+  },
+  "hosting": {
+    "if_host_leaves": "close"
+  }
+}

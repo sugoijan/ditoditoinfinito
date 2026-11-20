@@ -1192,7 +1192,7 @@ fn the_prompt_has_the_attack_policy_where_the_match_has_attacks() {
     h.pad(MenuAction::Left, false);
     h.run(0.2);
     assert_eq!(room.borrow().my_targeting(), Targeting::Leader, "a ring");
-    assert!(has(&h, "Your attacks go to whoever has the most life."));
+    assert!(has(&h, "Your attacks go to whoever has the highest score."));
     // A tap on the row cycles; on its arrows steps.
     press(&mut h, &format!("{row}.Label"));
     assert_eq!(room.borrow().my_targeting(), Targeting::Spread);

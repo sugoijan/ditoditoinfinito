@@ -190,8 +190,8 @@ struct Facts {
 
 /// An attack's landing: seconds from its launch (its checkpoint) to its
 /// first shock and to its last, and whether its reason for the choice
-/// still held at its first shock (Leader: the recipient still the leader
-/// among the others still in; Retaliate, where it answered its last
+/// still held at its first shock (Top score: the recipient still the top
+/// score among the others still in; Retaliate, where it answered its last
 /// attacker: nothing from anyone else landed on the sender since; Spread:
 /// none).
 #[derive(Clone, Copy)]
@@ -401,6 +401,10 @@ fn facts(b: &Battle, ledger: &ddi_room::attacks::StageBattle, targeting: Targeti
         }
         Some(s.opponent.player().life_at(t))
     };
+    let score = |p: ParticipantId, t: f64| -> Option<i64> {
+        life(p, t)?;
+        Some(seat_of(p)?.opponent.player().score_at(t))
+    };
     let landings = attacks
         .iter()
         .map(|a| {
@@ -410,12 +414,14 @@ fn facts(b: &Battle, ledger: &ddi_room::attacks::StageBattle, targeting: Targeti
             let t = first as f64 / 1e6;
             let held = match targeting {
                 Targeting::Spread => None,
-                Targeting::Leader => Some(life(a.recipient, t).is_some_and(|mine| {
+                // Top score (`attacks-v4`): still the highest score among
+                // those in when its first shock comes.
+                Targeting::Leader => Some(score(a.recipient, t).is_some_and(|mine| {
                     b.seats
                         .iter()
                         .map(|s| s.seat.participant)
                         .filter(|&p| p != a.recipient && p != a.sender)
-                        .all(|p| life(p, t).is_none_or(|l| l <= mine))
+                        .all(|p| score(p, t).is_none_or(|l| l <= mine))
                 })),
                 Targeting::Retaliate => {
                     // An answer: the last attack committed against the
@@ -725,22 +731,22 @@ fn chain_pileups() {
 }
 
 /// One set of rules the window study compares: its name, the rules, and
-/// the match's Attacks at once (`attacks-v3` with each of them, and its
-/// window at 10 and 20 s; `attacks-v2`, compared on 2026-11-13, is
-/// retired).
+/// the match's Attacks at once (the rules stages play, `attacks-v4`, with
+/// each of them, and its window at 10 and 20 s; `attacks-v2`, compared on
+/// 2026-11-13, and `attacks-v3`, whose numbers v4 keeps, are retired).
 fn window_configs() -> Vec<(String, ddi_room::attacks::AttackRules, AttacksAtOnce)> {
-    use ddi_room::attacks::ATTACKS_V3;
+    use ddi_room::attacks::ATTACKS_V4;
     let w = |s: i64, id: &'static str| ddi_room::attacks::AttackRules {
         id,
         window_us: s * 1_000_000,
-        ..ATTACKS_V3
+        ..ATTACKS_V4
     };
     let mut v = Vec::new();
     for a in AttacksAtOnce::ALL {
-        v.push((format!("v3 15 s, at once {a:?}"), ATTACKS_V3, a));
+        v.push((format!("v4 15 s, at once {a:?}"), ATTACKS_V4, a));
     }
-    v.push(("v3 10 s, no limit".into(), w(10, "attacks-v3-w10"), AttacksAtOnce::NoLimit));
-    v.push(("v3 20 s, no limit".into(), w(20, "attacks-v3-w20"), AttacksAtOnce::NoLimit));
+    v.push(("v4 10 s, no limit".into(), w(10, "attacks-v4-w10"), AttacksAtOnce::NoLimit));
+    v.push(("v4 20 s, no limit".into(), w(20, "attacks-v4-w20"), AttacksAtOnce::NoLimit));
     v
 }
 
@@ -953,7 +959,7 @@ fn window_fit() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(600);
-    let rules = ddi_room::attacks::ATTACKS_V3;
+    let rules = ddi_room::attacks::ATTACKS_V4;
     let judge = stage_ruleset(&StageRules::default()).judge;
     let lead = practice_lead_us(attacks::micros(FORFEIT_HORIZON));
     let windows = [10i64, 15, 20];

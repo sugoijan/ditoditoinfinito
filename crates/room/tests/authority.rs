@@ -679,8 +679,8 @@ fn an_older_room_model_is_refused_except_during_a_stage() {
     use ddi_room::{ROOM_MODEL_REVISION, UPDATE_REQUIRED, UpdateRequired, check_model_against};
     let rev = ROOM_MODEL_REVISION;
     assert_eq!(
-        rev, 19,
-        "19: bundled songs uploaded as any (18: the host's Twitch in a room and Kick)"
+        rev, 20,
+        "20: Top score attacks the top score (19: bundled songs uploaded as any)"
     );
     assert_eq!(UPDATE_REQUIRED, "update_required");
     // The other way (round R2): a client refuses an authority older than
@@ -1104,4 +1104,52 @@ fn a_room_stored_by_revision_15_loads_and_plays_on_as_it_was() {
         )
         .unwrap();
     assert!(state.next.rules.plays_on_failed(), "As picked, Play on");
+}
+
+/// A room stored by revision 19 loads under revision 20 (round DC): the
+/// JSON revision 19's own reducer wrote (`room-revision-19.json`: the
+/// revision-11 fixture's room as revision 19 reads and writes it, stage 2
+/// in play with a battle plan made under `attacks-v3`, ana on Top score,
+/// the host's run reported) reads, writes back what it reads, and plays
+/// on: ana's policy is still Top score (only what it ranks by changed,
+/// `attacks-v4`), and the stage settles on its starters' reports (its
+/// live part, `attacks-v3`'s ledger, is gone with the server's restart,
+/// as after any deploy; `attacks-v3` itself is retired).
+#[test]
+fn a_room_stored_by_revision_19_loads_and_plays_on() {
+    let text = include_str!("room-revision-19.json");
+    let mut state: RoomState = serde_json::from_str(text).unwrap();
+    let back = serde_json::to_value(&state).unwrap();
+    assert_eq!(
+        back,
+        serde_json::from_str::<serde_json::Value>(text).unwrap(),
+        "written as it was read"
+    );
+    assert_eq!(state.phase, Phase::Stage { stage: StageId(2) });
+    assert_eq!(
+        state.member(ParticipantId(2)).unwrap().targeting(),
+        ddi_room::attacks::Targeting::Leader
+    );
+    assert_eq!(ddi_room::attacks::attack_rules("attacks-v3"), None, "retired");
+    let play = state.current.as_ref().unwrap().stages[1].play.as_ref().unwrap();
+    assert_eq!(play.reports.len(), 1);
+    let revision = state.revision;
+    state
+        .apply(
+            ddi_room::Actor::Member(ParticipantId(2)),
+            Some(revision),
+            &Command::ReportOutcome {
+                stage: StageId(2),
+                run: ddi_room::ReportedRun::Live {
+                    life_ppm: 400_000,
+                    score: 6_000_000,
+                    steps: 0,
+                },
+                detail: None,
+            },
+            Millis(1_310_000),
+        )
+        .unwrap();
+    let play = state.current.as_ref().unwrap().stages[1].play.as_ref().unwrap();
+    assert_eq!(play.reports.len(), 2);
 }

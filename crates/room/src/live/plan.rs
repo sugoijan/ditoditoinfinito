@@ -434,7 +434,13 @@ pub(crate) mod tests {
     /// values, so a change to how they are hashed is seen.
     #[test]
     fn the_digest_and_the_seed_are_these_values() {
-        let p = plan(5, 7, |j| j % 2 == 0);
+        // Under `attacks-v4` (room model revision 20), what stages plan.
+        assert_eq!(plan(5, 7, |j| j % 2 == 0).digest.0, "fnv1a64:f1d90d0672ecfeaa");
+        // The same plan naming `attacks-v3` (retired): the values these
+        // pins had before, so the hashing itself has not moved.
+        let mut p = plan(5, 7, |j| j % 2 == 0);
+        p.attack_rules = "attacks-v3".into();
+        p.digest = p.compute_digest();
         assert_eq!(p.digest.0, "fnv1a64:4bf1bfba625607d9");
         let all = p
             .with_ladder(vec!["a".into(), "bc".into()])

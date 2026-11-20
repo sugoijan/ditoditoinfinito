@@ -8,7 +8,7 @@
 
 use ddi_room::attacks::{
     ATTACK_WINDOW_V0_US, ATTACKS, AttackEvent, CheckpointRecord, Judged, POWER_CLASSES_V0, Reporter, RosterSeat,
-    StageBattle, StageRoster,
+    StageBattle, StageRoster, Targeting,
 };
 use ddi_room::fake::{FakeServer, FakeSocket, Fault, Latency, SharedFake};
 use ddi_room::live::plan::BattlePlan;
@@ -306,6 +306,9 @@ struct Setup {
     slewed: bool,
     /// The match's Shocks per attack (a new room's: four).
     shocks: ddi_room::ShocksPerAttack,
+    /// Every competitor's attack policy, set before the pick (none: each
+    /// its default, Spread).
+    targeting: Option<Targeting>,
 }
 
 impl Setup {
@@ -318,6 +321,7 @@ impl Setup {
             mapped_once: false,
             slewed: false,
             shocks: Default::default(),
+            targeting: None,
             attacks: false,
             policy: RoomPolicy::default().with_live(),
             latency: Some(Latency {
@@ -432,6 +436,12 @@ fn room(setup: &Setup) -> Room {
     }
     r.players[0].send(Command::SaveNextRules { rules });
     r.run(500);
+    if let Some(targeting) = setup.targeting {
+        for p in r.players.iter_mut().take(setup.competitors) {
+            p.send(Command::SetTargeting { targeting });
+        }
+        r.run(500);
+    }
     r.players[0].send(Command::Pick {
         content: content(),
         card: None,
@@ -557,12 +567,22 @@ fn local_record(
     plan: &BattlePlan,
     ids: &[ParticipantId],
 ) -> Vec<CheckpointRecord> {
+    local_record_as(scripts, plan, ids, Targeting::default())
+}
+
+/// [`local_record`] with everyone on `targeting`.
+fn local_record_as(
+    scripts: &[Script],
+    plan: &BattlePlan,
+    ids: &[ParticipantId],
+    targeting: Targeting,
+) -> Vec<CheckpointRecord> {
     let roster = StageRoster {
         seats: ids
             .iter()
             .map(|&participant| RosterSeat {
                 participant,
-                targeting: Default::default(),
+                targeting,
                 lead_us: LIVE_V1.lead_us(2_000_000),
             })
             .collect(),
@@ -594,7 +614,7 @@ fn local_record(
         let mut reports = Vec::new();
         for (r, s) in &mut reporters {
             let to = at.min(i64::from(s.out_ms.unwrap_or(s.end_ms)) * 1_000);
-            for (kk, rep) in r.due(to.max(at), &|t| s.life(t)) {
+            for (kk, rep) in r.due_scored(to.max(at), &|t| s.life(t), &|t| s.score(t)) {
                 assert_eq!(kk, k);
                 reports.push(rep);
             }
@@ -605,9 +625,20 @@ fn local_record(
 }
 
 fn attack_room(scripts: &[Script], plan: &BattlePlan, latency: Option<Latency>) -> Room {
+    attack_room_as(scripts, plan, latency, None)
+}
+
+/// [`attack_room`] with everyone on `targeting` where given.
+fn attack_room_as(
+    scripts: &[Script],
+    plan: &BattlePlan,
+    latency: Option<Latency>,
+    targeting: Option<Targeting>,
+) -> Room {
     let mut setup = Setup::new(scripts.len());
     setup.attacks = true;
     setup.latency = latency;
+    setup.targeting = targeting;
     let mut r = room(&setup);
     r.players[0].link.live_mut().send(ClientLive::OfferPlan {
         stage: STAGE,
@@ -669,7 +700,7 @@ fn one_attack_trace_gives_the_same_ledger_locally_and_through_the_room() {
     // `attacks-v3`: against one recipient, one section after another,
     // never the same region; at most three placed at once (the plan's
     // Attacks at once), each starting within the window of its launch.
-    assert_eq!(ledger.rules().id, "attacks-v3");
+    assert_eq!(ledger.rules().id, "attacks-v4");
     assert_eq!(ledger.rules().at_once(), Some(3));
     let cps = ledger.checkpoints_us();
     for a in ledger.attacks() {
@@ -705,6 +736,64 @@ fn one_attack_trace_gives_the_same_ledger_locally_and_through_the_room() {
                 .cells;
             assert_eq!(cells.len(), 4, "every device places the same four shocks");
         }
+    }
+}
+
+/// Round DC (`attacks-v4`, room model revision 20): everyone on Top
+/// score, the reports carrying each play's score through the binary
+/// batches; the room's ledger is the one practice keeps from the same
+/// plays, every device reads it, and each launch went to the competitor
+/// still in with the highest score at its checkpoint among those it
+/// could attack (the sender aside, and those under the match's Attacks
+/// at once).
+#[test]
+fn top_score_through_the_room_attacks_the_highest_score_as_practice_does() {
+    let plan = plan(30, 99, |j| j % 4 != 1);
+    let scripts: Vec<Script> = (1..=4)
+        .map(|i| script(30 + i, 90 + i as i32 * 9, 56_000, None))
+        .collect();
+    let ids: Vec<ParticipantId> = (1..=4).map(ParticipantId).collect();
+    let local = local_record_as(&scripts, &plan, &ids, Targeting::Leader);
+    let mut r = attack_room_as(&scripts, &plan, Setup::new(4).latency, Some(Targeting::Leader));
+    r.run(66_000);
+    let server = r.server.borrow();
+    let stage = server.live().unwrap().stage_or_last().expect("the stage played");
+    let ledger = stage.ledger().expect("a ledger");
+    assert_eq!(ledger.rules().id, "attacks-v4");
+    assert_eq!(ledger.record().to_vec(), local, "the same reports, the same ledger");
+    let cps = ledger.checkpoints_us();
+    let mut launched = 0;
+    for a in ledger.attacks() {
+        launched += 1;
+        let at = cps[a.checkpoint];
+        let score_of = |p: ParticipantId| scripts[(p.0 - 1) as usize].score(at);
+        // Those it could attack: not itself, not under three attacks
+        // placed before this one and still to come.
+        let open = |p: ParticipantId| {
+            p != a.sender
+                && ledger
+                    .attacks()
+                    .iter()
+                    .filter(|b| b.id < a.id && b.recipient == p && b.clear_us >= at)
+                    .count()
+                    < 3
+        };
+        let best = ids.iter().copied().filter(|&p| open(p)).map(score_of).max().unwrap();
+        assert_eq!(score_of(a.recipient), best, "{a:?}");
+    }
+    assert!(launched >= 4, "the trace launches attacks: {launched}");
+    drop(server);
+    for p in &r.players {
+        let read: Vec<CheckpointRecord> = p
+            .link
+            .live()
+            .reader()
+            .unwrap()
+            .checkpoints()
+            .iter()
+            .map(|c| c.record.clone())
+            .collect();
+        assert_eq!(read, local, "{:?}", p.id);
     }
 }
 

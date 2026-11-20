@@ -268,7 +268,8 @@ impl Drive {
             }
             let player = opponent.player();
             let life_at = |us: i64| life_ppm(player.life_at(us as f64 / 1e6));
-            for (k, rep) in r.due(g, &life_at) {
+            let score_at = |us: i64| player.score_at(us as f64 / 1e6);
+            for (k, rep) in r.due_scored(g, &life_at, &score_at) {
                 self.reports.push(LiveReport::from_report(k, rep));
             }
         }

@@ -201,14 +201,14 @@ impl AttackRunner {
     }
 
     /// Runs every checkpoint whose time is at or before `until`: the
-    /// least time any competitor still in has been judged to; `life`, a
-    /// competitor's life just before a song second (millionths, from its
-    /// play's record). What they changed, each with its checkpoint's time
-    /// (song microseconds).
+    /// least time any competitor still in has been judged to; `standing`,
+    /// a competitor's life (millionths) and score (DDI's sum) just before
+    /// a song second, from its play's record. What they changed, each with
+    /// its checkpoint's time (song microseconds).
     pub fn run_due(
         &mut self,
         until: f64,
-        life: &dyn Fn(ParticipantId, f64) -> u32,
+        standing: &dyn Fn(ParticipantId, f64) -> (u32, i64),
     ) -> Vec<(i64, AttackEvent)> {
         let until = micros(until);
         let mut changed = Vec::new();
@@ -227,12 +227,14 @@ impl AttackRunner {
                         let n = changes.partition_point(|(t, _)| *t < at);
                         changes.drain(..n).next_back().map(|(_, t)| t)
                     });
+                    let (life_ppm, score) = standing(*p, seconds);
                     Report {
                         participant: *p,
                         judged: judged.drain(..split).collect(),
-                        life_ppm: life(*p, seconds),
+                        life_ppm,
                         out_at_us: self.out.get(p).copied(),
                         targeting,
+                        score,
                     }
                 })
                 .collect();

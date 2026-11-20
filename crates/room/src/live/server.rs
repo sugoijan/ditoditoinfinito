@@ -546,6 +546,8 @@ struct Comp {
     reported: Option<u32>,
     /// Life as last reported (millionths).
     life_ppm: u32,
+    /// Its score as last reported (`Report::score`).
+    score: i64,
     /// The rung its stream last said it stepped to (a match's "Charts:
     /// Adaptive"; 0 the stage's chart).
     steps: u8,
@@ -577,7 +579,8 @@ impl Comp {
 
     /// Its report at checkpoint `k`: every report it sent up to `k` (late
     /// ones from before, the ledger counting their judgments now), or
-    /// none sent (late, or ended): nothing judged, its life as last known.
+    /// none sent (late, or ended): nothing judged, its life and score as
+    /// last known.
     fn report_for(&mut self, k: u32, participant: ParticipantId) -> Report {
         let rest = match k.checked_add(1) {
             Some(after) => self.reports.split_off(&after),
@@ -590,6 +593,7 @@ impl Comp {
                 Some(mut m) => {
                     m.judged.extend(r.judged);
                     m.life_ppm = r.life_ppm;
+                    m.score = r.score;
                     m.out_at_us = earliest(m.out_at_us, r.out_at_us);
                     m.targeting = r.targeting.or(m.targeting);
                     m.k = r.k;
@@ -606,10 +610,12 @@ impl Comp {
                 life_ppm: self.life_ppm,
                 out_at_us: None,
                 targeting: None,
+                score: self.score,
             },
         };
         report.out_at_us = earliest(report.out_at_us, ended);
         self.life_ppm = report.life_ppm;
+        self.score = report.score;
         report
     }
 }
@@ -701,6 +707,7 @@ impl LiveStage {
                         reports: BTreeMap::new(),
                         reported: None,
                         life_ppm: 1_000_000,
+                        score: 0,
                         steps: 0,
                         step: None,
                         failed_us: None,
@@ -805,6 +812,7 @@ impl LiveStage {
                     reports: BTreeMap::new(),
                     reported: None,
                     life_ppm: 1_000_000,
+                    score: 0,
                     steps: 0,
                     step: None,
                     failed_us: None,

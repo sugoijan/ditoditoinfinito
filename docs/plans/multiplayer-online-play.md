@@ -34,7 +34,9 @@ decided, and when the stage is decided.
 - Results stay self-reported (see "Trust").
 - CPU practice keeps its local path (`LocalAuthority`, the session's
   `AttackRunner`). The room runs the same ledger
-  (`attacks::StageBattle`: `attacks-v3` since 2026-11-13, a launch placed
+  (`attacks::StageBattle`: `attacks-v4` since 2026-11-20, `attacks-v3`'s
+  numbers of 2026-11-13 with Top score going by the score each report
+  carries (room model revision 20), a launch placed
   only within 15 s of its checkpoint and at most the match's Attacks at
   once standing against one competitor, `placement-v2` sections,
   `power-classes-v0`, `lead-v0`, `settlement-v1`, the targeting policies
@@ -177,7 +179,7 @@ pick: once its `Pick` (or `ChooseContent`) is accepted and the match has
 attacks, the picker's device computes the plan and sends it with
 `{"kind":"offer_plan","stage":…,"plan":{…}}`:
 
-- the ids it was made under (`attacks-v3`, `placement-v2`,
+- the ids it was made under (`attacks-v4`, `placement-v2`,
   `power-classes-v0`, the ruleset `ddi`), and the match's Attacks at once
   for the stage (`at_once`, additive, in the digest only where set: the
   limit, none for No limit); the room runs the stage's ledger under the
@@ -393,15 +395,17 @@ the last batches of a stage its last reports settled still reach everyone.
 
 Each competitor's device runs an `attacks::Reporter` over its own play
 (its chart judgments with their times and tiers, its going out, its policy
-changes): once its play is judged past checkpoint k it reports k
-(`LiveReport`: the existing `attacks::Report` without the participant) in
-its next batch. These are the reports practice's `AttackRunner` makes.
+changes, and since room model revision 20 its score just before the
+checkpoint, DDI's sum from its play's record, which Top score ranks by):
+once its play is judged past checkpoint k it reports k (`LiveReport`: the
+existing `attacks::Report` without the participant) in its next batch.
+These are the reports practice's `AttackRunner` makes.
 
 The room's `LiveStage` runs checkpoint k when every competitor in its
 ledger has reported k (or ended), or at its deadline, whichever is first:
 the deadline is k's song time on the room's clock plus 750 ms
 (`report_deadline_ms`), checked every tick. A competitor missing then is
-taken as reporting nothing (its life as last known); its report, when it
+taken as reporting nothing (its life and score as last known); its report, when it
 comes, counts at the next checkpoint (its judgments credited there: the
 ledger counts every judgment before the checkpoint's time). The ledger
 runs in its fixed order and commits attacks; each commitment goes out in
@@ -483,7 +487,7 @@ competitor plays live:
 - at most one competitor still in (by the streams: `out` is out,
   `forfeit`, `dropped` and `no_show` are forfeits), and no committed attack
   against someone still in whose play has not been judged past its clear;
-- while the one left waits on such an attack (under `attacks-v3` up to
+- while the one left waits on such an attack (since `attacks-v3` up to
   the match's Attacks at once, one section after another), the frames
   say who and when the one before went out (`settling`): each device
   shows that one as last standing (`settlement-v1`), not yet the

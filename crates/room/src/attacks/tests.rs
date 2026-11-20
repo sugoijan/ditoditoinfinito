@@ -93,6 +93,7 @@ fn report(p: ParticipantId, tiers: &[(i64, u8)]) -> Report {
         life_ppm: 1_000_000,
         out_at_us: None,
         targeting: None,
+        score: 0,
     }
 }
 
@@ -302,10 +303,13 @@ fn everyone_under_attack_once_and_leader_falls_back_to_the_next() {
     );
     let mut b = rep(B, 0, false, 0);
     b.life_ppm = 900_000;
+    b.score = -100_000;
     let mut a = rep(A, 0, true, 0);
     a.life_ppm = 500_000;
+    a.score = -500_000;
     let mut c = rep(C, 0, true, 0);
     c.life_ppm = 400_000;
+    c.score = -600_000;
     let e = l.checkpoint(0, &[a, b, c]);
     let pairs = committed(&e);
     assert_eq!(pairs.len(), 2);
@@ -374,10 +378,13 @@ fn retaliate_remembers_from_the_next_batch_on() {
         );
         let mut a = rep(A, 0, true, 0);
         a.life_ppm = 300_000;
+        a.score = -700_000;
         let mut b = rep(B, 0, true, 0);
         b.life_ppm = 900_000;
+        b.score = -100_000;
         let mut c = rep(C, 0, false, 0);
         c.life_ppm = 300_000;
+        c.score = -700_000;
         // A attacks the leader B; B, full in the same batch, has no
         // memory yet: it picks as Spread would.
         let first = committed(&l.checkpoint(0, &[a, b, c]));
@@ -419,10 +426,12 @@ fn a_policy_changed_in_play_applies_from_the_next_checkpoint() {
         (B, Targeting::Spread),
         (C, Targeting::Spread),
     ];
-    // B at half its life, C at full: Leader picks C, whatever the seed.
+    // B at half its life (and a score half a million lower), C at full:
+    // Leader picks C, whatever the seed.
     let lives = |k: usize| {
         let mut b = rep(B, k, false, 0);
         b.life_ppm = 500_000;
+        b.score = -500_000;
         vec![b, rep(C, k, false, 0)]
     };
     // Spread throughout: whoever the seed draws.
@@ -652,7 +661,8 @@ fn settlement_waits_for_the_last_attack_and_a_knockout_by_it_is_drawn() {
 const D: ParticipantId = ParticipantId(4);
 
 /// A, B and C, each aiming at the leader, and D, who never fills a bar
-/// and has the most life; Attacks at once two (one passing, one behind).
+/// and has the most life and the top score (the others report less of
+/// both, [`half`]); Attacks at once two (one passing, one behind).
 fn chain_battle() -> StageBattle {
     StageBattle::new(
         ATTACKS.with_at_once(Some(2)),
@@ -673,9 +683,11 @@ fn chain_battle() -> StageBattle {
     )
 }
 
-/// A report whose sender has half its life (so D, at full life, leads).
+/// A report whose sender has half its life and a lower score (so D, at
+/// full life and a score of 0, leads).
 fn half(mut r: Report) -> Report {
     r.life_ppm = 500_000;
+    r.score = -500_000;
     r
 }
 
@@ -1076,22 +1088,22 @@ const G: ParticipantId = ParticipantId(7);
 const H: ParticipantId = ParticipantId(8);
 
 #[test]
-fn the_rules_are_named_and_v3_has_a_window_and_a_limit() {
-    assert_eq!(ATTACKS, ATTACKS_V3, "what stages play");
-    assert_eq!((ATTACKS_V3.cap, ATTACKS_V3.cost, ATTACKS_V3.checkpoint_beats), (100, 100, 4));
-    assert_eq!(ATTACKS_V3.id, "attacks-v3");
-    assert_eq!(ATTACKS_V3.window_us, 15 * S);
+fn the_rules_are_named_and_have_a_window_and_a_limit() {
+    assert_eq!(ATTACKS, ATTACKS_V4, "what stages play");
+    assert_eq!((ATTACKS_V4.cap, ATTACKS_V4.cost, ATTACKS_V4.checkpoint_beats), (100, 100, 4));
+    assert_eq!(ATTACKS_V4.id, "attacks-v4");
+    assert_eq!(ATTACKS_V4.window_us, 15 * S);
     assert_eq!(ATTACK_WINDOW_V0_US, 15 * S);
-    assert_eq!(ATTACKS_V3.at_once(), Some(AT_ONCE_DEFAULT));
+    assert_eq!(ATTACKS_V4.at_once(), Some(AT_ONCE_DEFAULT));
     assert_eq!(AT_ONCE_DEFAULT, 3);
-    assert_eq!(ATTACKS_V3.with_at_once(Some(1)).chain, 0);
-    assert_eq!(ATTACKS_V3.with_at_once(Some(2)).at_once(), Some(2));
-    assert_eq!(ATTACKS_V3.with_at_once(None).chain, CHAIN_UNLIMITED);
-    assert_eq!(ATTACKS_V3.with_at_once(None).id, "attacks-v3", "one name");
-    assert_eq!(attack_rules("attacks-v3"), Some(ATTACKS_V3));
+    assert_eq!(ATTACKS_V4.with_at_once(Some(1)).chain, 0);
+    assert_eq!(ATTACKS_V4.with_at_once(Some(2)).at_once(), Some(2));
+    assert_eq!(ATTACKS_V4.with_at_once(None).chain, CHAIN_UNLIMITED);
+    assert_eq!(ATTACKS_V4.with_at_once(None).with_shocks(4).id, "attacks-v4", "one name");
+    assert_eq!(attack_rules("attacks-v4"), Some(ATTACKS_V4));
     // The retired versions (and any other name) are unknown: a plan
     // naming one is refused.
-    for id in ["attacks-v0", "attacks-v1", "attacks-v2", "attacks-v9"] {
+    for id in ["attacks-v0", "attacks-v1", "attacks-v2", "attacks-v3", "attacks-v9"] {
         assert_eq!(attack_rules(id), None, "{id}");
     }
     assert_eq!(SETTLEMENT, SETTLEMENT_V1);
@@ -1106,7 +1118,7 @@ fn the_rules_are_named_and_v3_has_a_window_and_a_limit() {
 fn v3_a_recipient_at_the_limit_is_skipped_and_leader_goes_to_the_next() {
     let all = [A, B, C, D, E];
     let seats: Vec<_> = all.iter().map(|&p| (p, Targeting::Leader)).collect();
-    let mut b = ledger_of(ATTACKS_V3, &seats, 40);
+    let mut b = ledger_of(ATTACKS_V4, &seats, 40);
     let e = b.checkpoint(0, &round(0, &all, &[A, B, C, E], D));
     let got = committed(&e);
     assert_eq!(got.len(), 4);
@@ -1118,7 +1130,7 @@ fn v3_a_recipient_at_the_limit_is_skipped_and_leader_goes_to_the_next() {
     assert_eq!(slots, vec![3, 4, 5, 3]);
     assert_eq!(b.incoming_all(D).count(), 3);
 
-    let mut one = ledger_of(ATTACKS_V3.with_at_once(Some(1)), &seats, 40);
+    let mut one = ledger_of(ATTACKS_V4.with_at_once(Some(1)), &seats, 40);
     let got = committed(&one.checkpoint(0, &round(0, &all, &[A, B, C, E], D)));
     assert_eq!(got.iter().filter(|(_, r)| *r == D).count(), 1, "{got:?}");
     assert_eq!(got.len(), 4, "the others spill over");
@@ -1126,7 +1138,7 @@ fn v3_a_recipient_at_the_limit_is_skipped_and_leader_goes_to_the_next() {
         assert!(one.incoming_all(p).count() <= 1);
     }
 
-    let mut none = ledger_of(ATTACKS_V3.with_at_once(None), &seats, 40);
+    let mut none = ledger_of(ATTACKS_V4.with_at_once(None), &seats, 40);
     let got = committed(&none.checkpoint(0, &round(0, &all, &[A, B, C, E], D)));
     assert!(got.iter().all(|(_, r)| *r == D), "{got:?}");
     assert_eq!(none.attacks().iter().map(|a| a.slot).collect::<Vec<_>>(), vec![3, 4, 5, 6]);
@@ -1139,7 +1151,7 @@ fn v3_a_recipient_at_the_limit_is_skipped_and_leader_goes_to_the_next() {
 fn v3_the_window_holds_six_sections_and_the_seventh_goes_elsewhere() {
     let all = [A, B, C, D, E, F, G, H];
     let seats: Vec<_> = all.iter().map(|&p| (p, Targeting::Leader)).collect();
-    let mut b = ledger_of(ATTACKS_V3.with_at_once(None), &seats, 40);
+    let mut b = ledger_of(ATTACKS_V4.with_at_once(None), &seats, 40);
     let full = [A, B, C, E, F, G, H];
     let got = committed(&b.checkpoint(0, &round(0, &all, &full, D)));
     assert_eq!(got.len(), 7);
@@ -1167,7 +1179,7 @@ fn v3_no_room_within_the_window_waits_and_keeps_the_power() {
     let seats: Vec<_> = all.iter().map(|&p| (p, Targeting::Leader)).collect();
     let s = schedule(30, |j| j == 12);
     let mut b = StageBattle::new(
-        ATTACKS_V3,
+        ATTACKS_V4,
         POWER_CLASSES_V0,
         "ddi",
         checkpoints(30),
@@ -1212,12 +1224,18 @@ fn v3_retaliate_goes_by_spread_where_its_attacker_has_no_room() {
         (D, Targeting::Spread),
     ];
     // A leads; B and C fill their bars: B attacks A, and C (A at the
-    // limit) the next in standing, B. A fills its bar next: its last
-    // attacker B has one placed already, so Spread's order: not B.
-    let mut b = ledger_of(ATTACKS_V3.with_at_once(Some(1)), &seats, 40);
-    let e = b.checkpoint(0, &round(0, &all, &[B, C], A));
+    // limit) the next in standing, B (its score second). A fills its bar
+    // next: its last attacker B has one placed already, so Spread's
+    // order: not B.
+    let second = |k: usize, full: &[ParticipantId]| {
+        let mut r = round(k, &all, full, A);
+        r[1].score = -400_000;
+        r
+    };
+    let mut b = ledger_of(ATTACKS_V4.with_at_once(Some(1)), &seats, 40);
+    let e = b.checkpoint(0, &second(0, &[B, C]));
     assert_eq!(committed(&e), vec![(B, A), (C, B)]);
-    let got = committed(&b.checkpoint(1, &round(1, &all, &[A], A)));
+    let got = committed(&b.checkpoint(1, &second(1, &[A])));
     assert_eq!(got.len(), 1, "{got:?}");
     assert!(got[0].1 != B, "{got:?}");
     // Without a limit: both at A, and A answers its last attacker, C.
@@ -1248,4 +1266,133 @@ fn a_ledger_stored_with_recoveries_reads() {
     }))
     .unwrap();
     assert_eq!(section.clear_us, 9);
+}
+
+
+/// Round DC (`attacks-v4`): Top score attacks whoever reported the highest
+/// score at the checkpoint, whatever their life (`attacks-v3` went by
+/// life: B here).
+#[test]
+fn top_score_attacks_the_highest_score_not_the_most_life() {
+    let seats = [
+        (A, Targeting::Leader),
+        (B, Targeting::Spread),
+        (C, Targeting::Spread),
+        (D, Targeting::Spread),
+    ];
+    // B the most life and the lowest score; C the top score at half its
+    // life; D in between on both.
+    let reports = || {
+        let a = rep(A, 0, true, 0);
+        let mut b = rep(B, 0, false, 0);
+        b.score = 2_000_000;
+        let mut c = rep(C, 0, false, 0);
+        c.life_ppm = 500_000;
+        c.score = 6_000_000;
+        let mut d = rep(D, 0, false, 0);
+        d.life_ppm = 800_000;
+        d.score = 4_000_000;
+        vec![a, b, c, d]
+    };
+    for seed in 0..32 {
+        let mut l = battle_under(ATTACKS_V4, &seats, seed);
+        assert_eq!(committed(&l.checkpoint(0, &reports())), vec![(A, C)], "seed {seed}");
+        assert_eq!((l.score(C), l.score(D), l.score(F)), (6_000_000, 4_000_000, 0));
+    }
+    // Where the top score has no room (one at once, already attacked), the
+    // next score: C taken by B's attack first, A's goes to D.
+    let mut l = battle_under(
+        ATTACKS_V4.with_at_once(Some(1)),
+        &[
+            (A, Targeting::Leader),
+            (B, Targeting::Leader),
+            (C, Targeting::Spread),
+            (D, Targeting::Spread),
+        ],
+        1,
+    );
+    let mut r = reports();
+    r[1] = rep(B, 0, true, 0);
+    r[1].score = 2_000_000;
+    let pairs = committed(&l.checkpoint(0, &r));
+    // The order turns from A at checkpoint 0: A first, to C; B then to D
+    // (C under its one attack).
+    assert_eq!(pairs, vec![(A, C), (B, D)]);
+}
+
+/// The tie's pick: everyone with the top score equal, the recipient is
+/// drawn from the stage's seed, the checkpoint, the sender and each
+/// candidate (`tie` in [`StageBattle::checkpoint`]'s launch), nothing a
+/// device has of its own: two ledgers given the same reports pick the
+/// same, and over many seeds every tied candidate is picked about as often
+/// as the others.
+#[test]
+fn top_score_ties_are_a_shared_random_pick() {
+    let seats = [
+        (A, Targeting::Leader),
+        (B, Targeting::Spread),
+        (C, Targeting::Spread),
+        (D, Targeting::Spread),
+        (E, Targeting::Spread),
+    ];
+    let reports = |k: usize| {
+        let mut r = vec![rep(A, k, true, 0)];
+        for p in [B, C, D, E] {
+            let mut x = rep(p, k, false, 0);
+            x.score = 5_000_000;
+            r.push(x);
+        }
+        // E lower: never picked while the others tie above it.
+        r[4].score = 4_999_999;
+        r
+    };
+    let mut picked: BTreeMap<ParticipantId, u32> = BTreeMap::new();
+    const SEEDS: u64 = 3_000;
+    for seed in 0..SEEDS {
+        let pick = || {
+            let mut l = battle_under(ATTACKS_V4, &seats, seed);
+            committed(&l.checkpoint(0, &reports(0)))
+        };
+        let (one, two) = (pick(), pick());
+        assert_eq!(one, two, "seed {seed}: the same reports, the same pick");
+        assert_eq!(one.len(), 1);
+        *picked.entry(one[0].1).or_default() += 1;
+    }
+    assert_eq!(picked.get(&E), None, "below the tie: never");
+    let expected = SEEDS as f64 / 3.0;
+    for p in [B, C, D] {
+        let n = f64::from(picked[&p]);
+        // Three standard deviations of a fair draw: about ±82 of 1,000.
+        let sd = (SEEDS as f64 * (1.0 / 3.0) * (2.0 / 3.0)).sqrt();
+        assert!(
+            (n - expected).abs() < 3.0 * sd,
+            "{p:?} picked {n} times of {SEEDS} ({picked:?})"
+        );
+    }
+    // The pick changes with the checkpoint and the sender, not only the
+    // seed: at the next checkpoint of the same stage it is drawn again.
+    let at = |k: usize| {
+        let mut l = battle_under(ATTACKS_V4, &seats, 11);
+        for j in 0..k {
+            l.checkpoint(j, &[]);
+        }
+        committed(&l.checkpoint(k, &reports(k)))[0].1
+    };
+    let drawn: BTreeSet<ParticipantId> = (0..24).map(at).collect();
+    assert!(drawn.len() > 1, "{drawn:?}");
+}
+
+/// The score a report carries is the one the ledger keeps: a report
+/// without one (a competitor late, its report missing) keeps nothing new,
+/// and a report says it in the JSON only where it is not 0 (additive).
+#[test]
+fn a_report_s_score_is_additive() {
+    let r = rep(A, 0, false, 1);
+    let json = serde_json::to_string(&r).unwrap();
+    assert!(!json.contains("score"), "{json}");
+    let mut scored = r.clone();
+    scored.score = -120;
+    let json = serde_json::to_string(&scored).unwrap();
+    assert!(json.contains("\"score\":-120"), "{json}");
+    assert_eq!(serde_json::from_str::<Report>(&json).unwrap(), scored);
 }

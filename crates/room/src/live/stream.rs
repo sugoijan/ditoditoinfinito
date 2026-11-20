@@ -89,6 +89,14 @@ pub struct LiveReport {
     pub out_at_us: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub targeting: Option<Targeting>,
+    /// Its score just before the checkpoint (`Report::score`, room model
+    /// revision 20). ADDITIVE in the JSON (left out at 0).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub score: i64,
+}
+
+fn is_zero(x: &i64) -> bool {
+    *x == 0
 }
 
 impl LiveReport {
@@ -99,6 +107,7 @@ impl LiveReport {
             life_ppm: r.life_ppm,
             out_at_us: r.out_at_us,
             targeting: r.targeting,
+            score: r.score,
         }
     }
 
@@ -109,6 +118,7 @@ impl LiveReport {
             life_ppm: self.life_ppm,
             out_at_us: self.out_at_us,
             targeting: self.targeting,
+            score: self.score,
         }
     }
 }

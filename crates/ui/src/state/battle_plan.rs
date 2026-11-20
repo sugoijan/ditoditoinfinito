@@ -102,7 +102,7 @@ pub fn schedule(
 /// Stage battle plan of chart `chart` of `song` under the match's `rules`
 /// (DDI, its difficulty and Boos), from the stage's seed (`seed_for`):
 /// what the picker's device offers and every other compares
-/// (`attacks-v3` with the stage's Attacks at once and Shocks per attack,
+/// (`attacks-v4` with the stage's Attacks at once and Shocks per attack,
 /// the engine's placement for that count, `power-classes-v0`).
 ///
 /// Where the match's zero life steps down (`StageRules::steps_down`) the

@@ -1325,7 +1325,8 @@ impl Live {
                 r.out_at(micros(at));
             }
             let life_at = |us: i64| life_ppm(human.life_at(us as f64 / 1e6));
-            reports = r.due(t_us, &life_at);
+            let score_at = |us: i64| human.score_at(us as f64 / 1e6);
+            reports = r.due_scored(t_us, &life_at, &score_at);
         }
         let mut room = self.handle.room.borrow_mut();
         let Some(out) = room.live_stream(self.stage) else {

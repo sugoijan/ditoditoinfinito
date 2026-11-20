@@ -192,7 +192,17 @@ pub fn supported(version: u32) -> bool {
 ///     bundled song it never uploads, so it is refused. Hosts, co-hosts
 ///     and administrators exempt from the per-person half of the list
 ///     (`RoomState::song_quota`) rides in the same revision.
-pub const ROOM_MODEL_REVISION: u32 = 19;
+/// 20. round DC (2026-11-20): Top score attacks the top score
+///     (`attacks-v4`, `crate::attacks::ATTACKS_V4`: the highest score
+///     reported at the checkpoint, ties by the seeded pick), each
+///     checkpoint report carrying its score (`attacks::Report::score`,
+///     `live::LiveReport::score`; binary `BATCH_V3`, `CPUS_V2`, the
+///     earlier forms no longer read); `attacks-v3` retired (a plan naming
+///     it refused as unknown). An older client would rank Top score by
+///     life and send reports without scores, so it is refused. A room
+///     stored by revision 19 reads as it was
+///     (`tests/room-revision-19.json`).
+pub const ROOM_MODEL_REVISION: u32 = 20;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being

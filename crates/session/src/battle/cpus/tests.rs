@@ -280,6 +280,7 @@ fn play(song: &ddi_chart::Song, chart: usize, rules: &StageRules, cpus: &[CpuSea
                             Some(mut m) => {
                                 m.judged.extend(r.judged);
                                 m.life_ppm = r.life_ppm;
+                                m.score = r.score;
                                 m.out_at_us = m.out_at_us.or(r.out_at_us);
                                 m
                             }
@@ -292,6 +293,7 @@ fn play(song: &ddi_chart::Song, chart: usize, rules: &StageRules, cpus: &[CpuSea
                             life_ppm: 0,
                             out_at_us: Some(0),
                             targeting: None,
+                            score: 0,
                         },
                         |r| r.into_report(cpus[i].participant),
                     )

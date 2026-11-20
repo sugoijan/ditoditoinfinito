@@ -1567,6 +1567,9 @@ fn attacks_debug(
         json!({
             "participant": p.0,
             "power": a.power(p),
+            // Its score as the ledger last had it reported (Top score's
+            // order, `attacks-v4`).
+            "score": ledger.score(p),
             "launched": st.launched,
             "received": st.received,
             "waited": [st.waited_no_eligible, st.waited_no_safe_section, st.waited_no_room_in_window],

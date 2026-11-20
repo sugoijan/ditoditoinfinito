@@ -111,7 +111,7 @@ pub struct CpuRun {
     pub detail: Option<crate::battle::RunDetail>,
 }
 
-/// A device's news of a stage's CPUs (binary, `crate::live::wire::CPUS_V1`).
+/// A device's news of a stage's CPUs (binary, `crate::live::wire::CPUS_V2`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CpuNews {
     pub stage: StageId,
@@ -164,6 +164,12 @@ pub fn report_digest(r: &LiveReport) -> u64 {
         Some(Targeting::Retaliate) => 2,
         Some(Targeting::Leader) => 3,
     });
+    // The score only where there is one (room model revision 20), so a
+    // report without it keeps the digest it had.
+    if r.score != 0 {
+        h.u64(0x5343_4f52);
+        h.u64(r.score as u64);
+    }
     h.0
 }
 
@@ -238,8 +244,18 @@ mod tests {
             life_ppm: 500_000,
             out_at_us: Some(77),
             targeting: Some(Targeting::Leader),
+            score: 0,
         };
         assert_eq!(report_digest(&r), 16_792_303_767_027_228_990);
+        // A score (revision 20) is told; none keeps the digest above.
+        let scored = LiveReport { score: 6_543_210, ..r };
+        assert_eq!(report_digest(&scored), {
+            let mut h = Fnv64::new();
+            h.0 = 16_792_303_767_027_228_990;
+            h.u64(0x5343_4f52);
+            h.u64(6_543_210);
+            h.0
+        });
     }
 
     #[test]
@@ -250,6 +266,7 @@ mod tests {
             life_ppm: 500_000,
             out_at_us: None,
             targeting: None,
+            score: 0,
         };
         let d = report_digest(&base);
         assert_eq!(d, report_digest(&base.clone()));
@@ -259,8 +276,11 @@ mod tests {
         let mut other = base.clone();
         other.out_at_us = Some(0);
         assert_ne!(d, report_digest(&other));
-        let mut other = base;
+        let mut other = base.clone();
         other.life_ppm += 1;
+        assert_ne!(d, report_digest(&other));
+        let mut other = base;
+        other.score = -1;
         assert_ne!(d, report_digest(&other));
     }
 }

@@ -188,6 +188,16 @@ impl Script {
             .last()
             .map_or(1_000_000, |m| m.life_ppm)
     }
+
+    /// Its score just before song µs `at` (the last moment's before it):
+    /// what its checkpoint reports carry (room model revision 20).
+    pub fn score(&self, at: i64) -> i64 {
+        self.moments
+            .iter()
+            .take_while(|m| i64::from(m.at_ms) * 1_000 < at)
+            .last()
+            .map_or(0, |m| m.score)
+    }
 }
 
 /// A room run through the reducer at a time of its own: every accepted
@@ -422,7 +432,7 @@ impl Stream {
             {
                 r.out_at(i64::from(o) * 1_000);
             }
-            for (k, rep) in r.due(judged_to, &|at| play.life(at)) {
+            for (k, rep) in r.due_scored(judged_to, &|at| play.life(at), &|at| play.score(at)) {
                 out.report(LiveReport::from_report(k, rep));
             }
         }

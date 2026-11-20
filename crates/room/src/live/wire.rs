@@ -3,7 +3,7 @@
 //! Little-endian base-128 varints, signed ones zigzagged; a moment's time,
 //! tick, life, combo and score as differences from the moment before it in
 //! the same list (from zero for the first), so a batch or a frame decodes
-//! alone. The first byte says what it is and its version ([`BATCH_V2`],
+//! alone. The first byte says what it is and its version ([`BATCH_V3`],
 //! [`FRAME_V2`]); a reader refuses anything else, never panics, and never
 //! allocates more than the message's length allows.
 //!
@@ -17,17 +17,24 @@ use crate::live::stream::{
     Batch, CheckpointNews, Commitment, Frame, FrameEntry, LiveReport, Moment, MomentKind, StreamEnd,
 };
 
-/// A batch, version 2 (room model revision 9): a step down's moment is
-/// its own kind. Version 1 (0xB1), which carried it as a refusal's kind
-/// with a flag so that older readers passed over it, is no longer read or
-/// written.
-pub const BATCH_V2: u8 = 0xB2;
-/// A frame, version 2, as [`BATCH_V2`] (version 1 was 0xF1).
+/// A batch, version 3 (room model revision 20): a checkpoint report
+/// carries its score (`LiveReport::score`, what Top score ranks by under
+/// `attacks-v4`), after its policy. Versions 2 (0xB2, revision 9: a step
+/// down's moment its own kind) and 1 (0xB1) are no longer read or written:
+/// a device of revision 19 is let back into a room only during a stage
+/// (`RoomState::admits_model`), and after the update no stage it played
+/// has a live part left (a room's object restarts with the server's
+/// deploy).
+pub const BATCH_V3: u8 = 0xB3;
+/// A frame, version 2: a step down's moment its own kind (version 1 was
+/// 0xF1). A frame carries no reports.
 pub const FRAME_V2: u8 = 0xF2;
 /// A device's news of a stage's CPUs (`crate::live::cpus`,
-/// `online-cpus-v0`), version 1. Sent only to a room whose policy seats
-/// CPUs online: a room that predates it would refuse it (`bad_batch`).
-pub const CPUS_V1: u8 = 0xC1;
+/// `online-cpus-v0`), version 2 (room model revision 20): its reports
+/// carry their score as a batch's ([`BATCH_V3`]); version 1 (0xC1) is no
+/// longer read or written. Sent only to a room whose policy seats CPUs
+/// online: a room that predates it would refuse it (`bad_batch`).
+pub const CPUS_V2: u8 = 0xC2;
 
 /// Why bytes were not read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,9 +59,9 @@ pub enum Binary {
 /// Read a binary message.
 pub fn decode(bytes: &[u8]) -> Result<Binary, WireError> {
     match bytes.first() {
-        Some(&BATCH_V2) => decode_batch(bytes).map(Binary::Batch),
+        Some(&BATCH_V3) => decode_batch(bytes).map(Binary::Batch),
         Some(&FRAME_V2) => decode_frame(bytes).map(Binary::Frame),
-        Some(&CPUS_V1) => decode_cpus(bytes).map(Binary::Cpus),
+        Some(&CPUS_V2) => decode_cpus(bytes).map(Binary::Cpus),
         Some(&b) => Err(WireError::Unknown(b)),
         None => Err(WireError::Truncated),
     }
@@ -62,7 +69,7 @@ pub fn decode(bytes: &[u8]) -> Result<Binary, WireError> {
 
 pub fn encode_batch(b: &Batch) -> Vec<u8> {
     let mut w = Writer(Vec::with_capacity(16 + b.moments.len() * 10));
-    w.byte(BATCH_V2);
+    w.byte(BATCH_V3);
     w.u(b.stage.0);
     w.u(u64::from(b.seq));
     w.i(b.through_us);
@@ -77,7 +84,7 @@ pub fn encode_batch(b: &Batch) -> Vec<u8> {
 
 pub fn decode_batch(bytes: &[u8]) -> Result<Batch, WireError> {
     let mut r = Reader { b: bytes, at: 0 };
-    if r.byte()? != BATCH_V2 {
+    if r.byte()? != BATCH_V3 {
         return Err(WireError::Invalid);
     }
     let stage = StageId(r.u()?);
@@ -103,7 +110,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Batch, WireError> {
 
 pub fn encode_cpus(n: &CpuNews) -> Vec<u8> {
     let mut w = Writer(Vec::with_capacity(16 + n.entries.len() * 64));
-    w.byte(CPUS_V1);
+    w.byte(CPUS_V2);
     w.u(n.stage.0);
     w.u(n.entries.len() as u64);
     for e in &n.entries {
@@ -120,7 +127,7 @@ pub fn encode_cpus(n: &CpuNews) -> Vec<u8> {
 
 pub fn decode_cpus(bytes: &[u8]) -> Result<CpuNews, WireError> {
     let mut r = Reader { b: bytes, at: 0 };
-    if r.byte()? != CPUS_V1 {
+    if r.byte()? != CPUS_V2 {
         return Err(WireError::Invalid);
     }
     let stage = StageId(r.u()?);
@@ -359,6 +366,7 @@ impl Writer {
             Some(Targeting::Retaliate) => 2,
             Some(Targeting::Leader) => 3,
         });
+        self.i(r.score);
     }
 
     fn end(&mut self, e: Option<StreamEnd>) {
@@ -560,12 +568,14 @@ impl<'a> Reader<'a> {
             3 => Some(Targeting::Leader),
             _ => return Err(WireError::Invalid),
         };
+        let score = self.i()?;
         Ok(LiveReport {
             k,
             judged,
             life_ppm,
             out_at_us,
             targeting,
+            score,
         })
     }
 
@@ -678,6 +688,7 @@ pub(crate) mod tests {
             life_ppm: 987_654,
             out_at_us: (k == 3).then_some(4_000_123),
             targeting: Some(Targeting::Leader),
+            score: i64::from(k) * 1_234_567 - 300,
         }
     }
 
@@ -709,7 +720,7 @@ pub(crate) mod tests {
     }
 
     /// A step down's moment (a match's "Charts: Adaptive") reads back as
-    /// itself, a kind of its own (`FRAME_V2`, `BATCH_V2`); a version 1
+    /// itself, a kind of its own (`FRAME_V2`, `BATCH_V3`); a version 1
     /// message, which carried it as a refusal's kind with a flag, is no
     /// longer read.
     #[test]
@@ -753,6 +764,40 @@ pub(crate) mod tests {
         let mut old = frame.clone();
         old[0] = 0xF1;
         assert_eq!(decode(&old), Err(WireError::Unknown(0xF1)));
+    }
+
+    /// Room model revision 20: a report carries its score ([`BATCH_V3`],
+    /// [`CPUS_V2`]) and reads back equal; revision 19's batch and CPU news
+    /// (0xB2, 0xC1) are not read.
+    #[test]
+    fn a_report_carries_its_score_and_revision_19_s_are_not_read() {
+        let b = Batch {
+            stage: StageId(2),
+            seq: 3,
+            through_us: 9_000_000,
+            moments: Vec::new(),
+            reports: vec![judged(1, 4), judged(2, 0)],
+            end: None,
+        };
+        let mut bytes = encode_batch(&b);
+        assert_eq!(bytes[0], BATCH_V3);
+        assert_eq!(decode(&bytes), Ok(Binary::Batch(b.clone())));
+        bytes[0] = 0xB2;
+        assert_eq!(decode(&bytes), Err(WireError::Unknown(0xB2)));
+        let news = CpuNews {
+            stage: StageId(2),
+            entries: vec![CpuEntry {
+                cpu: ParticipantId(101),
+                through_us: 9_000_000,
+                reports: b.reports.clone(),
+                end: None,
+            }],
+        };
+        let mut bytes = encode_cpus(&news);
+        assert_eq!(bytes[0], CPUS_V2);
+        assert_eq!(decode(&bytes), Ok(Binary::Cpus(news)));
+        bytes[0] = 0xC1;
+        assert_eq!(decode(&bytes), Err(WireError::Unknown(0xC1)));
     }
 
     #[test]

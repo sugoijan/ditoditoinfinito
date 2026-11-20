@@ -938,7 +938,7 @@ impl FakeServer {
 
     fn receive_binary(&mut self, conn: u64, bytes: &[u8]) {
         self.incoming.0 += 1;
-        if bytes.first() == Some(&crate::live::wire::CPUS_V1) {
+        if bytes.first() == Some(&crate::live::wire::CPUS_V2) {
             self.incoming.2 += 1;
         }
         let Some(participant) = self

@@ -1681,14 +1681,15 @@ impl Battle {
         };
         let seats = &self.seats;
         let human_ref = human.as_deref();
-        let life = |p: ParticipantId, at: f64| -> u32 {
-            attacks::life_ppm(if p == me {
-                human_ref.map_or(0.0, |h| h.life_at(at))
+        let standing = |p: ParticipantId, at: f64| -> (u32, i64) {
+            let player = if p == me {
+                human_ref
             } else {
-                cpu_in(seats, p).map_or(0.0, |s| s.opponent.player().life_at(at))
-            })
+                cpu_in(seats, p).map(|s| s.opponent.player())
+            };
+            player.map_or((0, 0), |pl| (attacks::life_ppm(pl.life_at(at)), pl.score_at(at)))
         };
-        let events = a.run_due(until, &life);
+        let events = a.run_due(until, &standing);
         for (at, e) in events {
             let AttackEvent::Committed {
                 attack,

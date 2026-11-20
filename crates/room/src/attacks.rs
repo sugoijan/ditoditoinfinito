@@ -11,8 +11,9 @@
 //! against a target its sender's policy picks ([`Targeting`]), in a
 //! section of the chart safe for them ([`Schedule`]) that starts no
 //! sooner than the target's own lead ([`LEAD_V0`], D5). Under
-//! `attacks-v3` ([`ATTACKS`], what stages play, the maintainer's decision
-//! on the pile-up study) an attack is over for the ledger once it is
+//! `attacks-v4` ([`ATTACKS`], what stages play: `attacks-v3`, the
+//! maintainer's decision on the pile-up study, with Top score going by
+//! the score since round DC) an attack is over for the ledger once it is
 //! committed, attacks against one recipient chaining, each in the first
 //! safe section from where the last one placed against them clears; a
 //! launch may go only to a recipient with a safe section starting within
@@ -20,8 +21,8 @@
 //! Attacks at once ([`AttackRules::with_at_once`]), the sender's policy
 //! going on to its next choice where its first has no room; one against
 //! someone who went out expires. (`attacks-v0` to `attacks-v2` were
-//! retired on 2026-11-14: a plan naming one is refused as any unknown
-//! rules are, [`attack_rules`].) Each checkpoint runs in a fixed order
+//! retired on 2026-11-14, `attacks-v3` with room model revision 20: a
+//! plan naming one is refused as any unknown rules are, [`attack_rules`].) Each checkpoint runs in a fixed order
 //! ([`StageBattle::checkpoint`]), so every authority given the same
 //! reports comes to the same record ([`StageBattle::record`]). The stage
 //! is settled ([`SETTLEMENT_V1`]) only once no committed attack against
@@ -29,7 +30,7 @@
 //! "last standing" ([`Settlement::last_standing`]).
 //!
 //! PROVISIONAL: every number here is a working value
-//! ([`ATTACKS_V3`], [`ATTACK_WINDOW_V0_US`], [`POWER_CLASSES_V0`],
+//! ([`ATTACKS_V4`], [`ATTACK_WINDOW_V0_US`], [`POWER_CLASSES_V0`],
 //! [`LEAD_V0`], [`SETTLEMENT_V1`]), named and versioned.
 
 use crate::awards::{Finish, Finisher};
@@ -162,11 +163,12 @@ impl AttackRules {
 /// [`AttackRules::chain`] without a limit.
 pub const CHAIN_UNLIMITED: u32 = u32::MAX;
 
-/// `attacks-v3` (PROVISIONAL; the maintainer, 2026-11-13, on the pile-up
-/// study: "put a cap on how far in the future they can be placed to limit
-/// the chaining … if an attack cannot be fit into the next, say, 15
-/// seconds, then the player is not a valid target. In addition to that cap
-/// we can have a match rule for how many attacks can be added within that
+/// `attacks-v4` (PROVISIONAL; room model revision 20). Its numbers are
+/// `attacks-v3`'s (the maintainer, 2026-11-13, on the pile-up study: "put
+/// a cap on how far in the future they can be placed to limit the
+/// chaining … if an attack cannot be fit into the next, say, 15 seconds,
+/// then the player is not a valid target. In addition to that cap we can
+/// have a match rule for how many attacks can be added within that
 /// window"): a bar of 100, an attack 100, checkpoints every four beats
 /// (with [`POWER_CLASSES_V0`] a bar fills from 50 notes in the best timing
 /// window, 100 in the next); no recovery period (since `attacks-v1`: an
@@ -177,14 +179,25 @@ pub const CHAIN_UNLIMITED: u32 = u32::MAX;
 /// after the moment the last one placed against them clears (never the
 /// same region), looked for up to the song's end (none left: blocked, the
 /// power kept); Spread prefers whoever has the fewest attacks still to
-/// come; no cooldown; with two limits on whom a launch may go to: its section must start within
-/// [`ATTACK_WINDOW_V0_US`] of the launch's checkpoint, and at most the
-/// match's Attacks at once may stand placed against one recipient (three
-/// by default: `chain` 2; [`AttackRules::with_at_once`]). A recipient
-/// outside either is not a valid target: the sender's policy goes on to
-/// its next choice; with none valid the launch waits, the power kept.
-pub const ATTACKS_V3: AttackRules = AttackRules {
-    id: "attacks-v3",
+/// come; no cooldown; with two limits on whom a launch may go to: its
+/// section must start within [`ATTACK_WINDOW_V0_US`] of the launch's
+/// checkpoint, and at most the match's Attacks at once may stand placed
+/// against one recipient (three by default: `chain` 2;
+/// [`AttackRules::with_at_once`]). A recipient outside either is not a
+/// valid target: the sender's policy goes on to its next choice; with none
+/// valid the launch waits, the power kept.
+///
+/// What it changed from `attacks-v3` (the maintainer, 2026-11-20, round
+/// DC: "Make it attack the top score", and for ties: "Random pick as tie
+/// breaker"): Top score ([`Targeting::Leader`]) orders the valid
+/// recipients by the score each reported at the checkpoint
+/// ([`Report::score`], DDI's sum as the stage's standing has it), highest
+/// first, ties by the seeded pick alone (a hash of the stage's seed, the
+/// checkpoint, the sender and the candidate: [`StageBattle::checkpoint`]);
+/// `attacks-v3` ordered them by life, then the timing points earned, then
+/// the same pick.
+pub const ATTACKS_V4: AttackRules = AttackRules {
+    id: "attacks-v4",
     cap: 100,
     cost: 100,
     checkpoint_beats: 4,
@@ -197,16 +210,20 @@ pub const ATTACKS_V3: AttackRules = AttackRules {
 
 /// The rules named `id`: a stage is run under the one its plan names.
 /// Only the rules stages play are known: a plan naming a retired version
-/// (`attacks-v0` to `attacks-v2`, which only builds refused since room
-/// model revision 4 offered) or a later one is refused as unknown
-/// (`crate::live::PlanProblem::UnknownVersion`).
+/// is refused as unknown (`crate::live::PlanProblem::UnknownVersion`), as
+/// is a later one. `attacks-v0` to `attacks-v2` were retired with room
+/// model revision 4's builds; `attacks-v3` with revision 20 (round DC):
+/// after the update no device plans or plays it (a room's object restarts
+/// with the server's deploy, which loses a stage being played's live part,
+/// and an updated device's plan of a stage picked before it disagrees with
+/// the stored one, so it sits that stage out), so nothing could run it.
 pub fn attack_rules(id: &str) -> Option<AttackRules> {
-    (id == ATTACKS_V3.id).then_some(ATTACKS_V3)
+    (id == ATTACKS_V4.id).then_some(ATTACKS_V4)
 }
 
 /// The rules attacks are played under (a match's Attacks at once applied
 /// with [`AttackRules::with_at_once`]).
-pub const ATTACKS: AttackRules = ATTACKS_V3;
+pub const ATTACKS: AttackRules = ATTACKS_V4;
 
 /// How soon after its checkpoint an attack's section may start for a
 /// target (D5): the target's reading horizon (how long its notes are
@@ -315,8 +332,9 @@ pub enum Targeting {
     /// Whoever attacked them last, while they can be; else Spread's order
     /// (also where the last attacker has no room).
     Retaliate,
-    /// Whoever has the most life (ties by score, then seeded); the next
-    /// in that standing (the second, the third…) where the leader has no
+    /// Top score: whoever has the highest score (since `attacks-v4`; ties
+    /// by a seeded pick; `attacks-v3` took the most life); the next in
+    /// that standing (the second, the third…) where the first has no
     /// room.
     Leader,
 }
@@ -393,7 +411,9 @@ pub struct Judged {
 /// Power is the ledger's to compute, never reported. `targeting`: its
 /// policy as it stood just before the checkpoint, where it changed it
 /// during the play (M8 round 3, D8: a change applies from the next
-/// checkpoint); none, the policy it has. Additive.
+/// checkpoint); none, the policy it has. Additive. `score`: its score
+/// just before the checkpoint as the stage's standing has it (DDI's sum;
+/// room model revision 20, what Top score ranks by under `attacks-v4`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Report {
     pub participant: ParticipantId,
@@ -402,6 +422,12 @@ pub struct Report {
     pub out_at_us: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub targeting: Option<Targeting>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub score: i64,
+}
+
+fn is_zero(x: &i64) -> bool {
+    *x == 0
 }
 
 /// Why a full bar waits.
@@ -492,8 +518,8 @@ struct Seat {
     power: u32,
     /// Earned past the cap, lost.
     overflow: u32,
-    /// Everything earned, the cap aside: Leader's tie-break.
-    earned: u64,
+    /// Its score as last reported ([`Report::score`]): Top score's order.
+    score: i64,
     out_at_us: Option<i64>,
     targeting: Targeting,
     lead_us: i64,
@@ -515,7 +541,7 @@ impl Seat {
         Seat {
             power: 0,
             overflow: 0,
-            earned: 0,
+            score: 0,
             out_at_us: None,
             targeting: s.targeting,
             lead_us: s.lead_us.max(0),
@@ -689,6 +715,7 @@ impl StageBattle {
                 continue;
             }
             seat.life_ppm = r.life_ppm.min(1_000_000);
+            seat.score = r.score;
             // Its policy, where it changed it since the last checkpoint:
             // this checkpoint's launches go by it.
             if let Some(t) = r.targeting
@@ -706,7 +733,6 @@ impl StageBattle {
                 .filter(|j| j.at_us < at)
                 .map(|j| earned(&self.earns, j.tier))
                 .sum();
-            seat.earned = seat.earned.saturating_add(u64::from(earned));
             let was = seat.power;
             let total = seat.power.saturating_add(earned);
             seat.power = total.min(self.rules.cap);
@@ -816,12 +842,12 @@ impl StageBattle {
                         choices.insert(0, l);
                     }
                 }
+                // The top score, ties by the seeded pick: each tied
+                // candidate's hash of (seed, checkpoint, sender,
+                // candidate), the same everywhere and as likely as any
+                // other to come first.
                 Targeting::Leader => choices.sort_by_cached_key(|p| {
-                    (
-                        std::cmp::Reverse(before[p].life_ppm),
-                        std::cmp::Reverse(before[p].earned),
-                        tie(sender, *p),
-                    )
+                    (std::cmp::Reverse(before[p].score), tie(sender, *p))
                 }),
             }
             // The first with room.
@@ -952,6 +978,12 @@ impl StageBattle {
     /// What it earned past the cap, lost.
     pub fn overflow(&self, participant: ParticipantId) -> u32 {
         self.seats.get(&participant).map_or(0, |s| s.overflow)
+    }
+
+    /// Its score as last reported ([`Report::score`]; 0 for anyone not in
+    /// the stage): what Top score ranks it by at the next launches.
+    pub fn score(&self, participant: ParticipantId) -> i64 {
+        self.seats.get(&participant).map_or(0, |s| s.score)
     }
 
     /// Out of the stage, as the ledger has it.
@@ -1094,6 +1126,18 @@ impl Reporter {
     /// last judgments, and nothing after (the ledger takes it as out from
     /// then on).
     pub fn due(&mut self, judged_to_us: i64, life: &dyn Fn(i64) -> u32) -> Vec<(usize, Report)> {
+        self.due_scored(judged_to_us, life, &|_| 0)
+    }
+
+    /// [`Reporter::due`] with each report's score ([`Report::score`]):
+    /// `score`, its score just before a song µs (DDI's sum, from its
+    /// play's record). What a play reports since room model revision 20.
+    pub fn due_scored(
+        &mut self,
+        judged_to_us: i64,
+        life: &dyn Fn(i64) -> u32,
+        score: &dyn Fn(i64) -> i64,
+    ) -> Vec<(usize, Report)> {
         let mut out = Vec::new();
         while let Some(k) = self.next() {
             let at = self.checkpoints_us[k];
@@ -1115,6 +1159,7 @@ impl Reporter {
                     life_ppm: life(at),
                     out_at_us: self.out_at_us,
                     targeting,
+                    score: score(at),
                 },
             ));
             self.next += 1;

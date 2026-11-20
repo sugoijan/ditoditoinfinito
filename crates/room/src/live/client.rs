@@ -658,6 +658,7 @@ mod tests {
                 life_ppm: 500_000,
                 out_at_us: None,
                 targeting: None,
+                score: 7_000_000,
             });
         }
         let biggest = o.due(0).pop().unwrap();

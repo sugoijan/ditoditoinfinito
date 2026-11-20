@@ -1399,12 +1399,18 @@ Rust and the browser are implementation details, not advertised features.
   (built)"; decision D0 of `docs/plans/multiplayer-ui.md`'s 2026-11-11
   note); attack power's
   ledger and its attacks (`attacks.rs`: `StageBattle` credited at
-  checkpoints every four beats from reports of judged tiers and life,
-  `ATTACKS`, which is `attacks-v3` (2026-11-13): cap and cost 100,
+  checkpoints every four beats from reports of judged tiers, life and
+  score (`Report::score`, DDI's sum just before the checkpoint, from the
+  play's record, `Player::score_at`; since revision 20),
+  `ATTACKS`, which is `attacks-v4` (2026-11-20, round DC; `attacks-v3`'s
+  numbers of 2026-11-13): cap and cost 100,
   `POWER_CLASSES_V0` by the match's ruleset; a full bar launched in a
   turning order at the target its `Targeting` picks (Spread, the
   fewest attacks still to come first; Retaliate; Leader, which people
-  read as "Top score" since round DB), the match's
+  read as "Top score" since round DB: whoever reported the highest
+  score at the checkpoint, ties by a pick drawn from the stage's seed,
+  the checkpoint, the sender and the candidate, the same on every
+  device and the room), the match's
   Shocks per attack (`MatchRules::shocks`, `ShocksPerAttack`: 2, 4, 6
   or 8, four for a new room, a match stored before the rule eight and
   its next match's draft four; per stage as Attacks at once; the
@@ -1426,7 +1432,8 @@ Rust and the browser are implementation details, not advertised features.
   named places for a limit, off (`chain_gap`, `cooldown_checkpoints`);
   a stage run under the rules its plan names (`attack_rules`), a plan
   naming any other refused as unknown (`attacks-v0` to `attacks-v2`
-  retired 2026-11-14; no recovery: an attack is over the checkpoint it
+  retired 2026-11-14, `attacks-v3`, which ranked Top score by life,
+  with revision 20; no recovery: an attack is over the checkpoint it
   clears, `AttackState::Cleared`, a stored `recovered` read so);
   expiry when the recipient goes out, every one placed; `SETTLEMENT_V1`
   (`settlement-v0` retired),
@@ -1495,7 +1502,10 @@ Rust and the browser are implementation details, not advertised features.
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 19 since 2026-11-20: a bundled song added to
+  (`ROOM_MODEL_REVISION`, 20 since 2026-11-20: Top score attacks the
+  top score, `attacks-v4`, each checkpoint report carrying its score,
+  binary `BATCH_V3` and `CPUS_V2`; round DC; `tests/room-revision-19.json`;
+  19 since 2026-11-20: a bundled song added to
   the room's list uploaded as any other, the room's share the one
   source, an entry a room stored before listed by its content alone
   still read and played (`RoomSong::bundled`), and hosts and co-hosts
@@ -1632,7 +1642,8 @@ Rust and the browser are implementation details, not advertised features.
   digest on the content, `SetBattlePlan`), each competitor's moments and
   checkpoint reports (`attacks::Reporter`) in numbered batches gathered
   into one frame a tick (`live/stream.rs`; binary, `live/wire.rs`,
-  `BATCH_V2` and `FRAME_V2`, a step down a moment kind of its own; a
+  `BATCH_V3` (a report's score since revision 20) and `FRAME_V2`, a
+  step down a moment kind of its own; a
   stream's end says how, `StreamEnd`: out by life at a time, or left,
   `forfeit`, which a field marks "Left the stage" and the ladder ranks
   last, `ddi_session::battle::feed::MomentKind::Left`,
@@ -1655,7 +1666,7 @@ Rust and the browser are implementation details, not advertised features.
   (`live/cpus.rs`, `online-cpus-v0`, PROVISIONAL; where
   `RoomPolicy::seats_cpus` says so: a room that plays live): no connection plays them,
   every device computes them alike and sends their checkpoint reports
-  and ends (`CpuNews`, binary `CPUS_V1`; `ClientLive::CpuRun`, the
+  and ends (`CpuNews`, binary `CPUS_V2`; `ClientLive::CpuRun`, the
   authority's `Command::ReportFor`), who sends `sends_for_cpus`
   (`cpu-reporters-v0`), the room taking the first report of each CPU
   and checkpoint and counting a different one

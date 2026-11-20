@@ -295,6 +295,11 @@ pub struct Player {
     /// (a step down's life read just after it, `life_at`); made
     /// [`Results::life`]'s pairs only there.
     life: Vec<(f64, f32)>,
+    /// DDI's score as a room shows it (the sum, [`crate::rules::ScoreView::ddi`]'s
+    /// `score`) as it changed (judged song seconds, sum), as `life` is
+    /// kept: what a battle's checkpoint reads of a competitor's standing
+    /// ([`Player::score_at`]). Empty under a ruleset without DDI's score.
+    scores: Vec<(f64, i64)>,
     /// Display frame interval in seconds, for receptor snapping.
     frame_interval: f64,
     /// `take_from[new_lane] = old_lane` of the turn.
@@ -531,6 +536,7 @@ impl Player {
             log: PlayLog::default(),
             timeline: Vec::new(),
             life: Vec::new(),
+            scores: Vec::new(),
             frame_interval: 1.0 / 60.0,
             lane_map: transformed.take_from,
             displayed: Vec::new(),
@@ -593,6 +599,7 @@ impl Player {
         self.ruleset.gauge.begin(&self.ctx);
         self.timeline.clear();
         self.life = vec![(self.song_offset, self.ruleset.gauge.life())];
+        self.scores.clear();
     }
 
     /// The chart's totals as the judge has them (what the score and the
@@ -678,6 +685,7 @@ impl Player {
             // A combo given, not played: the score's combo part counts on
             // from it (`ddi::DdiScore::restep`).
             self.ruleset.score.restep(&self.ctx);
+            self.note_score(song_offset);
         }
     }
 
@@ -1064,6 +1072,7 @@ impl Player {
         let ran_out = self.ran_out.iter().filter(|&&p| p == from).count();
         let closes = self.rule.closed_after > 0 && ran_out == self.rule.closed_after as usize;
         self.finish_step(rows, &next, (from, to), (at, boundary, tick), closes);
+        self.note_score(at);
     }
 
     /// What a step down and a step up end alike with: the play's tables
@@ -1132,6 +1141,7 @@ impl Player {
         if let Some(s) = self.steps.last_mut() {
             s.early = early;
         }
+        self.note_score(at);
     }
 
     /// Each row's progress by its tick, before the judge's notes change.
@@ -1361,6 +1371,30 @@ impl Player {
             .and_then(|i| self.life.get(i))
             .or(self.life.first())
             .map_or_else(|| self.ruleset.gauge.life(), |l| l.1)
+    }
+
+    /// DDI's score as a room shows it (the sum) as it was just before
+    /// judged song second `t` (its record, as [`Player::life_at`]: the
+    /// same whatever the frames); 0 before anything counted and under a
+    /// ruleset without DDI's score.
+    pub fn score_at(&self, t: f64) -> i64 {
+        let i = self.scores.partition_point(|s| s.0 < t);
+        i.checked_sub(1)
+            .and_then(|i| self.scores.get(i))
+            .map_or(0, |s| s.1)
+    }
+
+    /// The score's record ([`Player::score_at`]) after something changed
+    /// it at judged song second `at`.
+    fn note_score(&mut self, at: f64) {
+        let Some(sum) = self.ruleset.score.view().ddi.map(|d| d.score) else {
+            return;
+        };
+        if self.scores.last().map_or(0, |s| s.1) != sum {
+            // In time order, as the life's record.
+            let at = at.max(self.scores.last().map_or(f64::MIN, |s| s.0));
+            self.scores.push((at, sum));
+        }
     }
 
     /// The battle's shocks put into the play, as judged so far.
@@ -2070,6 +2104,7 @@ impl Player {
         self.ctx.combo = self.combo;
         self.ctx.w0 = w0;
         self.ruleset.score.on_event(ev, &self.ctx);
+        self.note_score(ev.song_time);
         self.gauge_event(ev);
         let flash = match ev.kind {
             JudgeEventKind::Tap(j, delta) => Some((j, if j.is_miss() { 0.0 } else { delta })),

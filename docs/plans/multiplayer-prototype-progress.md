@@ -13230,6 +13230,69 @@ messages on upright phones too." Built:
 testing switch. With the switch: the chat as above, Options → Display's
 descriptions saying it moves behind the fields over the whole screen.
 
+## Round DC: Top score made true (room model revision 20, 2026-11-20)
+
+The maintainer, told that the policy named Top score (the code's
+`Targeting::Leader`) attacked whoever had the most life, ties by the
+attack power earned: "Make it attack the top score", and for ties:
+"Random pick as tie breaker." Built:
+
+- `attacks-v4` (`ddi_room::attacks::ATTACKS_V4`, what `ATTACKS` is):
+  `attacks-v3`'s numbers, Top score ordering the valid recipients by the
+  score each reported at the checkpoint, highest first, then by the
+  pick every policy's ties already used: a SplitMix64 hash of the
+  stage's seed (`live::plan::seed_for`: the room, the stage and the
+  chart; practice's own seed), the checkpoint's number, the sender and
+  the candidate. Nothing of a device's own (no clock, no generator), so
+  practice, every device and the room pick alike
+  (`top_score_ties_are_a_shared_random_pick`: two ledgers fed the same
+  reports pick the same; over 3,000 seeds three tied candidates are
+  each picked within three standard deviations of a third). The next
+  by score where the first has no room, as before.
+- Each checkpoint report carries its play's score (`Report::score`,
+  `LiveReport::score`: DDI's sum just before the checkpoint, as the
+  stage's standing has it, from the play's record,
+  `ddi_engine::Player::score_at`, kept as the life's is, so the same at
+  any frame rate and from the log); the room keeps the last one of a
+  competitor whose report is late, as it keeps its life. Binary
+  `BATCH_V3` and `CPUS_V2` carry it; `0xB2` and `0xC1` are no longer
+  read. A report's digest (the online CPUs' comparison) takes the score
+  only where it is not 0, so a report without one keeps its digest.
+- `attacks-v3` retired, as `attacks-v0` to `attacks-v2` were: a plan
+  naming it is refused as unknown. What an update in the middle of a
+  match does: the server deploys first and every room's object restarts
+  with it, which loses a stage being played's live part (as any deploy,
+  the server's README): that stage settles on its players' reports.
+  A stage picked before the update keeps its `attacks-v3` plan's digest;
+  every updated device's own plan names `attacks-v4`, disagrees, and
+  sits that stage out (`battle_plan_mismatch`); with nobody left to
+  start it, its readiness window cancels the start (`BelowMinimum`) and
+  the next pick plays under `attacks-v4`. Devices of revision 19 are
+  refused (update required) except for a ticket during a stage, and
+  nothing they could send is needed: so v3 was kept for nothing.
+- Room model revision 20; `tests/room-revision-19.json` (the
+  revision-11 fixture's room as revision 19 wrote it, a stage in play
+  with a plan made under `attacks-v3`, ana on Top score) reads, writes
+  back what it reads and settles. The server runs the crate; its live
+  test names `attacks-v4`.
+- Top score's description: "Your attacks go to whoever has the highest
+  score." (スコアが最も高い相手を攻撃します。, a draft; the glossary's
+  line). The attack-rates study judges a Top score attack's reason held
+  by the score (`battle/study.rs`); no number in the docs depends on a
+  rerun (its tables are each version's own record).
+- `__DDI_DEBUG.battle.attacks.power[].score` and `.me.score`: each
+  seat's score as the ledger last had it reported.
+- Pins moved: the CPUs' fixture (`battle/cpus/fixture.txt`): only the
+  reports' digests, since they carry scores (its commitments, shocks and
+  plays unchanged, natively and under WASI); the plan digest's pin
+  (`the_digest_and_the_seed_are_these_values`: the plan names
+  `attacks-v4`; the same plan naming `attacks-v3` keeps the old value,
+  so the hashing has not moved).
+
+**A player now sees** Top score's attacks go to whoever has the highest
+score (the miniatures' numbers), and its line under the policy says so.
+The server deploys first.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -13329,7 +13392,7 @@ descriptions saying it moves behind the fields over the whole screen.
 | RETIRED 2026-11-14: Attacks `attacks-v0`: a commitment looks 16 beats past its earliest start; recovery after eight of the recipient's judgments past the attack's last shock and four beats | `ddi_room::attacks::ATTACKS_V0` | How long a full bar waits for a place, how soon someone can be attacked again | The numbers, once played |
 | Lead `lead-v0`: the target's reading horizon + 1.5 s warning + 0.1 s, at least the next checkpoint (four beats), at most 10 s; slower settings raised on a stage | `ddi_room::attacks::LEAD_V0`, `ddi_ui::state::battle_plan::raised_speed` | An attack's shocks never appear before the warning has shown 1.5 s; a very slow player plays a stage faster (said on the prompt) | Whether online adds a network budget (D5 says synchronized starts instead) |
 | A CPU's lead from the local player's horizon (`local-player-horizon-v0`) | `ddi_session::battle::CPU_HORIZON` | Shocks on a miniature come in from its far end | Whether CPUs should have a horizon of their own |
-| Targeting ties: seeded by stage, checkpoint, sender and candidate; Leader's tie-break the timing points earned (cap aside) standing in for score | `StageBattle::launch` | Who gets attacked when several are equal | Whether Leader should use the real score at the checkpoint |
+| Targeting ties: seeded by stage, checkpoint, sender and candidate (a hash of the four, the same on every device and the room); Top score (`Leader`) by the score each reported at the checkpoint since `attacks-v4` (round DC), its ties that pick alone | `StageBattle::checkpoint`, `Report::score` | Who gets attacked when several are equal | Answered (2026-11-20): "Make it attack the top score", ties a random pick |
 | Launch order turns each checkpoint (`k mod n` in participant order) | `StageBattle::launch` | With several full bars at once, who picks first | None unless play shows a bias |
 | RETIRED 2026-11-14 (by `settlement-v1`): Settlement `settlement-v0`: decided only without an outstanding attack against the last one in; a knockout while waiting shares first with those out in the same checkpoint interval as the one before | `ddi_room::attacks::SETTLEMENT_V0` | "Stage won" waits for the last attack to pass; "Drawn: final attack" | As decided (D6) |
 | A stage with the player gone is played out a checkpoint at a time (CPUs, their attacks, settled as they come) | `ddi_session::battle::Battle::play_out` | The ranking of the CPUs after the player leaves includes their attacks on one another | None until watching exists |
@@ -13390,7 +13453,8 @@ descriptions saying it moves behind the fields over the whole screen.
 | A miniature's score: small (0.8 of its name line, 8 to 11 px; down to 6 px where the sum is wider than its field) under its life gauge's right end; the score (the sum) or the percent, by the player's Score display | `ddi_shell::opponents::ScoreShown`, `SCORE_SIZE`, `SCORE_FLOOR`, `SCORE_TOP` | At lanes under about 17 px the number's top touches the receptors' row | Its place and size |
 | RETIRED 2026-11-14 (no recovery period kept in `attacks-v3`): `attacks-v1`: no recovery period; one more attack may be reserved behind the one on its way or passing, in the next section after it clears | `ddi_room::attacks::ATTACKS_V1`, `AttackRules::chain` | Two attacks can arrive back to back; nobody is safe for a while after one | Answered (2026-11-13): an attack is over once placed and attacks chain without limit, `attacks-v2` below; kept by name for stages recorded under it |
 | RETIRED 2026-11-14 (its chaining kept in `attacks-v3`): `attacks-v2`: an attack over for the ledger once placed; attacks against one recipient chain without limit, each in the first safe section at or after the last one's clear, searched to the song's end; Spread prefers the fewest still to come; no gap, no cooldown (`chain_gap`, `cooldown_checkpoints`, both 0) | `ddi_room::attacks::ATTACKS_V2`, `ATTACKS`, `CHAIN_UNLIMITED` | Anyone still in can be attacked at any time; several attacks can arrive one section after another; the warning counts those behind the nearest | Answered (2026-11-13): `attacks-v3`'s window and the match rule Attacks at once (three by default); kept by name for stages recorded under it |
-| `attacks-v3`: `attacks-v2` with a window and a limit; a sender's policy orders every valid recipient and the launch goes to the first with room (Leader to the next in standing, Retaliate to Spread's order) | `ddi_room::attacks::ATTACKS_V3`, `ATTACKS`, `StageBattle::launch` | A buried leader's attacks go to the second; a full bar waits only where nobody has room | Whether Leader should rather wait for its leader than spill over |
+| RETIRED 2026-11-20 (by `attacks-v4`, room model revision 20): `attacks-v3`: `attacks-v2` with a window and a limit; a sender's policy orders every valid recipient and the launch goes to the first with room (Leader, by life, to the next in standing, Retaliate to Spread's order) | `ddi_room::attacks::ATTACKS_V3` | A buried leader's attacks go to the second; a full bar waits only where nobody has room | Whether Leader should rather wait for its leader than spill over |
+| `attacks-v4`: `attacks-v3`'s numbers, Top score (`Leader`) ordering the valid recipients by the score each reported at the checkpoint (DDI's sum, `Report::score`), highest first, ties by the seeded pick; the next by score where the first has no room | `ddi_room::attacks::ATTACKS_V4`, `ATTACKS`, `StageBattle::checkpoint` | Top score attacks whoever has the highest score; a buried top scorer's attacks go to the second | Whether Top score should rather wait for its target than spill over |
 | `attack-window-v0`: an attack's section starts at most 15 s of song time after its launch's checkpoint (the recipient's lead inside it); not a match rule | `ddi_room::attacks::ATTACK_WINDOW_V0_US`, `AttackRules::window_us` | No attack lands more than about 15 s after it was launched; about 10 s left after a 2 s horizon's lead | The length (measured: 10 s fits one attack on slow songs, 20 s adds staleness for nothing) |
 | Attacks at once: 1, 2, 3 (default), No limit, per stage, shown only with Attacks On | `ddi_room::AttacksAtOnce`, `MatchRules::at_once`, `AttackRules::with_at_once`, `BattlePlan::at_once` | At most that many attacks stand placed against one player | The default of three |
 | Shift (either, by physical code) and Tab cycle the policy in play, each unless a lane has it; a small quiet cap after the policy's word, always shown; Windows' Sticky Keys dialog after five quick Shifts not suppressed | `ddi_ui::controller_hints::POLICY_KEYS`, `ddi_session::play::PolicyKey`, `ddi_shell::battle_cue::draw_policy` | The key is on the ready screen and beside the label | Whether the cap should fade after the first seconds |
