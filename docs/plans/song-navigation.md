@@ -385,7 +385,15 @@ has no list), shows at its right:
   charts", greyed).
 
 The freed width went to the title and the artist. A room's picker sees
-their own bests (the list is their library). Every row follows a change
+their own bests (the list is their library). An online room's Room songs
+rows show them too (round DB, 2026-11-20): the best's grade or NEW of
+the chart that would be played where the listed song is in the player's
+library (matched by its content, `RoomClient::library_song`), exactly as
+the library's row; nothing for a song this device has only from the room
+(downloaded ahead, `SongEntry::room_only`) or not yet; the shell's data
+sent again (the history read later, a play kept) reaches the room's
+client and remakes the list on Room songs, which it never replaces
+(`SelectScreen::room_library_feed`). Every row follows a change
 of the difficulty kept (the chart gestures, a tap on the ladder or a
 chart button): the rows shown are filled again where they are
 (`List::refill`), not laid out again; a best that comes later (the

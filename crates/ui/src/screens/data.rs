@@ -515,6 +515,10 @@ pub struct SongEntry {
     /// The player has played one of its charts (any style, any rules, a
     /// quit too; never an autoplay): `state::history::History::played`.
     pub played: bool,
+    /// An online room's listed song this device has only from the room
+    /// (downloaded ahead, not in its library): no best and never "NEW",
+    /// the history being the library's (round DB).
+    pub room_only: bool,
 }
 
 /// The id prefix of an online room's listed song that is not on this
@@ -523,9 +527,10 @@ pub const ROOM_SONG_ID: &str = "room-song:";
 
 impl SongEntry {
     /// Never played: its row says "NEW". A song with a best is played,
-    /// whatever `played` says; a room's song not here yet is neither.
+    /// whatever `played` says; a room's song not here yet, or here only
+    /// from the room, is neither.
     pub fn is_new(&self) -> bool {
-        !self.played && !self.away() && self.charts.iter().all(|c| c.best.is_none())
+        !self.played && !self.away() && !self.room_only && self.charts.iter().all(|c| c.best.is_none())
     }
 
     /// An online room's listed song not on this device yet (stage 2): its

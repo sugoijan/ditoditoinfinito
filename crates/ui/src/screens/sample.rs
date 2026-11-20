@@ -152,6 +152,7 @@ pub fn bundled() -> Vec<SongEntry> {
                 artist_translit: String::new(),
                 credit: String::new(),
                 played: false,
+                room_only: false,
                 charts: charts
                     .iter()
                     .enumerate()

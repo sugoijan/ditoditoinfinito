@@ -207,6 +207,7 @@ fn song_entry<'a>(
     SongEntry {
         // Any chart, shown or not (a version the options hide now).
         played: played.song(&entry.id, entry.charts.iter().map(|c| c.digest)),
+        room_only: false,
         id: entry.id.clone(),
         title: entry.title.clone(),
         artist: entry.artist.clone(),

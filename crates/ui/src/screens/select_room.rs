@@ -876,10 +876,12 @@ impl SelectScreen {
 
     /// The Room songs tab's list: a row an entry, oldest first, each the
     /// player's own copy of the song where they have it (its banner, its
-    /// preview, their bests) with only the listed charts, else made from
-    /// the entry; its line the artist, the entry's state for this player
-    /// and who added it.
-    fn room_songs_data(&self) -> (SelectData, HashMap<String, RoomSongId>) {
+    /// preview, their bests and NEW, as their library's row: round DB)
+    /// with only the listed charts, else the copy downloaded ahead (no
+    /// best, never NEW: `SongEntry::room_only`), else made from the
+    /// entry; its line the artist, the entry's state for this player and
+    /// who added it.
+    pub(crate) fn room_songs_data(&self) -> (SelectData, HashMap<String, RoomSongId>) {
         let mut data = SelectData {
             mods: self.data.mods.clone(),
             preferred: self.data.preferred,
@@ -900,7 +902,12 @@ impl SelectScreen {
             .map(room::person_name);
         for e in r.room_songs() {
             // The player's own copy, else the one downloaded ahead.
-            let mine = r.library_song(e).cloned().or_else(|| r.ahead_song(e));
+            let mine = r.library_song(e).cloned().or_else(|| {
+                r.ahead_song(e).map(|mut s| {
+                    s.room_only = true;
+                    s
+                })
+            });
             let mut song = match &mine {
                 Some(s) => {
                     let mut s = s.clone();
@@ -999,6 +1006,29 @@ impl SelectScreen {
             .sort_by_key(|st| order.iter().position(|o| *o == st.id).unwrap_or(usize::MAX));
         data.style = Some(self.style_id().to_string());
         (data, ids)
+    }
+
+    /// The shell's library sent again (the history read after the list
+    /// showed, a play kept, an import) in a room with a song list: the
+    /// room's client told (a listed song's row takes its best and NEW
+    /// from it, round DB); on Room songs it is kept for My songs and the
+    /// room's list made again from it, never shown in its place. The data
+    /// back where the screen shows it as its own list.
+    pub(super) fn room_library_feed(&mut self, d: SelectData) -> Option<SelectData> {
+        let Some(rm) = &mut self.room else {
+            return Some(d);
+        };
+        if !rm.room.borrow().has_song_list() {
+            return Some(d);
+        }
+        rm.room.borrow_mut().set_library(&d.songs);
+        if rm.tab == Tab::Room && rm.library.is_some() {
+            rm.library = Some(d);
+            rm.listed_for = None;
+            None
+        } else {
+            Some(d)
+        }
     }
 
     /// The Room songs tab's list made again where the room's version moved

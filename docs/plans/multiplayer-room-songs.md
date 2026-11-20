@@ -193,7 +193,9 @@ Everything. The description says the default.
 
 A listed song this device has (its library's, or downloaded) is drawn as
 any song: its banner, length, BPM, notes, charts, and its preview from
-the copy here. One not here shows its banner as soon as its listing is
+the copy here; where it is the player's library's, its best's grade or
+NEW as that library's row (round DB), none where it is here only from
+the room (`SongEntry::room_only`). One not here shows its banner as soon as its listing is
 read, its state ("Downloading 41%", "Not loaded yet", …), no NEW and no
 note counts (`SongEntry::away`); the song side says what the list's
 entry says. While not everyone has it, the row adds "11 of 12 have it".
@@ -229,5 +231,6 @@ connected has loaded, and a song downloaded ahead loads from this device.
 
 ## Not in stage 1
 
-Bests on songs not in one's library (a downloaded song's row has none);
+Bests on songs not in one's library (a downloaded song's row has none,
+nor NEW);
 "Who can add songs" (stage 3); choosing by the group (stage 4).

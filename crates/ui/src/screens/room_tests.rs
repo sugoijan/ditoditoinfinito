@@ -3257,6 +3257,78 @@ fn listed(t: &Three, titles: &[&str], by: u64) {
     });
 }
 
+/// Round DB: a Room songs row shows the player's best grade (with its
+/// lamp) or NEW where the listed song is in their library, matched by its
+/// content, exactly as their library's row does; nothing where they lack
+/// it (a song not here yet). The history read after the screen showed
+/// (the shell's data sent again) fills the rows' bests, and the tab stays
+/// the room's list.
+#[test]
+fn a_room_row_shows_the_players_best_or_new_where_their_library_has_it() {
+    use super::data::Best;
+    use super::select::{FEED, Feed, SharedFeed};
+    let t = Three::new(false);
+    listed(&t, &["Alpha One", "Bravo One", "Charlie One"], 1);
+    t.step(400);
+    // Bob's library has Alpha (played, a best on its chart) and Bravo
+    // (never played); not Charlie.
+    let mut mine = songs_of(&["Alpha One", "Bravo One"]);
+    mine.songs[0].played = true;
+    mine.songs[0].charts[0].best = Some(Best {
+        grade: "AA".into(),
+        lamp: "FullCombo".into(),
+        plays: 1,
+        ..Best::default()
+    });
+    let orders = Orders::default();
+    let env = env();
+    let screen = sample::room_select(&env, t.bob.clone(), mine.clone()).with_room(t.bob.clone(), shell(&t.bob, &orders));
+    let (data, _) = screen.room_songs_data();
+    let row = |title: &str| data.songs.iter().find(|s| s.title == title).cloned().unwrap();
+    let alpha = row("Alpha One");
+    assert_eq!(alpha.charts[0].best.as_ref().map(|b| b.grade.as_str()), Some("AA"));
+    assert!(!alpha.is_new());
+    assert!(row("Bravo One").is_new(), "never played: NEW");
+    let charlie = row("Charlie One");
+    assert!(charlie.away() && !charlie.is_new() && charlie.charts.iter().all(|c| c.best.is_none()));
+    // A song this device has only from the room (downloaded ahead): no
+    // best, never NEW.
+    let ahead = SongEntry {
+        room_only: true,
+        ..row("Bravo One")
+    };
+    assert!(!ahead.is_new());
+    // Bravo played later: the shell's data sent again while Room songs
+    // shows.
+    let feed: SharedFeed = Rc::new(RefCell::new(Feed::default()));
+    let mut h = harness();
+    h.push(
+        sample::room_select(&env, t.bob.clone(), songs_of(&["Alpha One", "Bravo One"]))
+            .with_room(t.bob.clone(), shell(&t.bob, &orders))
+            .with_shell(Rc::new(|_, _| {}), feed.clone()),
+    );
+    t.settle(400, &mut [&mut h]);
+    assert_eq!(env.state.borrow().items, 3, "the room's three songs");
+    let mut later = songs_of(&["Alpha One", "Bravo One"]);
+    later.songs[1].played = true;
+    later.songs[1].charts[0].best = Some(Best {
+        grade: "A".into(),
+        lamp: "Clear".into(),
+        plays: 1,
+        ..Best::default()
+    });
+    feed.borrow_mut().data = Some(later);
+    h.ui.broadcast(crate::Message::new(FEED));
+    t.settle(400, &mut [&mut h]);
+    assert_eq!(env.state.borrow().items, 3, "still the room's list, not the library");
+    let bob = t.bob.borrow();
+    let bravo = bob.room_songs().iter().find(|e| e.card.title == "Bravo One").unwrap().clone();
+    assert_eq!(
+        bob.library_song(&bravo).and_then(|s| s.charts[0].best.as_ref()).map(|b| b.grade.as_str()),
+        Some("A")
+    );
+}
+
 /// One picker at a time (2026-11-12). The owner picks and everyone else
 /// follows their resting song, the co-host included, who alone has Pick
 /// songs (the header's button, the footer's T). The co-host takes the

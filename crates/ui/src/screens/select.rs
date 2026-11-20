@@ -3325,7 +3325,7 @@ impl SelectScreen {
                 if let Some(rm) = &mut self.room {
                     rm.library = Some(d);
                 }
-            } else {
+            } else if let Some(d) = self.room_library_feed(d) {
                 self.cancel_navigation();
                 self.set_data(d, false);
                 self.fill_tabs(root);
