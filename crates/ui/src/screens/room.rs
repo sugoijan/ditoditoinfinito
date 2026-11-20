@@ -233,6 +233,10 @@ pub struct RoomOnlineView {
     /// Whether More offers Copy invite link and Replace invite link.
     pub can_invite: bool,
     pub can_rotate: bool,
+    /// The room's Twitch setting (revision 18): `[mirror, chat, login]`
+    /// (`off`, `bans`, `bans_and_blocks`; `off`, `emotes`,
+    /// `emotes_and_messages`), none while it is off.
+    pub twitch: Option<[String; 3]>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -806,6 +810,10 @@ fn phase_status(r: &RoomClient) -> UiText {
             LinkNotice::AheadQuota => m::ahead_quota(),
             LinkNotice::TwitchNotConnected => m::twitch_not_connected(),
             LinkNotice::TwitchChatOn => m::twitch_chat_on(),
+            LinkNotice::TwitchEnded => m::twitch_ended(),
+            LinkNotice::TwitchSetterLeft { who } => m::twitch_setter_left(UiText::data(
+                r.state().member(who).map(person_name).unwrap_or_default(),
+            )),
             LinkNotice::Kicked { who, by } => {
                 let name = |id| {
                     r.state()
@@ -3446,6 +3454,9 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
             can_invite: invite.is_some(),
             invite: invite.clone(),
             can_rotate: r.may_replace_invite(),
+            twitch: r
+                .twitch()
+                .map(|t| [snake(&t.mirror), snake(&t.chat), t.login.clone()]),
         }),
         ..RoomView::default()
     };

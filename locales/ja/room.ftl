@@ -989,3 +989,5 @@ room-twitch-not-connected = Twitchアクセスは接続されませんでした�
 room-twitch-chat-on = このデバイスでルームのTwitchチャットを表示します。
 room-twitch-connecting = Twitchアクセスを接続しています…
 room-twitch-connect-waiting = ブラウザでTwitchアクセスを許可してから、ここに戻ってください。
+room-twitch-ended = Twitchアクセスが終了し、あなたのバンとチャットはオフになりました。
+room-twitch-setter-left = { $name }さんが退出し、そのTwitchのバンとチャットはオフになりました。

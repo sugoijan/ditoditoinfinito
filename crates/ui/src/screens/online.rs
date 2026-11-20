@@ -267,6 +267,19 @@ pub(crate) fn invite_page(online: &Online) -> (Vec<String>, Vec<String>) {
     (notes, actions)
 }
 
+/// An invite's page's plain lines (tests).
+#[cfg(test)]
+pub(crate) fn invite_texts(online: &Online) -> Vec<String> {
+    invite_doc(online)
+        .blocks
+        .into_iter()
+        .filter_map(|b| match b {
+            Block::Text(t) => Some(t),
+            _ => None,
+        })
+        .collect()
+}
+
 /// An invite's page.
 fn invite_doc(online: &Online) -> PageDoc {
     let mut blocks = Vec::new();
@@ -277,6 +290,12 @@ fn invite_doc(online: &Online) -> PageDoc {
     // reached (`docs/plans/multiplayer-audience.md`).
     let audience = view.is_some_and(|v| v.audience());
     let audience_link = view.is_some_and(|v| v.audience_link());
+    // Refused by the host's Twitch lists (revision 18, B6): the neutral
+    // line alone, never "You can join now" above it (Join stays: a
+    // timeout ends).
+    let not_admitted = view
+        .and_then(|v| v.refused.as_ref())
+        .is_some_and(|p| p.code == "not_admitted");
     match view.and_then(|v| v.preview.as_ref()) {
         None => blocks.push(Block::Text(m::invite_reading().into())),
         Some(Ok(p)) => {
@@ -290,7 +309,9 @@ fn invite_doc(online: &Online) -> PageDoc {
             if let Some(n) = p.audience_count.filter(|n| *n > 0) {
                 blocks.push(Block::Muted(m::audience_watching(n).into()));
             }
-            blocks.push(Block::Text(preview_text(p).into()));
+            if !not_admitted {
+                blocks.push(Block::Text(preview_text(p).into()));
+            }
             joinable = matches!(
                 p.admission,
                 Admission::Open | Admission::NextMatch | Admission::NextStage

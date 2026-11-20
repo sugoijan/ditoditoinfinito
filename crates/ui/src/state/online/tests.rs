@@ -636,12 +636,16 @@ pub(crate) mod room {
                         .member_by_identity(&identity)
                         .is_some_and(|m| !m.left);
                     let watch = req.body.as_deref().unwrap_or("").contains(WATCH_INVITE);
-                    let id = if watch {
+                    let joined = if watch {
                         s.borrow_mut().join_watch_only(identity.clone(), who)
                     } else {
                         s.borrow_mut().join(identity.clone(), who, Intent::Play)
-                    }
-                    .unwrap();
+                    };
+                    // The host's Twitch lists keep them out (revision 18).
+                    let id = match joined {
+                        Err(ddi_room::Rejection::NotAdmitted) => return err(403, "not_admitted"),
+                        j => j.unwrap(),
+                    };
                     let intent = match s.borrow().state().member(id).unwrap().intent {
                         Intent::Play => "play",
                         Intent::Watch => "watch",
@@ -967,6 +971,95 @@ pub(crate) mod room {
         fan.set_intent(Intent::Play).unwrap();
         tick(&clock, &mut [&mut alice, &mut fan], 400);
         assert!(!fan.watching());
+    }
+
+    /// Round TW3: the room's Twitch setting ending without its owner's
+    /// asking is said on the status line: to them where their access
+    /// ended (the server turned it off), to everyone where they left;
+    /// never where they turned it off themselves.
+    #[test]
+    fn a_twitch_setting_that_ends_by_itself_is_said() {
+        use crate::state::online::link::LinkNotice;
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob"]);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        server.borrow_mut().grant_twitch(&ddi_room::Identity::new("dev:alice"), &["bans"]);
+        let me = alice.me();
+        let on = || ddi_room::TwitchSetting {
+            by: me,
+            mirror: ddi_room::TwitchMirror::Bans,
+            chat: ddi_room::TwitchChat::Off,
+            user_id: "1".into(),
+            login: "alice".into(),
+        };
+        let set = |s: Option<ddi_room::TwitchSetting>| server.borrow_mut().set_twitch(me, s).unwrap();
+        set(Some(on()));
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(alice.twitch().map(|t| t.mirror), Some(ddi_room::TwitchMirror::Bans));
+        // Her access refused at Twitch: the server turned it off.
+        set(None);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(alice.link_notice(), Some(LinkNotice::TwitchEnded));
+        assert_eq!(bob.link_notice(), None);
+        // Turned off by her own hand: nothing said.
+        set(Some(on()));
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        alice.set_link_notice(None);
+        alice.set_twitch(ddi_room::TwitchMirror::Off, ddi_room::TwitchChat::Off);
+        set(None);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(alice.link_notice(), None);
+        // She leaves with it on, the room passed on: everyone is told.
+        set(Some(on()));
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        alice.leave();
+        tick(&clock, &mut [&mut alice, &mut bob], 800);
+        assert_eq!(server.borrow().state().twitch, None);
+        assert_eq!(bob.link_notice(), Some(LinkNotice::TwitchSetterLeft { who: me }));
+    }
+
+    /// Round TW3: a newcomer the host's Twitch lists keep out sees the one
+    /// neutral line, and never "You can join now" above it (the browser
+    /// walk found both); Join stays, for a timeout that ends.
+    #[test]
+    fn a_refused_newcomers_invite_page_says_only_the_neutral_line() {
+        use crate::screens::online::{invite_page, invite_texts};
+        use ddi_l10n::msg::room as m;
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob"]);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        tick(&clock, &mut [&mut alice], 400);
+        server.borrow_mut().grant_twitch(&ddi_room::Identity::new("dev:alice"), &["bans"]);
+        let me = alice.me();
+        server
+            .borrow_mut()
+            .set_twitch(
+                me,
+                Some(ddi_room::TwitchSetting {
+                    by: me,
+                    mirror: ddi_room::TwitchMirror::Bans,
+                    chat: ddi_room::TwitchChat::Off,
+                    user_id: "1".into(),
+                    login: "alice".into(),
+                }),
+            )
+            .unwrap();
+        server.borrow_mut().bar(&ddi_room::Identity::new("dev:carol"), true);
+        let carol = person(&server, "carol");
+        carol.borrow_mut().open_invite(INVITE);
+        carol.borrow_mut().poll(1);
+        let open: String = crate::screens::online::admission_text(crate::state::online::api::Admission::Open).into();
+        assert!(invite_texts(&carol.borrow()).contains(&open));
+        carol.borrow_mut().join_invite();
+        carol.borrow_mut().poll(2);
+        carol.borrow_mut().poll(3);
+        assert_eq!(carol.borrow_mut().take_entered(), None);
+        let (notes, actions) = invite_page(&carol.borrow());
+        assert!(notes.contains(&String::from(m::link_not_admitted())), "{notes:?}");
+        assert!(!invite_texts(&carol.borrow()).contains(&open), "{:?}", invite_texts(&carol.borrow()));
+        assert!(actions.iter().any(|a| a == "join"), "{actions:?}");
     }
 
     /// "Reload to update" (round B1): an authority whose room model is

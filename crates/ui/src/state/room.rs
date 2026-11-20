@@ -1333,6 +1333,11 @@ enum Link {
 /// about the content it names.
 pub struct RoomClient {
     link: Link,
+    /// The room's Twitch setting as last seen (revision 18), and whether
+    /// this player asked it off themselves: one that ends otherwise is
+    /// said on the status line (round TW3, [`RoomClient::tell_twitch_end`]).
+    seen_twitch: Option<ddi_room::TwitchSetting>,
+    twitch_off_asked: bool,
     /// An online room before its first snapshot: nobody in it yet.
     placeholder: Option<RoomState>,
     clock: ManualClock,
@@ -2110,6 +2115,8 @@ impl RoomClient {
     ) -> RoomClient {
         RoomClient {
             link,
+            seen_twitch: None,
+            twitch_off_asked: false,
             placeholder,
             clock,
             client,
@@ -2537,6 +2544,8 @@ impl RoomClient {
         if !self.may_set_twitch() {
             return;
         }
+        self.twitch_off_asked =
+            mirror == ddi_room::TwitchMirror::Off && chat == ddi_room::TwitchChat::Off;
         if let Some(l) = self.online_link_mut() {
             l.set_twitch(mirror, chat);
         }
@@ -2589,6 +2598,32 @@ impl RoomClient {
             self.set_link_notice(Some(LinkNotice::TwitchNotConnected));
         } else {
             self.set_twitch(wanted.mirror, wanted.chat);
+        }
+    }
+
+    /// The room's Twitch setting ended without this player asking (B3,
+    /// B8, A3; round TW3): said on the status line, to everyone where the
+    /// one who set it left the room, to them where their Twitch access
+    /// ended (refused at Twitch, disconnected elsewhere).
+    fn tell_twitch_end(&mut self) {
+        if !self.is_online() || self.link_state() != LinkState::Connected {
+            return;
+        }
+        let now = self.state().twitch.clone();
+        let Some(was) = std::mem::replace(&mut self.seen_twitch, now.clone()) else {
+            return;
+        };
+        if now.is_some() {
+            return;
+        }
+        if std::mem::take(&mut self.twitch_off_asked) {
+            return;
+        }
+        let gone = self.state().member(was.by).is_none_or(|m| m.left);
+        if gone {
+            self.set_link_notice(Some(LinkNotice::TwitchSetterLeft { who: was.by }));
+        } else if was.by == self.me {
+            self.set_link_notice(Some(LinkNotice::TwitchEnded));
         }
     }
 
@@ -2970,6 +3005,7 @@ impl RoomClient {
         if before != LinkState::Connected && self.link_state() == LinkState::Connected {
             self.connected_again();
         }
+        self.tell_twitch_end();
         self.read_live();
         self.tell_spotlight();
         self.sync_preload();

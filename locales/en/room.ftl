@@ -2369,3 +2369,12 @@ room-twitch-chat-on = Twitch chat in rooms is on for this device.
 room-twitch-connecting = Connecting Twitch access…
 # The same dialog while the browser is open on Twitch's page.
 room-twitch-connect-waiting = Allow Twitch access in your browser, then come back here.
+# Round TW3: the status line where the room's Twitch bans and chat turned
+# off because this player's own Twitch access ended (Twitch refused it,
+# or it was disconnected on another device). Nobody was removed.
+room-twitch-ended = Twitch access ended: your bans and chat are off here.
+# Round TW3: the status line, to everyone, where the person whose Twitch
+# bans and chat the room used left the room, so they no longer apply.
+# Variables:
+#   $name (String) - that person's name
+room-twitch-setter-left = { $name } left: their Twitch bans and chat are off.

@@ -53,6 +53,15 @@ pub enum LinkNotice {
     /// Round TW3: the trip through Twitch for this device's "Twitch chat
     /// in rooms" connected it: the setting is on.
     TwitchChatOn,
+    /// Round TW3: this player's Twitch access ended (refused at Twitch,
+    /// disconnected elsewhere), so the room's Twitch setting, theirs,
+    /// turned off (nobody removed).
+    TwitchEnded,
+    /// Round TW3: the one whose Twitch setting the room used (`who`) left
+    /// it, so it turned off (B3).
+    TwitchSetterLeft {
+        who: ddi_room::ParticipantId,
+    },
 }
 
 /// How long the status line says a join was to watch (from the room's
