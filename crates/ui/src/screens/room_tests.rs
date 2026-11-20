@@ -7547,6 +7547,113 @@ fn a_canceled_trip_changes_nothing_and_says_so() {
     );
 }
 
+/// Round SF, item 2 (the maintainer, 2026-11-20: "On the desktop app,
+/// with the twitch device code flow the code should be rendered with
+/// emphasis and with copy on click behavior"): desktop's sign-in dialog
+/// shows the attempt's code large on a plate of its own, and a click, a
+/// tap, Enter on it or a pad's confirm copies it (the shell's clipboard,
+/// never the real one here: a request), "Copied" in the plate's place
+/// for two seconds, said once however often it is pressed. The first
+/// focus stays the dialog's action; the arrows reach the plate. It fits
+/// a small window.
+#[test]
+fn desktops_sign_in_code_is_large_and_copied_when_pressed() {
+    use crate::nav::MenuAction;
+    use crate::screens::online_home::{CODE, SignInDialog};
+    use crate::state::online::api::{ApiResponse, Method};
+    use crate::state::online::tests::{err, ok, rig};
+    use crate::state::online::{Dest, Platform};
+    use std::cell::Cell;
+    for size in [[1280.0, 720.0], [640.0, 400.0]] {
+        let r = rig(
+            Platform::Desktop,
+            Box::new(|req| match (req.method, req.path.as_str()) {
+                (Method::Get, "/me") => err(401, "signed_out"),
+                (Method::Post, "/auth/attempts") => Some(ApiResponse {
+                    status: 201,
+                    body: r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"http://api/auth/attempts/a1/open","user_code":"K7MX3Q","expires_at_ms":9}"#.into(),
+                    session: None,
+                }),
+                (Method::Get, "/auth/attempts/a1") => {
+                    ok(r#"{"status":"pending","return":"/mp","expires_at_ms":9}"#)
+                }
+                _ => None,
+            }),
+        );
+        r.online.borrow_mut().check();
+        r.online.borrow_mut().poll(0);
+        r.online.borrow_mut().sign_in(Dest::Home);
+        r.online.borrow_mut().poll(0);
+        let env = env();
+        let mut h = crate::testing::Harness::with_gestures(
+            super::DESIGN,
+            size,
+            1.0,
+            crate::TextMode::Own,
+            false,
+        );
+        h.push(SignInDialog::new(
+            env.clone(),
+            r.online.clone(),
+            Dest::Home,
+            Rc::new(Cell::new(true)),
+        ));
+        h.run(0.3);
+        let copies = |h: &Harness| -> Vec<String> {
+            h.requests
+                .iter()
+                .filter_map(|q| match q {
+                    crate::UiRequest::CopyText(t) => Some(t.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        // The code large, on its own plate, inside the dialog.
+        assert_eq!(said(&h, "Code.Text"), "K7M-X3Q");
+        assert!(
+            has(&h, "Type this code in the page your browser opened."),
+            "{:?}",
+            h.texts()
+        );
+        let text = h.ui.bounds("Code.Text").expect("drawn");
+        let plate = h.ui.bounds(CODE).expect("its plate");
+        let panel = h.ui.bounds("Panel").expect("the dialog");
+        assert!(text[3] - text[1] >= 30.0, "large: {text:?}");
+        assert!(plate[0] >= panel[0] && plate[2] <= panel[2] && plate[3] <= panel[3], "{size:?}");
+        assert!(text[0] > plate[0] && text[2] < plate[2], "{text:?} in {plate:?}");
+        assert_eq!(said(&h, "Code.Hint"), "Copy");
+        assert_eq!(h.ui.focused(), Some("Browser"), "the first focus");
+        // A click on its words: copied, said.
+        h.tap(PointerKind::Mouse, "Code.Text");
+        h.run(0.2);
+        assert_eq!(copies(&h), ["K7M-X3Q"]);
+        assert_eq!(said(&h, "Code.Hint"), "Copied");
+        // A tap on the plate's edge, then Enter on it: copied again, the
+        // words as they were.
+        h.tap_at(PointerKind::Touch, [plate[0] + 4.0, plate[1] + 4.0]);
+        h.run(1.0);
+        assert_eq!(h.ui.focused(), Some(CODE));
+        h.key("Enter", "Enter");
+        h.run(1.5);
+        assert_eq!(copies(&h).len(), 3);
+        assert_eq!(said(&h, "Code.Hint"), "Copied");
+        h.run(0.6);
+        assert_eq!(said(&h, "Code.Hint"), "Copy", "gone after a moment");
+        // From the buttons by the arrows, and a pad's confirm.
+        h.key("ArrowDown", "ArrowDown");
+        h.run(0.2);
+        assert_ne!(h.ui.focused(), Some(CODE));
+        h.key("ArrowUp", "ArrowUp");
+        h.run(0.2);
+        assert_eq!(h.ui.focused(), Some(CODE));
+        h.pad(MenuAction::Start, true);
+        h.pad(MenuAction::Start, false);
+        h.run(0.2);
+        assert_eq!(copies(&h).len(), 4);
+        assert!(copies(&h).iter().all(|c| c == "K7M-X3Q"));
+    }
+}
+
 /// Round TW3: desktop's trip through Twitch for a Twitch feature (Options'
 /// "Twitch chat in rooms", a room's Host options) shows its own dialog:
 /// the attempt's code to type in the browser's page (which no screen

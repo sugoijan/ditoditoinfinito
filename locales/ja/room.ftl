@@ -493,6 +493,9 @@ room-invite-room-address = これはルームのページのアドレスで、�
 room-sign-in-waiting = ブラウザでTwitchのサインインを済ませてから、ここに戻ってください。
 
 room-sign-in-code = ブラウザで開いたページに、このコードを入力してください：{ $code }
+room-sign-in-code-type = ブラウザで開いたページに、このコードを入力してください。
+room-sign-in-code-copy = コピー
+room-sign-in-code-copied = コピーしました
 
 room-sign-in-too-many-codes = ブラウザで間違ったコードが何度も入力されたため、サインインは終了しました。「もう一度」で新しいコードが表示されます。
 

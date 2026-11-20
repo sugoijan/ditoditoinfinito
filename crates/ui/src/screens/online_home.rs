@@ -569,7 +569,17 @@ pub struct SignInDialog {
     /// A trip through Twitch for the person's Twitch access (round TW3),
     /// not a sign-in.
     connect: Option<Connect>,
+    /// When the code was last copied (the UI's clock): its plate says so
+    /// for [`COPIED_FOR`] seconds.
+    copied: Option<f64>,
 }
+
+/// The sign-in code's plate (round SF): pressed, the code is copied.
+pub const CODE: &str = "Code";
+/// How long the code's plate says it was copied, in seconds.
+const COPIED_FOR: f64 = 2.0;
+/// The code's plate's height.
+const CODE_H: f32 = 64.0;
 
 /// A connecting [`SignInDialog`]'s trip: the scope sets asked (`chat`,
 /// `bans,blocks`…) and what is told when it ends (connected or not).
@@ -592,6 +602,41 @@ impl SignInDialog {
             seen,
             open,
             connect: None,
+            copied: None,
+        }
+    }
+
+    /// The attempt's code while the browser's page waits for it (shown
+    /// grouped, as typed there).
+    fn code(&self) -> Option<String> {
+        match self.online.borrow().sign_in_state() {
+            SignIn::Waiting { code: Some(c), .. } => Some(crate::state::online::api::grouped_code(c)),
+            _ => None,
+        }
+    }
+
+    /// The code's plate (round SF): the code large in the theme's face,
+    /// the length of the dialog's body, centered at `[cx, cy]`, `w`
+    /// wide; at its right end, small, Copy (or Copied a moment after).
+    fn code_plate(&self, code: &str, [cx, cy]: [f32; 2], w: f32) -> Vec<Actor> {
+        let env = &self.env;
+        let plate = env.component("Button", "Button", &Spec::new([w, CODE_H], ""), CODE, [cx, cy]);
+        let shown: String = UiText::data(code).into();
+        let mut text = look::tracked(env.text("Code.Text", &shown, 34.0, 700, "Text"), 160);
+        call(&mut text, "xy", &[cx, cy]);
+        text.decoration = true;
+        let hint: String = self.copy_words().into();
+        let mut hint = super::right(env.text("Code.Hint", &hint, 12.0, 600, "Muted"), cx + w / 2.0 - 14.0, cy);
+        hint.decoration = true;
+        vec![plate, text, hint]
+    }
+
+    /// The plate's small words: Copy, or Copied a moment after.
+    fn copy_words(&self) -> UiText {
+        if self.copied.is_some() {
+            m::sign_in_code_copied()
+        } else {
+            m::sign_in_code_copy()
         }
     }
 
@@ -661,7 +706,7 @@ impl SignInDialog {
             }
             SignIn::Waiting { code, .. } => (
                 code.iter()
-                    .map(|c| super::online::sign_in_code(c).into())
+                    .map(|_| m::sign_in_code_type().into())
                     .chain([m::sign_in_waiting().into()])
                     .collect(),
                 vec![
@@ -691,7 +736,7 @@ impl SignInDialog {
             }
             SignIn::Waiting { code, .. } => (
                 code.iter()
-                    .map(|c| super::online::sign_in_code(c).into())
+                    .map(|_| m::sign_in_code_type().into())
                     .chain([m::twitch_connect_waiting().into()])
                     .collect(),
                 vec![
@@ -743,18 +788,39 @@ impl Screen for SignInDialog {
         let env = self.env.clone();
         let (text, buttons) = self.content();
         let w = 520.0_f32.min(screen[0] - 32.0);
+        // The code, where there is one, on a plate of its own after the
+        // first line (the line that says to type it).
+        let code = self.code();
         let mut lines = Vec::new();
-        for t in &text {
+        let mut before = 0;
+        for (i, t) in text.iter().enumerate() {
             lines.extend(wrap_lines(t, w - 48.0, 14.0));
+            if i == 0 && code.is_some() {
+                before = lines.len();
+            }
         }
-        let h = 160.0 + lines.len() as f32 * 18.0;
+        let plate = if code.is_some() { CODE_H + 28.0 } else { 0.0 };
+        let h = 160.0 + lines.len() as f32 * 18.0 + plate;
         let title = if self.connect.is_some() {
             ddi_l10n::msg::twitch::access()
         } else {
             m::sign_in_title()
         };
         let (mut c, [x, y]) = super::dialog::shell(&env, screen, [w, h], &title);
-        dialog_body(&env, &mut c, &lines, [x, y], w, |_| "Muted");
+        match &code {
+            Some(code) => {
+                let (top, rest) = lines.split_at(before);
+                dialog_body(&env, &mut c, top, [x, y], w, |_| "Muted");
+                let cy = y + 66.0 + (top.len() as f32 - 0.5) * 18.0 + 10.0 + CODE_H / 2.0;
+                c.extend(self.code_plate(code, [x + w / 2.0, cy], w - 48.0));
+                for (i, line) in rest.iter().enumerate() {
+                    let mut b = env.text(&format!("Body{}", before + i), line, 14.0, 400, "Muted");
+                    look::ellipsized(&mut b, w - 48.0);
+                    c.push(super::left(b, x + 24.0, y + 66.0 + plate + (before + i) as f32 * 18.0));
+                }
+            }
+            None => dialog_body(&env, &mut c, &lines, [x, y], w, |_| "Muted"),
+        }
         let per_row = buttons.len();
         c.extend(button_rows(&env, &buttons, per_row, [x, y, w, h], 220.0));
         env.state.borrow_mut().page_items = buttons.iter().map(|b| b.0.to_string()).collect();
@@ -767,6 +833,11 @@ impl Screen for SignInDialog {
         let (_, buttons) = self.content();
         let mut names: Vec<&str> = buttons.iter().map(|b| b.0).collect();
         names.reverse();
+        // The code's plate last: the first focus stays the dialog's action
+        // (Open the browser again); the arrows reach the plate over it.
+        if self.code().is_some() {
+            names.push(CODE);
+        }
         names.into_iter().map(Focusable::new).collect()
     }
 
@@ -788,6 +859,12 @@ impl Screen for SignInDialog {
             let o = self.online.borrow();
             (o.version(), o.me().is_some(), o.sign_in_state().busy())
         };
+        // Copied a moment ago: said once, then Copy again.
+        if self.copied.is_some_and(|t| cx.time() - t >= COPIED_FOR) {
+            self.copied = None;
+            let words: String = self.copy_words().into();
+            crate::widgets::set_text(root, "Code.Hint", &words);
+        }
         let settled = matches!(self.online.borrow().sign_in_state(), SignIn::Idle);
         if signed_in && !busy && (self.connect.is_none() || settled) {
             let granted = self.granted();
@@ -812,7 +889,7 @@ impl Screen for SignInDialog {
         }
     }
 
-    fn input(&mut self, input: &Input, _root: &mut Actor, cx: &mut Cx) -> Handled {
+    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
         match input {
             Input::Activate { name } => {
                 match name.as_str() {
@@ -842,6 +919,19 @@ impl Screen for SignInDialog {
                         }
                     }
                     "Browser" => self.online.borrow_mut().open_browser_again(),
+                    // The code to the clipboard, as shown (the page takes
+                    // it with or without its dash); Copied in place, its
+                    // moment begun again by another press, never twice.
+                    CODE => {
+                        if let Some(code) = self.code() {
+                            cx.request(crate::UiRequest::CopyText(code));
+                            let was = self.copied.replace(cx.time());
+                            if was.is_none() {
+                                let words: String = self.copy_words().into();
+                                crate::widgets::set_text(root, "Code.Hint", &words);
+                            }
+                        }
+                    }
                     _ => {}
                 }
                 Handled::Yes
