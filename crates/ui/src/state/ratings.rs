@@ -725,6 +725,11 @@ pub enum Standing {
     NoLayout,
     /// None, nor any to come (it could not be rated, or nothing rates it).
     Unrated,
+    /// Under "From the song": its Groove values (stream, voltage, air,
+    /// freeze, chaos; `ddi_chart::groove`), raw, read from the song list
+    /// (song select's `ChartEntry::groove`), never rated in the
+    /// background.
+    Groove([f32; 5]),
 }
 
 /// Where chart `digest` (of layout `layout`, an original or a generated

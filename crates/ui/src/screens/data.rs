@@ -101,6 +101,10 @@ pub struct ChartEntry {
     /// What kind of version the game made it as, which the list marks
     /// ("Without center", "From Pump single"); `None` for an original.
     pub version: Option<ddi_chart::simplify::Kind>,
+    /// Its Groove values (`ddi_library::manifest::ChartInfo::groove`):
+    /// the radar under "Chart ratings: From the song". `None` where the
+    /// library has none yet.
+    pub groove: Option<[f32; 5]>,
 }
 
 impl ChartEntry {
@@ -126,6 +130,7 @@ impl ChartEntry {
             best: None,
             digest: None,
             version: c.derivation.as_ref().map(ddi_chart::simplify::Derivation::kind),
+            groove: ddi_library::manifest::groove_of(song, index, ddi_library::manifest::song_length(song)),
         })
     }
 

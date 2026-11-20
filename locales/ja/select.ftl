@@ -93,6 +93,12 @@ select-radar-estimate-unit = 同じくらいの難しさの譜面と比べたス
 select-radar-outside = 利用できません
 select-radar-estimate-layout = DDI推定はシングルの譜面のみです
 select-radar-estimate-none = この譜面の推定はありません
+select-radar-groove-stream = ストリーム
+select-radar-groove-voltage = ボルテージ
+select-radar-groove-air = エアー
+select-radar-groove-freeze = フリーズ
+select-radar-groove-chaos = カオス
+select-radar-groove-overall = 曲
 
 select-version-without-onigiri = おにぎりなし
 

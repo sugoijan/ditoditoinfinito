@@ -269,6 +269,20 @@ pub struct ChartInfo {
     /// one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub estimate: Option<ChartEstimate>,
+    /// Its Groove values (stream, voltage, air, freeze, chaos;
+    /// [`ddi_chart::groove`], as StepMania 5.1 computes its radar values,
+    /// over the song's [`ManifestEntry::length`]), to the thousandth: song
+    /// select's radar under "Chart ratings: From the song". Filled by the
+    /// import's core and `xtask gen-songs`, and for older imports when the
+    /// song's chart is next read ([`crate::works::fill_chart_keys`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub groove: Option<[f32; 5]>,
+}
+
+/// `song`'s chart `index`'s Groove values over the song's `length` (the
+/// list's), to the thousandth, as [`ChartInfo::groove`] keeps them.
+pub fn groove_of(song: &Song, index: usize, length: f64) -> Option<[f32; 5]> {
+    ddi_chart::groove::of(song, index, length).map(|v| v.map(|x| (x * 1000.0).round() / 1000.0))
 }
 
 /// What the game keeps of a chart's DDI estimate (`ddi_rating::Estimate`,
@@ -364,6 +378,7 @@ impl ChartInfo {
             music: None,
             msd: None,
             estimate: None,
+            groove: None,
         }
     }
 }
@@ -447,10 +462,12 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         .filter(|l| indexed.iter().any(|(_, c)| c.layout == l.id))
         .cloned()
         .collect();
+    let length = song_length(song);
     let charts = indexed
         .into_iter()
         .map(|(index, c)| ChartInfo {
             excessive: ddi_engine::rules::danoni::chart_excessive(c),
+            groove: groove_of(song, index, length),
             ..ChartInfo::of(index, c, Some(song.chart_digest(index)))
         })
         .collect();
@@ -482,7 +499,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         bpm,
         preview_start: finite(song.preview_start),
         preview_length: finite(song.preview_length),
-        length: song_length(song),
+        length,
         charts,
         title_translit: [song.title_translit.trim(), song.subtitle_translit.trim()]
             .into_iter()

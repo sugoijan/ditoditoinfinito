@@ -50,7 +50,8 @@ use files::{DirReader, Listed, ZipReader};
 pub const FOLDERS_KEY: &str = "ddi.desktop.folders.v1";
 /// Packs and songs the player removed from the list (files kept).
 pub const HIDDEN_KEY: &str = "ddi.desktop.hidden.v1";
-/// The cache's file (in the cache folder) and version (13: what the
+/// The cache's file (in the cache folder) and version (14: the charts'
+/// Groove values, `ChartInfo::groove`; 13: what the
 /// scan found kept as values, `ddi_library::report::Finding`; 12: pump
 /// single and 5 keys converted to each other; 11: generated
 /// center-free pump charts; 10: FFR levels
@@ -60,7 +61,7 @@ pub const HIDDEN_KEY: &str = "ddi.desktop.hidden.v1";
 /// files named with `,` or `=`; 6: pack covers;
 /// version 5 added generated onigiri-free charts).
 pub const CACHE_FILE: &str = "library-v1.json";
-const CACHE_VERSION: u32 = 13;
+const CACHE_VERSION: u32 = 14;
 
 /// The song folders the settings list.
 pub fn folders() -> Vec<PathBuf> {

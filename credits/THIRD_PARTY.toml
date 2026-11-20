@@ -70,6 +70,17 @@ license_url = "https://github.com/stepmania/stepmania/blob/825467bcd81c812b33ad6
 notice = "LICENSES/LicenseRef-StepMania.txt"
 
 [[code]]
+name = "StepMania 5.1 (5_1-new)"
+what = "How it computes a chart's radar values (stream, voltage, air, freeze, chaos) in src/NoteDataUtil.cpp's CalculateRadarValues, with NoteData::GetLastRow and GetNoteType: restated in Rust for song select's Groove radar."
+files = ["crates/chart/src/groove.rs"]
+spdx = "LicenseRef-StepMania"
+holders = ["Chris Danford, Glenn Maynard, the StepMania development team, et al."]
+source = "https://github.com/stepmania/stepmania"
+commit = "7cbaff8ce2dcbede32dd3d6f3f2d8fafeafd674e"
+license_url = "https://github.com/stepmania/stepmania/blob/7cbaff8ce2dcbede32dd3d6f3f2d8fafeafd674e/Docs/Licenses.txt"
+notice = "LICENSES/LicenseRef-StepMania.txt"
+
+[[code]]
 name = "StepMania 3.9"
 what = "The metrics.ini of its dance/default and dance/flat noteskins, byte for byte: the stand-ins StepMania 3.9 and OpenITG noteskins fall back to."
 files = [

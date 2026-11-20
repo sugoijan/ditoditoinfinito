@@ -233,6 +233,7 @@ fn song_entry<'a>(
                 best: best_of(entry, c, settings, bests, keys),
                 digest: c.digest,
                 version: c.derivation.as_ref().map(Derivation::kind),
+                groove: c.groove,
             })
             .collect(),
         removable: s.removable,
@@ -281,6 +282,7 @@ pub fn plain_song_entry(entry: &ManifestEntry) -> SongEntry {
                 best: None,
                 digest: c.digest,
                 version: c.derivation.as_ref().map(Derivation::kind),
+                groove: c.groove,
             })
             .collect(),
         title_translit: entry.title_translit.clone(),

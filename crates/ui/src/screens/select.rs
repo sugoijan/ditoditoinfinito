@@ -347,6 +347,12 @@ const RADAR_MORPH: f64 = 0.22;
 /// How often new ratings are shown, seconds (they come a few at a time).
 const RATINGS_REFRESH: f64 = 0.3;
 
+/// A Groove value as the radar writes it: a hundred times it, whole
+/// (StepMania's values are 0 to 1 on its radar, and may run past 1).
+fn groove_number(x: f32) -> String {
+    format!("{}", (x.max(0.0) * 100.0).round() as i64)
+}
+
 /// Text read from a song's files (its title, artist, a chart's name):
 /// data, none where there is none.
 fn data(s: &str) -> String {
@@ -1791,6 +1797,22 @@ impl SelectScreen {
                     m::radar_estimate_overall().into(),
                 ))
             }
+            // From the song: the five Groove values, each spoke as
+            // StepMania's radar draws it (0 to 1, clamped), its number a
+            // hundred times the value; the caption the song's own number.
+            Some(Standing::Groove(v)) => {
+                let meter = {
+                    let (charts, pick) = self.charts();
+                    pick.and_then(|p| charts.get(p)).map_or(0, |c| c.meter)
+                };
+                Some((
+                    std::iter::once(meter.to_string())
+                        .chain(v.iter().map(|x| groove_number(*x)))
+                        .collect(),
+                    v.iter().map(|x| x.clamp(0.0, 1.0)).collect(),
+                    m::radar_groove_overall().into(),
+                ))
+            }
             _ => None,
         };
         let radar = match (standing, shape) {
@@ -1831,6 +1853,19 @@ impl SelectScreen {
                 if drawn.len() == 8 {
                     full.push(m::radar_evasion_full().into());
                     short.push(m::radar_evasion().into());
+                }
+                // The Groove radar's five.
+                if drawn.len() == 5 {
+                    full = [
+                        m::radar_groove_stream(),
+                        m::radar_groove_voltage(),
+                        m::radar_groove_air(),
+                        m::radar_groove_freeze(),
+                        m::radar_groove_chaos(),
+                    ]
+                    .map(String::from)
+                    .to_vec();
+                    short = full.clone();
                 }
                 let words = crate::radar::Words {
                     full: &full,
@@ -1896,6 +1931,10 @@ impl SelectScreen {
         let song = self.song()?;
         let (charts, pick) = self.charts();
         let c = charts.get(pick?)?;
+        // From the song: its Groove values, every chart's at once.
+        if crate::state::ratings::source() == crate::state::ratings::Source::Song {
+            return Some(c.groove.map_or(crate::state::ratings::Standing::Unrated, crate::state::ratings::Standing::Groove));
+        }
         Some(crate::state::ratings::standing(
             &song.id,
             c.digest,
@@ -1923,7 +1962,7 @@ impl SelectScreen {
         use crate::state::ratings::Standing;
         if self.layout.radar {
             return match self.radar_standing() {
-                Some(Standing::Rated(_) | Standing::Profile(_)) => "shown",
+                Some(Standing::Rated(_) | Standing::Profile(_) | Standing::Groove(_)) => "shown",
                 Some(Standing::Outside) => "outside",
                 Some(Standing::Rating) => "rating",
                 Some(Standing::NoLayout) => "no-layout",

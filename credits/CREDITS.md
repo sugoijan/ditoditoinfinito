@@ -386,6 +386,105 @@ https://github.com/sukibaby
 
 </details>
 
+### StepMania 5.1 (5_1-new)
+
+How it computes a chart's radar values (stream, voltage, air, freeze, chaos) in src/NoteDataUtil.cpp's CalculateRadarValues, with NoteData::GetLastRow and GetNoteType: restated in Rust for song select's Groove radar. Source: https://github.com/stepmania/stepmania at commit `7cbaff8ce2dcbede32dd3d6f3f2d8fafeafd674e`; licence: [StepMania's licence (MIT-style)](https://github.com/stepmania/stepmania/blob/7cbaff8ce2dcbede32dd3d6f3f2d8fafeafd674e/Docs/Licenses.txt). Files: `crates/chart/src/groove.rs`.
+
+<details><summary>Notice</summary>
+
+```text
+The following license applies to most of the sm-ssc additions:
+
+sm-ssc is copyright © AJ Kelly, Midiman, shakesoda (referred to as
+"the spinal shark collective" hereafter), and other contributors.
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, and/or sell copies of the Software, and to permit persons to
+whom the Software is furnished to do so, provided that the above
+copyright notice(s) and this permission notice appear in all copies of
+the Software and that both the above copyright notice(s) and this
+permission notice appear in supporting documentation.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF
+THIRD PARTY RIGHTS. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS
+INCLUDED IN THIS NOTICE BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT
+OR CONSEQUENTIAL DAMAGES, OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+
+The rest of the codebase is then licensed as follows:
+******************************************************************************
+
+StepMania is (c) Chris Danford, the StepMania development team, et al.
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, and/or sell copies of the Software, and to permit persons to
+whom the Software is furnished to do so, provided that the above
+copyright notice(s) and this permission notice appear in all copies of
+the Software and that both the above copyright notice(s) and this
+permission notice appear in supporting documentation.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF
+THIRD PARTY RIGHTS. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS
+INCLUDED IN THIS NOTICE BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT
+OR CONSEQUENTIAL DAMAGES, OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+
+******************************************************************************
+
+Some code from ITGmania (while it was MIT licensed) has been merged back
+into the StepMania codebase. The relevant code spans from the beginning
+of ITGmania (https://github.com/itgmania/itgmania/tree/v0.5.1) to
+9737482f7c50dccd52ea36aecad7127fbbf942f4 (September 2024).
+
+These following people made this possible:
+https://github.com/natano
+https://github.com/jenxness
+https://github.com/teejusb
+https://github.com/dinsfire64
+https://github.com/JeffreyATW
+https://github.com/zachwalton
+https://github.com/telperion
+https://github.com/tertu-m
+https://github.com/quietly-turning
+https://github.com/jsirex
+https://github.com/bphlipot
+https://github.com/Alhetus
+https://github.com/geefr
+https://github.com/SheepyChris
+https://github.com/CrashCringle12
+https://github.com/bkirz
+https://github.com/ScottBrenner
+https://github.com/sergioperez
+https://github.com/mjvotaw
+https://github.com/SugoiFactory
+https://github.com/aeubanks
+https://github.com/x0rbl
+https://github.com/48productions
+https://github.com/glitchybear
+https://github.com/phantom10111
+https://github.com/florczakraf
+https://github.com/Pete-Lawrence
+https://github.com/sukibaby
+```
+
+</details>
+
 ### StepMania 3.9
 
 The metrics.ini of its dance/default and dance/flat noteskins, byte for byte: the stand-ins StepMania 3.9 and OpenITG noteskins fall back to. Source: https://github.com/stepmania/stepmania at commit `5d417c1f1ab6a1bf090b4ba21a3ca37e8d4af892`; licence: [StepMania's licence (MIT-style)](https://github.com/stepmania/stepmania/blob/5d417c1f1ab6a1bf090b4ba21a3ca37e8d4af892/stepmania/Docs/Copying.txt). Files: `crates/noteskin/src/builtin/stepmania39/dance/default/metrics.ini`, `crates/noteskin/src/builtin/stepmania39/dance/flat/metrics.ini`.

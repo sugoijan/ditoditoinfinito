@@ -240,6 +240,18 @@ select-radar-outside = Not available
 select-radar-estimate-layout = The DDI estimate is for Single charts
 # In the radar's place under the DDI estimate where none could be made.
 select-radar-estimate-none = No estimate for this chart
+# The radar under Chart ratings: From the song (the "Groove" radar): its
+# five spokes, the chart's values as StepMania computes its radar values
+# (how dense its notes are on the whole, at its densest, its jumps, its
+# holds, its notes off the beat's eighths). Short, a word each.
+select-radar-groove-stream = Stream
+select-radar-groove-voltage = Voltage
+select-radar-groove-air = Air
+select-radar-groove-freeze = Freeze
+select-radar-groove-chaos = Chaos
+# Its caption's word, before the chart's own number from the song
+# ("Song 9", as the chart's line says it).
+select-radar-groove-overall = Song
 
 # A chart version the game makes from another (Options → Notes →
 # Simplify and Convert), marked before its notes in the ladder and after

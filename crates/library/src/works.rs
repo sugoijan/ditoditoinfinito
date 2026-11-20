@@ -368,6 +368,18 @@ pub fn fill_chart_keys(entry: &mut ManifestEntry, song: &Song) {
             c.excessive = ddi_engine::rules::danoni::chart_excessive(&song.charts[c.index]);
         }
     }
+    // The Groove values over the song's length (the list's, worked out
+    // here where an older entry has none).
+    let length = if entry.length > 0.0 {
+        entry.length
+    } else {
+        crate::manifest::song_length(song)
+    };
+    for c in &mut entry.charts {
+        if c.index < song.charts.len() {
+            c.groove = crate::manifest::groove_of(song, c.index, length);
+        }
+    }
     entry.variants_version = crate::manifest::chart_variants_version(song);
 }
 

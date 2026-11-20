@@ -144,7 +144,7 @@ fn msd_takes_the_numbers_place_and_the_rest_wait_for_rating() {
 #[test]
 fn the_radar_shows_for_a_rated_chart_with_its_option_on() {
     let _store = fresh();
-    ratings::set_mode(crate::state::ratings::Source::Song, true);
+    ratings::set_mode(crate::state::ratings::Source::Msd, true);
     ratings::done(
         "s0",
         vec![ratings::Rated {
@@ -171,8 +171,8 @@ fn the_radar_shows_for_a_rated_chart_with_its_option_on() {
     h.tap(PointerKind::Mouse, "Chart1");
     h.run(0.5);
     assert!(h.ui.bounds("Radar").is_some());
-    // The numbers stay the song's with Chart ratings on the song's.
-    assert_eq!(hard.meter_text(), "9");
+    // The numbers MSD's with Chart ratings on MSD.
+    assert_eq!(hard.meter_text(), "20");
     // The radar's place is always there (no Off form, no ladder).
     ratings::set_mode(crate::state::ratings::Source::Song, false);
     h.run(0.6);
@@ -207,7 +207,7 @@ fn the_radar_shows_at_every_wide_size() {
         ("1280x720 window 133%", [962.0, 459.0], false),
     ] {
         let _store = fresh();
-        ratings::set_mode(crate::state::ratings::Source::Song, true);
+        ratings::set_mode(crate::state::ratings::Source::Msd, true);
         ratings::done(
             "s0",
             vec![ratings::Rated {
@@ -262,14 +262,27 @@ fn the_radar_s_labels_never_overlap() {
             m::radar_technical(),
         ]
         .map(String::from);
-        // MSD's seven, and the DDI estimate's eight (Evasion the eighth).
-        for spokes in [7usize, 8] {
+        // MSD's seven, the DDI estimate's eight (Evasion the eighth), and
+        // the Groove radar's five.
+        for spokes in [5usize, 7, 8] {
             let mut full = full.to_vec();
             let mut short = short.to_vec();
             let overall: String = if spokes == 8 {
                 full.push(m::radar_evasion_full().into());
                 short.push(m::radar_evasion().into());
                 m::radar_estimate_overall().into()
+            } else if spokes == 5 {
+                full = [
+                    m::radar_groove_stream(),
+                    m::radar_groove_voltage(),
+                    m::radar_groove_air(),
+                    m::radar_groove_freeze(),
+                    m::radar_groove_chaos(),
+                ]
+                .map(String::from)
+                .to_vec();
+                short = full.clone();
+                m::radar_groove_overall().into()
             } else {
                 m::radar_overall().into()
             };
@@ -280,17 +293,32 @@ fn the_radar_s_labels_never_overlap() {
             };
             let numbers: Vec<String> =
                 (0..=spokes).map(|k| radar::number(28.0 + k as f32 * 1.11)).collect();
-            for h in [191.0, 208.0, 271.0, 320.0] {
-                let size = [338.0, h];
+            for size in [[338.0, 191.0], [338.0, 208.0], [338.0, 271.0], [338.0, 320.0], [256.0, 256.0]] {
+                let [w, h] = size;
+                // Seven or eight names in the doubled pseudo-language do
+                // not fit a square at all (a known limit of the square:
+                // nothing ships that wide).
+                if w == h && lang == "qps-wide" && spokes != 5 {
+                    continue;
+                }
                 let p = radar::place(size, &words, &numbers);
                 let what = format!("{lang} {spokes} {size:?}: {p:?}");
-                assert!(p.radius >= 40.0, "{what}");
+                // The squares (song select's, 256 at 1280 × 720) hold a
+                // smaller shape than the wide panels did.
+                // (The pseudo-languages' long labels may leave the
+                // squares' shapes small, never overlapping.)
+                let least = match (w == h, lang.starts_with("qps")) {
+                    (_, true) => crate::radar::MIN_RADIUS,
+                    (false, false) => 40.0,
+                    (true, false) => 30.0,
+                };
+                assert!(p.radius >= least, "{what}");
                 assert_eq!(p.labels.len(), spokes);
                 let mut all = p.labels.to_vec();
                 all.push(p.caption);
                 for (i, a) in all.iter().enumerate() {
                     assert!(
-                        a[0] >= -169.0 && a[2] <= 169.0 && a[1] >= -h / 2.0 && a[3] <= h / 2.0,
+                        a[0] >= -w / 2.0 && a[2] <= w / 2.0 && a[1] >= -h / 2.0 && a[3] <= h / 2.0,
                         "{what}: {i} outside"
                     );
                     assert!(!radar::meets_shape(*a, p.radius, spokes), "{what}: {i} on the shape");
@@ -383,12 +411,43 @@ fn the_chart_buttons_pick_and_the_radar_follows() {
     ratings::set_mode(crate::state::ratings::Source::Song, false);
 }
 
+/// Under "From the song" the radar is the Groove radar: the chart's five
+/// values from the song list, every chart of every layout at once (none
+/// rated in the background for it), each spoke's number a hundred times
+/// its value, the caption the song's own number.
+#[test]
+fn from_the_song_draws_the_groove_radar_for_every_layout() {
+    let _store = fresh();
+    ratings::set_mode(crate::state::ratings::Source::Song, true);
+    let mut data = songs();
+    for c in &mut data.songs[0].charts {
+        c.style = "dance-double".into();
+        c.groove = Some([0.42, 0.61, 0.1, 1.3, 0.0]);
+    }
+    data.style = Some("dance-double".into());
+    let (h, e) = select_at(data, [1280.0, 720.0]);
+    assert_eq!(radar_said(&e), "shown");
+    assert!(h.ui.bounds("Radar").is_some());
+    assert!(h.ui.actor("Label4").is_some() && h.ui.actor("Label5").is_none(), "five spokes");
+    let texts = h.texts();
+    for want in ["Stream", "Voltage", "Air", "Freeze", "Chaos", "Song", "9", "42", "61", "130"] {
+        assert!(texts.iter().any(|t| t == want), "{want} in {texts:?}");
+    }
+    // A chart the library has no values for yet: the quiet line.
+    let mut data = songs();
+    data.songs[0].charts[1].groove = None;
+    let (h, e) = select_at(data, [1280.0, 720.0]);
+    assert_eq!(radar_said(&e), "unrated");
+    assert!(h.ui.bounds("RadarNote").is_some());
+    ratings::set_mode(crate::state::ratings::Source::Song, false);
+}
+
 /// Round Z1: a chart not four lanes says so in the radar's place, with its
 /// lines.
 #[test]
 fn a_chart_of_another_layout_says_it_has_no_rating() {
     let _store = fresh();
-    ratings::set_mode(crate::state::ratings::Source::Song, true);
+    ratings::set_mode(crate::state::ratings::Source::Msd, true);
     let mut data = songs();
     for c in &mut data.songs[0].charts {
         c.style = "dance-double".into();

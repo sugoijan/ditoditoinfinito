@@ -19,6 +19,14 @@ path = ["crates/chart/src/layout/mod.rs"]
 SPDX-FileCopyrightText = ["すごいジャン <me@sugoijan.dev>", "Chris Danford, the StepMania development team, et al."]
 SPDX-License-Identifier = "MIT AND LicenseRef-StepMania"
 
+# A chart's Groove values: the logic of StepMania 5.1's
+# NoteDataUtil::CalculateRadarValues (src/NoteDataUtil.cpp, 5_1-new at
+# 7cbaff8), restated in Rust; the tests and the rest are our own MIT work.
+[[annotations]]
+path = ["crates/chart/src/groove.rs"]
+SPDX-FileCopyrightText = ["すごいジャン <me@sugoijan.dev>", "Chris Danford, Glenn Maynard, the StepMania development team, et al."]
+SPDX-License-Identifier = "MIT AND LicenseRef-StepMania"
+
 # HUD digit distance masks from bundled Iosevka Term SemiBold, with the
 # project's existing title artwork. Reproduction: tools/play-hud-design/generate.py.
 [[annotations]]

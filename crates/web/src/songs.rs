@@ -443,6 +443,9 @@ async fn load_imported() -> Result<(Vec<ImportedSong>, Vec<String>), String> {
     let db = Db::open().await?;
     let mut songs = Vec::new();
     let mut unreadable = Vec::new();
+    // Records given their charts' Groove values here, kept once
+    // (`ddi_library::manifest::ChartInfo::groove`).
+    let mut upgraded = Vec::new();
     for (id, value) in db.entries(idb::SONGS).await? {
         // A new song the editor is taking away.
         if crate::editor::dropped(&id) {
@@ -453,16 +456,24 @@ async fn load_imported() -> Result<(Vec<ImportedSong>, Vec<String>), String> {
             .and_then(|json| serde_json::from_str::<ImportedSong>(&json).ok())
         {
             Some(mut song) => {
-                if song.entry.needs_chart_variants() {
+                let groove = song.entry.charts.iter().any(|c| c.groove.is_none());
+                if song.entry.needs_chart_variants() || groove {
                     let found = Found {
                         entry: song.entry.clone(),
                         origin: Origin::Imported(song.pack.clone()),
                         record: Some(song.clone()),
                     };
                     if let Ok(parsed) = parse_found(&found).await {
-                        ddi_library::works::fill_chart_keys(&mut song.entry, &parsed);
                         if song.entry.length <= 0.0 {
                             song.entry.length = ddi_library::manifest::song_length(&parsed);
+                        }
+                        ddi_library::works::fill_chart_keys(&mut song.entry, &parsed);
+                        if groove && let Ok(json) = serde_json::to_string(&song) {
+                            upgraded.push(Write::Put {
+                                store: idb::SONGS,
+                                key: id.clone(),
+                                value: JsValue::from_str(&json),
+                            });
                         }
                     }
                 }
@@ -470,6 +481,9 @@ async fn load_imported() -> Result<(Vec<ImportedSong>, Vec<String>), String> {
             }
             None => unreadable.push(id),
         }
+    }
+    if !upgraded.is_empty() {
+        let _ = db.write(upgraded).await;
     }
     songs.sort_by_cached_key(|s| (s.pack.to_lowercase(), s.entry.title.to_lowercase()));
     Ok((songs, unreadable))
@@ -1016,17 +1030,17 @@ async fn fill_digests(found: &Found, song: &Song) {
         .entry
         .charts
         .iter()
-        .all(|c| c.digest.is_some() && (!danoni || c.excessive.is_some()))
+        .all(|c| c.digest.is_some() && c.groove.is_some() && (!danoni || c.excessive.is_some()))
         && record.entry.length > 0.0
         && !record.entry.needs_chart_variants()
     {
         return;
     }
     let mut record = record.clone();
-    ddi_library::works::fill_chart_keys(&mut record.entry, song);
     if record.entry.length <= 0.0 {
         record.entry.length = ddi_library::manifest::song_length(song);
     }
+    ddi_library::works::fill_chart_keys(&mut record.entry, song);
     let Ok(json) = serde_json::to_string(&record) else {
         return;
     };

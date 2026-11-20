@@ -501,6 +501,10 @@ fn edge_at(
                 -h / 2.0 + m
             } else if dy > 0.5 {
                 h / 2.0 - m - th
+            } else if dy.abs() > 0.25 {
+                // A side spoke leaning up or down (the Groove radar's
+                // five): the label at its spoke's height.
+                dy * (h / 2.0 - m - th / 2.0) - th / 2.0
             } else {
                 -th / 2.0
             };
