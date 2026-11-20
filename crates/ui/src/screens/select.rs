@@ -3022,10 +3022,15 @@ impl SelectScreen {
         }
         let row = f64::from(self.layout.row);
         let fast = self.list.speed() > row * f64::from(FLICK_ROWS);
-        // Every wheel item is a row high (headers too).
+        // Every wheel item is a row high (headers too). The list's own
+        // line: a room's list is shorter than the wheel's region, under
+        // its tabs and status line (round SF).
         let on_line = self.list.selected().is_some_and(|i| {
             let mid = (i as f64 + 0.5) * row - self.list.scroll();
-            let line = f64::from(self.layout.wheel[3]) * 0.5;
+            let line = self
+                .list
+                .focus_line()
+                .unwrap_or(f64::from(self.layout.wheel[3]) * 0.5);
             ((mid - line) / row).abs() < 0.5
         });
         let shut = fast || !on_line;

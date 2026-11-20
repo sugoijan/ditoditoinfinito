@@ -379,8 +379,9 @@ impl List {
         f64::from(self.config.rect[3])
     }
 
-    /// The wheel's focus line, from the top.
-    fn focus_line(&self) -> Option<f64> {
+    /// A wheel's focus line, where the selected item's middle rests, from the
+    /// list's top in its units (`None` for a plain list).
+    pub fn focus_line(&self) -> Option<f64> {
         match self.config.style {
             ListStyle::Plain => None,
             ListStyle::Wheel { focus } => Some(self.height_shown() * f64::from(focus)),

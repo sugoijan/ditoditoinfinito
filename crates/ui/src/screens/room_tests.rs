@@ -3767,6 +3767,75 @@ fn a_room_made_shows_no_view_until_it_answers_and_then_the_hosts_once() {
     }
 }
 
+/// A look over the plain one that keeps how open song select left the
+/// wheel's room for its selected row (`Look::set_wheel_open`).
+struct Opening(std::cell::Cell<f32>);
+
+impl crate::look::Look for Opening {
+    fn component(&self, name: &str, spec: &crate::look::Spec) -> Option<ddi_actor::Actor> {
+        crate::look::Plain.component(name, spec)
+    }
+    fn color(&self, name: &str) -> Option<ddi_actor::Rgba> {
+        crate::look::Plain.color(name)
+    }
+    fn wheel(&self, list: &str, distance: f32) -> Option<crate::look::WheelPlace> {
+        crate::look::Plain.wheel(list, distance)
+    }
+    fn set_wheel_open(&self, _list: &str, open: f32) {
+        self.0.set(open);
+    }
+    fn wheel_open(&self, _list: &str) -> f32 {
+        self.0.get()
+    }
+}
+
+/// Round SF, item 4 (the maintainer, 2026-11-20: "on a private room, the
+/// song in focus gets a larger card only when changing focus, but then it
+/// returns to the normal size"): the selected row's room on the wheel's
+/// line stays open at rest on both of an online room's tabs, as in
+/// singleplayer and practice. The screen took the row for off its line
+/// by the whole wheel's middle, not the room's list's (under its tabs
+/// and status line), and closed it once the glide ended.
+#[test]
+fn the_selected_row_stays_large_at_rest_in_an_online_room() {
+    let opening = || {
+        Env::new(
+            Rc::new(Opening(std::cell::Cell::new(0.0))),
+            Rc::new(|s: &str| s.to_string()),
+        )
+    };
+    let open = |env: &Env| env.look.wheel_open("Wheel");
+    let titles = ["Alpha One", "Alpha Two", "Alpha Three", "Alpha Four"];
+    let t = Three::new(false);
+    let orders = Orders::default();
+    let ea = opening();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&titles), &orders);
+    listed(&t, &titles, 1);
+    t.settle(600, &mut [&mut ha]);
+    let rooms = [&t.alice, &t.bob, &t.carol];
+    for tab in ["room", "mine"] {
+        assert_eq!(view(&ea).tab.as_deref(), Some(tab));
+        frames(&t.clock, &rooms, &mut ha, 1.0, &[]);
+        assert_eq!(open(&ea), 1.0, "{tab}: at rest");
+        for key in ["ArrowDown", "ArrowDown", "ArrowUp"] {
+            ha.key(key, key);
+            frames(&t.clock, &rooms, &mut ha, 1.0, &[]);
+            assert_eq!(open(&ea), 1.0, "{tab}: at rest after {key}");
+        }
+        ha.key("KeyM", "m");
+        frames(&t.clock, &rooms, &mut ha, 0.5, &[]);
+    }
+    // CPU practice, the same.
+    let ep = opening();
+    let room = RoomClient::shared(0, 1);
+    let mut hp = harness();
+    hp.push(room_select(&ep, room.clone(), "dance-single", &orders));
+    hp.run(1.0);
+    hp.key("ArrowDown", "ArrowDown");
+    hp.run(1.0);
+    assert_eq!(open(&ep), 1.0, "practice");
+}
+
 /// Round SF (the maintainer, 2026-11-20: "I keep seeing a 'Joining the
 /// room...' message drawn on top of the song list even though I *am*
 /// already connected"). Desktop keeps the room's song select under the
