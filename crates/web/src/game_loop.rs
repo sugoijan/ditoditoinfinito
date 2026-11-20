@@ -930,8 +930,21 @@ impl GameLoop {
             // statistics (`chat-overlay-v0`), its images (ready, in
             // flight, failed, hosts through the proxy), whether new items
             // are held back, the layer's opacity and the main thread's
-            // milliseconds it took.
+            // milliseconds it took; round TW4: the level and style shown
+            // (`"Emotes"`/`"Messages"`, `"Across"`/`"Falling"`), the
+            // animation clock (ms), the animated emotes ready and their
+            // atlas units, and each emote drawn (its item, rect, the
+            // cell that showed, whether it moves).
             "chat": self.view.chat_drawn().map(|c| json!({
+                "shown": c.shown.map(|(l, s)| [format!("{l:?}"), format!("{s:?}")]),
+                "anim_ms": c.anim_ms,
+                "animated": [c.animated.0, c.animated.1],
+                "emotes_drawn": c.emotes_drawn.iter().map(|e| json!({
+                    "item": e.item,
+                    "rect": e.rect,
+                    "cell": e.cell,
+                    "animated": e.animated,
+                })).collect::<Vec<_>>(),
                 "items": c.items,
                 "runs": c.runs,
                 "emotes": c.emotes,

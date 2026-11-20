@@ -84,6 +84,12 @@ struct Played {
     tally: String,
     /// Song seconds and items of each frame drawn.
     timeline: Vec<(f64, usize)>,
+    /// At each shot: its song second, its picture and the chat drawn.
+    seen: Vec<(f64, Vec<u8>, Option<ddi_shell::chat::ChatDrawn>)>,
+    /// The levels and styles the frames showed.
+    shown: Vec<(Level, Style)>,
+    /// The animation clock at its most, milliseconds.
+    anim_ms: u64,
 }
 
 fn stat(v: &[f64]) -> String {
@@ -214,6 +220,12 @@ fn play(s: &Scenario) -> Option<Played> {
             played.items = played.items.max(c.items);
             played.emotes = played.emotes.max(c.emotes);
             played.stats = c.stats;
+            played.anim_ms = played.anim_ms.max(c.anim_ms);
+            if let Some(shown) = c.shown
+                && !played.shown.contains(&shown)
+            {
+                played.shown.push(shown);
+            }
             for t in &c.texts {
                 if !played.texts.contains(t) {
                     played.texts.push(t.clone());
@@ -237,13 +249,14 @@ fn play(s: &Scenario) -> Option<Played> {
             let t = shots.next().unwrap();
             let _ = device.poll(wgpu::PollType::wait_indefinitely());
             let pixels = gpu::read_rgba(&device, &queue, &target.texture);
-            common::shot(&format!("{}-{t:04.1}s.png", s.name), &pixels, size);
+            common::shot(&format!("{}-{t:05.2}s.png", s.name), &pixels, size);
             eprintln!(
                 "{} at {t:.1} s: {} items, {} emotes",
                 s.name,
                 chat.as_ref().map_or(0, |c| c.items),
                 chat.as_ref().map_or(0, |c| c.emotes)
             );
+            played.seen.push((song_t, pixels, chat.clone()));
         }
         frames += 1;
         if song_t > last + 0.2 && shots.peek().is_none() && s.measure.is_none_or(|_| measured >= 240)
@@ -453,3 +466,141 @@ fn study() {
         }
     }
 }
+
+/// Each item's emotes at one frame, in order, by item.
+fn by_item(c: &ddi_shell::chat::ChatDrawn) -> std::collections::BTreeMap<u64, Vec<ddi_shell::chat::EmoteDrawn>> {
+    let mut out: std::collections::BTreeMap<u64, Vec<_>> = Default::default();
+    for e in &c.emotes_drawn {
+        out.entry(e.item).or_default().push(e.clone());
+    }
+    out
+}
+
+/// The mean difference of two pictures' pixels inside `a` and `b` (the
+/// same emote's rects at two moments), each read from its own place.
+fn crop_difference(size: [u32; 2], (pa, a): (&[u8], [f32; 4]), (pb, b): (&[u8], [f32; 4])) -> f64 {
+    let w = (a[2] - a[0]).min(b[2] - b[0]).floor() as i64 - 4;
+    let h = (a[3] - a[1]).min(b[3] - b[1]).floor() as i64 - 4;
+    let (ax, ay, bx, by) = (
+        a[0].round() as i64 + 2,
+        a[1].round() as i64 + 2,
+        b[0].round() as i64 + 2,
+        b[1].round() as i64 + 2,
+    );
+    let mut sum = 0u64;
+    let mut n = 0u64;
+    for y in 0..h.max(0) {
+        for x in 0..w.max(0) {
+            let at = |px: i64, py: i64| ((py * i64::from(size[0]) + px) * 4) as usize;
+            let (i, j) = (at(ax + x, ay + y), at(bx + x, by + y));
+            if i + 3 > pa.len() || j + 3 > pb.len() {
+                continue;
+            }
+            for k in 0..3 {
+                sum += u64::from(pa[i + k].abs_diff(pb[j + k]));
+            }
+            n += 3;
+        }
+    }
+    sum as f64 / n.max(1) as f64
+}
+
+/// Round TW4: animated emotes move, every copy of one on the same frame,
+/// held still under reduced motion; a stage with opponents' fields falls
+/// whatever was chosen (a solo play keeps Across); a phone held upright
+/// shows emotes alone. `DDI_OFFSCREEN_PPM=<dir>` keeps the pictures.
+#[test]
+fn animated_emotes_move_and_the_layout_decides_the_style() {
+    // A practice stage of eight CPUs, Across chosen: Falling, and two
+    // pictures a quarter of a second apart.
+    let eight = Scenario {
+        cpus: Some(8),
+        style: Style::Across,
+        level: Level::Emotes,
+        script: "emotes",
+        shots: vec![6.0, 6.25],
+        ..Scenario::new("tw4-eight-animated")
+    };
+    let Some(p) = play(&eight) else {
+        return;
+    };
+    assert_eq!(p.shown, [(Level::Emotes, Style::Falling)], "{}", eight.name);
+    assert!(p.anim_ms > 5000, "{}", p.anim_ms);
+    let [(_, pa, Some(ca)), (_, pb, Some(cb))] = &p.seen[..] else {
+        panic!("{}: two shots with the chat", eight.name)
+    };
+    assert!(ca.animated.0 >= 2, "animated emotes ready: {:?}", ca.animated);
+    let (ia, ib) = (by_item(ca), by_item(cb));
+    let mut moved = Vec::new();
+    let mut kept = Vec::new();
+    for (item, ea) in &ia {
+        let Some(eb) = ib.get(item) else { continue };
+        for (a, b) in ea.iter().zip(eb) {
+            if a.animated {
+                if a.cell != b.cell {
+                    moved.push((a.rect, b.rect));
+                }
+            } else {
+                assert_eq!(a.cell, b.cell, "a still emote's cell stays");
+                kept.push((a.rect, b.rect));
+            }
+        }
+    }
+    assert!(!moved.is_empty(), "an animated emote shows another frame 0.25 s on");
+    let size = eight.size;
+    let mean = |pairs: &[([f32; 4], [f32; 4])]| {
+        pairs
+            .iter()
+            .map(|(a, b)| crop_difference(size, (pa, *a), (pb, *b)))
+            .sum::<f64>()
+            / pairs.len().max(1) as f64
+    };
+    let (moving, still) = (mean(&moved), mean(&kept));
+    eprintln!("animated emotes' pixels changed by {moving:.1} on average, still ones' by {still:.1}");
+    assert!(moving > still + 4.0, "moving {moving:.1}, still {still:.1}");
+
+    // Alone, Across stays Across.
+    let alone = Scenario {
+        level: Level::Emotes,
+        script: "emotes",
+        shots: vec![6.0],
+        ..Scenario::new("tw4-alone-across")
+    };
+    let p = play(&alone).unwrap();
+    assert_eq!(p.shown, [(Level::Emotes, Style::Across)]);
+
+    // Reduced motion: every emote its first frame, the clock at zero.
+    let reduced = Scenario {
+        cpus: Some(8),
+        level: Level::Emotes,
+        script: "emotes",
+        reduced: true,
+        shots: vec![6.0, 6.25],
+        ..Scenario::new("tw4-eight-reduced")
+    };
+    let p = play(&reduced).unwrap();
+    assert_eq!(p.anim_ms, 0);
+    let [(_, _, Some(ca)), (_, _, Some(cb))] = &p.seen[..] else {
+        panic!("two shots")
+    };
+    for (item, ea) in by_item(ca) {
+        if let Some(eb) = by_item(cb).get(&item) {
+            for (a, b) in ea.iter().zip(eb) {
+                assert_eq!(a.cell, b.cell, "still under reduced motion");
+            }
+        }
+    }
+
+    // A phone held upright: emotes alone, whatever the device allows.
+    let phone = Scenario {
+        size: [390, 844],
+        level: Level::Messages,
+        script: "demo",
+        shots: vec![4.6, 9.5],
+        ..Scenario::new("tw4-phone-upright")
+    };
+    let p = play(&phone).unwrap();
+    assert_eq!(p.shown, [(Level::Emotes, Style::Across)]);
+    assert!(p.texts.iter().all(|t| t.chars().all(|c| c == '◆' || c == '×' || c.is_ascii_digit())), "{:?}", p.texts);
+}
+

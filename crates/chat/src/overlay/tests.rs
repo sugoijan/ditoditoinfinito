@@ -41,6 +41,7 @@ fn kappa(id: u32, chatter: u32) -> Event {
             text: "Kappa".into(),
             id: "25".into(),
             still: true,
+            animated: false,
         }],
         kind: "text".into(),
         ..ChatMessage::default()
@@ -266,6 +267,7 @@ fn an_item_waits_a_second_for_its_emotes_then_goes_without() {
             text: "Kappa".into(),
             id: "25".into(),
             still: true,
+            animated: false,
         });
     }
     o.receive(&m, 0.0, true);
@@ -301,6 +303,7 @@ fn names_lead_and_runs_show_their_count() {
                         text: "Kappa".into(),
                         id: "25".into(),
                         still: true,
+                        animated: false,
                     },
                     Fragment::Text(" ".into()),
                 ]
@@ -426,6 +429,7 @@ fn opponents_fields_force_falling_and_no_side_space_shows_emotes_alone() {
                 text: "Kappa".into(),
                 id: "25".into(),
                 still: true,
+                animated: false,
             },
         ],
         kind: "text".into(),

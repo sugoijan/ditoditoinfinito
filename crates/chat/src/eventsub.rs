@@ -72,11 +72,13 @@ pub struct ChatMessage {
 pub enum Fragment {
     Text(String),
     /// One of Twitch's emotes: its word, its id, and whether a still
-    /// image of it is offered (`format` has `static`).
+    /// image of it is offered (`format` has `static`) and an animated one
+    /// (`animated`: an animated GIF, round TW4).
     Emote {
         text: String,
         id: String,
         still: bool,
+        animated: bool,
     },
     Cheermote(String),
     Mention(String),
@@ -209,15 +211,14 @@ fn read_fragment(f: &Value) -> Fragment {
         Some("text") => Fragment::Text(t),
         Some("emote") => {
             let emote = f.get("emote").cloned().unwrap_or(Value::Null);
-            let still = emote
-                .get("format")
-                .and_then(Value::as_array)
-                // No format given: Twitch's still image is always there.
-                .is_none_or(|a| a.iter().any(|v| v.as_str() == Some("static")));
+            let formats = emote.get("format").and_then(Value::as_array);
+            let has = |f: &str| formats.is_some_and(|a| a.iter().any(|v| v.as_str() == Some(f)));
             Fragment::Emote {
                 id: text(&emote, "id"),
                 text: t,
-                still,
+                // No format given: Twitch's still image is always there.
+                still: formats.is_none() || has("static"),
+                animated: has("animated"),
             }
         }
         Some("cheermote") => Fragment::Cheermote(t),
@@ -280,7 +281,8 @@ mod tests {
                 Fragment::Emote {
                     text: "Kappa".into(),
                     id: "25".into(),
-                    still: true
+                    still: true,
+                    animated: false
                 },
                 Fragment::Text(" catJAM".into()),
             ]
@@ -339,5 +341,24 @@ mod tests {
         );
         assert_eq!(parse("{}"), Err(ParseError::NoType));
         assert!(matches!(parse("not json"), Err(ParseError::Json(_))));
+    }
+
+    /// Twitch's `format` says whether an emote has an animated GIF.
+    #[test]
+    fn an_emotes_formats_are_read() {
+        let f = read_fragment(&serde_json::json!({"type": "emote", "text": "Dance",
+            "emote": {"id": "emotesv2_9", "format": ["static", "animated"]}}));
+        assert_eq!(
+            f,
+            Fragment::Emote {
+                text: "Dance".into(),
+                id: "emotesv2_9".into(),
+                still: true,
+                animated: true
+            }
+        );
+        let f = read_fragment(&serde_json::json!({"type": "emote", "text": "K",
+            "emote": {"id": "25"}}));
+        assert!(matches!(f, Fragment::Emote { still: true, animated: false, .. }));
     }
 }

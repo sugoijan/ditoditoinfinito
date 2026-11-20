@@ -161,8 +161,16 @@ pub fn content(
     for f in &message.fragments {
         match f {
             Fragment::Text(t) => split_text(t, sets, &mut words),
-            Fragment::Emote { id, still, text } => {
-                if *still {
+            Fragment::Emote {
+                id,
+                still,
+                animated,
+                text,
+            } => {
+                if *animated {
+                    // Its animated GIF (round TW4).
+                    words.push(Word::Emote(Emote::twitch(id.clone()).moving()));
+                } else if *still {
                     words.push(Word::Emote(Emote::twitch(id.clone())));
                 } else {
                     words.push(Word::Text(text.clone()));
@@ -314,6 +322,7 @@ mod tests {
             text: "Kappa".into(),
             id: "25".into(),
             still: true,
+            animated: false,
         }
     }
 
@@ -403,6 +412,7 @@ mod tests {
                 text: format!("e{i}"),
                 id: i.to_string(),
                 still: true,
+                animated: false,
             });
             f.push(t(" "));
         }
@@ -461,5 +471,34 @@ mod tests {
             let c = content(&message(vec![t(line)]), &s, Level::Messages, false, CUT).unwrap();
             assert_eq!(c.pieces, [Piece::Text(line.into())]);
         }
+    }
+
+    /// Round TW4: a Twitch emote offered animated is drawn from its
+    /// animated image; one offered neither way stays its word.
+    #[test]
+    fn a_twitch_emote_offered_animated_is_its_animation() {
+        let f = vec![
+            Fragment::Emote {
+                text: "Dance".into(),
+                id: "emotesv2_9".into(),
+                still: true,
+                animated: true,
+            },
+            Fragment::Emote {
+                text: "Odd".into(),
+                id: "7".into(),
+                still: false,
+                animated: false,
+            },
+        ];
+        let c = content(&message(f), &sets(), Level::Messages, false, CUT).unwrap();
+        assert_eq!(
+            c.pieces[0],
+            Piece::Emote {
+                emote: Emote::twitch("emotesv2_9").moving(),
+                count: 1
+            }
+        );
+        assert!(matches!(&c.pieces[1], Piece::Text(t) if t == "Odd"));
     }
 }

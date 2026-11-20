@@ -15,13 +15,19 @@
 //!   and the two motions (C6: Across and Falling; C10: reduced motion's
 //!   fixed places), on the host's clock. Deterministic from the events,
 //!   the clock, the options and the area.
+//! - [`anim`]: an image's container read before it is decoded, its
+//!   limits (`anim-limits-v0`: the hostile and the huge refused), the
+//!   frames of an animated emote kept and which is drawn when (round
+//!   TW4).
 //! - [`cache`]: the emote images kept (256 at most, four fetched at once,
-//!   the proxy once after a failure, C4) and their places in one atlas.
+//!   the proxy once after a failure, C4) and their places in one atlas,
+//!   an animated emote's frames each a cell, within their budget.
 //! - [`script`]: the scripted chat the tests and the studies play
 //!   (TESTING ONLY, C16): EventSub messages on a clock, never Twitch.
 //!
 //! No I/O: the shells bring the sockets, the fetches and the drawing.
 
+pub mod anim;
 pub mod cache;
 pub mod emotes;
 pub mod eventsub;

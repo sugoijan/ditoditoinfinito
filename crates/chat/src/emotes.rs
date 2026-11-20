@@ -7,10 +7,12 @@
 //! a direct request failed (the route is the server's, a closed list of
 //! the four providers' hosts).
 //!
-//! Only still images: Twitch's `static`, 7TV's `_static` files, FFZ's
-//! `urls` (its animated ones are under `animated`); BTTV documents no
-//! still frame of an animated emote, so those are left out (their words
-//! stay words). PROVISIONAL until animated emotes come (C5).
+//! An emote its provider animates is drawn from its animated image (round
+//! TW4, C5): Twitch's `animated` GIF where a message's fragment offers
+//! one, 7TV's `2x.webp` of an animated emote, BTTV's own image of one (a
+//! GIF), FFZ's `animated` WebP; a still emote from its still image
+//! (Twitch's `static`, 7TV's `_static`, FFZ's `urls`). The shells read
+//! each image's container before decoding it ([`crate::anim`]).
 
 use std::collections::HashMap;
 
@@ -53,11 +55,13 @@ impl Provider {
     }
 }
 
-/// One emote: its provider and the provider's id for it.
+/// One emote: its provider, the provider's id for it, and whether its
+/// provider animates it (its animated image is asked for).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Emote {
     pub provider: Provider,
     pub id: String,
+    pub animated: bool,
 }
 
 impl Emote {
@@ -65,12 +69,19 @@ impl Emote {
         Emote {
             provider,
             id: id.into(),
+            animated: false,
         }
     }
 
     /// Twitch's emote `id`.
     pub fn twitch(id: impl Into<String>) -> Emote {
         Emote::new(Provider::Twitch, id)
+    }
+
+    /// The same emote, animated by its provider.
+    pub fn moving(mut self) -> Emote {
+        self.animated = true;
+        self
     }
 }
 
@@ -205,6 +216,7 @@ impl EmoteSets {
             return Some(i.clone());
         }
         match emote.provider {
+            Provider::Twitch if emote.animated => Some(twitch_animated_image(&emote.id)),
             Provider::Twitch => Some(twitch_image(&emote.id)),
             _ => None,
         }
@@ -219,6 +231,14 @@ pub fn twitch_image(id: &str) -> Image {
     )
 }
 
+/// Twitch's animated image of emote `id` (a GIF), dark theme, 2×.
+pub fn twitch_animated_image(id: &str) -> Image {
+    Image::on(
+        Provider::Twitch,
+        &format!("/emoticons/v2/{id}/animated/dark/{TWITCH_SCALE}"),
+    )
+}
+
 /// A path on `provider`'s host from an address (`//host/path`,
 /// `https://host/path`); `None` for another host.
 fn path_on(provider: Provider, url: &str) -> Option<String> {
@@ -230,6 +250,8 @@ fn path_on(provider: Provider, url: &str) -> Option<String> {
 
 /// Where each provider's sets are read, directly and through the proxy,
 /// for the channel of Twitch user `channel` (C4); Twitch's own need none.
+/// The proxy's routes for the providers' APIs are `<provider>-api` (the
+/// server's `upstream`), apart from their images'.
 pub fn set_addresses(provider: Provider, channel: &str) -> Vec<Image> {
     let api = |host: &str, route: &str, path: String| Image {
         url: format!("https://{host}{path}"),
@@ -237,20 +259,20 @@ pub fn set_addresses(provider: Provider, channel: &str) -> Vec<Image> {
     };
     match provider {
         Provider::SevenTv => vec![
-            api("7tv.io", "7tv", format!("/v3/users/twitch/{channel}")),
-            api("7tv.io", "7tv", "/v3/emote-sets/global".into()),
+            api("7tv.io", "7tv-api", format!("/v3/users/twitch/{channel}")),
+            api("7tv.io", "7tv-api", "/v3/emote-sets/global".into()),
         ],
         Provider::Bttv => vec![
             api(
                 "api.betterttv.net",
-                "bttv",
+                "bttv-api",
                 format!("/3/cached/users/twitch/{channel}"),
             ),
-            api("api.betterttv.net", "bttv", "/3/cached/emotes/global".into()),
+            api("api.betterttv.net", "bttv-api", "/3/cached/emotes/global".into()),
         ],
         Provider::Ffz => vec![
-            api("api.frankerfacez.com", "ffz", format!("/v1/room/id/{channel}")),
-            api("api.frankerfacez.com", "ffz", "/v1/set/global".into()),
+            api("api.frankerfacez.com", "ffz-api", format!("/v1/room/id/{channel}")),
+            api("api.frankerfacez.com", "ffz-api", "/v1/set/global".into()),
         ],
         Provider::Twitch | Provider::Test => Vec::new(),
     }
@@ -263,7 +285,8 @@ fn json(text: &str) -> Option<Value> {
 }
 
 /// 7TV's emotes of a set (`{"emotes": [...]}`): each one's name in the set
-/// (an alias where it has one) and its 2× still file.
+/// (an alias where it has one) and its 2× file: the animated WebP of an
+/// animated emote, else the still one.
 fn seven_tv_emotes(set: &Value) -> List {
     let Some(list) = set.get("emotes").and_then(Value::as_array) else {
         return Vec::new();
@@ -274,6 +297,10 @@ fn seven_tv_emotes(set: &Value) -> List {
             let id = e.get("id")?.as_str()?;
             let data = e.get("data");
             let host = data.and_then(|d| d.get("host"));
+            let animated = data
+                .and_then(|d| d.get("animated"))
+                .and_then(Value::as_bool)
+                == Some(true);
             let base = host
                 .and_then(|h| h.get("url"))
                 .and_then(Value::as_str)
@@ -290,15 +317,19 @@ fn seven_tv_emotes(set: &Value) -> List {
                     })
                 })
                 .and_then(|f| {
-                    f.get("static_name")
-                        .or_else(|| f.get("name"))
-                        .and_then(Value::as_str)
+                    if animated {
+                        f.get("name")
+                    } else {
+                        f.get("static_name").or_else(|| f.get("name"))
+                    }
+                    .and_then(Value::as_str)
                 })
-                .unwrap_or("2x_static.webp");
+                .unwrap_or(if animated { "2x.webp" } else { "2x_static.webp" });
             let path = path_on(Provider::SevenTv, &format!("{base}/{file}"))?;
+            let emote = Emote::new(Provider::SevenTv, id);
             Some((
                 name.to_string(),
-                Emote::new(Provider::SevenTv, id),
+                if animated { emote.moving() } else { emote },
                 Image::on(Provider::SevenTv, &path),
             ))
         })
@@ -325,13 +356,13 @@ fn bttv_emotes(list: Option<&Value>) -> List {
         .filter_map(|e| {
             let code = e.get("code")?.as_str()?;
             let id = e.get("id")?.as_str()?;
-            // No still frame of an animated one (module doc).
-            if e.get("animated").and_then(Value::as_bool) == Some(true) {
-                return None;
-            }
+            // An animated one's image is its animation (a GIF) at the
+            // same address.
+            let emote = Emote::new(Provider::Bttv, id);
+            let animated = e.get("animated").and_then(Value::as_bool) == Some(true);
             Some((
                 code.to_string(),
-                Emote::new(Provider::Bttv, id),
+                if animated { emote.moving() } else { emote },
                 Image::on(Provider::Bttv, &format!("/emote/{id}/2x")),
             ))
         })
@@ -365,16 +396,19 @@ fn ffz_set(set: &Value) -> List {
                     .map(|n| n.to_string())
                     .or_else(|| i.as_str().map(str::to_string))
             })?;
-            let urls = e.get("urls")?;
-            let url = ["2", "1", "4"]
-                .iter()
-                .find_map(|k| urls.get(*k).and_then(Value::as_str))?;
-            let path = path_on(Provider::Ffz, url)?;
-            Some((
-                name.to_string(),
-                Emote::new(Provider::Ffz, id),
-                Image::on(Provider::Ffz, &path),
-            ))
+            // Its animated WebP where it has one (`animated`, as `urls`).
+            let pick = |urls: &Value| {
+                ["2", "1", "4"]
+                    .iter()
+                    .find_map(|k| urls.get(*k).and_then(Value::as_str))
+                    .and_then(|u| path_on(Provider::Ffz, u))
+            };
+            let emote = Emote::new(Provider::Ffz, id);
+            let (emote, path) = match e.get("animated").and_then(pick) {
+                Some(path) => (emote.moving(), path),
+                None => (emote, pick(e.get("urls")?)?),
+            };
+            Some((name.to_string(), emote, Image::on(Provider::Ffz, &path)))
         })
         .collect()
 }
@@ -433,6 +467,22 @@ mod tests {
     }
 
     #[test]
+    fn twitch_animated_images_are_gifs_on_the_same_host() {
+        let i = twitch_animated_image("emotesv2_1");
+        assert_eq!(
+            i.url,
+            "https://static-cdn.jtvnw.net/emoticons/v2/emotesv2_1/animated/dark/2.0"
+        );
+        assert_eq!(
+            i.proxy.as_deref(),
+            Some("emotes/twitch/emoticons/v2/emotesv2_1/animated/dark/2.0")
+        );
+        let sets = EmoteSets::default();
+        assert!(sets.image(&Emote::twitch("1").moving()).unwrap().url.contains("/animated/"));
+        assert!(sets.image(&Emote::twitch("1")).unwrap().url.contains("/static/"));
+    }
+
+    #[test]
     fn twitch_images_are_still_and_have_a_proxy_path() {
         let i = twitch_image("25");
         assert_eq!(
@@ -447,25 +497,35 @@ mod tests {
     }
 
     #[test]
-    fn seven_tv_sets_are_read_with_their_still_files() {
+    fn seven_tv_sets_are_read_with_their_animated_and_still_files() {
         let user = seven_tv_user(&fixture("7tv-user.json"));
         assert_eq!(words(&user), ["catJAM", "wideHappy"]);
+        // catJAM is animated: its animated WebP; wideHappy still.
         assert_eq!(
             user[0].2.url,
-            "https://cdn.7tv.app/emote/60ae7316f7c927fad14e6ca2/2x_static.webp"
+            "https://cdn.7tv.app/emote/60ae7316f7c927fad14e6ca2/2x.webp"
         );
         assert_eq!(
             user[0].2.proxy.as_deref(),
-            Some("emotes/7tv/emote/60ae7316f7c927fad14e6ca2/2x_static.webp")
+            Some("emotes/7tv/emote/60ae7316f7c927fad14e6ca2/2x.webp")
         );
+        assert!(user[0].1.animated);
+        assert!(!user[1].1.animated);
+        assert!(user[1].2.url.ends_with("/2x_static.webp"));
         let global = seven_tv_global(&fixture("7tv-global.json"));
         assert_eq!(words(&global), ["Clap", "catJAM"]);
     }
 
     #[test]
-    fn bttv_leaves_out_animated_emotes() {
+    fn bttv_reads_animated_emotes_too() {
         let user = bttv_user(&fixture("bttv-user.json"));
-        assert_eq!(words(&user), ["PogBTTV", "OhMyGoodness"]);
+        assert_eq!(words(&user), ["PogBTTV", "catJAM", "OhMyGoodness"]);
+        assert!(!user[0].1.animated);
+        assert!(user[1].1.animated);
+        assert_eq!(
+            user[1].2.url,
+            "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2971/2x"
+        );
         assert_eq!(
             user[0].2.url,
             "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/2x"
@@ -477,7 +537,13 @@ mod tests {
     #[test]
     fn ffz_reads_the_rooms_set_and_the_default_globals() {
         let room = ffz_room(&fixture("ffz-room.json"));
-        assert_eq!(words(&room), ["LilZ"]);
+        assert_eq!(words(&room), ["LilZ", "LilDance"]);
+        // An animated one: its animated WebP.
+        assert!(room[1].1.animated);
+        assert_eq!(
+            room[1].2.proxy.as_deref(),
+            Some("emotes/ffz/emote/720507/animated/2")
+        );
         assert_eq!(room[0].2.url, "https://cdn.frankerfacez.com/emote/28136/2");
         assert_eq!(room[0].2.proxy.as_deref(), Some("emotes/ffz/emote/28136/2"));
         let global = ffz_global(&fixture("ffz-global.json"));
@@ -502,7 +568,7 @@ mod tests {
         // The channel's 7TV catJAM over the global one.
         assert_eq!(
             sets.word("catJAM"),
-            Some(&Emote::new(Provider::SevenTv, "60ae7316f7c927fad14e6ca2"))
+            Some(&Emote::new(Provider::SevenTv, "60ae7316f7c927fad14e6ca2").moving())
         );
         assert_eq!(sets.word("Clap").map(|e| e.provider), Some(Provider::SevenTv));
         assert_eq!(sets.word("PogBTTV").map(|e| e.provider), Some(Provider::Bttv));
@@ -521,7 +587,15 @@ mod tests {
         );
         assert_eq!(
             a[0].proxy.as_deref(),
-            Some("emotes/bttv/3/cached/users/twitch/1971641")
+            Some("emotes/bttv-api/3/cached/users/twitch/1971641")
+        );
+        assert_eq!(
+            set_addresses(Provider::SevenTv, "1")[1].proxy.as_deref(),
+            Some("emotes/7tv-api/v3/emote-sets/global")
+        );
+        assert_eq!(
+            set_addresses(Provider::Ffz, "9")[0].proxy.as_deref(),
+            Some("emotes/ffz-api/v1/room/id/9")
         );
         assert!(set_addresses(Provider::Twitch, "1").is_empty());
     }

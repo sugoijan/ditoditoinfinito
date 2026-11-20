@@ -11,6 +11,12 @@
 //! [`CELL`]-wide units; an image is scaled to the row's height and takes
 //! as many units as its width needs, [`WIDEST_UNITS`] at most. When it is
 //! full, the images drawn least recently go.
+//!
+//! An animated emote's frames (round TW4, [`crate::anim`]) are each a cell
+//! of their own, all animated emotes' frames within [`ANIMATED_UNITS`]: a
+//! new animation that does not fit sends the least recently drawn
+//! animated emote away (never one drawn this frame), and where none can
+//! go it is placed as a still, its first frame in one cell.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -19,14 +25,17 @@ use crate::overlay::Readiness;
 
 /// A cell's height and a unit's width, pixels.
 pub const CELL: u32 = 64;
-/// The atlas's size, pixels: 32 units by 16 rows.
-pub const ATLAS: [u32; 2] = [2048, 1024];
+/// The atlas's size, pixels: 32 units by 32 rows (16 MiB, RGBA).
+pub const ATLAS: [u32; 2] = [2048, 2048];
 /// Units an image takes at most (an emote four times as wide as tall).
 pub const WIDEST_UNITS: u32 = 4;
 /// Images kept at most.
 pub const KEPT: usize = 256;
 /// Fetches in flight at most.
 pub const AT_ONCE: usize = 4;
+/// The units all animated emotes' frames take at most: three quarters of
+/// the atlas (12 MiB).
+pub const ANIMATED_UNITS: usize = 768;
 
 const UNITS: usize = (ATLAS[0] / CELL) as usize;
 const ROWS: usize = (ATLAS[1] / CELL) as usize;
@@ -54,7 +63,9 @@ pub type Cell = [u32; 4];
 enum State {
     Queued(Via),
     Fetching(Via),
-    Ready { cell: Cell },
+    /// Its frames' cells (one for a still image) and how long each
+    /// shows, milliseconds.
+    Ready { cells: Vec<Cell>, durations: Vec<u32> },
     Failed,
 }
 
@@ -66,11 +77,31 @@ struct Entry {
     used: u64,
 }
 
+/// A fetch decoded: the size of its frames (scaled to [`fit`]) and each
+/// frame's duration, milliseconds (one frame: a still image).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Got {
+    pub size: [u32; 2],
+    pub durations: Vec<u32>,
+}
+
+impl Got {
+    /// A still image of `size`.
+    pub fn still(size: [u32; 2]) -> Got {
+        Got {
+            size,
+            durations: vec![0],
+        }
+    }
+}
+
 /// What a fetch's end means.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Answer {
-    /// Copy the pixels (scaled to `size`, [`fit`]) into `cell`.
-    Place { cell: Cell },
+    /// Copy frame `k`'s pixels (scaled to `size`, [`fit`]) into `cells[k]`:
+    /// every frame, or only the first where the animation had no room
+    /// (one cell).
+    Place { cells: Vec<Cell> },
     /// Asked again through the proxy (on the next [`EmoteCache::start`]).
     Retry,
     /// Never drawn this session.
@@ -183,16 +214,16 @@ impl EmoteCache {
         out
     }
 
-    /// A fetch of `emote` ended: decoded to an image of `size` pixels, or
+    /// A fetch of `emote` ended: decoded to frames of a size (`got`), or
     /// failed (`None`).
-    pub fn fetched(&mut self, emote: &Emote, via: Via, size: Option<[u32; 2]>) -> Answer {
+    pub fn fetched(&mut self, emote: &Emote, via: Via, got: Option<Got>) -> Answer {
         let Some(entry) = self.entries.get(emote) else {
             return Answer::Failed;
         };
         if entry.state != State::Fetching(via) {
             return Answer::Failed;
         }
-        let Some(size) = size else {
+        let Some(got) = got else {
             // Once through the proxy after a direct failure; its host
             // through the proxy for the rest of the session.
             let retry = via == Via::Direct
@@ -211,29 +242,94 @@ impl EmoteCache {
             entry.state = State::Failed;
             return Answer::Failed;
         };
-        let [w, h] = fit(size);
+        let [w, h] = fit(got.size);
         let units = w.div_ceil(CELL) as usize;
-        let place = loop {
-            if self.ready_count() < KEPT
-                && let Some(p) = self.free_units(units)
-            {
-                break Some(p);
+        let frames = got.durations.len().max(1);
+        // The animation's frames where they fit its budget (making room
+        // from the least recently drawn), else its first frame still.
+        let mut places = None;
+        if frames > 1 {
+            loop {
+                let room = self.animated_units() + frames * units <= ANIMATED_UNITS;
+                if room
+                    && self.ready_count() < KEPT
+                    && let Some(p) = self.free_runs(units, frames)
+                {
+                    places = Some(p);
+                    break;
+                }
+                if !self.evict(!room) {
+                    break;
+                }
             }
-            if !self.evict() {
-                break None;
+        }
+        let (places, durations) = match places {
+            Some(p) => (p, got.durations),
+            None => {
+                let one = loop {
+                    if self.ready_count() < KEPT
+                        && let Some(p) = self.free_units(units)
+                    {
+                        break Some(p);
+                    }
+                    if !self.evict(false) {
+                        break None;
+                    }
+                };
+                (one.into_iter().collect(), vec![0])
             }
         };
         let entry = self.entries.get_mut(emote).expect("there");
-        let Some((row, unit)) = place else {
+        if places.is_empty() {
             entry.state = State::Failed;
             return Answer::Failed;
-        };
-        for u in &mut self.units[row][unit..unit + units] {
-            *u = true;
         }
-        let cell = [unit as u32 * CELL, row as u32 * CELL, w, h];
-        entry.state = State::Ready { cell };
-        Answer::Place { cell }
+        let mut cells = Vec::with_capacity(places.len());
+        for (row, unit) in places {
+            for u in &mut self.units[row][unit..unit + units] {
+                *u = true;
+            }
+            cells.push([unit as u32 * CELL, row as u32 * CELL, w, h]);
+        }
+        entry.state = State::Ready {
+            cells: cells.clone(),
+            durations,
+        };
+        Answer::Place { cells }
+    }
+
+    /// The units animated emotes' frames take now.
+    fn animated_units(&self) -> usize {
+        self.entries
+            .values()
+            .filter_map(|e| match &e.state {
+                State::Ready { cells, .. } if cells.len() > 1 => {
+                    Some(cells.iter().map(|c| c[2].div_ceil(CELL) as usize).sum::<usize>())
+                }
+                _ => None,
+            })
+            .sum()
+    }
+
+    /// `count` free runs of `n` units, none overlapping.
+    fn free_runs(&self, n: usize, count: usize) -> Option<Vec<(usize, usize)>> {
+        let mut taken = self.units;
+        let mut out = Vec::with_capacity(count);
+        for (r, row) in taken.iter_mut().enumerate() {
+            let mut u = 0;
+            while u + n <= UNITS && out.len() < count {
+                if row[u..u + n].iter().all(|t| !t) {
+                    for t in &mut row[u..u + n] {
+                        *t = true;
+                    }
+                    out.push((r, u));
+                    u += n;
+                } else {
+                    u += 1;
+                }
+            }
+        }
+        (out.len() == count).then_some(out)
     }
 
     fn ready_count(&self) -> usize {
@@ -251,29 +347,34 @@ impl EmoteCache {
         })
     }
 
-    /// Lets the image drawn least recently go (not one of this frame);
-    /// whether one went.
-    fn evict(&mut self) -> bool {
+    /// Lets the image drawn least recently go (not one of this frame; an
+    /// animated one where `animated`); whether one went.
+    fn evict(&mut self, animated: bool) -> bool {
         let frame = self.frame;
         let oldest = self
             .entries
             .iter()
-            .filter(|(_, e)| matches!(e.state, State::Ready { .. }) && e.used < frame)
+            .filter(|(_, e)| match &e.state {
+                State::Ready { cells, .. } => e.used < frame && (!animated || cells.len() > 1),
+                _ => false,
+            })
             .min_by(|a, b| a.1.used.cmp(&b.1.used).then_with(|| a.0.cmp(b.0)))
             .map(|(k, _)| k.clone());
         let Some(k) = oldest else {
             return false;
         };
         if let Some(Entry {
-            state: State::Ready { cell },
+            state: State::Ready { cells, .. },
             ..
         }) = self.entries.remove(&k)
         {
-            let row = (cell[1] / CELL) as usize;
-            let unit = (cell[0] / CELL) as usize;
-            let n = cell[2].div_ceil(CELL) as usize;
-            for u in &mut self.units[row][unit..unit + n] {
-                *u = false;
+            for cell in cells {
+                let row = (cell[1] / CELL) as usize;
+                let unit = (cell[0] / CELL) as usize;
+                let n = cell[2].div_ceil(CELL) as usize;
+                for u in &mut self.units[row][unit..unit + n] {
+                    *u = false;
+                }
             }
         }
         true
@@ -282,20 +383,38 @@ impl EmoteCache {
     /// Whether `emote` can be drawn, and at what shape.
     pub fn readiness(&self, emote: &Emote) -> Readiness {
         match self.entries.get(emote).map(|e| &e.state) {
-            Some(State::Ready { cell }) => Readiness::Ready {
-                aspect: cell[2] as f32 / cell[3].max(1) as f32,
+            Some(State::Ready { cells, .. }) => Readiness::Ready {
+                aspect: cells[0][2] as f32 / cells[0][3].max(1) as f32,
             },
             Some(State::Failed) => Readiness::Failed,
             _ => Readiness::Waiting,
         }
     }
 
-    /// `emote`'s place in the atlas, once ready.
+    /// `emote`'s place in the atlas, once ready: its first frame's.
     pub fn cell(&self, emote: &Emote) -> Option<Cell> {
+        self.cell_at(emote, 0)
+    }
+
+    /// `emote`'s frame's place at `ms` of the layer's animation clock
+    /// ([`crate::anim::Clock`]): the same for every copy of it.
+    pub fn cell_at(&self, emote: &Emote, ms: u64) -> Option<Cell> {
         match self.entries.get(emote).map(|e| &e.state) {
-            Some(State::Ready { cell }) => Some(*cell),
+            Some(State::Ready { cells, durations }) => {
+                cells.get(crate::anim::frame_at(durations, ms)).or(cells.first()).copied()
+            }
             _ => None,
         }
+    }
+
+    /// Animated emotes ready, and the atlas units their frames take.
+    pub fn animated(&self) -> (usize, usize) {
+        let n = self
+            .entries
+            .values()
+            .filter(|e| matches!(&e.state, State::Ready { cells, .. } if cells.len() > 1))
+            .count();
+        (n, self.animated_units())
     }
 
     /// Images ready, fetches in flight, failed; hosts through the proxy.
@@ -352,7 +471,7 @@ mod tests {
         assert_eq!(c.start().len(), 4);
         assert!(c.start().is_empty());
         assert!(matches!(
-            c.fetched(&e(0), Via::Direct, Some([56, 56])),
+            c.fetched(&e(0), Via::Direct, Some(Got::still([56, 56]))),
             Answer::Place { .. }
         ));
         let next = c.start();
@@ -425,15 +544,15 @@ mod tests {
         c.want(&e(2), &sets());
         c.start();
         assert_eq!(
-            c.fetched(&e(1), Via::Direct, Some([168, 56])),
+            c.fetched(&e(1), Via::Direct, Some(Got::still([168, 56]))),
             Answer::Place {
-                cell: [0, 0, 192, 64]
+                cells: vec![[0, 0, 192, 64]]
             }
         );
         assert_eq!(
-            c.fetched(&e(2), Via::Direct, Some([28, 28])),
+            c.fetched(&e(2), Via::Direct, Some(Got::still([28, 28]))),
             Answer::Place {
-                cell: [192, 0, 64, 64]
+                cells: vec![[192, 0, 64, 64]]
             }
         );
         assert_eq!(c.readiness(&e(1)), Readiness::Ready { aspect: 3.0 });
@@ -447,7 +566,7 @@ mod tests {
             c.want(&e(i), &sets());
             let f = c.start();
             for f in f {
-                let a = c.fetched(&f.emote, f.via, Some([56, 56]));
+                let a = c.fetched(&f.emote, f.via, Some(Got::still([56, 56])));
                 assert!(matches!(a, Answer::Place { .. }), "{i}: {a:?}");
             }
         }
@@ -461,8 +580,82 @@ mod tests {
         c.want(&e(100), &sets());
         c.want(&e(1000), &sets());
         for f in c.start() {
-            c.fetched(&f.emote, f.via, Some([56, 56]));
+            c.fetched(&f.emote, f.via, Some(Got::still([56, 56])));
         }
         assert!(matches!(c.readiness(&e(100)), Readiness::Ready { .. }));
+    }
+
+    fn moving(frames: usize, ms: u32) -> Got {
+        Got {
+            size: [56, 56],
+            durations: vec![ms; frames],
+        }
+    }
+
+    /// Round TW4: an animated emote's frames each a cell, the frame drawn
+    /// chosen by the layer's clock alone (every copy alike).
+    #[test]
+    fn an_animated_emotes_frames_are_cells_drawn_in_turn() {
+        let mut c = EmoteCache::new(None);
+        c.want(&e(1), &sets());
+        c.start();
+        let Answer::Place { cells } = c.fetched(&e(1), Via::Direct, Some(moving(4, 100))) else {
+            panic!()
+        };
+        assert_eq!(cells.len(), 4);
+        assert_eq!(cells[1], [64, 0, 64, 64]);
+        assert_eq!(c.cell_at(&e(1), 0), Some(cells[0]));
+        assert_eq!(c.cell_at(&e(1), 250), Some(cells[2]));
+        assert_eq!(c.cell_at(&e(1), 450), Some(cells[0]), "it loops");
+        assert_eq!(c.cell(&e(1)), Some(cells[0]));
+        assert_eq!(c.readiness(&e(1)), Readiness::Ready { aspect: 1.0 });
+        assert_eq!(c.animated(), (1, 4));
+    }
+
+    /// The animated frames' budget: past it the least recently drawn
+    /// animation goes; where every one is drawn this frame, a new one is
+    /// placed as a still, its first frame (never nothing).
+    #[test]
+    fn animations_keep_to_their_budget_and_a_still_first_frame_beyond_it() {
+        let mut c = EmoteCache::new(None);
+        // Twelve animations of 64 frames fill the budget (768 units).
+        for i in 0..12 {
+            c.next_frame();
+            c.want(&e(i), &sets());
+            for f in c.start() {
+                let a = c.fetched(&f.emote, f.via, Some(moving(64, 40)));
+                assert!(matches!(&a, Answer::Place { cells } if cells.len() == 64), "{i}");
+            }
+        }
+        assert_eq!(c.animated(), (12, ANIMATED_UNITS));
+        // A thirteenth sends the least recently drawn (0) away.
+        c.next_frame();
+        c.want(&e(12), &sets());
+        for f in c.start() {
+            let a = c.fetched(&f.emote, f.via, Some(moving(64, 40)));
+            assert!(matches!(&a, Answer::Place { cells } if cells.len() == 64));
+        }
+        assert_eq!(c.readiness(&e(0)), Readiness::Waiting);
+        assert_eq!(c.animated(), (12, ANIMATED_UNITS));
+        // All twelve drawn this frame: the next is still, one cell.
+        c.next_frame();
+        for i in 1..=12 {
+            c.want(&e(i), &sets());
+        }
+        c.want(&e(13), &sets());
+        for f in c.start() {
+            let a = c.fetched(&f.emote, f.via, Some(moving(64, 40)));
+            assert!(matches!(&a, Answer::Place { cells } if cells.len() == 1), "{a:?}");
+        }
+        assert_eq!(c.cell_at(&e(13), 0), c.cell_at(&e(13), 1000));
+        assert_eq!(c.animated(), (12, ANIMATED_UNITS));
+        // Stills still have the rest of the atlas.
+        c.want(&e(14), &sets());
+        for f in c.start() {
+            assert!(matches!(
+                c.fetched(&f.emote, f.via, Some(Got::still([56, 56]))),
+                Answer::Place { .. }
+            ));
+        }
     }
 }

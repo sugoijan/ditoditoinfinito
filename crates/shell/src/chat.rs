@@ -12,10 +12,15 @@
 //! It is the first thing shed when the play's frames run late: no new
 //! items while the last measured second was late (the signal the dancing
 //! hand's load rule reads, `ddi_session::hand_load`), the items already on
-//! screen going on.
+//! screen going on, every animated emote held on the frame it had.
+//!
+//! Animated emotes (round TW4, `ddi_chat::anim`): each frame a cell of the
+//! atlas, the frame drawn chosen by the layer's own clock (the host's,
+//! held while shedding, standing still under reduced motion), so every
+//! copy of an emote shows the same frame.
 
 use ddi_actor::text::{TextMeasure, TextStyle};
-use ddi_chat::cache::{ATLAS, Answer, EmoteCache, Fetch, Via, fit};
+use ddi_chat::cache::{ATLAS, Answer, EmoteCache, Fetch, Got, Via, fit};
 use ddi_chat::emotes::Emote;
 use ddi_chat::overlay::{Area, CHAT_OVERLAY_V0, Glyphs, Options, Overlay};
 use ddi_render::texture_cache::TextureKey;
@@ -39,12 +44,31 @@ const SHADOW: [f32; 3] = [0.02, 0.0, 0.05];
 /// The atlas's source for the painter.
 const ATLAS_SOURCE: &str = "chat:emotes";
 
-/// A decoded emote image: its size (at most [`fit`]'s) and RGBA rows,
-/// straight alpha, encoded.
+/// A decoded emote image: its frames' size (at most [`fit`]'s), their
+/// RGBA rows one frame after another, straight alpha, encoded, and each
+/// frame's duration, milliseconds (one frame: a still image).
 #[derive(Clone, Debug)]
 pub struct Decoded {
     pub size: [u32; 2],
     pub rgba: Vec<u8>,
+    pub durations: Vec<u32>,
+}
+
+impl Decoded {
+    /// A still image.
+    pub fn still(size: [u32; 2], rgba: Vec<u8>) -> Decoded {
+        Decoded {
+            size,
+            rgba,
+            durations: vec![0],
+        }
+    }
+
+    /// Frame `k`'s pixels.
+    pub fn frame(&self, k: usize) -> Option<&[u8]> {
+        let n = (self.size[0] as usize) * (self.size[1] as usize) * 4;
+        self.rgba.get(k * n..(k + 1) * n)
+    }
 }
 
 /// An item's height for a target `size` pixels, `ratio` of them a
@@ -67,6 +91,16 @@ pub struct ChatDrawn {
     pub stats: ddi_chat::overlay::Stats,
     /// Images ready, in flight, failed; hosts through the proxy.
     pub images: (usize, usize, usize, usize),
+    /// Animated emotes ready and the atlas units their frames take.
+    pub animated: (usize, usize),
+    /// The animation clock, milliseconds (held while shedding, 0 under
+    /// reduced motion).
+    pub anim_ms: u64,
+    /// Each emote drawn this frame (which frame of it showed).
+    pub emotes_drawn: Vec<EmoteDrawn>,
+    /// The level and the style this frame's layout let it show
+    /// ([`shown`]).
+    pub shown: Option<(ddi_chat::Level, ddi_chat::Style)>,
     /// The texts drawn, for tests (each item's text pieces joined).
     pub texts: Vec<String>,
     /// Where each item was, `[x, y, width, height]` target pixels.
@@ -75,6 +109,19 @@ pub struct ChatDrawn {
     pub opacity: f32,
     /// Milliseconds this frame's chat took on the main thread.
     pub ms: f64,
+}
+
+/// An emote as a frame drew it, for the debug state and the tests.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EmoteDrawn {
+    /// Its item's id (the same while the item is on screen).
+    pub item: u64,
+    /// Where it was drawn, `[left, top, right, bottom]` target pixels.
+    pub rect: [f32; 4],
+    /// Its atlas cell's left and top: which frame showed.
+    pub cell: [u32; 2],
+    /// Its provider animates it.
+    pub animated: bool,
 }
 
 /// The chat's view over a play.
@@ -89,6 +136,8 @@ pub struct ChatView {
     shed: bool,
     /// The host second the first measured second ended at.
     since: Option<f64>,
+    /// Animated emotes' clock.
+    clock: ddi_chat::anim::Clock,
     drawn: ChatDrawn,
 }
 
@@ -115,8 +164,18 @@ impl ChatView {
             list: DrawList::new(),
             shed: false,
             since: None,
+            clock: ddi_chat::anim::Clock::default(),
             drawn: ChatDrawn::default(),
         }
+    }
+
+    /// The animation clock at host second `now`: running unless the
+    /// frames run late (held on the frame it had) or motion is reduced
+    /// (every emote's first frame, still); its milliseconds.
+    pub fn tick_clock(&mut self, now: f64) -> u64 {
+        let running = !self.shed && !self.overlay.options().reduced;
+        self.clock.advance(now, running);
+        self.clock.ms()
     }
 
     pub fn drawn(&self) -> &ChatDrawn {
@@ -186,16 +245,27 @@ impl ChatView {
         for f in self.cache.start() {
             if let Some((size, rgba)) = ddi_chat::script::shape_pixels(&f.url) {
                 // The scripted chat's own plain shapes, drawn here.
-                back.push((f, Some(Decoded { size, rgba })));
+                back.push((f, Some(Decoded::still(size, rgba))));
+            } else if let Some((size, rgba, durations)) = ddi_chat::script::anim_pixels(&f.url) {
+                back.push((
+                    f,
+                    Some(Decoded {
+                        size,
+                        rgba,
+                        durations,
+                    }),
+                ));
             } else if !fetch(&f) {
                 back.push((f, None));
             }
         }
         for (f, decoded) in back {
-            let answer = self
-                .cache
-                .fetched(&f.emote, f.via, decoded.as_ref().map(|d| d.size));
-            if let (Answer::Place { cell }, Some(d)) = (answer, decoded) {
+            let got = decoded.as_ref().map(|d| Got {
+                size: d.size,
+                durations: d.durations.clone(),
+            });
+            let answer = self.cache.fetched(&f.emote, f.via, got);
+            if let (Answer::Place { cells }, Some(d)) = (answer, decoded) {
                 let atlas = self.atlas.get_or_insert_with(|| {
                     let t = device.create_texture(&wgpu::TextureDescriptor {
                         label: Some("ddi-chat-emotes"),
@@ -215,9 +285,14 @@ impl ChatView {
                     painter.set_external_image(device, ATLAS_SOURCE, Some(&t));
                     t
                 });
-                write_cell(queue, atlas, cell, &d);
+                for (k, cell) in cells.into_iter().enumerate() {
+                    if let Some(frame) = d.frame(k) {
+                        write_cell(queue, atlas, cell, d.size, frame);
+                    }
+                }
             }
         }
+        let anim_ms = self.tick_clock(now);
         let line = area.line;
         let style = TextStyle::new(FONT, line * TEXT_SIZE);
         {
@@ -240,6 +315,9 @@ impl ChatView {
             shed: self.shed,
             stats: self.overlay.stats(),
             images: self.cache.counts(),
+            animated: self.cache.animated(),
+            anim_ms,
+            shown: Some((self.overlay.options().level, self.overlay.options().style)),
             opacity: 0.0,
             ..ChatDrawn::default()
         };
@@ -274,9 +352,16 @@ impl ChatView {
                         }
                     }
                     Glyphs::Emote(e) => {
-                        let Some(cell) = self.cache.cell(e) else {
+                        let Some(cell) = self.cache.cell_at(e, anim_ms) else {
                             continue;
                         };
+                        let pad = h * 0.04;
+                        drawn.emotes_drawn.push(EmoteDrawn {
+                            item: d.id,
+                            rect: [x, d.y + pad, x + l.width * s, d.y + h - pad],
+                            cell: [cell[0], cell[1]],
+                            animated: e.animated,
+                        });
                         let [cx, cy, cw, ch] = cell.map(|v| v as f32);
                         let [aw, ah] = ATLAS.map(|v| v as f32);
                         let pad = h * 0.04;
@@ -352,13 +437,13 @@ impl ChatView {
     }
 }
 
-/// Writes `image` into `cell` of the atlas (cut to the cell where it is
-/// larger).
-fn write_cell(queue: &wgpu::Queue, atlas: &wgpu::Texture, cell: [u32; 4], image: &Decoded) {
+/// Writes a frame of `size` pixels (`rgba`) into `cell` of the atlas
+/// (cut to the cell where it is larger).
+fn write_cell(queue: &wgpu::Queue, atlas: &wgpu::Texture, cell: [u32; 4], size: [u32; 2], rgba: &[u8]) {
     let [x, y, cw, ch] = cell;
-    let [w, h] = image.size;
+    let [w, h] = size;
     let (cw, ch) = (cw.min(w), ch.min(h));
-    if cw == 0 || ch == 0 || image.rgba.len() < (w * h * 4) as usize {
+    if cw == 0 || ch == 0 || rgba.len() < (w * h * 4) as usize {
         return;
     }
     queue.write_texture(
@@ -368,7 +453,7 @@ fn write_cell(queue: &wgpu::Queue, atlas: &wgpu::Texture, cell: [u32; 4], image:
             origin: wgpu::Origin3d { x, y, z: 0 },
             aspect: wgpu::TextureAspect::All,
         },
-        &image.rgba,
+        rgba,
         wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(w * 4),
@@ -479,6 +564,47 @@ mod tests {
         };
         v.second(stall, 60.0, 15.0);
         assert!(!v.shedding(), "a stall is not load");
+    }
+
+    /// Round TW4: animated emotes' clock runs on the host's seconds, is
+    /// held on the frame it had while the frames run late (the same
+    /// reading that holds new items back), and stands still under reduced
+    /// motion.
+    #[test]
+    fn animation_is_held_from_a_late_second_and_still_when_reduced() {
+        let mut v = view();
+        assert_eq!(v.tick_clock(10.0), 0);
+        assert_eq!(v.tick_clock(10.5), 500);
+        let late = Second {
+            fps: 40.0,
+            worst_ms: 40.0,
+        };
+        v.second(late, 60.0, 9.0);
+        v.second(late, 60.0, 12.0);
+        assert!(v.shedding());
+        assert_eq!(v.tick_clock(11.0), 500, "held");
+        assert_eq!(v.tick_clock(12.0), 500, "held");
+        v.second(
+            Second {
+                fps: 60.0,
+                worst_ms: 18.0,
+            },
+            60.0,
+            13.0,
+        );
+        assert_eq!(v.tick_clock(12.25), 750, "on from where it held");
+        let chat = ChatLayer::new(ChatConfig {
+            level: ddi_chat::Level::Emotes,
+            style: ddi_chat::Style::Falling,
+            names: false,
+            emotes_from: ddi_chat::EmotesFrom::TwitchAndOthers,
+            opacity: 0.6,
+            source: ChatSource::Script(ddi_chat::script::Script::builtin("emotes").unwrap()),
+        });
+        let mut reduced = ChatView::new(&chat, true);
+        for t in 0..50 {
+            assert_eq!(reduced.tick_clock(f64::from(t) * 0.1), 0);
+        }
     }
 
     /// Round TW4: Falling beside opponents' fields, the choice kept in a

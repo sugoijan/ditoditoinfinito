@@ -18,6 +18,7 @@
 //! 1.0 say @gone gus this one is deleted later
 //! 4.0 flood 50 2                # 50 messages a second for 2 s
 //! 6.0 emotes 20 2               # 20 emote-only messages a second for 2 s
+//! 7.0 animated 20 2             # the same, of the animated emotes alone
 //! 8.0 delete @gone
 //! 9.0 clear-user alice
 //! 10.0 clear
@@ -27,8 +28,12 @@
 //! the other providers' words stay text, matched by the sets as real
 //! third-party words are. An image is `shape:<kind>:<rrggbb>[:<aspect>]`
 //! (`circle`, `square`, `triangle`, `diamond`, `bar`; drawn by
-//! [`shape_pixels`]) or an address a shell fetches (a local test server's
-//! file).
+//! [`shape_pixels`]), an animated one
+//! `anim:<kind>:<rrggbb>:<frames>:<ms>[:<aspect>]` (the shape pulsing
+//! with a light sweeping across it, each frame `ms` long; drawn by
+//! [`anim_pixels`], round TW4), or an address a shell fetches (a local
+//! test server's file: an `anim:` emote's `.gif`, [`Script::images_at`]).
+//! Every picture is made by code, never a provider's.
 
 use crate::Level;
 use crate::emotes::{Emote, EmoteSets, Image, Provider, Source};
@@ -45,6 +50,8 @@ enum Step {
         rate: f64,
         seconds: f64,
         emotes: bool,
+        /// Its emotes the animated ones alone.
+        animated: bool,
     },
     Delete(String),
     ClearUser(String),
@@ -52,13 +59,22 @@ enum Step {
     Raw(String),
 }
 
-/// A script's emote: its word, provider, id and image.
+/// A script's emote: its word, provider, id and image, and whether it
+/// moves (an `anim:` picture).
 #[derive(Clone, Debug, PartialEq)]
 struct ScriptEmote {
     word: String,
     provider: Provider,
     id: String,
     image: String,
+    animated: bool,
+}
+
+impl ScriptEmote {
+    fn emote(&self) -> Emote {
+        let e = Emote::new(self.provider, self.id.clone());
+        if self.animated { e.moving() } else { e }
+    }
 }
 
 /// A parsed script.
@@ -101,6 +117,10 @@ emote catJAM 7tv c1 shape:triangle:3080f0
 emote wideHappy 7tv w1 shape:bar:a050e0:3
 emote PogBTTV bttv b1 shape:circle:e04080
 emote LilZ ffz f1 shape:diamond:40d0d0
+emote PartyKappa twitch emotesv2_p1 anim:circle:f06040:8:100
+emote catDance 7tv c2 anim:triangle:3090f0:12:70
+emote BttvBounce bttv b2 anim:square:60d070:10:80
+emote FfzSpin ffz f2 anim:bar:e0b030:16:50:2
 ";
 
 const DEMO: &str = "\
@@ -111,6 +131,7 @@ loop 30
 1.0 say laila مرحبا بالجميع، حظا سعيدا
 1.4 say bob Kappa Kappa Kappa Kappa
 1.8 say dee PogU catJAM wideHappy LilZ
+2.0 say sam party time PartyKappa catDance
 2.2 say eve !song
 2.6 say finn free stuff at example.com/free
 3.0 say @gone gus this message is deleted three seconds later
@@ -126,6 +147,7 @@ loop 30
 12.0 clear-user tom
 13.0 say kai 加油！ catJAM
 14.0 emotes 4 3
+16.0 say pia PartyKappa catDance BttvBounce FfzSpin
 17.0 say lee that was clean wideHappy
 18.0 clear
 19.0 say mia after the clear: Kappa LUL
@@ -140,7 +162,17 @@ loop 10
 0.0 emotes 6 4
 5.0 say ann Kappa Kappa Kappa
 5.5 say ben catJAM PogU LilZ wideHappy LUL PogBTTV
+5.7 say cid PartyKappa catDance BttvBounce FfzSpin
+7.0 say dot catDance catDance FfzSpin
 6.0 emotes 3 3
+";
+
+/// Animated emotes alone, as many as the layer takes (round TW4: a
+/// screen full of them, for the frame's cost).
+const ANIMATED: &str = "\
+ceiling emotes
+loop 10
+0.0 animated 12 10
 ";
 
 /// A flood, then its moderation.
@@ -154,12 +186,14 @@ loop 12
 ";
 
 impl Script {
-    /// A built-in script by name (`demo`, `emotes`, `flood`), or a rate:
+    /// A built-in script by name (`demo`, `emotes`, `animated`, `flood`),
+    /// or a rate:
     /// a number of messages a second, mixed.
     pub fn builtin(name: &str) -> Option<Script> {
         let body = match name {
             "demo" | "1" | "" => DEMO.to_string(),
             "emotes" => EMOTES.to_string(),
+            "animated" => ANIMATED.to_string(),
             "flood" => FLOOD.to_string(),
             rate => {
                 let r: f64 = rate.parse().ok().filter(|r: &f64| r.is_finite() && *r > 0.0)?;
@@ -228,6 +262,7 @@ impl Script {
                         provider,
                         id: id.into(),
                         image: image.into(),
+                        animated: image.starts_with("anim:"),
                     });
                 }
                 time => {
@@ -257,7 +292,7 @@ impl Script {
                                 text: text.join(" "),
                             }
                         }
-                        "flood" | "emotes" => {
+                        "flood" | "emotes" | "animated" => {
                             let nums: Vec<f64> =
                                 rest.iter().filter_map(|w| w.parse().ok()).collect();
                             let [rate, seconds] = nums[..] else {
@@ -266,7 +301,8 @@ impl Script {
                             Step::Flood {
                                 rate: rate.clamp(0.0, 1000.0),
                                 seconds: seconds.max(0.0),
-                                emotes: what == "emotes",
+                                emotes: what != "flood",
+                                animated: what == "animated",
                             }
                         }
                         "delete" => Step::Delete(
@@ -277,7 +313,11 @@ impl Script {
                         ),
                         "clear" => Step::Clear,
                         "raw" => Step::Raw(rest.join(" ")),
-                        _ => return Err(err("say, flood, emotes, delete, clear-user, clear or raw")),
+                        _ => {
+                            return Err(err(
+                                "say, flood, emotes, animated, delete, clear-user, clear or raw",
+                            ));
+                        }
                     };
                     s.steps.push((at, step));
                 }
@@ -288,11 +328,22 @@ impl Script {
     }
 
     /// TESTING ONLY: its emotes' images from `base` instead
-    /// (`<base><id>.png`: a local test server's files).
+    /// (`<base><id>.png`, an animated one's `<base><id>.gif`: a local test
+    /// server's files).
     pub fn images_at(&mut self, base: &str) {
         for e in &mut self.emotes {
-            e.image = format!("{base}{}.png", e.id);
+            let kind = if e.animated { "gif" } else { "png" };
+            e.image = format!("{base}{}.{kind}", e.id);
         }
+    }
+
+    /// Its emotes: id, whether animated and its picture's spec, for the
+    /// tools that write their files (`chat_images`).
+    pub fn emote_specs(&self) -> Vec<(String, bool, String)> {
+        self.emotes
+            .iter()
+            .map(|e| (e.id.clone(), e.animated, e.image.clone()))
+            .collect()
     }
 
     /// The room's ceiling this script stands for.
@@ -311,13 +362,7 @@ impl Script {
                     self.emotes
                         .iter()
                         .filter(|e| e.provider == p)
-                        .map(|e| {
-                            (
-                                e.word.clone(),
-                                Emote::new(e.provider, e.id.clone()),
-                                image(&e.image),
-                            )
-                        })
+                        .map(|e| (e.word.clone(), e.emote(), image(&e.image)))
                         .collect::<Vec<_>>(),
                 )
             })
@@ -325,7 +370,7 @@ impl Script {
             sets.add(Source::Channel(provider), list);
         }
         for e in &self.emotes {
-            sets.set_image(Emote::new(e.provider, e.id.clone()), image(&e.image));
+            sets.set_image(e.emote(), image(&e.image));
         }
         sets
     }
@@ -342,16 +387,20 @@ fn image(at: &str) -> Image {
 pub struct Player {
     script: Script,
     /// The next step, its loop, and the floods running (`(from, until,
-    /// rate, emotes, sent)`).
+    /// rate, (emotes, animated), sent)`).
     next: usize,
     round: u64,
-    floods: Vec<(f64, f64, f64, bool, u64)>,
+    floods: Vec<Flood>,
     welcomed: bool,
     serial: u64,
     /// Message ids by label, of this round.
     labels: Vec<(String, String)>,
     seed: u64,
 }
+
+/// A flood running: from, until, its rate, (emote-only, animated alone),
+/// messages sent.
+type Flood = (f64, f64, f64, (bool, bool), u64);
 
 const BROADCASTER: &str = "1971641";
 
@@ -424,9 +473,15 @@ impl Player {
         x.wrapping_mul(0x2545_f491_4f6c_dd1d)
     }
 
-    fn flood_message(&mut self, emotes: bool) -> String {
+    fn flood_message(&mut self, (emotes, animated): (bool, bool)) -> String {
         let who = format!("viewer{}", self.rand() % 400);
-        let words: Vec<String> = self.script.emotes.iter().map(|e| e.word.clone()).collect();
+        let words: Vec<String> = self
+            .script
+            .emotes
+            .iter()
+            .filter(|e| !animated || e.animated)
+            .map(|e| e.word.clone())
+            .collect();
         let text = if emotes && !words.is_empty() {
             let n = 1 + (self.rand() % 4) as usize;
             let w = words[(self.rand() % words.len() as u64) as usize].clone();
@@ -461,7 +516,8 @@ impl Player {
                 rate,
                 seconds,
                 emotes,
-            } => self.floods.push((at, at + seconds, rate, emotes, 0)),
+                animated,
+            } => self.floods.push((at, at + seconds, rate, (emotes, animated), 0)),
             Step::Delete(label) => {
                 if let Some((_, id)) = self.labels.iter().find(|(l, _)| *l == label) {
                     out.push(notification(
@@ -517,9 +573,14 @@ impl Player {
             {
                 Some(e) => {
                     flush(&mut plain, &mut fragments);
+                    let format: &[&str] = if e.animated {
+                        &["static", "animated"]
+                    } else {
+                        &["static"]
+                    };
                     fragments.push(serde_json::json!({"type": "emote", "text": word,
                         "cheermote": null, "mention": null,
-                        "emote": {"id": e.id, "emote_set_id": "0", "owner_id": "0", "format": ["static"]}}));
+                        "emote": {"id": e.id, "emote_set_id": "0", "owner_id": "0", "format": format}}));
                 }
                 None => plain.push_str(word),
             }
@@ -584,12 +645,48 @@ fn notification(kind: &str, event: serde_json::Value) -> String {
 pub fn shape_pixels(spec: &str) -> Option<([u32; 2], Vec<u8>)> {
     let mut parts = spec.strip_prefix("shape:")?.split(':');
     let kind = parts.next()?;
-    let hex = parts.next()?;
+    let rgb = color(parts.next()?)?;
     let aspect: f32 = parts.next().and_then(|a| a.parse().ok()).unwrap_or(1.0);
+    let size = shape_size(aspect);
+    Some((size, draw_shape(kind, rgb, size, 1.0, None)?))
+}
+
+/// A scripted animated emote's frames
+/// (`anim:<kind>:<rrggbb>:<frames>:<ms>[:<aspect>]`, round TW4): their
+/// size, every frame's RGBA pixels one after another, and each frame's
+/// duration, milliseconds. The shape pulses and a light sweeps across it,
+/// so every frame differs. At most 64 frames; `None` for anything else.
+pub fn anim_pixels(spec: &str) -> Option<([u32; 2], Vec<u8>, Vec<u32>)> {
+    let mut parts = spec.strip_prefix("anim:")?.split(':');
+    let kind = parts.next()?;
+    let rgb = color(parts.next()?)?;
+    let frames: usize = parts.next()?.parse().ok().filter(|n| (1..=64).contains(n))?;
+    let ms: u32 = parts.next()?.parse().ok().filter(|n| (1..=10_000).contains(n))?;
+    let aspect: f32 = parts.next().and_then(|a| a.parse().ok()).unwrap_or(1.0);
+    let size = shape_size(aspect);
+    let mut rgba = Vec::with_capacity((size[0] * size[1] * 4) as usize * frames);
+    for k in 0..frames {
+        let phase = k as f32 / frames as f32;
+        let pulse = 0.78 + 0.22 * (phase * std::f32::consts::TAU).cos();
+        rgba.extend(draw_shape(kind, rgb, size, pulse, Some(phase))?);
+    }
+    Some((size, rgba, vec![ms; frames]))
+}
+
+fn color(hex: &str) -> Option<[u8; 3]> {
     let c = u32::from_str_radix(hex, 16).ok()?;
-    let rgb = [(c >> 16) as u8, (c >> 8) as u8, c as u8];
+    Some([(c >> 16) as u8, (c >> 8) as u8, c as u8])
+}
+
+fn shape_size(aspect: f32) -> [u32; 2] {
     let h = crate::cache::CELL;
-    let w = ((h as f32 * aspect.clamp(0.25, 4.0)).round() as u32).max(1);
+    [((h as f32 * aspect.clamp(0.25, 4.0)).round() as u32).max(1), h]
+}
+
+/// `kind` in `rgb` on a `size` picture, at `scale` of its full size, with
+/// a light band across it at `sweep` (0 to 1, left to right).
+fn draw_shape(kind: &str, rgb: [u8; 3], size: [u32; 2], scale: f32, sweep: Option<f32>) -> Option<Vec<u8>> {
+    let [w, h] = size;
     let mut px = vec![0u8; (w * h * 4) as usize];
     let (fw, fh) = (w as f32, h as f32);
     for y in 0..h {
@@ -598,8 +695,8 @@ pub fn shape_pixels(spec: &str) -> Option<([u32; 2], Vec<u8>)> {
             let mut inside = 0.0;
             let mut rim = 0.0;
             for (dx, dy) in [(0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)] {
-                let u = (x as f32 + dx) / fw * 2.0 - 1.0;
-                let v = (y as f32 + dy) / fh * 2.0 - 1.0;
+                let u = ((x as f32 + dx) / fw * 2.0 - 1.0) / scale;
+                let v = ((y as f32 + dy) / fh * 2.0 - 1.0) / scale;
                 let d = match kind {
                     "circle" => (u * u + v * v).sqrt() - 0.9,
                     "square" => u.abs().max(v.abs()) - 0.85,
@@ -617,13 +714,18 @@ pub fn shape_pixels(spec: &str) -> Option<([u32; 2], Vec<u8>)> {
             }
             let i = ((y * w + x) * 4) as usize;
             let k = if inside > 0.0 { rim / inside } else { 0.0 };
+            let light = sweep.map_or(0.0, |s| {
+                let at = (x as f32 + 0.5) / fw;
+                (1.0 - ((at - s).abs() * 6.0)).clamp(0.0, 1.0) * 0.8
+            });
             for ch in 0..3 {
-                px[i + ch] = (f32::from(rgb[ch]) * (1.0 - 0.6 * k)) as u8;
+                let c = f32::from(rgb[ch]) * (1.0 - 0.6 * k);
+                px[i + ch] = (c + (255.0 - c) * light) as u8;
             }
             px[i + 3] = (inside * 255.0) as u8;
         }
     }
-    Some(([w, h], px))
+    Some(px)
 }
 
 #[cfg(test)]
@@ -637,7 +739,7 @@ mod tests {
 
     #[test]
     fn the_built_in_scripts_parse() {
-        for name in ["demo", "emotes", "flood", "25"] {
+        for name in ["demo", "emotes", "flood", "animated", "25"] {
             let s = Script::builtin(name).unwrap_or_else(|| panic!("{name}"));
             assert!(!s.steps.is_empty(), "{name}");
         }
@@ -713,5 +815,40 @@ mod tests {
             assert!(shape_pixels(&format!("shape:{k}:123456")).is_some());
         }
         assert!(shape_pixels("https://x").is_none());
+    }
+
+    /// Round TW4: the scripted chat's animated emotes, drawn in code.
+    #[test]
+    fn animated_shapes_have_frames_that_differ() {
+        let (size, px, d) = anim_pixels("anim:circle:ff8000:8:100").unwrap();
+        assert_eq!(size, [64, 64]);
+        assert_eq!(d, vec![100; 8]);
+        let frame = (64 * 64 * 4) as usize;
+        assert_eq!(px.len(), 8 * frame);
+        assert_ne!(px[..frame], px[frame..2 * frame]);
+        let (wide, _, _) = anim_pixels("anim:bar:00ff00:4:50:2").unwrap();
+        assert_eq!(wide, [128, 64]);
+        assert!(anim_pixels("anim:circle:ff8000:0:100").is_none());
+        assert!(anim_pixels("anim:circle:ff8000:65:100").is_none());
+        assert!(anim_pixels("shape:circle:ff8000").is_none());
+        // Its Twitch emote offered animated, the others' words animated.
+        let s = Script::builtin("demo").unwrap();
+        let sets = s.sets();
+        let party = Emote::twitch("emotesv2_p1").moving();
+        assert_eq!(sets.image(&party).unwrap().url, "anim:circle:f06040:8:100");
+        assert!(sets.word("catDance").is_some_and(|e| e.animated));
+        let mut p = Player::new(s);
+        let events = events(&mut p, 2.1);
+        let animated = events.iter().any(|m| {
+            matches!(m, Message::Notification(Event::Message(c))
+                if c.fragments.iter().any(|f| matches!(f, crate::eventsub::Fragment::Emote { animated: true, .. })))
+        });
+        assert!(animated);
+        // Their files: an animated one's a GIF.
+        let mut s = Script::builtin("emotes").unwrap();
+        s.images_at("/chat/");
+        let specs = s.emote_specs();
+        assert!(specs.iter().any(|(id, a, at)| id == "c2" && *a && at == "/chat/c2.gif"));
+        assert!(specs.iter().any(|(id, a, at)| id == "25" && !*a && at == "/chat/25.png"));
     }
 }

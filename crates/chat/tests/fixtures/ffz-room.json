@@ -5,6 +5,9 @@
     "emoticons": [
       {"id": 28136, "name": "LilZ", "height": 32, "width": 32, "public": true, "hidden": false, "modifier": false,
        "urls": {"1": "https://cdn.frankerfacez.com/emote/28136/1", "2": "https://cdn.frankerfacez.com/emote/28136/2", "4": "https://cdn.frankerfacez.com/emote/28136/4"},
-       "animated": null}
+       "animated": null},
+      {"id": 720507, "name": "LilDance", "height": 32, "width": 32, "public": true, "hidden": false, "modifier": false,
+       "urls": {"1": "https://cdn.frankerfacez.com/emote/720507/1", "2": "https://cdn.frankerfacez.com/emote/720507/2", "4": "https://cdn.frankerfacez.com/emote/720507/4"},
+       "animated": {"1": "https://cdn.frankerfacez.com/emote/720507/animated/1", "2": "https://cdn.frankerfacez.com/emote/720507/animated/2", "4": "https://cdn.frankerfacez.com/emote/720507/animated/4"}}
     ]}}
 }
