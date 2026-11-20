@@ -5918,7 +5918,8 @@ fn the_rooms_screens_draw_as_pinned() {
 /// Players pop-up has Moderate at its title's right (practice's has none:
 /// "players" stays), and Host options its Twitch rows. Round TW3 moved
 /// "host": its "Show my Twitch chat" row shows only under the testing
-/// switch now (the test runs without it).
+/// switch now (the test runs without it). Round DB moved "host": its
+/// song list's note says hosts and co-hosts may fill the whole list.
 const PINNED: [(&str, u64); 10] = [
     ("select", 6294184724527765777),
     ("rules", 1214659751631822932),
@@ -5929,7 +5930,7 @@ const PINNED: [(&str, u64); 10] = [
     ("online-select", 9359307383711192609),
     ("online-member", 3482401827223415051),
     ("online-players", 15010800377283620634),
-    ("host", 6296197917129500735),
+    ("host", 16279385975497969518),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's
