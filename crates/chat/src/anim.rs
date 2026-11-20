@@ -24,8 +24,10 @@ pub const MOST_BYTES: usize = 2 << 20;
 pub const MOST_SIDE: u32 = 1024;
 /// Frames of an animation at most: past them, its first frame, still.
 pub const MOST_FRAMES: usize = 1000;
-/// Pixels of all its frames at most (frames × the canvas): what decoding
-/// them costs. Past it, the first frame, still.
+/// Pixels of all its frames at most (each frame's own area or the
+/// canvas's, the larger, summed: what decoding and compositing them
+/// costs, a tiny canvas with huge frames counted by the frames). Past it,
+/// the first frame, still.
 pub const MOST_WORK: u64 = 64 << 20;
 /// Frames of an emote kept at most.
 pub const KEPT_FRAMES: usize = 64;
@@ -92,6 +94,9 @@ pub struct Probe {
     /// Each frame's duration, milliseconds ([`FAST_MS`] read as
     /// [`SLOW_MS`]), for the first [`MOST_FRAMES`] + 1 frames.
     pub durations: Vec<u32>,
+    /// What decoding every frame costs, pixels: each frame's own area or
+    /// the canvas's, the larger, summed (checked against [`MOST_WORK`]).
+    pub work: u64,
 }
 
 /// A frame a shell decodes and keeps: its index in the image and how long
@@ -126,8 +131,7 @@ impl Probe {
         if !self.animated() {
             return Verdict::Still;
         }
-        let area = u64::from(self.size[0]) * u64::from(self.size[1]);
-        if self.frames > MOST_FRAMES || (self.frames as u64).saturating_mul(area) > MOST_WORK {
+        if self.frames > MOST_FRAMES || self.work > MOST_WORK {
             return Verdict::Still;
         }
         let durations = &self.durations[..self.frames.min(self.durations.len())];
@@ -242,19 +246,24 @@ fn u32be(b: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_be_bytes(b.get(at..at + 4)?.try_into().ok()?))
 }
 
-/// Frames counted, their durations kept for the first ones.
+/// Frames counted, their durations kept for the first ones, and the
+/// pixels decoding them all costs.
 #[derive(Default)]
 struct Frames {
     count: usize,
     durations: Vec<u32>,
+    work: u64,
 }
 
 impl Frames {
-    fn push(&mut self, ms: u32) {
+    /// A frame of `ms` and `size` pixels on a canvas of `canvas` pixels.
+    fn push(&mut self, ms: u32, size: [u32; 2], canvas: [u32; 2]) {
         self.count += 1;
         if self.durations.len() <= MOST_FRAMES {
             self.durations.push(read_ms(ms));
         }
+        let area = |s: [u32; 2]| u64::from(s[0]) * u64::from(s[1]);
+        self.work = self.work.saturating_add(area(size).max(area(canvas)));
     }
 }
 
@@ -321,7 +330,7 @@ fn gif(b: &[u8]) -> Result<Probe, Refusal> {
                 else {
                     break;
                 };
-                side([w.max(1), h.max(1)])?;
+                let frame = side([w.max(1), h.max(1)])?;
                 at += 10;
                 if p & 0x80 != 0 {
                     at += 3 * (2usize << (p & 7));
@@ -331,7 +340,7 @@ fn gif(b: &[u8]) -> Result<Probe, Refusal> {
                     Some(next) => at = next,
                     None => break,
                 }
-                frames.push(delay);
+                frames.push(delay, frame, size);
                 delay = 0;
             }
             0x3b => break,
@@ -351,6 +360,7 @@ fn gif(b: &[u8]) -> Result<Probe, Refusal> {
         size,
         frames: frames.count,
         durations: frames.durations,
+        work: frames.work,
     })
 }
 
@@ -376,23 +386,18 @@ fn webp(b: &[u8]) -> Result<Probe, Refusal> {
             b"ANMF" => {
                 let w = u24le(b, data + 6).ok_or(Refusal::Broken)? + 1;
                 let h = u24le(b, data + 9).ok_or(Refusal::Broken)? + 1;
-                side([w, h])?;
-                frames.push(u24le(b, data + 12).ok_or(Refusal::Broken)?);
-            }
-            b"VP8 " if still.is_none() => {
-                if b.get(data + 3..data + 6) != Some(&[0x9d, 0x01, 0x2a]) {
+                let frame = side([w, h])?;
+                let ms = u24le(b, data + 12).ok_or(Refusal::Broken)?;
+                // The frame's own bitstream says its size again (a decoder
+                // may size its buffers by it before it compares): as wide
+                // as an emote, and the frame's.
+                if side(anmf_bitstream(&b[..end], data + 16)?)? != frame {
                     return Err(Refusal::Broken);
                 }
-                let w = u16le(b, data + 6).ok_or(Refusal::Broken)? & 0x3fff;
-                let h = u16le(b, data + 8).ok_or(Refusal::Broken)? & 0x3fff;
-                still = Some([w, h]);
+                frames.push(ms, frame, canvas.unwrap_or(frame));
             }
-            b"VP8L" if still.is_none() => {
-                if b.get(data) != Some(&0x2f) {
-                    return Err(Refusal::Broken);
-                }
-                let bits = u32le(b, data + 1).ok_or(Refusal::Broken)?;
-                still = Some([(bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1]);
+            b"VP8 " | b"VP8L" if still.is_none() => {
+                still = bitstream_size(kind, b, data)?;
             }
             _ => {}
         }
@@ -408,6 +413,7 @@ fn webp(b: &[u8]) -> Result<Probe, Refusal> {
             size,
             frames: frames.count,
             durations: frames.durations,
+            work: frames.work,
         });
     }
     let size = side(canvas.or(still).ok_or(Refusal::Broken)?)?;
@@ -421,7 +427,47 @@ fn webp(b: &[u8]) -> Result<Probe, Refusal> {
         size,
         frames: 1,
         durations: vec![0],
+        work: u64::from(size[0]) * u64::from(size[1]),
     })
+}
+
+/// The size a WebP bitstream chunk (`VP8 ` or `VP8L`, its data at `data`)
+/// says; `None` for another chunk.
+fn bitstream_size(kind: &[u8], b: &[u8], data: usize) -> Result<Option<[u32; 2]>, Refusal> {
+    match kind {
+        b"VP8 " => {
+            if b.get(data + 3..data + 6) != Some(&[0x9d, 0x01, 0x2a]) {
+                return Err(Refusal::Broken);
+            }
+            let w = u16le(b, data + 6).ok_or(Refusal::Broken)? & 0x3fff;
+            let h = u16le(b, data + 8).ok_or(Refusal::Broken)? & 0x3fff;
+            Ok(Some([w, h]))
+        }
+        b"VP8L" => {
+            if b.get(data) != Some(&0x2f) {
+                return Err(Refusal::Broken);
+            }
+            let bits = u32le(b, data + 1).ok_or(Refusal::Broken)?;
+            Ok(Some([(bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1]))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// The size an animation frame's bitstream says: its chunks from `at` to
+/// the end of `b` (the frame's), an `ALPH` or others before it.
+fn anmf_bitstream(b: &[u8], mut at: usize) -> Result<[u32; 2], Refusal> {
+    while let (Some(kind), Some(len)) = (b.get(at..at + 4), u32le(b, at + 4)) {
+        let data = at + 8;
+        if let Some(size) = bitstream_size(kind, b, data)? {
+            return Ok(size);
+        }
+        at = data
+            .checked_add(len as usize)
+            .and_then(|e| e.checked_add(len as usize & 1))
+            .ok_or(Refusal::Broken)?;
+    }
+    Err(Refusal::Broken)
 }
 
 fn png(b: &[u8]) -> Result<Probe, Refusal> {
@@ -449,11 +495,11 @@ fn png(b: &[u8]) -> Result<Probe, Refusal> {
             b"fcTL" => {
                 let w = u32be(b, data + 4).ok_or(Refusal::Broken)?;
                 let h = u32be(b, data + 8).ok_or(Refusal::Broken)?;
-                side([w, h])?;
+                let frame = side([w, h])?;
                 let num = u16be(b, data + 20).ok_or(Refusal::Broken)?;
                 let den = u16be(b, data + 22).ok_or(Refusal::Broken)?;
                 let den = if den == 0 { 100 } else { den };
-                frames.push(num * 1000 / den);
+                frames.push(num * 1000 / den, frame, size);
             }
             b"IEND" => break,
             _ => {}
@@ -466,6 +512,7 @@ fn png(b: &[u8]) -> Result<Probe, Refusal> {
             size,
             frames: frames.count,
             durations: frames.durations,
+            work: frames.work,
         });
     }
     Ok(Probe {
@@ -473,6 +520,7 @@ fn png(b: &[u8]) -> Result<Probe, Refusal> {
         size,
         frames: 1,
         durations: vec![0],
+        work: u64::from(size[0]) * u64::from(size[1]),
     })
 }
 
@@ -489,11 +537,13 @@ fn jpeg(b: &[u8]) -> Result<Probe, Refusal> {
             0xc0..=0xcf if !matches!(marker, 0xc4 | 0xc8 | 0xcc) => {
                 let h = u16be(b, at + 5).ok_or(Refusal::Broken)?;
                 let w = u16be(b, at + 7).ok_or(Refusal::Broken)?;
+                let size = side([w, h])?;
                 return Ok(Probe {
                     format: Format::Jpeg,
-                    size: side([w, h])?,
+                    size,
                     frames: 1,
                     durations: vec![0],
+                    work: u64::from(size[0]) * u64::from(size[1]),
                 });
             }
             0xd9 | 0xda => return Err(Refusal::Broken),

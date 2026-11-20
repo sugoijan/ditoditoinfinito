@@ -846,15 +846,21 @@ chunks, PNG's and APNG's chunks, JPEG's frame header): its format, its
 canvas, each frame's size and duration. Its limits, `anim-limits-v0`,
 PROVISIONAL, are checked there, before memory is spent on pixels:
 
-- at most 2 MiB of bytes (read with that cap; the proxy's cap too);
+- at most 2 MiB of bytes (read with that cap, an answer whose length
+  says more refused before it is read, a longer one stopped once past
+  it; the proxy's cap too);
 - each side of the canvas and of every frame at most 1024 pixels;
-- an unknown or broken container refused;
+- an unknown or broken container refused (an animated WebP frame's own
+  bitstream must say the frame's size: a decoder may size its buffers
+  by it before it compares);
 
 any of these refuses the image (it is never drawn, as a failed fetch);
 and
 
-- at most 1000 frames, and at most 64 megapixels of frames in all (the
-  frames times the canvas: what decoding them costs);
+- at most 1000 frames, and at most 64 megapixels of frames in all (each
+  frame's own area or the canvas's, the larger, summed: what decoding
+  and compositing them costs, so a tiny canvas with huge frames counts
+  its frames);
 
 past these the animation is refused and its first frame is shown still.
 A frame's duration is its own (GIF's delay, WebP's and APNG's), a

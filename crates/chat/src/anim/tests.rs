@@ -37,12 +37,21 @@ fn animated_webp(size: [u32; 2], frames: usize, ms: u32) -> Vec<u8> {
         f.extend(u24(size[1] - 1));
         f.extend(u24(ms));
         f.push(0);
-        f.extend(b"VP8L");
-        f.extend(5u32.to_le_bytes());
-        f.extend([0x2f, 0, 0, 0, 0, 0]);
+        f.extend(vp8l(size));
         chunks.push((b"ANMF", f));
     }
     webp_of(&chunks)
+}
+
+/// A `VP8L` chunk whose header says `size` (its image data a stub).
+fn vp8l(size: [u32; 2]) -> Vec<u8> {
+    let bits = (size[0] - 1) | ((size[1] - 1) << 14);
+    let mut c = b"VP8L".to_vec();
+    c.extend(5u32.to_le_bytes());
+    c.push(0x2f);
+    c.extend(bits.to_le_bytes());
+    c.push(0);
+    c
 }
 
 fn png_of(size: [u32; 2], fctl: &[(u32, u32, u16, u16)]) -> Vec<u8> {
@@ -166,6 +175,27 @@ fn hostile_images_are_refused_before_they_are_decoded() {
         probe(&animated_webp([256, 256], 200, 40)).unwrap().verdict(),
         Verdict::Animated(_)
     ));
+    // An animation frame whose own bitstream claims more than its frame
+    // (a decoder sizes buffers by it): too wide, or broken where it
+    // differs.
+    let at = {
+        let ok = animated_webp([16, 16], 2, 50);
+        ok.windows(4).rposition(|w| w == b"VP8L").unwrap()
+    };
+    for (claim, refusal) in [([16383, 16383], Refusal::TooWide), ([8, 16], Refusal::Broken)] {
+        let mut liar = animated_webp([16, 16], 2, 50);
+        let bits: u32 = (claim[0] - 1) | ((claim[1] - 1) << 14);
+        liar[at + 9..at + 13].copy_from_slice(&bits.to_le_bytes());
+        assert_eq!(probe(&liar), Err(refusal), "{claim:?}");
+    }
+    // A tiny canvas with huge frames: the work counts the frames' own
+    // areas (100 frames of 1024 × 1024 on a 1 × 1 canvas), still.
+    let mut tiny = test_gif([1024, 1024], 100, 4);
+    tiny[6..10].copy_from_slice(&[1, 0, 1, 0]);
+    let p = probe(&tiny).unwrap();
+    assert_eq!((p.size, p.frames), ([1, 1], 100));
+    assert_eq!(p.work, 100 << 20);
+    assert_eq!(p.verdict(), Verdict::Still);
 }
 
 #[test]

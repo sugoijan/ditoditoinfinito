@@ -400,6 +400,19 @@ mod tests {
         // More bytes than an emote's, and not an image at all.
         assert!(decode(&vec![0x47; (2 << 20) + 1]).is_none());
         assert!(decode(b"<html>not an image</html>").is_none());
+        // A tiny canvas with huge frames (100 of 1024 × 1024 on 1 × 1):
+        // the frames' own areas count, their first frame alone.
+        let mut tiny = test_gif([1024, 1024], 100, 4);
+        tiny[6..10].copy_from_slice(&[1, 0, 1, 0]);
+        if let Some(d) = decode(&tiny) {
+            assert_eq!(d.durations.len(), 1);
+        }
+        // An animated WebP whose frame's own bitstream claims 16383 ×
+        // 16383: refused before a decoder sizes a buffer by it.
+        let mut liar = made::webp([28, 28], &frames([28, 28], 3), 80);
+        let at = liar.windows(4).rposition(|w| w == b"VP8L").unwrap();
+        liar[at + 9..at + 13].copy_from_slice(&(16382u32 | (16382 << 14)).to_le_bytes());
+        assert!(decode(&liar).is_none());
         assert!(t.elapsed() < Duration::from_secs(2), "{:?}", t.elapsed());
         // An animation past its deadline: its first frame, still.
         let gif = made::gif([28, 28], &frames([28, 28], 6), 80);
