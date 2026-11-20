@@ -542,6 +542,16 @@ fn animated_emotes_move_and_the_layout_decides_the_style() {
         panic!("{}: two shots with the chat", eight.name)
     };
     assert!(ca.animated.0 >= 2, "animated emotes ready: {:?}", ca.animated);
+    // Every copy of an emote on screen shows the same frame (one phase).
+    for c in [ca, cb] {
+        let mut frame_of = std::collections::HashMap::new();
+        for e in &c.emotes_drawn {
+            let at = *frame_of.entry(e.first).or_insert(e.cell);
+            assert_eq!(at, e.cell, "copies of one emote on different frames");
+        }
+        let copies = c.emotes_drawn.len() - frame_of.len();
+        eprintln!("{} emotes drawn, {copies} of them further copies", c.emotes_drawn.len());
+    }
     let (ia, ib) = (by_item(ca), by_item(cb));
     let mut moved = Vec::new();
     let mut kept = Vec::new();

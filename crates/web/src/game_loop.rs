@@ -934,7 +934,8 @@ impl GameLoop {
             // (`"Emotes"`/`"Messages"`, `"Across"`/`"Falling"`), the
             // animation clock (ms), the animated emotes ready and their
             // atlas units, and each emote drawn (its item, rect, the
-            // cell that showed, whether it moves).
+            // cell that showed, its first frame's cell, which names the
+            // emote, whether it moves).
             "chat": self.view.chat_drawn().map(|c| json!({
                 "shown": c.shown.map(|(l, s)| [format!("{l:?}"), format!("{s:?}")]),
                 "anim_ms": c.anim_ms,
@@ -943,6 +944,7 @@ impl GameLoop {
                     "item": e.item,
                     "rect": e.rect,
                     "cell": e.cell,
+                    "first": e.first,
                     "animated": e.animated,
                 })).collect::<Vec<_>>(),
                 "items": c.items,

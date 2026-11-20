@@ -120,6 +120,9 @@ pub struct EmoteDrawn {
     pub rect: [f32; 4],
     /// Its atlas cell's left and top: which frame showed.
     pub cell: [u32; 2],
+    /// Its first frame's cell's left and top: which emote it is (every
+    /// copy of an emote has the same).
+    pub first: [u32; 2],
     /// Its provider animates it.
     pub animated: bool,
 }
@@ -356,10 +359,12 @@ impl ChatView {
                             continue;
                         };
                         let pad = h * 0.04;
+                        let first = self.cache.cell(e).unwrap_or(cell);
                         drawn.emotes_drawn.push(EmoteDrawn {
                             item: d.id,
                             rect: [x, d.y + pad, x + l.width * s, d.y + h - pad],
                             cell: [cell[0], cell[1]],
+                            first: [first[0], first[1]],
                             animated: e.animated,
                         });
                         let [cx, cy, cw, ch] = cell.map(|v| v as f32);
