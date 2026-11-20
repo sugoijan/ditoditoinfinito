@@ -444,6 +444,14 @@ impl SelectScreen {
                     [x + w / 2.0, ty],
                 );
                 crate::widgets::play(&mut tab, if on { "Selected" } else { "Available" });
+                // The whole tab is the target, its plate around the words
+                // too (a look may leave it unpainted, round SF).
+                if let Kind::Frame(parts) = &mut tab.kind {
+                    parts.insert(
+                        0,
+                        look::quad_at("", [w, TABS_H - 4.0], [0.0, 0.0, 0.0, 0.004], [0.0, 0.0]),
+                    );
+                }
                 children.push(tab);
                 x += w + 4.0;
             }
@@ -1421,6 +1429,13 @@ impl SelectScreen {
         }
     }
 
+    /// The hand over an online room's tabs, as over a button (they are
+    /// pressed, never focused).
+    pub(super) fn room_cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
+        let listed = self.room.as_ref().is_some_and(|rm| rm.side == Side::Listed);
+        (listed && tab_of(target).is_some()).then_some(crate::request::Cursor::Pointer)
+    }
+
     /// The room's buttons and the panel's marks.
     pub(super) fn room_activate(
         &mut self,
@@ -1496,6 +1511,21 @@ impl SelectScreen {
                 self.set_popover(None, root);
                 return Some(Handled::Yes);
             }
+        }
+        // A click or a tap on a tab shows it (round SF); the focus stays
+        // where it was (the tabs are the pointer's and M's, not a stop of
+        // the arrows).
+        if let Input::Pointer {
+            target: Some(t),
+            gesture: crate::Gesture::Tap,
+            ..
+        } = input
+            && let Some(rm) = &self.room
+            && rm.side == Side::Listed
+            && let Some(to) = tab_of(t)
+        {
+            self.switch_tab(to, root, cx);
+            return Some(Handled::Yes);
         }
         // A mouse over a row: its words.
         if let Input::Hover { target } = input
@@ -1786,6 +1816,17 @@ impl SelectScreen {
 }
 
 /// Plays `command` on the parts named `names` among `parts`.
+/// The tab a target is on, if one.
+fn tab_of(target: &crate::hit::Target) -> Option<Tab> {
+    if target.within(TAB_ROOM) {
+        Some(Tab::Room)
+    } else if target.within(TAB_MINE) {
+        Some(Tab::Mine)
+    } else {
+        None
+    }
+}
+
 fn play_parts<'a>(parts: &mut [Actor], names: impl IntoIterator<Item = &'a str>, command: &str) {
     let mut problems = ddi_actor::Problems::default();
     for name in names {

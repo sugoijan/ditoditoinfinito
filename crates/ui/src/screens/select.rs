@@ -4119,7 +4119,7 @@ impl Screen for SelectScreen {
     }
 
     fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
-        self.search.cursor(target)
+        self.search.cursor(target).or_else(|| self.room_cursor(target))
     }
 
     fn name(&self) -> &str {

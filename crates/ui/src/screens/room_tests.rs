@@ -3767,6 +3767,60 @@ fn a_room_made_shows_no_view_until_it_answers_and_then_the_hosts_once() {
     }
 }
 
+/// Round SF, item 5 (the maintainer, 2026-11-20: "I think we should
+/// support clicking on the tab to switch between them, and not just the
+/// 'M' shortcut"): a click or a tap on a tab, on its words or on the
+/// plate around them, shows that tab; the tabs show a hand under the
+/// mouse, as a button does; the focus stays on the list (M and the
+/// arrows as they were).
+#[test]
+fn a_click_or_a_tap_on_a_tab_shows_it() {
+    use super::select::{TAB_MINE_NAME, TAB_ROOM_NAME};
+    let titles = ["Alpha One", "Alpha Two"];
+    let t = Three::new(false);
+    let orders = Orders::default();
+    let ea = env();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&titles), &orders);
+    listed(&t, &titles, 1);
+    t.settle(600, &mut [&mut ha]);
+    let rooms = [&t.alice, &t.bob, &t.carol];
+    assert_eq!(view(&ea).tab.as_deref(), Some("room"));
+    let mut tab = "room";
+    for kind in [PointerKind::Mouse, PointerKind::Touch] {
+        for words in [true, false] {
+            let (name, to) = if tab == "room" {
+                (TAB_MINE_NAME, "mine")
+            } else {
+                (TAB_ROOM_NAME, "room")
+            };
+            let b = ha.ui.bounds(name).expect("the tab");
+            let at = if words {
+                ha.centre(name)
+            } else {
+                [b[0] + 3.0, b[1] + 3.0]
+            };
+            if kind == PointerKind::Mouse {
+                ha.hover(at);
+                frames(&t.clock, &rooms, &mut ha, 0.1, &[]);
+                let cursor = ha.requests.iter().rev().find_map(|r| match r {
+                    crate::UiRequest::SetCursor(c) => Some(*c),
+                    _ => None,
+                });
+                assert_eq!(cursor, Some(crate::request::Cursor::Pointer), "{name} {words}: a hand");
+            }
+            ha.tap_at(kind, at);
+            frames(&t.clock, &rooms, &mut ha, 0.5, &[]);
+            assert_eq!(view(&ea).tab.as_deref(), Some(to), "{kind:?} {name} words {words}");
+            assert_eq!(ha.ui.focused(), Some("Wheel"));
+            tab = to;
+        }
+    }
+    // M as before.
+    ha.key("KeyM", "m");
+    frames(&t.clock, &rooms, &mut ha, 0.5, &[]);
+    assert_eq!(view(&ea).tab.as_deref(), Some(if tab == "room" { "mine" } else { "room" }));
+}
+
 /// A look over the plain one that keeps how open song select left the
 /// wheel's room for its selected row (`Look::set_wheel_open`).
 struct Opening(std::cell::Cell<f32>);
@@ -6164,7 +6218,9 @@ fn the_rooms_screens_draw_as_pinned() {
 /// song list's note says hosts and co-hosts may fill the whole list.
 /// 2026-11-20 moved all ten: a room's header no longer says "Playing
 /// with DDI", and in practice's six the selected row is drawn after the
-/// others so that its outline lies over the next row.
+/// others so that its outline lies over the next row. Round SF moved the
+/// online room's four: each tab has a faint plate of its own under its
+/// words, so a click on the plate around them is the tab's.
 const PINNED: [(&str, u64); 10] = [
     ("select", 13509585143535770591),
     ("rules", 14785720766870047911),
@@ -6172,10 +6228,10 @@ const PINNED: [(&str, u64); 10] = [
     ("add-level", 2278696716197688419),
     ("players", 17214481519957413378),
     ("standings", 15460005836634710404),
-    ("online-select", 10615776614815906896),
-    ("online-member", 15243893308354409267),
-    ("online-players", 9025170978183320670),
-    ("host", 18271816611870926806),
+    ("online-select", 13520944678972280719),
+    ("online-member", 3593085590236305062),
+    ("online-players", 17907416448403294767),
+    ("host", 10157297001562287930),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's
