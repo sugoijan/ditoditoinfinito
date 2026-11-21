@@ -997,6 +997,9 @@ impl SelectScreen {
                 let name = r.member_of(e.by).map(room::person_name).unwrap_or_default();
                 ddi_l10n::msg::room::song_added_by(name)
             };
+            // The picker's resting song is no news under Song choice:
+            // Group (revision 22): the players choose.
+            let spot = spot.filter(|_| !r.group_choice());
             let line = match (&picker, spot == Some(e.id)) {
                 (Some(who), true) => ddi_l10n::msg::room::song_line_spotlight(
                     e.card.artist.clone(),

@@ -1061,3 +1061,4 @@ room-draw-heading = ステージ{ $number } · 抽選
 room-draw-won = { $name }さんの選択：{ $title } · { $chart }
 room-draw-won-you = あなたの選択：{ $title } · { $chart }
 room-draw-entry = { $name } · { $title } · { $chart }
+room-draw-entry-you = あなた

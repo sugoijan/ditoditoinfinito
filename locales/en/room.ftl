@@ -2575,3 +2575,6 @@ room-draw-won-you = Your choice: { $title } · { $chart }
 #   $title (String) - the song's title
 #   $chart (String) - its chart, as "Hard 9"
 room-draw-entry = { $name } · { $title } · { $chart }
+# The draw's reveal's entry of this player's own choice: "You" as the
+# name at its start.
+room-draw-entry-you = You

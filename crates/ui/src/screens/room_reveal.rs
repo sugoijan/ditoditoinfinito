@@ -79,7 +79,7 @@ impl RevealDialog {
     /// title and its chart.
     fn words(r: &RoomClient, e: &DrawEntry) -> (UiText, UiText, UiText) {
         let who = if e.participant == r.me() {
-            m::chosen_you()
+            m::draw_entry_you()
         } else {
             UiText::data(r.member_of(e.participant).map(super::room::person_name).unwrap_or_default())
         };
@@ -144,7 +144,9 @@ impl Screen for RevealDialog {
             let index = (base as i64 + k).rem_euclid(n as i64) as usize;
             let Some(e) = entries.get(index) else { continue };
             let row_y = middle + (k as f32 - frac) * ROW_H;
-            if row_y < top - ROW_H / 2.0 || row_y > top + SHOWN as f32 * ROW_H + ROW_H / 2.0 {
+            // Within the reel's window: never over the title or the line
+            // under it.
+            if row_y < top + ROW_H * 0.3 || row_y > top + SHOWN as f32 * ROW_H - ROW_H * 0.3 {
                 continue;
             }
             let distance = ((row_y - middle) / ROW_H).abs();
