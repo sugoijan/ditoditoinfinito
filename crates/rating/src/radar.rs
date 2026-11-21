@@ -121,13 +121,17 @@ fn spoke_radius(decimal: f32, k: usize, cost: f32) -> f32 {
     estimate_base(decimal) * (1.0 + skill_standing(decimal, k, cost) * GROWTH)
 }
 
-/// Sensitivity at the chart's matched level under the frozen ±1 Accuracy pp test.
-pub(super) fn stream_display_stable(decimal: f64, means: &[[f64; 9]; 10]) -> bool {
-    // Match the two rows at full precision, before flooring costs for the manifest.
+/// Bracketing CPU levels and interpolation fraction at the full-precision chart estimate.
+pub(super) fn matched_levels(decimal: f64) -> (usize, usize, f64) {
     let level = (decimal / 19.0 * 10.0).clamp(1.0, 10.0) - 1.0;
     let i = level.floor() as usize;
-    let f = level - i as f64;
-    let cost = (1.0 - f) * means[i][1] + f * means[(i + 1).min(9)][1];
+    (i, (i + 1).min(9), level - i as f64)
+}
+
+/// Sensitivity at the chart's matched level under the frozen ±1 Accuracy pp test.
+pub(super) fn stream_display_stable(decimal: f64, means: &[[f64; 9]; 10]) -> bool {
+    let (i, j, f) = matched_levels(decimal);
+    let cost = (1.0 - f) * means[i][1] + f * means[j][1];
     let hundredth = |x: f64| ((x * 100.0).round() / 100.0) as f32;
     let decimal = hundredth(decimal);
     let display = |cost: f64| {

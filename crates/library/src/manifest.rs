@@ -318,7 +318,7 @@ pub struct ChartEstimate {
 
 /// Cache version for qualification of the scalar and displayed profile and
 /// for the matched-profile readout. Kept with the estimator and scale IDs.
-pub const PROFILE_RULE: &str = "stream-sensitivity-profile-v4";
+pub const PROFILE_RULE: &str = "jumpstream-correction-profile-v5";
 
 /// The skill profile of a chart estimated at `decimal` (1 to 19) from the
 /// estimator's `means` (a row a CPU level, 1 to 10: the balanced Accuracy,
@@ -338,13 +338,15 @@ pub fn matched_profile(decimal: f64, means: &[[f64; 9]; 10]) -> [f64; 8] {
 
 impl ChartEstimate {
     /// Reads the scalar, its qualification, and the per-skill states from
-    /// estimator JSON. Numeric spokes use [`matched_profile`] of the means.
+    /// estimator JSON. Numeric spokes use the qualified Jumpstream cost when
+    /// supplied and [`matched_profile`] of the means otherwise.
     /// Older estimates carry a single qualification flag for the full profile.
     pub fn from_rating_json(json: &str) -> Option<ChartEstimate> {
         #[derive(Deserialize)]
         struct SpokeMasks {
             numeric: u8,
             inactive: u8,
+            jumpstream_cost_pp: Option<f64>,
         }
         #[derive(Deserialize)]
         struct Estimate {
@@ -363,9 +365,13 @@ impl ChartEstimate {
         let masks = e.matched_spokes.or(studied.then_some(SpokeMasks {
             numeric: u8::MAX,
             inactive: 0,
+            jumpstream_cost_pp: None,
         }));
         let profile = masks.map(|m| {
-            let costs = matched_profile(e.decimal, &e.means);
+            let mut costs = matched_profile(e.decimal, &e.means);
+            if let Some(cost) = m.jumpstream_cost_pp {
+                costs[1] = cost.max(0.0);
+            }
             std::array::from_fn(|k| {
                 if m.inactive & (1 << k) != 0 {
                     ProfileSpoke::Inactive

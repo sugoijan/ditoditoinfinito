@@ -2,6 +2,7 @@
 //! Call [`estimate`] with an imported chart. Run outside the play loop.
 mod coefficients;
 mod features;
+mod jumpstream;
 mod network;
 mod prior;
 pub mod radar;
@@ -56,6 +57,9 @@ pub struct Estimate {
 pub struct MatchedSpokes {
     pub numeric: u8,
     pub inactive: u8,
+    /// Corrected signed cost for a qualified 1,201–3,200-note Jumpstream spoke.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jumpstream_cost_pp: Option<f64>,
 }
 
 impl MatchedSpokes {
@@ -65,13 +69,17 @@ impl MatchedSpokes {
         decimal: f64,
         means: &[[f64; 9]; 10],
     ) -> Self {
+        let mut jumpstream_cost_pp = None;
         let validated = match chart.source_notes {
             _ if chart.matched_profile_studied => u8::MAX,
             1201..=3200 => {
                 let stream = opportunity[0]
                     && stream::pattern_qualifies(chart)
                     && radar::stream_display_stable(decimal, means);
-                0b0000_0100 | u8::from(stream) // Handstream and qualified Stream
+                if opportunity[1] {
+                    jumpstream_cost_pp = jumpstream::corrected_cost(chart, decimal, means);
+                }
+                0b0000_0100 | (u8::from(jumpstream_cost_pp.is_some()) << 1) | u8::from(stream)
             }
             3201..=4800 => 0b0000_1101, // also Stream, Stamina
             4801..=8000 => 0b0001_1111, // also Jumpstream, JackSpeed
@@ -86,6 +94,7 @@ impl MatchedSpokes {
         Self {
             numeric: validated & !inactive,
             inactive,
+            jumpstream_cost_pp,
         }
     }
 }
@@ -329,6 +338,48 @@ mod tests {
             assert_eq!(estimate.expected.is_some(), readouts);
             assert_eq!(estimate.conservative.is_some(), readouts);
         }
+    }
+
+    #[test]
+    fn lower_band_jumpstream_uses_the_corrected_cost_in_song_select() {
+        use ddi_library::manifest::{ChartEstimate, ProfileSpoke};
+
+        // Single heads around one two-head row every 40 sixteenths.
+        let rows: Vec<_> = (0..1600)
+            .map(|i| {
+                if i % 40 == 0 {
+                    "1001"
+                } else {
+                    ["1000", "0100", "0010", "0001"][i % 4]
+                }
+            })
+            .collect();
+        let measures = rows.chunks(16).map(|r| r.join("\n")).collect::<Vec<_>>();
+        let song = parse_sm(&format!(
+            "#BPMS:0=204;#NOTES:dance-single::Hard:1::{};",
+            measures.join(",\n")
+        ))
+        .unwrap();
+        let estimate = estimate(&song, 0).unwrap();
+        let stored =
+            ChartEstimate::from_rating_json(&serde_json::to_string(&estimate).unwrap()).unwrap();
+        assert_eq!(estimate.decimal, 19.0);
+        assert!((estimate.means[9][2] - 0.42114535).abs() < 1e-5);
+        assert_eq!(stored.profile.unwrap()[1], ProfileSpoke::Numeric(0.50));
+
+        let chart = features::extract(&song, 0).unwrap();
+        let mut means = [[0.; 9]; 10];
+        // At 9.5 the matched row is level 5. The unrounded raw cost decides
+        // eligibility, even when both costs would display as 1.00.
+        means[4][2] = 1.;
+        let opportunity = [true; 8];
+        let at = MatchedSpokes::for_chart(&chart, opportunity, 9.5, &means);
+        assert_ne!(at.numeric & 2, 0);
+        assert!((0.9..=1.1).contains(&at.jumpstream_cost_pp.unwrap()));
+        means[4][2] = 1.00001;
+        let above = MatchedSpokes::for_chart(&chart, opportunity, 9.5, &means);
+        assert_eq!(above.numeric & 2, 0);
+        assert!(above.jumpstream_cost_pp.is_none());
     }
 
     #[test]

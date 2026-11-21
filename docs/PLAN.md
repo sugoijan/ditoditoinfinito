@@ -603,7 +603,8 @@ a room's song select has its players as a foldable panel at the right
 ([`song-navigation.md`](plans/song-navigation.md)). DDI song select shows qualified
 skills at the chart's displayed level, marks structurally inactive skills, and
 leaves gaps for unavailable estimates. Stream at 1,201–3,200 source notes is
-shown when its pattern and display-sensitivity checks pass.
+shown when its pattern and display-sensitivity checks pass. Jumpstream in that band
+uses a corrected cost where a two-head row occurs and the raw cost is at most 1 Accuracy pp.
 
 Additional onigiri-free charts (2026-10-18): Options can expose 5-key →
 Single, 7-key → Solo, 9A → Double and 9B → Techno 8-panel versions alongside

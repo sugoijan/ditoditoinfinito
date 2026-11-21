@@ -484,15 +484,15 @@ The maintainer's decisions after the song-select layout study
 ## Partial DDI profiles at the displayed chart level
 
 Song select reads the estimator's per-spoke qualification on a scalar-qualified
-original Single chart. For each numeric skill it uses the existing matched-level
-cost and the same chart-relative label and radius. These bands use source note
+original Single chart. For each numeric skill it maps the matched-level
+cost to a chart-relative label and radius. These bands use source note
 count and the scalar's full-precision eligibility decision.
 
 | Source notes | Skills eligible for a number |
 |---|---|
 | Up to 900, or through 1,200 without playable mines | All eight |
 | 901–1,200 with playable mines | None |
-| 1,201–3,200 | Handstream, and Stream where its pattern and display-sensitivity checks pass |
+| 1,201–3,200 | Handstream, Stream where its pattern and display-sensitivity checks pass, and Jumpstream with a two-head row and raw cost ≤1 Accuracy pp |
 | 3,201–4,800 | Stream, Handstream, Stamina |
 | 4,801–8,000 with an exact 19.0 | Stream, Jumpstream, Handstream, Stamina, JackSpeed |
 
@@ -503,6 +503,13 @@ signed Stream cost by ±1 percentage point of Accuracy must move its displayed
 number by at most 1.5 and its radius by at most 0.08 of the outer radius in
 either direction. On the fresh screen, 458 of 800 scalar-qualified families
 passed both checks. All 88 judged families cleared the displayed-error checks.
+
+For Jumpstream in the 1,201–3,200 band, the cutoff uses the signed raw cost
+at the full-precision matched level. The display correction uses that cost,
+two-head row share, log head density, and the head-weighted changes in timing
+spread and omission probability when Jumpstream is weakened to 0.75. The
+adjustment is capped at ±0.10 Accuracy pp before the usual cost flooring,
+rounding, and radar mapping. Its scope is the displayed-level spoke only.
 
 A structurally inactive skill shows **Inactive** at the chart's base radius.
 Without single-head rows this applies to Stream and JackSpeed, without
