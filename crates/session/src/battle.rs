@@ -485,6 +485,9 @@ pub struct Battle {
     out: bool,
     /// The local player's judged song second, as of the last frame.
     now: f64,
+    /// The host second that song second was judged at
+    /// ([`Battle::set_frame_host`]), where the session says it.
+    frame_host: Option<f64>,
     /// The local player left the stage's play while still in (a forfeit),
     /// at this judged song second ([`Battle::forfeit_now`]): out of the
     /// stage from then, the rest of it watched.
@@ -870,6 +873,7 @@ impl Battle {
             critical: false,
             out: false,
             now: f64::NEG_INFINITY,
+            frame_host: None,
             forfeit: None,
             watch_moments: Vec::new(),
             outs_told: Vec::new(),
@@ -1154,7 +1158,7 @@ impl Battle {
         let mut human = human;
         let in_now = human.as_deref().is_some_and(|h| self.me_in(h));
         let mut l = self.remote_live.take()?;
-        self.log.extend(l.sync(t));
+        self.log.extend(l.sync(t, self.frame_host));
         if let Some(h) = human.as_deref() {
             l.send(t, h, judged);
         }
@@ -1510,6 +1514,14 @@ impl Battle {
             combo: shown.combo,
             power: None,
         }
+    }
+
+    /// The host second (`ddi_platform::HostTime`) the next
+    /// [`Battle::advance`]'s song second is judged at: a live stage reads
+    /// the room's clock at that time, however long after it the advance
+    /// runs (`live::Live::sync`).
+    pub fn set_frame_host(&mut self, host: f64) {
+        self.frame_host = Some(host);
     }
 
     /// [`Battle::advance`] for a stage the local player is not in (a

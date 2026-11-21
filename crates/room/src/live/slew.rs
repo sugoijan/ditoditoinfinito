@@ -19,7 +19,15 @@
 //! the corrected time go backwards (the rate is far below the clock's
 //! own). Display and streaming alone: nothing judged depends on it.
 //!
-//! Its numbers are [`SLEW_V0`] (PROVISIONAL), named and versioned.
+//! Whether the two disagree is said (the device's log, its debug state)
+//! from the smoothed disagreement, never one step's reading: a frame whose
+//! clocks were read apart (a shell's work between them) or one exchange's
+//! noise is no disagreement. It is said once it is past the estimate's
+//! uncertainty and a floor, and settled once the correction has brought
+//! it under half that (a band between the two, so a disagreement near the
+//! line is said once and settled once, never over and over).
+//!
+//! Its numbers are [`SLEW_V1`] (PROVISIONAL), named and versioned.
 
 /// How the correction follows the room's clock. PROVISIONAL.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -34,19 +42,28 @@ pub struct SlewRules {
     pub smoothing_ms: f64,
     /// A smoothed disagreement smaller than this is left alone (µs).
     pub deadband_us: i64,
-    /// A disagreement is said (the device's log, its debug state) once it
-    /// is more than the estimate's uncertainty and this (µs).
+    /// A smoothed disagreement is said (the device's log, its debug state)
+    /// once it is more than the estimate's uncertainty and this (µs).
     pub said_over_us: i64,
+    /// A disagreement said is settled once the smoothed one is under this
+    /// share of where it is said (the band between the two keeps one near
+    /// the line from being said and settled over and over).
+    pub settled_under: f64,
 }
 
-/// `slew-v0` (PROVISIONAL, 2026-11-13): at most 2 ms a second, averaged
-/// over 4 s, 2 ms left alone, said past the uncertainty and 20 ms.
-pub const SLEW_V0: SlewRules = SlewRules {
-    id: "slew-v0",
+/// `slew-v1` (PROVISIONAL, round FX, 2026-11-22): `slew-v0`'s correction
+/// (at most 2 ms a second, averaged over 4 s, 2 ms left alone), said from
+/// the smoothed disagreement past the uncertainty and 20 ms, settled under
+/// half that. `slew-v0` (2026-11-13) said one step's reading against the
+/// same line both ways, so a frame read late was said and settled at
+/// once, every time.
+pub const SLEW_V1: SlewRules = SlewRules {
+    id: "slew-v1",
     max_rate_ppm: 2_000,
     smoothing_ms: 4_000.0,
     deadband_us: 2_000,
     said_over_us: 20_000,
+    settled_under: 0.5,
 };
 
 /// One play's correction from its song clock to the room's.
@@ -60,7 +77,11 @@ pub struct SongSlew {
     last_out_us: Option<i64>,
     /// The raw disagreement less the correction, last step (µs).
     off_us: i64,
+    /// The smoothed disagreement less the correction, last step (µs).
+    gap_us: i64,
     uncertainty_us: i64,
+    /// A disagreement is said and not settled yet.
+    said: bool,
 }
 
 impl SongSlew {
@@ -72,7 +93,9 @@ impl SongSlew {
             last_local_us: None,
             last_out_us: None,
             off_us: 0,
+            gap_us: 0,
             uncertainty_us: 0,
+            said: false,
         }
     }
 
@@ -108,6 +131,14 @@ impl SongSlew {
                 let most = dt as f64 * self.rules.max_rate_ppm as f64 / 1e6;
                 self.correction_us += gap.clamp(-most, most);
             }
+            let gap = (s - self.correction_us).abs();
+            self.gap_us = (s - self.correction_us).round() as i64;
+            let line = self.uncertainty_us.max(self.rules.said_over_us) as f64;
+            if self.said {
+                self.said = gap >= line * self.rules.settled_under;
+            } else {
+                self.said = gap > line;
+            }
         }
         let out = self.to_room(local_us);
         let out = self.last_out_us.map_or(out, |l| out.max(l));
@@ -127,16 +158,24 @@ impl SongSlew {
     }
 
     /// How far the device's corrected clock and the room's (as estimated)
-    /// disagreed at the last step (µs, room − corrected).
+    /// disagreed at the last step (µs, room − corrected): that one
+    /// reading, its noise and all.
     pub fn off_us(&self) -> i64 {
         self.off_us
     }
 
-    /// The disagreement is more than the estimate's uncertainty and the
-    /// rules' threshold: said in the device's log and debug state (the
+    /// The disagreement as smoothed, less the correction, at the last
+    /// step (µs, room − corrected): what is said and settled.
+    pub fn gap_us(&self) -> i64 {
+        self.gap_us
+    }
+
+    /// A disagreement is said: the smoothed one went past the estimate's
+    /// uncertainty and the rules' floor and has not come back under the
+    /// rules' share of that (said in the device's log and debug state; the
     /// room is told nothing more: the stream's times are its clock's).
     pub fn disagrees(&self) -> bool {
-        self.off_us.abs() > self.uncertainty_us.max(self.rules.said_over_us)
+        self.said
     }
 }
 
@@ -150,7 +189,7 @@ mod tests {
     /// never goes backwards.
     #[test]
     fn the_correction_follows_a_drifting_clock_smoothly() {
-        let mut s = SongSlew::new(SLEW_V0);
+        let mut s = SongSlew::new(SLEW_V1);
         let mut last = i64::MIN;
         let mut worst_late = 0i64;
         for frame in 0..(300 * 60) {
@@ -171,21 +210,76 @@ mod tests {
         assert!(!s.disagrees());
     }
 
-    /// A sudden disagreement (a clock re-estimated far off) is said, and
-    /// followed at the rate alone.
+    /// A sudden disagreement (a clock re-estimated far off) is said within
+    /// a moment (once the smoothing has seen it), and followed at the rate
+    /// alone.
     #[test]
     fn a_large_disagreement_is_said_and_slewed() {
-        let mut s = SongSlew::new(SLEW_V0);
+        let mut s = SongSlew::new(SLEW_V1);
         s.step(0, Some(0), 5_000);
         let out = s.step(16_667, Some(16_667 + 200_000), 5_000);
-        assert!(s.disagrees());
         assert!(out - 16_667 <= 34);
+        let mut said_at = None;
         let mut out = 0;
         for f in 2..(60 * 200) {
             out = s.step(f * 16_667, Some(f * 16_667 + 200_000), 5_000);
+            if s.disagrees() && said_at.is_none() {
+                said_at = Some(f);
+            }
         }
+        assert!(said_at.is_some_and(|f| f < 30), "{said_at:?}");
         assert!((out - (60 * 200 - 1) * 16_667 - 200_000).abs() < 3_000);
         assert!(!s.disagrees());
         assert_eq!(s.step(0, None, 0), out, "never backwards");
+    }
+
+    /// Each time the disagreement said changes, over `seconds` of 60
+    /// frames: the room `offset` µs ahead, the estimate within
+    /// `uncertainty`, one frame a second read `late` µs late (a shell's
+    /// work between the frame's time and the room's clock's reading), and
+    /// a few ms of noise.
+    fn said_changes(offset: i64, uncertainty: i64, late: i64, seconds: i64) -> (Vec<(i64, bool)>, SongSlew) {
+        let mut s = SongSlew::new(SLEW_V1);
+        let mut changes = Vec::new();
+        let mut said = false;
+        for frame in 0..(seconds * 60) {
+            let local = frame * 16_667;
+            let noise = ((frame * 7_919) % 5 - 2) * 500;
+            let late = if frame % 60 == 59 { late } else { 0 };
+            s.step(local, Some(local + offset + noise + late), uncertainty);
+            if s.disagrees() != said {
+                said = s.disagrees();
+                changes.push((frame, said));
+            }
+        }
+        (changes, s)
+    }
+
+    /// Round FX (the maintainer's online stage): a frame read 21 ms late
+    /// once a second, the estimate within 20.5 ms. `slew-v0` said one
+    /// step's reading: "disagree by 20.9 ms" and "in step again" each
+    /// second, the correction nudged a little by each. Now nothing is
+    /// said, and the correction is the room's within the noise.
+    #[test]
+    fn a_frame_read_late_once_a_second_is_never_said() {
+        let (changes, s) = said_changes(16_400, 20_500, 21_000, 300);
+        assert!(changes.is_empty(), "{changes:?}");
+        assert!((s.correction_us() - 16_400).abs() < 2_500, "{}", s.correction_us());
+    }
+
+    /// A disagreement just past the estimate's uncertainty (23 ms, within
+    /// 20.5 ms) from the start, a frame read late once a second besides:
+    /// said at once, followed, settled once it is under half the line, and
+    /// quiet after, whatever the frames' noise.
+    #[test]
+    fn a_disagreement_just_past_the_line_is_said_once_and_settled_once() {
+        let (changes, s) = said_changes(23_000, 20_500, 21_000, 300);
+        assert_eq!(changes.len(), 2, "{changes:?}");
+        assert!(changes[0] == (0, true), "{changes:?}");
+        // Followed at 2 ms a second: under half the line in six to seven
+        // seconds.
+        assert!(!changes[1].1 && (300..480).contains(&changes[1].0), "{changes:?}");
+        assert!((s.correction_us() - 23_000).abs() < 2_500);
+        assert!(s.gap_us().abs() <= 2_100, "{}", s.gap_us());
     }
 }

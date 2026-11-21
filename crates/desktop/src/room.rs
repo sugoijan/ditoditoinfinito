@@ -155,6 +155,8 @@ impl StageRoom {
         Some(ddi_session::battle::live::LiveHandle {
             room,
             wall_ms: self.wall_ms.clone(),
+            // The clock a play's frames are timed on.
+            host_s: Rc::new(|| crate::clock::now().0),
         })
     }
 

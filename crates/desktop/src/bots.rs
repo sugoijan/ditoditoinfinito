@@ -825,6 +825,7 @@ impl StagePlay {
         let handle = ddi_session::battle::live::LiveHandle {
             room: room.clone(),
             wall_ms: Rc::new(crate::clock::now_ms),
+            host_s: Rc::new(|| crate::clock::now().0),
         };
         self.live =
             ddi_session::battle::live::LivePlay::new(handle, order, song, order.chart.index)?;

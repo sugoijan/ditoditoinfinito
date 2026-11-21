@@ -34,7 +34,7 @@ use ddi_room::attacks::{
 use ddi_room::live::plan::BattlePlan;
 use ddi_room::live::stream::{CheckpointNews, Commitment, Frame, LiveReport, Moment, MomentKind};
 use ddi_room::live::{
-    LiveNews, LiveRefusal, LiveRules, SLEW_V0, SongSlew, StreamEnd, ViewDelay, song_us_at,
+    LiveNews, LiveRefusal, LiveRules, SLEW_V1, SongSlew, StreamEnd, ViewDelay, song_us_at,
 };
 use ddi_room::{Finisher, ParticipantId, StageId};
 use std::cell::RefCell;
@@ -46,14 +46,23 @@ use super::attacks::{hazards, hazards_of, judged_taps, life_ppm, micros};
 
 /// What a play of a live stage needs of its shell: the room's client (its
 /// socket carries the stream; a member's `SharedRoom`, or an audience
-/// seat's client, `ddi_ui::state::audience`) and the shell's wall clock
+/// seat's client, `ddi_ui::state::audience`), the shell's wall clock
 /// (ms since the epoch: the clock the client's estimate of the room's
-/// runs on).
+/// runs on) and its host clock now (seconds, the clock a play's frames
+/// are timed on, `ddi_platform::HostTime`): read together, they say the
+/// wall clock at a frame's own time however long after it the play's
+/// live part runs ([`Live::sync`]).
 #[derive(Clone)]
 pub struct LiveHandle {
     pub room: Rc<RefCell<dyn LiveRoom>>,
     pub wall_ms: Rc<dyn Fn() -> u64>,
+    pub host_s: Rc<dyn Fn() -> f64>,
 }
+
+/// The longest a frame's time is taken to be before its play's live part
+/// reads the clocks (seconds): a frame's time further back (or ahead) is no
+/// frame's, and the wall clock is read as now.
+const FRAME_READ_MAX_S: f64 = 0.25;
 
 /// Where a live stage's play starts on this device
 /// ([`live_start`]).
@@ -990,7 +999,7 @@ impl Live {
             stalled: BTreeSet::new(),
             most: None,
             max: 0,
-            slew: SongSlew::new(SLEW_V0),
+            slew: SongSlew::new(SLEW_V1),
             room_us: i64::MIN,
             said_off: false,
             seat_end: None,
@@ -1070,22 +1079,43 @@ impl Live {
         self.counted = counted;
     }
 
+    /// The wall clock (ms) at host second `at_host`, a frame's time, read
+    /// now: the wall clock now less how long ago that was on the host
+    /// clock (round FX: desktop's audio housekeeping ran between a frame's
+    /// time and its play's live part once a second, and the room's song
+    /// time read then was that much ahead of the play's own for that
+    /// frame). Now where there is no frame's time or it is no frame's.
+    fn wall_at(&self, at_host: Option<f64>) -> u64 {
+        let wall = (self.handle.wall_ms)();
+        let Some(at) = at_host else {
+            return wall;
+        };
+        let since = (self.handle.host_s)() - at;
+        if (0.0..=FRAME_READ_MAX_S).contains(&since) {
+            wall.saturating_sub((since * 1_000.0).round() as u64)
+        } else {
+            wall
+        }
+    }
+
     /// This frame's song time `t` (this play's judged song second, on its
-    /// audio clock) on the room's song clock, as the stream and the views
+    /// audio clock, at host second `at_host` where the session says it) on
+    /// the room's song clock, as the stream and the views
     /// take it: the play's own time plus a correction that follows the
     /// room's clock as its estimate is refreshed (`ddi_room::live::slew`:
     /// smoothed, at most 2 ms a second, never backwards). The play's
     /// judging stays on its own clock: its presses, its notes' times and
     /// its music are untouched. A disagreement past the estimate's
-    /// uncertainty is said in the log (the room is told nothing more: the
-    /// stream's times are its clock's already).
-    pub(crate) fn sync(&mut self, t: f64) -> Vec<String> {
+    /// uncertainty is said in the log once and settled once (the room is
+    /// told nothing more: the stream's times are its clock's already).
+    pub(crate) fn sync(&mut self, t: f64, at_host: Option<f64>) -> Vec<String> {
         let mut log = Vec::new();
         self.admit_late();
+        let wall = self.wall_at(at_host);
         let (room_us, uncertainty) = {
             let room = self.handle.room.borrow();
             let zero = room.song_zero_at(self.stage);
-            let now = room.room_ms_at((self.handle.wall_ms)());
+            let now = room.room_ms_at(wall);
             let unc = room.clock_uncertainty_us();
             (zero.zip(now).map(|(z, n)| song_us_at(z, n)), unc)
         };
@@ -1096,14 +1126,15 @@ impl Live {
             log.push(if off {
                 format!(
                     "live: this device's song clock and the room's disagree by {:.1} ms (estimate within {:.1} ms); its stream and views follow the room's at {} µs a second, its judging stays on its own",
-                    self.slew.off_us() as f64 / 1e3,
+                    self.slew.gap_us() as f64 / 1e3,
                     uncertainty as f64 / 1e3,
-                    SLEW_V0.max_rate_ppm,
+                    SLEW_V1.max_rate_ppm,
                 )
             } else {
                 format!(
-                    "live: the song clock is in step with the room's again (correction {:.1} ms)",
-                    self.slew.correction_us() as f64 / 1e3
+                    "live: the song clock is in step with the room's again (correction {:.1} ms, {:.1} ms left)",
+                    self.slew.correction_us() as f64 / 1e3,
+                    self.slew.gap_us() as f64 / 1e3
                 )
             });
         }
@@ -1910,7 +1941,7 @@ impl LivePlay {
     /// The play judged to song second `t` (`judged`: its events since the
     /// last call) streamed.
     pub fn send(&mut self, t: f64, player: &Player, judged: &[JudgeEvent]) {
-        let log = self.live.sync(t);
+        let log = self.live.sync(t, None);
         self.log.extend(log);
         self.live.send(t, player, judged);
         self.live.tick_room();

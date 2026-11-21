@@ -15,7 +15,7 @@ use ddi_room::live::plan::BattlePlan;
 use ddi_room::live::server::{LiveDurable, LiveServer, Prepared};
 use ddi_room::live::stream::{LiveReport, MomentKind, StreamEnd};
 use ddi_room::live::{
-    ClientLive, LIVE_V1, LiveNews, LiveRefusal, PlanDigest, SLEW_V0, SongSlew, VIEW_DELAY_V0,
+    ClientLive, LIVE_V1, LiveNews, LiveRefusal, PlanDigest, SLEW_V1, SongSlew, VIEW_DELAY_V0,
     ViewDelay, ViewMeter, song_us_at, wire,
 };
 use ddi_room::{
@@ -395,7 +395,7 @@ fn room(setup: &Setup) -> Room {
             news: Vec::new(),
             mapped_once: setup.mapped_once,
             song_map: None,
-            slew: setup.slewed.then(|| SongSlew::new(SLEW_V0)),
+            slew: setup.slewed.then(|| SongSlew::new(SLEW_V1)),
             clock: device,
             cpus: Vec::new(),
         });

@@ -1462,6 +1462,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let mut attack_moments = Vec::new();
         if let Some(b) = self.battle.as_mut() {
             let t = self.player.judge_time(HostTime(judge_now));
+            b.set_frame_host(judge_now);
             let player = &mut self.player;
             let won = crate::perf::timed(crate::perf::Part::Battle, || {
                 b.advance(t, player, &events)

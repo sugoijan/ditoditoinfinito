@@ -13909,6 +13909,39 @@ feature."
   own channel's chat, without third-party emotes; nothing else depends on the order). The room
   model's revision is unchanged.
 
+## Round FX: two defects seen in real use and two small changes (2026-11-22)
+
+- **The live song clock's correction said and settled once a second**
+  (the maintainer's online stage with four CPUs: "disagree by 20.9 ms
+  (estimate within 20.5 ms)" then "in step with the room's again
+  (correction 16.4 ms)", a pair each second). Nothing was starting and
+  stopping: `slew-v0`'s correction followed the room's clock all the
+  time (16.4 to 16.7 ms, smoothly); what flapped was the line, which
+  compared one frame's reading with the same threshold both ways. And
+  that reading jumped by about 21 ms for one frame about once a second
+  because the play's song second was taken at the frame's time while
+  the room's clock was read from the wall clock later in the frame,
+  after whatever the shell did in between (desktop reads the output's
+  latencies from the system once a second there). The 16 ms correction
+  is the real, constant part (the player's calibrated audio offset,
+  which the device's judged song clock keeps and the room's does not,
+  shows exactly so; the estimate's own bias, up to half the round trip,
+  cannot be told from it within 20.5 ms): it was
+  in place throughout, so the others saw this player's stream on the
+  room's clock within a millisecond; the one-frame jumps only nudged it
+  (0.7 ms over a stage in the test). Now (`slew-v1`) the room's clock is
+  read for the frame's own time (`LiveHandle::host_s`, the host clock
+  read with the wall clock, `Battle::set_frame_host`), and the line is
+  said from the smoothed disagreement past the uncertainty and 20 ms
+  and settled under half that: one line when it starts, one when it
+  settles. Judging untouched. Tests:
+  `a_frame_read_late_once_a_second_is_no_disagreement_with_the_room_s_clock`
+  (`ddi-session`: 424 lines before, none now, the correction and the
+  judgments as without the late reads),
+  `a_frame_read_late_once_a_second_is_never_said` and
+  `a_disagreement_just_past_the_line_is_said_once_and_settled_once`
+  (`ddi-room`'s `live::slew`: 621 changes of the line before).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -13958,7 +13991,7 @@ feature."
 | `join-watch-v0`: a join asking to play where every player's place is taken is in to watch; nobody is moved to Play when a place frees up; the arrival is said on the status line for 12 s | `ddi_room::RoomState::arrival_intent`, `players_full`; `ddi_ui`'s `LinkNotice::JoinedToWatch`, `JOINED_TO_WATCH_MS` | A tenth person joins a room of nine players to watch, and plays only once they choose Play after a place frees | Whether a freed place should go to the longest-waiting watcher (asked, or at once) |
 | The watch-only link: held to watching until an operator's Let play (co-hosts too since round B1, ANSWERED); replaced with the room's invite; its Copy hidden behind `Settings::multiplayer_watch_link` | `ddi_room::Member::watch_only`, `Command::SetWatchOnly`, `Capability::LetPlay`; `../ddi-server` `invite::watch_secret` | Someone who came to watch never takes a player's place unless the host or a co-host lets them | Whether the watch link should be replaceable on its own |
 | `watch-v0`: a grid's field is at most a play's own field (`GRID_LANE_SHARE` 1.0); a layout with more rows wins within a tenth of the largest lane (`GRID_FILL` 0.9) | `ddi_shell::opponents::arrange_grid` | One to three watched fields are nearly the screen's height; eight are four by two at lanes of 29 px (1280×720) | The sizes; whether eight should give up the play's proportion (shorter fields, larger lanes) |
-| `slew-v0` (2026-11-13): a live play's stream and views on the room's song clock, its correction averaged over 4 s and moved at most 2 ms a second; its judging on its own | `ddi_room::live::slew::SLEW_V0`, `ddi_session::battle::live::Live::sync` | None visible: remote fields keep their delay however the devices' clocks drift | The rate; whether a large disagreement should be told to the room |
+| `slew-v1` (round FX, 2026-11-22; `slew-v0` of 2026-11-13 the same correction said by one frame's reading): a live play's stream and views on the room's song clock read at the frame's own time, its correction averaged over 4 s and moved at most 2 ms a second; a disagreement said from the smoothed one past the uncertainty and 20 ms, settled under half that; its judging on its own | `ddi_room::live::slew::SLEW_V1`, `ddi_session::battle::live::Live::sync` | None visible: remote fields keep their delay however the devices' clocks drift | The rate; whether a large disagreement should be told to the room |
 | `watch-v1` (2026-11-13; `watch-v0` ended 2.5 s after the decision): a watched stage goes on after its decision while anyone still plays its song, its results 2.5 s after the last one ended (`WATCH_END_HOLD`) or at the song's end | `ddi_session::play::watch`, `Battle::still_playing` | A watcher (and a player out of the stage) sees the winner finish the song, "X wins the stage" on the status line from the decision on; Enter or Start still skips | Whether the hold after the winner finishes should be shorter |
 | `cpu-levels-v2` (round V, 2026-11-17, revision 14; `cpu-levels-v1` retired from play): a level is a spread about a lean of its own (32 to 8 ms; the lean's standard deviation 16 to 2 ms, a drift 5 to 1.5 ms), a speed (2.5 to 12 notes a second) and a floor; `cpu-model-v2` (`ABSOLUTE_V2`: the spread widens from 0.65 of a limit, notes left out from the limit, a 2% tail three times as wide, a play's form 0.35, a stumble doubling the spread for two seconds, a quarter wider by the end) | `ddi_engine::cpu::{CPU_LEVELS_V2, ABSOLUTE_V2}` | The middle levels play like an ordinary person on their charts (an A, loose full combos now and then, many W2s); the weak levels break with loose hits before they miss; looser hits earn less attack power and go out less | Whether levels 5 and 6 should sit at the reference's median (fitted so) or below it, a person on unfamiliar charts doing worse; whether a CPU's lean should stay with it across a match's stages (today it is its stage seed's) |
 | `cpu-levels-v1` (2026-11-13; retired from play by round V, kept for the studies): a CPU's level is abilities in real units, the same on every chart (spread 17 to 5.5 ms, speed 2.2 to 9 notes a second, a floor of 0.4% to 0.02%); `cpu-model-v1`'s shape (`ABSOLUTE_V1`: onset at 0.85 of a limit, the spread three times wider per unit past it, the lapse 0.067x + 0.1x², a lane's limit 0.65 of the speed, sustained 0.75, a 12% tail 2.5 times as wide) | `ddi_engine::cpu::{CPU_LEVELS_V1, ABSOLUTE_V1}` | Level 1 at home on Beginner, 3 on Easy, 5 on Medium, 7 on Hard, 9 on Challenge; under Adaptive the levels settle on different rungs | What each level should be at home on; whether "at home" may cost a CPU the stage on the slot's hardest charts (7% to 18%) |

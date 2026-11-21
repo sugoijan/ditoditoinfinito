@@ -148,9 +148,12 @@ other's streams: 500 millionths over five minutes raised the view delay
 from 480 to 608 ms (`clock_drift_study`).
 
 The stream's times and the views' are the room's song clock instead
-(`live::slew`, `SongSlew`, `SLEW_V0` `slew-v0`, PROVISIONAL): each frame
+(`live::slew`, `SongSlew`, `SLEW_V1` `slew-v1`, PROVISIONAL): each frame
 the play's song time plus a correction that follows the room's clock as
-estimated (the song time the room's clock says now less the play's),
+estimated (the song time the room's clock says at the frame's own time
+less the play's: the wall clock read with the host clock, `LiveHandle::host_s`,
+so work a shell does between a frame's time and its play's live part is
+not read as a disagreement),
 averaged over 4 s, moved at most 2 ms a second (the corrected clock 0.2%
 fast or slow at worst: never a jump, never backwards), 2 ms left alone.
 A moment's time and a stream's judged-to time are sent on it, the view's
@@ -162,10 +165,15 @@ correction, the median of the last nine), so a remote hit still meets its
 note. Nothing was added to the wire, and a device that predates it streams
 on its own clock (a shift of 0).
 
-When the device's clock and the room's disagree by more than the
-estimate's uncertainty (and 20 ms), the device says so in its log and its
-debug state (`__DDI_DEBUG.live.slew`: `ms`, `off_ms`, `disagrees`) and slews
-toward the room's at the bounded rate; the room is told nothing more: the
+When the device's clock and the room's disagree, smoothed, by more than
+the estimate's uncertainty (and 20 ms), the device says so in its log and
+its debug state (`__DDI_DEBUG.live.slew`: `ms`, `off_ms` (one frame's
+reading), `disagrees`), once, and once again when the correction has
+brought it under half that (`slew-v1`, round FX; `slew-v0` compared one
+frame's reading with the same line both ways, so a frame read late once
+a second was said and settled each second); the correction slews toward
+the room's at the bounded rate whether or not anything is said, and the
+room is told nothing more: the
 stream's times are already on its clock, and nothing it decides depends on
 a device's clock but through them. Measured (`the_views_keep_their_delay_when_the_clocks_drift`,
 three competitors and a watcher at 80 ms each way, a five-minute song,
@@ -1027,7 +1035,7 @@ moving a refused attack.
 | --- | --- | --- | --- |
 | `live-v2` (a room's `timing`, 2026-11-13): a frame and a batch every 100 ms; `live-v1`'s 250 ms kept by rooms made before | `live::LIVE_V2`, `LivePolicy::v2` | Remote fields about half a second behind at typical latencies, at two and a half times the messages (about 7 cents an hour of a full room, was 3) | The periods |
 | `view-delay-v0`: each device's view delay the 99th percentile of the last 8 s of measured lags and 40 ms, within 150 ms and a second, up at 500 ms a second, down at 50 | `live::delay::VIEW_DELAY_V0` | A remote field runs a little slow for a moment when the network gets worse, a little fast as it recovers; one slow competitor's field stalls now and then rather than holding the others back | The numbers; whether a slow field should hold everyone back instead |
-| `slew-v0`: the stream's and the views' song clock follows the room's, averaged over 4 s, at most 2 ms a second, 2 ms left alone, a disagreement said past the uncertainty and 20 ms | `live::slew::SLEW_V0`, `ddi_session::battle::live::Live::sync` | None visible: a remote field keeps its delay however the clocks drift; a clock far off (a re-estimate) takes about a second of song per 2 ms to be followed | The rate; whether a large disagreement should be told to the room |
+| `slew-v1` (round FX; `slew-v0` before): the stream's and the views' song clock follows the room's, averaged over 4 s, at most 2 ms a second, 2 ms left alone, the smoothed disagreement said past the uncertainty and 20 ms and settled under half that | `live::slew::SLEW_V1`, `ddi_session::battle::live::Live::sync` | None visible: a remote field keeps its delay however the clocks drift; a clock far off (a re-estimate) takes about a second of song per 2 ms to be followed | The rate; whether a large disagreement should be told to the room |
 | Checkpoints decided 750 ms after their instant; a later report counts at the next | `LIVE_V1.report_deadline_ms` | A slow device's power arrives a checkpoint late | The deadline |
 | 1.25 s more lead online | `LIVE_V1.network_lead_us` | Online attacks land about 1.25 s later than practice's | The margin |
 | A late commitment is refused by its target and dropped, not moved | client rule, `MomentKind::Refused` | Rarely, an attack does nothing | Drop or move |

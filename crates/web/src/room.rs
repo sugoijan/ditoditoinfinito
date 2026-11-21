@@ -965,6 +965,12 @@ pub(crate) fn live_handle(
     Some(ddi_session::battle::live::LiveHandle {
         room,
         wall_ms: Rc::new(now_ms),
+        // The clock a play's frames are timed on (`performance.now()`).
+        host_s: Rc::new(|| {
+            web_sys::window()
+                .and_then(|w| w.performance())
+                .map_or(0.0, |p| p.now() / 1_000.0)
+        }),
     })
 }
 

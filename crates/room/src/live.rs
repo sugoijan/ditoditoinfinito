@@ -49,7 +49,7 @@ pub use delay::{VIEW_DELAY_V0, ViewDelay, ViewDelayRules, ViewMeter};
 pub use have::{HaveSet, Haves};
 pub use plan::{BattlePlan, PlanDigest, PlanProblem};
 pub use server::{CompetitorStatus, LiveOut, LiveReply, LiveServer, LiveSnapshot, LiveStage, StepStatus};
-pub use slew::{SLEW_V0, SlewRules, SongSlew};
+pub use slew::{SLEW_V1, SlewRules, SongSlew};
 pub use stream::{
     Batch, Commitment, Frame, FrameEntry, FrameReader, LiveReport, Moment, MomentKind, Outbox,
     StreamEnd,

@@ -88,6 +88,11 @@ struct Room {
     devices: Vec<(Clock, f64)>,
     /// The device each play of [`sessions`] runs on.
     play_devices: RefCell<Vec<usize>>,
+    /// How long after its frame's time (seconds) a play's clocks are read
+    /// now: the work a shell did between taking the frame's time and its
+    /// play's live part (round FX: desktop's audio housekeeping, once a
+    /// second).
+    lag: Rc<std::cell::Cell<f64>>,
 }
 
 impl Room {
@@ -164,6 +169,7 @@ impl Room {
             rooms,
             devices,
             play_devices: RefCell::new(Vec::new()),
+            lag: Rc::new(std::cell::Cell::new(0.0)),
         }
     }
 
@@ -205,11 +211,17 @@ impl Room {
         }
     }
 
+    /// Device `i`'s room and clocks, as its shell hands them to a live
+    /// play: the wall clock and its audio's host clock, each read
+    /// [`Room::lag`] after the frame's time.
     fn handle(&self, i: usize) -> crate::battle::live::LiveHandle {
-        let host = self.host.clone();
+        let (host, lag) = (self.host.clone(), self.lag.clone());
+        let device = self.devices[i].0.clone();
+        let lag_too = lag.clone();
         crate::battle::live::LiveHandle {
             room: self.rooms[i].clone(),
-            wall_ms: Rc::new(move || wall(*host.borrow())),
+            wall_ms: Rc::new(move || wall(*host.borrow() + lag.get())),
+            host_s: Rc::new(move || *device.borrow() + lag_too.get()),
         }
     }
 }
@@ -1376,6 +1388,77 @@ fn a_live_stage_keeps_the_room_s_clock_while_the_devices_drift_and_judges_as_wit
     }
 }
 
+/// Round FX: the maintainer's online stage logged "the song clock and the
+/// room's disagree by 20.9 ms" and "in step with the room's again" about
+/// once a second for the whole stage. Once a second desktop's audio
+/// housekeeping (the output's latencies read from the system) ran between
+/// the frame's time being taken and its play's live part reading the wall
+/// clock, so for that frame the room's song time was read that much later
+/// than the play's own. Here each play's clocks are read 45 ms after its
+/// frame's time once a second (past the estimate's uncertainty over the
+/// fake room's ticks): nothing is said, the correction is what it is
+/// without the late reads, and the plays judge exactly as without.
+#[test]
+fn a_frame_read_late_once_a_second_is_no_disagreement_with_the_room_s_clock() {
+    let song = bundled("beatucada");
+    let lat = Some(Latency {
+        down_ms: 20,
+        down_jitter_ms: 1,
+        up_ms: 20,
+        up_jitter_ms: 1,
+        seed: 4,
+    });
+    let people = [("alice", Intent::Play), ("bob", Intent::Play)];
+    let run = |lag: f64| {
+        let r = Room::new(&people, lat);
+        let orders = pick_and_ready(&r, &song, false, CHART);
+        let mut plays = sessions(&r, &song, &orders, &[0.0, 0.0]);
+        let mut said = Vec::new();
+        let mut frame = 0u64;
+        let mut slew = Vec::new();
+        let ended = play_out(&r, &mut plays, 400.0, |t, plays| {
+            for p in plays.iter_mut() {
+                said.extend(p.take_battle_log().into_iter().filter(|l| l.contains("song clock")));
+            }
+            if (t * 60.0).round() as i64 % 600 == 0 {
+                let now: Vec<(f64, f64)> = plays
+                    .iter()
+                    .map(|p| {
+                        let l = p.battle().unwrap().live_state().unwrap();
+                        (l.slew_ms, l.slew_off_ms)
+                    })
+                    .collect();
+                slew.push(now);
+            }
+            frame += 1;
+            r.lag.set(if frame.is_multiple_of(60) { lag } else { 0.0 });
+        });
+        assert!(ended.iter().all(Option::is_some));
+        let judged: Vec<String> = plays
+            .iter()
+            .map(|p| format!("{:?}", p.player.judge().notes()))
+            .collect();
+        (said, slew, judged)
+    };
+    let (said_still, slew_still, judged_still) = run(0.0);
+    let (said, slew, judged) = run(0.045);
+    assert_eq!(judged, judged_still, "judged exactly as without");
+    assert!(said_still.is_empty(), "{said_still:?}");
+    assert!(said.is_empty(), "{} lines: {:?}", said.len(), &said[..said.len().min(6)]);
+    // The room's song time read at the frame's own time: the correction
+    // and its reading as without (`slew-v0`'s, nudged by each late read,
+    // was 0.7 ms off by the end).
+    assert_eq!(slew.len(), slew_still.len());
+    for (a, b) in slew.iter().zip(&slew_still) {
+        for (x, y) in a.iter().zip(b) {
+            assert!(
+                (x.0 - y.0).abs() < 0.05 && (x.1 - y.1).abs() < 0.05,
+                "{slew:?} against {slew_still:?}"
+            );
+        }
+    }
+}
+
 /// A whole live stage through the screens (the UI harness: each device's
 /// stage prompt and results on its own `Ui`, their clocks the room's), three
 /// devices over the fake room with latency: Alice (the host) and Bob play,
@@ -1757,7 +1840,11 @@ fn the_audience_watches_a_live_stage_behind_the_room_with_the_members_fields() {
     let host = r.host.clone();
     config.live = Some(crate::battle::live::LiveHandle {
         room: aud.clone(),
-        wall_ms: Rc::new(move || wall(*host.borrow())),
+        wall_ms: Rc::new({
+            let host = host.clone();
+            move || wall(*host.borrow())
+        }),
+        host_s: Rc::new(move || *host.borrow()),
     });
     let audience_play = PlaySession::start(
         &song,
@@ -2041,7 +2128,11 @@ fn an_audience_seat_that_arrives_part_way_sees_the_stage_as_it_stands() {
     let host = r.host.clone();
     config.live = Some(crate::battle::live::LiveHandle {
         room: aud.clone(),
-        wall_ms: Rc::new(move || wall(*host.borrow())),
+        wall_ms: Rc::new({
+            let host = host.clone();
+            move || wall(*host.borrow())
+        }),
+        host_s: Rc::new(move || *host.borrow()),
     });
     let mut watched = PlaySession::start(
         &song,
@@ -2164,7 +2255,11 @@ fn a_seat_part_way_draws_each_competitor_on_their_chart_and_one_who_left_as_left
     let host = r.host.clone();
     config.live = Some(crate::battle::live::LiveHandle {
         room: aud.clone(),
-        wall_ms: Rc::new(move || wall(*host.borrow())),
+        wall_ms: Rc::new({
+            let host = host.clone();
+            move || wall(*host.borrow())
+        }),
+        host_s: Rc::new(move || *host.borrow()),
     });
     let mut watched = PlaySession::start(
         &song,
@@ -2243,7 +2338,11 @@ fn an_audience_seat_that_watches_again_sees_the_stage_as_it_stands() {
         let host = r.host.clone();
         config.live = Some(crate::battle::live::LiveHandle {
             room: aud.clone(),
-            wall_ms: Rc::new(move || wall(*host.borrow())),
+            wall_ms: Rc::new({
+                let host = host.clone();
+                move || wall(*host.borrow())
+            }),
+            host_s: Rc::new(move || *host.borrow()),
         });
         PlaySession::start(
             &song,
@@ -2376,7 +2475,11 @@ fn a_seat_closed_during_a_watched_stage_stops_its_view_and_says_why() {
     let host = r.host.clone();
     config.live = Some(crate::battle::live::LiveHandle {
         room: aud.clone(),
-        wall_ms: Rc::new(move || wall(*host.borrow())),
+        wall_ms: Rc::new({
+            let host = host.clone();
+            move || wall(*host.borrow())
+        }),
+        host_s: Rc::new(move || *host.borrow()),
     });
     plays.push(
         PlaySession::start(
@@ -2657,7 +2760,11 @@ fn the_audience_watches_seventy_three_players_through_the_session() {
     let host = r.host.clone();
     config.live = Some(crate::battle::live::LiveHandle {
         room: aud.clone(),
-        wall_ms: Rc::new(move || wall(*host.borrow())),
+        wall_ms: Rc::new({
+            let host = host.clone();
+            move || wall(*host.borrow())
+        }),
+        host_s: Rc::new(move || *host.borrow()),
     });
     let mut play = PlaySession::start(
         &song,
@@ -3048,7 +3155,11 @@ fn a_seat_part_way_works_a_percent_out_against_the_competitors_rung() {
     let host = r.host.clone();
     config.live = Some(crate::battle::live::LiveHandle {
         room: aud.clone(),
-        wall_ms: Rc::new(move || wall(*host.borrow())),
+        wall_ms: Rc::new({
+            let host = host.clone();
+            move || wall(*host.borrow())
+        }),
+        host_s: Rc::new(move || *host.borrow()),
     });
     let mut watched = PlaySession::start(
         &song,
@@ -3639,7 +3750,11 @@ fn watched_delays(late: f64, seconds: f64) -> Vec<f64> {
     let host = r.host.clone();
     config.live = Some(crate::battle::live::LiveHandle {
         room: aud.clone(),
-        wall_ms: Rc::new(move || wall(*host.borrow())),
+        wall_ms: Rc::new({
+            let host = host.clone();
+            move || wall(*host.borrow())
+        }),
+        host_s: Rc::new(move || *host.borrow()),
     });
     let mut watched = PlaySession::start(
         &song,
