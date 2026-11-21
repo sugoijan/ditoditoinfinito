@@ -13341,6 +13341,114 @@ Also in round DC:
   (now down: the server's own configuration, never the person's). The
   maintainer's spike decides which reading is right.
 
+## Round RL3: the room's song list, stage 3, everyone may add (room model revision 21, 2026-11-21)
+
+`docs/plans/multiplayer-room-songs.md`, "Stage 3 as built". The owner's
+room setting **Who can add songs: Hosts / Everyone** (Hosts by default),
+in Host options above the list's size; under Everyone every person in the
+room adds songs of their own library from My songs as a host does, up to
+half the list's size, and removes what they added.
+
+### What moved
+
+- The room model, revision 21: `songs::WhoAdds`, `RoomSongs::who_adds`
+  (kept in the list's row, left out at Hosts), `Command::SetWhoAdds` (the
+  owner's, `Capability::ChangeAccess`), `Event::WhoAddsChanged`;
+  `RoomState::may_add` reads it; `RoomState::add_refusal`, the reducer's
+  whole decision on an addition, which clients ask before sending.
+  `tests/room-revision-20.json` (written by revision 20's own reducer in a
+  test removed after) reads as Hosts and writes back what it read. An
+  older client would show nothing of the setting and could not read the
+  event, so it is refused (`update_required`).
+- The server (`5072e09`): upload grants bounded 30 a person a minute for
+  a room (`GRANTS_A_MINUTE`, in memory as tickets; `429
+  too_many_grants`); the songs grant itself needed nothing (an entry, so a
+  grant, exists only where its adder might add it); README.
+- The client: `RoomClient::who_adds`, `set_who_adds`, `add_blocked`,
+  `my_song_count`; `add_song` refuses at the press what the room would.
+- The screens: Host options' row and its note under each value; My
+  songs' status line (a person's count against their half, at their half,
+  the list full; to a host the list full too); the refusals'
+  words ("Only the hosts can add songs to this room now.", the half's
+  sentence with "Remove one of yours to add another."); a Room songs row
+  says who added it before its state, which was being cut off on the
+  wide layout's list. `ui.theme.room.who_adds`, `my_songs`, `add_blocked`.
+- The privacy note's Songs paragraph (page, Credits' fold, both
+  languages): who uploads (to be approved before it is published).
+- Bots: `--everyone` (the host bot's setting), `--add ID:N` (the Nth
+  guest bot adds that song once it may).
+
+### Decisions (each with its alternative, for the maintainer)
+
+- A member who watches by their own choice may add (adding is not
+  choosing; stage 4 keeps choosing to those who will play). Not one held
+  to watching by the watch-only link, as before. Alternative: only those
+  who play.
+- Full under Remove the oldest: the oldest song not in use, whoever
+  added it (the proposal had no fairness rule; the half already bounds
+  a person to pushing out at most half the list, refused at their half
+  before anything is removed). Alternative: the adder's own oldest first.
+- Back to Hosts: nothing listed goes; an upload under way finishes (its
+  grant, renewal and retry still given). Alternative: drop the uploads
+  under way.
+- Kick: as before, the adder's songs that are there stay; uploads under
+  way go.
+- The per-song bound stays a share's (2 GiB unless the operator lowers
+  `share_max_mb`), as stage 1 built it; the maintainer's answer of
+  2026-11-19 said 512 MB a song. Question: lower the song grants to
+  512 MB (a server-only change)?
+
+### Validated
+
+- Tests: the room crate's walkthroughs (`everyone_adds_up_to_half_the_list_when_the_host_lets_them`,
+  `an_adder_removes_their_own_songs_and_a_host_anyones`,
+  `a_full_list_makes_room_for_an_adder_until_their_half`,
+  `back_to_hosts_keeps_what_is_listed`,
+  `a_kicked_adder_leaves_their_songs_that_are_there`,
+  `a_room_stored_by_revision_20_reads_as_hosts`) and both authorities
+  (`who_can_add_songs_is_kept_alike_by_both_authorities`); the client
+  (`a_member_adds_their_own_songs_when_everyone_may`) and the screens
+  (`who_can_add_songs_in_host_options_and_a_members_my_songs`; the
+  "host" pin moved for the new row); the server
+  (`who_can_add_songs_bounds_the_grants`, the grants' bound beside the
+  tickets'). Suites: room, ui, theme, desktop (406 passed), the server's
+  workspace (218) and `--features dev-auth` (214); clippy native and wasm,
+  the server's lints and format; `l10n check`; a release build's
+  `check-boot` (12418 of 12552 bytes gzipped).
+- Walked on a local server (revision 21, a scratch configuration, the
+  development provider; `target/scratch/mp/rl3/walks/online.mjs`) in
+  Chrome and in Firefox, a host and Bob (who imported a scratch pack of
+  his own first) and a guest bot: under Hosts Bob's My songs is browsing
+  only; the host sets a list of five and Everyone; the bot adds its two;
+  Bob adds his song (uploaded, listed "Added by Bob", the host has it
+  downloaded ahead before any pick);
+  Bob reaches his half (the status line says it, the press is refused in
+  a notice); he removes his own; under Refuse the full list is refused to
+  the host and to Bob (said before the press on My songs); under Remove
+  the oldest Bob's next song pushes out the bot's oldest; the host
+  removes Bob's; back to Hosts Bob's first song stays and he may not
+  add; the host picks Bob's song and the three play it to the stage's
+  results (the two people pressing nothing: autoplay does not reach a
+  room's stage). Over raw sockets: a member's add refused under Hosts and
+  the setting refused to him; 30 grants in a minute and the 31st `429`;
+  the host refused the member's grant; a revision-20 client refused
+  `update_required`. Bots alone (`--host --everyone --guests 2 --add
+  "Bot 01:1,Bot 02:2,…"`) added, uploaded and played a match. The
+  singleplayer smoke check in Chrome and Firefox. Pictures:
+  `target/scratch/mp/rl3/shots/`.
+
+### For stage 4
+
+Choosing by the group reads the list as it is now (any member's songs);
+who may choose is "those who will play", apart from who may add. A
+removed song that is someone's choice would need the same in-use guard
+as a picked one (`RoomState::song_in_use`).
+
+### Not done
+
+- The host's stage results showed no banner for a song downloaded ahead
+  (Bob's own showed his); seen, not looked into (before this round too).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

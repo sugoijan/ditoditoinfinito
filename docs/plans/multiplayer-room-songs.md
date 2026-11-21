@@ -2,7 +2,8 @@
 
 Status: stages 1 and 2 built (rounds RL1 and RL2, room model revision
 17, 2026-11-19, released together); round DB's answers built (revision
-19, 2026-11-20); stages 3 and 4 planned.
+19, 2026-11-20); stage 3 built (round RL3, revision 21, 2026-11-21);
+stage 4 planned.
 
 The maintainer's request (2026-11-19): "a separation step between the
 local song list and the room's song list, they would still look the same
@@ -25,9 +26,9 @@ Each is a room model revision of its own; server first, as always.
    by default (never movies), a per-device Options row (Everything, Likely
    next, Off), the rows filled in and who has what over the live side
    channel, cleanup when the room is left.
-3. **Everyone may add**: a room setting "Who can add songs: Hosts /
-   Everyone" (Hosts by default), beside "If the host leaves" in Host
-   options; `RoomState::may_add` is its one check.
+3. **Everyone may add** (built, revision 21): a room setting "Who can
+   add songs: Hosts / Everyone" (Hosts by default), beside "If the host
+   leaves" in Host options; `RoomState::may_add` is its one check.
 4. **Choosing by the group**: "Song choice: Host / Group" (Host by
    default), a per-stage rule; members mark choices at any time; a host's
    or co-host's own choice starts the countdown; the draw cancelled if the
@@ -229,8 +230,91 @@ connected has loaded, and a song downloaded ahead loads from this device.
   say what they have, how many everyone has, and when everyone loaded a
   stage's song.
 
+## Stage 3 as built (round RL3, room model revision 21, 2026-11-21)
+
+### The model
+
+- `RoomSongs::who_adds` (`songs::WhoAdds`: Hosts, the default, or
+  Everyone), the owner's room setting (`Command::SetWhoAdds`, as
+  `SetSongList` and If the host leaves: `Capability::ChangeAccess`;
+  `Event::WhoAddsChanged`), kept in the list's row; left out of the JSON
+  at Hosts, so a room stored by revision 20 reads as Hosts
+  (`tests/room-revision-20.json`).
+- `RoomState::may_add` reads it: the hosts (owner, co-hosts and
+  administrators) always; under Everyone every person in the room (a
+  bot too) who is not held to watching by the watch-only link. **A member
+  who watches by their own choice may add** (decided here: adding is not
+  choosing a stage's song, which stage 4 keeps to those who will play;
+  someone who came by the watch-only link came to look, and stays out as
+  for the hosts' own setting). Never a CPU or the audience (no member).
+- `RoomState::add_refusal`: the reducer's whole decision on an addition
+  (who may, the song's bounds, the same song, the person's half, a full
+  list that refuses or has nothing it may remove), which the client asks
+  before it sends (`RoomClient::add_song`, `add_blocked`), so a refusal
+  is said at the press.
+- **Removing**: as built in stage 1: whoever added a song removes it, a
+  host or co-host anyone's; never one a stage not yet over names.
+- **A full list under Remove the oldest**: the oldest song not in use,
+  whoever added it (the simplest rule; the proposal had no fairness rule
+  for it). One who is not a host is refused at their half before anything
+  is removed, so they push out at most half the list. The alternative,
+  removing the adder's own oldest first, is listed for the maintainer.
+- **Back to Hosts**: nothing listed goes; an entry still uploading is its
+  adder's to finish (its grant, a renewal and a retry are still given:
+  the entry is the room's once listed); only new additions are refused
+  ("Only the hosts can add songs to this room now."). The alternative,
+  dropping the uploads under way, is listed.
+- **Kick and leaving**: as before: the adder's songs that are there stay,
+  their uploads under way go with them.
+
+### The server
+
+- The songs grant needs nothing new: an entry, and with it a grant,
+  exists only where its adder might add it (the reducer's decision), and
+  the grant is the entry's adder's alone.
+- Upload grants (a stage's or an entry's, renewals included) are bounded
+  30 a person a minute for a room (`GRANTS_A_MINUTE`, in the room's
+  memory as tickets are; `429 too_many_grants`, shown as an upload that
+  failed, with Upload again).
+- What a room's songs take at once: the list's size (100 at most) songs
+  of a share's size each (`share_max_mb`), the stages' and the
+  spotlight's shares within `room_shares` (256); a removed song's share
+  is deleted at once. The maintainer's 2026-11-19 answer said 512 MB a
+  song; songs are bounded by a share's size (2 GiB unless the operator
+  lowers it), as in stage 1 (a question for the maintainer).
+
+### The screens
+
+- Host options (the owner's): "Who can add songs" (Hosts, Everyone) above
+  the list's size and When the list is full, the note under the three
+  saying what they mean ("Only hosts and co-hosts add songs, and they may
+  fill the whole list." under Hosts; "…anyone else may add up to N songs
+  and remove their own." under Everyone).
+- A member who may add reads My songs as a host does (Enter "Add to the
+  room", the row's state while it uploads, Add this pack in More); the
+  status line says their count against their half ("You've added 1 of
+  the 2 songs you can add."), at their half "You've added all 2 songs
+  you can. Remove one to add another.", and a full list that takes no
+  more "The room's song list is full. A song must be removed first." (to
+  a host too); a press past either is refused in a notice ("You've added
+  the 2 songs you can add to this room. Remove one of yours to add
+  another.", "The room's song list is full.").
+- A row's line says who added it before its state (the state, with how
+  many have it, is the long part, cut first on a narrow list). A member who may not add reads My
+  songs as before (browsing only).
+- Their own rows on Room songs say Added by you and offer Remove from the
+  room in More (the host's way too).
+- The status line and the players panel say nothing else new.
+
+### Bots
+
+`--everyone` (the host bot sets Who can add songs: Everyone with its
+Rules) and `--add ID:N` (the Nth guest bot adds that song, from `--songs`
+or the bundled songs, once the room lets it; `--add ID` alone stays the
+host bot's). Guest bots alone (`--join`) take `--add ID:N` too.
+
 ## Not in stage 1
 
 Bests on songs not in one's library (a downloaded song's row has none,
 nor NEW);
-"Who can add songs" (stage 3); choosing by the group (stage 4).
+choosing by the group (stage 4).

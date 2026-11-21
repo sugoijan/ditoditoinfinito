@@ -1521,8 +1521,16 @@ Rust and the browser are implementation details, not advertised features.
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 20 since 2026-11-20: Top score attacks the
-  top score, `attacks-v4`, each checkpoint report carrying its score,
+  (`ROOM_MODEL_REVISION`, 21 since 2026-11-21: Who can add songs, the
+  owner's room setting, Hosts or Everyone (`songs::WhoAdds`,
+  `RoomSongs::who_adds`, `Command::SetWhoAdds`, `Event::WhoAddsChanged`),
+  read by `RoomState::may_add`, the one check of who adds (every person
+  in the room under Everyone, never one held to watching by the
+  watch-only link), and `RoomState::add_refusal`, the reducer's decision
+  a client asks before it sends; under Everyone a person adds up to half
+  the list and removes their own; back to Hosts nothing listed goes;
+  round RL3; `tests/room-revision-20.json` reads as Hosts; 20 since
+  2026-11-20: Top score attacks the top score, `attacks-v4`, each checkpoint report carrying its score,
   binary `BATCH_V3` and `CPUS_V2`; round DC; `tests/room-revision-19.json`;
   19 since 2026-11-20: a bundled song added to
   the room's list uploaded as any other, the room's share the one
@@ -1789,7 +1797,11 @@ Rust and the browser are implementation details, not advertised features.
   `OnlineAuthority` over the shell's socket, its tickets, the room's name
   and invite, a stage's upload grant); its roles come from the shared
   `ddi_room::can` (`RoomClient::may`). Since revision 17 a host adds
-  songs of their library to the room's list (`RoomClient::add_song`, the
+  songs of their library to the room's list, and since revision 21 anyone
+  in the room where the owner's Who can add songs is Everyone
+  (`RoomClient::may_add`, `who_adds`, `set_who_adds`, Host options' row;
+  `add_blocked` and `my_song_count`, what My songs' status line says of
+  a person's half and a full list before the press) (`RoomClient::add_song`, the
   library known to the client by each song's content,
   `RoomClient::set_library`, `room::song_key`), each uploaded when added
   under its entry's grant (`POST /rooms/<id>/songs/grant`,
@@ -2233,7 +2245,8 @@ Rust and the browser are implementation details, not advertised features.
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--mp-bots --api URL [--host] [--join LINK] [--guests N] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
-  [--pick ID[:N],…] [--names A,B] [--level N|A-B] [--personality P]
+  [--pick ID[:N],…] [--add ID[:N],…] [--everyone] [--names A,B]
+  [--level N|A-B] [--personality P]
   [--cpus N[:LEVEL]] [--shocks N] [--ready-late S] [--audience N
   [--anonymous]]`
   (DEVELOPMENT TOOL: bots in a private online room, played by the CPU,

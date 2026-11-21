@@ -51,7 +51,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   from the list; stage 2 built (still revision 17, released with stage
   1): every listed song downloaded ahead by default into a store of the
   room's own (Options → Data's Room songs ahead), the rows filled in, who
-  has what over the live side.
+  has what over the live side; stage 3 built (revision 21): the owner's
+  Who can add songs (Hosts or Everyone), a person's own songs added up to
+  half the list and removed by them.
 - [The host's Twitch in a room](multiplayer-twitch.md) (2026-11-20):
   built without Twitch itself, room model revision 18: round TW1 the
   model, Kick, the Twitch link and the mirror on the server behind a fake
