@@ -1756,3 +1756,92 @@ fn a_hidden_audience_page_keeps_its_seat_and_readies_the_stage() {
     seen(500, &mut h, &mut alice);
     assert_eq!(prepared.borrow().len(), 1, "prepared once");
 }
+
+/// Round RL4b (revision 22): the group's draw revealed to the audience as
+/// to the members. Bob and the host choose; at the countdown's end the
+/// room draws; the audience's page shows the same reel (`room-draw`) for
+/// the reveal's three seconds, its winner the room's, and closes it.
+#[test]
+fn the_audience_sees_the_draw_s_reveal() {
+    use crate::look::Plain;
+    use crate::screens::audience::AudienceScreen;
+    use crate::screens::{DESIGN, Env};
+    use crate::testing::Harness;
+    let env = Env::new(
+        Rc::new(Plain),
+        Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
+    );
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    server.borrow_mut().rewrite(|s| {
+        s.next.rules.choice = ddi_room::SongChoice::Group;
+        let list = std::sync::Arc::make_mut(&mut s.songs);
+        for n in 1..=2u64 {
+            let id = ddi_room::RoomSongId(list.next.max(1));
+            list.next = id.0 + 1;
+            list.entries.push(ddi_room::RoomSong {
+                id,
+                key: ddi_room::SongKey::new(format!("s{n:015x}")),
+                card: ddi_room::SongCard {
+                    title: format!("Song {n}"),
+                    ..Default::default()
+                },
+                charts: vec![ddi_room::ChartLine {
+                    chart: ddi_room::ChartKey::new(format!("d{n}")),
+                    style: "dance-single".into(),
+                    difficulty: "Hard".into(),
+                    meter: 9,
+                }],
+                by: ddi_room::ParticipantId(1),
+                added_at: s.revision,
+                status: ddi_room::ContentStatus::Available,
+                share: Some(format!("share{n}")),
+                bundled: false,
+            });
+        }
+    });
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 5_000);
+    let carol = Rc::new(RefCell::new(arrive(&server, "carol", AUDIENCE_LINK, 5_000).unwrap()));
+    let mut ha = Harness::new(DESIGN, [1280.0, 720.0], 1.0, crate::TextMode::Own);
+    let state = env.state.clone();
+    ha.push(AudienceScreen::new(env, carol.clone(), Rc::new(|_, _| {})));
+    let step = |ms: u64, ha: &mut Harness, alice: &mut RoomClient, bob: &mut RoomClient| {
+        for _ in 0..ms / 50 {
+            clock.advance(50);
+            server.borrow_mut().pump();
+            alice.tick(clock.now().0);
+            bob.tick(clock.now().0);
+            ha.ui.set_clock(clock.now().0 as f64 / 1_000.0);
+            ha.run(0.05);
+        }
+    };
+    step(2_000, &mut ha, &mut alice, &mut bob);
+    bob.choose(ddi_room::RoomSongId(2), &ddi_room::ChartKey::new("d2")).unwrap();
+    step(200, &mut ha, &mut alice, &mut bob);
+    alice.choose(ddi_room::RoomSongId(1), &ddi_room::ChartKey::new("d1")).unwrap();
+    // Everyone chose: the draw three seconds after the countdown opened.
+    let mut seen = None;
+    for _ in 0..120 {
+        step(50, &mut ha, &mut alice, &mut bob);
+        if ha.ui.layers().last().map(|l| l.name.clone()).unwrap_or_default() == "room-draw" {
+            seen = state.borrow().audience.clone().and_then(|a| a.reveal);
+            break;
+        }
+    }
+    let record = server.borrow().state().drawn.clone().expect("drawn");
+    let won = record.won().unwrap();
+    let names = ["", "alice", "bob"];
+    let title = format!("Song {}", won.song.0);
+    assert_eq!(
+        seen,
+        Some([names[won.participant.0 as usize].to_string(), title.clone()]),
+        "the room's winner on the audience's reel"
+    );
+    let texts = ha.texts().join("\n");
+    assert!(texts.contains("Stage 1 · The draw"), "{texts}");
+    // Over after its three seconds.
+    step(3_500, &mut ha, &mut alice, &mut bob);
+    assert_ne!(ha.ui.layers().last().map(|l| l.name.clone()).unwrap_or_default(), "room-draw");
+    assert!(carol.borrow().reveal().is_none());
+}

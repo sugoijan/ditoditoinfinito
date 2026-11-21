@@ -89,6 +89,9 @@ pub struct AudienceView {
     /// The last settled stage's standings, as a member's results say
     /// theirs (`ThemeState::stage`), once a stage has settled.
     pub table: Option<super::results::StageView>,
+    /// The group's draw revealed over the page now (round RL4b): whose
+    /// choice it took and its song's title.
+    pub reveal: Option<[String; 2]>,
 }
 
 /// The seat's state as a word, and why.
@@ -127,6 +130,11 @@ pub fn debug_view(a: &AudienceClient) -> AudienceView {
         tab: "players".into(),
         tabs: false,
         table: None,
+        reveal: a.reveal().and_then(|r| {
+            let v = v?;
+            let won = r.drawn.entries.get(usize::from(r.drawn.winner))?;
+            Some([player_name(v, won.participant), won.card.title.clone()])
+        }),
     }
 }
 
@@ -214,7 +222,7 @@ const TABLE_FULL_W: f32 = 724.0;
 const TABLE_DOWN: &str = "Audience.TableDown";
 const TABLE_UP: &str = "Audience.TableUp";
 
-fn player_name(v: &PublicView, id: ddi_room::ParticipantId) -> String {
+pub(super) fn player_name(v: &PublicView, id: ddi_room::ParticipantId) -> String {
     v.players
         .iter()
         .find(|p| p.id == id)
@@ -615,6 +623,8 @@ pub struct AudienceScreen {
     /// motion) and whether it moves.
     rain_time: f64,
     rain_animating: bool,
+    /// The group's last draw revealed over the page (round RL4b).
+    revealed: Option<(ddi_room::StageId, ddi_room::Millis)>,
 }
 
 impl AudienceScreen {
@@ -663,6 +673,7 @@ impl AudienceScreen {
             time: 0.0,
             rain_time: 0.0,
             rain_animating: false,
+            revealed: None,
         }
     }
 
@@ -1248,6 +1259,8 @@ impl crate::screen::Screen for AudienceScreen {
             );
         }
         self.env_publish();
+        // The group's draw (round RL4b): the members' reel over the page.
+        super::room_reveal::open_audience_reveal(&self.env, &self.audience, &mut self.revealed, cx);
         if let Some(order) = order {
             (self.shell)(AudienceCall::Watch(Box::new(order)), cx);
         }

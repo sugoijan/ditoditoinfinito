@@ -62,6 +62,13 @@ pub enum LinkNotice {
     TwitchSetterLeft {
         who: ddi_room::ParticipantId,
     },
+    /// Room model revision 22 (round RL4b): the room took this player's
+    /// song choice away, not by their own doing (Song choice turned to
+    /// Host, the Repeats rule excluding the song, the song gone, the draw
+    /// called off): said once for [`JOINED_TO_WATCH_MS`].
+    ChoiceGone {
+        why: ddi_room::ChoiceGone,
+    },
 }
 
 /// How long the status line says a join was to watch (from the room's
@@ -372,7 +379,7 @@ impl OnlineLink {
                 None if notice == LinkNotice::AheadQuota => {
                     self.notice_until = Some(now_ms + JOINED_TO_WATCH_MS);
                 }
-                None if matches!(notice, LinkNotice::Kicked { .. }) => {
+                None if matches!(notice, LinkNotice::Kicked { .. } | LinkNotice::ChoiceGone { .. }) => {
                     self.notice_until = Some(now_ms + JOINED_TO_WATCH_MS);
                 }
                 None if !matches!(notice, LinkNotice::JoinedToWatch | LinkNotice::BackHere) => {

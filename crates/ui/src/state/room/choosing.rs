@@ -140,6 +140,19 @@ impl RoomClient {
         Some((d, left_ms.div_ceil(1000)))
     }
 
+    /// Whether anyone in the room may start the draw by their own choice
+    /// (round RL4b): a host or co-host there who may choose. None where
+    /// every one of them watches or is away: then no countdown can open.
+    pub fn someone_starts_draw(&self) -> bool {
+        let s = self.state();
+        s.members.values().any(|m| {
+            m.present_person()
+                && m.connection.holds_place()
+                && ddi_room::can(m.role, m.admin, ddi_room::Capability::StartDraw, s.phase.kind())
+                && s.chooser_refusal(m.id).is_none()
+        })
+    }
+
     /// Why a host's or co-host's standing choice opens no countdown now,
     /// if it is so (too few players for a stage, rules to review).
     pub fn draw_waits(&self) -> Option<Rejection> {

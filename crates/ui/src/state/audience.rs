@@ -278,6 +278,33 @@ pub struct AudienceClient {
     /// asked for it where the seat had not read the stage's song.
     picture_of: Option<StageId>,
     picture_asked: Option<(StageId, String)>,
+    /// The group's draw being revealed on this seat (room model revision
+    /// 22, round RL4b), and the draws seen already (by stage and time).
+    reveal: Option<AudienceReveal>,
+    revealed: BTreeSet<(StageId, Millis)>,
+}
+
+/// The group's draw revealed on an audience seat (round RL4b): the public
+/// view's draw and when (this device's clock) the seat began showing it,
+/// for `ddi_room::DRAW_V0.reveal_ms`, as a member's device does
+/// (`crate::state::room::Reveal`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct AudienceReveal {
+    pub drawn: ddi_room::audience::public::PublicDrawn,
+    pub from_ms: u64,
+}
+
+impl AudienceReveal {
+    /// How far into it `now_ms` is, 0 to 1.
+    pub fn progress(&self, now_ms: u64) -> f64 {
+        let ms = ddi_room::DRAW_V0.reveal_ms.max(1);
+        (now_ms.saturating_sub(self.from_ms) as f64 / ms as f64).clamp(0.0, 1.0)
+    }
+
+    /// When it ends on this device's clock.
+    pub fn ends_ms(&self) -> u64 {
+        self.from_ms + ddi_room::DRAW_V0.reveal_ms
+    }
 }
 
 /// The shape a late joiner's picture is told with, unread (the page
@@ -349,6 +376,8 @@ impl AudienceClient {
             backdrop: None,
             picture_of: None,
             picture_asked: None,
+            reveal: None,
+            revealed: BTreeSet::new(),
         };
         c.tick(now_ms);
         c
@@ -548,6 +577,40 @@ impl AudienceClient {
         self.sync_loading();
         self.sync_picture();
         self.note_seen();
+        self.sync_reveal(now_ms);
+    }
+
+    /// The group's draw being revealed here now (round RL4b), if any.
+    pub fn reveal(&self) -> Option<&AudienceReveal> {
+        let now = self.clock.now().0;
+        self.reveal.as_ref().filter(|r| now < r.ends_ms())
+    }
+
+    /// A draw first seen for a stage not begun revealed from now, as a
+    /// member's device reveals it; one seen once its stage began, or past
+    /// its reveal on the room's clock (a seat that came later), passed
+    /// over.
+    fn sync_reveal(&mut self, now_ms: u64) {
+        let room_now = self.seat.link().room_ms(now_ms);
+        let fresh = self.view().and_then(|v| {
+            let d = v.drawn.as_ref()?;
+            let st = v.stages.iter().find(|s| s.id == d.stage)?;
+            let fresh = st.play.is_none()
+                && matches!(st.content, PublicContent::Available | PublicContent::Pending)
+                && room_now.is_none_or(|n| n.0 < d.at.0 + ddi_room::DRAW_V0.reveal_ms);
+            Some((d.clone(), fresh))
+        });
+        if let Some((drawn, fresh)) = fresh
+            && self.revealed.insert((drawn.stage, drawn.at))
+            && fresh
+        {
+            self.reveal = Some(AudienceReveal { drawn, from_ms: now_ms });
+            self.version += 1;
+        }
+        if self.reveal.as_ref().is_some_and(|r| now_ms >= r.ends_ms()) {
+            self.reveal = None;
+            self.version += 1;
+        }
     }
 
     /// Notes the stage the room gathers or counts down for: seen before

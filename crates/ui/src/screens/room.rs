@@ -754,17 +754,42 @@ pub fn group_status(r: &RoomClient) -> UiText {
         };
         return m::status_draw(seconds, chose, of, name);
     }
-    if r.draw_waits().is_some() {
-        return m::status_draw_waits();
+    if let Some(why) = r.draw_waits() {
+        return m::status_draw_waits(draw_waits_why(&why));
+    }
+    // A host or co-host who watches (round RL4b): what starts the draw
+    // for them.
+    if r.choice_blocked()
+        == Some(Rejection::CannotChoose {
+            why: ddi_room::NoChoice::Watching,
+        })
+        && r.may(ddi_room::Capability::StartDraw)
+    {
+        return m::status_group_watching_host(if r.someone_starts_draw() { "yes" } else { "no" });
     }
     if r.choice_blocked().is_some() {
         return m::status_group_watching(chose, of, n);
+    }
+    // Every host and co-host watches or is away: nobody's choice can
+    // start the draw (round RL4b).
+    if !r.someone_starts_draw() {
+        return m::status_group_no_starter(chose, of, n);
     }
     match (chose, r.starts_draw()) {
         (0, true) => m::status_group_none_host(n),
         (0, false) => m::status_group_none(n),
         (_, true) => m::status_group_some_host(chose, of, n),
         (_, false) => m::status_group_some(chose, of, n),
+    }
+}
+
+/// Why a host's standing choice opens no countdown, as
+/// `room-status-draw-waits` says it (round RL4b): too few players, or the
+/// next match's rules to be checked (anything else a pick would refuse).
+pub fn draw_waits_why(why: &Rejection) -> &'static str {
+    match why {
+        Rejection::NotEnoughReady { .. } | Rejection::NoPlayingHumans => "players",
+        _ => "rules",
     }
 }
 
@@ -885,6 +910,12 @@ fn phase_status(r: &RoomClient) -> UiText {
             LinkNotice::TwitchSetterLeft { who } => m::twitch_setter_left(UiText::data(
                 r.state().member(who).map(person_name).unwrap_or_default(),
             )),
+            LinkNotice::ChoiceGone { why } => m::choice_gone(match why {
+                ddi_room::ChoiceGone::Host => "host",
+                ddi_room::ChoiceGone::Repeats => "repeats",
+                ddi_room::ChoiceGone::Song => "song",
+                ddi_room::ChoiceGone::Stage => "stage",
+            }),
             LinkNotice::Kicked { who, by } => {
                 let name = |id| {
                     r.state()

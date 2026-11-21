@@ -441,8 +441,8 @@ room-rules-running-stage = { $stages ->
 #   $number (Number) - the stage the changes apply from, from 1
 #   $marked (String) - "yes" when some row is marked, else "no"
 room-rules-running-from-points = { $marked ->
-    [yes] Timing, Boos, zero life, attacks and Points below apply from stage { $number } on. ● marks what you changed.
-   *[no] Timing, Boos, zero life, attacks and Points below apply from stage { $number } on.
+    [yes] What you change below applies from stage { $number } on. ● marks what you changed.
+   *[no] What you change below applies from stage { $number } on.
 }
 
 # A row at the top of the Rules pop-up while a match is running: where its
@@ -2270,8 +2270,9 @@ room-refused-too-many-songs = { $limit ->
 # Refused: only the hosts add songs to this room (the host's setting Who
 # can add songs was turned back to Hosts).
 room-refused-hosts-add = Only the hosts can add songs to this room now.
-# Refused: a stage that is picked or under way plays that song.
-room-refused-song-in-use = That song is picked for a stage, so it stays for now.
+# Refused: a stage that is picked or under way plays that song, or a
+# player chose it for the next stage (Song choice: Group).
+room-refused-song-in-use = That song is picked for a stage or chosen by a player, so it stays for now.
 # Refused: the song is still being uploaded.
 room-refused-song-not-ready = That song is still being uploaded.
 # Refused: the song (or its chart) is not in the room's list any more.
@@ -2439,7 +2440,7 @@ room-rules-choice-host = Host
 room-rules-choice-group = Group
 # A line under the Song choice row saying what the chosen value does.
 room-rules-choice-host-about = The host picks each song from the room's song list.
-room-rules-choice-group-about = Each player chooses a song from the room's list. A host's or co-host's own choice starts a 10-second draw that picks one player's choice.
+room-rules-choice-group-about = Each player chooses a song from the room's list. A host's or co-host's own choice starts a 10-second countdown, then one player's choice is drawn at random.
 # The row under it while Song choice is Group (about 20 letters): whether
 # a song may be chosen again, and its three values (about 12 letters each:
 # they sit between the row's two buttons).
@@ -2447,8 +2448,16 @@ room-rules-repeats = Repeats
 room-rules-repeats-allowed = Allowed
 room-rules-repeats-not-in-a-row = Not in a row
 room-rules-repeats-not-in-a-match = Once a match
-# A line under the Repeats row.
-room-rules-repeats-about = If the rule would leave no song to choose, any song may be chosen.
+# A line under the Repeats row saying what its value does ("Once a
+# match" is room-rules-repeats-not-in-a-match: each song at most once in
+# a match).
+# Variables:
+#   $repeats (String) - "allowed", "not_in_a_row" or "not_in_a_match"
+room-rules-repeats-about = { $repeats ->
+    [not_in_a_row] The song just played can't be chosen for the next stage. If that leaves no song to choose, any song may be chosen.
+    [not_in_a_match] Each song plays at most once in a match: a song played in this match can't be chosen until the next match. If that leaves no song to choose, any song may be chosen.
+   *[allowed] Any song may be chosen, even the one just played.
+}
 # A change of Song choice from a later stage, in the list of what changes.
 # Variables:
 #   $choice (String) - "host" or "group"
@@ -2471,7 +2480,7 @@ room-rules-change-repeats = { $repeats ->
 room-status-group-none-host = Choose stage { $number }'s song. Your choice starts the draw.
 # Variables:
 #   $number (Number) - the stage, from 1
-room-status-group-none = Choose stage { $number }'s song. The draw starts when a host chooses.
+room-status-group-none = Choose stage { $number }'s song. The draw starts when a host or co-host chooses.
 # Some have chosen.
 # Variables:
 #   $chose (Number) - how many players have chosen
@@ -2482,7 +2491,7 @@ room-status-group-some-host = { $chose } of { $of } chose stage { $number }'s so
 #   $chose (Number) - how many players have chosen
 #   $of (Number) - how many players may choose
 #   $number (Number) - the stage, from 1
-room-status-group-some = { $chose } of { $of } chose stage { $number }'s song. The draw starts when a host chooses.
+room-status-group-some = { $chose } of { $of } chose stage { $number }'s song. The draw starts when a host or co-host chooses.
 # The same to someone who may not choose (watching, or playing from the
 # next match).
 # Variables:
@@ -2497,9 +2506,41 @@ room-status-group-watching = { $chose } of { $of } players chose stage { $number
 #   $of (Number) - how many players may choose
 #   $name (String) - who started it (their name, or "you")
 room-status-draw = The draw in { $seconds } s · { $chose } of { $of } chose · started by { $name }
-# A host's choice stands but the draw cannot start a stage yet (too few
-# players, or the rules need a look).
-room-status-draw-waits = The draw waits until a stage can start: more players are needed.
+# A host's choice stands but the draw cannot start a stage yet: too few
+# players ("players"), or the next match's rules need a host to check them
+# in the Rules pop-up ("rules").
+# Variables:
+#   $why (String) - "players" or "rules"
+room-status-draw-waits = { $why ->
+    [rules] The draw waits: a host must check the next match's Rules first.
+   *[players] The draw waits until a stage can start: more players are needed.
+}
+# Under Song choice: Group, nobody who may start the draw plays: every host
+# and co-host watches or is away, so no countdown can start.
+# Variables:
+#   $chose (Number) - how many players have chosen
+#   $of (Number) - how many players may choose
+#   $number (Number) - the stage, from 1
+room-status-group-no-starter = { $chose } of { $of } chose stage { $number }'s song. The draw needs a host or co-host who plays.
+# To a host or co-host who watches: they don't choose, so their choice
+# can't start the draw; switching to Play (the players panel or More) lets
+# them, or a co-host who plays can.
+# Variables:
+#   $cohost (String) - "yes" where a co-host (or another host) plays and may start it, else "no"
+room-status-group-watching-host = { $cohost ->
+    [yes] You're watching. To start the draw, switch to Play and choose a song, or ask a co-host.
+   *[no] You're watching. To start the draw, switch to Play and choose a song.
+}
+# Said once on the status line where the room took this player's choice
+# away (not their own doing).
+# Variables:
+#   $why (String) - "host" (Song choice turned to Host), "repeats" (the Repeats rule excludes that song now), "song" (the song can't be played any more) or "stage" (the draw for that stage was called off: the match stopped or ended)
+room-choice-gone = { $why ->
+    [host] Your song choice was cleared: the host picks the songs now.
+    [repeats] Your song choice was cleared: the Repeats rule excludes that song now.
+    [song] Your song choice was cleared: that song can't be played any more.
+   *[stage] Your song choice was cleared: the draw was called off.
+}
 # "you", as the name of the one who started the draw (lower case where
 # the language has cases).
 room-draw-by-you = you
@@ -2538,8 +2579,16 @@ room-song-line-repeat = { $rule ->
 room-hint-choose = Choose this song
 room-hint-choose-draw = Choose this song and start the draw
 room-hint-clear-choice = Take back your choice
+# Enter's hint on a song the Repeats rule excludes now: why it can't be
+# chosen (Enter says so in a notice).
+# Variables:
+#   $rule (String) - "not_in_a_row" or "not_in_a_match"
+room-hint-repeated = { $rule ->
+    [not_in_a_row] Can't choose: played just before
+   *[not_in_a_match] Can't choose: played this match
+}
 # Refusals under Song choice: Group, said where Enter does nothing.
-room-refused-not-group = The host picks this song: Song choice is Host.
+room-refused-not-group = The host picks the next song: Song choice is Host.
 # Variables:
 #   $why (String) - "watching", "next_match" or "out_for_match"
 room-refused-cannot-choose = { $why ->
@@ -2553,7 +2602,7 @@ room-refused-repeated = { $rule ->
     [not_in_a_row] That song was just played: Repeats is Not in a row.
    *[not_in_a_match] That song was played in this match: Repeats is Once a match.
 }
-room-refused-group-chooses = The players choose this song: the draw picks it.
+room-refused-group-chooses = The players choose the next song and a draw picks one: Song choice is Group.
 # The players panel's word for someone who has chosen a song.
 room-role-chose = Chose a song
 # The draw's reveal over the room's song select: its heading, and the

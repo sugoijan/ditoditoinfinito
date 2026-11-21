@@ -1208,7 +1208,7 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
     // The group's draw's reveal (revision 22), over a room whose list
     // has nothing: its heading, the reel's lines and the result.
     let mut h = harness();
-    h.push(super::room_reveal::RevealDialog::new(
+    h.push(super::room_reveal::RevealDialog::for_room(
         env.clone(),
         room.clone(),
         ddi_room::DrawRecord {
@@ -2031,6 +2031,11 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
             crate::state::online::link::LinkNotice::InviteNotReplaced,
             crate::state::online::link::LinkNotice::JoinedToWatch,
             crate::state::online::link::LinkNotice::WatchInviteCopied,
+            // A choice the room took away (round RL4b).
+            crate::state::online::link::LinkNotice::ChoiceGone { why: ddi_room::ChoiceGone::Host },
+            crate::state::online::link::LinkNotice::ChoiceGone { why: ddi_room::ChoiceGone::Repeats },
+            crate::state::online::link::LinkNotice::ChoiceGone { why: ddi_room::ChoiceGone::Song },
+            crate::state::online::link::LinkNotice::ChoiceGone { why: ddi_room::ChoiceGone::Stage },
         ]
         .into_iter()
         .map(|n| {

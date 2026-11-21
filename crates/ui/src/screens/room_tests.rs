@@ -5418,7 +5418,7 @@ fn the_rules_pop_up_changes_rules_from_the_next_stage_next_match_or_by_restart()
     assert_eq!(v.rules_destination.as_deref(), Some("stage"));
     assert_eq!(v.rules_from, Some(2));
     assert!(has(&h, "Rules from stage 2") && has(&h, "Changes apply") && has(&h, "From stage 2"));
-    assert!(h.texts().concat().contains("Timing, Boos, zero life, attacks and Points below apply from stage 2 on.") || h.texts().join(" ").contains("Timing, Boos, zero life, attacks and Points below apply from stage 2 on."), "{:?}", h.texts());
+    assert!(h.texts().concat().contains("What you change below applies from stage 2 on.") || h.texts().join(" ").contains("What you change below applies from stage 2 on."), "{:?}", h.texts());
     assert!(
         h.texts()
             .iter()
@@ -5432,7 +5432,7 @@ fn the_rules_pop_up_changes_rules_from_the_next_stage_next_match_or_by_restart()
     assert!(there(&h, "Inc.difficulty") && there(&h, "Inc.attacks"));
     press(&mut h, "Inc.difficulty");
     assert_eq!(view(&env).rules_changed, vec!["difficulty".to_string()]);
-    assert!(h.texts().concat().contains("Timing, Boos, zero life, attacks and Points below apply from stage 2 on. ● marks what you changed.") || h.texts().join(" ").contains("Timing, Boos, zero life, attacks and Points below apply from stage 2 on. ● marks what you changed."), "{:?}", h.texts());
+    assert!(h.texts().concat().contains("What you change below applies from stage 2 on. ● marks what you changed.") || h.texts().join(" ").contains("What you change below applies from stage 2 on. ● marks what you changed."), "{:?}", h.texts());
     press(&mut h, "Apply");
     assert_eq!(top(&h), "select");
     {
@@ -7939,7 +7939,7 @@ fn choosing_by_the_group_on_room_songs() {
     t.carol.borrow_mut().set_intent(ddi_room::Intent::Watch).unwrap();
     t.settle(400, &mut [&mut ha, &mut hb]);
     assert_eq!(view(&eb).choice, "group");
-    assert_eq!(view(&eb).status, "Choose stage 1's song. The draw starts when a host chooses.");
+    assert_eq!(view(&eb).status, "Choose stage 1's song. The draw starts when a host or co-host chooses.");
     assert_eq!(view(&ea).status, "Choose stage 1's song. Your choice starts the draw.");
     assert!(ea.state.borrow().hints.iter().any(|h| h.contains("Choose this song and start the draw")), "{:?}", ea.state.borrow().hints);
     assert!(eb.state.borrow().hints.iter().any(|h| h == "Choose this song" || h.ends_with("Choose this song")), "{:?}", eb.state.borrow().hints);
@@ -8005,4 +8005,103 @@ fn choosing_by_the_group_on_room_songs() {
     assert_eq!(orders.borrow().len(), 2, "both stages' prompts after the reveal");
     assert!(view(&ea).reveal.is_none());
     assert!(t.alice.borrow().state().choices.is_empty());
+}
+
+/// Round RL4b (revision 22): the words of choosing by the group that a
+/// first look found missing or untrue. A song in use is said to be
+/// chosen too; a draw that waits says whether for players or for the
+/// rules; a host who watches is told what starts the draw (switch to
+/// Play, or a co-host), and the others that nobody who plays can start
+/// it; a choice the room took away (Song choice turned to Host) is told
+/// to its maker on the status line; a song the Repeats rule excludes
+/// says so in Enter's hint.
+#[test]
+fn group_choice_says_what_starts_the_draw_and_what_took_a_choice() {
+    use ddi_room::{Intent, Rejection};
+    assert_eq!(
+        String::from(super::room::refusal_text(&crate::state::room::Refusal::Room(Rejection::SongInUse))),
+        "That song is picked for a stage or chosen by a player, so it stays for now."
+    );
+    assert_eq!(
+        super::room::draw_waits_why(&Rejection::NotEnoughReady { ready_humans: 1, competitors: 1 }),
+        "players"
+    );
+    assert_eq!(
+        super::room::draw_waits_why(&Rejection::RulesNeedReview(ddi_room::RulesProblem::GroupNeedsList)),
+        "rules"
+    );
+    assert_eq!(
+        String::from(ddi_l10n::msg::room::status_draw_waits("rules")),
+        "The draw waits: a host must check the next match's Rules first."
+    );
+    let t = Three::over(|s| s.next.rules.choice = ddi_room::SongChoice::Group, false);
+    listed(&t, &["Alpha One", "Bravo One", "Charlie One"], 1);
+    t.step(400);
+    let (ea, eb) = (env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    // The host watches: she is told what starts the draw; the others that
+    // nobody who plays can.
+    t.alice.borrow_mut().set_intent(Intent::Watch).unwrap();
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    assert_eq!(
+        view(&ea).status,
+        "You're watching. To start the draw, switch to Play and choose a song."
+    );
+    assert_eq!(
+        view(&eb).status,
+        "0 of 2 chose stage 1's song. The draw needs a host or co-host who plays."
+    );
+    // Bob a co-host: he can start it, and she is told so.
+    t.alice.borrow_mut().set_co_host(ddi_room::ParticipantId(2), true).unwrap();
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    assert_eq!(
+        view(&ea).status,
+        "You're watching. To start the draw, switch to Play and choose a song, or ask a co-host."
+    );
+    assert_eq!(view(&eb).status, "Choose stage 1's song. Your choice starts the draw.");
+    t.alice.borrow_mut().set_co_host(ddi_room::ParticipantId(2), false).unwrap();
+    t.alice.borrow_mut().set_intent(Intent::Play).unwrap();
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    // Bob chooses; the host turns Song choice to Host: Bob is told.
+    let song = t.bob.borrow().room_songs()[0].clone();
+    t.bob.borrow_mut().choose(song.id, &song.charts[0].chart).unwrap();
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    assert!(view(&eb).my_choice.is_some());
+    let mut rules = t.alice.borrow().state().next.rules.clone();
+    rules.choice = ddi_room::SongChoice::Host;
+    t.alice.borrow_mut().save_rules(rules.clone()).unwrap();
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    assert!(view(&eb).my_choice.is_none());
+    assert_eq!(
+        view(&eb).status,
+        "Your song choice was cleared: the host picks the songs now."
+    );
+    assert_ne!(view(&ea).status, view(&eb).status, "the host, who changed it, is not told");
+    // A match under Not in a row, its first song picked by the host; Song
+    // choice: Group from its next stage: the picked song's hint says why
+    // it can't be chosen.
+    let pick = t.alice.borrow().room_songs()[0].clone();
+    t.alice.borrow_mut().pick_listed(pick.id, &pick.charts[0].chart).unwrap();
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    t.server.borrow_mut().rewrite(|s| {
+        let m = s.current.as_mut().expect("a match");
+        m.rules.choice = ddi_room::SongChoice::Group;
+        m.rules.repeats = ddi_room::Repeats::NotInARow;
+    });
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    assert_eq!(t.bob.borrow().repeat_refused(pick.id), Some(ddi_room::Repeats::NotInARow));
+    let mut said = false;
+    for _ in 0..3 {
+        hb.run(0.1);
+        if eb.state.borrow().hints.iter().any(|h| h.contains("Can't choose: played just before")) {
+            said = true;
+            break;
+        }
+        hb.key("ArrowDown", "ArrowDown");
+        hb.run(0.3);
+    }
+    assert!(said, "{:?}", eb.state.borrow().hints);
 }

@@ -937,7 +937,7 @@ impl Screen for RulesDialog {
             Vec::new()
         };
         let repeats_about = if self.repeats_shown() {
-            wrap(m::rules_repeats_about())
+            wrap(m::rules_repeats_about(super::room::repeats_id(play.repeats)))
         } else {
             Vec::new()
         };

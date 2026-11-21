@@ -5770,6 +5770,20 @@ impl RoomClient {
                     if let (Some((who, by)), Link::Online(l)) = (kicked, &mut self.link) {
                         l.set_notice(Some(LinkNotice::Kicked { who, by }));
                     }
+                    // This player's song choice taken away by the room, not
+                    // by their own doing (revision 22, round RL4b): told
+                    // once, in the room's words.
+                    let gone = events.iter().rev().find_map(|e| match e {
+                        ddi_room::Event::ChoiceChanged {
+                            participant,
+                            choice: None,
+                            why: Some(why),
+                        } if *participant == me => Some(*why),
+                        _ => None,
+                    });
+                    if let (Some(why), Link::Online(l)) = (gone, &mut self.link) {
+                        l.set_notice(Some(LinkNotice::ChoiceGone { why }));
+                    }
                     self.version += 1;
                 }
                 ServerMessage::Snapshot { .. } => {
