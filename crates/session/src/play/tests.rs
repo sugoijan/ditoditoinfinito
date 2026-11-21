@@ -2565,10 +2565,11 @@ fn a_volume_changed_during_a_play_judges_the_same_from_the_same_presses() {
     assert_eq!((quiet.4, moved.4), (settings.volume, 0.3));
 }
 
-/// Never in singleplayer (round TW7, the maintainer: "we shouldn't show
-/// emotes on singlplayer plays, only on multiplayer plays"): a solo play
-/// with every chat option on and the live chat's development script
-/// running builds no layer and opens no socket.
+/// Singleplayer never needs the network for the chat (round TW7, the
+/// maintainer: "singleplayer should never require online connectivity,
+/// the chat/emotes background should be purely an optional multiplayer
+/// feature"): a player's solo play with every chat option on builds no
+/// layer, opens no socket and makes no request.
 #[test]
 fn a_singleplayer_play_shows_no_live_chat_whatever_the_options() {
     let song = bundled("beatucada");
@@ -2579,10 +2580,7 @@ fn a_singleplayer_play_shows_no_live_chat_whatever_the_options() {
     };
     crate::chat::set_scripted(None);
     let state = crate::chat::tests::fake_live();
-    ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Own {
-        channel_id: "1001".into(),
-        login: "me".into(),
-    }));
+    ddi_ui::state::twitch::set_dev_live(None);
     let clock: Clock = Rc::new(RefCell::new(100.0));
     let config = SessionConfig::from_settings(&settings, true, None);
     assert!(config.chat.is_some(), "the device's choice is read");
@@ -2601,8 +2599,62 @@ fn a_singleplayer_play_shows_no_live_chat_whatever_the_options() {
     let st = state.borrow();
     assert!(st.opened.is_empty() && st.subscribed.is_empty() && st.reads.is_empty(), "no socket, no request");
     drop(st);
-    ddi_ui::state::twitch::set_dev_live(None);
     crate::chat::set_live(None);
+}
+
+/// The live chat beside a solo play under the development script (round
+/// TW6, over a fake shell's side that brings a message every frame once
+/// subscribed): the play judges, scores and logs exactly as without it,
+/// at any frame rate.
+#[test]
+fn a_live_chat_beside_the_play_changes_nothing_of_it() {
+    let song = bundled("beatucada");
+    let play = |chat: bool, fps: f64| {
+        let settings = Settings {
+            twitch_chat: if chat {
+                ddi_chat::Level::Messages
+            } else {
+                ddi_chat::Level::Off
+            },
+            ..Settings::default()
+        };
+        crate::chat::set_scripted(None);
+        let _state = crate::chat::tests::fake_live();
+        ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Own {
+            channel_id: "1001".into(),
+            login: "me".into(),
+        }));
+        let clock: Clock = Rc::new(RefCell::new(100.0));
+        let config = SessionConfig::from_settings(&settings, true, None);
+        assert_eq!(config.chat.is_some(), chat);
+        let mut s = PlaySession::start(
+            &song,
+            1,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.012),
+            110.0,
+            FakeInputs::new(&clock),
+        )
+        .unwrap();
+        let Some(SessionEvent::Finished { results, facts, .. }) = run(&mut s, &clock, fps, 200.0)
+        else {
+            panic!("no end");
+        };
+        let events = s.chat().map(|c| (c.is_live(), c.counts().0));
+        ddi_ui::state::twitch::set_dev_live(None);
+        crate::chat::set_live(None);
+        (format!("{results:?}"), format!("{:?}", facts.log), events)
+    };
+    for fps in [60.0, 37.0] {
+        let (results, log, none) = play(false, fps);
+        assert_eq!(none, None);
+        let (with_results, with_log, events) = play(true, fps);
+        let (live, events) = events.unwrap();
+        assert!(live && events > 1000, "{events}");
+        assert_eq!(results, with_results);
+        assert_eq!(log, with_log);
+    }
 }
 
 /// A scripted chat beside a play (`crate::chat`, round TW2): the play

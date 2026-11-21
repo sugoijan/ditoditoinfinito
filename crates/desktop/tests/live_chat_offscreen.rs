@@ -2,10 +2,10 @@
 //! desktop's play host offscreen, on a fake clock with no sound device,
 //! against local fakes of Twitch's EventSub socket and of our server's
 //! subscribe route (never Twitch, never a provider): the development
-//! script's own channel in CPU practice's stage, the socket welcomed,
-//! subscribed, its chat drawn with a Twitch emote from a fragment, the
-//! play judging as without it; and a solo play under the same script and
-//! options showing none and asking nothing (round TW7). Skipped where there is no
+//! script's own channel in a solo play and in CPU practice's stage, the
+//! socket welcomed, subscribed, its chat drawn with a Twitch emote from a
+//! fragment; the play judging as without it; and a player's (no script)
+//! showing none and asking nothing. Skipped where there is no
 //! GPU adapter (CI) for the pictures; the connection is checked anyway.
 
 mod common;
@@ -119,8 +119,9 @@ struct Played {
 }
 
 /// Beatucada's Challenge autoplayed with the live chat on (or off), alone
-/// or in CPU practice's stage: what the chat drew and the tally.
-fn play(chat: bool, stage: bool) -> Option<Played> {
+/// or in CPU practice's stage, under the development script (`flag`) or
+/// as a player: what the chat drew and the tally.
+fn play(chat: bool, stage: bool, flag: bool) -> Option<Played> {
     common::indexes();
     let adapter = common::gpu::adapter_or_skip()?;
     let size = [1280, 720];
@@ -141,10 +142,14 @@ fn play(chat: bool, stage: bool) -> Option<Played> {
         Some(format!("{http}/g/")),
         || None,
     )));
-    ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Own {
-        channel_id: "1001".into(),
-        login: "me".into(),
-    }));
+    if flag {
+        ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Own {
+            channel_id: "1001".into(),
+            login: "me".into(),
+        }));
+    } else {
+        ddi_ui::state::twitch::set_dev_live(None);
+    }
     let (mut ui, env) = common::ui::theme(if stage { "start" } else { "select" }, common::ui::lowercase(), size, false);
     ui.update(0.5);
     let mut host = Host::new(Rc::default(), None);
@@ -263,10 +268,10 @@ fn play(chat: bool, stage: bool) -> Option<Played> {
         played.tally = format!("{:?}", p.session.player.tally());
     }
     let asked = asked.lock().unwrap().clone();
-    if chat && stage {
+    if chat && flag {
         assert!(asked.iter().any(|a| a == "/me/chat/subscribe"), "{asked:?}");
     } else {
-        assert!(asked.is_empty(), "nothing asked with the option off or alone: {asked:?}");
+        assert!(asked.is_empty(), "nothing asked with the option off, or by a player alone: {asked:?}");
     }
     ddi_ui::state::twitch::set_dev_live(None);
     ddi_session::chat::set_live(None);
@@ -274,25 +279,28 @@ fn play(chat: bool, stage: bool) -> Option<Played> {
     Some(played)
 }
 
-/// The development script's own channel in CPU practice's stage:
-/// subscribed through the own route, its messages and Twitch's emote
-/// drawn; with the option off nothing is asked or drawn, and the first 25
-/// seconds judge alike. A solo play under the same script with the
-/// option on shows none and asks nothing (round TW7: never in
-/// singleplayer).
+/// The development script's own channel in a solo play and in CPU
+/// practice's stage: subscribed through the own route, its messages and
+/// Twitch's emote drawn; with the option off nothing is asked or drawn,
+/// and the first 25 seconds judge alike. Without the script (a player)
+/// neither shows any or asks anything (round TW7).
 #[test]
-fn the_live_chat_plays_in_a_practice_stage_and_never_alone() {
-    let Some(on) = play(true, true) else { return };
-    let off = play(false, true).unwrap();
-    let live = on.live.as_ref().expect("live");
-    assert_eq!(live["route"], "own");
-    assert_eq!(live["connection"]["subscriptions"][0]["outcome"], "enabled");
-    assert!(on.items > 0 && on.emotes > 0, "{} items, {} emotes", on.items, on.emotes);
-    assert!(on.texts.iter().any(|t| t.contains("live") && t.contains('◆')), "{:?}", on.texts);
-    assert_eq!(off.items, 0);
-    assert!(off.live.is_none());
-    assert_eq!(on.tally, off.tally, "judged alike");
-    let alone = play(true, false).unwrap();
-    assert_eq!(alone.items, 0);
-    assert!(alone.live.is_none());
+fn the_live_chat_plays_in_a_solo_play_and_a_practice_stage() {
+    for stage in [false, true] {
+        let Some(on) = play(true, stage, true) else { return };
+        let off = play(false, stage, true).unwrap();
+        let live = on.live.as_ref().expect("live");
+        assert_eq!(live["route"], "own");
+        assert_eq!(live["connection"]["subscriptions"][0]["outcome"], "enabled");
+        assert!(on.items > 0 && on.emotes > 0, "stage {stage}: {} items, {} emotes", on.items, on.emotes);
+        assert!(on.texts.iter().any(|t| t.contains("live") && t.contains('◆')), "{:?}", on.texts);
+        assert_eq!(off.items, 0);
+        assert!(off.live.is_none());
+        assert_eq!(on.tally, off.tally, "stage {stage}: judged alike");
+        // Round TW7: a player (no development script) with the option on
+        // sees none and asks nothing, alone or in CPU practice.
+        let player = play(true, stage, false).unwrap();
+        assert_eq!(player.items, 0);
+        assert!(player.live.is_none());
+    }
 }

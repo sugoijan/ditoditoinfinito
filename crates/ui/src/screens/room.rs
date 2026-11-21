@@ -907,6 +907,7 @@ fn phase_status(r: &RoomClient) -> UiText {
             LinkNotice::TwitchNotConnected => m::twitch_not_connected(),
             LinkNotice::TwitchChatOn => m::twitch_chat_on(),
             LinkNotice::TwitchEnded => m::twitch_ended(),
+            LinkNotice::TwitchChatNoAccess => m::twitch_chat_no_access(),
             LinkNotice::TwitchSetterLeft { who } => m::twitch_setter_left(UiText::data(
                 r.state().member(who).map(person_name).unwrap_or_default(),
             )),

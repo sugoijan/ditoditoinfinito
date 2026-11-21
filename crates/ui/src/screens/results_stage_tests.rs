@@ -832,6 +832,24 @@ fn with_attacks_the_lines_count_them_and_the_player_s_battle_is_summed_up() {
     assert!(v.summary.is_empty());
     assert!(v.columns.contains(&"combo".to_string()) && !v.columns.contains(&"sent".to_string()));
     assert!(!h.texts().iter().any(|t| t.starts_with("Attacks")));
+    // Round TW7: where this device's Twitch chat could not show during
+    // the stage, one quiet line says why, wrapped within the panel.
+    room.borrow_mut()
+        .set_chat_trouble(order.stage, Some(ddi_chat::live::Trouble::Access));
+    h.run(0.5);
+    let v = view(&env);
+    assert_eq!(
+        v.summary,
+        ["Twitch chat could not show: your Twitch access does not allow reading chat. Turn Twitch chat in rooms (Options → Display) Off and on again to allow it."]
+    );
+    let panel = h.ui.bounds("Panel.Standings").unwrap();
+    assert!(there(&h, "Stand.Battle0"));
+    let mut k = 0;
+    while let Some(b) = h.ui.bounds(&format!("Stand.Battle{k}")) {
+        assert!(b[2] <= panel[2] + 0.5, "line {k}: {b:?} {panel:?}");
+        k += 1;
+    }
+    assert!(k >= 2, "wrapped: {k} lines");
 }
 
 fn room_unseen(room: &SharedRoom) -> Option<Option<u16>> {

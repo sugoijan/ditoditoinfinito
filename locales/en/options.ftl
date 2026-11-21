@@ -502,7 +502,13 @@ options-opponent-fields-description = In a multiplayer stage, a small field for 
 options-twitch-chat = Twitch chat in rooms
 options-twitch-chat-emotes = Emotes
 options-twitch-chat-messages = Emotes and messages
-options-twitch-chat-description = In a room whose host shows their Twitch chat, the chat moves behind the fields during play, never more of it than the host allows. Reading chat needs your permission on Twitch: turning it on takes you through Twitch to allow it, and Options → Data can disconnect it.
+# Its description, for someone who has never seen the feature: what it
+# shows, whose chat, that the host chooses and each device chooses for
+# itself, the permission on Twitch and where it is disconnected.
+options-twitch-chat-description = In an online room whose host shows their Twitch chat, it moves behind the fields during play, never above the host's choice; never in singleplayer. Reading chat needs your Twitch permission, asked when you turn this on; Options → Data disconnects it.
+# Its description where it is on but this device's Twitch access does not
+# allow reading chat (never allowed, disconnected, or ended by Twitch).
+options-twitch-chat-no-access = Your Twitch access does not allow reading chat, so no chat shows. Turn this Off and on again to allow it on Twitch.
 
 # How the chat moves behind the fields: crossing the screen from right
 # to left, or falling from the top.

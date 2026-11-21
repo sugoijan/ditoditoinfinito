@@ -1020,6 +1020,50 @@ pub(crate) mod room {
         assert_eq!(bob.link_notice(), Some(LinkNotice::TwitchSetterLeft { who: me }));
     }
 
+    /// Round TW7: a player whose device has "Twitch chat in rooms" on, in
+    /// a room that shows its host's chat, whose Twitch access does not
+    /// allow reading chat, is told once what to do; with the access, or
+    /// the option at its default, nothing is said.
+    #[test]
+    fn a_player_whose_access_cannot_show_the_chat_is_told_once() {
+        use crate::state::online::link::LinkNotice;
+        ddi_platform::storage::install(std::rc::Rc::new(ddi_platform::storage::MemoryStore::default()));
+        crate::state::settings::Settings::default().save();
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob"]);
+        server.borrow_mut().grant_twitch(&ddi_room::Identity::new("dev:alice"), &["chat"]);
+        server.borrow_mut().grant_twitch(&ddi_room::Identity::new("dev:bob"), &["bans"]);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        let me = alice.me();
+        server
+            .borrow_mut()
+            .set_twitch(
+                me,
+                Some(ddi_room::TwitchSetting {
+                    by: me,
+                    mirror: ddi_room::TwitchMirror::Off,
+                    chat: ddi_room::TwitchChat::Emotes,
+                    user_id: "1".into(),
+                    login: "alice".into(),
+                }),
+            )
+            .unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(bob.link_notice(), None, "the option at its default: nothing");
+        let mut s = crate::state::settings::Settings::load();
+        s.twitch_chat = ddi_chat::Level::Messages;
+        s.save();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(bob.link_notice(), Some(LinkNotice::TwitchChatNoAccess));
+        assert_eq!(alice.link_notice(), None, "her access allows it");
+        bob.set_link_notice(None);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(bob.link_notice(), None, "once");
+        crate::state::settings::Settings::default().save();
+    }
+
     /// Round TW3: a newcomer the host's Twitch lists keep out sees the one
     /// neutral line, and never "You can join now" above it (the browser
     /// walk found both); Join stays, for a timeout that ends.

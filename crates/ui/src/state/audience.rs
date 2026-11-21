@@ -1067,6 +1067,7 @@ impl AudienceClient {
                 attacks: self.attacks_of(Some(stage)),
                 adaptive_offered: true,
                 summary: None,
+                chat: None,
             }
             .table(),
         )

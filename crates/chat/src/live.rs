@@ -232,6 +232,73 @@ pub fn read_subscribe_answer(status: u16, body: &str) -> SubscribeAnswer {
     }
 }
 
+/// Why a live chat could not show (round TW7): what the player is told
+/// in one plain line after the stage, never during it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Trouble {
+    /// This device's Twitch access does not allow reading chat (never
+    /// given, disconnected, or refused by Twitch).
+    Access,
+    /// Twitch refused this reader the channel's chat (banned there, or
+    /// its limits).
+    Refused,
+    /// The channel is gone from Twitch (TESTING ONLY too: the
+    /// development flag named no such channel).
+    ChannelGone,
+    /// The connection to Twitch failed and kept failing.
+    Unreachable,
+    /// TESTING ONLY: the development flag named another channel, which
+    /// only an administrator may.
+    NotAllowed,
+}
+
+impl Trouble {
+    /// Its word in the report.
+    pub fn word(self) -> &'static str {
+        match self {
+            Trouble::Access => "access",
+            Trouble::Refused => "refused",
+            Trouble::ChannelGone => "channel gone",
+            Trouble::Unreachable => "unreachable",
+            Trouble::NotAllowed => "not allowed",
+        }
+    }
+
+    /// Our server's refusal of a subscribe, read: none where the room
+    /// itself changed (its chat turned off, the player no member), which
+    /// is no trouble of this device's.
+    pub fn of_refusal(word: &str) -> Option<Trouble> {
+        Some(match word {
+            "not_a_member" | "chat_off" => return None,
+            "scope_missing" | "twitch_refused" | "no_twitch" | "signed_out" | "HTTP 401" => {
+                Trouble::Access
+            }
+            "no_such_channel" => Trouble::ChannelGone,
+            "channel_not_allowed" => Trouble::NotAllowed,
+            _ => Trouble::Unreachable,
+        })
+    }
+
+    /// The messages' subscription refused with our word for Twitch's
+    /// answer.
+    fn of_outcome(outcome: &str) -> Trouble {
+        match outcome {
+            "refused" => Trouble::Access,
+            "forbidden" | "limits" => Trouble::Refused,
+            _ => Trouble::Unreachable,
+        }
+    }
+
+    /// The messages' subscription revoked with Twitch's status.
+    fn of_revocation(status: &str) -> Trouble {
+        match status {
+            "authorization_revoked" => Trouble::Access,
+            "user_removed" => Trouble::ChannelGone,
+            _ => Trouble::Refused,
+        }
+    }
+}
+
 /// Where the connection is.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Phase {
@@ -328,6 +395,7 @@ pub struct Live {
     reconnects_failed: u64,
     losses_total: u64,
     sockets: u64,
+    trouble: Option<Trouble>,
 }
 
 impl Live {
@@ -361,6 +429,7 @@ impl Live {
             reconnects_failed: 0,
             losses_total: 0,
             sockets: 0,
+            trouble: None,
         }
     }
 
@@ -400,6 +469,18 @@ impl Live {
                     },
                 }
             }
+        }
+    }
+
+    /// Why the chat could not show, where it could not (round TW7): its
+    /// trouble where it gave up; [`Trouble::Unreachable`] where it never
+    /// went live and lost a connection; none where it showed, or was never
+    /// tried, or was stopped while still connecting.
+    pub fn trouble(&self) -> Option<Trouble> {
+        match &self.phase {
+            Phase::GaveUp(_) => self.trouble,
+            _ if self.subscribed_ms.is_none() && self.losses_total > 0 => Some(Trouble::Unreachable),
+            _ => None,
         }
     }
 
@@ -481,7 +562,11 @@ impl Live {
         self.losses += 1;
         self.losses_total += 1;
         if self.losses >= self.policy.give_up_after {
-            self.give_up(now, format!("{} losses in a row, the last: {why}", self.losses));
+            self.give_up(
+                now,
+                format!("{} losses in a row, the last: {why}", self.losses),
+                Some(Trouble::Unreachable),
+            );
             return;
         }
         let k = (self.losses as usize - 1).min(self.policy.backoff_ms.len().saturating_sub(1));
@@ -490,10 +575,13 @@ impl Live {
         self.line(now, format!("lost ({why}): opened again in {wait} ms"));
     }
 
-    fn give_up(&mut self, now: u64, why: String) {
+    /// Gives up quietly, with the player's line for it after the stage
+    /// (`trouble`; none: nothing to tell).
+    fn give_up(&mut self, now: u64, why: String, trouble: Option<Trouble>) {
         self.close_all();
         self.line(now, format!("gave up: {why}"));
         self.phase = Phase::GaveUp(why);
+        self.trouble = trouble;
     }
 
     fn index(&self, socket: u32) -> Option<usize> {
@@ -546,7 +634,12 @@ impl Live {
                 self.line(now, format!("revoked: {kind} ({status})"));
                 self.revocations.push((kind.clone(), status.clone()));
                 if kind == MESSAGES {
-                    self.give_up(now, format!("the chat's subscription was revoked ({status})"));
+                    let trouble = Trouble::of_revocation(&status);
+                    self.give_up(
+                        now,
+                        format!("the chat's subscription was revoked ({status})"),
+                        Some(trouble),
+                    );
                 }
             }
             Message::Notification(event) => {
@@ -725,7 +818,11 @@ impl Live {
             return;
         }
         if code == 4001 {
-            self.give_up(now, format!("socket {socket} closed {code} ({word})"));
+            self.give_up(
+                now,
+                format!("socket {socket} closed {code} ({word})"),
+                Some(Trouble::Unreachable),
+            );
             return;
         }
         self.lose(now, format!("socket {socket} closed {code} ({word})"));
@@ -774,13 +871,19 @@ impl Live {
                     }
                     Some(s) => {
                         let why = format!("the chat's subscription: {}", s.outcome);
-                        self.give_up(now, why);
+                        let trouble = Trouble::of_outcome(&s.outcome);
+                        self.give_up(now, why, Some(trouble));
                     }
-                    None => self.give_up(now, "our server subscribed no chat".into()),
+                    None => self.give_up(
+                        now,
+                        "our server subscribed no chat".into(),
+                        Some(Trouble::Unreachable),
+                    ),
                 }
             }
             SubscribeAnswer::Refused(word) => {
-                self.give_up(now, format!("refused by our server: {word}"));
+                let trouble = Trouble::of_refusal(&word);
+                self.give_up(now, format!("refused by our server: {word}"), trouble);
             }
             SubscribeAnswer::Failed(word) => self.retry(k, tries, word, now),
         }
@@ -910,6 +1013,7 @@ impl Live {
             "policy": self.policy.name,
             "state": self.state(),
             "why": match &self.phase { Phase::GaveUp(w) => Some(w.clone()), _ => None },
+            "trouble": self.trouble().map(Trouble::word),
             "url_host": host_of(&self.url),
             "sockets": self.sockets,
             "welcome_ms": self.welcome_ms,

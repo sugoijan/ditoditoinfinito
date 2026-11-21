@@ -15,9 +15,10 @@
 //!   (`mpfakechat`, `--mp-dev-chat`), which CPU practice's stages take for
 //!   the room's ceiling; and [`set_dev_live`], the live chat's development
 //!   script (`mpfakechat=live`, `--mp-dev-chat live`, and with a channel
-//!   `live:<login>`), which gives CPU practice's stages a live channel
-//!   and, with a channel named, shows that channel in this device's
-//!   online stages in the room's channel's place.
+//!   `live:<login>`), which gives solo plays and CPU practice's stages a
+//!   live channel and, with a channel named, shows that channel in this
+//!   device's online stages in the room's channel's place. For a player
+//!   the chat is an online room's stages' alone.
 
 use std::cell::Cell;
 
@@ -30,17 +31,17 @@ thread_local! {
 }
 
 /// TESTING ONLY, the live chat's development script (round TW6; round
-/// TW7's channel): whose live chat this device shows in its multiplayer
-/// stages, never in a singleplayer play.
+/// TW7's channel): whose live chat this device shows in solo plays and
+/// CPU practice's stages.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DevLive {
     /// `live`: the signed-in person's own channel (its Twitch user id and
-    /// login, from `/me`), in CPU practice's stages.
+    /// login, from `/me`).
     Own { channel_id: String, login: String },
     /// `live:<login>`: that channel, named to our server by its login
     /// (`POST <api>/me/chat/subscribe {channel}`, administrators only),
-    /// in CPU practice's stages and in an online room's stage in the
-    /// room's channel's place, on this device alone.
+    /// there and in an online room's stage in the room's channel's place,
+    /// on this device alone.
     Channel { login: String },
 }
 
@@ -137,10 +138,11 @@ impl RoomChat {
         }
     }
 
-    /// CPU practice's chat, TESTING ONLY: practice has no host's Twitch;
-    /// where the scripted chat plays, its own line stands for the room's
-    /// ceiling; else where the live chat's development script runs, its
-    /// channel (one's own, or the one it names).
+    /// CPU practice's chat (and a solo play's live one), TESTING ONLY:
+    /// practice has no host's Twitch, so a player's shows none; where the
+    /// scripted chat plays, its own line stands for the room's ceiling;
+    /// else where the live chat's development script runs, its channel
+    /// (one's own, or the one it names).
     pub fn practice() -> Option<RoomChat> {
         if let Some(ceiling) = scripted_ceiling() {
             return (ceiling != Level::Off).then(|| RoomChat {

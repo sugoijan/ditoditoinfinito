@@ -2789,7 +2789,7 @@ impl Screen for HostDialog {
             let r = self.room.borrow();
             r.may_set_twitch().then(|| {
                 let t = r.twitch().cloned();
-                let whose: Vec<String> = match &t {
+                let mut whose: Vec<String> = match &t {
                     Some(t) => super::dialog::wrap_lines(
                         &String::from(m::host_twitch_whose(UiText::data(&t.login))),
                         inner,
@@ -2797,6 +2797,12 @@ impl Screen for HostDialog {
                     ),
                     None => Vec::new(),
                 };
+                // Round TW7: what Show my Twitch chat does, always.
+                whose.extend(super::dialog::wrap_lines(
+                    &String::from(m::host_twitch_chat_about()),
+                    inner,
+                    13.0,
+                ));
                 (t, whose)
             })
         };

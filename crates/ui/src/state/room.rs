@@ -1096,6 +1096,9 @@ pub struct StageTable {
     /// The local player's attacks of the stage, where it was played here
     /// with attacks ([`AttackSummary`]).
     pub summary: Option<AttackSummary>,
+    /// Round TW7: why this device's Twitch chat could not show during the
+    /// stage, where it could not (one quiet line under the standings).
+    pub chat: Option<ddi_chat::live::Trouble>,
     pub rows: Vec<StageRow>,
     /// The match's result, where this was its last stage and the match is
     /// over: everyone in it with their place and total, best first.
@@ -1142,6 +1145,7 @@ pub(crate) struct TableSource<'a> {
     pub attacks: bool,
     pub adaptive_offered: bool,
     pub summary: Option<AttackSummary>,
+    pub chat: Option<ddi_chat::live::Trouble>,
 }
 
 impl TableSource<'_> {
@@ -1221,6 +1225,7 @@ impl TableSource<'_> {
             attacks: self.attacks,
             adaptive_offered: self.adaptive_offered,
             summary: self.summary,
+            chat: self.chat,
             rows,
             result,
         }
@@ -1348,6 +1353,12 @@ pub struct RoomClient {
     /// said on the status line (round TW3, [`RoomClient::tell_twitch_end`]).
     seen_twitch: Option<ddi_room::TwitchSetting>,
     twitch_off_asked: bool,
+    /// Round TW7: the room's chat channel this player was told their
+    /// Twitch access cannot show ([`RoomClient::tell_chat_access`]).
+    chat_access_told: Option<String>,
+    /// Round TW7: why this device's Twitch chat could not show during a
+    /// stage, for its results' one line ([`RoomClient::set_chat_trouble`]).
+    chat_troubles: BTreeMap<StageId, ddi_chat::live::Trouble>,
     /// An online room before its first snapshot: nobody in it yet.
     placeholder: Option<RoomState>,
     clock: ManualClock,
@@ -2128,6 +2139,8 @@ impl RoomClient {
         RoomClient {
             link,
             seen_twitch: None,
+            chat_access_told: None,
+            chat_troubles: BTreeMap::new(),
             twitch_off_asked: false,
             placeholder,
             clock,
@@ -2640,6 +2653,50 @@ impl RoomClient {
         }
     }
 
+    /// Round TW7: where the room shows its host's chat and this device's
+    /// "Twitch chat in rooms" is on, but the person's Twitch access (as
+    /// `/me` last said it, read for the room anyway) does not allow
+    /// reading chat, the status line says what to do, once for each
+    /// channel the room shows.
+    fn tell_chat_access(&mut self) {
+        if !self.is_online() || self.link_state() != LinkState::Connected {
+            return;
+        }
+        let Some(chat) = crate::state::twitch::RoomChat::of(self.twitch()) else {
+            self.chat_access_told = None;
+            return;
+        };
+        if self.chat_access_told.as_deref() == Some(&*chat.channel_id) {
+            return;
+        }
+        let lacks = {
+            let Some(link) = self.online_link() else { return };
+            let o = link.online().borrow();
+            match o.twitch() {
+                Some(t) => !t.features.iter().any(|f| f == "chat"),
+                // Not read yet: nothing to say.
+                None => return,
+            }
+        };
+        if crate::state::settings::Settings::cached().twitch_chat == ddi_chat::Level::Off {
+            return;
+        }
+        self.chat_access_told = Some(chat.channel_id);
+        if lacks {
+            self.set_link_notice(Some(LinkNotice::TwitchChatNoAccess));
+        }
+    }
+
+    /// Round TW7: why this device's Twitch chat could not show during
+    /// `stage` (the play's live chat gave up), for one quiet line on its
+    /// results; none: nothing to say.
+    pub fn set_chat_trouble(&mut self, stage: StageId, trouble: Option<ddi_chat::live::Trouble>) {
+        if let Some(t) = trouble {
+            self.chat_troubles.insert(stage, t);
+            self.version += 1;
+        }
+    }
+
     /// The local player's role and admin flag.
     pub fn my_role(&self) -> Option<(Role, bool)> {
         self.state().member(self.me).map(|m| (m.role, m.admin))
@@ -3019,6 +3076,7 @@ impl RoomClient {
             self.connected_again();
         }
         self.tell_twitch_end();
+        self.tell_chat_access();
         self.read_live();
         self.tell_spotlight();
         self.sync_preload();
@@ -5134,6 +5192,7 @@ impl RoomClient {
                 attacks: self.attacks_played(&m.rules_for(stage)),
                 adaptive_offered: self.adaptive_offered(),
                 summary: self.summaries.get(&stage).cloned(),
+                chat: self.chat_troubles.get(&stage).copied(),
             }
             .table(),
         )

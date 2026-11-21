@@ -1301,7 +1301,17 @@ impl OptionsModel {
                     m::twitch_chat(),
                     labels(&TWITCH_CHAT),
                     pos(&TWITCH_CHAT, s.twitch_chat),
-                    m::twitch_chat_description(),
+                    // On where this device's Twitch access (as the online
+                    // state last read it: never read for the asking) does
+                    // not allow chat: what to do instead (round TW7).
+                    if s.twitch_chat != ddi_chat::Level::Off
+                        && self.world.twitch.signed_in
+                        && !self.world.twitch.grants("chat")
+                    {
+                        m::twitch_chat_no_access()
+                    } else {
+                        m::twitch_chat_description()
+                    },
                 ),
                 choice(
                     "dancing_hand",
@@ -2387,11 +2397,16 @@ impl OptionsModel {
             "touch_hand" => s.touch_hand = at(&TOUCH_HANDS, i),
             "twitch_chat" => {
                 let level = at(&TWITCH_CHAT, i);
-                // Turned on where this device's Twitch access lacks the
-                // chat's scope: the trip through Twitch first (round TW3,
-                // `state::twitch`), the setting made once it is there.
+                // Turned on where this device is signed in and its Twitch
+                // access lacks the chat's scope: the trip through Twitch
+                // first (round TW3, `state::twitch`), the setting made once
+                // it is there. Not signed in here (singleplayer, or
+                // multiplayer not opened this session): the setting alone,
+                // nothing asked of our server or Twitch (round TW7); a
+                // room says what to do if the access lacks it.
                 if s.twitch_chat == ddi_chat::Level::Off
                     && level != ddi_chat::Level::Off
+                    && self.world.twitch.signed_in
                     && !self.world.twitch.grants("chat")
                 {
                     crate::state::twitch::want_chat_scope(level);
@@ -3666,14 +3681,35 @@ mod tests {
         let mut m = model();
         assert_eq!(find(&m.data(), "twitch_chat").value(), "Off");
         assert!(!ids(&m).iter().any(|i| i == "chat_style"));
-        // No chat scope: the trip asked for, nothing changed.
+        // Not signed in on this device (singleplayer): the setting alone,
+        // nothing asked of anyone (round TW7).
         let _ = crate::state::twitch::take_chat_trip();
+        m.change("twitch_chat", 1);
+        assert_eq!(m.settings.twitch_chat, ddi_chat::Level::Emotes);
+        assert_eq!(crate::state::twitch::take_chat_trip(), None);
+        m.change("twitch_chat", 0);
+        // Signed in without the chat's scope: the trip asked for, nothing
+        // changed.
+        m.world.twitch = TwitchRow {
+            signed_in: true,
+            features: vec!["bans".into()],
+            login: "me".into(),
+        };
         assert_eq!(m.change("twitch_chat", 2), None);
         assert_eq!(m.settings.twitch_chat, ddi_chat::Level::Off);
         assert_eq!(
             crate::state::twitch::take_chat_trip(),
             Some(ddi_chat::Level::Messages)
         );
+        // On without the access (it ended since): the row says what to
+        // do (round TW7).
+        m.settings.twitch_chat = ddi_chat::Level::Emotes;
+        assert!(
+            find(&m.data(), "twitch_chat").description.starts_with("Your Twitch access does not allow"),
+            "{}",
+            find(&m.data(), "twitch_chat").description
+        );
+        m.settings.twitch_chat = ddi_chat::Level::Off;
         // With it: made at once, no trip.
         m.world.twitch = TwitchRow {
             signed_in: true,

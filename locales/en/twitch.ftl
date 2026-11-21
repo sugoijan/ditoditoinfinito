@@ -6,7 +6,7 @@ twitch-access = Twitch access
 # The row's note when nothing is connected, or the person is signed out.
 twitch-none = Nothing connected
 # The row's description then: what it is for, one quiet line.
-twitch-about = A room's host connects it from Host options to keep out the people they banned or blocked on Twitch, or to show their chat.
+twitch-about = A room's host connects it from Host options to keep out the people they banned or blocked on Twitch or to show their chat; a player connects it to see a host's chat (Options → Display → Twitch chat in rooms).
 # The row's note when connected.
 # Variables:
 #   $login (String) - the Twitch account

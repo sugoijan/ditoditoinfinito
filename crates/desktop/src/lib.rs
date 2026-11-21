@@ -471,8 +471,8 @@ pub fn run() {
     // serves their addresses from a local folder or server instead).
     // Round TW6: the live chat's side on this shell (a room's stage, the
     // development script below); whether a play shows it is the
-    // settings' and the room's, and only in a multiplayer stage (round
-    // TW7).
+    // settings' and the room's, for a player only in an online room's
+    // stage (round TW7); this opens nothing.
     // TESTING ONLY: `--mp-dev-chat-socket URL` a local fake socket in
     // place of Twitch's, `--mp-dev-chat-at BASE` the providers' addresses
     // served from a local base, `--mp-dev-chat-record DIR` every raw
@@ -487,14 +487,14 @@ pub fn run() {
     }
     if a.value("--mp-dev-chat") == Some("live") {
         // TESTING ONLY (round TW6): the live chat's development script:
-        // the signed-in person's own channel's chat in CPU practice's
-        // stages (never a singleplayer play, round TW7), through the code
-        // a room's stage uses.
+        // the signed-in person's own channel's chat in solo plays and CPU
+        // practice's stages (a player's are online rooms' stages alone),
+        // through the code a room's stage uses.
         let p = ddi_chat::live::LOG_PREFIX;
         match chat::own_channel(&share::base()) {
             Ok((id, login, scope)) => {
                 eprintln!(
-                    "{p} live chat: {login}'s own channel in CPU practice's stages; turn on Options → Display → Twitch chat in rooms"
+                    "{p} live chat: {login}'s own channel in solo plays and CPU practice's stages; turn on Options → Display → Twitch chat in rooms"
                 );
                 if !scope {
                     eprintln!(

@@ -2,7 +2,7 @@
 
 twitch-access = Twitchアクセス
 twitch-none = 何も接続されていません
-twitch-about = ルームのホストがホスト設定から接続し、Twitchでバンやブロックした人を入れないようにしたり、チャットを表示したりするのに使います。
+twitch-about = ルームのホストがホスト設定から接続し、Twitchでバンやブロックした人を入れないようにしたり、チャットを表示したりするのに使います。プレイヤーはホストのチャットを見るために接続します（オプション → 表示 → ルームでのTwitchチャット）。
 twitch-connected = { $login }：{ $features }
 twitch-feature-bans = バンとタイムアウト
 twitch-feature-blocks = ブロック

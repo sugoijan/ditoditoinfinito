@@ -25,10 +25,10 @@
 //! answers its pings), our server's subscribe route through `fetch` with
 //! the page's cookie, the providers' sets as the images are read, and the
 //! run's lines on the console (`ddi_chat::live::LOG_PREFIX`), its report in
-//! `__DDI_DEBUG.chat.live`. `mpfakechat=live` runs it in CPU practice's
-//! stages for the signed-in person's own channel (never a singleplayer
-//! play); `mpfakechaturl=<ws address>` points the socket at a local fake
-//! (TESTING ONLY).
+//! `__DDI_DEBUG.chat.live`. `mpfakechat=live` runs it in solo plays and
+//! CPU practice's stages for the signed-in person's own channel (a
+//! player's are multiplayer stages alone); `mpfakechaturl=<ws address>`
+//! points the socket at a local fake (TESTING ONLY).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -115,8 +115,8 @@ fn global(at: Option<&str>) {
 /// The live chat's side on this page (round TW6), from boot: Twitch's
 /// EventSub socket, or `socket` (TESTING ONLY, `mpfakechaturl`); the
 /// providers' addresses from `at` where a test says (`mpfakechatimg`).
-/// Whether a play shows it is the settings' and the room's, and only in a
-/// multiplayer stage (round TW7).
+/// Whether a play shows it is the settings' and the room's: for a player
+/// only an online room's stage (round TW7).
 pub(crate) fn install_live(socket: Option<&str>, at: Option<&str>) {
     let api = crate::share::base();
     ddi_session::chat::set_live(Some(LiveSetup {
@@ -127,9 +127,9 @@ pub(crate) fn install_live(socket: Option<&str>, at: Option<&str>) {
     }));
 }
 
-/// TESTING ONLY (round TW6), `mpfakechat=live`: the live chat in CPU
-/// practice's stages (never a singleplayer play) for the signed-in
-/// person's own channel, once `/me` says who that is
+/// TESTING ONLY (round TW6), `mpfakechat=live`: the live chat in solo
+/// plays and CPU practice's stages for the signed-in person's own
+/// channel, once `/me` says who that is
 /// (`ddi_ui::state::twitch::set_dev_live`).
 fn live(at: Option<&str>, socket: Option<&str>) {
     ddi_session::chat::set_scripted(None);
@@ -163,7 +163,7 @@ fn live(at: Option<&str>, socket: Option<&str>) {
                             login: login.clone(),
                         }));
                         format!(
-                            "{p} live chat: {login}'s own channel in CPU practice's stages; turn on Options → Display → Twitch chat in rooms{}",
+                            "{p} live chat: {login}'s own channel in solo plays and CPU practice's stages; turn on Options → Display → Twitch chat in rooms{}",
                             if scope {
                                 ""
                             } else {

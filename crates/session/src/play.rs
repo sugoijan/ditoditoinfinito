@@ -2018,7 +2018,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     /// ([`SessionEvent::Finished`], `Aborted` or `Interrupted`), for the
     /// shell to report to the room.
     pub fn take_stage_outcome(&mut self) -> Option<StageOutcome> {
-        self.stage_outcome.take()
+        let mut o = self.stage_outcome.take()?;
+        o.chat = self.chat.as_ref().and_then(crate::chat::ChatLayer::trouble);
+        Some(o)
     }
 
     /// This session replays a kept play.

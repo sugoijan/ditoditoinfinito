@@ -210,6 +210,10 @@ pub struct StageOutcome {
     /// reported: a watched stage is a practice's, ranked here), and
     /// `details` are the CPUs' alone.
     pub watched: bool,
+    /// Round TW7: why this device's Twitch chat could not show during the
+    /// stage, where it could not (`PlaySession::take_stage_outcome` sets
+    /// it; one quiet line on the stage's results).
+    pub chat: Option<ddi_chat::live::Trouble>,
 }
 
 /// An attack against the local player, as its warning shows it
@@ -2650,6 +2654,7 @@ impl Battle {
                 targeting: self.policy,
                 summary,
                 watched,
+                chat: None,
             };
         }
         let (ranking, drawn) = self.rank_now(&self.entrants_as((!watched).then_some(mine)));
@@ -2666,6 +2671,7 @@ impl Battle {
                 s
             }),
             watched,
+            chat: None,
         }
     }
 
@@ -2819,6 +2825,7 @@ pub fn report_outcome(room: &mut RoomClient, outcome: StageOutcome) -> Reported 
         .rules_for_stage(outcome.stage)
         .is_some_and(|r| room.attacks_played(&r));
     room.set_stage_summary(outcome.stage, outcome.summary);
+    room.set_chat_trouble(outcome.stage, outcome.chat);
     let taken = room.report_played(
         outcome.stage,
         outcome.mine,
@@ -2910,6 +2917,7 @@ pub fn forfeit(
         // Left at the prompt: nothing of their own to sum up.
         summary: None,
         watched: me.is_none(),
+        chat: None,
     })
 }
 

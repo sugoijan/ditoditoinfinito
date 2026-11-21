@@ -11,20 +11,20 @@
 //! the web's `WebSocket` and `fetch`, desktop's threads) and the
 //! channel's emote sets (`ddi_chat::channel`). The live chat starts with
 //! a play that shows it and ends with it (the session dropped closes its
-//! sockets), and only in a multiplayer stage, never in a singleplayer
-//! play (the maintainer, 2026-11-21): in an online room's stage, the
-//! room's channel under its ceiling (C1), subscribed through `POST
-//! <api>/rooms/<id>/chat/subscribe`; in CPU practice's stages only under
-//! the development script (`mpfakechat=live`, `--mp-dev-chat live`: the
-//! signed-in person's own channel, or with `live:<login>` the channel
-//! named, which also stands in for an online room's channel on that
-//! device), through `POST <api>/me/chat/subscribe`. Since round TW7 it is
-//! every player's (the device's option and the room's ceiling decide). In
-//! a room's stage the room's own ceiling caps it ([`room_ceiling`], round
-//! TW3), and a room that shows no chat has no layer at all; outside a
-//! room the scripted chat's own line stands for a ceiling, for tests
-//! alone (the scripted chats may still play beside a solo play: TESTING
-//! ONLY).
+//! sockets). For a player (round TW7) it is a multiplayer feature alone:
+//! an online room's stage, the room's channel under its ceiling (C1),
+//! subscribed through `POST <api>/rooms/<id>/chat/subscribe`; a
+//! singleplayer play shows none and connects to nothing, and CPU practice
+//! has no host's Twitch (the maintainer, 2026-11-21: "singleplayer should
+//! never require online connectivity"). Under the development script
+//! alone (`mpfakechat=live`, `--mp-dev-chat live`: the signed-in person's
+//! own channel, or with `live:<login>` the channel named, which also
+//! stands in for an online room's channel on that device) solo plays and
+//! CPU practice's stages show a live chat, through `POST
+//! <api>/me/chat/subscribe`. In a room's stage the room's own ceiling caps
+//! it ([`room_ceiling`], round TW3), and a room that shows no chat has no
+//! layer at all; outside a room the scripted chat's own line stands for a
+//! ceiling, for tests alone (TESTING ONLY).
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -244,20 +244,24 @@ impl ChatConfig {
     /// ([`room_ceiling`]: `stage`'s in a room's stage): never more than
     /// the room allows, and none where that is Off. The live chat reads
     /// the stage's room's channel (as this device shows it,
-    /// `RoomChat::on_this_device`; CPU practice: the development script's,
-    /// `RoomChat::practice`), and never plays outside a multiplayer stage
-    /// (`stage` none: a singleplayer play, whatever the options and the
-    /// development script say); none for the audience (C13).
+    /// `RoomChat::on_this_device`); for a player, nothing else: CPU
+    /// practice has no host's Twitch and a singleplayer play (`stage`
+    /// none) shows none and connects to nothing (the maintainer,
+    /// 2026-11-21: "singleplayer should never require online
+    /// connectivity"). Only the development script gives CPU practice's
+    /// stages and solo plays a channel (`RoomChat::practice`: one's own,
+    /// or the one it names). None for the audience (C13).
     pub fn under_room(mut self, stage: Option<&StageSetup>) -> Option<ChatConfig> {
         match &self.source {
             ChatSource::Script(s) => {
                 self.level = self.level.under(room_ceiling(stage, Some(s)));
             }
             ChatSource::Room | ChatSource::Live(_) => {
-                // Never in a singleplayer play (the maintainer, 2026-11-21).
-                let chat = stage?
-                    .chat
-                    .clone()
+                let chat = match stage {
+                    Some(stage) => stage.chat.clone(),
+                    // A solo play: the development script's alone.
+                    None => ddi_ui::state::twitch::RoomChat::practice(),
+                }
                     .filter(|c| c.channel_id != "scripted")
                     .filter(|c| c.named || !c.channel_id.is_empty())?;
                 self.level = self.level.under(chat.ceiling);
@@ -465,6 +469,13 @@ impl ChatLayer {
     /// Whether this is the live chat (round TW6).
     pub fn is_live(&self) -> bool {
         self.live.is_some()
+    }
+
+    /// Why the live chat could not show, where it could not (round TW7:
+    /// `ddi_chat::live::Live::trouble`), for one quiet line after the
+    /// stage; none for any other source.
+    pub fn trouble(&self) -> Option<ddi_chat::live::Trouble> {
+        self.live.as_ref().and_then(|l| l.machine.trouble())
     }
 
     /// The live chat's report for the debug state (`__DDI_DEBUG.chat.live`):
@@ -752,12 +763,11 @@ pub(crate) mod tests {
     }
 
     /// Where the live chat runs and whose channel it reads (rounds TW6 and
-    /// TW7): every player's where the device's option and the room allow
-    /// it; a room's stage the room's channel through its route, a stage of
-    /// a room that shows none nothing; CPU practice only under the
-    /// development script, one's own channel; never a singleplayer play,
-    /// not even under the development script; nothing with the option at
-    /// its default.
+    /// TW7): for a player, an online room's stage alone, the room's
+    /// channel through its route where the device's option and the room
+    /// allow it (a stage of a room that shows none: nothing); a solo play
+    /// and CPU practice nothing; under the development script both show
+    /// one's own channel; nothing with the option at its default.
     #[test]
     fn the_live_chat_reads_the_rooms_channel_or_ones_own() {
         set_scripted(None);
@@ -769,14 +779,15 @@ pub(crate) mod tests {
         };
         let c = ChatConfig::for_play(&s).unwrap();
         assert_eq!(c.source, ChatSource::Room);
-        assert_eq!(c.clone().under_room(None), None, "never in a singleplayer play");
-        assert_eq!(c.clone().under_room(Some(&practice_stage())), None, "practice: none without the script");
+        assert_eq!(c.clone().under_room(None), None, "a player's solo play: none");
+        assert_eq!(c.clone().under_room(Some(&practice_stage())), None, "practice: none for a player");
         ddi_ui::state::twitch::set_dev_live(own());
-        assert_eq!(c.clone().under_room(None), None, "nor under the development script");
-        let practice = c.clone().under_room(Some(&practice_stage())).unwrap();
-        let ChatSource::Live(want) = &practice.source else { panic!() };
-        assert_eq!((&*want.channel_id, want.route()), ("1001", "/me/chat/subscribe".to_string()));
-        assert_eq!(want.body("s1", false), r#"{"messages":false,"session_id":"s1"}"#);
+        for stage in [None, Some(practice_stage())] {
+            let shown = c.clone().under_room(stage.as_ref()).unwrap();
+            let ChatSource::Live(want) = &shown.source else { panic!() };
+            assert_eq!((&*want.channel_id, want.route()), ("1001", "/me/chat/subscribe".to_string()));
+            assert_eq!(want.body("s1", false), r#"{"messages":false,"session_id":"s1"}"#);
+        }
         ddi_ui::state::twitch::set_dev_live(None);
         let mut stage = setup();
         assert_eq!(c.clone().under_room(Some(&stage)), None, "a room that shows none");
@@ -800,8 +811,9 @@ pub(crate) mod tests {
     }
 
     /// The development script's named channel (round TW7): asked for by its
-    /// login on one's own route, in practice and in an online room's stage
-    /// in the room's channel's place, at the room's ceiling.
+    /// login on one's own route, in a solo play, in practice and in an
+    /// online room's stage in the room's channel's place, at the room's
+    /// ceiling.
     #[test]
     fn a_named_channel_is_asked_for_by_its_login() {
         set_scripted(None);
@@ -814,7 +826,9 @@ pub(crate) mod tests {
             ..Settings::default()
         })
         .unwrap();
-        assert_eq!(c.clone().under_room(None), None);
+        let solo = c.clone().under_room(None).unwrap();
+        let ChatSource::Live(want) = &solo.source else { panic!() };
+        assert_eq!((want.named, &*want.login), (true, "busy"));
         let practice = c.clone().under_room(Some(&practice_stage())).unwrap();
         let ChatSource::Live(want) = &practice.source else { panic!() };
         assert_eq!((want.named, &*want.login, want.route()), (true, "busy", "/me/chat/subscribe".to_string()));

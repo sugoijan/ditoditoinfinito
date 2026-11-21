@@ -62,6 +62,11 @@ pub enum LinkNotice {
     TwitchSetterLeft {
         who: ddi_room::ParticipantId,
     },
+    /// Round TW7: the room shows its host's chat and this device's
+    /// "Twitch chat in rooms" is on, but the person's Twitch access does
+    /// not allow reading chat: what to do, said once for
+    /// [`JOINED_TO_WATCH_MS`].
+    TwitchChatNoAccess,
     /// Room model revision 22 (round RL4b): the room took this player's
     /// song choice away, not by their own doing (Song choice turned to
     /// Host, the Repeats rule excluding the song, the song gone, the draw
@@ -379,7 +384,10 @@ impl OnlineLink {
                 None if notice == LinkNotice::AheadQuota => {
                     self.notice_until = Some(now_ms + JOINED_TO_WATCH_MS);
                 }
-                None if matches!(notice, LinkNotice::Kicked { .. } | LinkNotice::ChoiceGone { .. }) => {
+                None if matches!(
+                    notice,
+                    LinkNotice::Kicked { .. } | LinkNotice::ChoiceGone { .. } | LinkNotice::TwitchChatNoAccess
+                ) => {
                     self.notice_until = Some(now_ms + JOINED_TO_WATCH_MS);
                 }
                 None if !matches!(notice, LinkNotice::JoinedToWatch | LinkNotice::BackHere) => {

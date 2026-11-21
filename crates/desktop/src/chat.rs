@@ -26,9 +26,9 @@
 //! (`crate::online::PlainSocket`, tungstenite over the system's TLS), our
 //! server's subscribe route and the providers' sets through ureq on a
 //! thread a request, and the run's report on stderr, every line led by
-//! `ddi_chat::live::LOG_PREFIX`. `--mp-dev-chat live` runs it in CPU
-//! practice's stages (never a singleplayer play) for the signed-in
-//! person's own channel ([`own_channel`]);
+//! `ddi_chat::live::LOG_PREFIX`. `--mp-dev-chat live` runs it in solo
+//! plays and CPU practice's stages for the signed-in person's own channel
+//! ([`own_channel`]; a player's are online rooms' stages alone);
 //! `--mp-dev-chat-socket URL` points the socket at a local fake;
 //! `--mp-dev-chat-record DIR` writes every raw socket frame to a file
 //! there (the chat's messages in them: only where the maintainer asks).

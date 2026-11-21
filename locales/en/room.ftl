@@ -2410,6 +2410,27 @@ room-host-twitch-messages = Emotes and messages
 # Variables:
 #   $login (String) - that person's Twitch login
 room-host-twitch-whose = { $login }'s Twitch bans and chat apply.
+# Round TW7: under those rows, always: what Show my Twitch chat does, for a
+# host who has never seen it (each player still chooses on their device).
+room-host-twitch-chat-about = Show my Twitch chat: your channel's chat moves behind the fields during each stage, for the players who turn on Twitch chat in rooms on their own device (Options → Display).
+# Round TW7: the status line, once, where the room shows its host's chat
+# and this player's device has Twitch chat in rooms on, but their Twitch
+# access does not allow reading chat: what to do.
+room-twitch-chat-no-access = Your Twitch access does not allow chat, so the host's chat will not show here: turn Twitch chat in rooms (Options → Display) Off and on again to allow it.
+# Round TW7: one quiet line on a stage's results where this device's
+# Twitch chat could not show during it (never said during the play).
+# Its Twitch access does not allow reading chat.
+room-chat-trouble-access = Twitch chat could not show: your Twitch access does not allow reading chat. Turn Twitch chat in rooms (Options → Display) Off and on again to allow it.
+# Twitch refused this player the channel's chat (banned there, or its
+# limits).
+room-chat-trouble-refused = Twitch chat could not show: Twitch refused this account the channel's chat.
+# The channel is gone from Twitch.
+room-chat-trouble-gone = Twitch chat could not show: the channel is not on Twitch any more.
+# The connection to Twitch failed and kept failing.
+room-chat-trouble-unreachable = Twitch chat could not show: the connection to Twitch failed.
+# A development option named another channel's chat, which only an
+# administrator may (testing only).
+room-chat-trouble-not-allowed = Twitch chat could not show: only an administrator may show another channel's chat.
 # Round TW1b: the status line after a trip through Twitch for the room's
 # Twitch setting ended without connecting it (canceled at Twitch).
 room-twitch-not-connected = Twitch access was not connected: nothing changed.

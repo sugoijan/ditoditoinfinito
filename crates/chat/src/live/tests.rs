@@ -436,6 +436,67 @@ fn refusals_and_revocations() {
     assert_eq!(l.report()["revocations"][1]["status"], "user_removed");
 }
 
+/// Round TW7: why the chat could not show, for the player's one line
+/// after the stage: each refusal, Twitch's answers and revocations read
+/// as their trouble; the room's own changes, a chat that showed and one
+/// stopped while connecting say nothing; a connection that never went
+/// live and kept failing is unreachable.
+#[test]
+fn each_failure_is_one_trouble_for_the_player() {
+    let after = |answer: SubscribeAnswer| {
+        let mut l = Live::new(P, "wss://e.test/ws");
+        l.start(0);
+        l.take_do();
+        l.text(1, &welcome("s", Some(10)), 0);
+        l.take_do();
+        l.subscribed(1, answer, 500);
+        l.trouble()
+    };
+    let refused = |w: &str| after(SubscribeAnswer::Refused(w.into()));
+    let twitch = |o: &str| after(SubscribeAnswer::Subscribed(vec![sub("channel.chat.message", o)]));
+    assert_eq!(refused("scope_missing"), Some(Trouble::Access));
+    assert_eq!(refused("twitch_refused"), Some(Trouble::Access));
+    assert_eq!(refused("no_such_channel"), Some(Trouble::ChannelGone));
+    assert_eq!(refused("channel_not_allowed"), Some(Trouble::NotAllowed));
+    assert_eq!(refused("chat_off"), None, "the room's own change");
+    assert_eq!(refused("not_a_member"), None);
+    assert_eq!(twitch("refused"), Some(Trouble::Access));
+    assert_eq!(twitch("forbidden"), Some(Trouble::Refused));
+    assert_eq!(twitch("limits"), Some(Trouble::Refused));
+    assert_eq!(twitch("enabled"), None, "it showed");
+    for (status, trouble) in [
+        ("authorization_revoked", Trouble::Access),
+        ("user_removed", Trouble::ChannelGone),
+        ("moderator_removed", Trouble::Refused),
+    ] {
+        let mut l = live();
+        l.text(1, &revocation("channel.chat.message", status), 3_000);
+        assert_eq!(l.trouble(), Some(trouble), "{status}");
+        assert_eq!(l.report()["trouble"], trouble.word());
+    }
+    // Never live, lost again and again: unreachable, before and after it
+    // gives up.
+    let mut l = Live::new(P, "wss://e.test/ws");
+    l.start(0);
+    l.take_do();
+    assert_eq!(l.trouble(), None, "connecting");
+    l.closed(1, 1006, 100);
+    assert_eq!(l.trouble(), Some(Trouble::Unreachable));
+    let mut now = 100;
+    while !matches!(l.phase(), Phase::GaveUp(_)) {
+        now += 61_000;
+        l.tick(now);
+        let socket = opens(&l.take_do()).last().map(|o| o.0).unwrap();
+        l.closed(socket, 1006, now + 10);
+    }
+    assert_eq!(l.trouble(), Some(Trouble::Unreachable));
+    // Stopped while connecting: nothing to say.
+    let mut l = Live::new(P, "wss://e.test/ws");
+    l.start(0);
+    l.stop(50);
+    assert_eq!(l.trouble(), None);
+}
+
 /// What the readers did not understand is kept as its shape, a few, never
 /// a person's words.
 #[test]

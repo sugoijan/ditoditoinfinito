@@ -4300,8 +4300,9 @@ fn host_options_work_by_keyboard_controller_and_a_tap_on_a_row() {
             "Inc.whenfull",
             "Dec.twitchbans",
             "Inc.twitchbans",
-            // "Show my Twitch chat" only under the testing switch (round
-            // TW3).
+            // "Show my Twitch chat", every host's since round TW7.
+            "Dec.twitchchat",
+            "Inc.twitchchat",
             "CoHost.2",
             "MakeHost.2",
             "CoHost.3",
@@ -6291,7 +6292,9 @@ fn the_rooms_screens_draw_as_pinned() {
 /// online room's four: each tab has a faint plate of its own under its
 /// words, so a click on the plate around them is the tab's. Round RL3
 /// (revision 21) moved "host": its Who can add songs row, and the list's
-/// note under Hosts saying only hosts and co-hosts add songs.
+/// note under Hosts saying only hosts and co-hosts add songs. Round TW7
+/// moved "host": its Show my Twitch chat row, shown to every host, and
+/// the line under the Twitch rows saying what it does.
 const PINNED: [(&str, u64); 10] = [
     ("select", 1409723276464905846),
     ("rules", 16654682003949843511),
@@ -6302,7 +6305,7 @@ const PINNED: [(&str, u64); 10] = [
     ("online-select", 6323310014290112460),
     ("online-member", 15885329307818148993),
     ("online-players", 3138793288985063061),
-    ("host", 9541808571700461163),
+    ("host", 17985816994654734515),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's

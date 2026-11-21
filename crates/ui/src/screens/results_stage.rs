@@ -322,8 +322,27 @@ fn columns(w: f32, attacks: bool) -> Vec<Col> {
 /// The local player's battle summary of the stage, in lines (where it
 /// had attacks and was played here): whom their attacks went to and how
 /// many, who attacked them, the shocks they stepped on, and a final
-/// attack's draw.
+/// attack's draw; then, where this device's Twitch chat could not show
+/// during the stage, why, in one quiet line (round TW7).
 pub(super) fn summary_lines(r: &dyn TableWho, table: &StageTable) -> Vec<String> {
+    let mut lines = battle_lines(r, table);
+    if let Some(t) = table.chat {
+        use ddi_chat::live::Trouble;
+        lines.push(
+            match t {
+                Trouble::Access => m::chat_trouble_access(),
+                Trouble::Refused => m::chat_trouble_refused(),
+                Trouble::ChannelGone => m::chat_trouble_gone(),
+                Trouble::Unreachable => m::chat_trouble_unreachable(),
+                Trouble::NotAllowed => m::chat_trouble_not_allowed(),
+            }
+            .into(),
+        );
+    }
+    lines
+}
+
+fn battle_lines(r: &dyn TableWho, table: &StageTable) -> Vec<String> {
     let Some(s) = table.summary.as_ref().filter(|_| table.attacks) else {
         return Vec::new();
     };
@@ -368,6 +387,12 @@ const SUMMARY_LINE: f32 = 18.0;
 fn summary_flow(lines: &[String], w: f32) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for l in lines {
+        // A line wider than the table (the chat's, round TW7) wraps on
+        // lines of its own.
+        if look::mono_width(l, 12.0) > w - 28.0 {
+            out.extend(crate::screens::dialog::wrap_lines(l, w - 28.0, 12.0));
+            continue;
+        }
         match out.last_mut() {
             Some(last) if look::mono_width(last, 12.0) + look::mono_width(l, 12.0) + 24.0 <= w => {
                 last.push_str("  ·  ");
