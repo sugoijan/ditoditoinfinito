@@ -2,9 +2,10 @@
 //! desktop's play host offscreen, on a fake clock with no sound device,
 //! against local fakes of Twitch's EventSub socket and of our server's
 //! subscribe route (never Twitch, never a provider): the development
-//! script's own channel in a solo play and in CPU practice's stage, the
-//! socket welcomed, subscribed, its chat drawn with a Twitch emote from a
-//! fragment; the play judging as without it. Skipped where there is no
+//! script's own channel in CPU practice's stage, the socket welcomed,
+//! subscribed, its chat drawn with a Twitch emote from a fragment, the
+//! play judging as without it; and a solo play under the same script and
+//! options showing none and asking nothing (round TW7). Skipped where there is no
 //! GPU adapter (CI) for the pictures; the connection is checked anyway.
 
 mod common;
@@ -140,7 +141,10 @@ fn play(chat: bool, stage: bool) -> Option<Played> {
         Some(format!("{http}/g/")),
         || None,
     )));
-    ddi_ui::state::twitch::set_live_own(Some(("1001".into(), "me".into())));
+    ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Own {
+        channel_id: "1001".into(),
+        login: "me".into(),
+    }));
     let (mut ui, env) = common::ui::theme(if stage { "start" } else { "select" }, common::ui::lowercase(), size, false);
     ui.update(0.5);
     let mut host = Host::new(Rc::default(), None);
@@ -259,33 +263,36 @@ fn play(chat: bool, stage: bool) -> Option<Played> {
         played.tally = format!("{:?}", p.session.player.tally());
     }
     let asked = asked.lock().unwrap().clone();
-    if chat {
+    if chat && stage {
         assert!(asked.iter().any(|a| a == "/me/chat/subscribe"), "{asked:?}");
     } else {
-        assert!(asked.is_empty(), "nothing asked with the option off: {asked:?}");
+        assert!(asked.is_empty(), "nothing asked with the option off or alone: {asked:?}");
     }
-    ddi_ui::state::twitch::set_live_own(None);
+    ddi_ui::state::twitch::set_dev_live(None);
     ddi_session::chat::set_live(None);
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
     Some(played)
 }
 
-/// The development script's own channel in a solo play and in CPU
-/// practice's stage: subscribed through the own route, its messages and
-/// Twitch's emote drawn; with the option off nothing is asked or drawn,
-/// and the first 25 seconds judge alike.
+/// The development script's own channel in CPU practice's stage:
+/// subscribed through the own route, its messages and Twitch's emote
+/// drawn; with the option off nothing is asked or drawn, and the first 25
+/// seconds judge alike. A solo play under the same script with the
+/// option on shows none and asks nothing (round TW7: never in
+/// singleplayer).
 #[test]
-fn the_live_chat_plays_in_a_solo_play_and_a_practice_stage() {
-    for stage in [false, true] {
-        let Some(on) = play(true, stage) else { return };
-        let off = play(false, stage).unwrap();
-        let live = on.live.as_ref().expect("live");
-        assert_eq!(live["route"], "own");
-        assert_eq!(live["connection"]["subscriptions"][0]["outcome"], "enabled");
-        assert!(on.items > 0 && on.emotes > 0, "stage {stage}: {} items, {} emotes", on.items, on.emotes);
-        assert!(on.texts.iter().any(|t| t.contains("live") && t.contains('◆')), "{:?}", on.texts);
-        assert_eq!(off.items, 0);
-        assert!(off.live.is_none());
-        assert_eq!(on.tally, off.tally, "stage {stage}: judged alike");
-    }
+fn the_live_chat_plays_in_a_practice_stage_and_never_alone() {
+    let Some(on) = play(true, true) else { return };
+    let off = play(false, true).unwrap();
+    let live = on.live.as_ref().expect("live");
+    assert_eq!(live["route"], "own");
+    assert_eq!(live["connection"]["subscriptions"][0]["outcome"], "enabled");
+    assert!(on.items > 0 && on.emotes > 0, "{} items, {} emotes", on.items, on.emotes);
+    assert!(on.texts.iter().any(|t| t.contains("live") && t.contains('◆')), "{:?}", on.texts);
+    assert_eq!(off.items, 0);
+    assert!(off.live.is_none());
+    assert_eq!(on.tally, off.tally, "judged alike");
+    let alone = play(true, false).unwrap();
+    assert_eq!(alone.items, 0);
+    assert!(alone.live.is_none());
 }

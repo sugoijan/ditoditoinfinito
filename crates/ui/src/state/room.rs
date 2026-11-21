@@ -5264,12 +5264,15 @@ impl RoomClient {
                         .collect(),
                 }),
                 // The room's chat (revision 18); CPU practice has no
-                // host's Twitch: the scripted chat's line under the
-                // testing switch alone.
+                // host's Twitch: only a test's scripted chat or the live
+                // chat's development script give its stages one.
                 chat: if self.is_online() {
-                    // Round TW6: the room's id names its subscribe route.
+                    // Round TW6: the room's id names its subscribe route;
+                    // round TW7: the development script's named channel
+                    // in its place on this device alone.
                     crate::state::twitch::RoomChat::of(self.twitch()).map(|c| {
                         c.in_room(self.online_link().map(|l| l.room_id().to_string()))
+                            .on_this_device()
                     })
                 } else {
                     crate::state::twitch::RoomChat::practice()

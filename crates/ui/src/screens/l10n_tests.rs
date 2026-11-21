@@ -2769,8 +2769,6 @@ fn every_options_row_is_a_message_or_data() {
                 twitch_chat: ddi_chat::Level::Messages,
                 ..Settings::default()
             };
-            // Under the testing switch (round TW3), which shows them.
-            crate::state::twitch::set_chat_testing(Some(ddi_chat::Level::Messages));
             let mut model = OptionsModel::new(settings, world);
             for layout in ["dance-single", "dance-double"] {
                 let at = model

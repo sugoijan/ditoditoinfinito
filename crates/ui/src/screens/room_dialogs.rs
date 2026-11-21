@@ -2800,11 +2800,9 @@ impl Screen for HostDialog {
                 (t, whose)
             })
         };
-        // "Show my Twitch chat" only under the testing switch (round TW3,
-        // `state::twitch::chat_testing`): until the transports to Twitch
-        // exist, a room's chat has no source but the scripted one.
-        let chat_row = crate::state::twitch::chat_rows_shown();
-        let twitch_rows = if chat_row { 2.0 } else { 1.0 };
+        // Twitch bans, then "Show my Twitch chat" (every host's since
+        // round TW7).
+        let twitch_rows = 2.0;
         let twitch_h = match &twitch {
             Some((_, whose)) => twitch_rows * ROW + whose.len() as f32 * 18.0 + 14.0,
             None => 0.0,
@@ -2942,7 +2940,7 @@ impl Screen for HostDialog {
                 mirror == ddi_room::TwitchMirror::BansAndBlocks,
             );
             stepper(&env, &mut c, "twitchbans", labels, v, edge, at(mid));
-            if chat_row {
+            {
                 let mid = ry + ROW + ROW / 2.0;
                 let mut label =
                     env.text("TwitchChat", &m::host_twitch_chat(), 14.0, 400, "Secondary");
@@ -3136,9 +3134,7 @@ impl Screen for HostDialog {
         }
         if self.room.borrow().may_set_twitch() {
             pair(&mut v, "Dec.twitchbans".into(), "Inc.twitchbans".into());
-            if crate::state::twitch::chat_rows_shown() {
-                pair(&mut v, "Dec.twitchchat".into(), "Inc.twitchchat".into());
-            }
+            pair(&mut v, "Dec.twitchchat".into(), "Inc.twitchchat".into());
         }
         if self.room.borrow().may_close_audience() {
             v.push(Focusable::new(AUDIENCE));

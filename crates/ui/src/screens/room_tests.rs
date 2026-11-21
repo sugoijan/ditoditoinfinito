@@ -7554,13 +7554,8 @@ fn host_options_set_the_rooms_twitch_after_the_trip() {
     open_players(&mut ha);
     press(&mut ha, "HostOptions");
     assert_eq!(top(&ha), "room-host");
-    // Show my Twitch chat only under the testing switch (round TW3).
-    crate::state::twitch::set_chat_testing(None);
+    // Show my Twitch chat is every host's (round TW7).
     t.settle(400, &mut [&mut ha, &mut hb]);
-    assert!(has(&ha, "Twitch bans") && !has(&ha, "Show my Twitch chat"), "{:?}", ha.texts());
-    crate::state::twitch::set_chat_testing(Some(ddi_chat::Level::Messages));
-    press(&mut ha, "Close");
-    press(&mut ha, "HostOptions");
     assert!(has(&ha, "Twitch bans") && has(&ha, "Show my Twitch chat"), "{:?}", ha.texts());
     // No Twitch access yet: the step asks for the trip.
     press(&mut ha, "Inc.twitchbans");
@@ -7602,7 +7597,6 @@ fn a_canceled_trip_changes_nothing_and_says_so() {
     let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
     t.settle(400, &mut [&mut ha]);
     open_players(&mut ha);
-    crate::state::twitch::set_chat_testing(Some(ddi_chat::Level::Messages));
     press(&mut ha, "HostOptions");
     press(&mut ha, "Inc.twitchchat");
     t.settle(400, &mut [&mut ha]);

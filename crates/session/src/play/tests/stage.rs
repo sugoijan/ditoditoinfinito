@@ -353,8 +353,8 @@ fn a_stage_is_never_a_replay_a_test_or_the_cpu_demo() {
 
 /// A stage's chat is its room's (round TW3, C1): CPU practice has no
 /// host's Twitch, so its stage builds no chat layer even where a scripted
-/// chat plays outside rooms; under the testing switch (the scripted chat
-/// set as the stage is ordered) its own line stands for the room's
+/// chat plays outside rooms; where a scripted chat is set as the stage is
+/// ordered (TESTING ONLY) its own line stands for the room's
 /// ceiling, and the device's choice never shows more than the room's.
 #[test]
 fn a_stages_chat_is_its_rooms_and_none_where_it_shows_none() {
@@ -3375,4 +3375,54 @@ fn what_is_behind_the_fields_stays_on_the_stage_s_time_whoever_is_followed() {
     // nothing shifted when the followed competitor changed.
     let (a, b) = (seen[0], seen[1]);
     assert!(((b.1 - a.1) - (b.0 - a.0)).abs() < 1e-9, "{seen:?}");
+}
+
+/// The live chat beside a multiplayer stage (rounds TW6 and TW7: CPU
+/// practice under the development script, over a fake shell's side that
+/// brings a message every frame once subscribed): the stage judges, ranks
+/// and logs exactly as without it.
+#[test]
+fn a_live_chat_beside_a_stage_changes_nothing_of_it() {
+    let song = bundled("beatucada");
+    let stage = |chat: bool| {
+        crate::chat::set_scripted(None);
+        let _state = crate::chat::tests::fake_live();
+        ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Own {
+            channel_id: "1001".into(),
+            login: "me".into(),
+        }));
+        let settings = Settings {
+            twitch_chat: if chat {
+                ddi_chat::Level::Messages
+            } else {
+                ddi_chat::Level::Off
+            },
+            ..Settings::default()
+        };
+        let mut room = room(1, 2, 5);
+        let mut now = 0;
+        let order = begin(&song, &mut room, &mut now);
+        assert!(order.setup.chat.is_some(), "practice's chat under the script");
+        let (s, event, outcome) = play(&song, &settings, &order, true, &[]);
+        let events = s.chat().map(|c| (c.is_live(), c.counts().0));
+        ddi_ui::state::twitch::set_dev_live(None);
+        crate::chat::set_live(None);
+        let SessionEvent::Finished { results, facts, .. } = event else {
+            panic!("no end");
+        };
+        (
+            format!("{results:?}"),
+            format!("{:?}", facts.log),
+            ids(&outcome),
+            events,
+        )
+    };
+    let (results, log, ranking, none) = stage(false);
+    assert_eq!(none, None);
+    let (with_results, with_log, with_ranking, events) = stage(true);
+    let (live, events) = events.unwrap();
+    assert!(live && events > 1000, "{events}");
+    assert_eq!(results, with_results);
+    assert_eq!(log, with_log);
+    assert_eq!(ranking, with_ranking);
 }

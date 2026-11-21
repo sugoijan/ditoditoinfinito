@@ -1461,16 +1461,8 @@ impl OptionsModel {
                 ),
                 demo,
         ];
-        // "Twitch chat in rooms" and its rows only under the testing
-        // switch (round TW3, `state::twitch::chat_testing`): until the
-        // transports to Twitch exist, a room's chat has no source but the
-        // scripted one, and players are not shown rows that do nothing.
-        let chat_rows = crate::state::twitch::chat_rows_shown();
-        if !chat_rows {
-            rows.retain(|r| r.id != "twitch_chat");
-        }
         // The chat's own rows under "Twitch chat in rooms" while it is on.
-        if chat_rows && s.twitch_chat != ddi_chat::Level::Off {
+        if s.twitch_chat != ddi_chat::Level::Off {
             let at = rows
                 .iter()
                 .position(|r| r.id == "twitch_chat")
@@ -3655,11 +3647,11 @@ mod tests {
         );
     }
 
-    /// "Twitch chat in rooms" is Off by default with its rows hidden;
-    /// turned on, its rows show under it and the choices are kept. Where
-    /// the device's Twitch access lacks the chat's scope, turning it on
-    /// asks for the trip through Twitch and changes nothing yet (round
-    /// TW3). None of it shows without the testing switch.
+    /// "Twitch chat in rooms" shows to everyone (round TW7), Off by
+    /// default with its rows hidden; turned on, its rows show under it
+    /// and the choices are kept. Where the device's Twitch access lacks
+    /// the chat's scope, turning it on asks for the trip through Twitch
+    /// and changes nothing yet (round TW3).
     #[test]
     fn the_chat_rows_show_under_twitch_chat_while_it_is_on() {
         let ids = |m: &OptionsModel| -> Vec<String> {
@@ -3669,10 +3661,9 @@ mod tests {
                 .flat_map(|s| s.options.iter().map(|o| o.id.clone()))
                 .collect()
         };
-        crate::state::twitch::set_chat_testing(None);
+        crate::state::twitch::set_scripted_ceiling(None);
+        crate::state::twitch::set_dev_live(None);
         let mut m = model();
-        assert!(!ids(&m).iter().any(|i| i == "twitch_chat"), "hidden without the switch");
-        crate::state::twitch::set_chat_testing(Some(ddi_chat::Level::Messages));
         assert_eq!(find(&m.data(), "twitch_chat").value(), "Off");
         assert!(!ids(&m).iter().any(|i| i == "chat_style"));
         // No chat scope: the trip asked for, nothing changed.
@@ -3708,11 +3699,7 @@ mod tests {
         assert_eq!(stored.chat_opacity, 40);
         m.change("twitch_chat", 0);
         assert!(!ids(&m).iter().any(|i| i == "chat_style"));
-        // The switch off again: the setting kept, its rows hidden.
-        m.change("twitch_chat", 1);
-        crate::state::twitch::set_chat_testing(None);
-        assert!(!ids(&m).iter().any(|i| i == "twitch_chat" || i == "chat_style"));
-        assert_eq!(m.settings.twitch_chat, ddi_chat::Level::Emotes);
+        assert!(ids(&m).iter().any(|i| i == "twitch_chat"));
     }
 
     /// The hand in multiplayer is a row under the hand's, while it is on.

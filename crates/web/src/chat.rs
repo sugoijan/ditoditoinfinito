@@ -25,9 +25,10 @@
 //! answers its pings), our server's subscribe route through `fetch` with
 //! the page's cookie, the providers' sets as the images are read, and the
 //! run's lines on the console (`ddi_chat::live::LOG_PREFIX`), its report in
-//! `__DDI_DEBUG.chat.live`. `mpfakechat=live` runs it in any play for the
-//! signed-in person's own channel; `mpfakechaturl=<ws address>` points the
-//! socket at a local fake (TESTING ONLY).
+//! `__DDI_DEBUG.chat.live`. `mpfakechat=live` runs it in CPU practice's
+//! stages for the signed-in person's own channel (never a singleplayer
+//! play); `mpfakechaturl=<ws address>` points the socket at a local fake
+//! (TESTING ONLY).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -114,8 +115,8 @@ fn global(at: Option<&str>) {
 /// The live chat's side on this page (round TW6), from boot: Twitch's
 /// EventSub socket, or `socket` (TESTING ONLY, `mpfakechaturl`); the
 /// providers' addresses from `at` where a test says (`mpfakechatimg`).
-/// Whether a play shows it is the settings', the room's and, until the
-/// maintainer verified it, the testing switch's.
+/// Whether a play shows it is the settings' and the room's, and only in a
+/// multiplayer stage (round TW7).
 pub(crate) fn install_live(socket: Option<&str>, at: Option<&str>) {
     let api = crate::share::base();
     ddi_session::chat::set_live(Some(LiveSetup {
@@ -126,9 +127,10 @@ pub(crate) fn install_live(socket: Option<&str>, at: Option<&str>) {
     }));
 }
 
-/// TESTING ONLY (round TW6), `mpfakechat=live`: the live chat in every
-/// play outside a room for the signed-in person's own channel, once `/me`
-/// says who that is (`ddi_ui::state::twitch::set_live_own`).
+/// TESTING ONLY (round TW6), `mpfakechat=live`: the live chat in CPU
+/// practice's stages (never a singleplayer play) for the signed-in
+/// person's own channel, once `/me` says who that is
+/// (`ddi_ui::state::twitch::set_dev_live`).
 fn live(at: Option<&str>, socket: Option<&str>) {
     ddi_session::chat::set_scripted(None);
     install_live(socket, at);
@@ -156,9 +158,12 @@ fn live(at: Option<&str>, socket: Option<&str>) {
                     Some(id) => {
                         let login = m.twitch.login.clone().unwrap_or(m.login.clone());
                         let scope = m.twitch.features.iter().any(|f| f == "chat");
-                        ddi_ui::state::twitch::set_live_own(Some((id, login.clone())));
+                        ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Own {
+                            channel_id: id,
+                            login: login.clone(),
+                        }));
                         format!(
-                            "{p} live chat: {login}'s own channel in every play; turn on Options → Display → Twitch chat in rooms{}",
+                            "{p} live chat: {login}'s own channel in CPU practice's stages; turn on Options → Display → Twitch chat in rooms{}",
                             if scope {
                                 ""
                             } else {
@@ -258,7 +263,7 @@ impl LiveIo for WebLive {
         let request = ddi_ui::state::online::api::ApiRequest {
             method: ddi_ui::state::online::api::Method::Post,
             path: want.route(),
-            body: Some(LiveWant::body(session_id, messages)),
+            body: Some(want.body(session_id, messages)),
             bearer: None,
             poll: None,
         };
@@ -526,7 +531,7 @@ pub(crate) fn look(name: Option<&str>) {
 pub(crate) fn script(what: &str, images: Option<&str>, socket: Option<&str>) {
     if what == "0" {
         ddi_session::chat::set_scripted(None);
-        ddi_ui::state::twitch::set_live_own(None);
+        ddi_ui::state::twitch::set_dev_live(None);
         install_live(None, None);
         return;
     }

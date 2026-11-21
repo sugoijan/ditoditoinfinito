@@ -26,8 +26,9 @@
 //! (`crate::online::PlainSocket`, tungstenite over the system's TLS), our
 //! server's subscribe route and the providers' sets through ureq on a
 //! thread a request, and the run's report on stderr, every line led by
-//! `ddi_chat::live::LOG_PREFIX`. `--mp-dev-chat live` runs it in any play
-//! for the signed-in person's own channel ([`own_channel`]);
+//! `ddi_chat::live::LOG_PREFIX`. `--mp-dev-chat live` runs it in CPU
+//! practice's stages (never a singleplayer play) for the signed-in
+//! person's own channel ([`own_channel`]);
 //! `--mp-dev-chat-socket URL` points the socket at a local fake;
 //! `--mp-dev-chat-record DIR` writes every raw socket frame to a file
 //! there (the chat's messages in them: only where the maintainer asks).
@@ -212,7 +213,7 @@ impl LiveIo for DesktopLive {
 
     fn subscribe(&mut self, socket: u32, session_id: &str, want: &LiveWant, messages: bool) {
         let url = format!("{}{}", self.api, want.route());
-        let body = LiveWant::body(session_id, messages);
+        let body = want.body(session_id, messages);
         let tx = self.tx.clone();
         let token = self.token;
         std::thread::Builder::new()
@@ -935,7 +936,10 @@ mod tests {
             Some(format!("{http}/g/")),
             || None,
         )));
-        ddi_ui::state::twitch::set_live_own(Some(("1001".into(), "me".into())));
+        ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Own {
+        channel_id: "1001".into(),
+        login: "me".into(),
+    }));
         let config = ddi_session::chat::ChatConfig::for_play(&ddi_ui::state::settings::Settings {
             twitch_chat: ddi_chat::Level::Messages,
             ..Default::default()
@@ -993,7 +997,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
         assert_eq!(*closed.lock().unwrap(), [0, 1], "the play's end closed the second");
-        ddi_ui::state::twitch::set_live_own(None);
+        ddi_ui::state::twitch::set_dev_live(None);
         ddi_session::chat::set_live(None);
     }
 }

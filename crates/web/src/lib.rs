@@ -113,8 +113,8 @@ pub fn start() {
     // Settings and the song list's place, from the browser's storage.
     web::kv::install();
     // Round TW6: the live chat's side (Twitch's EventSub socket); a play
-    // shows it only where the room, the settings and, until verified, the
-    // testing switch say.
+    // shows it only in a multiplayer stage where the room and the settings
+    // say (round TW7).
     chat::install_live(None, None);
     // The game's own error reports: a promise nobody caught (a panic's
     // come from the hook above).

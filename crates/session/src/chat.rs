@@ -11,16 +11,20 @@
 //! the web's `WebSocket` and `fetch`, desktop's threads) and the
 //! channel's emote sets (`ddi_chat::channel`). The live chat starts with
 //! a play that shows it and ends with it (the session dropped closes its
-//! sockets): in a room's stage, the room's channel under its ceiling
-//! (C1), subscribed through `POST <api>/rooms/<id>/chat/subscribe`; under
-//! the development script (`mpfakechat=live`, `--mp-dev-chat live`) any
-//! other play shows the signed-in person's own channel through `POST
-//! <api>/me/chat/subscribe`. Until the maintainer's run verified it, it
-//! runs only under the testing switch
-//! (`ddi_ui::state::twitch::chat_rows_shown`). In a room's stage the
-//! room's own ceiling caps it ([`room_ceiling`], round TW3), and a room
-//! that shows no chat has no layer at all; outside a room the scripted
-//! chat's own line stands for a ceiling, for tests.
+//! sockets), and only in a multiplayer stage, never in a singleplayer
+//! play (the maintainer, 2026-11-21): in an online room's stage, the
+//! room's channel under its ceiling (C1), subscribed through `POST
+//! <api>/rooms/<id>/chat/subscribe`; in CPU practice's stages only under
+//! the development script (`mpfakechat=live`, `--mp-dev-chat live`: the
+//! signed-in person's own channel, or with `live:<login>` the channel
+//! named, which also stands in for an online room's channel on that
+//! device), through `POST <api>/me/chat/subscribe`. Since round TW7 it is
+//! every player's (the device's option and the room's ceiling decide). In
+//! a room's stage the room's own ceiling caps it ([`room_ceiling`], round
+//! TW3), and a room that shows no chat has no layer at all; outside a
+//! room the scripted chat's own line stands for a ceiling, for tests
+//! alone (the scripted chats may still play beside a solo play: TESTING
+//! ONLY).
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -46,13 +50,17 @@ thread_local! {
 /// What a live chat reads: whose channel, and through which route.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveWant {
-    /// The channel's Twitch user id and login.
+    /// The channel's Twitch user id (empty for a [`LiveWant::named`]
+    /// channel until our server names it) and login.
     pub channel_id: String,
     pub login: String,
     /// The online room's id (its subscribe route, `POST
-    /// <api>/rooms/<id>/chat/subscribe`); none, one's own channel (`POST
+    /// <api>/rooms/<id>/chat/subscribe`); none, one's own route (`POST
     /// <api>/me/chat/subscribe`).
     pub room: Option<String>,
+    /// TESTING ONLY (round TW7): the development script's named channel,
+    /// asked for by its login on one's own route (administrators only).
+    pub named: bool,
 }
 
 impl LiveWant {
@@ -64,10 +72,26 @@ impl LiveWant {
         }
     }
 
-    /// The subscribe route's body: the socket's session and whether
-    /// messages show (the moderation events subscribed too).
-    pub fn body(session_id: &str, messages: bool) -> String {
-        serde_json::json!({ "session_id": session_id, "messages": messages }).to_string()
+    /// The subscribe route's body: the socket's session, whether messages
+    /// show (the moderation events subscribed too) and, for a named
+    /// channel, its login.
+    pub fn body(&self, session_id: &str, messages: bool) -> String {
+        let mut b = serde_json::json!({ "session_id": session_id, "messages": messages });
+        if self.named {
+            b["channel"] = self.login.clone().into();
+        }
+        b.to_string()
+    }
+
+    /// Which channel and route, for the report's first line (never a
+    /// token or a session).
+    pub fn describe(&self) -> String {
+        let whose = match (&self.room, self.named) {
+            (_, true) => "named by the development flag (administrators only)",
+            (Some(_), false) => "the room's",
+            (None, false) => "your own",
+        };
+        format!("channel {} ({whose}), route {}", self.login, self.route())
     }
 }
 
@@ -97,7 +121,7 @@ pub trait LiveIo {
     fn open(&mut self, socket: u32, url: &str);
     /// Closes it.
     fn close(&mut self, socket: u32);
-    /// `POST <api><want.route()>` with [`LiveWant::body`], signed in as
+    /// `POST <api><want.route()>` with its [`LiveWant::body`], signed in as
     /// the person (the web's cookie, desktop's session).
     fn subscribe(&mut self, socket: u32, session_id: &str, want: &LiveWant, messages: bool);
     /// Reads a provider's set at `url` (`via` the proxy: signed in).
@@ -124,8 +148,8 @@ pub struct LiveSetup {
 }
 
 /// The shell's live chat for every play from now on (`None`: no live chat
-/// on this shell). Whether a play shows it is the settings', the room's
-/// and the testing switch's ([`ChatConfig::for_play`]).
+/// on this shell). Whether a play shows it is the settings' and the
+/// room's ([`ChatConfig::for_play`], [`ChatConfig::under_room`]).
 pub fn set_live(setup: Option<LiveSetup>) {
     LIVE.with(|l| *l.borrow_mut() = setup.map(Rc::new));
 }
@@ -134,19 +158,17 @@ fn live_setup() -> Option<Rc<LiveSetup>> {
     LIVE.with(|l| l.borrow().clone())
 }
 
-/// Whether a play may show a live chat: the shell has one and, until the
-/// maintainer's run verified it, the testing switch is on
-/// (`ddi_ui::state::twitch::chat_rows_shown`, which un-hides it too).
+/// Whether a play may show a live chat: the shell has one.
 pub fn live_possible() -> bool {
-    live_setup().is_some() && ddi_ui::state::twitch::chat_rows_shown()
+    live_setup().is_some()
 }
 
 /// TESTING ONLY: plays `script` as the chat of every play from now on
-/// (the shells' `mpfakechat` and `--mp-dev-chat`); `None` stops it. It
-/// is also the testing switch that shows the chat's rows
-/// (`ddi_ui::state::twitch::chat_testing`).
+/// (the shells' `mpfakechat` and `--mp-dev-chat`); `None` stops it. Its
+/// own line stands for CPU practice's ceiling
+/// (`ddi_ui::state::twitch::scripted_ceiling`).
 pub fn set_scripted(script: Option<Script>) {
-    ddi_ui::state::twitch::set_chat_testing(script.as_ref().map(Script::ceiling));
+    ddi_ui::state::twitch::set_scripted_ceiling(script.as_ref().map(Script::ceiling));
     SCRIPTED.with(|s| *s.borrow_mut() = script);
 }
 
@@ -221,26 +243,29 @@ impl ChatConfig {
     /// This chat as a play shows it, under the room's ceiling
     /// ([`room_ceiling`]: `stage`'s in a room's stage): never more than
     /// the room allows, and none where that is Off. The live chat reads
-    /// the stage's room's channel (CPU practice: the development script's
-    /// own, `RoomChat::practice`), or outside a room the development
-    /// script's own channel, and none without either (the audience has
-    /// none, C13).
+    /// the stage's room's channel (as this device shows it,
+    /// `RoomChat::on_this_device`; CPU practice: the development script's,
+    /// `RoomChat::practice`), and never plays outside a multiplayer stage
+    /// (`stage` none: a singleplayer play, whatever the options and the
+    /// development script say); none for the audience (C13).
     pub fn under_room(mut self, stage: Option<&StageSetup>) -> Option<ChatConfig> {
         match &self.source {
             ChatSource::Script(s) => {
                 self.level = self.level.under(room_ceiling(stage, Some(s)));
             }
             ChatSource::Room | ChatSource::Live(_) => {
-                let chat = match stage {
-                    Some(stage) => stage.chat.clone(),
-                    None => ddi_ui::state::twitch::live_own(),
-                }
-                .filter(|c| c.channel_id != "scripted" && !c.channel_id.is_empty())?;
+                // Never in a singleplayer play (the maintainer, 2026-11-21).
+                let chat = stage?
+                    .chat
+                    .clone()
+                    .filter(|c| c.channel_id != "scripted")
+                    .filter(|c| c.named || !c.channel_id.is_empty())?;
                 self.level = self.level.under(chat.ceiling);
                 self.source = ChatSource::Live(LiveWant {
                     channel_id: chat.channel_id,
                     login: chat.login,
                     room: chat.room,
+                    named: chat.named,
                 });
             }
         }
@@ -302,13 +327,15 @@ struct LiveChat {
 impl LiveChat {
     fn new(want: LiveWant, from: EmotesFrom) -> Option<LiveChat> {
         let setup = live_setup()?;
+        let mut io = (setup.make)();
+        io.report(&want.describe());
         Some(LiveChat {
             machine: Live::new(LIVE_CHAT_V0, setup.url.clone()),
             sets: ChannelSets::new(&want.channel_id, from, Some(setup.api.clone()), setup.at.clone()),
             want,
             sets_seen: 0,
             sets_told: false,
-            io: (setup.make)(),
+            io,
             started: false,
             last_ms: 0,
         })
@@ -449,6 +476,7 @@ impl ChatLayer {
         Some(serde_json::json!({
             "channel": l.want.login,
             "route": if l.want.room.is_some() { "room" } else { "own" },
+            "named": l.want.named,
             "level": format!("{:?}", self.config.level),
             "connection": l.machine.report(),
             "emote_sets": l.sets.report(),
@@ -569,9 +597,9 @@ pub(crate) mod tests {
         set_scripted(None);
         assert_eq!(ChatConfig::for_play(&s), None);
         assert_eq!(room_ceiling(None, None), Level::Off);
-        assert_eq!(ddi_ui::state::twitch::chat_testing(), None);
+        assert_eq!(ddi_ui::state::twitch::scripted_ceiling(), None);
         set_scripted(Script::builtin("emotes"));
-        assert_eq!(ddi_ui::state::twitch::chat_testing(), Some(Level::Emotes));
+        assert_eq!(ddi_ui::state::twitch::scripted_ceiling(), Some(Level::Emotes));
         let shown = |s: &Settings, stage: Option<&StageSetup>| {
             ChatConfig::for_play(s).and_then(|c| c.under_room(stage)).map(|c| c.level)
         };
@@ -585,6 +613,7 @@ pub(crate) mod tests {
             channel_id: "1".into(),
             login: "host".into(),
             room: None,
+            named: false,
         });
         assert_eq!(shown(&s, Some(&stage)), Some(Level::Messages));
         s.twitch_chat = Level::Emotes;
@@ -592,7 +621,7 @@ pub(crate) mod tests {
         s.twitch_chat = Level::Off;
         assert_eq!(shown(&s, Some(&stage)), None);
         set_scripted(None);
-        assert_eq!(ddi_ui::state::twitch::chat_testing(), None);
+        assert_eq!(ddi_ui::state::twitch::scripted_ceiling(), None);
     }
 
     fn setup() -> StageSetup {
@@ -706,27 +735,49 @@ pub(crate) mod tests {
         state
     }
 
-    /// Round TW6: where the live chat runs and whose channel it reads. Off
-    /// without the testing switch (players see nothing new) or without
-    /// the device's option; under the development script a solo play reads
-    /// one's own channel, a room's stage the room's through its route, and
-    /// a stage of a room that shows none, or the audience's, nothing.
+    fn own() -> Option<ddi_ui::state::twitch::DevLive> {
+        Some(ddi_ui::state::twitch::DevLive::Own {
+            channel_id: "1001".into(),
+            login: "me".into(),
+        })
+    }
+
+    /// A CPU practice stage as the room orders it under the live chat's
+    /// development script.
+    fn practice_stage() -> StageSetup {
+        StageSetup {
+            chat: ddi_ui::state::twitch::RoomChat::practice(),
+            ..setup()
+        }
+    }
+
+    /// Where the live chat runs and whose channel it reads (rounds TW6 and
+    /// TW7): every player's where the device's option and the room allow
+    /// it; a room's stage the room's channel through its route, a stage of
+    /// a room that shows none nothing; CPU practice only under the
+    /// development script, one's own channel; never a singleplayer play,
+    /// not even under the development script; nothing with the option at
+    /// its default.
     #[test]
     fn the_live_chat_reads_the_rooms_channel_or_ones_own() {
         set_scripted(None);
-        ddi_ui::state::twitch::set_live_own(None);
+        ddi_ui::state::twitch::set_dev_live(None);
         let _state = fake_live();
         let s = Settings {
             twitch_chat: Level::Messages,
             ..Settings::default()
         };
-        assert_eq!(ChatConfig::for_play(&s), None, "not before it is verified");
-        ddi_ui::state::twitch::set_live_own(Some(("1001".into(), "me".into())));
         let c = ChatConfig::for_play(&s).unwrap();
         assert_eq!(c.source, ChatSource::Room);
-        let solo = c.clone().under_room(None).unwrap();
-        let ChatSource::Live(want) = &solo.source else { panic!() };
+        assert_eq!(c.clone().under_room(None), None, "never in a singleplayer play");
+        assert_eq!(c.clone().under_room(Some(&practice_stage())), None, "practice: none without the script");
+        ddi_ui::state::twitch::set_dev_live(own());
+        assert_eq!(c.clone().under_room(None), None, "nor under the development script");
+        let practice = c.clone().under_room(Some(&practice_stage())).unwrap();
+        let ChatSource::Live(want) = &practice.source else { panic!() };
         assert_eq!((&*want.channel_id, want.route()), ("1001", "/me/chat/subscribe".to_string()));
+        assert_eq!(want.body("s1", false), r#"{"messages":false,"session_id":"s1"}"#);
+        ddi_ui::state::twitch::set_dev_live(None);
         let mut stage = setup();
         assert_eq!(c.clone().under_room(Some(&stage)), None, "a room that shows none");
         stage.chat = Some(ddi_ui::state::twitch::RoomChat {
@@ -734,18 +785,59 @@ pub(crate) mod tests {
             channel_id: "77".into(),
             login: "host".into(),
             room: Some("Room000001".into()),
+            named: false,
         });
         let in_room = c.clone().under_room(Some(&stage)).unwrap();
         assert_eq!(in_room.level, Level::Emotes);
         let ChatSource::Live(want) = &in_room.source else { panic!() };
         assert_eq!(want.route(), "/rooms/Room000001/chat/subscribe");
-        assert_eq!(LiveWant::body("s1", false), r#"{"messages":false,"session_id":"s1"}"#);
         assert_eq!(
             ChatConfig::for_play(&Settings::default()),
             None,
-            "the option Off: nothing"
+            "the option at its default: nothing"
         );
-        ddi_ui::state::twitch::set_live_own(None);
+        set_live(None);
+    }
+
+    /// The development script's named channel (round TW7): asked for by its
+    /// login on one's own route, in practice and in an online room's stage
+    /// in the room's channel's place, at the room's ceiling.
+    #[test]
+    fn a_named_channel_is_asked_for_by_its_login() {
+        set_scripted(None);
+        let _state = fake_live();
+        ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Channel {
+            login: "busy".into(),
+        }));
+        let c = ChatConfig::for_play(&Settings {
+            twitch_chat: Level::Messages,
+            ..Settings::default()
+        })
+        .unwrap();
+        assert_eq!(c.clone().under_room(None), None);
+        let practice = c.clone().under_room(Some(&practice_stage())).unwrap();
+        let ChatSource::Live(want) = &practice.source else { panic!() };
+        assert_eq!((want.named, &*want.login, want.route()), (true, "busy", "/me/chat/subscribe".to_string()));
+        assert_eq!(
+            want.body("s1", true),
+            r#"{"channel":"busy","messages":true,"session_id":"s1"}"#
+        );
+        let room = ddi_ui::state::twitch::RoomChat {
+            ceiling: Level::Emotes,
+            channel_id: "77".into(),
+            login: "host".into(),
+            room: Some("Room000001".into()),
+            named: false,
+        };
+        let stage = StageSetup {
+            chat: Some(room.on_this_device()),
+            ..setup()
+        };
+        let online = c.under_room(Some(&stage)).unwrap();
+        assert_eq!(online.level, Level::Emotes);
+        let ChatSource::Live(want) = &online.source else { panic!() };
+        assert_eq!((want.named, &*want.login, want.room.as_deref()), (true, "busy", None));
+        ddi_ui::state::twitch::set_dev_live(None);
         set_live(None);
     }
 
@@ -758,13 +850,13 @@ pub(crate) mod tests {
     fn the_live_chat_drives_its_connection() {
         set_scripted(None);
         let state = fake_live();
-        ddi_ui::state::twitch::set_live_own(Some(("1001".into(), "me".into())));
+        ddi_ui::state::twitch::set_dev_live(own());
         let config = ChatConfig::for_play(&Settings {
             twitch_chat: Level::Messages,
             ..Settings::default()
         })
         .unwrap()
-        .under_room(None)
+        .under_room(Some(&practice_stage()))
         .unwrap();
         let mut c = ChatLayer::new(config);
         assert!(c.is_live());
@@ -791,8 +883,9 @@ pub(crate) mod tests {
         let s = state.borrow();
         assert_eq!(s.closed, [1]);
         assert!(s.lines.iter().any(|l| l.starts_with("received")));
+        assert_eq!(s.lines[0], "channel me (your own), route /me/chat/subscribe");
         drop(s);
-        ddi_ui::state::twitch::set_live_own(None);
+        ddi_ui::state::twitch::set_dev_live(None);
         set_live(None);
     }
 }

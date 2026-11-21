@@ -9,13 +9,15 @@
 //!   scope, "nothing changed" when the trip is canceled.
 //! - [`RoomChat`]: the room's ceiling and whose channel it is, as a stage
 //!   is ordered (`StageSetup::chat`), from `RoomState::twitch`.
-//! - [`chat_testing`]: TESTING ONLY, the switch that shows the chat's rows
-//!   (Options → Display's, Host options' "Show my Twitch chat") and lets
-//!   the live chat run (round TW6) until the maintainer has verified the
-//!   live connection: on only where the scripted chat plays
-//!   (`mpfakechat`, `--mp-dev-chat`) or the live one's development script
-//!   ([`set_live_own`]: `mpfakechat=live`, `--mp-dev-chat live`). Showing
-//!   the rows to players is [`chat_rows_shown`]'s one line.
+//! - Since round TW7 (2026-11-21) the chat's rows and a room's live chat
+//!   are every player's; what stays is for tests and the maintainer:
+//!   [`scripted_ceiling`], TESTING ONLY, the scripted chat's own line
+//!   (`mpfakechat`, `--mp-dev-chat`), which CPU practice's stages take for
+//!   the room's ceiling; and [`set_dev_live`], the live chat's development
+//!   script (`mpfakechat=live`, `--mp-dev-chat live`, and with a channel
+//!   `live:<login>`), which gives CPU practice's stages a live channel
+//!   and, with a channel named, shows that channel in this device's
+//!   online stages in the room's channel's place.
 
 use std::cell::Cell;
 
@@ -23,30 +25,34 @@ use ddi_chat::Level;
 
 thread_local! {
     static CHAT_TRIP: Cell<Option<Level>> = const { Cell::new(None) };
-    static CHAT_TESTING: Cell<Option<Level>> = const { Cell::new(None) };
-    static LIVE_OWN: std::cell::RefCell<Option<RoomChat>> = const { std::cell::RefCell::new(None) };
+    static SCRIPTED_CEILING: Cell<Option<Level>> = const { Cell::new(None) };
+    static DEV_LIVE: std::cell::RefCell<Option<DevLive>> = const { std::cell::RefCell::new(None) };
 }
 
-/// TESTING ONLY (round TW6), the live chat's development script
-/// (`mpfakechat=live`, `--mp-dev-chat live`): the signed-in person's own
-/// channel (`channel_id`, `login`), whose live chat any play shows outside
-/// a room (a solo play, autoplay) and CPU practice's stages, through
-/// exactly the code a room's stage uses; and the testing switch on
-/// ([`chat_testing`]: Emotes and messages). `None` ends it.
-pub fn set_live_own(own: Option<(String, String)>) {
-    LIVE_OWN.with(|l| {
-        *l.borrow_mut() = own.map(|(channel_id, login)| RoomChat {
-            ceiling: Level::Messages,
-            channel_id,
-            login,
-            room: None,
-        })
-    });
+/// TESTING ONLY, the live chat's development script (round TW6; round
+/// TW7's channel): whose live chat this device shows in its multiplayer
+/// stages, never in a singleplayer play.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DevLive {
+    /// `live`: the signed-in person's own channel (its Twitch user id and
+    /// login, from `/me`), in CPU practice's stages.
+    Own { channel_id: String, login: String },
+    /// `live:<login>`: that channel, named to our server by its login
+    /// (`POST <api>/me/chat/subscribe {channel}`, administrators only),
+    /// in CPU practice's stages and in an online room's stage in the
+    /// room's channel's place, on this device alone.
+    Channel { login: String },
 }
 
-/// The live chat's development script's own channel, where it runs.
-pub fn live_own() -> Option<RoomChat> {
-    LIVE_OWN.with(|l| l.borrow().clone())
+/// TESTING ONLY: the live chat's development script from now on (`None`
+/// ends it).
+pub fn set_dev_live(dev: Option<DevLive>) {
+    DEV_LIVE.with(|l| *l.borrow_mut() = dev);
+}
+
+/// The live chat's development script, where it runs.
+pub fn dev_live() -> Option<DevLive> {
+    DEV_LIVE.with(|l| l.borrow().clone())
 }
 
 /// "Twitch chat in rooms" was turned on at `level` on this device where
@@ -62,31 +68,16 @@ pub fn take_chat_trip() -> Option<Level> {
     CHAT_TRIP.take()
 }
 
-/// TESTING ONLY (`TWITCH_CHAT_TESTING`): the scripted chat plays this run
-/// at `ceiling` (its own line), or none. Set by
-/// `ddi_session::chat::set_scripted`, the shells' `mpfakechat` and
-/// `--mp-dev-chat`.
-pub fn set_chat_testing(ceiling: Option<Level>) {
-    CHAT_TESTING.set(ceiling);
+/// TESTING ONLY: the scripted chat plays this run at `ceiling` (its own
+/// line), or none. Set by `ddi_session::chat::set_scripted` (the shells'
+/// `mpfakechat` and `--mp-dev-chat`).
+pub fn set_scripted_ceiling(ceiling: Option<Level>) {
+    SCRIPTED_CEILING.set(ceiling);
 }
 
 /// TESTING ONLY: the scripted chat's ceiling where it plays this run.
-/// The chat's rows (Options → Display's "Twitch chat in rooms" and its
-/// own, Host options' "Show my Twitch chat") show only while it does:
-/// until the transports to Twitch exist, a room's chat has no other
-/// source, and rows that do nothing are not shown to players.
-pub fn chat_testing() -> Option<Level> {
-    CHAT_TESTING
-        .get()
-        .or_else(|| live_own().map(|o| o.ceiling))
-}
-
-/// Whether the chat's rows show and a room's live chat runs (see
-/// [`chat_testing`]). Once the maintainer's run has verified the live
-/// connection, players are shown them by this function's one line
-/// becoming `true`.
-pub fn chat_rows_shown() -> bool {
-    chat_testing().is_some()
+pub fn scripted_ceiling() -> Option<Level> {
+    SCRIPTED_CEILING.get()
 }
 
 /// A room's chat as a stage of it is played (C1): how much of the host's
@@ -102,6 +93,10 @@ pub struct RoomChat {
     /// subscribed by (round TW6); none outside an online room (one's own
     /// channel, the development script's).
     pub room: Option<String>,
+    /// TESTING ONLY (round TW7): the development script's named channel
+    /// ([`DevLive::Channel`]), asked for by its login (`channel_id` empty
+    /// until our server names it).
+    pub named: bool,
 }
 
 impl RoomChat {
@@ -115,6 +110,7 @@ impl RoomChat {
             channel_id: t.user_id.clone(),
             login: t.login.clone(),
             room: None,
+            named: false,
         })
     }
 
@@ -123,22 +119,53 @@ impl RoomChat {
         RoomChat { room, ..self }
     }
 
-    /// TESTING ONLY: CPU practice has no host's Twitch; where the live
-    /// chat's development script runs, the person's own channel; where
-    /// the scripted chat plays (the testing switch), its own line stands
-    /// for the room's ceiling.
-    pub fn practice() -> Option<RoomChat> {
-        if CHAT_TESTING.get().is_none()
-            && let Some(own) = live_own()
-        {
-            return Some(own);
+    /// The room's chat as this device shows it (round TW7): the
+    /// development script's named channel ([`DevLive::Channel`]) in the
+    /// room's channel's place where the room shows chat, on this device
+    /// alone (never what the room or its other members see); else the
+    /// room's own.
+    pub fn on_this_device(self) -> RoomChat {
+        match dev_live() {
+            Some(DevLive::Channel { login }) => RoomChat {
+                ceiling: self.ceiling,
+                channel_id: String::new(),
+                login,
+                room: None,
+                named: true,
+            },
+            _ => self,
         }
-        let ceiling = chat_testing().filter(|c| *c != Level::Off)?;
-        Some(RoomChat {
-            ceiling,
-            channel_id: "scripted".into(),
-            login: "scripted".into(),
-            room: None,
+    }
+
+    /// CPU practice's chat, TESTING ONLY: practice has no host's Twitch;
+    /// where the scripted chat plays, its own line stands for the room's
+    /// ceiling; else where the live chat's development script runs, its
+    /// channel (one's own, or the one it names).
+    pub fn practice() -> Option<RoomChat> {
+        if let Some(ceiling) = scripted_ceiling() {
+            return (ceiling != Level::Off).then(|| RoomChat {
+                ceiling,
+                channel_id: "scripted".into(),
+                login: "scripted".into(),
+                room: None,
+                named: false,
+            });
+        }
+        Some(match dev_live()? {
+            DevLive::Own { channel_id, login } => RoomChat {
+                ceiling: Level::Messages,
+                channel_id,
+                login,
+                room: None,
+                named: false,
+            },
+            DevLive::Channel { login } => RoomChat {
+                ceiling: Level::Messages,
+                channel_id: String::new(),
+                login,
+                room: None,
+                named: true,
+            },
         })
     }
 }
@@ -158,6 +185,7 @@ mod tests {
 
     #[test]
     fn a_rooms_chat_is_its_setting_and_off_is_none() {
+        set_dev_live(None);
         let mut t = ddi_room::TwitchSetting {
             by: ddi_room::ParticipantId(1),
             mirror: ddi_room::TwitchMirror::Bans,
@@ -172,27 +200,46 @@ mod tests {
         assert_eq!((c.ceiling, &*c.channel_id, &*c.login), (Level::Messages, "77", "host"));
         assert_eq!(c.room, None);
         assert_eq!(c.clone().in_room(Some("Room000001".into())).room.as_deref(), Some("Room000001"));
-        set_chat_testing(None);
+        assert_eq!(c.clone().on_this_device(), c, "the room's own without the script");
+        set_scripted_ceiling(None);
         assert_eq!(RoomChat::practice(), None);
-        set_chat_testing(Some(Level::Emotes));
+        set_scripted_ceiling(Some(Level::Emotes));
         assert_eq!(RoomChat::practice().map(|c| c.ceiling), Some(Level::Emotes));
-        set_chat_testing(None);
+        set_scripted_ceiling(None);
     }
 
-    /// Round TW6: the live chat's development script is the testing
-    /// switch too, and CPU practice's stages show the person's own channel.
+    /// The live chat's development script: CPU practice's stages show one's
+    /// own channel (`live`) or the one named (`live:<login>`), and an
+    /// online room's stage shows the named one in the room's channel's
+    /// place on this device, at the room's ceiling, through one's own
+    /// route; plain `live` leaves a room's channel as it is.
     #[test]
-    fn the_live_script_is_the_testing_switch_and_its_own_channel() {
-        set_chat_testing(None);
-        set_live_own(None);
-        assert!(!chat_rows_shown());
-        set_live_own(Some(("1001".into(), "me".into())));
-        assert!(chat_rows_shown());
-        assert_eq!(chat_testing(), Some(Level::Messages));
+    fn the_live_script_gives_practice_a_channel_and_names_one_for_rooms() {
+        set_scripted_ceiling(None);
+        set_dev_live(Some(DevLive::Own {
+            channel_id: "1001".into(),
+            login: "me".into(),
+        }));
         let p = RoomChat::practice().unwrap();
-        assert_eq!((&*p.channel_id, &*p.login, p.room.as_deref()), ("1001", "me", None));
-        set_live_own(None);
-        assert!(!chat_rows_shown());
+        assert_eq!((&*p.channel_id, &*p.login, p.room.as_deref(), p.named), ("1001", "me", None, false));
+        let room = RoomChat {
+            ceiling: Level::Emotes,
+            channel_id: "77".into(),
+            login: "host".into(),
+            room: Some("Room000001".into()),
+            named: false,
+        };
+        assert_eq!(room.clone().on_this_device(), room);
+        set_dev_live(Some(DevLive::Channel { login: "busy".into() }));
+        let p = RoomChat::practice().unwrap();
+        assert_eq!((&*p.channel_id, &*p.login, p.room.as_deref(), p.named), ("", "busy", None, true));
+        let shown = room.on_this_device();
+        assert_eq!(
+            (shown.ceiling, &*shown.login, shown.room.as_deref(), shown.named),
+            (Level::Emotes, "busy", None, true)
+        );
+        set_dev_live(None);
+        assert_eq!(RoomChat::practice(), None);
     }
 
     #[test]

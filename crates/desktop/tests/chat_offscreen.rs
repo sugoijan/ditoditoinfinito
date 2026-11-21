@@ -364,12 +364,12 @@ fn with_the_option_off_no_chat_is_built_or_drawn() {
 }
 
 /// Round TW3: in a room's stage the room's own ceiling decides (CPU
-/// practice has no host's Twitch; under the testing switch, the scripted
-/// chat's line stands for it): a practice stage of eight CPUs shows the
+/// practice has no host's Twitch; where a scripted chat plays, TESTING
+/// ONLY, its line stands for it): a practice stage of eight CPUs shows the
 /// chat in both styles under the miniatures' fields, and a device at Off
 /// shows none.
 #[test]
-fn a_practice_stage_shows_the_rooms_chat_under_the_testing_switch() {
+fn a_practice_stage_shows_the_rooms_chat_under_a_scripted_chat() {
     for (style, level) in [
         (Style::Falling, Level::Messages),
         (Style::Across, Level::Messages),
