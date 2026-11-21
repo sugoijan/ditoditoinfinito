@@ -103,6 +103,15 @@ pub struct Options {
     pub adds: Vec<(String, Option<usize>)>,
     /// The host's Who can add songs: Everyone (`--everyone`, revision 21).
     pub everyone: bool,
+    /// The host's Rules: Song choice: Group (`--group`, revision 22), with
+    /// Repeats (`--repeats allowed|row|match`).
+    pub group: bool,
+    pub repeats: Option<ddi_room::Repeats>,
+    /// What each guest bot chooses under Song choice: Group (`--choose
+    /// random|first|none`, revision 22; random where not given); the host
+    /// bot chooses the song it would have picked, its choice starting the
+    /// draw.
+    pub choose: ChooseBy,
     /// A song the host removes from the room's list once a stage settled
     /// (`--remove TITLE`), its upload deleted by the server.
     pub remove: Option<String>,
@@ -169,6 +178,18 @@ pub struct Options {
     pub kick: Option<KickWhen>,
 }
 
+/// What a guest bot chooses under Song choice: Group (`--choose`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ChooseBy {
+    /// A song of the room's list drawn from its seed, each draw anew.
+    #[default]
+    Random,
+    /// The first song of the room's list it may choose.
+    First,
+    /// Nothing: it never chooses.
+    None,
+}
+
 /// When `--kick` kicks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KickWhen {
@@ -191,6 +212,9 @@ impl Default for Options {
             picks: Vec::new(),
             adds: Vec::new(),
             everyone: false,
+            group: false,
+            repeats: None,
+            choose: ChooseBy::Random,
             remove: None,
             rest_ms: 8_000,
             stages: None,
@@ -245,6 +269,14 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
                        (from 1) once the room lets everyone add
   --everyone           the host lets everyone add songs (Who can add songs:
                        Everyone)
+  --group              the host's Rules: Song choice: Group (each player
+                       chooses a song of the room's list; the host bot's own
+                       choice, the song it would have picked, starts the draw)
+  --repeats R          the host's Rules under Group: allowed, row (not in a
+                       row) or match (not in a match)
+  --choose C           what each guest bot chooses under Group: random (a
+                       song of the list drawn from --seed, the default), first
+                       (the first it may) or none
   --remove TITLE       the host removes that song from the room's list once
                        a stage settled
   --rest SECONDS       the host's rest on a song before picking it (default 8)
@@ -448,6 +480,26 @@ impl Options {
                     o.everyone = true;
                     took = false;
                 }
+                "--group" => {
+                    o.group = true;
+                    took = false;
+                }
+                "--repeats" => {
+                    o.repeats = Some(match value(i, a)?.as_str() {
+                        "allowed" => ddi_room::Repeats::Allowed,
+                        "row" => ddi_room::Repeats::NotInARow,
+                        "match" => ddi_room::Repeats::NotInAMatch,
+                        _ => return Err("--repeats takes allowed, row or match".into()),
+                    });
+                }
+                "--choose" => {
+                    o.choose = match value(i, a)?.as_str() {
+                        "random" => ChooseBy::Random,
+                        "first" => ChooseBy::First,
+                        "none" => ChooseBy::None,
+                        _ => return Err("--choose takes random, first or none".into()),
+                    };
+                }
                 "--rest" => {
                     let s = value(i, a)?
                         .parse::<f64>()
@@ -553,6 +605,9 @@ impl Options {
         }
         if o.everyone && !o.host {
             return Err("--everyone is the host bot's (--host)".into());
+        }
+        if (o.group || o.repeats.is_some()) && !o.host {
+            return Err("--group and --repeats are the host bot's Rules (--host)".into());
         }
         let bots = o.guests + usize::from(o.host);
         if bots > MAX_BOTS {
@@ -943,6 +998,10 @@ struct Host {
     /// `--everyone`: Who can add songs set to Everyone with its Rules
     /// (revision 21).
     everyone: bool,
+    /// `--group`, `--repeats`: Song choice: Group with its Rules
+    /// (revision 22).
+    group: bool,
+    repeats: Option<ddi_room::Repeats>,
     /// `--remove`'s song, removed once a stage settled.
     remove: Option<String>,
     /// The songs checked for the CPU so far ([`host_plays`]), by id.
@@ -994,6 +1053,11 @@ struct Said {
     spotlight: Option<String>,
     invite: bool,
     refusal: Option<String>,
+    /// Revision 22: how many chose (of how many), the countdown's opening,
+    /// the last draw said.
+    chose: Option<(usize, usize)>,
+    draw: Option<u64>,
+    drawn: Option<(StageId, u64)>,
 }
 
 struct Bot {
@@ -1027,6 +1091,13 @@ struct Bot {
     /// list once the room lets it add; whether done.
     adds: Vec<SongEntry>,
     added: bool,
+    /// What a guest chooses under Song choice: Group (revision 22), its
+    /// place among the guests (its choice comes a moment after the one
+    /// before), the draws it chose for so far, and when it may choose.
+    choose: ChooseBy,
+    place: u64,
+    chose_for: u64,
+    choose_at: Option<u64>,
 }
 
 impl Bot {
@@ -1110,6 +1181,8 @@ impl Bot {
             return;
         }
         self.guest_adds(&room);
+        self.guest_chooses(&room, now);
+        self.say_choosing(&room);
         self.stage(&room, now);
         if let Role::Host(host) = &mut self.role {
             let host = host.as_mut();
@@ -1216,6 +1289,126 @@ impl Bot {
     /// A guest's `--add ID:N` songs (revision 21) added to the room's list
     /// once the room lets it add (the host's Who can add songs: Everyone),
     /// once; each refusal said (its half reached, the list full).
+    /// Song choice: Group (revision 22): a guest's choice, made a moment
+    /// after the room can take one (each guest a little after the one
+    /// before), once a draw: a song of the list drawn from its seed, or
+    /// the first it may choose, or none (`--choose`); its chart the one
+    /// the CPU plays nearest level 7.
+    fn guest_chooses(&mut self, room: &SharedRoom, now: u64) {
+        if !matches!(self.role, Role::Guest(_)) || self.choose == ChooseBy::None {
+            return;
+        }
+        let (open, mine, draws) = {
+            let r = room.borrow();
+            let s = r.state();
+            let open = r.link_state() == LinkState::Connected
+                && r.group_choice()
+                && r.choice_blocked().is_none()
+                && s.pick_stage().is_some();
+            // Each draw clears the choices: one choice a draw.
+            let draws = s.drawn.as_ref().map_or(0, |d| d.roll | 1);
+            (open, r.my_choice().is_some(), draws)
+        };
+        if !open || mine || self.chose_for == draws.max(1) {
+            self.choose_at = None;
+            return;
+        }
+        let at = *self.choose_at.get_or_insert(now + 1_500 + 700 * self.place);
+        if now < at {
+            return;
+        }
+        let pick = {
+            let r = room.borrow();
+            let mut choosable: Vec<(ddi_room::RoomSongId, ddi_room::ChartKey, String)> = r
+                .room_songs()
+                .iter()
+                .filter(|e| e.available() && r.repeat_refused(e.id).is_none())
+                .filter_map(|e| {
+                    let c = e
+                        .charts
+                        .iter()
+                        .filter(|c| {
+                            ddi_ui::state::room::eligible(&ChartEntry {
+                                style: c.style.clone(),
+                                ..ChartEntry::default()
+                            })
+                            .is_ok()
+                        })
+                        .min_by_key(|c| (i64::from(c.meter) - 7).abs())?;
+                    Some((e.id, c.chart.clone(), e.card.title.clone()))
+                })
+                .collect();
+            match self.choose {
+                ChooseBy::First => choosable.drain(..).next(),
+                _ if choosable.is_empty() => None,
+                _ => {
+                    let k = (mix(self.seed, draws) % choosable.len() as u64) as usize;
+                    Some(choosable.swap_remove(k))
+                }
+            }
+        };
+        self.chose_for = draws.max(1);
+        let Some((song, chart, title)) = pick else {
+            self.say("nothing of the room's songs to choose");
+            return;
+        };
+        match room.borrow_mut().choose(song, &chart) {
+            Ok(()) => self.say(format!("chose {title}")),
+            Err(why) => {
+                self.say(format!("choosing {title} refused: {why:?}"));
+                room.borrow_mut().clear_refusal();
+            }
+        }
+    }
+
+    /// The group's choosing said as it changes (revision 22): how many
+    /// chose, the draw's countdown opened or canceled, and each draw.
+    fn say_choosing(&mut self, room: &SharedRoom) {
+        let (chose, draw, drawn) = {
+            let r = room.borrow();
+            let s = r.state();
+            let drawn = s.drawn.as_ref().map(|d| {
+                let won = d.won();
+                let who = won
+                    .and_then(|w| r.member_of(w.participant))
+                    .map(|m| match &m.kind {
+                        ddi_room::MemberKind::Human { name, .. } => name.clone(),
+                        ddi_room::MemberKind::Cpu { ordinal, .. } => format!("CPU {ordinal}"),
+                    })
+                    .unwrap_or_default();
+                let title = won
+                    .and_then(|w| s.songs.get(w.song))
+                    .map(|e| e.card.title.clone())
+                    .unwrap_or_default();
+                ((d.stage, d.roll), format!("{who}'s choice, {title}, of {}", d.entries.len()))
+            });
+            (r.chose_count(), s.draw.as_ref().map(|d| d.opened_at.0), drawn)
+        };
+        if self.said.chose != Some(chose) {
+            self.said.chose = Some(chose);
+            if chose.0 > 0 {
+                self.say(format!("{} of {} chose", chose.0, chose.1));
+            }
+        }
+        if self.said.draw != draw {
+            match draw {
+                Some(_) => self.say("the draw's countdown opened"),
+                None if self.said.draw.is_some() => self.say("the draw's countdown ended"),
+                None => {}
+            }
+            self.said.draw = draw;
+        }
+        if let Some((key, words)) = drawn
+            && self.said.drawn != Some(key)
+        {
+            let first = self.said.drawn.is_none();
+            self.said.drawn = Some(key);
+            if !first || self.said.draw.is_none() {
+                self.say(format!("drawn: {words}"));
+            }
+        }
+    }
+
     fn guest_adds(&mut self, room: &SharedRoom) {
         if self.added || self.adds.is_empty() || !matches!(self.role, Role::Guest(_)) {
             return;
@@ -1716,6 +1909,12 @@ impl Bot {
                 rules.set_life_out(l);
                 say(format!("Rules: when life runs out, {}", l.id()));
             }
+            // `--group`, `--repeats` (revision 22).
+            if host.group {
+                rules.choice = ddi_room::SongChoice::Group;
+                rules.repeats = host.repeats.unwrap_or_default();
+                say(format!("Rules: Song choice Group, repeats {:?}", rules.repeats));
+            }
             let stages = if rules.open_ended {
                 "open".to_string()
             } else {
@@ -2051,6 +2250,31 @@ impl Bot {
         if last {
             room.borrow_mut().toggle_last_song();
         }
+        // Song choice: Group (revision 22): the host's own choice, which
+        // starts the draw; a choice that stands waits for it.
+        if room.borrow().group_choice() {
+            if room.borrow().my_choice().is_some() {
+                return;
+            }
+            match room.borrow_mut().choose(entry.id, &chart.chart) {
+                Ok(()) => {
+                    say(format!(
+                        "chose {} for stage {number}: the draw starts",
+                        entry.card.title
+                    ));
+                    host.next += 1;
+                    host.resting = None;
+                    host.not_before = now + PAUSE_MS;
+                }
+                Err(why) => {
+                    say(format!("choosing {} refused: {why:?}", entry.card.title));
+                    room.borrow_mut().clear_refusal();
+                    host.next += 1;
+                    host.not_before = now + RETRY_MS;
+                }
+            }
+            return;
+        }
         match room.borrow_mut().pick_listed(entry.id, &chart.chart) {
             Ok(()) => {
                 let as_last = if last { " as the last song" } else { "" };
@@ -2374,6 +2598,8 @@ pub fn run_with(o: Options, token: &str) -> i32 {
                 adds: adds.clone(),
                 added: false,
                 everyone: o.everyone,
+                group: o.group,
+                repeats: o.repeats,
                 remove: o.remove.clone(),
                 checked: Default::default(),
                 next: 0,
@@ -2430,6 +2656,10 @@ pub fn run_with(o: Options, token: &str) -> i32 {
                     .collect()
             },
             added: false,
+            choose: o.choose,
+            place: n as u64,
+            chose_for: 0,
+            choose_at: None,
         });
     }
     catch_stop();
