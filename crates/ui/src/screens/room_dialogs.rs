@@ -2647,22 +2647,28 @@ impl Screen for HostDialog {
         } else {
             0.0
         };
-        // The room's song list's size and what an addition to a full list
-        // does (revision 17): the owner's, with what they mean.
+        // Who can add songs (revision 21), the room's song list's size
+        // and what an addition to a full list does (revision 17): the
+        // owner's, with what they mean.
         let list = {
             let r = self.room.borrow();
-            (succession && r.has_song_list()).then(|| r.song_list_rules())
+            (succession && r.has_song_list()).then(|| (r.song_list_rules(), r.who_adds()))
         };
         let list_note: Vec<String> = match list {
-            Some(rules) => {
-                let text: String =
-                    m::host_list_note(u32::try_from(rules.per_person()).unwrap_or(u32::MAX)).into();
+            Some((rules, who)) => {
+                let text: String = match who {
+                    ddi_room::WhoAdds::Hosts => m::host_list_note_hosts().into(),
+                    ddi_room::WhoAdds::Everyone => {
+                        m::host_list_note(u32::try_from(rules.per_person()).unwrap_or(u32::MAX))
+                            .into()
+                    }
+                };
                 super::dialog::wrap_lines(&text, inner, 13.0)
             }
             None => Vec::new(),
         };
         let list_h = if list.is_some() {
-            2.0 * ROW + list_note.len() as f32 * 18.0 + 14.0
+            3.0 * ROW + list_note.len() as f32 * 18.0 + 14.0
         } else {
             0.0
         };
@@ -2753,9 +2759,22 @@ impl Screen for HostDialog {
             }
             ry += setting_h - audience_h - list_h - twitch_h;
         }
-        if let Some(rules) = list {
+        if let Some((rules, who)) = list {
             let labels = (&*m::rules_previous(), &*m::rules_next());
             let at = |mid: f32| [x0 + inner - 210.0, x0 + inner - 114.0, x0 + inner - 18.0, mid];
+            // Who can add songs: Hosts or Everyone.
+            let mid = ry + ROW / 2.0;
+            let mut label = env.text("WhoAdds", &m::host_who_adds(), 14.0, 400, "Secondary");
+            look::ellipsized(&mut label, inner - 250.0);
+            c.push(left(label, x0, mid));
+            let (value, edge) = match who {
+                ddi_room::WhoAdds::Hosts => (m::host_who_adds_hosts(), (true, false)),
+                ddi_room::WhoAdds::Everyone => (m::host_who_adds_everyone(), (false, true)),
+            };
+            let mut v = env.text("WhoAdds.Value", &value, 14.0, 600, "Text");
+            look::ellipsized(&mut v, 150.0);
+            stepper(&env, &mut c, "whoadds", labels, v, edge, at(mid));
+            ry += ROW;
             let mid = ry + ROW / 2.0;
             let mut label = env.text("ListSize", &m::host_list_size(), 14.0, 400, "Secondary");
             look::ellipsized(&mut label, inner - 250.0);
@@ -2790,7 +2809,7 @@ impl Screen for HostDialog {
                 c.push(left(t, x0, ay));
                 ay += 18.0;
             }
-            ry += list_h;
+            ry += list_h - ROW;
         }
         if let Some((t, whose)) = &twitch {
             let labels = (&*m::rules_previous(), &*m::rules_next());
@@ -3000,6 +3019,7 @@ impl Screen for HostDialog {
         if succession {
             pair(&mut v, "Dec.leaves".into(), "Inc.leaves".into());
             if self.room.borrow().has_song_list() {
+                pair(&mut v, "Dec.whoadds".into(), "Inc.whoadds".into());
                 pair(&mut v, "Dec.listsize".into(), "Inc.listsize".into());
                 pair(&mut v, "Dec.whenfull".into(), "Inc.whenfull".into());
             }
@@ -3115,6 +3135,15 @@ impl Screen for HostDialog {
                             HostLeaves::PassOn
                         };
                         let _ = self.room.borrow_mut().set_host_leaves(policy);
+                        self.rebuild(root, cx);
+                    }
+                    "Dec.whoadds" | "Inc.whoadds" => {
+                        let who = if name == "Inc.whoadds" {
+                            ddi_room::WhoAdds::Everyone
+                        } else {
+                            ddi_room::WhoAdds::Hosts
+                        };
+                        let _ = self.room.borrow_mut().set_who_adds(who);
                         self.rebuild(root, cx);
                     }
                     "Dec.listsize" | "Inc.listsize" | "Dec.whenfull" | "Inc.whenfull" => {

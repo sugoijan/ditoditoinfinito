@@ -3510,6 +3510,37 @@ impl RoomClient {
         self.has_song_list() && self.state().may_add(self.me)
     }
 
+    /// Who may add songs to the room's list (revision 21): the owner's
+    /// setting, Hosts until they open it to everyone.
+    pub fn who_adds(&self) -> ddi_room::WhoAdds {
+        self.state().songs.who_adds
+    }
+
+    /// The owner's Who can add songs (Host options).
+    pub fn set_who_adds(&mut self, who: ddi_room::WhoAdds) -> Result<(), Refusal> {
+        self.send(Command::SetWhoAdds { who })
+    }
+
+    /// What would stop this player adding a song now, where they may add
+    /// at all (revision 21, `RoomState::add_refusal`): their half of the
+    /// list reached, or a list full that refuses or has nothing it may
+    /// remove. None where an addition would be taken (or they may not add:
+    /// [`Self::may_add`] says that).
+    pub fn add_blocked(&self) -> Option<Rejection> {
+        if !self.may_add() {
+            return None;
+        }
+        self.state().add_refusal(self.me, None)
+    }
+
+    /// How many songs this player added that are listed, and how many one
+    /// who is not a host may (half the list's size); none for a host, a
+    /// co-host or an administrator, who may fill the whole list.
+    pub fn my_song_count(&self) -> Option<(usize, usize)> {
+        let s = self.state();
+        s.song_quota(self.me).map(|q| (s.songs.added_by(self.me), q))
+    }
+
     /// Whether this player may remove entry `song`.
     pub fn may_remove(&self, song: RoomSongId) -> bool {
         self.state()
@@ -3531,9 +3562,11 @@ impl RoomClient {
         let Some(new) = new_song(song) else {
             return self.refuse(Refusal::Chart(Unsupported::NoDigest));
         };
-        if let Some(e) = self.state().songs.by_key(&new.key) {
-            let id = e.id;
-            return self.refuse(Refusal::Room(Rejection::AlreadyListed { song: id }));
+        // The room's own decision asked first (the same song, this
+        // player's half, a full list), so the refusal is said at the
+        // press rather than when the room answers.
+        if let Some(why) = self.state().add_refusal(self.me, Some(&new)) {
+            return self.refuse(Refusal::Room(why));
         }
         self.library.insert(new.key.as_str().to_string(), song.clone());
         self.send(Command::AddSong {

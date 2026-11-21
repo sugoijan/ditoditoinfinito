@@ -2247,13 +2247,18 @@ room-refused-song-listed = That song is in the room already.
 # Refused: the room's list holds as many songs as it may and refuses new
 # ones (its host's setting), or every song in it is in use.
 room-refused-list-full = The room's song list is full.
-# Refused: the person added as many songs as one may.
+# Refused: the person added as many songs as one may (half the list's
+# size; hosts and co-hosts are not held to it). Also the status line on My
+# songs once they have.
 # Variables:
 #   $limit (Number) - how many one person may add
 room-refused-too-many-songs = { $limit ->
-    [one] You can add one song to this room.
-   *[other] You can add up to { $limit } songs to this room.
+    [one] You've added the one song you can add to this room. Remove it to add another.
+   *[other] You've added the { $limit } songs you can add to this room. Remove one of yours to add another.
 }
+# Refused: only the hosts add songs to this room (the host's setting Who
+# can add songs was turned back to Hosts).
+room-refused-hosts-add = Only the hosts can add songs to this room now.
 # Refused: a stage that is picked or under way plays that song.
 room-refused-song-in-use = That song is picked for a stage, so it stays for now.
 # Refused: the song is still being uploaded.
@@ -2281,15 +2286,25 @@ room-host-when-full = When the list is full
 # songs are refused until one is removed.
 room-host-when-full-remove = Remove the oldest
 room-host-when-full-refuse = Refuse new songs
-# The note under the two rows: what they mean. Hosts and co-hosts may
-# fill the whole list; anyone else (once a room lets everyone add songs)
-# half of it.
+# The row's label: who may add songs to the room's list (about 24
+# letters).
+room-host-who-adds = Who can add songs
+# Its two values (about 16 letters each): the hosts and co-hosts alone; or
+# everyone in the room (anyone not held to watching by the watch-only
+# link).
+room-host-who-adds-hosts = Hosts
+room-host-who-adds-everyone = Everyone
+# The note under the song list's rows where everyone may add songs: what
+# they mean. Hosts and co-hosts may fill the whole list; anyone else half
+# of it, and removes what they added.
 # Variables:
 #   $count (Number) - how many songs anyone but a host may add (half the size)
 room-host-list-note = { $count ->
-    [one] Hosts and co-hosts may fill the whole list; anyone else may add one song. A song stays until it is removed or the room ends.
-   *[other] Hosts and co-hosts may fill the whole list; anyone else may add up to { $count } songs. A song stays until it is removed or the room ends.
+    [one] Hosts and co-hosts may fill the whole list; anyone else may add one song and remove their own. A song stays until it is removed or the room ends.
+   *[other] Hosts and co-hosts may fill the whole list; anyone else may add up to { $count } songs and remove their own. A song stays until it is removed or the room ends.
 }
+# The same note where only the hosts add songs.
+room-host-list-note-hosts = Only hosts and co-hosts add songs, and they may fill the whole list. A song stays until it is removed or the room ends.
 
 ## Stage 2 of the room's song list: songs downloaded ahead.
 
@@ -2303,6 +2318,18 @@ room-ahead-quota = This browser has no more room for the room's songs: only the 
 room-status-my-songs-picker = Add songs to the room here. Pick the next song on Room songs.
 # The same for someone who may add songs but doesn't choose them.
 room-status-my-songs-adder = Add songs to the room here.
+# The same for someone who isn't a host, where the host lets everyone add
+# songs: how many they added of as many as they may (half the list).
+# Variables:
+#   $added (Number) - songs they added that are in the room's list
+#   $limit (Number) - how many they may add
+room-status-my-songs-count = { $limit ->
+    [one] Add songs to the room here. You've added { $added } of the one song you can add.
+   *[other] Add songs to the room here. You've added { $added } of the { $limit } songs you can add.
+}
+# The status line on My songs where the room's song list is full and takes
+# no more (it refuses new songs, or every song in it is in use).
+room-status-my-songs-full = The room's song list is full. A song must be removed before another is added.
 # More's item on My songs for someone who may add songs: adds every song
 # of the shown song's pack that is not in the room yet (as many as they
 # may add).

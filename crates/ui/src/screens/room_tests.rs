@@ -3255,6 +3255,68 @@ fn listed(t: &Three, titles: &[&str], by: u64) {
     });
 }
 
+/// Round RL3 (revision 21): Who can add songs, a row of Host options
+/// between If the host leaves and the list's size, its note saying what it
+/// means; a member's My songs under each value: browsing only under Hosts,
+/// a host's under Everyone (Enter adds, the status line counts their songs
+/// against their half), their own row saying Added by you with Remove in
+/// More; turned back to Hosts, browsing only again and the song kept.
+#[test]
+fn who_can_add_songs_in_host_options_and_a_members_my_songs() {
+    let t = Three::new(false);
+    let (ea, eb) = (env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One", "Bravo Two"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    let adds_here = |e: &Env| e.state.borrow().hints.iter().any(|h| h.contains("Add to the room"));
+    // Bob's My songs under Hosts: his library to browse, nothing to add.
+    hb.key("KeyM", "m");
+    hb.run(0.3);
+    assert_eq!(view(&eb).tab.as_deref(), Some("mine"));
+    assert_eq!(view(&eb).who_adds, "hosts");
+    assert!(!view(&eb).may_add && !adds_here(&eb));
+    // Alice's Host options: the row at Hosts, the note saying so.
+    open_players(&mut ha);
+    press(&mut ha, "HostOptions");
+    assert_eq!(top(&ha), "room-host");
+    assert_eq!(said(&ha, "WhoAdds"), "Who can add songs");
+    assert_eq!(said(&ha, "WhoAdds.Value"), "Hosts");
+    assert!(says_words(&ha, "Only hosts and co-hosts add songs, and they may fill the whole list."), "{:?}", ha.texts());
+    press(&mut ha, "Inc.whoadds");
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    assert_eq!(said(&ha, "WhoAdds.Value"), "Everyone");
+    assert!(says_words(&ha, "anyone else may add up to 50 songs and remove their own."), "{:?}", ha.texts());
+    // Bob's My songs reads as a host's: Enter adds, his count said.
+    assert_eq!(view(&eb).who_adds, "everyone");
+    assert!(view(&eb).may_add && adds_here(&eb));
+    assert_eq!(view(&eb).my_songs, Some([0, 50]));
+    assert!(says_words(&hb, "You've added 0 of the 50 songs you can add."), "{:?}", hb.texts());
+    hb.key("Enter", "Enter");
+    hb.run(0.1);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    let songs = view(&ea).songs;
+    assert_eq!(songs.len(), 1);
+    assert_eq!((songs[0].title.as_str(), songs[0].by.as_str()), ("Bravo One", "bob"));
+    assert_eq!(view(&eb).my_songs, Some([1, 50]));
+    assert!(eb.state.borrow().hints.iter().any(|h| h.contains("In the room")));
+    // His row on Room songs: Added by you, Remove in More.
+    hb.key("KeyM", "m");
+    hb.run(0.3);
+    assert!(hb.texts().iter().any(|t| t.contains("Added by you")), "{:?}", hb.texts());
+    let entry = t.bob.borrow().room_songs()[0].id;
+    assert!(t.bob.borrow().may_remove(entry));
+    // Back to Hosts: his song stays; his My songs is browsing only.
+    press(&mut ha, "Dec.whoadds");
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    assert_eq!(said(&ha, "WhoAdds.Value"), "Hosts");
+    assert_eq!(view(&eb).songs.len(), 1);
+    hb.key("KeyM", "m");
+    hb.run(0.3);
+    assert!(!view(&eb).may_add && !adds_here(&eb));
+    assert!(t.bob.borrow().may_remove(entry), "his own still");
+}
+
 /// Round DB: a Room songs row shows the player's best grade (with its
 /// lamp) or NEW where the listed song is in their library, matched by its
 /// content, exactly as their library's row does; nothing where they lack
@@ -4228,6 +4290,8 @@ fn host_options_work_by_keyboard_controller_and_a_tap_on_a_row() {
         [
             "Dec.leaves",
             "Inc.leaves",
+            "Dec.whoadds",
+            "Inc.whoadds",
             "Dec.listsize",
             "Inc.listsize",
             "Dec.whenfull",
@@ -6223,7 +6287,9 @@ fn the_rooms_screens_draw_as_pinned() {
 /// with DDI", and in practice's six the selected row is drawn after the
 /// others so that its outline lies over the next row. Round SF moved the
 /// online room's four: each tab has a faint plate of its own under its
-/// words, so a click on the plate around them is the tab's.
+/// words, so a click on the plate around them is the tab's. Round RL3
+/// (revision 21) moved "host": its Who can add songs row, and the list's
+/// note under Hosts saying only hosts and co-hosts add songs.
 const PINNED: [(&str, u64); 10] = [
     ("select", 1409723276464905846),
     ("rules", 16654682003949843511),
@@ -6234,7 +6300,7 @@ const PINNED: [(&str, u64); 10] = [
     ("online-select", 6323310014290112460),
     ("online-member", 15885329307818148993),
     ("online-players", 3138793288985063061),
-    ("host", 11933851927349543688),
+    ("host", 9541808571700461163),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's

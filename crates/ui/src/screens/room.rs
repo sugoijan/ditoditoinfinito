@@ -213,6 +213,13 @@ pub struct RoomView {
     pub may_add: bool,
     pub list_size: u16,
     pub when_full: String,
+    /// Who can add songs (`hosts`, `everyone`; revision 21), the songs
+    /// this player added that are listed and their half (none for a
+    /// host), and what would stop an addition now (`list_full`,
+    /// `too_many_songs`; none).
+    pub who_adds: String,
+    pub my_songs: Option<[usize; 2]>,
+    pub add_blocked: Option<String>,
     /// The match's picks as the history shows them, one a stage.
     pub picks: Vec<String>,
     /// An online room (M5c): its id and name, the link (`joining`,
@@ -657,10 +664,24 @@ pub fn status_on_my_songs(r: &RoomClient) -> Option<UiText> {
     if !picking {
         return None;
     }
-    Some(if r.chooses() {
-        m::status_my_songs_picker()
-    } else {
-        m::status_my_songs_adder()
+    // What would stop an addition now, said before the press (round RL3):
+    // the list full, or this player's half of it reached.
+    match r.add_blocked() {
+        Some(Rejection::ListFull) => return Some(m::status_my_songs_full()),
+        Some(Rejection::TooManySongs { limit }) => return Some(m::refused_too_many_songs(limit)),
+        _ => {}
+    }
+    if r.chooses() {
+        return Some(m::status_my_songs_picker());
+    }
+    // One who is not a host (under Who can add songs: Everyone): how many
+    // of their half they added.
+    Some(match r.my_song_count() {
+        Some((added, limit)) => m::status_my_songs_count(
+            u32::try_from(added).unwrap_or(u32::MAX),
+            u32::try_from(limit).unwrap_or(u32::MAX),
+        ),
+        None => m::status_my_songs_adder(),
     })
 }
 
@@ -3361,6 +3382,9 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         may_add: r.may_add(),
         list_size: r.song_list_rules().size,
         when_full: snake(&r.song_list_rules().when_full),
+        who_adds: snake(&r.who_adds()),
+        my_songs: r.my_song_count().map(|(a, q)| [a, q]),
+        add_blocked: r.add_blocked().as_ref().map(snake),
         spotlight: spot.map(|sp| sp.card.title.clone()),
         spotlight_song: r
             .spotlight()
@@ -3578,6 +3602,10 @@ pub fn refusal_text(why: &Refusal) -> UiText {
             Rejection::WrongPhase { .. } | Rejection::NotUpcoming | Rejection::WindowOpen => {
                 m::refused_phase()
             }
+            // Who can add songs turned back to Hosts (revision 21).
+            Rejection::Unauthorized {
+                capability: ddi_room::Capability::AddSongs,
+            } => m::refused_hosts_add(),
             Rejection::Unauthorized { .. } => m::refused_host_only(),
             Rejection::NotPicker { .. } => m::refused_not_picker(),
             Rejection::InvalidRules(p) | Rejection::RulesNeedReview(p) => rules_problem(p),

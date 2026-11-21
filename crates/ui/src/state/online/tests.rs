@@ -1928,4 +1928,109 @@ pub(crate) mod room {
         step!(400);
         assert!(matches!(alice.state().phase, Phase::Preparing { .. }));
     }
+
+    /// Round RL3 (revision 21): Who can add songs. Under Hosts Bob's My
+    /// songs is browsing only and an addition is refused in the room's
+    /// words; Alice lets everyone add: Bob adds his own songs (uploaded
+    /// under each entry's grant, as a host's), the status line counts them
+    /// against his half and says when it is reached (his next refused at
+    /// the press, before anything is sent); he removes his own; Alice turns
+    /// it back to Hosts: his songs stay, his next is refused in those
+    /// words; a full list that refuses is said before the press.
+    #[test]
+    fn a_member_adds_their_own_songs_when_everyone_may() {
+        use crate::screens::room::{refusal_text, status_on_my_songs};
+        use ddi_room::{ListRules, Rejection, WhenFull, WhoAdds};
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob"]);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        macro_rules! step {
+            ($ms:expr) => {
+                tick(&clock, &mut [&mut alice, &mut bob], $ms)
+            };
+        }
+        step!(400);
+        let songs: Vec<crate::screens::data::SongEntry> = (0..4u128)
+            .map(|k| {
+                let mut s = song();
+                s.id = format!("u-{k}");
+                s.title = format!("Song {k}");
+                s.charts[0].digest = Some(ddi_chart::ChartDigest(100 + k));
+                s
+            })
+            .collect();
+        bob.set_library(&songs);
+        alice.set_library(&songs);
+        let text = |t: ddi_l10n::UiText| String::from(t);
+        // Hosts (the default): Bob may not add; My songs says nothing.
+        assert_eq!(bob.who_adds(), WhoAdds::Hosts);
+        assert!(!bob.may_add());
+        assert!(status_on_my_songs(&bob).is_none());
+        let refused = bob.add_song(&songs[0]).unwrap_err();
+        assert_eq!(text(refusal_text(&refused)), "Only the hosts can add songs to this room now.");
+        bob.clear_refusal();
+        // Alice: a list of four, refusing when full, everyone adding.
+        alice
+            .set_song_list(ListRules {
+                size: 4,
+                when_full: WhenFull::Refuse,
+            })
+            .unwrap();
+        alice.set_who_adds(WhoAdds::Everyone).unwrap();
+        step!(400);
+        assert!(bob.may_add());
+        assert_eq!(bob.my_song_count(), Some((0, 2)));
+        assert_eq!(alice.my_song_count(), None, "a host fills the whole list");
+        assert_eq!(
+            status_on_my_songs(&bob).map(text).as_deref(),
+            Some("Add songs to the room here. You've added 0 of the 2 songs you can add.")
+        );
+        bob.add_song(&songs[0]).unwrap();
+        bob.add_song(&songs[1]).unwrap();
+        step!(400);
+        let mine: Vec<_> = alice.room_songs().iter().filter(|e| e.by == bob.me()).map(|e| e.id).collect();
+        assert_eq!(mine.len(), 2);
+        // His uploads, one at a time, each under its entry's grant.
+        step!(400);
+        let jobs = bob.take_upload_jobs();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!((jobs[0].entry, jobs[0].song.id.as_str()), (Some(mine[0]), "u-0"));
+        // At his half: said before the press, refused at it, nothing sent.
+        assert_eq!(bob.add_blocked(), Some(Rejection::TooManySongs { limit: 2 }));
+        let at_half = "You've added the 2 songs you can add to this room. Remove one of yours to add another.";
+        assert_eq!(status_on_my_songs(&bob).map(text).as_deref(), Some(at_half));
+        let refused = bob.add_song(&songs[2]).unwrap_err();
+        assert_eq!(text(refusal_text(&refused)), at_half);
+        bob.clear_refusal();
+        // His own he removes; not Alice's.
+        alice.add_song(&songs[3]).unwrap();
+        step!(400);
+        let hers = alice.listed(&songs[3]).unwrap().id;
+        assert!(bob.may_remove(mine[1]) && !bob.may_remove(hers));
+        bob.remove_song(mine[1]).unwrap();
+        step!(400);
+        assert_eq!(alice.room_songs().len(), 2);
+        // Back to Hosts: his song stays, his next is refused.
+        alice.set_who_adds(WhoAdds::Hosts).unwrap();
+        step!(400);
+        assert!(!bob.may_add());
+        assert!(alice.room_songs().iter().any(|e| e.id == mine[0]));
+        let refused = bob.add_song(&songs[2]).unwrap_err();
+        assert!(matches!(refused, Refusal::Room(Rejection::Unauthorized { .. })));
+        bob.clear_refusal();
+        // Full and refusing (Alice fills it): said on My songs before the
+        // press, to Bob once he may add again and to Alice.
+        alice.add_song(&songs[1]).unwrap();
+        alice.add_song(&songs[2]).unwrap();
+        alice.set_who_adds(WhoAdds::Everyone).unwrap();
+        step!(400);
+        assert_eq!(alice.room_songs().len(), 4);
+        let full = "The room's song list is full. A song must be removed before another is added.";
+        for r in [&alice, &bob] {
+            assert_eq!(r.add_blocked(), Some(Rejection::ListFull));
+            assert_eq!(status_on_my_songs(r).map(text).as_deref(), Some(full));
+        }
+    }
+
 }
