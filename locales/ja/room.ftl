@@ -1040,6 +1040,8 @@ room-status-group-none-host = ステージ{ $number }の曲を選んでくださ
 room-status-group-none = ステージ{ $number }の曲を選んでください。ホストか共同ホストが選ぶと抽選が始まります。
 room-status-group-some-host = { $of }人中{ $chose }人がステージ{ $number }の曲を選びました。あなたが選ぶと抽選が始まります。
 room-status-group-some = { $of }人中{ $chose }人がステージ{ $number }の曲を選びました。ホストか共同ホストが選ぶと抽選が始まります。
+room-status-group-waits-host = { $of }人中{ $chose }人がステージ{ $number }の曲を選びました。あなたの選択は待機中です。選んだ曲でEnterキーを押すかタップすると抽選が始まります。
+room-status-group-waits = { $of }人中{ $chose }人がステージ{ $number }の曲を選びました。ホストか共同ホストが開始すると抽選が始まります。
 room-status-group-watching = { $of }人中{ $chose }人のプレイヤーがステージ{ $number }の曲を選びました。曲を選ぶのはプレイヤーだけです。
 room-status-draw = 抽選まで{ $seconds }秒 · { $of }人中{ $chose }人が選択 · { $name }が開始
 room-status-draw-waits = { $why ->
@@ -1070,6 +1072,7 @@ room-song-line-repeat = { $rule ->
 room-hint-choose = この曲を選ぶ
 room-hint-choose-draw = この曲を選んで抽選開始
 room-hint-clear-choice = 選択を取り消す
+room-hint-start-draw = 抽選を開始
 room-hint-repeated = { $rule ->
     [not_in_a_row] 選べません：前のステージの曲
    *[not_in_a_match] 選べません：この試合で選曲済み

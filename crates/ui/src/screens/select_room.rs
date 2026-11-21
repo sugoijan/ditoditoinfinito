@@ -1770,11 +1770,15 @@ impl SelectScreen {
                     // A song the Repeats rule excludes says why it can't
                     // be chosen (round RL4b).
                     let excluded = self.shown_entry().and_then(|e| r.repeat_refused(e));
-                    Some(if shown.is_some() && shown == mine {
+                    Some(if shown.is_some() && shown == mine && r.choice_waits() {
+                        // Chosen while a stage was played: Enter starts
+                        // the draw now (round FX).
+                        ddi_l10n::msg::room::hint_start_draw()
+                    } else if shown.is_some() && shown == mine {
                         ddi_l10n::msg::room::hint_clear_choice()
                     } else if let Some(rule) = excluded {
                         ddi_l10n::msg::room::hint_repeated(room::repeats_id(rule))
-                    } else if r.starts_draw() && r.state().draw.is_none() {
+                    } else if r.starts_draw_now() {
                         ddi_l10n::msg::room::hint_choose_draw()
                     } else {
                         ddi_l10n::msg::room::hint_choose()

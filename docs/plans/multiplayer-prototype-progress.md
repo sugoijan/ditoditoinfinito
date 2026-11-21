@@ -13958,6 +13958,24 @@ feature."
   (`results_flow`, with or without a GPU) plays a song registered as the
   store leaves it (`share::keep_loaded_for_tests`, TESTING ONLY) and
   finds the banner read from there.
+- **A group draw's countdown opens only on a host's choice made when the
+  room can pick** (recommended; `docs/plans/multiplayer-room-songs.md`,
+  "Stage 4 as built"). A choice made while a stage is readied or played
+  waits (`Choice::waits`, set by the reducer alone): shown, counted and
+  drawn among, but a host's or co-host's opens nothing at that stage's
+  end; their Enter on it (or another song) once the room can pick opens
+  the countdown. Their status line says "Your choice waits: press Enter
+  or tap your song to start the draw.", the song's hint "Start the
+  draw", the others "The draw starts when a host or co-host starts it."
+  No new revision: clients mirror the flag the authority sets, and a
+  choice without it reads as before; the server takes the new crate (no
+  code of its own). Tests: `a_choice_made_while_the_room_cannot_pick_waits_for_its_maker`
+  (`group_choice`; `the_draw_picks_one_members_choice_and_clears_them_all`
+  asserted the old opening and now the new), `a_hosts_choice_made_during_a_stage_waits_through_both_authorities`
+  (`online`: local and fake server alike, every mirror),
+  `a_hosts_waiting_choice_says_how_to_start_the_draw` (the screens).
+  The countdown that waits for players (`NoStart`) still opens by itself
+  once a stage could start: its choice was made when the room could pick.
 
 ## Provisional choices
 

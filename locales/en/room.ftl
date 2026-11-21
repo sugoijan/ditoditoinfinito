@@ -2515,6 +2515,22 @@ room-status-group-some-host = { $chose } of { $of } chose stage { $number }'s so
 #   $of (Number) - how many players may choose
 #   $number (Number) - the stage, from 1
 room-status-group-some = { $chose } of { $of } chose stage { $number }'s song. The draw starts when a host or co-host chooses.
+# Round FX: a host's or co-host's own choice made while the last stage was
+# played opens no draw by itself (the host decides when the next song
+# goes): to that host, once the room can pick, how to start it (Enter or a
+# tap on their chosen song, whose hint then reads "Start the draw").
+# Variables:
+#   $chose (Number) - how many players have chosen
+#   $of (Number) - how many players may choose
+#   $number (Number) - the stage, from 1
+room-status-group-waits-host = { $chose } of { $of } chose stage { $number }'s song. Your choice waits: press Enter or tap your song to start the draw.
+# The same moment to everyone else: a host or co-host has chosen but has
+# not started the draw.
+# Variables:
+#   $chose (Number) - how many players have chosen
+#   $of (Number) - how many players may choose
+#   $number (Number) - the stage, from 1
+room-status-group-waits = { $chose } of { $of } chose stage { $number }'s song. The draw starts when a host or co-host starts it.
 # The same to someone who may not choose (watching, or playing from the
 # next match).
 # Variables:
@@ -2602,6 +2618,9 @@ room-song-line-repeat = { $rule ->
 room-hint-choose = Choose this song
 room-hint-choose-draw = Choose this song and start the draw
 room-hint-clear-choice = Take back your choice
+# On a host's or co-host's chosen song where that choice was made while
+# the last stage was played (round FX): Enter starts the draw with it.
+room-hint-start-draw = Start the draw
 # Enter's hint on a song the Repeats rule excludes now: why it can't be
 # chosen (Enter says so in a notice).
 # Variables:

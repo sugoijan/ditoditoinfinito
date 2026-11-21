@@ -820,6 +820,121 @@ fn choosing_by_the_group_is_kept_alike_by_both_authorities() {
     assert_eq!(c.song, Some(drawn.won().unwrap().song));
 }
 
+/// Round FX: a host's choice made while a stage is played waits, through
+/// both authorities alike: the stage drawn and played (Alice's and Bob's
+/// choices for the next one made during its play), its end opens no
+/// countdown however long the room waits; Alice's Enter on her chosen song
+/// once the room can pick opens it. Every mirror holds the same choices.
+#[test]
+fn a_hosts_choice_made_during_a_stage_waits_through_both_authorities() {
+    use ddi_room::{ReportedRun, StageId};
+    let song = |n: u8| ddi_room::NewSong {
+        key: SongKey::new(format!("s{n:015x}")),
+        card: ddi_room::SongCard {
+            title: format!("Song {n}"),
+            ..ddi_room::SongCard::default()
+        },
+        charts: vec![ddi_room::ChartLine {
+            chart: ChartKey::new(format!("d{n}")),
+            style: "dance-single".into(),
+            difficulty: "Hard".into(),
+            meter: 9,
+        }],
+    };
+    let up = |id| {
+        Step::Authority(Command::SetSongContent {
+            song: ddi_room::RoomSongId(id),
+            status: ContentStatus::Available,
+            share: Some(format!("share{id}")),
+            charts: None,
+        })
+    };
+    let choose = |n: u64| Command::Choose {
+        song: Some(ddi_room::RoomSongId(n)),
+        chart: Some(ChartKey::new(format!("d{n}"))),
+    };
+    let stage = StageId(1);
+    let mut rules = MatchRules::hosted();
+    rules.choice = ddi_room::SongChoice::Group;
+    rules.stages = 2;
+    let mut steps = vec![
+        Step::Connect("dev:alice"),
+        Step::Join("dev:bob", "Bob"),
+        Step::Connect("dev:bob"),
+        Step::Cmd("dev:alice", Command::AddSong { song: Box::new(song(1)) }),
+        Step::Cmd("dev:alice", Command::AddSong { song: Box::new(song(2)) }),
+        up(1),
+        up(2),
+        Step::Cmd("dev:alice", Command::SaveNextRules { rules }),
+        Step::Cmd("dev:alice", choose(1)),
+        Step::Advance(10_000),
+    ];
+    for who in ["dev:alice", "dev:bob"] {
+        steps.push(Step::Cmd(
+            who,
+            Command::ReportLoading {
+                stage,
+                readiness_rev: 2,
+                loading: Loading::Loaded,
+            },
+        ));
+    }
+    for who in ["dev:alice", "dev:bob"] {
+        steps.push(Step::Cmd(
+            who,
+            Command::SetReady {
+                stage,
+                readiness_rev: 2,
+                ready: true,
+            },
+        ));
+    }
+    steps.push(Step::Advance(10_000));
+    // During the play: Bob's choice and Alice's for stage 2.
+    steps.push(Step::Cmd("dev:bob", choose(2)));
+    steps.push(Step::Cmd("dev:alice", choose(2)));
+    for (who, score) in [("dev:alice", 2_000), ("dev:bob", 1_000)] {
+        steps.push(Step::Cmd(
+            who,
+            Command::ReportOutcome {
+                stage,
+                run: ReportedRun::Live {
+                    life_ppm: 500_000,
+                    score,
+                    steps: 0,
+                },
+                detail: None,
+            },
+        ));
+    }
+    steps.push(Step::Advance(30_000));
+    let (waited, waited_answers) = run_local(&steps);
+    assert!(waited_answers.iter().all(Option::is_none), "{waited_answers:?}");
+    assert!(
+        matches!(waited.phase, ddi_room::Phase::Intermission { .. }),
+        "{:?}",
+        waited.phase
+    );
+    assert!(waited.draw.is_none(), "nothing counts down by itself");
+    assert_eq!(waited.choices.len(), 2, "both choices stand");
+    assert!(waited.choices.values().all(|c| c.waits));
+    assert!(waited.choice_waits_for(ParticipantId(1)));
+    assert!(!waited.choice_waits_for(ParticipantId(2)), "Bob starts no draw");
+    // Alice's Enter on her chosen song.
+    steps.push(Step::Cmd("dev:alice", choose(2)));
+    let (local, local_answers) = run_local(&steps);
+    let (server, online_answers, mirrors) = run_online(&steps, &[]);
+    assert_eq!(local_answers, online_answers);
+    assert_eq!(local, server, "the server's room is the local one");
+    for m in &mirrors {
+        assert_eq!(m, &server, "a client's mirror is the room");
+    }
+    let draw = local.draw.clone().expect("her choice made again opens it");
+    assert_eq!(draw.by, ParticipantId(1));
+    assert!(!local.choices[&ParticipantId(1)].waits);
+    assert!(local.choices[&ParticipantId(2)].waits, "Bob's as he made it");
+}
+
 /// Round DB: a host fills the whole list, past the half anyone else would
 /// be held to, through both authorities alike (a list of two, three songs
 /// added: the third makes room).

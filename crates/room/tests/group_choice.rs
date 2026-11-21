@@ -315,7 +315,12 @@ fn the_draw_picks_one_members_choice_and_clears_them_all() {
     assert!(g.r.s.draw.is_none());
     g.play();
     assert!(matches!(g.r.s.phase, Phase::Intermission { .. }));
-    // Between stages the host's standing choice opens the next countdown.
+    // Round FX: the host's choice made during the stage waits (before,
+    // the stage's end opened the countdown by itself); made again between
+    // stages, it opens the next countdown.
+    assert!(g.r.s.draw.is_none());
+    assert_eq!(g.r.s.choices.len(), 2);
+    g.choose(host, 1).unwrap();
     assert!(g.r.s.draw.is_some());
     assert_eq!(g.r.s.choices.len(), 2);
     // The audience sees the choices with what they name, the countdown
@@ -725,4 +730,77 @@ fn repeats_pass_over_a_canceled_start() {
         assert!(excluded.contains(&g.ids[0]), "{repeats:?}: stage 1's song");
         g.choose(ana, 2).unwrap();
     }
+}
+
+/// Round FX: a choice made while the room cannot pick (a stage readied or
+/// played) is a choice all the same (shown, counted, drawn among) but a
+/// host's or co-host's opens no countdown, at the stage's end or ever by
+/// itself; made again once the room can pick (here another song; Enter on
+/// the same song in `a_hosts_choice_made_during_a_stage_waits_through_both_authorities`),
+/// it does. A member's choice never starts it either way.
+#[test]
+fn a_choice_made_while_the_room_cannot_pick_waits_for_its_maker() {
+    let mut g = group(Repeats::Allowed, 3);
+    let (host, ana, bob) = (g.r.host, g.ana, g.bob);
+    g.r.by(host, Command::SetCoHost { participant: ana, on: true }).unwrap();
+    g.choose(host, 1).unwrap();
+    g.draw(0);
+    // The drawn stage readied: the room cannot pick.
+    assert!(g.r.s.pick_stage().is_none());
+    g.choose(ana, 2).unwrap();
+    g.choose(bob, 3).unwrap();
+    assert!(g.r.s.choices.values().all(|c| c.waits));
+    let stage = g.r.s.upcoming_stage().unwrap();
+    for who in [host, ana, bob] {
+        g.r.load_for(who, stage, Loading::Loaded).unwrap();
+        g.r.ready_for(who, stage, true).unwrap();
+    }
+    let start = match g.r.s.phase {
+        Phase::Countdown { start_at, .. } => start_at.0,
+        ref p => panic!("not counting down: {p:?}"),
+    };
+    g.r.wait_to(start);
+    // During the play the host chooses too.
+    assert!(matches!(g.r.s.phase, Phase::Stage { .. }));
+    g.choose(host, 3).unwrap();
+    assert!(g.r.s.choices[&host].waits);
+    for who in [host, ana, bob] {
+        g.r.by(
+            who,
+            Command::ReportOutcome {
+                stage,
+                run: ReportedRun::Live {
+                    life_ppm: 500_000,
+                    score: 1000 + who.0 as i64,
+                    steps: 0,
+                },
+                detail: None,
+            },
+        )
+        .unwrap();
+    }
+    // The stage ended: every choice stands, nothing counts down, however
+    // long the room waits.
+    let now = g.r.now;
+    g.r.wait_to(now + 60_000);
+    assert!(g.r.s.pick_stage().is_some(), "{:?}", g.r.s.phase);
+    assert!(g.r.s.draw.is_none(), "no countdown at a moment nobody chose");
+    assert_eq!(g.r.s.choices.len(), 3);
+    assert_eq!(g.r.s.chosen_by(g.ids[2]), vec![host, bob]);
+    assert!(g.r.s.choice_waits_for(host) && g.r.s.choice_waits_for(ana));
+    assert!(!g.r.s.choice_waits_for(bob), "a member starts nothing");
+    assert_eq!(g.r.s.draw_starter(), None);
+    // Bob moves his: still nothing.
+    g.choose(bob, 2).unwrap();
+    assert!(g.r.s.draw.is_none());
+    // Ana, a co-host, moves hers to another song: made now, it opens the
+    // countdown, named as hers; the host's still waits.
+    let events = g.choose(ana, 1).unwrap();
+    let draw = g.r.s.draw.clone().unwrap();
+    assert!(events.contains(&Event::DrawOpened { draw: draw.clone() }));
+    assert_eq!(draw.by, ana);
+    assert!(!g.r.s.choices[&ana].waits && g.r.s.choices[&host].waits);
+    // The draw takes every choice, a waiting one too.
+    g.draw(0);
+    assert_eq!(g.r.s.drawn.as_ref().unwrap().entries.len(), 3);
 }

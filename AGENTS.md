@@ -1571,7 +1571,10 @@ Rust and the browser are implementation details, not advertised features.
   `Command::Choose`, `Event::ChoiceChanged`; who may,
   `RoomState::choice_refusal`, `chooser_refusal`: those who will play
   the next stage, `choosing_for`), a host's or co-host's own standing
-  choice opening the draw's countdown where a pick could start
+  choice made while the room could pick opening the draw's countdown
+  where a pick could start (one made while a stage was readied or
+  played waits, `Choice::waits`, until its maker makes it again once
+  the room can pick, `choice_waits_for`; round FX, no new revision)
   (`Capability::StartDraw`, `draw_starter`, `Event::DrawOpened`,
   `RoomState::draw`; `draw-v0`, `DRAW_V0`: ten seconds, early once
   everyone who may has chosen, never before three, `draw_ends_at` in
@@ -1880,7 +1883,9 @@ Rust and the browser are implementation details, not advertised features.
   is shared ahead or read for it any more. Since revision 22, under the
   match rule Song choice: Group, Enter on Room songs is this player's
   choice instead (`state/room/choosing.rs`: `RoomClient::choose`, again
-  taking it back, refused at the press as the room would,
+  taking it back (a host's waiting choice made again instead, starting
+  the draw: `choice_waits`, `starts_draw_now`), refused at the press as
+  the room would,
   `choice_blocked`, `repeat_refused`, `chose_count`, `draw_countdown`,
   `draw_waits`), a host's or co-host's starting the draw
   (`starts_draw`, `someone_starts_draw`); the draw's reveal,

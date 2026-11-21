@@ -74,14 +74,39 @@ impl RoomClient {
         self.may(ddi_room::Capability::StartDraw) && self.choice_blocked().is_none()
     }
 
+    /// This player's own choice stands but opens no draw: made while the
+    /// room could not pick (another stage readied or played; round FX),
+    /// by a host or co-host, the room able to pick now. Their Enter on the
+    /// song starts the draw.
+    pub fn choice_waits(&self) -> bool {
+        self.state().choice_waits_for(self.me)
+    }
+
+    /// Someone else's choice waits so (a host or co-host chose while a
+    /// stage was played and has not started the draw since).
+    pub fn others_choice_waits(&self) -> bool {
+        let s = self.state();
+        s.choices.keys().any(|id| *id != self.me && s.choice_waits_for(*id))
+    }
+
+    /// Whether this player's choice made now opens the draw's countdown: a
+    /// host or co-host who may choose, the room able to pick, no countdown
+    /// running.
+    pub fn starts_draw_now(&self) -> bool {
+        let s = self.state();
+        self.starts_draw() && s.draw.is_none() && s.pick_stage().is_some()
+    }
+
     /// Enter on chart `chart` of listed song `song` under Group: chosen;
-    /// the same again, cleared; another, moved there. Refused at the press
-    /// as the room would refuse it (who they are, the song, the Repeats
+    /// the same again, cleared (or, where the choice waits, made again:
+    /// the draw started); another, moved there. Refused at the press as
+    /// the room would refuse it (who they are, the song, the Repeats
     /// rule).
     pub fn choose(&mut self, song: RoomSongId, chart: &ChartKey) -> Result<(), Refusal> {
         if self
             .my_choice()
             .is_some_and(|c| c.song == song && c.chart == *chart)
+            && !self.choice_waits()
         {
             return self.clear_choice();
         }

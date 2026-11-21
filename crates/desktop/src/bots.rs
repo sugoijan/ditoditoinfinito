@@ -2257,7 +2257,19 @@ impl Bot {
         // Song choice: Group (revision 22): the host's own choice, which
         // starts the draw; a choice that stands waits for it.
         if room.borrow().group_choice() {
-            if room.borrow().my_choice().is_some() {
+            let mine = room.borrow().my_choice().cloned();
+            if let Some(c) = mine {
+                // Chosen while a stage was played, it waits (round FX):
+                // made again, it starts the draw.
+                if room.borrow().choice_waits() {
+                    let again = room.borrow_mut().choose(c.song, &c.chart);
+                    if again.is_ok() {
+                        say(format!("chose again for stage {number}: the draw starts"));
+                    } else {
+                        room.borrow_mut().clear_refusal();
+                    }
+                    host.not_before = now + PAUSE_MS;
+                }
                 return;
             }
             // The borrow ends before the refusal is cleared.

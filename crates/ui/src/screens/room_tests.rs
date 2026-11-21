@@ -8102,3 +8102,67 @@ fn group_choice_says_what_starts_the_draw_and_what_took_a_choice() {
     }
     assert!(said, "{:?}", eb.state.borrow().hints);
 }
+
+/// Round FX: a host's choice made while the last stage was played waits
+/// (`ddi_room::Choice::waits`): between stages nothing counts down; her
+/// status line says how to start the draw and her chosen song's hint
+/// reads "Start the draw"; Bob's says the draw waits for a host; her
+/// Enter on the song starts it.
+#[test]
+fn a_hosts_waiting_choice_says_how_to_start_the_draw() {
+    let t = Three::over(|s| s.next.rules.choice = ddi_room::SongChoice::Group, false);
+    listed(&t, &["Alpha One", "Bravo One", "Charlie One"], 1);
+    t.step(400);
+    let (ea, eb) = (env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    t.carol.borrow_mut().set_intent(ddi_room::Intent::Watch).unwrap();
+    hb.key("Enter", "Enter");
+    hb.run(0.1);
+    ha.key("Enter", "Enter");
+    ha.run(0.1);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    assert!(view(&ea).my_choice.is_some() && view(&eb).my_choice.is_some());
+    // As the room has it where both chose during the last stage's play:
+    // the choices waiting, nothing counting down.
+    t.server.borrow_mut().rewrite(|s| {
+        s.draw = None;
+        for c in s.choices.values_mut() {
+            c.waits = true;
+        }
+    });
+    for _ in 0..3 {
+        t.settle(400, &mut [&mut ha, &mut hb]);
+    }
+    assert!(view(&ea).draw.is_none(), "nothing counts down by itself");
+    assert_eq!(
+        view(&ea).status,
+        "2 of 2 chose stage 1's song. Your choice waits: press Enter or tap your song to start the draw."
+    );
+    assert_eq!(
+        view(&eb).status,
+        "2 of 2 chose stage 1's song. The draw starts when a host or co-host starts it."
+    );
+    ha.run(0.1);
+    assert!(
+        ea.state.borrow().hints.iter().any(|h| h.contains("Start the draw")),
+        "{:?}",
+        ea.state.borrow().hints
+    );
+    hb.run(0.1);
+    assert!(
+        eb.state.borrow().hints.iter().any(|h| h.contains("Take back your choice")),
+        "Bob's Enter takes his back as ever: {:?}",
+        eb.state.borrow().hints
+    );
+    // Her Enter on her song starts the draw, her choice kept.
+    let mine = view(&ea).my_choice;
+    ha.key("Enter", "Enter");
+    ha.run(0.1);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    assert_eq!(view(&ea).draw_by, Some(1));
+    assert_eq!(view(&ea).my_choice, mine);
+    assert!(view(&ea).status.ends_with("started by you"), "{}", view(&ea).status);
+}

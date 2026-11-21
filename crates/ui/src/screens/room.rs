@@ -775,6 +775,15 @@ pub fn group_status(r: &RoomClient) -> UiText {
     if !r.someone_starts_draw() {
         return m::status_group_no_starter(chose, of, n);
     }
+    // A host's or co-host's choice made while the last stage was played
+    // waits for them (round FX): this one's Enter on it starts the draw;
+    // the others are told it waits for a host.
+    if r.choice_waits() {
+        return m::status_group_waits_host(chose, of, n);
+    }
+    if !r.starts_draw() && r.others_choice_waits() {
+        return m::status_group_waits(chose, of, n);
+    }
     match (chose, r.starts_draw()) {
         (0, true) => m::status_group_none_host(n),
         (0, false) => m::status_group_none(n),

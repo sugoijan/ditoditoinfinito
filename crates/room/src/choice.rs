@@ -5,8 +5,13 @@
 //! as their choice, or none ([`Choice`], [`crate::Command::Choose`]);
 //! everyone sees who chose what as it is chosen. Nothing counts down
 //! until a host or co-host (an administrator too: a co-host's powers) has
-//! a choice of their own standing while the room could pick: that opens
-//! the draw's countdown ([`Draw`], [`DRAW_V0`]). It ends early once every
+//! a choice of their own standing, made while the room could pick: that
+//! opens the draw's countdown ([`Draw`], [`DRAW_V0`]). One made while
+//! another stage was readied or played ([`Choice::waits`]) is a choice all
+//! the same but starts nothing until they make it again once the room can
+//! pick (round FX: the host "still dictate[s] when a next song goes", never
+//! a countdown opening as a stage ends because of a press minutes before).
+//! It ends early once every
 //! player who may choose has chosen (never before [`DrawRules::least_ms`]);
 //! it is canceled once every choice has gone. At its end the authority
 //! draws one member's choice at random ([`crate::Command::Draw`], the
@@ -121,6 +126,14 @@ pub struct Choice {
     pub song: RoomSongId,
     pub chart: ChartKey,
     pub at: Revision,
+    /// Made while the room could not pick (another stage readied or
+    /// played; round FX): counted and drawn among as any choice, but a
+    /// host's or co-host's opens no countdown until they make it again
+    /// once the room can pick ([`crate::RoomState::draw_starter`]). Left
+    /// out of the JSON where false, so a choice stored or sent before it
+    /// reads as one that may start the draw, as it did.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub waits: bool,
 }
 
 /// The draw's countdown, open.
@@ -456,16 +469,18 @@ impl RoomState {
     }
 
     /// The host or co-host whose own standing choice opens the draw's
-    /// countdown (an administrator too: a co-host's powers): the earliest
-    /// such choice, by when it was made, then id.
+    /// countdown (an administrator too: a co-host's powers), made while the
+    /// room could pick ([`Choice::waits`]): the earliest such choice, by
+    /// when it was made, then id.
     pub fn draw_starter(&self) -> Option<ParticipantId> {
         self.choices
             .iter()
-            .filter(|(id, _)| {
-                self.members.get(id).is_some_and(|m| {
-                    m.present_person()
-                        && can(m.role, m.admin, Capability::StartDraw, self.phase.kind())
-                })
+            .filter(|(id, c)| {
+                !c.waits
+                    && self.members.get(id).is_some_and(|m| {
+                        m.present_person()
+                            && can(m.role, m.admin, Capability::StartDraw, self.phase.kind())
+                    })
             })
             .min_by_key(|(id, c)| (c.at, **id))
             .map(|(id, _)| *id)
@@ -489,6 +504,18 @@ impl RoomState {
     /// [`crate::Command::Draw`].
     pub fn draw_due(&self, now: Millis) -> bool {
         self.draw_ends_at().is_some_and(|at| now >= at)
+    }
+
+    /// `id`'s own choice stands but waits ([`Choice::waits`]) while they
+    /// may start the draw and the room could pick now: made again, it
+    /// would open the countdown (what their status line and Enter say).
+    pub fn choice_waits_for(&self, id: ParticipantId) -> bool {
+        self.pick_stage().is_some()
+            && self.draw.is_none()
+            && self.choices.get(&id).is_some_and(|c| c.waits)
+            && self.members.get(&id).is_some_and(|m| {
+                m.present_person() && can(m.role, m.admin, Capability::StartDraw, self.phase.kind())
+            })
     }
 
     /// Who chose `song`, in the order the draw would take them (by id).

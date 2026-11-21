@@ -755,10 +755,14 @@ impl RoomState {
                 if let Some(why) = self.choose_refusal(id, *song, chart) {
                     return Err(why);
                 }
+                // Made while another stage is readied or played, a choice
+                // waits: a host's opens no countdown until it is made
+                // again once the room can pick (round FX).
+                let waits = self.pick_stage().is_none();
                 if self
                     .choices
                     .get(&id)
-                    .is_some_and(|c| c.song == *song && c.chart == *chart)
+                    .is_some_and(|c| c.song == *song && c.chart == *chart && (waits || !c.waits))
                 {
                     return Ok(());
                 }
@@ -766,6 +770,7 @@ impl RoomState {
                     song: *song,
                     chart: chart.clone(),
                     at: self.revision.next(),
+                    waits,
                 };
                 self.emit(
                     out,

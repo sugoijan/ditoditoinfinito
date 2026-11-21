@@ -354,9 +354,18 @@ design is said with its alternative.
   by the room itself (`settle_choices`, after every change and tick)
   where none runs, the room could pick now (`pick_stage`) and a host's
   or co-host's own choice stands (`Capability::StartDraw`,
-  `draw_starter`: the earliest such choice names who started it); a
-  choice an operator made during another stage's play opens it as soon
-  as that stage is over. **Ten seconds**, the proposal's number (long
+  `draw_starter`: the earliest such choice names who started it), made
+  while the room could pick. **A choice made while another stage is
+  readied or played waits** (round FX, `Choice::waits`; before, an
+  operator's choice made during another stage's play opened the
+  countdown as soon as that stage was over, while the players were still
+  on its results, at a moment nobody chose): it is a choice all the same
+  (shown, counted, drawn among), but an operator's opens nothing until
+  they make it again once the room can pick (Enter on their chosen song,
+  or another song; `RoomState::choice_waits_for`). Clients only mirror
+  the choice's flag, which the reducer alone sets, and a choice stored
+  or sent without it reads as one that may start the draw: no new
+  revision. **Ten seconds**, the proposal's number (long
   enough for a person who has not chosen to choose, short enough that a
   host's choice feels like a start); **early once every player who may
   choose and is there has a choice, never before three seconds** (so it
@@ -470,6 +479,11 @@ Nothing new is stored but the room's state; nothing in `wrangler.toml`.
   and a draw could not start (or "The draw waits: a host must check the
   next match's Rules first." where the next match's rules are what
   stops it); "… players chose …. Only players choose." to a watcher.
+  **A host's or co-host's choice that waits** (round FX) reads "2 of 3
+  chose stage 2's song. Your choice waits: press Enter or tap your song
+  to start the draw." to them, Enter's hint on that song "Start the
+  draw" (instead of "Take back your choice"), and "… The draw starts
+  when a host or co-host starts it." to the others who may not start it.
   **A host or co-host who watches** (round RL4b) has no choice, so
   their choice cannot start the draw (the maintainer's decisions: only
   those who will play choose; a host's or co-host's own choice starts
@@ -528,7 +542,8 @@ Nothing new is stored but the room's state; nothing in `wrangler.toml`.
 `--choose random|first|none` (each guest bot's choice, a moment after
 the room can take one, each a little after the one before; random by
 default, from `--seed`). Under Group the host bot chooses the song it
-would have picked; its choice starts the draw. Every bot says how many
+would have picked; its choice starts the draw (one that waits, made
+during a stage, it makes again; round FX). Every bot says how many
 chose, the countdown opening and ending, and each draw.
 
 ## Not in stage 1
