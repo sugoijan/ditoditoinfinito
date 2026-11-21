@@ -5,10 +5,12 @@ Twitch itself: round TW1 (room model revision 18, see "Round TW1" in
 `multiplayer-prototype-progress.md`) the model, Kick, the link and the
 mirror behind a fake Twitch; round TW2 part C's pieces that need no
 Twitch ("T1 and T2" below, and its section at the end); round TW3 joined
-the two and walked them on a local server (its section at the end). The
-Twitch client
-is unverified until step 0's spike, and the chat's transports wait for
-it. The maintainer answered
+the two and walked them on a local server (its section at the end).
+Round TW6 (2026-11-21) built the chat's transports and its subscribe
+route from Twitch's documentation and `barbed` without the spike, the
+maintainer's own run being their verification ("Round TW6" at the end);
+until it has run, the chat's rows and the live chat stay behind the
+testing switch. The maintainer answered
 the design round's ten questions and the three that followed from them
 the same day; they are listed under "The maintainer's answers", and
 where an answer differed from the proposal the answer won.
@@ -1218,4 +1220,148 @@ with the backdrop as before.
   whole frame, in a solo play's place and a stage's: the layer's green
   over the hand's red, dimmed in the lanes, the receptors over it (it
   fails on the order before).
+
+## Round TW6 (2026-11-21): the live connection, built and waiting for the maintainer's run
+
+The maintainer, asked whether to run the spike (step 0) first or build
+the live chat now from the documentation and `barbed` and let their own
+live test verify it: "Build it now". So nothing here has met Twitch or a
+provider; everything was tested against fakes, and what the maintainer's
+run reports names each assumption, so a wrong one is found in one paste.
+It replaces of step 0: the subscription made by our server for a socket
+the game opened, the ten seconds, the costs, the four chat types under
+one token, the events' real shapes and the providers' channel answers
+are all read and reported by the real code on the maintainer's first run
+(`--mp-dev-chat live`); the spike's other questions (a second
+authorization's scopes, the chatter list, the lists with an app token,
+three devices against a fourth) stay the spike's, or are answered by
+using it.
+
+**The server** (`../ddi-server`): `POST /rooms/<id>/chat/subscribe
+{session_id, messages}` and `POST /me/chat/subscribe` (one's own channel,
+C14): signed in, a session id of a token's alphabet; in a room, a present
+member of a room that shows chat (`RoomCore::chat_check`: `403
+not_a_member`, `409 chat_off`), the channel the room's (B3/C1) and
+messages only where both the room's ceiling and the device show them;
+then the person's `TwitchLink` makes the subscriptions with the person's
+own token (`/subscribe`, refreshed or validated first as every use is):
+`barbed`'s request (`helix::create_eventsub_subscription_request`;
+`channel.chat.message` and `…message_delete` by its builders, the clears
+as literal requests of its type), its body sent without the `null`s of
+another transport's fields (Twitch's reference refuses a WebSocket
+subscription with fields of another method "included"), `barbed`'s send
+under a deadline of ours (`SUBSCRIBE_DEADLINE_MS`, 2 s; the four at once,
+so a slow Twitch costs one deadline inside the socket's ten seconds), its
+answer read by `barbed`'s parser. Each type's answer goes back to the
+device with our word for it (`enabled`; `bad_session`, a 400 naming the
+session; `bad_request`; `refused`, 401, which deletes the link;
+`forbidden`, 403; `exists`, 409; `limits`, 429; `unreachable`, slow or
+down; `unknown`), Twitch's status, the subscription's status and `cost`,
+`total`, `total_cost`, `max_total_cost`, Twitch's error text and the
+milliseconds; the logs count them naming nobody (`chat: subscribe
+(room|own): message enabled http 202 cost 0 total 1 cost 0/10 in 140
+ms; …`). Refusals of the route: `409 scope_missing` (`need: ["chat"]`),
+`403 twitch_refused`, `502 twitch_unreachable`, `400 bad_session`, `403
+no_twitch` (a bot), `429 too_many_subscribes` (20 a minute a person, a
+room's in its object, one's own in the Worker's memory). The fake Twitch
+answers it as the reference documents each answer, its mode set by `POST
+/auth/fake/twitch {chat: answers|forbidden|limits|bad_session|refused|
+exists|slow|messages_only}`. No configuration changed (`wrangler.toml`
+untouched).
+
+**The connection** (`ddi_chat::live`, pure, natively tested on a fake
+clock; `live-chat-v0`, PROVISIONAL): the welcome's session subscribed
+through our server, a failure in passing asked again once a second later
+while four of Twitch's ten seconds are left; a watchdog of the stated
+`keepalive_timeout_seconds` and 3 s; Twitch's reconnect followed to its
+address, the old socket kept (its events taken, a notification sent twice
+taken once, by `message_id`) until the new one welcomes, then closed,
+nothing subscribed again; a revocation of the messages' subscription
+ends it quietly, of another type is reported; every close code read
+(4001, "we sent something", gives up: it would repeat); a loss opened
+again after 0, 1, 2, 5, 10, 30, 60 s and given up quietly after eight in
+a row; a refusal that would repeat (no scope, not a member, the chat off,
+Twitch's 403 or 429) gives up at once. Only the messages' subscription
+decides: a moderation type refused (review note 2's case) is reported and
+the chat comes. The channel's emote sets (`ddi_chat::channel`): 7TV's,
+BetterTTV's and FrankerFaceZ's channel and global sets read when the chat
+starts as round TW5's demo reads the globals (directly, then the proxy),
+a channel's 404 no failure; Twitch's own from the fragments.
+
+**Where it runs**: a play's chat layer drives it in the session's tick
+(`ddi_session::chat`, `ChatSource::Live`, over a shell's `LiveIo`: the
+web's `WebSocket` and `fetch`, desktop's tungstenite on a thread a socket
+as the room's, ureq threads), from the play's start to its end (the
+session dropped closes its sockets): "ends with the stage", the brief's
+choice over keeping a socket across a room's stages, simpler and with no
+socket left over between plays (a stage's first second of chat is spent
+on the welcome). It runs only where a play may show chat (the device's
+option, the room's ceiling and channel; outside a room only under the
+development script) and, until the maintainer verified it, only under the
+testing switch (`ddi_ui::state::twitch::chat_rows_shown`): **players see
+nothing new**. Once verified, that function's one line becoming `true`
+shows the rows and lets a room's live chat run.
+
+**The development script** (TESTING ONLY): desktop's `--mp-dev-chat live`
+(the web's `mpfakechat=live`) reads `/me` and shows the signed-in
+person's own channel's chat in every play outside a room (a solo play,
+autoplay, CPU practice's stages) through exactly a room's code, the own
+route; with it the rows show, and the device's "Twitch chat in rooms"
+turned on takes the trip for the chat's scope as before. In a room the
+host's "Show my Twitch chat" and each device's option carry the room's
+channel to every member who turned it on (each device under the switch).
+For tests: `--mp-dev-chat-socket URL` / `mpfakechaturl` a local fake
+socket, `--mp-dev-chat-at` / `mpfakechatimg` the providers' addresses
+from a local base; `--mp-dev-chat-record DIR` writes every raw socket
+frame there (people's chat in them: only where the maintainer asks; it
+says so on stderr).
+
+**What the run reports**: desktop's stderr lines led by `[ddi-chat]` (the
+web's console the same, and `__DDI_DEBUG.chat.live`): connecting, open in
+N ms, welcomed in N ms with the keep-alive Twitch stated, each
+subscription with Twitch's status, cost, total, total cost and maximum
+and its error, live N ms after the welcome, losses and why, reconnects,
+revocations, each emote set by provider (read directly or through the
+proxy, or no set, or failed and why, its emotes and how many animated);
+at the play's end what was received (messages, deletes, user clears,
+clears, other types, keep-alives, duplicates), what was shown and left
+out by each filter and dropped by each budget, taken off by moderation,
+the images (ready, animated, in flight, failed, hosts through the proxy),
+and the redacted shapes of the first five messages the readers did not
+understand (every text replaced by its length, the structure's own words
+kept: never a token, our session or a person's chat).
+
+**Expected from Twitch** (to be confirmed by the run): `cost` 0 for each
+of the four types and `total_cost` 0 of a `max_total_cost` of 10, since
+the documentation says a subscription costs nothing where the user it
+names (the reader, `user_id`, who authorized the app) has authorized the
+app; `total` grows by four a device.
+
+**Tested without Twitch**: the state machine (every state and close
+code, the ten seconds, the watchdog, the hand-over, revocations,
+refusals, backoff and giving up, the redaction), the channel's sets, the
+server's request (its body exactly), its answers' reading (each status)
+and the fake, the room's check and the rate limit; the session's live
+chat over a fake shell (its route, its report, its sockets closed with
+the play) and judging identical with it on and off; desktop's sockets
+against a local fake (`the_live_chat_runs_over_desktops_sockets`: a
+reconnect's hand-over through real sockets) and offscreen plays
+(`live_chat_offscreen`: a solo play and a practice stage). Walked on a
+local server with its fake Twitch and a local fake EventSub socket
+(`target/scratch/mp/tw6/`, not committed): the route through every answer
+and refusal (`walks/route.mjs`), and in Chrome and Firefox a solo play's
+live chat (normal, Twitch's reconnect, a silent socket, a refused
+subscription, a revocation, messages not understood, the option Off) and
+an online room's stage with a guest bot (the room's route), every request
+outside localhost aborted.
+
+**Unverified** until the maintainer's run, by name: that a subscription
+our server makes binds to the device's socket; the costs; that the three
+moderation types take the `user:read:chat` token; that Twitch accepts the
+request without the `null`s (`barbed`'s own type would send them); the
+events' real shapes (the fixtures are the documentation's); the
+providers' channel answers (`/v3/users/twitch/<id>`,
+`/3/cached/users/twitch/<id>`, `/v1/room/id/<id>`) and their 404 for a
+channel without a set; Twitch's reconnect and keep-alive in practice; the
+desktop's TLS handshake to `eventsub.wss.twitch.tv`.
 

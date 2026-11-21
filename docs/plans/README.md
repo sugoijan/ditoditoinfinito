@@ -69,7 +69,12 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   round TW5 an ambient effect (every emote drawn by itself,
   `chat-overlay-v1`, over the whole screen behind the fields in the
   chosen style, three looks to choose from, and a global-emotes demo for
-  the maintainer to run).
+  the maintainer to run); round TW6 the live connection, built from the
+  documentation and `barbed` and verified by the maintainer's own run
+  (the server's subscribe route, each shell's own EventSub socket over a
+  pure state machine, the channel's emote sets, the development script
+  `--mp-dev-chat live` / `mpfakechat=live`, the run's report), still
+  behind the testing switch; the layer drawn over the dancing hand.
   The Twitch client is
   unverified until the maintainer's spike, and the chat's transports wait
   for it. A streaming host's Twitch bans and blocks

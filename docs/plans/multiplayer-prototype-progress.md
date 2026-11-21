@@ -13449,10 +13449,65 @@ as a picked one (`RoomState::song_in_use`).
 - The host's stage results showed no banner for a song downloaded ahead
   (Bob's own showed his); seen, not looked into (before this round too).
 
+## Round TW6: the live connection to Twitch's chat, built for the maintainer's run (no change to the room model, 2026-11-21)
+
+`docs/plans/multiplayer-twitch.md`, "Round TW6". The maintainer: "Build
+it now" (the live chat from the documentation and `barbed`, verified by
+their own run, the spike not run first). Built, none of it run against
+Twitch or a provider:
+
+- **Server** (`../ddi-server`): `POST /rooms/<id>/chat/subscribe` and
+  `POST /me/chat/subscribe` (one's own channel): the person's own token,
+  `barbed`'s create request (the clears as literal requests of its type,
+  the `null`s of other transports' fields left out of the body), its send
+  under our 2 s deadline, the four types at once, its parser; Twitch's
+  status, the subscription's status and cost, the totals and its error
+  text back to the device, the logs counting them naming nobody; the
+  room's check (`RoomCore::chat_check`) and 20 subscribes a minute a
+  person; the fake Twitch's answers by mode (`POST /auth/fake/twitch
+  {chat}`). No configuration changed.
+- **The game**: `ddi_chat::live` (the connection's state machine,
+  `live-chat-v0`), `ddi_chat::channel` (the channel's and the global emote
+  sets), the session's live chat over a shell's `LiveIo` (desktop's
+  sockets on threads, the web's `WebSocket`), started with a play that
+  shows chat and ended with it; `__DDI_DEBUG.chat.live` and desktop's
+  `[ddi-chat]` lines; the overlay's left-out count by filter.
+- **The development script** (TESTING ONLY): `--mp-dev-chat live`
+  (`mpfakechat=live`): the signed-in person's own channel in every play
+  outside a room; `--mp-dev-chat-socket` (`mpfakechaturl`) a local fake
+  socket; `--mp-dev-chat-record DIR` the raw frames written there.
+- **The layer over the dancing hand** (the maintainer, the same day:
+  "slightly leaning into having the layer in front of the dancing hand
+  (but of course always behind the notes field)"): the chat's segment
+  drawn after the hand's quads, still under the filter's band and the
+  field; no pass more (`the_chat_over_the_hand_adds_no_pass`), the band
+  still dimming it, `chat_order_offscreen`'s pictures.
+
+**A player now sees** nothing new: the live chat and the chat's rows run
+only under the testing switch. Once the maintainer's run verified it,
+`ddi_ui::state::twitch::chat_rows_shown` returning `true` shows the rows
+and lets rooms' live chat run (one line).
+
+**Walked** on a local server (scratch configuration, the fake Twitch) with
+a local fake EventSub socket (`target/scratch/mp/tw6/fake-eventsub.mjs`):
+the route through each answer and refusal; Chrome and Firefox: a solo
+play's live chat (normal, Twitch's reconnect, a silent socket, a refused
+subscription, a revocation, messages not understood, the option Off) and
+an online room's stage with a guest bot; desktop offscreen against local
+fakes (a solo play and a practice stage); the singleplayer smoke check.
+Found and fixed while walking: the server made the four subscriptions one
+after another, so a slow Twitch would have taken 8 s of the socket's 10.
+
+**Deploy**: the server first (its new routes; nothing to set), then the
+game. The room model's revision is unchanged (21): no room state, command,
+event or stream changed; the routes are new HTTP, answered by an older
+game never asked.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `live-chat-v0` (2026-11-21, round TW6): a welcome subscribed within Twitch's 10 s (a failure in passing asked again once while 4 s are left), the keep-alive Twitch stated plus 3 s of silence a loss, a reconnect's new socket given 30 s to welcome, losses opened again after 0, 1, 2, 5, 10, 30, 60 s and given up after eight in a row; the server's 2 s deadline a subscription, 20 subscribes a minute a person | `ddi_chat::live::LIVE_CHAT_V0`, the server's `twitch::SUBSCRIBE_DEADLINE_MS`, `room::CHATS_A_MINUTE` | None while hidden; then: a dropped chat comes back within seconds, a broken one stops quietly | The numbers once the maintainer's run and real chats are seen |
 | `chat-overlay-v1` (2026-11-20, round TW5): every emote drawn by itself; a message's first 8 emotes; at most 80 messages and 160 emotes on screen, 20 new messages a second, one a chatter every 2 s; dropped when full or without a free place, never queued | `ddi_chat::overlay::CHAT_OVERLAY_V1`, `ddi_chat::item::Cut` | None while the chat is hidden; then: a burst of emotes fills the screen behind the fields, past the budgets or the space the rest is left out | The numbers once real chats are seen |
 | The chat's look (2026-11-20, round TW5): `scattered` (emotes 1.6 lines, inline 1.35, sizes ±20%, times on screen ±25%, an emote-only message's emotes each by itself 0.12 s apart) of three candidates | `ddi_chat::overlay::LOOKS`, `CHAT_OVERLAY_V1.look` | As above | The maintainer's choice of look (the gallery) |
 | The global-emotes demo's assortment (2026-11-20, round TW5): 6 animated and 3 still emotes a provider by a hash of their ids, more stills where fewer are animated; Twitch's global set through the server with the app's token | `ddi_chat::global`, the server's `emotes::TWITCH_API` | None: TESTING ONLY | Whether the parsers read the real answers (the maintainer's run) |

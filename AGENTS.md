@@ -934,11 +934,20 @@ Rust and the browser are implementation details, not advertised features.
   A room host's Twitch chat beside a play (`chat.rs`,
   `docs/plans/multiplayer-twitch.md`, part C): its source advanced on
   the host's clock in the session's tick, never judged, logged or
-  replayed, `PlaySession::chat`; today the scripted chat alone (TESTING
+  replayed, `PlaySession::chat`; its sources the scripted chat (TESTING
   ONLY, `chat::set_scripted`, which is also the testing switch,
-  `ddi_ui::state::twitch::chat_testing`), where Options → Display's
-  "Twitch chat in rooms" is on; `chat::room_ceiling` the one answer to
-  the room's ceiling: in a room's stage the room's own
+  `ddi_ui::state::twitch::chat_testing`) and since round TW6 the live
+  chat (`ChatSource::Live`: `ddi_chat::live`'s connection driven in the
+  tick over a shell's `LiveIo`, installed by `chat::set_live`, the
+  channel's emote sets, from the play's start to its end; a room's
+  stage the room's channel through `POST <api>/rooms/<id>/chat/subscribe`
+  (`RoomChat::room`), outside a room only the development script's own
+  channel, `ddi_ui::state::twitch::set_live_own`, through `POST
+  <api>/me/chat/subscribe`; only while `chat_rows_shown`, the testing
+  switch until the maintainer's run verified it; `ChatLayer::live_report`,
+  and the report's lines through `LiveIo::report`), where Options →
+  Display's "Twitch chat in rooms" is on; `chat::room_ceiling` the one
+  answer to the room's ceiling: in a room's stage the room's own
   (`RoomState::twitch`'s chat, carried by `StageSetup::chat`, a
   `ddi_ui::state::twitch::RoomChat`; none, no layer at all), outside a
   room the script's line, for tests (round TW3).
@@ -1339,7 +1348,16 @@ Rust and the browser are implementation details, not advertised features.
   motion's fixed places; the looks shown to the maintainer, `LOOKS`,
   scattered by default), the emote images kept and their atlas cells,
   an animated emote's frames within their budget, `ANIMATED_UNITS`
-  (`cache.rs`), the scripted chat (`script.rs`, TESTING ONLY; its
+  (`cache.rs`), the live connection to Twitch's EventSub socket as a
+  state machine fed frames and time (`live.rs`, `live-chat-v0`, round
+  TW6: the welcome subscribed through our server inside Twitch's ten
+  seconds, the keep-alive's watchdog, Twitch's reconnect followed with
+  the old socket kept until the new one welcomes, revocations, every
+  close code, backoff and giving up quietly, our server's answer read,
+  and the run's report, never a token or a person's chat: what was not
+  understood kept as its shape, `redact`), the live chat's emote sets,
+  the channel's and the globals (`channel.rs`), the scripted chat
+  (`script.rs`, TESTING ONLY; its
   animated emotes drawn in code, `anim:`, and as GIF and WebP files made
   by code, `cargo run -p ddi-desktop --example chat_images -- <dir>`)
   and the global-emotes demo (`global.rs`, TESTING ONLY: the four
@@ -2239,9 +2257,16 @@ Rust and the browser are implementation details, not advertised features.
   Display's Twitch chat in rooms is on, as the web's `mpfakechat`,
   `ddi_chat::script`; it is the testing switch that shows the chat's
   rows, Options → Display's and Host options' Show my Twitch chat,
-  hidden otherwise until the transports to Twitch exist,
+  hidden otherwise until the maintainer has verified the live chat,
   `ddi_ui::state::twitch::chat_testing`; CPU practice's stages take its
-  line as their room's ceiling), `--share IDS|pack:NAME
+  line as their room's ceiling; `--mp-dev-chat live`, round TW6, the
+  live chat's development script: the signed-in person's own channel's
+  chat in every play outside a room, through a room's code, the testing
+  switch on, its lines on stderr led by `[ddi-chat]`; TESTING ONLY,
+  `--mp-dev-chat-socket URL` a local fake EventSub socket in Twitch's
+  place, `--mp-dev-chat-at BASE` the providers' addresses from a local
+  base, `--mp-dev-chat-record DIR` every raw socket frame written
+  there), `--share IDS|pack:NAME
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--mp-bots --api URL [--host] [--join LINK] [--guests N] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
@@ -2509,11 +2534,12 @@ comes or goes). The testing parameters (`gfx`, `auto`, `bias`,
 `mpwatchlink`, `mpattacks`, `mpcpus`, `mpdevmines`, `mpfakeseat`,
 `mpfakeend`, `mpfakematch`, `mpfakeroom`, `mpfakeready`, `mpfakelive`,
 `mpfakefail`, `mpfakeslow`, `mpfakeelsewhere`, and the scripted chat's
-`mpfakechat`, `mpfakechatimg`) take effect given in the address the page loads on, on any
+`mpfakechat`, `mpfakechatimg`, and the live chat's `mpfakechat=live`
+with `mpfakechaturl`, round TW6) take effect given in the address the page loads on, on any
 route (`#/select?perf=1`, `#/mp?mpcpus=16`, `#/options?lang=ja`;
 `crate::router::Route::current`'s first read), and later on the routes
 each was always read on; `gfx`, `auto`, `bias` and `slow` stay for the
-session, and `mpfakechat` (with `mpfakechatimg`) for the tab's session,
+session, and `mpfakechat` (with `mpfakechatimg` and `mpfakechaturl`) for the tab's session,
 through a reload and the trips through Twitch (`sessionStorage`'s
 `ddi.mpfakechat`; `mpfakechat=0` ends it). The skill
 lists the routes and their parameters (`#/play`, replays, calibration,
