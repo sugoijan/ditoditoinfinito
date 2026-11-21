@@ -110,8 +110,13 @@ impl RoomClient {
         self.state().chosen_by(song)
     }
 
-    /// Why `song` may not be chosen now by the Repeats rule, if it says so.
+    /// Why `song` may not be chosen now by the Repeats rule, if it says so
+    /// (as the rows and Enter's hint show it: nothing while this device
+    /// reveals a draw, whose song it would give away; round RL4b).
     pub fn repeat_refused(&self, song: RoomSongId) -> Option<Repeats> {
+        if self.reveal().is_some() {
+            return None;
+        }
         let (rule, excluded) = self.state().excluded_songs();
         excluded.contains(&song).then_some(rule)
     }

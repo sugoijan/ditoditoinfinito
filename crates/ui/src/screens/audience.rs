@@ -253,6 +253,13 @@ fn countdown_seconds(a: &AudienceClient) -> Option<u64> {
 
 /// What the room is doing, a sentence.
 fn doing(a: &AudienceClient, v: &PublicView) -> UiText {
+    // The group's draw being revealed (round RL4b): its heading, never its
+    // result before the reel stops.
+    if let Some(r) = a.reveal()
+        && !v.closed
+    {
+        return m::draw_heading(number(v, r.drawn.stage));
+    }
     let song = |stage: ddi_room::StageId| {
         v.stages
             .iter()
@@ -365,7 +372,9 @@ struct PickedSong {
 /// picker rests on is not the audience's to see.
 fn picked_song(a: &AudienceClient) -> Option<PickedSong> {
     let v = a.view()?;
-    if v.closed {
+    // Not while the group's draw is revealed: the reel says it (round
+    // RL4b).
+    if v.closed || a.reveal().is_some() {
         return None;
     }
     let stage = a.current_stage()?;
@@ -511,6 +520,14 @@ pub fn player_rows(v: &PublicView) -> Vec<super::room::PlayerRow> {
             } else {
                 String::new()
             };
+            // Under Song choice: Group (round RL4b): the song this player
+            // chose, as everyone in the room sees it.
+            let chose: String = v
+                .choices
+                .iter()
+                .find(|c| c.participant == p.id)
+                .map(|c| m::audience_chose(UiText::data(&c.card.title)).into())
+                .unwrap_or_default();
             PlayerRow {
                 name: player_name(v, p.id),
                 badge: false,
@@ -523,7 +540,7 @@ pub fn player_rows(v: &PublicView) -> Vec<super::room::PlayerRow> {
                 plays: !p.out_for_match,
                 place: standing.map(|st| st.rank),
                 points: standing.map(|st| super::room::points_text(st.total).into()),
-                role: String::new(),
+                role: chose,
                 status,
                 tone: if p.out_for_match {
                     RowTone::Away

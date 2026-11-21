@@ -2570,8 +2570,8 @@ room-chosen-you = you
 #   $rule (String) - "not_in_a_row" or "not_in_a_match"
 #   $line (String) - the rest of the row's line
 room-song-line-repeat = { $rule ->
-    [not_in_a_row] Just played
-   *[not_in_a_match] Played this match
+    [not_in_a_row] Last stage's song
+   *[not_in_a_match] Already in this match
 } · { $line }
 # What Enter does on a Room songs row under Song choice: Group (song
 # select's play hint): choose the song; for a host or co-host it starts
@@ -2584,8 +2584,8 @@ room-hint-clear-choice = Take back your choice
 # Variables:
 #   $rule (String) - "not_in_a_row" or "not_in_a_match"
 room-hint-repeated = { $rule ->
-    [not_in_a_row] Can't choose: played just before
-   *[not_in_a_match] Can't choose: played this match
+    [not_in_a_row] Can't choose: the last stage's song
+   *[not_in_a_match] Can't choose: already in this match
 }
 # Refusals under Song choice: Group, said where Enter does nothing.
 room-refused-not-group = The host picks the next song: Song choice is Host.
@@ -2599,12 +2599,17 @@ room-refused-cannot-choose = { $why ->
 # Variables:
 #   $rule (String) - "not_in_a_row" or "not_in_a_match"
 room-refused-repeated = { $rule ->
-    [not_in_a_row] That song was just played: Repeats is Not in a row.
-   *[not_in_a_match] That song was played in this match: Repeats is Once a match.
+    [not_in_a_row] That song is the last stage's song: Repeats is Not in a row.
+   *[not_in_a_match] That song is already in this match: Repeats is Once a match.
 }
 room-refused-group-chooses = The players choose the next song and a draw picks one: Song choice is Group.
 # The players panel's word for someone who has chosen a song.
 room-role-chose = Chose a song
+# The audience's page, beside a player's name under Song choice: Group:
+# the song they chose for the next stage (round RL4b).
+# Variables:
+#   $title (String) - the song's title
+room-audience-chose = Chose { $title }
 # The draw's reveal over the room's song select: its heading, and the
 # line saying whose choice it took.
 # Variables:

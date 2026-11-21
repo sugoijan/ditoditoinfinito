@@ -1775,6 +1775,7 @@ fn the_audience_sees_the_draw_s_reveal() {
     let server = room(&clock, live_audience());
     server.borrow_mut().rewrite(|s| {
         s.next.rules.choice = ddi_room::SongChoice::Group;
+        s.next.rules.repeats = ddi_room::Repeats::NotInARow;
         let list = std::sync::Arc::make_mut(&mut s.songs);
         for n in 1..=2u64 {
             let id = ddi_room::RoomSongId(list.next.max(1));
@@ -1840,8 +1841,14 @@ fn the_audience_sees_the_draw_s_reveal() {
     );
     let texts = ha.texts().join("\n");
     assert!(texts.contains("Stage 1 · The draw"), "{texts}");
+    // Nothing behind the reel gives its result away while it spins: not
+    // the audience's line, not a member's Repeats mark on the song drawn
+    // (it is the last stage's song now).
+    assert!(!texts.contains("'s choice: "), "{texts}");
+    assert_eq!(alice.repeat_refused(won.song), None);
     // Over after its three seconds.
     step(3_500, &mut ha, &mut alice, &mut bob);
+    assert_eq!(alice.repeat_refused(won.song), Some(ddi_room::Repeats::NotInARow));
     assert_ne!(ha.ui.layers().last().map(|l| l.name.clone()).unwrap_or_default(), "room-draw");
     assert!(carol.borrow().reveal().is_none());
 }

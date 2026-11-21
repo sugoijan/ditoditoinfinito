@@ -1057,15 +1057,15 @@ room-song-chosen-two = { $a }と{ $b }が選択
 room-song-chosen-more = { $a }とほか{ $count }人が選択
 room-chosen-you = あなた
 room-song-line-repeat = { $rule ->
-    [not_in_a_row] 直前にプレイ
-   *[not_in_a_match] この試合でプレイ済み
+    [not_in_a_row] 前のステージの曲
+   *[not_in_a_match] この試合で選曲済み
 } · { $line }
 room-hint-choose = この曲を選ぶ
 room-hint-choose-draw = この曲を選んで抽選開始
 room-hint-clear-choice = 選択を取り消す
 room-hint-repeated = { $rule ->
-    [not_in_a_row] 選べません：直前にプレイ
-   *[not_in_a_match] 選べません：この試合でプレイ済み
+    [not_in_a_row] 選べません：前のステージの曲
+   *[not_in_a_match] 選べません：この試合で選曲済み
 }
 room-refused-not-group = 次の曲はホストが選びます（曲の決め方：ホスト）。
 room-refused-cannot-choose = { $why ->
@@ -1074,11 +1074,12 @@ room-refused-cannot-choose = { $why ->
    *[out_for_match] この試合から脱落したため、曲は選べません。
 }
 room-refused-repeated = { $rule ->
-    [not_in_a_row] その曲は直前にプレイしました（繰り返し：連続は不可）。
-   *[not_in_a_match] その曲はこの試合でプレイしました（繰り返し：試合中は不可）。
+    [not_in_a_row] その曲は前のステージの曲です（繰り返し：連続は不可）。
+   *[not_in_a_match] その曲はこの試合ですでに選ばれています（繰り返し：試合中は不可）。
 }
 room-refused-group-chooses = 次の曲はプレイヤーが選び、抽選で決まります（曲の決め方：グループ）。
 room-role-chose = 曲を選択済み
+room-audience-chose = { $title }を選択
 room-draw-heading = ステージ{ $number } · 抽選
 room-draw-won = { $name }さんの選択：{ $title } · { $chart }
 room-draw-won-you = あなたの選択：{ $title } · { $chart }

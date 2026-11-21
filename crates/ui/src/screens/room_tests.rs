@@ -8096,7 +8096,7 @@ fn group_choice_says_what_starts_the_draw_and_what_took_a_choice() {
     let mut said = false;
     for _ in 0..3 {
         hb.run(0.1);
-        if eb.state.borrow().hints.iter().any(|h| h.contains("Can't choose: played just before")) {
+        if eb.state.borrow().hints.iter().any(|h| h.contains("Can't choose: the last stage's song")) {
             said = true;
             break;
         }
