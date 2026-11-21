@@ -74,6 +74,21 @@ pub struct RoomState {
     /// written without it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub twitch: Option<crate::twitch::TwitchSetting>,
+    /// Each player's choice for the next stage under Song choice: Group
+    /// (room model revision 22, [`crate::choice`]). Left out of the JSON
+    /// while empty; a room stored before reads with none.
+    #[serde(
+        default,
+        with = "crate::ids::pairs",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub choices: BTreeMap<ParticipantId, crate::choice::Choice>,
+    /// The draw's countdown while it runs (revision 22).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draw: Option<crate::choice::Draw>,
+    /// The last draw made (revision 22): what every device's reveal shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drawn: Option<crate::choice::DrawRecord>,
 }
 
 fn songs_untouched(songs: &std::sync::Arc<RoomSongs>) -> bool {
@@ -870,6 +885,9 @@ impl RoomState {
             closed: None,
             songs: Default::default(),
             twitch: None,
+            choices: BTreeMap::new(),
+            draw: None,
+            drawn: None,
         }
     }
 
@@ -1174,6 +1192,10 @@ impl RoomState {
             }
             _ => None,
         }
+        .into_iter()
+        // The draw's end (revision 22): the authority draws then.
+        .chain(self.draw_ends_at())
+        .min()
     }
 
     /// Someone connected who wants to play `stage` is trying its song's
@@ -1619,6 +1641,8 @@ impl RoomState {
             .filter(|s| s.play.as_ref().is_none_or(|p| !p.song_ended && !p.interrupted))
             .filter_map(|s| s.content.as_ref())
             .any(|c| c.song == Some(song.id) || (c.song.is_none() && c.id.song == song.key))
+            // Somebody's standing choice (revision 22).
+            || self.choices.values().any(|c| c.song == song.id)
     }
 
     /// The CPU profile behind a member, if it is a CPU seat.

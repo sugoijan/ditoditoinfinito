@@ -751,6 +751,75 @@ fn the_song_list_is_kept_alike_by_both_authorities_and_every_mirror() {
     assert_eq!((c.status.clone(), c.share.as_deref()), (ContentStatus::Available, Some("share1")));
 }
 
+/// Round RL4 (revision 22): choosing by the group through both
+/// authorities alike: Bob's choice, Alice's opening the countdown, the
+/// draw made by the authority's own roll at its end (the fake server's
+/// seeded as the local one's), the drawn song picked, the choices cleared;
+/// every mirror holds the same record.
+#[test]
+fn choosing_by_the_group_is_kept_alike_by_both_authorities() {
+    let song = |n: u8| ddi_room::NewSong {
+        key: SongKey::new(format!("s{n:015x}")),
+        card: ddi_room::SongCard {
+            title: format!("Song {n}"),
+            ..ddi_room::SongCard::default()
+        },
+        charts: vec![ddi_room::ChartLine {
+            chart: ChartKey::new(format!("d{n}")),
+            style: "dance-single".into(),
+            difficulty: "Hard".into(),
+            meter: 9,
+        }],
+    };
+    let up = |id| {
+        Step::Authority(Command::SetSongContent {
+            song: ddi_room::RoomSongId(id),
+            status: ContentStatus::Available,
+            share: Some(format!("share{id}")),
+            charts: None,
+        })
+    };
+    let choose = |n: u64| Command::Choose {
+        song: Some(ddi_room::RoomSongId(n)),
+        chart: Some(ChartKey::new(format!("d{n}"))),
+    };
+    let mut rules = MatchRules::hosted();
+    rules.choice = ddi_room::SongChoice::Group;
+    let steps = vec![
+        Step::Connect("dev:alice"),
+        Step::Join("dev:bob", "Bob"),
+        Step::Connect("dev:bob"),
+        Step::Cmd("dev:alice", Command::AddSong { song: Box::new(song(1)) }),
+        Step::Cmd("dev:alice", Command::AddSong { song: Box::new(song(2)) }),
+        up(1),
+        up(2),
+        Step::Cmd("dev:alice", Command::SaveNextRules { rules }),
+        Step::Cmd("dev:bob", choose(2)),
+        Step::Cmd(
+            "dev:alice",
+            Command::PickListed {
+                song: ddi_room::RoomSongId(1),
+                chart: ChartKey::new("d1"),
+            },
+        ),
+        Step::Cmd("dev:alice", choose(1)),
+        Step::Advance(3_000),
+    ];
+    let (local, local_answers) = run_local(&steps);
+    let (server, online_answers, mirrors) = run_online(&steps, &[]);
+    assert_eq!(local_answers, online_answers);
+    assert_eq!(local, server, "the server's room is the local one");
+    for m in &mirrors {
+        assert_eq!(m, &server, "a client's mirror is the room");
+    }
+    assert_eq!(local_answers[4], Some(Rejection::GroupChooses));
+    let drawn = local.drawn.clone().expect("drawn");
+    assert_eq!(drawn.entries.len(), 2);
+    assert!(local.choices.is_empty() && local.draw.is_none());
+    let c = local.current.as_ref().unwrap().stages[0].content.as_ref().unwrap();
+    assert_eq!(c.song, Some(drawn.won().unwrap().song));
+}
+
 /// Round DB: a host fills the whole list, past the half anyone else would
 /// be held to, through both authorities alike (a list of two, three songs
 /// added: the third makes room).

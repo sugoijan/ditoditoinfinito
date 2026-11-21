@@ -69,6 +69,7 @@ pub mod audience;
 pub mod authority;
 pub mod awards;
 pub mod battle;
+pub mod choice;
 pub mod client_stats;
 pub mod command;
 pub mod error_report;
@@ -91,6 +92,9 @@ pub use awards::{
     AwardRule, AwardScheme, Finish, Finisher, Placement, PointsBias, StageResult, TopBiased,
 };
 pub use battle::{BattlePreset, Entrant, ReportedRun, Run, RunDetail};
+pub use choice::{
+    Choice, DRAW_V0, Draw, DrawEnd, DrawEntry, DrawRecord, DrawRules, NoChoice, Repeats, SongChoice,
+};
 pub use command::{Actor, CancelReason, Command, Event, RankingProblem, Rejection};
 pub use ids::{
     ChartKey, ClientId, ContentId, Identity, MatchId, Millis, ParticipantId, Revision, RoomId,

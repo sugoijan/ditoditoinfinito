@@ -40,6 +40,7 @@ impl RoomState {
         work.settle_host(&mut out);
         work.seat_newcomers(&mut out);
         work.maybe_commit(now, &mut out);
+        work.settle_choices(now, &mut out);
         if !out.is_empty() {
             work.revision = work.revision.next();
             *self = work;
@@ -56,6 +57,7 @@ impl RoomState {
             return out;
         }
         self.tick(now, &mut out);
+        self.settle_choices(now, &mut out);
         if !out.is_empty() {
             self.revision = self.revision.next();
         }
@@ -320,6 +322,14 @@ impl RoomState {
         Ok(())
     }
 
+    /// Song choice: Group where this room has no song list (revision 22).
+    fn check_choice_here(&self, choice: crate::choice::SongChoice) -> Decided {
+        if choice == crate::choice::SongChoice::Group && self.source != ContentSource::Shared {
+            return Err(Rejection::InvalidRules(crate::rules::RulesProblem::GroupNeedsList));
+        }
+        Ok(())
+    }
+
     fn check_base(base: Option<Revision>, changed_at: Revision) -> Decided {
         let base = base.ok_or(Rejection::MissingBase)?;
         if changed_at > base {
@@ -544,6 +554,7 @@ impl RoomState {
                 // As revision 16 keeps them ([`crate::MatchRules::normalized`]).
                 let rules = m.play_rules_of(&m.rules_for(*from).with_play(&rules.clone().normalized()));
                 rules.check().map_err(Rejection::InvalidRules)?;
+                self.check_choice_here(rules.choice)?;
                 if m.play_rules_for(*from).normalized() != rules {
                     self.emit(out, Event::StageRulesChanged { from: *from, rules });
                 }
@@ -588,6 +599,7 @@ impl RoomState {
                 // that passes the pick around would let the picker's pick
                 // advance here.
                 self.require_picker(actor)?;
+                self.not_by_group()?;
                 self.require(actor, Capability::Advance)?;
                 if card.as_ref().is_some_and(|c| !c.fits()) {
                     return Err(Rejection::InvalidCard);
@@ -596,6 +608,7 @@ impl RoomState {
             }
             Command::PickListed { song, chart } => {
                 self.require_picker(actor)?;
+                self.not_by_group()?;
                 self.require(actor, Capability::Advance)?;
                 if self.source != ContentSource::Shared {
                     return Err(Rejection::NoSongList);
@@ -714,6 +727,54 @@ impl RoomState {
                         charts: charts.clone(),
                     },
                 );
+                Ok(())
+            }
+            Command::Choose { song, chart } => {
+                let id = self.own(actor)?;
+                let Some(song) = song else {
+                    // One's own choice cleared, whoever they are now.
+                    if self.choices.contains_key(&id) {
+                        self.emit(
+                            out,
+                            Event::ChoiceChanged {
+                                participant: id,
+                                choice: None,
+                            },
+                        );
+                    }
+                    return Ok(());
+                };
+                let chart = chart.as_ref().ok_or(Rejection::ChartNotInSong)?;
+                if let Some(why) = self.choose_refusal(id, *song, chart) {
+                    return Err(why);
+                }
+                if self
+                    .choices
+                    .get(&id)
+                    .is_some_and(|c| c.song == *song && c.chart == *chart)
+                {
+                    return Ok(());
+                }
+                let choice = crate::choice::Choice {
+                    song: *song,
+                    chart: chart.clone(),
+                    at: self.revision.next(),
+                };
+                self.emit(
+                    out,
+                    Event::ChoiceChanged {
+                        participant: id,
+                        choice: Some(choice),
+                    },
+                );
+                Ok(())
+            }
+            Command::Draw { roll } => {
+                Self::authority_only(actor)?;
+                if !self.draw_due(now) {
+                    return Err(Rejection::NoDrawDue);
+                }
+                self.draw_now(*roll, now, out);
                 Ok(())
             }
             Command::TakePick => {
@@ -1102,6 +1163,177 @@ impl RoomState {
                 Ok(())
             }
         }
+    }
+
+    /// A pick is the draw's where the stage it would take is chosen by
+    /// the group (revision 22): refused to the picker.
+    fn not_by_group(&self) -> Decided {
+        if self.pick_stage().is_some() && self.group_choice() {
+            Err(Rejection::GroupChooses)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// The pick of a drawn entry: chart `won.chart` of listed song
+    /// `won.song`, as the picker's pick of a listed song (its base the
+    /// room as it stands: the draw is the room's own).
+    fn pick_drawn(
+        &mut self,
+        won: &crate::choice::DrawEntry,
+        now: Millis,
+        out: &mut Vec<Event>,
+    ) -> Decided {
+        let entry = self.songs.get(won.song).ok_or(Rejection::NotListed)?;
+        let line = entry.chart(&won.chart).ok_or(Rejection::ChartNotInSong)?;
+        if !entry.available() {
+            return Err(Rejection::SongNotReady);
+        }
+        let content = crate::ids::ContentId {
+            song: entry.key.clone(),
+            chart: won.chart.clone(),
+        };
+        let card = entry.card_for(line);
+        let listed = (entry.id, entry.share.clone());
+        let base = Some(self.revision);
+        self.pick_content(base, &content, Some(&card), Some(listed), now, out)
+    }
+
+    /// Why a draw opened now by `by`'s choice could not pick, if anything
+    /// (too few players, the next match's rules to review): the countdown
+    /// waits until it could. What a screen says while a host's or
+    /// co-host's choice stands and nothing counts down.
+    pub fn draw_refusal(&self, by: ParticipantId, now: Millis) -> Option<Rejection> {
+        let c = self.choices.get(&by)?;
+        let won = crate::choice::DrawEntry {
+            participant: by,
+            song: c.song,
+            chart: c.chart.clone(),
+        };
+        let mut trial = self.clone();
+        trial.pick_drawn(&won, now, &mut Vec::new()).err()
+    }
+
+    /// The draw ([`Command::Draw`]): one entry a choosing member, by id;
+    /// the winner `roll % entries`; the pick of it tried first, and the
+    /// countdown canceled where it cannot be made (the choices stand).
+    fn draw_now(&mut self, roll: u64, now: Millis, out: &mut Vec<Event>) {
+        use crate::choice::{DrawEnd, DrawEntry, DrawRecord};
+        let Some(d) = self.draw.clone() else { return };
+        let entries: Vec<DrawEntry> = self
+            .choices
+            .iter()
+            .map(|(p, c)| DrawEntry {
+                participant: *p,
+                song: c.song,
+                chart: c.chart.clone(),
+            })
+            .collect();
+        let Some(winner) = DrawRecord::winner_of(roll, entries.len()) else {
+            self.emit(out, Event::DrawCanceled { why: DrawEnd::Empty });
+            return;
+        };
+        let won = entries[usize::from(winner)].clone();
+        let mut trial = self.clone();
+        if trial.pick_drawn(&won, now, &mut Vec::new()).is_err() {
+            self.emit(out, Event::DrawCanceled { why: DrawEnd::NoStart });
+            return;
+        }
+        let record = DrawRecord {
+            stage: d.stage,
+            entries,
+            winner,
+            roll,
+            at: now,
+        };
+        self.emit(out, Event::Drawn { record });
+        let _ = self.pick_drawn(&won, now, out);
+    }
+
+    /// After every change and every tick (revision 22): choices that no
+    /// longer stand go (the rule is Host now, their maker will not play,
+    /// is away past the reconnect grace, or the song may not be chosen
+    /// any more); a countdown whose choices all went, or whose stage the
+    /// room can no longer pick by the group, is canceled; and where none
+    /// runs, a host's or co-host's own choice opens one, if a draw now
+    /// could pick ([`RoomState::draw_refusal`]).
+    fn settle_choices(&mut self, now: Millis, out: &mut Vec<Event>) {
+        use crate::choice::{DRAW_V0, Draw, DrawEnd};
+        if self.closed.is_some() || (self.choices.is_empty() && self.draw.is_none()) {
+            return;
+        }
+        let group = self.group_choice();
+        let excluded = if group {
+            self.excluded_songs().1
+        } else {
+            BTreeSet::new()
+        };
+        let gone: Vec<ParticipantId> = self
+            .choices
+            .iter()
+            .filter(|(id, c)| {
+                !group
+                    || self.chooser_refusal(**id).is_some()
+                    || self
+                        .members
+                        .get(id)
+                        .is_none_or(|m| m.connection == Connection::Disconnected)
+                    || self
+                        .songs
+                        .get(c.song)
+                        .is_none_or(|e| !e.available() || e.chart(&c.chart).is_none())
+                    || excluded.contains(&c.song)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for participant in gone {
+            self.emit(
+                out,
+                Event::ChoiceChanged {
+                    participant,
+                    choice: None,
+                },
+            );
+        }
+        if let Some(d) = &self.draw {
+            let why = if !group || self.pick_stage() != Some(d.stage) {
+                Some(DrawEnd::Rules)
+            } else if self.choices.is_empty() {
+                Some(DrawEnd::Empty)
+            } else if self
+                .choices
+                .keys()
+                .next()
+                .is_some_and(|by| self.draw_refusal(*by, now).is_some())
+            {
+                // A draw now could not start (too few players left): the
+                // countdown waits until one could, the choices standing.
+                Some(DrawEnd::NoStart)
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                self.emit(out, Event::DrawCanceled { why });
+            }
+            return;
+        }
+        let (Some(stage), Some(by)) = (self.pick_stage(), self.draw_starter()) else {
+            return;
+        };
+        if !group || self.draw_refusal(by, now).is_some() {
+            return;
+        }
+        self.emit(
+            out,
+            Event::DrawOpened {
+                draw: Draw {
+                    stage,
+                    by,
+                    opened_at: now,
+                    ends_at: now.after(DRAW_V0.countdown_ms),
+                },
+            },
+        );
     }
 
     /// `id` is out of the room (`gone`: their leaving, or their removal):
@@ -2095,6 +2327,7 @@ impl RoomState {
             .validate(&self.policy, self.reserved_humans())
             .map_err(Rejection::InvalidRules)?;
         self.check_cpus_here(rules).map_err(Rejection::InvalidRules)?;
+        self.check_choice_here(rules.choice)?;
         let have = self.playlist.len();
         let added = (have..usize::from(rules.planned_stages()))
             .map(|_| self.fresh_stage())
@@ -2336,6 +2569,24 @@ impl RoomState {
                 let list = std::sync::Arc::make_mut(&mut self.songs);
                 list.who_adds = *who;
                 list.changed_at = pending;
+            }
+            Event::ChoiceChanged {
+                participant,
+                choice,
+            } => match choice {
+                Some(c) => {
+                    self.choices.insert(*participant, c.clone());
+                }
+                None => {
+                    self.choices.remove(participant);
+                }
+            },
+            Event::DrawOpened { draw } => self.draw = Some(draw.clone()),
+            Event::DrawCanceled { .. } => self.draw = None,
+            Event::Drawn { record } => {
+                self.draw = None;
+                self.choices.clear();
+                self.drawn = Some(record.clone());
             }
             Event::SpotlightChanged { spotlight } => self.spotlight = spotlight.clone(),
             Event::PickerChanged { picker } => {

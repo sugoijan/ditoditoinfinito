@@ -67,9 +67,28 @@ pub struct LocalAuthority<C: Clock> {
     /// Each client's last sequence number and its outcome, for retries.
     last: BTreeMap<ClientId, (u64, Option<Rejection>)>,
     outbox: Vec<ServerEnvelope>,
+    /// The draws' generator (revision 22, `crate::choice`): a seeded one,
+    /// so a test's draws are exact ([`LocalAuthority::set_draw_seed`]);
+    /// the server's are random (`getrandom`).
+    draw_seed: u64,
 }
 
 impl<C: Clock> LocalAuthority<C> {
+    /// The draws' seed where none is set.
+    pub const DRAW_SEED: u64 = 0x0D12_A3D5_EED0_0001;
+
+    /// The draws' generator starts from `seed` (the rolls are
+    /// `splitmix64` of it, then of each next value).
+    pub fn set_draw_seed(&mut self, seed: u64) {
+        self.draw_seed = seed;
+    }
+
+    /// The next roll.
+    fn roll(&mut self) -> u64 {
+        self.draw_seed = self.draw_seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        crate::ids::splitmix64(self.draw_seed)
+    }
+
     /// The practice client's id and identity.
     pub const PRACTICE_CLIENT: &'static str = "local";
 
@@ -82,6 +101,7 @@ impl<C: Clock> LocalAuthority<C> {
             clients: BTreeMap::new(),
             last: BTreeMap::new(),
             outbox,
+            draw_seed: Self::DRAW_SEED,
         }
     }
 
@@ -220,8 +240,17 @@ impl<C: Clock> LocalAuthority<C> {
     }
 
     fn tick(&mut self) {
-        let events = self.state.advance(self.clock.now());
+        let now = self.clock.now();
+        let events = self.state.advance(now);
         self.publish(&events);
+        // The draw at its countdown's end (revision 22): the roll made
+        // now, as the server makes it.
+        if self.state.draw_due(now) {
+            let roll = self.roll();
+            if let Ok(events) = self.state.apply(Actor::Authority, None, &Command::Draw { roll }, now) {
+                self.publish(&events);
+            }
+        }
     }
 
     fn reply(&mut self, client: ClientId, seq: u64, outcome: Option<Rejection>) {

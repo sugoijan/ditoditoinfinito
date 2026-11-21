@@ -82,6 +82,50 @@ pub struct PublicView {
     /// itself is the members'). Additive: left out while none.
     #[serde(default, skip_serializing_if = "is_zero_u16")]
     pub songs: u16,
+    /// Choosing by the group (revision 22, `crate::choice`): each
+    /// player's choice as it stands, with what it names (the list itself
+    /// is the members'). Additive: left out while none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<PublicChoice>,
+    /// The draw's countdown while it runs, its end as it stands. Additive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draw: Option<crate::choice::Draw>,
+    /// The last draw, with what each entry named. Additive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drawn: Option<PublicDrawn>,
+}
+
+/// A player's choice as the audience sees it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicChoice {
+    pub participant: ParticipantId,
+    pub card: crate::state::ContentCard,
+}
+
+/// A draw as the audience sees it: its entries in the draw's order and
+/// the winner's index.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicDrawn {
+    pub stage: crate::ids::StageId,
+    pub entries: Vec<PublicChoice>,
+    pub winner: u16,
+    pub at: crate::ids::Millis,
+}
+
+/// What a choice of chart `chart` of listed song `song` names (an
+/// entry gone since: its title unknown, empty).
+fn public_choice(
+    room: &RoomState,
+    participant: ParticipantId,
+    song: crate::ids::RoomSongId,
+    chart: &crate::ids::ChartKey,
+) -> PublicChoice {
+    let card = room
+        .songs
+        .get(song)
+        .and_then(|e| e.chart(chart).map(|line| e.card_for(line)))
+        .unwrap_or_default();
+    PublicChoice { participant, card }
 }
 
 fn is_zero_u16(x: &u16) -> bool {
@@ -130,6 +174,12 @@ pub struct PublicRules {
     /// Joining during a match (revision 15; additive, left out while Off).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub mid_match_entry: bool,
+    /// Song choice and Repeats (revision 22; additive, left out at Host
+    /// and Allowed).
+    #[serde(default, skip_serializing_if = "crate::choice::SongChoice::is_host")]
+    pub choice: crate::choice::SongChoice,
+    #[serde(default, skip_serializing_if = "crate::choice::Repeats::is_allowed")]
+    pub repeats: crate::choice::Repeats,
 }
 
 impl PublicRules {
@@ -148,6 +198,8 @@ impl PublicRules {
             open_ended: r.open_ended,
             easiest: r.life_out(),
             mid_match_entry: r.mid_match_entry,
+            choice: r.choice,
+            repeats: r.repeats,
         }
     }
 }
@@ -364,11 +416,35 @@ impl PublicView {
                 .as_ref()
                 .and_then(|l| l.rules())
                 .map(|r| r.id.to_string()),
-            rules: PublicRules::of(rules),
+            // Song choice as the next stage plays it (a per-stage rule).
+            rules: PublicRules {
+                choice: room.choice_rules().0,
+                repeats: room.choice_rules().1,
+                ..PublicRules::of(rules)
+            },
             players,
             stages,
             standings: room.standings().unwrap_or_default(),
             songs: u16::try_from(room.songs.len()).unwrap_or(u16::MAX),
+            choices: room
+                .choices
+                .iter()
+                .map(|(p, c)| public_choice(room, *p, c.song, &c.chart))
+                .collect(),
+            draw: room.draw.clone().map(|d| crate::choice::Draw {
+                ends_at: room.draw_ends_at().unwrap_or(d.ends_at),
+                ..d
+            }),
+            drawn: room.drawn.as_ref().map(|r| PublicDrawn {
+                stage: r.stage,
+                entries: r
+                    .entries
+                    .iter()
+                    .map(|e| public_choice(room, e.participant, e.song, &e.chart))
+                    .collect(),
+                winner: r.winner,
+                at: r.at,
+            }),
         }
     }
 

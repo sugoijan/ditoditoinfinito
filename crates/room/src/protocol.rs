@@ -210,7 +210,15 @@ pub fn supported(version: u32) -> bool {
 ///     and removes what they added. An older client would neither show the
 ///     setting nor read the event, so it is refused. A room stored by
 ///     revision 20 reads as Hosts (`tests/room-revision-20.json`).
-pub const ROOM_MODEL_REVISION: u32 = 21;
+/// 22. round RL4 (2026-11-21): choosing by the group (`crate::choice`):
+///     the per-stage match rules Song choice (Host or Group) and Repeats,
+///     each player's choice (`Command::Choose`, `Event::ChoiceChanged`),
+///     the draw's countdown opened by a host's or co-host's own choice
+///     (`Event::DrawOpened`, `Event::DrawCanceled`) and the authority's
+///     draw (`Command::Draw`, `Event::Drawn`, `RoomState::drawn`). An older
+///     client would read none of it, so it is refused. A room stored by
+///     revision 21 reads as Host (`tests/room-revision-21.json`).
+pub const ROOM_MODEL_REVISION: u32 = 22;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being

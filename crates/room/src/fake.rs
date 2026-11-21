@@ -726,6 +726,12 @@ impl FakeServer {
     }
 
     /// The server's own command (content status, a confirmed result).
+    /// The draws' seed (revision 22, `crate::choice`): the server's rolls
+    /// are random; the fake's come from this, so a test's draws are exact.
+    pub fn set_draw_seed(&mut self, seed: u64) {
+        self.authority.set_draw_seed(seed);
+    }
+
     pub fn authority(&mut self, command: Command) -> Result<Vec<Event>, Rejection> {
         let out = self.authority.authority(command);
         self.route(None);

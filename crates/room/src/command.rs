@@ -6,6 +6,7 @@
 use crate::attacks::Targeting;
 use crate::awards::{Finisher, NoAwardRule, StageResult};
 use crate::battle::{ReportedRun, RunDetail};
+use crate::choice::{Choice, Draw, DrawEnd, DrawRecord, NoChoice, Repeats};
 use crate::ids::{
     ChartKey, ContentId, Identity, MatchId, Millis, ParticipantId, Revision, RoomSongId, StageId,
 };
@@ -135,6 +136,21 @@ pub enum Command {
     /// (`RoomState::may_add`). Back to Hosts removes nothing listed.
     SetWhoAdds {
         who: WhoAdds,
+    },
+
+    // Choosing by the group (room model revision 22, `crate::choice`).
+    /// One's own choice for the next stage under Song choice: Group:
+    /// chart `chart` of listed song `song` (there to load, not excluded by
+    /// the Repeats rule), or none (`song` none: cleared). Only one who
+    /// will play the next stage (`RoomState::choice_refusal`). A host's
+    /// or co-host's own choice opens the draw's countdown where none runs
+    /// and the room could pick ([`Event::DrawOpened`]); every choice gone
+    /// cancels it.
+    Choose {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        song: Option<RoomSongId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chart: Option<ChartKey>,
     },
 
     // Operators (owner, co-hosts, admins). Edits carry the envelope's base.
@@ -290,6 +306,17 @@ pub enum Command {
     SetSpotlightShare {
         chart: crate::ids::ChartKey,
         share: String,
+    },
+    /// The draw at its countdown's end (revision 22,
+    /// `RoomState::draw_due`): `roll` a random number the authority makes
+    /// at that moment (the server's `getrandom`; a test's authority its
+    /// seeded one), which no device knew before. Each choosing member one
+    /// entry, by participant id; the winner `roll % entries`. Its events:
+    /// [`Event::Drawn`], then those of a pick of the drawn song (as
+    /// [`Command::PickListed`]); where that pick could not be made,
+    /// [`Event::DrawCanceled`] ([`crate::choice::DrawEnd::NoStart`]).
+    Draw {
+        roll: u64,
     },
     /// What the server made of entry `song`'s upload (revision 17): there
     /// to load with share `share`, its charts as the uploaded record lists
@@ -466,6 +493,28 @@ pub enum Event {
     /// [`Command::SetWhoAdds`] (revision 21).
     WhoAddsChanged {
         who: WhoAdds,
+    },
+    /// A member's choice (revision 22, [`Command::Choose`]); none: cleared
+    /// (by them, or by the room: they left, watch, are away past the
+    /// reconnect grace, or the song may no longer be chosen).
+    ChoiceChanged {
+        participant: ParticipantId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        choice: Option<Choice>,
+    },
+    /// The draw's countdown opened by a host's or co-host's own choice.
+    DrawOpened {
+        draw: Draw,
+    },
+    /// The countdown ended without a draw.
+    DrawCanceled {
+        why: DrawEnd,
+    },
+    /// The draw ([`Command::Draw`]): the countdown over, every choice
+    /// cleared, the record kept (`RoomState::drawn`). The pick's events
+    /// follow.
+    Drawn {
+        record: DrawRecord,
     },
     /// The pick changed hands ([`Command::TakePick`], or its holder could
     /// hold it no longer); none: nobody chooses until an operator takes
@@ -763,6 +812,21 @@ pub enum Rejection {
     /// Revision 18: a Twitch setting past its bounds
     /// (`TwitchSetting::fits`).
     InvalidTwitch,
+    /// Revision 22: the next stage's Song choice is Host: nobody chooses.
+    NotGroupChoice,
+    /// Revision 22: under Song choice: Group, only those who will play
+    /// the next stage choose (`why` they may not).
+    CannotChoose {
+        why: NoChoice,
+    },
+    /// Revision 22: the Repeats rule `rule` excludes that song now.
+    Repeated {
+        rule: Repeats,
+    },
+    /// Revision 22: under Song choice: Group the draw picks: no pick.
+    GroupChooses,
+    /// Revision 22: an authority's draw with no countdown at its end.
+    NoDrawDue,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

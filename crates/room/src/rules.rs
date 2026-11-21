@@ -4,6 +4,7 @@
 //! keeps beside the running match's (`state::NextMatchDraft`).
 
 use crate::awards::{AwardScheme, PointsBias};
+use crate::choice::{Repeats, SongChoice};
 use crate::member::OpponentSpec;
 use serde::{Deserialize, Serialize};
 
@@ -522,6 +523,17 @@ pub struct MatchRules {
     /// in Rules).
     #[serde(default = "ShocksPerAttack::before_the_rule")]
     pub shocks: ShocksPerAttack,
+    /// Song choice (room model revision 22, round RL4, [`crate::choice`]):
+    /// the picker picks (Host, the default) or the players choose and a
+    /// draw takes one choice (Group, where the room has a song list).
+    /// A per-stage rule. ADDITIVE: left out of the JSON while Host, read
+    /// as Host where missing (every room stored before).
+    #[serde(default, skip_serializing_if = "SongChoice::is_host")]
+    pub choice: SongChoice,
+    /// Repeats under Song choice: Group ([`Repeats`]; Allowed by
+    /// default). ADDITIVE, as `choice`.
+    #[serde(default, skip_serializing_if = "Repeats::is_allowed")]
+    pub repeats: Repeats,
 }
 
 /// The next match's draft as stored or sent (`crate::state::NextMatchDraft`):
@@ -584,6 +596,12 @@ pub struct PlayRules {
     /// while `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub points: Option<PointsBias>,
+    /// [`MatchRules::choice`] (revision 22).
+    #[serde(default, skip_serializing_if = "SongChoice::is_host")]
+    pub choice: SongChoice,
+    /// [`MatchRules::repeats`] (revision 22).
+    #[serde(default, skip_serializing_if = "Repeats::is_allowed")]
+    pub repeats: Repeats,
 }
 
 impl PlayRules {
@@ -955,6 +973,8 @@ impl MatchRules {
             at_once: self.at_once,
             shocks: self.shocks,
             points: None,
+            choice: self.choice,
+            repeats: self.repeats,
         }
     }
 
@@ -971,6 +991,8 @@ impl MatchRules {
             at_once: play.at_once,
             shocks: play.shocks,
             points: play.points.unwrap_or(self.points),
+            choice: play.choice,
+            repeats: play.repeats,
             ..self.clone()
         }
     }
@@ -1037,6 +1059,8 @@ impl MatchRules {
             life_out_any_chart: true,
             at_once: AttacksAtOnce::Three,
             shocks: ShocksPerAttack::Four,
+            choice: SongChoice::Host,
+            repeats: Repeats::Allowed,
         }
     }
 
@@ -1196,6 +1220,9 @@ pub enum RulesProblem {
     /// CPUs in a room that cannot seat them: an online room that does not
     /// play live ([`RoomPolicy::seats_cpus`]).
     CpusNotHonored,
+    /// Song choice: Group in a room with no song list (CPU practice picks
+    /// from the player's own library): room model revision 22.
+    GroupNeedsList,
     /// A problem only an authority before revision 9 named (a rule its
     /// policy said it did not honor), as a server's stored record of a
     /// refusal may still hold it: read, never made.

@@ -311,6 +311,10 @@ pub enum Capability {
     /// gives the room): the owner's alone (the lists are their own). The
     /// one who set it may turn it off too (`RoomState::may_set_twitch`).
     Twitch,
+    /// Open the draw's countdown under Song choice: Group by one's own
+    /// choice (room model revision 22, `crate::choice`): the host's and
+    /// the co-hosts' (an administrator's too).
+    StartDraw,
 }
 
 /// Whether a member with `role` (and `admin`) may use `capability` in a
@@ -327,7 +331,8 @@ pub fn can(role: Role, admin: bool, capability: Capability, phase: PhaseKind) ->
         | Capability::CloseAudience
         | Capability::ReplaceInvite
         | Capability::AddSongs
-        | Capability::Kick => operator,
+        | Capability::Kick
+        | Capability::StartDraw => operator,
         Capability::Twitch => role == Role::Owner,
         Capability::Advance => {
             operator && !matches!(phase, PhaseKind::Stage | PhaseKind::SongCompletion)
@@ -357,6 +362,7 @@ mod tests {
             Capability::CloseAudience,
             Capability::ReplaceInvite,
             Capability::AddSongs,
+            Capability::StartDraw,
         ] {
             assert!(can(Role::Owner, false, cap, p));
             assert!(can(Role::CoHost, false, cap, p));
