@@ -1235,8 +1235,8 @@ impl Bot {
             }
         }
         room.borrow_mut().clear_refusal();
-        if let Some((added, half)) = room.borrow().my_song_count() {
-            self.say(format!("has added {added} of the {half} songs it may"));
+        if let Some((_, half)) = room.borrow().my_song_count() {
+            self.say(format!("may add up to {half} songs (half the list)"));
         }
     }
 
