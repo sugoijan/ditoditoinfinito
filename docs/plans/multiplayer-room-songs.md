@@ -3,7 +3,7 @@
 Status: stages 1 and 2 built (rounds RL1 and RL2, room model revision
 17, 2026-11-19, released together); round DB's answers built (revision
 19, 2026-11-20); stage 3 built (round RL3, revision 21, 2026-11-21);
-stage 4 planned.
+stage 4 built (round RL4, revision 22, 2026-11-21).
 
 The maintainer's request (2026-11-19): "a separation step between the
 local song list and the room's song list, they would still look the same
@@ -29,7 +29,7 @@ Each is a room model revision of its own; server first, as always.
 3. **Everyone may add** (built, revision 21): a room setting "Who can
    add songs: Hosts / Everyone" (Hosts by default), beside "If the host
    leaves" in Host options; `RoomState::may_add` is its one check.
-4. **Choosing by the group**: "Song choice: Host / Group" (Host by
+4. **Choosing by the group** (built, revision 22): "Song choice: Host / Group" (Host by
    default), a per-stage rule; members mark choices at any time; a host's
    or co-host's own choice starts the countdown; the draw cancelled if the
    choices all go; choices cleared after each draw; everyone sees who
@@ -313,8 +313,181 @@ Rules) and `--add ID:N` (the Nth guest bot adds that song, from `--songs`
 or the bundled songs, once the room lets it; `--add ID` alone stays the
 host bot's). Guest bots alone (`--join`) take `--add ID:N` too.
 
+## Stage 4 as built (round RL4, room model revision 22, 2026-11-21)
+
+The maintainer's decisions of 2026-11-19 (Group a rule, Host by default;
+only those who will play choose; no separate Draw: a host's or
+co-host's own choice starts the countdown, the draw canceled where no
+choice is left; a roulette among the members' choices, one entry each;
+choices cleared after each draw; Repeats Allowed by default, Not in a
+row and Not in a match as a rule) as built; what was this round's to
+design is said with its alternative.
+
+### The model (`crates/room/src/choice.rs`)
+
+- **Where the rule lives**: two per-stage match rules,
+  `MatchRules::choice` and `MatchRules::repeats` (and the same in
+  `PlayRules`), so a change lands "from stage N" as Timing difficulty's
+  does (`ChangeStageRules`, `rules_land_on`), or on the next match
+  between matches. Left out of the JSON at Host and Allowed: a room
+  stored by revision 21 reads as Host (`tests/room-revision-21.json`).
+  Group in a room with no song list (CPU practice) is refused
+  (`RulesProblem::GroupNeedsList`): practice has one person, nobody to
+  draw among. The alternative, a room setting beside Who can add songs,
+  would have meant one more kind of setting for something the stage
+  plays by.
+- **Who chooses** (`RoomState::choice_refusal`, `chooser_refusal`):
+  a person present (a bot too) who plays the stage the choices are for
+  (`choosing_for`: the stage a pick would take; while a stage is
+  readied or played, the one after it, the next match's first after a
+  match's last): seated in the running match, or to be seated in its
+  next stage (joining during a match, a place free); before a match,
+  anyone who plays. Never a CPU, a watcher (by choice or by the
+  watch-only link), the audience, one out of the match or one waiting
+  for the next match (`Rejection::CannotChoose { why }`).
+- **A choice** (`Choice`: a listed song there to load, one of its
+  charts, the revision it was made at; `Command::Choose`,
+  `Event::ChoiceChanged`): one a player; another song moves it; none
+  clears it. Choices may be made at any time the rule is Group, also
+  while another stage is played (for the next).
+- **The countdown** (`Draw`, `draw-v0`, `DRAW_V0`, PROVISIONAL): opened
+  by the room itself (`settle_choices`, after every change and tick)
+  where none runs, the room could pick now (`pick_stage`) and a host's
+  or co-host's own choice stands (`Capability::StartDraw`,
+  `draw_starter`: the earliest such choice names who started it); a
+  choice an operator made during another stage's play opens it as soon
+  as that stage is over. **Ten seconds**, the proposal's number (long
+  enough for a person who has not chosen to choose, short enough that a
+  host's choice feels like a start); **early once every player who may
+  choose and is there has a choice, never before three seconds** (so it
+  is seen); a choice made or changed during it counts until it ends.
+  Alternatives: a Pass action counted as chosen for the early end (not
+  built: nobody asked for one, and a player who wants to pass simply
+  lets the ten seconds run); a longer countdown for large rooms.
+- **Canceled** (`Event::DrawCanceled { why }`): every choice gone
+  (`Empty`: the operator clears a lone choice); the rule turned Host or
+  the room no longer able to pick that stage (`Rules`); a draw now
+  could not start a stage (`NoStart`: too few players left, the next
+  match's rules to review; the choices stand, and the countdown opens
+  again as soon as a draw could start). **The operator who started it
+  leaving** takes their choice: the countdown goes on while any choice
+  stands, canceled when none does; **losing the role** leaves their
+  choice and the countdown as they are. A chooser who leaves, is
+  kicked, turns to Watch or is away past the reconnect grace takes
+  their choice with them.
+- **The draw** (`Command::Draw { roll }`, the authority's,
+  `RoomState::draw_due`): the entries are the choices by participant id,
+  one each; the winner is `roll % entries`, so a song two players chose
+  has two chances; `Event::Drawn` keeps the record (`RoomState::drawn`,
+  `DrawRecord`: entries, winner, roll, time); the choices are cleared;
+  then the events of a pick of the drawn song as the picker's pick of a
+  listed song (its share there at once, its readiness window open).
+  **The randomness**: the roll is eight bytes the server's Worker makes
+  at the countdown's end (`getrandom`, the platform's
+  `crypto.getRandomValues`), which no device, the host's included, can
+  know or steer before the choices lock; every device shows the record's
+  result and computes nothing random of its own; a stored room keeps the
+  roll with the entries. Tests: `LocalAuthority::set_draw_seed`,
+  `FakeServer::set_draw_seed`, the server's `RoomCore::draw_seed`
+  (`splitmix64` of the seed), so a test's draws are exact. The
+  alternative, a seed known ahead (the room's and the stage's hash, as
+  the live plan's), was refused: anyone could compute the winner and
+  move their choice at the last second.
+- **Under Group the picker does not pick** (`Rejection::GroupChooses`);
+  a song somebody's choice names is in use (`song_in_use`: never
+  removed, never made room for under Remove the oldest).
+- **Repeats** (`RoomState::excluded_songs`): Not in a row, the song of
+  the stage before the one chosen for (this match's; for a match's
+  first, the last match's last); Not in a match, every song a stage of
+  this match picked or played. Choosing an excluded song is refused
+  (`Rejection::Repeated { rule }`) and its row says why. **Where the
+  rule would leave no song to choose, it gives way** (every song may be
+  chosen; Rules' note says so). Alternative: refuse every choice and
+  ask the host to change the rule.
+- **The audience** (`audience::PublicView`): the rule, each choice with
+  what it names (its song's card: the audience has no list), the
+  countdown with its end and the last draw with its entries' songs.
+  Nobody of the audience chooses.
+
+### The server
+
+`RoomCore::tick` draws where the room says one is due (`RoomCore::draw`,
+`random_u64`: the Worker's random bytes; natively for tools and tests
+the standard library's keyed hasher, never in the Worker), and the
+room's alarm is set to the countdown's end (`next_deadline`). The
+session log says who opened a countdown (their seat), each draw (its
+stage and how many choices) and each cancel (why), never a song.
+Nothing new is stored but the room's state; nothing in `wrangler.toml`.
+
+### The screens
+
+- **Rules**: Song choice (Host, Group) with a sentence for each, and
+  Repeats under Group with its note (its values read Allowed, Not in a
+  row and Once a match: "Not in a match" did not fit between the row's
+  buttons), both per-stage rows ("From stage
+  N"), in an online room only; the summary words say "Group song
+  choice" and the repeats rule where they are not the usual.
+- **Room songs** under Group: Enter is this player's choice ("Choose
+  this song"; the host's and co-hosts' hint "Choose this song and start
+  the draw"; on the song chosen "Take back your choice"); each row's
+  line says who chose it first ("Chosen by you", "Chosen by bob and
+  Beep", "Chosen by you and 3 more": two names at most, then a count),
+  and a song the Repeats rule excludes "Just played" or "Played this
+  match". A refused choice is said in a notice ("You're watching, so
+  you don't choose: only players choose the next song.", "That song was
+  just played: Repeats is Not in a row.").
+- **The status line** (`room::group_status`): "Choose stage 2's song.
+  Your choice starts the draw." to a host; "… The draw starts when a
+  host chooses." to others; "3 of 4 chose stage 2's song. …" once some
+  chose; "The draw in 7 s · 3 of 4 chose · started by alice" while it
+  counts (its seconds counted on this device from when it saw the
+  countdown open, or the room's clock where known: the same for
+  everyone within the network's delay); "The draw waits until a stage
+  can start: more players are needed." where a host's choice stands
+  and a draw could not start; "… players chose …. Only players choose."
+  to a watcher. **A late joiner** sees the choices and the countdown at
+  once from the room's snapshot and may choose at once where they will
+  play.
+- **A phone**: the same rows and status line; its Play button reads
+  what Enter does ("Choose this song"); the reveal fitted to the screen.
+- **The audience's page** says the choosing in its line ("2 of 4
+  players chose stage 2's song. Only players choose.", the countdown)
+  and, once drawn, "Beep's choice: Sweeteners · Hard 8"; it draws no
+  reel of its own (not done).
+- **The players panel** marks who has chosen (a tick, `Mark::Chose`;
+  "Chose a song" in the pop-over); the picker's note is not shown under
+  Group.
+- **The reveal** (`screens/room_reveal.rs`, layer `room-draw`): over the
+  room's song select for everyone, members watching included, three
+  seconds (`DRAW_V0.reveal_ms`) from when the device saw the draw: a
+  reel of the entries ("Beep · Sweeteners · Hard 8"), in the draw's
+  order, spinning upward and slowing (a cubic ease-out over the first
+  three quarters) to stop the drawn one in the middle band, gold; then
+  "Beep's choice: Sweeteners · Hard 8". Its motion comes from the record
+  alone (`reel_at`), so every device shows the same reel; skippable by
+  nothing; under reduced motion the drawn entry stands in the band with
+  the line at once. The stage's Ready card follows (`RoomClient::reveal`
+  holds the prompt back meanwhile); the readiness window opens at the
+  draw on the room's clock all the same, so a reveal costs three
+  seconds of the Ready countdown (the window's deadline was not moved
+  for it: simpler, and Ready ends the window early anyway).
+  **Candidates**: A, cards in a row with a highlight hopping along them
+  (the proposal's), and B, the reel (built), are drawn side by side in
+  `target/scratch/mp/rl4/shots/reveal-candidates.png`. B was built: it
+  reads as a roulette at any number of entries (A needs a grid past
+  six), every line names the chooser with the song, and its motion is
+  one value.
+
+### Bots
+
+`--group` and `--repeats allowed|row|match` (the host bot's Rules), and
+`--choose random|first|none` (each guest bot's choice, a moment after
+the room can take one, each a little after the one before; random by
+default, from `--seed`). Under Group the host bot chooses the song it
+would have picked; its choice starts the draw. Every bot says how many
+chose, the countdown opening and ending, and each draw.
+
 ## Not in stage 1
 
 Bests on songs not in one's library (a downloaded song's row has none,
-nor NEW);
-choosing by the group (stage 4).
+nor NEW).

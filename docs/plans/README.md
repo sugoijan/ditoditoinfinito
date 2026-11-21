@@ -53,7 +53,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   room's own (Options → Data's Room songs ahead), the rows filled in, who
   has what over the live side; stage 3 built (revision 21): the owner's
   Who can add songs (Hosts or Everyone), a person's own songs added up to
-  half the list and removed by them.
+  half the list and removed by them; stage 4 built (revision 22): the
+  match rule Song choice (Host or Group) with Repeats, each player's
+  choice, a host's own choice starting a countdown, the server's draw
+  shown as a short reel.
 - [The host's Twitch in a room](multiplayer-twitch.md) (2026-11-20):
   built without Twitch itself, room model revision 18: round TW1 the
   model, Kick, the Twitch link and the mirror on the server behind a fake

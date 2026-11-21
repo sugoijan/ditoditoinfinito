@@ -13509,6 +13509,172 @@ game. The room model's revision is unchanged (21): no room state, command,
 event or stream changed; the routes are new HTTP, answered by an older
 game never asked.
 
+## Round RL4: the room's song list, stage 4, choosing by the group (room model revision 22, 2026-11-21)
+
+`docs/plans/multiplayer-room-songs.md`, "Stage 4 as built". The match
+rule **Song choice: Host / Group** (Host by default, a per-stage rule
+beside Timing difficulty, online rooms only), and under Group
+**Repeats: Allowed / Not in a row / Not in a match**. Under Group each
+player who will play the next stage marks one listed song (and chart) as
+their choice with Enter on Room songs; everyone sees who chose what as
+it is chosen; a host's or co-host's own choice opens a ten-second
+countdown (early once everyone who may has chosen, never before three
+seconds), canceled when every choice goes; at its end the server draws
+one player's choice with a roll it makes then; every device shows the
+same three-second reel; the drawn song is picked as a host's pick is;
+the choices are cleared.
+
+### What moved
+
+- The room model, revision 22 (`crates/room/src/choice.rs`):
+  `SongChoice`, `Repeats`, `MatchRules::choice`/`repeats` and the same
+  in `PlayRules`; `RoomState::choices`, `draw`, `drawn`;
+  `Command::Choose`, `Command::Draw { roll }` (the authority's);
+  `Event::ChoiceChanged`, `DrawOpened`, `DrawCanceled`, `Drawn`;
+  `Capability::StartDraw`; refusals `NotGroupChoice`, `CannotChoose {
+  why }`, `Repeated { rule }`, `GroupChooses`, `NoDrawDue`,
+  `RulesProblem::GroupNeedsList`; `RoomState::pick_stage`,
+  `choosing_for`, `choice_rules`, `group_choice`, `choice_refusal`,
+  `chooser_refusal`, `choosers`, `excluded_songs`, `choose_refusal`,
+  `draw_starter`, `draw_ends_at`, `draw_due`, `chosen_by`,
+  `draw_refusal`; `next_deadline` includes the draw's end;
+  `song_in_use` counts standing choices; the reducer's settling after
+  every change and tick (`settle_choices`); `LocalAuthority` and
+  `FakeServer` draw from a seed (`set_draw_seed`); the audience's public
+  view carries the choices, the countdown and the last draw.
+  `tests/room-revision-21.json` (written by revision 21's own reducer
+  in a test removed after) reads as Host and writes back what it read.
+- The server (`737ce93`): `RoomCore::tick` draws where one is due with
+  eight random bytes made then (`random_u64`; a test's
+  `RoomCore::draw_seed`); the session log's `draw_opened` (a seat),
+  `drawn` (stage, how many choices) and `draw_canceled` (why), never a
+  song; README. Nothing in `wrangler.toml`.
+- The client (`crates/ui/src/state/room/choosing.rs`): `choose`,
+  `clear_choice`, `my_choice`, `choice_blocked`, `starts_draw`,
+  `chosen_by`, `repeat_refused`, `chose_count`, `draw_countdown`,
+  `draw_waits`, `reveal` (holding the stage's prompt back for
+  `DRAW_V0.reveal_ms`).
+- The screens: Room songs' Enter under Group, the rows' choosers and
+  repeats, the hints, `room::group_status`, the players panel's tick
+  (`Mark::Chose`), Rules' Song choice and Repeats rows (from stage N),
+  the refusals' words, the reveal (`screens/room_reveal.rs`, layer
+  `room-draw`); `ui.theme.room`'s `choice`, `repeats`, `choices`,
+  `my_choice`, `draw`, `draw_by`, `reveal`, `choice_blocked`,
+  `draft_choice`. English and Japanese (drafts; one kanji, 抽, cut into
+  the faces).
+- Bots: `--group`, `--repeats`, `--choose random|first|none`.
+
+### Decisions (each with its alternative, for the maintainer)
+
+- **The countdown** (`draw-v0`, PROVISIONAL): ten seconds; early once
+  every player who may choose and is connected has a choice, never
+  before three seconds; a choice made or changed during it counts until
+  its end. Alternatives: a Pass action that counts as chosen; longer for
+  large rooms.
+- **What starts it**: a host's or co-host's own standing choice while the
+  room could pick; one made during another stage's play opens it once
+  that stage is over. The one who started it leaving takes their choice;
+  the countdown goes on while any choice stands. Losing the role leaves
+  it running. Alternative: cancel it when its starter goes.
+- **A draw that could not start a stage** (too few players): the
+  countdown is canceled at once (`DrawEnd::NoStart`) and the choices
+  stand; it opens again as soon as one could. The status line says "The
+  draw waits until a stage can start: more players are needed."
+- **The randomness**: the server's random bytes at the countdown's end,
+  recorded with the entries in the room's state; `roll % entries`,
+  entries by participant id. Practice has no Group (one person, no song
+  list: refused as `GroupNeedsList`).
+- **The reveal**: a reel (B) over a row of cards (A), both drawn in
+  `target/scratch/mp/rl4/shots/reveal-candidates.png`; three seconds from
+  when the device saw the draw, the stage's Ready card after it; the
+  readiness window opens at the draw all the same (the Ready countdown
+  loses those three seconds; moving the window would be the
+  alternative).
+- **Where the rule lives**: per stage (`PlayRules`), as Timing
+  difficulty. Alternative: a room setting.
+- **Repeats' edge**: where the rule would leave no song to choose, it
+  gives way (every song may be chosen; Rules' note says so).
+  Alternative: refuse every choice until the host changes the rule.
+- **Watching hosts**: a host who watches has no choice of their own, so
+  under Group only a co-host or a host who plays can start a draw; the
+  status line then reads as anyone's ("The draw starts when a host
+  chooses."). Alternative: let a watching host start the draw without a
+  choice (a Draw action, which the maintainer did not want).
+- **Under Group the picker does not pick** (`GroupChooses`), and the
+  picker's resting mark ("Host is on it") is not shown.
+- **Privacy**: a player's standing choice is room state like their
+  readiness (cleared at each draw); the room keeps the last draw (who
+  chose which song) while it lives. The privacy note's Rooms paragraph
+  lists what a room keeps; a sentence is proposed in the round's report,
+  not published.
+
+### Validated
+
+- Tests: the room crate's `tests/group_choice.rs` (who may choose and
+  only under Group, CPU practice refusing Group; one choice each,
+  moved, cleared, the same again changing nothing; a member's choice
+  opening nothing and the host's opening the countdown, named as hers;
+  its ten seconds and its early end at three; a countdown canceled when
+  its choices go, a co-host's opening it, losing the role keeping it;
+  the draw's entries, winner and record, the choices cleared, the next
+  stage's countdown opened by a standing host's choice; over 1,200
+  rolls a song chosen twice drawn 740 to 860 times; Not in a row and
+  Not in a match refused and giving way; a chosen song kept from
+  removal and from Remove the oldest; a chooser leaving, kicked,
+  watching or away past the grace taking their choice; a draw that
+  could not start canceled with the choices standing and opened again;
+  Song choice changed from a later stage; a stored revision-21 room;
+  the audience's view); both authorities alike over the seeded draw
+  (`choosing_by_the_group_is_kept_alike_by_both_authorities`); the
+  server's draw at its alarm with a seeded roll and a random one
+  (`the_group_draws_at_its_countdowns_end_with_the_rooms_own_roll`);
+  the screens (`choosing_by_the_group_on_room_songs`: each state's
+  words, the rows' choosers, the hints, a watcher's refusal, the reveal
+  over both screens before the prompt), the pseudo-language walk (the
+  refusals, the reveal), the audience's line
+  (`the_audience_is_told_whose_choice_was_drawn`). Suites: room, ui,
+  theme, session, shell and the web's routes 1,665 passed, 0 failed;
+  desktop 409 passed, 0 failed (23 ignored); the server's workspace 218 and `--features
+  dev-auth` 219; clippy native and wasm, the server's lints and format;
+  `l10n check`; a release build's `check-boot` (12418 of 12552 bytes
+  gzipped); the singleplayer smoke check in Chrome and Firefox.
+- Walked on a local server (revision 22, a scratch configuration, the
+  development provider; `target/scratch/mp/rl4/walks/group.mjs`) in
+  Chrome and in Firefox, a host and Bob in two contexts and two guest
+  bots (`--choose random`): the host lists three bundled songs and sets
+  Song choice: Group in Rules; nobody chose ("Choose stage 1's song.
+  Your choice starts the draw." / "… The draw starts when a host
+  chooses."); the host's lone choice opens the countdown ("The draw in
+  9 s · 1 of 2 chose · started by you", "… started by Host") and taking
+  it back cancels it; the bots choose (rows "Chosen by Beep… (Bot) and
+  Boop… (Bot)"), Bob chooses with Enter ("Chosen by you", the host's row
+  "Chosen by Bob", the panel's ticks); the host's choice opens the
+  countdown, everyone has chosen, the draw 3.0 s later (the bots' logs);
+  the reveal over both screens (frames `*-reveal-*.png`), then the Ready
+  card ("Group song choice" in its rules line); the drawn song played
+  to the stage's results; back in the room the choices began empty (the
+  bots chose again, the host and Bob had none); Not in a row and Not in
+  a match from stage 2 refuse the song played in a notice ("That song
+  was just played: Repeats is Not in a row.", its row "Just played" /
+  "Played this match"); Bob turns to Watch, his tick gone, the status
+  line "1 of 3 players chose stage 2's song. Only players choose.", his
+  Enter refused ("You're watching, so you don't choose: only players
+  choose the next song."; in Firefox the walk's Enter reopened More,
+  which a mouse tap had left focused: the script's, the refusal shown in
+  Chrome and the unit test). Bob on a phone (390×844, `phone.mjs`): the
+  rows, the countdown, the reveal fitted to the screen, Play reading
+  "Choose this song". The two people's own plays were not autoplayed (a
+  room's stage takes no autoplay, as in round RL3). Pictures:
+  `target/scratch/mp/rl4/shots/`, the reveal's candidates
+  `reveal-candidates.png`.
+
+### Not done
+
+- A watching host cannot start a draw (see Decisions).
+- The audience's page says the choosing, the countdown and whose choice
+  was drawn in its line; it draws no reel of its own.
+- The privacy note is unchanged (a sentence proposed in the report).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -13684,6 +13850,7 @@ game never asked.
 | `attack-links-v1` (2026-11-15, feedback round L; replaces `attack-links-v0`): in time as v0 (a pulse of 0.6 s, the line gone after 1.5 s, the outline in over 0.2 s, a chained attack's parts at 0.45); a line a curve under the miniatures; `attack-lines-apart-v1`: two lines never nearer than two strokes for longer than sixteen (a crossing), ends four strokes apart, at most 96 ways tried a line and 64 lines at once, a link beyond them or with no free way its outline alone; `attack-lines-apart-v2` (2026-11-16, feedback round P2): such a link tried again on the frame after a line went, two a frame at most | `ddi_shell::attack_links::ATTACK_LINKS_V1`, `SPACING_V1`, `SPACING_V2`, `Routes` | How who attacks whom reads; each line can be followed from its source to its target; with very many at once some attacks show the outline alone until a line goes | The look by eye (the curves' shapes, the glow now blended normally), the numbers, a shock motif for the pulse, whether the warning should mirror to the attacker's side |
 | Beyond the cap, the attackers and the latest target are kept in view while their attacks last and one turn (8 s) after, in the first slots | `ddi_session::battle::Battle::kept_seats`, `opponents::priority_seats` | Development-only practice | The large-party policy |
 | An attack against the player is told at most once in six seconds; attack moments rank 30 (incoming) and 8 (launched) in `battle-voice-v0`; shown 2.5 s in the status line | `ddi_session::announcer::battle::BATTLE_VOICE_V0` (`incoming_again`, `attack_priority`) | "Attack launched" shows several times a minute for a strong player | Whether the launched moment should show at all once it has a line; the six seconds |
+| `draw-v0` (round RL4): the group's countdown ten seconds, early once every player who may choose has chosen but not before three; the reveal three seconds from when a device saw the draw, the stage's prompt after it | `ddi_room::choice::DRAW_V0`, `RoomState::draw_ends_at`, `RoomClient::reveal` | A draw comes three to ten seconds after a host's choice; the Ready countdown starts three seconds before the Ready card shows | The numbers; whether the readiness window should wait for the reveal |
 | The standings' attack columns take the combo's place; the summary flows under the lines | `screens::results_stage` (`columns`, `summary_lines`) | With attacks the stage's standings have no max combo | Which column should give way (the combo, the place in the match, the judgments' strip) |
 
 ## Open questions

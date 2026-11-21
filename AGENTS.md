@@ -1551,7 +1551,32 @@ Rust and the browser are implementation details, not advertised features.
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 21 since 2026-11-21: Who can add songs, the
+  (`ROOM_MODEL_REVISION`, 22 since 2026-11-21: choosing by the group,
+  `crate::choice` (`docs/plans/multiplayer-room-songs.md`, "Stage 4 as
+  built"): the per-stage match rules Song choice, Host or Group
+  (`MatchRules::choice`, `PlayRules::choice`, `SongChoice`; Group only
+  with a song list, `RulesProblem::GroupNeedsList`), and Repeats under
+  it (`Repeats`: Allowed, Not in a row, Not in a match, giving way where
+  nothing would be left, `RoomState::excluded_songs`); each player's
+  choice of a listed song and chart (`RoomState::choices`,
+  `Command::Choose`, `Event::ChoiceChanged`; who may,
+  `RoomState::choice_refusal`, `chooser_refusal`: those who will play
+  the next stage, `choosing_for`), a host's or co-host's own standing
+  choice opening the draw's countdown where a pick could start
+  (`Capability::StartDraw`, `draw_starter`, `Event::DrawOpened`,
+  `RoomState::draw`; `draw-v0`, `DRAW_V0`: ten seconds, early once
+  everyone who may has chosen, never before three, `draw_ends_at` in
+  `next_deadline`), canceled when its choices all go
+  (`Event::DrawCanceled`), and the authority's draw at its end
+  (`draw_due`, `Command::Draw { roll }`, the roll the server's random
+  bytes, `LocalAuthority::set_draw_seed`, `FakeServer::set_draw_seed`
+  for tests; `Event::Drawn`, `RoomState::drawn`, `DrawRecord`: the
+  entries by id, the winner `roll % n`), then a pick of the drawn song
+  as `PickListed`'s, the choices cleared; a picker's pick refused under
+  Group (`Rejection::GroupChooses`); a chosen song in use
+  (`song_in_use`); the audience's public view the choices, the countdown
+  and the draw; round RL4; `tests/room-revision-21.json` reads as Host;
+  21 since 2026-11-21: Who can add songs, the
   owner's room setting, Hosts or Everyone (`songs::WhoAdds`,
   `RoomSongs::who_adds`, `Command::SetWhoAdds`, `Event::WhoAddsChanged`),
   read by `RoomState::may_add`, the one check of who adds (every person
@@ -1840,7 +1865,21 @@ Rust and the browser are implementation details, not advertised features.
   list (`pick_listed`), there at once; whoever has the song loads it from
   their library, the others from the entry's share. The picker's resting
   song is a mark on its entry (`hover_listed`, `spotlight_entry`): nothing
-  is shared ahead or read for it any more. Stage 2 (still revision 17):
+  is shared ahead or read for it any more. Since revision 22, under the
+  match rule Song choice: Group, Enter on Room songs is this player's
+  choice instead (`state/room/choosing.rs`: `RoomClient::choose`, again
+  taking it back, refused at the press as the room would,
+  `choice_blocked`, `repeat_refused`, `chose_count`, `draw_countdown`,
+  `draw_waits`), a host's or co-host's starting the draw
+  (`starts_draw`); the draw's reveal, `RoomClient::reveal`
+  (`DRAW_V0.reveal_ms` from when this device saw it, the stage's prompt
+  held back meanwhile), drawn over the room's song select by
+  `screens/room_reveal.rs` (`RevealDialog`, layer `room-draw`: a reel of
+  the entries slowing to the one drawn, `reel_at`, made from the record
+  alone; still under reduced motion), the rows saying who chose them,
+  the status line the choosing (`room::group_status`), the players
+  panel a tick (`Mark::Chose`), Rules' Song choice and Repeats rows.
+  Stage 2 (still revision 17):
   each member's device downloads the listed songs it does not have ahead
   of the picks into a store of the room's own (`state/room/preload.rs`,
   `room-preload-v1`: listings and banners first, a stage's song, the
@@ -2282,7 +2321,8 @@ Rust and the browser are implementation details, not advertised features.
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--mp-bots --api URL [--host] [--join LINK] [--guests N] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
-  [--pick ID[:N],…] [--add ID[:N],…] [--everyone] [--names A,B]
+  [--pick ID[:N],…] [--add ID[:N],…] [--everyone] [--group]
+  [--repeats allowed|row|match] [--choose random|first|none] [--names A,B]
   [--level N|A-B] [--personality P]
   [--cpus N[:LEVEL]] [--shocks N] [--ready-late S] [--audience N
   [--anonymous]]`
