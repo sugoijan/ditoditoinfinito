@@ -63,7 +63,9 @@ use crate::state::online::link::{LinkNotice, OnlineLink};
 
 use crate::screens::data::{ChartEntry, SongEntry};
 
+mod choosing;
 mod preload;
+pub use choosing::Reveal;
 pub use preload::{Listing, PRELOAD_V1, PreloadJob, PreloadProblem, PreloadRules, Stop};
 
 /// The engine's CPU levels (`ddi_engine::cpu::CPU_LEVELS`, ten, since
@@ -815,6 +817,10 @@ pub struct StageRules {
     /// Shocks per attack: how many shocks an attack of the stage has (a
     /// new room's four; read only where the stage has attacks).
     pub shocks: ddi_room::ShocksPerAttack,
+    /// Song choice and Repeats (revision 22): how its song is chosen;
+    /// nothing a play is judged by.
+    pub choice: ddi_room::SongChoice,
+    pub repeats: ddi_room::Repeats,
     /// The stage is played under per-stage rules changed during the match
     /// (`ddi_room::Match::changes`): other than those the match began
     /// with (Points included: the Standings mark it).
@@ -887,6 +893,8 @@ impl StageRules {
             easiest: rules.life_out(),
             at_once: rules.at_once,
             shocks: rules.shocks,
+            choice: rules.choice,
+            repeats: rules.repeats,
             changed: false,
             play_changed: false,
         }
@@ -917,6 +925,8 @@ impl StageRules {
             easiest: r.easiest,
             at_once: r.at_once,
             shocks: r.shocks,
+            choice: r.choice,
+            repeats: r.repeats,
             changed,
             play_changed: changed && PlayKey::of_public(r) != PlayKey::of_public(&v.rules),
         }
@@ -1473,6 +1483,9 @@ pub struct RoomClient {
     /// The songs of a pack this player added at once (More's Add this
     /// pack), by content, while any of them is still being uploaded.
     pack_keys: Vec<SongKey>,
+    /// Revision 22: the group's countdown as first seen here and the
+    /// draw's reveal (`choosing`).
+    choosing: choosing::Choosing,
 }
 
 /// What an entry of the room's song list is for this player (revision
@@ -2161,6 +2174,7 @@ impl RoomClient {
             song_sharing: BTreeMap::new(),
             ahead: Default::default(),
             pack_keys: Vec::new(),
+            choosing: Default::default(),
             live_news: LiveNewsTap::default(),
             preparing: BTreeMap::new(),
             offered: BTreeSet::new(),
@@ -3008,6 +3022,7 @@ impl RoomClient {
         self.read_live();
         self.tell_spotlight();
         self.sync_preload();
+        self.sync_choosing();
         // A stage's prompt opens with no notice from before it (nor a
         // refusal of something done before it), and the room comes back
         // from a stage with none from it; joined to watch is said its
@@ -3142,6 +3157,10 @@ impl RoomClient {
         // Its battle plan is not the room's here: it sits the stage out
         // (the room's song select says why), nothing to be ready for.
         if st.play.is_none() && self.load_problem(stage) == Some(LoadProblem::PlanMismatch) {
+            return None;
+        }
+        // Its song just drawn by the group: the reveal first (revision 22).
+        if st.play.is_none() && self.revealing(stage) {
             return None;
         }
         (self.in_stage(stage) || self.watches()).then_some(stage)

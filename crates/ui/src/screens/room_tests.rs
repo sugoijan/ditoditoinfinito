@@ -160,8 +160,10 @@ fn reveal(h: &mut Harness, name: &str) {
             if whole(h) {
                 return;
             }
-            let at = h.centre("Title");
-            let at = [at[0], at[1] + 80.0];
+            // Over the rows, under the pop-up's title (its panel's top;
+            // a component's own empty "Title" part may come first by name).
+            let panel = h.ui.bounds("Panel").expect("the pop-up's panel");
+            let at = [(panel[0] + panel[2]) / 2.0, panel[1] + 110.0];
             h.wheel(at, [0.0, if down { 40.0 } else { -40.0 }], crate::event::WheelSource::Pixels);
             h.run(0.05);
         }
@@ -7912,3 +7914,91 @@ fn desktops_twitch_trip_shows_its_code_and_ends_connected() {
     );
 }
 
+
+/// Round RL4 (revision 22): choosing by the group on Room songs. Under
+/// Song choice: Group a member's Enter marks the song shown as their
+/// choice (his row "Chosen by you", the host's "Chosen by bob"; the status
+/// line counts the choices and says that a host's choice starts the
+/// draw); the host's hint says her Enter starts it, and it does: the
+/// countdown on everyone's status line, named as hers; a watcher's Enter
+/// is told why it does nothing; everyone who may choose has, so the draw
+/// comes three seconds after the opening, its reveal over both screens
+/// (`room-draw`), and the stage's Ready card only once it is over; the
+/// choices are empty for the next stage.
+#[test]
+fn choosing_by_the_group_on_room_songs() {
+    let t = Three::over(|s| s.next.rules.choice = ddi_room::SongChoice::Group, false);
+    listed(&t, &["Alpha One", "Bravo One", "Charlie One"], 1);
+    t.step(400);
+    let (ea, eb) = (env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    // Carol watches: she may not choose, and is told why.
+    t.carol.borrow_mut().set_intent(ddi_room::Intent::Watch).unwrap();
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    assert_eq!(view(&eb).choice, "group");
+    assert_eq!(view(&eb).status, "Choose stage 1's song. The draw starts when a host chooses.");
+    assert_eq!(view(&ea).status, "Choose stage 1's song. Your choice starts the draw.");
+    assert!(ea.state.borrow().hints.iter().any(|h| h.contains("Choose this song and start the draw")), "{:?}", ea.state.borrow().hints);
+    assert!(eb.state.borrow().hints.iter().any(|h| h == "Choose this song" || h.ends_with("Choose this song")), "{:?}", eb.state.borrow().hints);
+    // Bob's Enter: his choice.
+    hb.key("Enter", "Enter");
+    hb.run(0.1);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    let bobs = view(&eb).my_choice.expect("Bob chose");
+    assert!(hb.texts().iter().any(|x| x.starts_with("Chosen by you")), "{:?}", hb.texts());
+    assert!(ha.texts().iter().any(|x| x.starts_with("Chosen by bob")), "{:?}", ha.texts());
+    hb.run(0.1);
+    assert!(eb.state.borrow().hints.iter().any(|h| h.contains("Take back your choice")), "{:?}", eb.state.borrow().hints);
+    assert_eq!(view(&ea).status, "1 of 2 chose stage 1's song. Your choice starts the draw.");
+    assert!(view(&ea).draw.is_none(), "a member's choice starts nothing");
+    // A watcher's Enter does nothing but say why.
+    let chart = t.carol.borrow().room_songs()[0].charts[0].chart.clone();
+    let refused = t.carol.borrow_mut().choose(ddi_room::RoomSongId(bobs), &chart).unwrap_err();
+    assert_eq!(
+        String::from(super::room::refusal_text(&refused)),
+        "You're watching, so you don't choose: only players choose the next song."
+    );
+    t.carol.borrow_mut().clear_refusal();
+    // The host's Enter starts the draw.
+    ha.key("Enter", "Enter");
+    ha.run(0.1);
+    t.step(100);
+    ha.run(0.1);
+    hb.run(0.1);
+    assert_eq!(view(&ea).draw_by, Some(1));
+    let status = view(&eb).status;
+    assert!(status.starts_with("The draw in ") && status.ends_with("· 2 of 2 chose · started by alice"), "{status}");
+    assert!(view(&ea).status.ends_with("started by you"), "{}", view(&ea).status);
+    // Everyone who may chose: the draw three seconds after its opening,
+    // its reveal over both screens before any prompt.
+    let mut revealed = (false, false);
+    for _ in 0..30 {
+        t.step(200);
+        ha.run(0.2);
+        hb.run(0.2);
+        if top(&ha) == "room-draw" {
+            assert!(orders.borrow().is_empty(), "no prompt during the reveal");
+            assert!(view(&ea).reveal.is_some());
+            revealed.0 = true;
+        }
+        revealed.1 |= top(&hb) == "room-draw";
+        if !orders.borrow().is_empty() {
+            break;
+        }
+    }
+    assert_eq!(revealed, (true, true), "the reveal over both screens");
+    let s = t.server.borrow().state().clone();
+    let record = s.drawn.clone().expect("a draw");
+    assert_eq!(record.entries.len(), 2);
+    assert!(s.choices.is_empty() && s.draw.is_none());
+    // The reveal over both screens; the prompt only after it.
+    for _ in 0..10 {
+        t.settle(400, &mut [&mut ha, &mut hb]);
+    }
+    assert_eq!(orders.borrow().len(), 2, "both stages' prompts after the reveal");
+    assert!(view(&ea).reveal.is_none());
+    assert!(t.alice.borrow().state().choices.is_empty());
+}

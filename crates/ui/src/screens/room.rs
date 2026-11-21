@@ -152,6 +152,9 @@ pub struct RoomView {
     /// The draft's Shocks per attack (`two`, `four`, `six`, `eight`),
     /// where its row shows (with Attacks at once).
     pub draft_shocks: Option<String>,
+    /// The Rules pop-up's Song choice and Repeats as edited (revision 22;
+    /// none where not offered).
+    pub draft_choice: Option<(String, String)>,
     pub rules_problem: Option<String>,
     /// While a match runs, the pop-up says so at its top (`rules_running`),
     /// marks the rows whose draft differs from the running match's
@@ -220,6 +223,20 @@ pub struct RoomView {
     pub who_adds: String,
     pub my_songs: Option<[usize; 2]>,
     pub add_blocked: Option<String>,
+    /// Choosing by the group (revision 22): the next stage's Song choice
+    /// (`host`, `group`) and Repeats; each choice as `[participant,
+    /// song]`; this player's own choice's song; the draw's seconds left
+    /// while it counts down, who started it; the reveal shown on this
+    /// device (whose choice, its song's title); why this player may not
+    /// choose.
+    pub choice: String,
+    pub repeats: String,
+    pub choices: Vec<[u64; 2]>,
+    pub my_choice: Option<u64>,
+    pub draw: Option<u64>,
+    pub draw_by: Option<u64>,
+    pub reveal: Option<[String; 2]>,
+    pub choice_blocked: Option<String>,
     /// The match's picks as the history shows them, one a stage.
     pub picks: Vec<String>,
     /// An online room (M5c): its id and name, the link (`joining`,
@@ -400,7 +417,8 @@ pub fn seconds_left(r: &RoomClient) -> Option<u64> {
     // download's hold (revision 16), the deadline or the start.
     let at = match &s.phase {
         Phase::Countdown { .. } | Phase::Preparing { window: Some(_), .. } => s.next_deadline()?,
-        _ => return None,
+        // The group's draw counting down (revision 22).
+        _ => return r.draw_countdown().map(|(_, seconds)| seconds),
     };
     let now = r.room_now().map_or_else(|| r.now_ms(), |m| m.0);
     Some(at.0.saturating_sub(now).div_ceil(1000))
@@ -718,6 +736,38 @@ pub fn status_line(r: &RoomClient) -> UiText {
     }
 }
 
+/// The status line under Song choice: Group while the next song is
+/// chosen (revision 22): the draw's countdown (its seconds, how many
+/// chose, who started it); a host's choice that waits for a stage that
+/// can start; else how many chose and what starts the draw, said to a
+/// host or co-host as theirs to start, and to one who may not choose that
+/// only players choose.
+pub fn group_status(r: &RoomClient) -> UiText {
+    let s = r.state();
+    let n = s.pick_stage().map_or(1, |st| number_of(r, st));
+    let (chose, of) = r.chose_count();
+    if let Some((d, seconds)) = r.draw_countdown() {
+        let name = if d.by == r.me() {
+            m::draw_by_you()
+        } else {
+            UiText::data(s.member(d.by).map(person_name).unwrap_or_default())
+        };
+        return m::status_draw(seconds, chose, of, name);
+    }
+    if r.draw_waits().is_some() {
+        return m::status_draw_waits();
+    }
+    if r.choice_blocked().is_some() {
+        return m::status_group_watching(chose, of, n);
+    }
+    match (chose, r.starts_draw()) {
+        (0, true) => m::status_group_none_host(n),
+        (0, false) => m::status_group_none(n),
+        (_, true) => m::status_group_some_host(chose, of, n),
+        (_, false) => m::status_group_some(chose, of, n),
+    }
+}
+
 /// Nobody but this player (and CPUs) is in the room.
 fn alone(r: &RoomClient) -> bool {
     let s = r.state();
@@ -847,6 +897,11 @@ fn phase_status(r: &RoomClient) -> UiText {
         };
     }
     let s = r.state();
+    // Song choice: Group, while the next song is being chosen (revision
+    // 22): the choosing's own words.
+    if s.group_choice() && s.pick_stage().is_some() {
+        return group_status(r);
+    }
     let host = r.chooses();
     let seconds = seconds_left(r).unwrap_or(0);
     // Who the others follow: the picker, named; nobody, said with how to
@@ -1058,6 +1113,8 @@ pub struct Marks {
     pub host: Option<HostMark>,
     pub admin: bool,
     pub picking: bool,
+    /// Under Song choice: Group, they have chosen a song (revision 22).
+    pub chose: bool,
 }
 
 /// The house's kind.
@@ -1538,7 +1595,8 @@ fn person_role(s: &ddi_room::RoomState, member: &ddi_room::Member) -> Option<Str
     // both, a house and a wrench).
     let admin: Option<String> = member.admin.then(|| m::role_admin().into());
     let picking: Option<String> = picks_shown(s, member).then(|| m::role_picking().into());
-    let words: Vec<String> = [role, admin, picking].into_iter().flatten().collect();
+    let chose: Option<String> = s.choices.contains_key(&member.id).then(|| m::role_chose().into());
+    let words: Vec<String> = [role, admin, picking, chose].into_iter().flatten().collect();
     (!words.is_empty()).then(|| words.join(" · "))
 }
 
@@ -1617,13 +1675,17 @@ fn person_marks(s: &ddi_room::RoomState, member: &ddi_room::Member) -> Marks {
         host,
         admin: member.admin,
         picking: picks_shown(s, member),
+        chose: s.choices.contains_key(&member.id),
     }
 }
 
 /// Whether `member`'s rows mark them as the one choosing the room's
-/// songs: the picker of an online room.
+/// songs: the picker of an online room (never under Song choice: Group,
+/// where the players choose, revision 22).
 fn picks_shown(s: &ddi_room::RoomState, member: &ddi_room::Member) -> bool {
-    s.source == ddi_room::ContentSource::Shared && s.picker() == Some(member.id)
+    s.source == ddi_room::ContentSource::Shared
+        && s.picker() == Some(member.id)
+        && !s.group_choice()
 }
 
 /// A person's status on the players panel's line: their connection's
@@ -3385,6 +3447,19 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         who_adds: snake(&r.who_adds()),
         my_songs: r.my_song_count().map(|(a, q)| [a, q]),
         add_blocked: r.add_blocked().as_ref().map(snake),
+        choice: snake(&r.choice_rules().0),
+        repeats: snake(&r.choice_rules().1),
+        choices: s.choices.iter().map(|(p, c)| [p.0, c.song.0]).collect(),
+        my_choice: r.my_choice().map(|c| c.song.0),
+        draw: r.draw_countdown().map(|(_, sec)| sec),
+        draw_by: s.draw.as_ref().map(|d| d.by.0),
+        reveal: r.reveal().and_then(|v| {
+            let won = v.record.won()?;
+            let who = r.member_of(won.participant).map(person_name).unwrap_or_default();
+            let title = s.songs.get(won.song).map(|e| e.card.title.clone()).unwrap_or_default();
+            Some([who, title])
+        }),
+        choice_blocked: r.choice_blocked().as_ref().map(snake),
         spotlight: spot.map(|sp| sp.card.title.clone()),
         spotlight_song: r
             .spotlight()
@@ -3428,6 +3503,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         draft_charts: kept.draft_charts,
         draft_at_once: kept.draft_at_once,
         draft_shocks: kept.draft_shocks,
+        draft_choice: kept.draft_choice,
         rules_problem: kept.rules_problem,
         rules_running: kept.rules_running,
         rules_changed: kept.rules_changed,
@@ -3620,6 +3696,15 @@ pub fn refusal_text(why: &Refusal) -> UiText {
             Rejection::SongNotReady => m::refused_song_not_ready(),
             Rejection::NotListed | Rejection::ChartNotInSong => m::refused_song_gone(),
             Rejection::InvalidSong => m::refused_song_invalid(),
+            // Choosing by the group (revision 22).
+            Rejection::NotGroupChoice => m::refused_not_group(),
+            Rejection::CannotChoose { why } => m::refused_cannot_choose(match why {
+                ddi_room::NoChoice::Watching => "watching",
+                ddi_room::NoChoice::NextMatch => "next_match",
+                ddi_room::NoChoice::OutForMatch => "out_for_match",
+            }),
+            Rejection::Repeated { rule } => m::refused_repeated(repeats_id(*rule)),
+            Rejection::GroupChooses => m::refused_group_chooses(),
             other => {
                 let code = format!("{other:?}");
                 let code = code.split([' ', '{', '(']).next().unwrap_or("").to_string();
@@ -3744,7 +3829,26 @@ fn rules_words_of(
         rules.easiest.id(),
         if whole.is_some_and(|w| w.open_ended) { "open" } else { "counted" },
         on(whole.is_none_or(|w| w.mid_match_entry)),
+        choice_id(rules.choice),
+        if rules.choice == ddi_room::SongChoice::Group { repeats_id(rules.repeats) } else { "allowed" },
     )
+}
+
+/// Song choice by its id in the messages (revision 22).
+pub fn choice_id(c: ddi_room::SongChoice) -> &'static str {
+    match c {
+        ddi_room::SongChoice::Host => "host",
+        ddi_room::SongChoice::Group => "group",
+    }
+}
+
+/// Repeats by its id in the messages (revision 22).
+pub fn repeats_id(r: ddi_room::Repeats) -> &'static str {
+    match r {
+        ddi_room::Repeats::Allowed => "allowed",
+        ddi_room::Repeats::NotInARow => "not_in_a_row",
+        ddi_room::Repeats::NotInAMatch => "not_in_a_match",
+    }
 }
 
 /// Shocks per attack by its id in the messages.
@@ -3789,6 +3893,9 @@ pub(crate) struct RuleGates {
     /// Shocks per attack, compared as Attacks at once is.
     pub shocks: bool,
     pub points: bool,
+    /// Song choice and Repeats (revision 22): where the room has a song
+    /// list; Repeats compared where the rules after choose by the group.
+    pub choice: bool,
 }
 
 /// The rows whose rules differ from `before` to `after`, among those
@@ -3833,6 +3940,13 @@ pub(crate) fn rules_diff(
             gates.shocks && after.attacks() && before.shocks != after.shocks,
         ),
         ("points", gates.points && before.points != after.points),
+        ("choice", gates.choice && before.choice != after.choice),
+        (
+            "repeats",
+            gates.choice
+                && after.choice == ddi_room::SongChoice::Group
+                && before.repeats != after.repeats,
+        ),
     ]
     .into_iter()
     .filter_map(|(id, differs)| differs.then_some(id))
@@ -3854,11 +3968,15 @@ pub fn change_words(
         at_once: attacks_offered,
         shocks: attacks_offered,
         points: true,
+        choice: true,
         ..RuleGates::default()
     };
     let diff = rules_diff(before, after, gates);
     let on = |b: bool| if b { "on" } else { "off" };
-    ["difficulty", "boos", "attacks", "charts", "at_once", "shocks", "points"]
+    [
+        "difficulty", "boos", "attacks", "charts", "at_once", "shocks", "choice", "repeats",
+        "points",
+    ]
         .into_iter()
         .filter(|id| diff.contains(id))
         .map(|id| match id {
@@ -3868,6 +3986,8 @@ pub fn change_words(
             "charts" => m::rules_change_charts(after.charts.id()),
             "at_once" => m::rules_change_at_once(at_once_id(after.at_once)),
             "shocks" => m::rules_change_shocks(shocks_id(after.shocks)),
+            "choice" => m::rules_change_choice(choice_id(after.choice)),
+            "repeats" => m::rules_change_repeats(repeats_id(after.repeats)),
             _ => m::rules_change_points(after.points.id()),
         })
         .reduce(m::rules_change_join)

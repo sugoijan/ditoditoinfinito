@@ -952,6 +952,8 @@ room-prompt-ruleset = Rules: { $rules }
 #   $life_out (String) - "out" when a player whose life runs out is out of the stage, else "play_on" (they play on as failed, the usual)
 #   $stages (String) - "open" when the match has no set number of songs, else "counted" (the usual)
 #   $joining (String) - "off" when people who come during a match wait for the next match, else "on" (they play its next song, the usual)
+#   $choice (String) - "group" when the players choose the songs and a draw picks one (round RL4), else "host" (the usual)
+#   $repeats (String) - "not_in_a_row" or "not_in_a_match" when the players may not choose a song played just before or in this match, else "allowed"
 room-rules-words = { $ruleset }{ $difficulty ->
     [easy] {" "}· Easy timing
     [hard] {" "}· Hard timing
@@ -988,6 +990,13 @@ room-rules-words = { $ruleset }{ $difficulty ->
 }{ $joining ->
     [off] {" "}· No joining during a match
    *[on] {""}
+}{ $choice ->
+    [group] {" "}· Group song choice
+   *[host] {""}
+}{ $repeats ->
+    [not_in_a_row] {" "}· No repeats in a row
+    [not_in_a_match] {" "}· No repeats in a match
+   *[allowed] {""}
 }
 
 # A note on a stage's results and under the song in the room: how the
@@ -2421,3 +2430,148 @@ room-twitch-ended = Twitch access ended: your bans and chat are off here.
 # Variables:
 #   $name (String) - that person's name
 room-twitch-setter-left = { $name } left: their Twitch bans and chat are off.
+# Round RL4 (room model revision 22): choosing the next song by the group.
+# The Rules pop-up's row (about 20 letters) and its two values: the host
+# picks each song (Host), or the players choose and a draw takes one
+# choice (Group).
+room-rules-choice = Song choice
+room-rules-choice-host = Host
+room-rules-choice-group = Group
+# A line under the Song choice row saying what the chosen value does.
+room-rules-choice-host-about = The host picks each song from the room's song list.
+room-rules-choice-group-about = Each player chooses a song from the room's list. A host's or co-host's own choice starts a 10-second draw that picks one player's choice.
+# The row under it while Song choice is Group (about 20 letters): whether
+# a song may be chosen again, and its three values.
+room-rules-repeats = Repeats
+room-rules-repeats-allowed = Allowed
+room-rules-repeats-not-in-a-row = Not in a row
+room-rules-repeats-not-in-a-match = Not in a match
+# A line under the Repeats row.
+room-rules-repeats-about = If the rule would leave no song to choose, any song may be chosen.
+# A change of Song choice from a later stage, in the list of what changes.
+# Variables:
+#   $choice (String) - "host" or "group"
+room-rules-change-choice = { $choice ->
+    [group] Group song choice
+   *[host] Host song choice
+}
+# Variables:
+#   $repeats (String) - "allowed", "not_in_a_row" or "not_in_a_match"
+room-rules-change-repeats = { $repeats ->
+    [not_in_a_row] No repeats in a row
+    [not_in_a_match] No repeats in a match
+   *[allowed] Repeats allowed
+}
+# The status line under Song choice: Group while the next song is being
+# chosen. Nobody has chosen yet; for a host or co-host, whose own choice
+# starts the draw; for anyone else, who waits for a host's choice.
+# Variables:
+#   $number (Number) - the stage, from 1
+room-status-group-none-host = Choose stage { $number }'s song. Your choice starts the draw.
+# Variables:
+#   $number (Number) - the stage, from 1
+room-status-group-none = Choose stage { $number }'s song. The draw starts when a host chooses.
+# Some have chosen.
+# Variables:
+#   $chose (Number) - how many players have chosen
+#   $of (Number) - how many players may choose
+#   $number (Number) - the stage, from 1
+room-status-group-some-host = { $chose } of { $of } chose stage { $number }'s song. Your choice starts the draw.
+# Variables:
+#   $chose (Number) - how many players have chosen
+#   $of (Number) - how many players may choose
+#   $number (Number) - the stage, from 1
+room-status-group-some = { $chose } of { $of } chose stage { $number }'s song. The draw starts when a host chooses.
+# The same to someone who may not choose (watching, or playing from the
+# next match).
+# Variables:
+#   $chose (Number) - how many players have chosen
+#   $of (Number) - how many players may choose
+#   $number (Number) - the stage, from 1
+room-status-group-watching = { $chose } of { $of } players chose stage { $number }'s song. Only players choose.
+# The draw's countdown: its seconds, how many chose and who started it.
+# Variables:
+#   $seconds (Number) - whole seconds left
+#   $chose (Number) - how many players have chosen
+#   $of (Number) - how many players may choose
+#   $name (String) - who started it (their name, or "you")
+room-status-draw = The draw in { $seconds } s · { $chose } of { $of } chose · started by { $name }
+# A host's choice stands but the draw cannot start a stage yet (too few
+# players, or the rules need a look).
+room-status-draw-waits = The draw waits until a stage can start: more players are needed.
+# "you", as the name of the one who started the draw (lower case where
+# the language has cases).
+room-draw-by-you = you
+# A Room songs row's line under Song choice: Group, who chose the song
+# before the rest of the line.
+# Variables:
+#   $chosen (String) - who chose it
+#   $line (String) - the rest of the row's line
+room-song-line-chosen = { $chosen } · { $line }
+# Who chose a song, on its row: one or two names, else the first name and
+# how many more.
+# Variables:
+#   $a (String) - a name, or "you"
+room-song-chosen-one = Chosen by { $a }
+# Variables:
+#   $a (String) - a name, or "you"
+#   $b (String) - another name
+room-song-chosen-two = Chosen by { $a } and { $b }
+# Variables:
+#   $a (String) - a name, or "you"
+#   $count (Number) - how many more chose it
+room-song-chosen-more = Chosen by { $a } and { $count } more
+# "you", as a name among those who chose a song.
+room-chosen-you = you
+# A Room songs row's line where the Repeats rule excludes the song now.
+# Variables:
+#   $rule (String) - "not_in_a_row" or "not_in_a_match"
+#   $line (String) - the rest of the row's line
+room-song-line-repeat = { $rule ->
+    [not_in_a_row] Just played
+   *[not_in_a_match] Played this match
+} · { $line }
+# What Enter does on a Room songs row under Song choice: Group (song
+# select's play hint): choose the song; for a host or co-host it starts
+# the draw; on the song chosen already, take the choice back.
+room-hint-choose = Choose this song
+room-hint-choose-draw = Choose this song and start the draw
+room-hint-clear-choice = Take back your choice
+# Refusals under Song choice: Group, said where Enter does nothing.
+room-refused-not-group = The host picks this song: Song choice is Host.
+# Variables:
+#   $why (String) - "watching", "next_match" or "out_for_match"
+room-refused-cannot-choose = { $why ->
+    [watching] You're watching, so you don't choose: only players choose the next song.
+    [next_match] You play from the next match, so you don't choose this song.
+   *[out_for_match] You're out of this match, so you don't choose its songs.
+}
+# Variables:
+#   $rule (String) - "not_in_a_row" or "not_in_a_match"
+room-refused-repeated = { $rule ->
+    [not_in_a_row] That song was just played: Repeats is Not in a row.
+   *[not_in_a_match] That song was played in this match: Repeats is Not in a match.
+}
+room-refused-group-chooses = The players choose this song: the draw picks it.
+# The players panel's word for someone who has chosen a song.
+room-role-chose = Chose a song
+# The draw's reveal over the room's song select: its heading, and the
+# line saying whose choice it took.
+# Variables:
+#   $number (Number) - the stage, from 1
+room-draw-heading = Stage { $number } · The draw
+# Variables:
+#   $name (String) - whose choice it took
+#   $title (String) - the song's title
+#   $chart (String) - its chart, as "Hard 9"
+room-draw-won = { $name }'s choice: { $title } · { $chart }
+# Variables:
+#   $title (String) - the song's title
+#   $chart (String) - its chart, as "Hard 9"
+room-draw-won-you = Your choice: { $title } · { $chart }
+# One entry of the draw's reveal: whose choice, the song and its chart.
+# Variables:
+#   $name (String) - whose choice (a name, or "you")
+#   $title (String) - the song's title
+#   $chart (String) - its chart, as "Hard 9"
+room-draw-entry = { $name } · { $title } · { $chart }

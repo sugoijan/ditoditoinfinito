@@ -1175,6 +1175,24 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         Rejection::WatchOnly,
         Rejection::InvalidRules(RulesProblem::EliminationWithLateEntry),
         Rejection::UnknownClient,
+        // Choosing by the group (revision 22).
+        Rejection::NotGroupChoice,
+        Rejection::CannotChoose {
+            why: ddi_room::NoChoice::Watching,
+        },
+        Rejection::CannotChoose {
+            why: ddi_room::NoChoice::NextMatch,
+        },
+        Rejection::CannotChoose {
+            why: ddi_room::NoChoice::OutForMatch,
+        },
+        Rejection::Repeated {
+            rule: ddi_room::Repeats::NotInARow,
+        },
+        Rejection::Repeated {
+            rule: ddi_room::Repeats::NotInAMatch,
+        },
+        Rejection::GroupChooses,
     ] {
         checked(
             vec![super::room::refusal_text(&Refusal::Room(r)).into()],
@@ -1187,6 +1205,25 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         ));
         shown(&mut h, found);
     }
+    // The group's draw's reveal (revision 22), over a room whose list
+    // has nothing: its heading, the reel's lines and the result.
+    let mut h = harness();
+    h.push(super::room_reveal::RevealDialog::new(
+        env.clone(),
+        room.clone(),
+        ddi_room::DrawRecord {
+            stage: ddi_room::StageId(1),
+            entries: vec![ddi_room::DrawEntry {
+                participant: ddi_room::ParticipantId(1),
+                song: ddi_room::RoomSongId(1),
+                chart: ddi_room::ChartKey::new("c"),
+            }],
+            winner: 0,
+            roll: 0,
+            at: ddi_room::Millis(0),
+        },
+    ));
+    shown(&mut h, found);
     use crate::state::room::LoadProblem;
     for r in [
         Refusal::Preparing,

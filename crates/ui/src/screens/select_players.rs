@@ -202,6 +202,8 @@ pub enum Mark {
     Wrench,
     /// The one choosing the room's songs.
     Note,
+    /// Under Song choice: Group, one who has chosen a song (revision 22).
+    Chose,
 }
 
 /// The marks a row has, in their order.
@@ -212,6 +214,9 @@ pub fn marks_of(p: &PlayerRow) -> Vec<Mark> {
     }
     if p.marks.picking {
         v.push(Mark::Note);
+    }
+    if p.marks.chose {
+        v.push(Mark::Chose);
     }
     v
 }
@@ -224,6 +229,7 @@ pub fn mark_name(mark: Mark) -> &'static str {
         Mark::House(HostMark::CoHost) => "CoHost",
         Mark::Wrench => "Admin",
         Mark::Note => "Picking",
+        Mark::Chose => "Chose",
     }
 }
 
@@ -259,6 +265,11 @@ pub fn mark(env: &Env, mark: Mark) -> Actor {
             shape(env, "Secondary", [5.0, 4.4], [-1.6, 3.4], 2.2, -20.0),
             shape(env, "Secondary", [1.6, 9.0], [0.6, -1.2], 0.6, 0.0),
             shape(env, "Secondary", [4.6, 1.8], [2.4, -5.0], 0.8, 30.0),
+        ],
+        // A tick: chose a song.
+        Mark::Chose => vec![
+            shape(env, "Secondary", [2.0, 5.4], [-2.6, 1.6], 1.0, -45.0),
+            shape(env, "Secondary", [2.0, 10.0], [1.4, -0.6], 1.0, 40.0),
         ],
     };
     let mut a = frame("Mark", c);

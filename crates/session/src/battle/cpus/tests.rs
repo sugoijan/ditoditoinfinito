@@ -56,6 +56,8 @@ fn scenarios() -> Vec<(StageRules, Vec<CpuSeat>)> {
         easiest: ddi_room::AtEasiest::Out,
         at_once: Default::default(),
         shocks,
+        choice: Default::default(),
+        repeats: Default::default(),
         changed: false,
         play_changed: false,
     };

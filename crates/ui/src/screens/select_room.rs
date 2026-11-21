@@ -149,6 +149,9 @@ pub(super) struct RoomMode {
     pump: Pump,
     /// The room's version and the seconds left the parts were built for.
     built: Option<(u64, Option<u64>, bool)>,
+    /// The group's last draw revealed here (revision 22): by stage and
+    /// roll.
+    revealed: Option<(ddi_room::StageId, u64)>,
     /// The room's version the Room songs tab's list was made for.
     listed_for: Option<u64>,
     /// The Room songs tab's songs' ids and the entries they are.
@@ -225,6 +228,7 @@ impl SelectScreen {
             tab: Tab::Room,
             pump: Pump::default(),
             built: None,
+            revealed: None,
             listed_for: None,
             entries: HashMap::new(),
             heading: None,
@@ -761,6 +765,14 @@ impl SelectScreen {
                 return;
             }
         }
+        // The group's draw (revision 22): its reveal first, the stage's
+        // prompt once it is over.
+        if let Some(rm) = &mut self.room
+            && crate::screens::room_reveal::open_reveal(&self.env, &room, &mut rm.revealed, cx)
+        {
+            self.cancel_navigation();
+            return;
+        }
         if Pump::open_prompt(&room, &shell, cx) {
             return;
         }
@@ -995,6 +1007,22 @@ impl SelectScreen {
                 _ if e.card.artist.is_empty() => ddi_l10n::msg::room::song_line_no_artist(state, by),
                 _ => ddi_l10n::msg::room::song_line(e.card.artist.clone(), state, by),
             };
+            // Song choice: Group (revision 22): who chose it, first; a song
+            // the Repeats rule excludes said so.
+            let line = if r.group_choice() {
+                let line = match r.repeat_refused(e.id) {
+                    Some(rule) => {
+                        ddi_l10n::msg::room::song_line_repeat(room::repeats_id(rule), line)
+                    }
+                    None => line,
+                };
+                match chosen_words(&r, e.id) {
+                    Some(who) => ddi_l10n::msg::room::song_line_chosen(who, line),
+                    None => line,
+                }
+            } else {
+                line
+            };
             song.artist = line.into();
             ids.insert(song.id.clone(), e.id);
             data.songs.push(song);
@@ -1221,12 +1249,24 @@ impl SelectScreen {
                 let Some(entry) = rm.entries.get(&song.id).copied() else {
                     return;
                 };
-                if !room.borrow().chooses() {
-                    return;
-                }
                 let Some(key) = chart.digest.map(|d| ddi_room::ChartKey::new(d.to_string())) else {
                     return;
                 };
+                // Song choice: Group (revision 22): Enter is this player's
+                // choice (again: taken back), a host's starting the draw;
+                // one who may not choose is told why.
+                if room.borrow().group_choice() {
+                    let chosen = room.borrow_mut().choose(entry, &key);
+                    if let Err(why) = chosen {
+                        room.borrow_mut().clear_refusal();
+                        NoticeDialog::show_refusal(self.env.clone(), &room, &why, cx);
+                    }
+                    self.hints = None;
+                    return;
+                }
+                if !room.borrow().chooses() {
+                    return;
+                }
                 let picked = room.borrow_mut().pick_listed(entry, &key);
                 match picked {
                     Ok(()) => {
@@ -1716,6 +1756,23 @@ impl SelectScreen {
                 },
             ),
             (Side::Listed, Tab::Mine) => None,
+            // Song choice: Group (revision 22): what this player's Enter
+            // does to their choice; nothing for one who may not choose.
+            (Side::Listed, Tab::Room) if r.group_choice() => {
+                if r.choice_blocked().is_some() {
+                    None
+                } else {
+                    let shown = self.shown_entry().zip(self.shown_chart_key());
+                    let mine = r.my_choice().map(|c| (c.song, c.chart.clone()));
+                    Some(if shown.is_some() && shown == mine {
+                        ddi_l10n::msg::room::hint_clear_choice()
+                    } else if r.starts_draw() && r.state().draw.is_none() {
+                        ddi_l10n::msg::room::hint_choose_draw()
+                    } else {
+                        ddi_l10n::msg::room::hint_choose()
+                    })
+                }
+            }
             _ => r.chooses().then(|| {
                 // Who does not have the song shown yet, said before the
                 // pick (stage 2).
@@ -1730,6 +1787,13 @@ impl SelectScreen {
                 }
             }),
         })
+    }
+
+    /// The chart shown's digest as the room names it, if it has one.
+    fn shown_chart_key(&self) -> Option<ddi_room::ChartKey> {
+        let (charts, pick) = self.charts();
+        let chart = pick.and_then(|p| charts.get(p))?;
+        chart.digest.map(|d| ddi_room::ChartKey::new(d.to_string()))
     }
 
     /// A phone's Play button in a room: hidden where Start does nothing
@@ -1817,6 +1881,33 @@ impl SelectScreen {
 
 /// Plays `command` on the parts named `names` among `parts`.
 /// The tab a target is on, if one.
+/// Who chose listed song `song` (revision 22), as its row says it: this
+/// player as "you" first, then the others in the draw's order; two names
+/// at most, else the first and how many more. None: nobody.
+fn chosen_words(r: &crate::state::room::RoomClient, song: RoomSongId) -> Option<UiText> {
+    let mut who = r.chosen_by(song);
+    if who.is_empty() {
+        return None;
+    }
+    if let Some(i) = who.iter().position(|id| *id == r.me()) {
+        who.remove(i);
+        who.insert(0, r.me());
+    }
+    let name = |id: ddi_room::ParticipantId| -> UiText {
+        if id == r.me() {
+            ddi_l10n::msg::room::chosen_you()
+        } else {
+            UiText::data(r.member_of(id).map(room::person_name).unwrap_or_default())
+        }
+    };
+    Some(match who.as_slice() {
+        [a] => ddi_l10n::msg::room::song_chosen_one(name(*a)),
+        [a, b] => ddi_l10n::msg::room::song_chosen_two(name(*a), name(*b)),
+        [a, rest @ ..] => ddi_l10n::msg::room::song_chosen_more(name(*a), rest.len()),
+        [] => return None,
+    })
+}
+
 fn tab_of(target: &crate::hit::Target) -> Option<Tab> {
     if target.within(TAB_ROOM) {
         Some(Tab::Room)

@@ -99,6 +99,7 @@ pub mod results;
 pub mod results_facts;
 pub mod room;
 pub mod room_dialogs;
+pub mod room_reveal;
 #[cfg(test)]
 mod room_tests;
 #[cfg(test)]

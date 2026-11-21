@@ -225,8 +225,8 @@ fn ends(len: usize, at: usize) -> (bool, bool) {
 
 /// The rows a running match may change from a later stage on
 /// (`ddi_room::PlayRules`).
-const PER_STAGE: [&str; 7] = [
-    "difficulty", "boos", "charts", "easiest", "attacks", "at_once", "shocks",
+const PER_STAGE: [&str; 9] = [
+    "difficulty", "boos", "charts", "easiest", "attacks", "at_once", "shocks", "choice", "repeats",
 ];
 
 impl RulesDialog {
@@ -409,6 +409,16 @@ impl RulesDialog {
         self.room.borrow().adaptive_offered()
     }
 
+    /// Song choice can be set here (revision 22): a room with a song list.
+    fn choice_offered(&self) -> bool {
+        self.room.borrow().has_song_list()
+    }
+
+    /// Repeats shows: under Song choice: Group.
+    fn repeats_shown(&self) -> bool {
+        self.choice_offered() && self.edited().borrow().choice == ddi_room::SongChoice::Group
+    }
+
     /// The Attacks rule can be set here (`RoomClient::attacks_offered`).
     fn attacks_offered(&self) -> bool {
         self.room.borrow().attacks_offered()
@@ -472,6 +482,7 @@ impl RulesDialog {
             attacks: r.attacks_offered(),
             at_once: r.attacks_offered(),
             shocks: r.attacks_offered(),
+            choice: r.has_song_list(),
             ..RuleGates::default()
         };
         if self.to_stage() {
@@ -567,6 +578,14 @@ impl RulesDialog {
         let shocks = self
             .at_once_shown()
             .then(|| super::room::shocks_id(self.edited().borrow().shocks).to_string());
+        // Song choice and Repeats (revision 22), where offered.
+        let choice = self.choice_offered().then(|| {
+            let d = self.edited().borrow().clone();
+            (
+                super::room::choice_id(d.choice).to_string(),
+                super::room::repeats_id(d.repeats).to_string(),
+            )
+        });
         drop(draft);
         let running = self.running();
         let changed: Vec<String> = self.changed().into_iter().map(String::from).collect();
@@ -580,6 +599,7 @@ impl RulesDialog {
             v.draft_charts = charts;
             v.draft_at_once = at_once;
             v.draft_shocks = shocks;
+            v.draft_choice = choice;
             v.rules_problem = problem;
             v.rules_running = running;
             v.rules_changed = changed;
@@ -906,7 +926,33 @@ impl Screen for RulesDialog {
             ddi_room::AtEasiest::PlayOn => m::rules_life_out_about_play_on(),
             ddi_room::AtEasiest::Out => m::rules_life_out_about_out(),
         });
-        let aa_h = stages_about.len() as f32 * 17.0
+        // Song choice (revision 22): its row and sentence, and Repeats' row
+        // and sentence under Group.
+        let choice_about = if self.choice_offered() {
+            wrap(match play.choice {
+                ddi_room::SongChoice::Host => m::rules_choice_host_about(),
+                ddi_room::SongChoice::Group => m::rules_choice_group_about(),
+            })
+        } else {
+            Vec::new()
+        };
+        let repeats_about = if self.repeats_shown() {
+            wrap(m::rules_repeats_about())
+        } else {
+            Vec::new()
+        };
+        let choice_h = if self.choice_offered() {
+            ROW + choice_about.len() as f32 * 17.0
+                + if self.repeats_shown() {
+                    ROW + repeats_about.len() as f32 * 17.0
+                } else {
+                    0.0
+                }
+        } else {
+            0.0
+        };
+        let aa_h = choice_h
+            + stages_about.len() as f32 * 17.0
             + ROW
             + mid_about.len() as f32 * 17.0
             + ROW
@@ -1204,6 +1250,47 @@ impl Screen for RulesDialog {
             about_lines(&mut c, "easiest", &easiest_about, self.bright == Some("easiest"), &mut ry);
             said_to("easiest", ry);
         }
+        // Song choice and, under Group, Repeats (revision 22): a room with
+        // a song list's, changed from a later stage like the rules above.
+        if self.choice_offered() {
+            mark(&mut c, "choice", ry + ROW / 2.0);
+            stepper(
+                &mut c,
+                "choice",
+                &m::rules_choice(),
+                match play.choice {
+                    ddi_room::SongChoice::Host => m::rules_choice_host(),
+                    ddi_room::SongChoice::Group => m::rules_choice_group(),
+                }
+                .into(),
+                ends(ddi_room::SongChoice::ALL.len(), play.choice.index()),
+                false,
+                ry + ROW / 2.0,
+            );
+            ry += ROW;
+            about_lines(&mut c, "choice", &choice_about, true, &mut ry);
+            said_to("choice", ry);
+            if self.repeats_shown() {
+                mark(&mut c, "repeats", ry + ROW / 2.0);
+                stepper(
+                    &mut c,
+                    "repeats",
+                    &m::rules_repeats(),
+                    match play.repeats {
+                        ddi_room::Repeats::Allowed => m::rules_repeats_allowed(),
+                        ddi_room::Repeats::NotInARow => m::rules_repeats_not_in_a_row(),
+                        ddi_room::Repeats::NotInAMatch => m::rules_repeats_not_in_a_match(),
+                    }
+                    .into(),
+                    ends(ddi_room::Repeats::ALL.len(), play.repeats.index()),
+                    false,
+                    ry + ROW / 2.0,
+                );
+                ry += ROW;
+                about_lines(&mut c, "repeats", &repeats_about, false, &mut ry);
+                said_to("repeats", ry);
+            }
+        }
         // Practice's CPUs: the roster, each removable, then the adds.
         if cpus {
             mark(&mut c, "cpus", ry + 14.0);
@@ -1448,6 +1535,13 @@ impl Screen for RulesDialog {
             if self.row_editable("easiest") {
                 rows.push(pair("easiest"));
             }
+            // Song choice, and Repeats under Group (revision 22).
+            if self.choice_offered() && self.row_editable("choice") {
+                rows.push(pair("choice"));
+                if self.repeats_shown() {
+                    rows.push(pair("repeats"));
+                }
+            }
             if self.cpus_shown() && self.row_editable("cpus") {
                 for k in 0..self.roster().len() {
                     rows.push(vec![format!("Remove.{k}")]);
@@ -1651,6 +1745,22 @@ impl Screen for RulesDialog {
                         let mut d = edited.borrow_mut();
                         let up = name == "Inc.difficulty";
                         d.difficulty = step(&MatchDifficulty::ALL, d.difficulty.index(), up);
+                        drop(d);
+                        rebuild(self, root, cx, name);
+                    }
+                    "Dec.choice" | "Inc.choice" if self.editable() && self.choice_offered() => {
+                        self.edited().borrow_mut().choice = if name == "Inc.choice" {
+                            ddi_room::SongChoice::Group
+                        } else {
+                            ddi_room::SongChoice::Host
+                        };
+                        rebuild(self, root, cx, name);
+                    }
+                    "Dec.repeats" | "Inc.repeats" if self.editable() && self.repeats_shown() => {
+                        let edited = self.edited();
+                        let mut d = edited.borrow_mut();
+                        let up = name == "Inc.repeats";
+                        d.repeats = step(&ddi_room::Repeats::ALL, d.repeats.index(), up);
                         drop(d);
                         rebuild(self, root, cx, name);
                     }
