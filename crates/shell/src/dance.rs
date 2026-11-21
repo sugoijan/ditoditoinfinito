@@ -39,6 +39,8 @@ pub struct Preview {
     visible: bool,
     /// A stage's place behind the field ([`Preview::set_behind_field`]).
     behind: Option<[f32; 4]>,
+    /// An upright screen's band ([`Preview::set_upright`]).
+    upright: Option<[f32; 2]>,
     /// The layout it plays and the play's steps down it follows
     /// ([`Preview::follow_steps`]).
     layout: String,
@@ -73,6 +75,11 @@ impl Preview {
         if let Some(rect) = self.behind {
             return rect;
         }
+        if let Some([top, height]) = self.upright {
+            // The settings' frame across, the band down.
+            let [x, _, width, _] = self.frame.rect(size);
+            return [x, top, width, height];
+        }
         let (w, h) = (size[0] as f32, size[1] as f32);
         let pw = (w * 0.34).clamp(150., 480.).min(w - 16.);
         let ph = (h * 0.65).min(pw * 1.3);
@@ -89,6 +96,16 @@ impl Preview {
     /// settings' frame. Presentation only.
     pub fn set_behind_field(&mut self, rect: Option<[f32; 4]>) {
         self.behind = rect;
+    }
+
+    /// A solo play's band for the hand on an upright screen
+    /// (`crate::play_view::upright_band`: clear of the touch controls,
+    /// the judgment and the combo, `[top, height]` in the target's
+    /// pixels), across where the settings' frame is, the hand shown whole
+    /// in it and as large as it allows ([`UPRIGHT_ZOOM`]); `None`, the
+    /// settings' frame. Presentation only.
+    pub fn set_upright(&mut self, band: Option<[f32; 2]>) {
+        self.upright = band;
     }
 
     pub fn behind_field(&self) -> bool {
@@ -533,6 +550,8 @@ impl Preview {
         let mut camera = self.look.map_or([-25., 14., 0.52], |l| l.camera);
         if let Some([_, _, w, h]) = self.behind {
             camera[2] = behind_field_distance(camera[2], w, h);
+        } else if self.upright.is_some() {
+            camera[2] = framed_distance(camera[2], rect[2], rect[3], UPRIGHT_ZOOM);
         }
         self.host.set(Some(Picture {
             mat: self
@@ -644,7 +663,7 @@ impl Preview {
         if let (Some(r), Some(c)) = (&self.runtime, character.as_object_mut()) {
             c.insert("rolling".into(), r.sample_debug());
         }
-        json!({"behind_field":self.behind_field(),"look":self.look,"up_marker":self.up_marker(),"enabled":self.enabled,"visible":self.visible,"song_time":self.song_time,
+        json!({"behind_field":self.behind_field(),"rect":self.rect,"upright":self.upright,"look":self.look,"up_marker":self.up_marker(),"enabled":self.enabled,"visible":self.visible,"song_time":self.song_time,
         "origin":self.origin,"duration":self.duration,"character":character,
         "runtime":self.runtime.as_ref().map_or(Value::Null, |r| r.debug()),
         "runtime_error":self.runtime_error,"preloaded":self.preload_ready,"preload_pending":self.preload_pending(),
@@ -701,10 +720,26 @@ pub const BEHIND_FIELD_TALL: f32 = 1.13;
 /// as wide, whatever its shape (the picture is framed by its narrower
 /// side, `ddi_render::character::view_projection`).
 pub fn behind_field_distance(distance: f32, w: f32, h: f32) -> f32 {
+    framed_distance(distance, w, h, BEHIND_FIELD_ZOOM)
+}
+
+/// The most the hand on an upright screen is larger than its picture at
+/// the camera's own distance in its frame's width (round TC2, 2026-11-21:
+/// the maintainer found it too small upright): as behind the field, so
+/// the band clear of the touch controls, the judgment and the combo is
+/// filled as far as its height allows.
+pub const UPRIGHT_ZOOM: f32 = BEHIND_FIELD_ZOOM;
+
+/// [`behind_field_distance`] with the most zoom `most`: the whole hand
+/// in a frame `w` wide and `h` high, as large as its height allows up to
+/// `most` against a frame as wide (1: never larger than the frame's own
+/// width shows it, only smaller where the frame is too low for all of
+/// it).
+pub fn framed_distance(distance: f32, w: f32, h: f32, most: f32) -> f32 {
     if w <= 0.0 || h <= 0.0 {
         return distance;
     }
-    let zoom = BEHIND_FIELD_ZOOM.min(h / (BEHIND_FIELD_TALL * w));
+    let zoom = most.min(h / (BEHIND_FIELD_TALL * w));
     distance * w.min(h) / (zoom * w)
 }
 
@@ -772,7 +807,7 @@ mod preload_tests {
         for (w, h) in [(1280.0, 720.0), (1920.0, 1080.0), (844.0, 390.0)] {
             for reverse in [false, true] {
                 let g = FieldGeometry::placed(w, h, 4.0, reverse, Default::default());
-                let [x, y, rw, rh] = crate::play_view::behind_field(&g, 4.0, reverse, 1.0);
+                let [x, y, rw, rh] = crate::play_view::behind_field(&g, 4.0, reverse, 1.0, None);
                 let [mid, band] = ddi_render::scene::filter_band(&g, 4.0);
                 assert_eq!((x, rw), (mid - band / 2.0, band));
                 assert!(y >= 0.0 && y + rh <= h, "{w}x{h}");
@@ -786,6 +821,58 @@ mod preload_tests {
                 assert!(y < top && y + rh > bottom, "{w}x{h}");
             }
         }
+    }
+
+    /// On an upright screen (round TC2) a solo play's hand keeps clear of
+    /// the touch controls while they show, and of the judgment and the
+    /// combo: under the combo above Buttons, between the receptors and
+    /// the judgment above a pad that leaves too little under the combo,
+    /// at the screen's foot with none; a stage's band ends above them.
+    #[test]
+    fn an_upright_screen_keeps_the_hand_clear_of_the_touch_controls() {
+        use ddi_render::FieldGeometry;
+        use ddi_ui::touch_controls::{Choice, Screen, Style, plan};
+        let layout = ddi_chart::Layout::builtin("dance-single").unwrap();
+        for (w, h) in [(390.0, 844.0), (360.0, 640.0), (820.0, 1180.0)] {
+            let g = FieldGeometry::placed(w, h, 4.0, false, Default::default());
+            let combo = h / 2.0 + 80.0 * g.arrow / 72.0;
+            let [_, judged, _, _] = ddi_render::scene::judgement_area(&g, 4.0);
+            let row = g.receptor_y + g.arrow * 0.6;
+            let floor = |style| {
+                let field = [g.left, g.left + 4.0 * g.arrow];
+                let place = Screen::new([w, h], [0.0; 4]).with_field(field);
+                plan(&layout, place, Choice { style, ..Choice::default() }).unwrap().top()
+            };
+            // No controls: the screen's foot, under the combo.
+            let [top, tall] = crate::play_view::upright_band(&g, 4.0, 1.0, combo, None).unwrap();
+            assert!(top >= combo && (top + tall - (h - 12.0)).abs() < 0.01, "{w}x{h}");
+            // Buttons: above them, still under the combo.
+            let buttons = floor(Style::Buttons);
+            let [top, tall] =
+                crate::play_view::upright_band(&g, 4.0, 1.0, combo, Some(buttons)).unwrap();
+            assert!(top >= combo && top + tall <= buttons - 8.0 + 0.01, "{w}x{h}");
+            // The pad: above the judgment, under the receptors.
+            let pad = floor(Style::Pad);
+            let [top, tall] = crate::play_view::upright_band(&g, 4.0, 1.0, combo, Some(pad)).unwrap();
+            assert!(top >= row && top + tall <= judged, "{w}x{h}: {top} {tall}");
+            // A stage's band ends above the controls.
+            for f in [buttons, pad] {
+                let [_, y, _, rh] = crate::play_view::behind_field(&g, 4.0, false, 1.0, Some(f));
+                assert!(y + rh <= f - 8.0 + 0.01);
+            }
+        }
+        // The frame: the settings' across, the band down; the hand as
+        // large as the band allows (`UPRIGHT_ZOOM`), whole.
+        let mut p = Preview::default();
+        p.configure(&ddi_ui::state::settings::Settings::default());
+        let own = p.frame_rect([390, 844]);
+        p.set_upright(Some([500.0, 200.0]));
+        assert_eq!(p.frame_rect([390, 844]), [own[0], 500.0, own[2], 200.0]);
+        let d = framed_distance(1.0, own[2], 200.0, UPRIGHT_ZOOM);
+        assert!((1.0 / UPRIGHT_ZOOM..=1.0).contains(&d));
+        assert_eq!(framed_distance(1.0, 100.0, 1000.0, 1.0), 1.0);
+        p.set_upright(None);
+        assert_eq!(p.frame_rect([390, 844]), own);
     }
 
     /// Behind the field the hand is whole: scaled so that the frame is

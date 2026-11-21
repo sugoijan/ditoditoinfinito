@@ -2148,6 +2148,12 @@ frame). The maintainer did not like the fade and wants the hand in full.
   receptors too, it would be exactly a solo play's size (the band's
   width then limits), its arm's end just under the receptors: the one
   alternative worth a look.
+- **Above the touch controls on an upright screen** (round TC2,
+  2026-11-21, `docs/plans/touch-controls.md`): while the touch controls
+  show on a screen taller than wide, the band ends 8 px above their top
+  (`play_view::behind_field`'s `floor`), so the hand stands on them
+  rather than behind them; sideways and without the controls the band is
+  as before.
 - **No fade.** The play passes none; `Renderer::set_field_underlay_fade`
   stays for whatever else may want one (nothing calls it now). Reduced
   motion and the hand's Off behave as before, and a solo play is

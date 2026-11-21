@@ -1531,8 +1531,22 @@ impl<H: PlayHost> PlayView<H> {
         // as large as fits the band past the receptors, with no fade
         // and no cut; its Off still turns it off. Elsewhere where the
         // settings put it.
-        let behind = battle.map(|_| behind_field(&geo, span, render.reverse, screen.ratio));
+        // On an upright screen (round TC2) the hand keeps clear of the
+        // touch controls while they show: a stage's band ends above
+        // them, and a solo play's hand takes the band clear of them, the
+        // judgment and the combo.
+        let upright = h > w;
+        let floor = touch
+            .as_ref()
+            .filter(|(_, s)| upright && s.shown)
+            .map(|(c, _)| c.top() * screen.ratio);
+        let behind = battle.map(|_| behind_field(&geo, span, render.reverse, screen.ratio, floor));
         self.dance.set_behind_field(behind);
+        let band = (upright && battle.is_none()).then(|| {
+            let combo = self.renderer.hud_spots().combo;
+            upright_band(&geo, span, screen.ratio, combo[3] * h, floor)
+        });
+        self.dance.set_upright(band.flatten());
         // The opponents as the play shows them, worked out once a frame
         // (the miniatures, the large field's standings, the status line
         // and the overlay read them).
@@ -2698,11 +2712,15 @@ struct Overlay {
 /// never stand over it. The judgment, the combo and the notes do: it is
 /// in the background. The hand is shown whole in it
 /// (`crate::dance::behind_field_distance`), as a solo play shows it.
+///
+/// `floor`: where the touch controls begin on an upright screen while
+/// they show (round TC2): the band ends above them.
 pub fn behind_field(
     geo: &ddi_render::FieldGeometry,
     span: f32,
     reverse: bool,
     ratio: f32,
+    floor: Option<f32>,
 ) -> [f32; 4] {
     let [mid, band] = ddi_render::scene::filter_band(geo, span);
     let (margin, gap) = (12.0 * ratio, 8.0 * ratio);
@@ -2714,8 +2732,61 @@ pub fn behind_field(
     } else {
         (geo.receptor_y + row + gap, geo.height - margin)
     };
+    let y1 = floor.map_or(y1, |f| y1.min(f - gap));
     [mid - band / 2.0, y0, band, (y1 - y0).max(0.0)]
 }
+
+/// Where the dancing hand goes in a solo play on an upright screen
+/// (round TC2, 2026-11-21: there its frame's foot is the screen's
+/// bottom, under the touch controls), `[top, height]` in the target's
+/// pixels (`ratio` a logical pixel), across where the settings put it
+/// (`crate::dance::Preview::set_upright`): a band of the screen clear of
+/// the receptors' row, of the judgment down to the combo's foot
+/// (`combo_bottom`), and of the touch controls from `floor` down while
+/// they show; the lowest such band nearly as tall as the tallest (the
+/// one under the combo where it has the room, as the hand stands at the
+/// foot of the screen elsewhere; the one between the receptors and the
+/// judgment above a pad that leaves too little under the combo).
+/// `None` where no band is left.
+pub fn upright_band(
+    geo: &ddi_render::FieldGeometry,
+    span: f32,
+    ratio: f32,
+    combo_bottom: f32,
+    floor: Option<f32>,
+) -> Option<[f32; 2]> {
+    let (margin, gap) = (12.0 * ratio, 8.0 * ratio);
+    let row = geo.arrow * 0.6;
+    let judgment = ddi_render::scene::judgement_area(geo, span);
+    let middle_bottom = judgment[3].max(combo_bottom);
+    let bottom = floor.map_or(geo.height - margin, |f| (f - gap).min(geo.height - margin));
+    let mut blocked = [
+        [geo.receptor_y - row - gap, geo.receptor_y + row + gap],
+        [judgment[1] - gap, middle_bottom + gap],
+    ];
+    blocked.sort_by(|a, b| a[0].total_cmp(&b[0]));
+    // The free bands between `margin` and `bottom`, top to bottom.
+    let mut bands = Vec::new();
+    let mut at = margin;
+    for [from, to] in blocked {
+        if from > at {
+            bands.push([at, from.min(bottom)]);
+        }
+        at = at.max(to);
+    }
+    bands.push([at, bottom]);
+    bands.retain(|[a, b]| b - a > 1.0);
+    let tallest = bands.iter().map(|[a, b]| b - a).fold(0.0f32, f32::max);
+    bands
+        .iter()
+        .rev()
+        .find(|[a, b]| b - a >= UPRIGHT_NEARLY * tallest)
+        .map(|&[a, b]| [a, b - a])
+}
+
+/// How tall a band lower on an upright screen must be against the
+/// tallest for the hand to take it ([`upright_band`]).
+const UPRIGHT_NEARLY: f32 = 0.75;
 
 /// A watched stage's moment as the status line words it, `names` the
 /// competitors' by seat (`None`: a seat nobody has).
