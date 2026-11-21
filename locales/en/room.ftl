@@ -2414,9 +2414,11 @@ room-host-twitch-whose = { $login }'s Twitch bans and chat apply.
 # host who has never seen it (each player still chooses on their device).
 room-host-twitch-chat-about = Show my Twitch chat: your channel's chat moves behind the fields during each stage, for the players who turn on Twitch chat in rooms on their own device (Options → Display).
 # Round TW7: the status line, once, where the room shows its host's chat
-# and this player's device has Twitch chat in rooms on, but their Twitch
-# access does not allow reading chat: what to do.
-room-twitch-chat-no-access = Your Twitch access does not allow chat, so the host's chat will not show here: turn Twitch chat in rooms (Options → Display) Off and on again to allow it.
+# and this player's device has Twitch chat in rooms on (Options → Display),
+# but their Twitch access does not allow reading chat: what to do (turning
+# it on again takes them through Twitch to allow it). One short line: the
+# status line has room for about 60 letters.
+room-twitch-chat-no-access = To see the host's chat, turn Twitch chat in rooms Off and on.
 # Round TW7: one quiet line on a stage's results where this device's
 # Twitch chat could not show during it (never said during the play).
 # Its Twitch access does not allow reading chat.

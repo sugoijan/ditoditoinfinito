@@ -553,9 +553,13 @@ pub(crate) fn look(name: Option<&str>) {
 /// one's `.gif`, [`ddi_chat::script::Script::images_at`]) where given.
 pub(crate) fn script(what: &str, images: Option<&str>, socket: Option<&str>) {
     if what == "0" {
+        // No script: a player's live chat, its socket and the providers'
+        // addresses where a test points them at local fakes (round TW7:
+        // `mpfakechat=0&mpfakechaturl=…`, a player's room walked without
+        // reaching Twitch).
         ddi_session::chat::set_scripted(None);
         ddi_ui::state::twitch::set_dev_live(None);
-        install_live(None, None);
+        install_live(socket, images);
         return;
     }
     if what == "live" {

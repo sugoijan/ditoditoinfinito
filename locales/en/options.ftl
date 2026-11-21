@@ -505,7 +505,7 @@ options-twitch-chat-messages = Emotes and messages
 # Its description, for someone who has never seen the feature: what it
 # shows, whose chat, that the host chooses and each device chooses for
 # itself, the permission on Twitch and where it is disconnected.
-options-twitch-chat-description = In an online room whose host shows their Twitch chat, it moves behind the fields during play, never above the host's choice; never in singleplayer. Reading chat needs your Twitch permission, asked when you turn this on; Options → Data disconnects it.
+options-twitch-chat-description = In an online room whose host shows their Twitch chat, it moves behind the fields during play; never in singleplayer. Reading chat needs your Twitch permission, asked when you turn this on while signed in; Options → Data disconnects it.
 # Its description where it is on but this device's Twitch access does not
 # allow reading chat (never allowed, disconnected, or ended by Twitch).
 options-twitch-chat-no-access = Your Twitch access does not allow reading chat, so no chat shows. Turn this Off and on again to allow it on Twitch.
