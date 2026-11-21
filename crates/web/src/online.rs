@@ -507,7 +507,7 @@ impl Http for WebHttp {
     }
 }
 
-async fn send(request: &ApiRequest) -> ApiResponse {
+pub(crate) async fn send(request: &ApiRequest) -> ApiResponse {
     use gloo::net::http::Request;
     let url = format!("{}{}", crate::share::base(), request.path);
     let builder = match request.method {

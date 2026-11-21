@@ -974,10 +974,21 @@ impl GameLoop {
                 "proxied": c.proxied,
                 "look": c.look,
                 "global": crate::chat::global_report(),
+                // Round TW6: the live chat's connection, its emote sets
+                // and its channel (null for another source).
+                "live": self.session.as_ref().and_then(|s| s.chat()).and_then(|c| c.live_report()),
                 "stats": {
                     "messages": c.stats.messages,
                     "shown": c.stats.shown,
                     "left_out": c.stats.left_out,
+                    "left": {
+                        "command": c.stats.left.command,
+                        "link": c.stats.left.link,
+                        "cheer": c.stats.left.cheer,
+                        "shared": c.stats.left.shared,
+                        "empty": c.stats.left.empty,
+                    },
+                    "cut": c.stats.cut,
                     "full": c.stats.full,
                     "rate": c.stats.rate,
                     "chatter": c.stats.chatter,

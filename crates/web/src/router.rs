@@ -185,7 +185,12 @@ fn restore_chat(hash: &str) {
         let what = lines.next().unwrap_or_default();
         let images = lines.next().unwrap_or_default();
         let look = lines.next().unwrap_or_default();
-        crate::chat::script(what, (!images.is_empty()).then_some(images));
+        let socket = lines.next().unwrap_or_default();
+        crate::chat::script(
+            what,
+            (!images.is_empty()).then_some(images),
+            (!socket.is_empty()).then_some(socket),
+        );
         crate::chat::look((!look.is_empty()).then_some(look));
     }
 }
@@ -278,18 +283,24 @@ fn multiplayer_params(hash: &str, at_load: bool) {
     // without it ([`restore_chat`]).
     // Round TW5: `mpfakechatlook=<as-built|larger|scattered>`, the chat
     // drawn in one of the looks shown to the maintainer.
+    // Round TW6: `mpfakechat=live`, the live chat's development script
+    // (the signed-in person's own channel in any play), its socket at
+    // `mpfakechaturl=<ws address>` where given (a local fake, never
+    // Twitch's for a test), the providers' addresses from `mpfakechatimg`.
     if let Some(what) = param("mpfakechat") {
         let images = param("mpfakechatimg");
         let look = param("mpfakechatlook");
-        crate::chat::script(&what, images.as_deref());
+        let socket = param("mpfakechaturl");
+        crate::chat::script(&what, images.as_deref(), socket.as_deref());
         crate::chat::look(look.as_deref());
         if what == "0" {
             storage::remove(Area::Session, CHAT_KEPT);
         } else {
             let kept = format!(
-                "{what}\n{}\n{}",
+                "{what}\n{}\n{}\n{}",
                 images.unwrap_or_default(),
-                look.unwrap_or_default()
+                look.unwrap_or_default(),
+                socket.unwrap_or_default()
             );
             let _ = storage::set(Area::Session, CHAT_KEPT, &kept);
         }

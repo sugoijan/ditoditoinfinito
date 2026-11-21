@@ -18,8 +18,22 @@
 //! `ddi_chat::global`), which the maintainer runs: their global sets read
 //! here (directly, then through our server's proxy, Twitch's through our
 //! server alone), their images as a real chat's.
+//!
+//! The live chat (round TW6, [`WebLive`]): the play's
+//! `ddi_session::chat::LiveIo` on the web: each socket to Twitch's EventSub
+//! the browser's `WebSocket` (Twitch's takes no credentials; the browser
+//! answers its pings), our server's subscribe route through `fetch` with
+//! the page's cookie, the providers' sets as the images are read, and the
+//! run's lines on the console (`ddi_chat::live::LOG_PREFIX`), its report in
+//! `__DDI_DEBUG.chat.live`. `mpfakechat=live` runs it in any play for the
+//! signed-in person's own channel; `mpfakechaturl=<ws address>` points the
+//! socket at a local fake (TESTING ONLY).
 
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
+use ddi_session::chat::{LiveInput, LiveIo, LiveSetup, LiveWant};
 
 use ddi_chat::anim::{self, Format, Kept, Verdict};
 use ddi_chat::cache::Fetch;
@@ -95,6 +109,191 @@ fn global(at: Option<&str>) {
             }
         }
     });
+}
+
+/// The live chat's side on this page (round TW6), from boot: Twitch's
+/// EventSub socket, or `socket` (TESTING ONLY, `mpfakechaturl`); the
+/// providers' addresses from `at` where a test says (`mpfakechatimg`).
+/// Whether a play shows it is the settings', the room's and, until the
+/// maintainer verified it, the testing switch's.
+pub(crate) fn install_live(socket: Option<&str>, at: Option<&str>) {
+    let api = crate::share::base();
+    ddi_session::chat::set_live(Some(LiveSetup {
+        url: socket.map_or_else(|| ddi_chat::live::EVENTSUB_URL.to_string(), str::to_string),
+        api: api.clone(),
+        at: at.map(str::to_string),
+        make: Box::new(move || Box::new(WebLive::new(api.clone()))),
+    }));
+}
+
+/// TESTING ONLY (round TW6), `mpfakechat=live`: the live chat in every
+/// play outside a room for the signed-in person's own channel, once `/me`
+/// says who that is (`ddi_ui::state::twitch::set_live_own`).
+fn live(at: Option<&str>, socket: Option<&str>) {
+    ddi_session::chat::set_scripted(None);
+    install_live(socket, at);
+    wasm_bindgen_futures::spawn_local(async {
+        let p = ddi_chat::live::LOG_PREFIX;
+        let me = crate::online::send(&ddi_ui::state::online::api::ApiRequest {
+            method: ddi_ui::state::online::api::Method::Get,
+            path: "/me".into(),
+            body: None,
+            bearer: None,
+            poll: None,
+        })
+        .await;
+        let parsed = (me.status == 200)
+            .then(|| serde_json::from_str::<ddi_ui::state::online::api::Me>(&me.body).ok())
+            .flatten();
+        let line = match parsed {
+            Some(m) => {
+                let id = m
+                    .player_id
+                    .strip_prefix("twitch:")
+                    .map(str::to_string)
+                    .or_else(|| m.player_id.strip_prefix("dev:").map(|n| format!("dev-{n}")));
+                match id {
+                    Some(id) => {
+                        let login = m.twitch.login.clone().unwrap_or(m.login.clone());
+                        let scope = m.twitch.features.iter().any(|f| f == "chat");
+                        ddi_ui::state::twitch::set_live_own(Some((id, login.clone())));
+                        format!(
+                            "{p} live chat: {login}'s own channel in every play; turn on Options → Display → Twitch chat in rooms{}",
+                            if scope {
+                                ""
+                            } else {
+                                " (your Twitch access lacks the chat's scope, user:read:chat: turning it on asks for it)"
+                            }
+                        )
+                    }
+                    None => format!("{p} live chat: signed in without a Twitch account"),
+                }
+            }
+            None => format!(
+                "{p} live chat: not signed in (HTTP {}): sign in first (Multiplayer)",
+                me.status
+            ),
+        };
+        web_sys::console::info_1(&line.into());
+    });
+}
+
+/// A live socket: the browser's `WebSocket` and its handlers.
+struct LiveSocket {
+    ws: web_sys::WebSocket,
+    _open: Closure<dyn FnMut(web_sys::Event)>,
+    _message: Closure<dyn FnMut(web_sys::MessageEvent)>,
+    _close: Closure<dyn FnMut(web_sys::CloseEvent)>,
+}
+
+impl Drop for LiveSocket {
+    fn drop(&mut self) {
+        self.ws.set_onopen(None);
+        self.ws.set_onmessage(None);
+        self.ws.set_onclose(None);
+        let _ = self.ws.close();
+    }
+}
+
+/// The live chat's side on the web (see the module's notes).
+pub(crate) struct WebLive {
+    queue: Rc<RefCell<Vec<LiveInput>>>,
+    sockets: HashMap<u32, LiveSocket>,
+    api: String,
+}
+
+impl WebLive {
+    fn new(api: String) -> WebLive {
+        WebLive {
+            queue: Rc::default(),
+            sockets: HashMap::new(),
+            api,
+        }
+    }
+}
+
+impl LiveIo for WebLive {
+    fn open(&mut self, socket: u32, url: &str) {
+        let ws = match web_sys::WebSocket::new(url) {
+            Ok(ws) => ws,
+            Err(_) => {
+                self.queue.borrow_mut().push(LiveInput::Closed(socket, 1006));
+                return;
+            }
+        };
+        let q = self.queue.clone();
+        let open = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
+            q.borrow_mut().push(LiveInput::Opened(socket));
+        });
+        let q = self.queue.clone();
+        let message = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |e: web_sys::MessageEvent| {
+            if let Some(text) = e.data().as_string() {
+                q.borrow_mut().push(LiveInput::Text(socket, text));
+            }
+        });
+        let q = self.queue.clone();
+        let close = Closure::<dyn FnMut(web_sys::CloseEvent)>::new(move |e: web_sys::CloseEvent| {
+            q.borrow_mut().push(LiveInput::Closed(socket, e.code()));
+        });
+        ws.set_onopen(Some(open.as_ref().unchecked_ref()));
+        ws.set_onmessage(Some(message.as_ref().unchecked_ref()));
+        ws.set_onclose(Some(close.as_ref().unchecked_ref()));
+        self.sockets.insert(
+            socket,
+            LiveSocket {
+                ws,
+                _open: open,
+                _message: message,
+                _close: close,
+            },
+        );
+    }
+
+    fn close(&mut self, socket: u32) {
+        self.sockets.remove(&socket);
+    }
+
+    fn subscribe(&mut self, socket: u32, session_id: &str, want: &LiveWant, messages: bool) {
+        let q = self.queue.clone();
+        let request = ddi_ui::state::online::api::ApiRequest {
+            method: ddi_ui::state::online::api::Method::Post,
+            path: want.route(),
+            body: Some(LiveWant::body(session_id, messages)),
+            bearer: None,
+            poll: None,
+        };
+        let _ = &self.api;
+        wasm_bindgen_futures::spawn_local(async move {
+            let r = crate::online::send(&request).await;
+            let answer = ddi_chat::live::read_subscribe_answer(r.status, &r.body);
+            q.borrow_mut().push(LiveInput::Subscribed(socket, answer));
+        });
+    }
+
+    fn read_set(&mut self, key: usize, url: &str, via: ddi_chat::cache::Via) {
+        let q = self.queue.clone();
+        let url = url.to_string();
+        wasm_bindgen_futures::spawn_local(async move {
+            let answer = read(&url)
+                .await
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+            q.borrow_mut().push(LiveInput::SetRead(key, via, answer));
+        });
+    }
+
+    fn poll(&mut self) -> Vec<LiveInput> {
+        let out = std::mem::take(&mut *self.queue.borrow_mut());
+        for i in &out {
+            if let LiveInput::Closed(n, _) = i {
+                self.sockets.remove(n);
+            }
+        }
+        out
+    }
+
+    fn report(&mut self, line: &str) {
+        web_sys::console::info_1(&format!("{} {line}", ddi_chat::live::LOG_PREFIX).into());
+    }
 }
 
 /// Fetches `f` and decodes it, later; its answer is in [`take`].
@@ -324,9 +523,15 @@ pub(crate) fn look(name: Option<&str>) {
 /// chat beside every play (`ddi_session::chat::set_scripted`), its images
 /// from `mpfakechatimg=<path>` (`<path><emote's id>.png`, an animated
 /// one's `.gif`, [`ddi_chat::script::Script::images_at`]) where given.
-pub(crate) fn script(what: &str, images: Option<&str>) {
+pub(crate) fn script(what: &str, images: Option<&str>, socket: Option<&str>) {
     if what == "0" {
         ddi_session::chat::set_scripted(None);
+        ddi_ui::state::twitch::set_live_own(None);
+        install_live(None, None);
+        return;
+    }
+    if what == "live" {
+        live(images, socket);
         return;
     }
     if what == "global" {
