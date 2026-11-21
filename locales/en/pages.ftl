@@ -413,7 +413,7 @@ pages-credits-rust-notice-for = for { $crates }
 pages-privacy = Privacy
 
 # The note's first paragraph.
-pages-privacy-intro = This note says what { -game-name } and its online server keep about you, and for how long. Last changed on November 20, 2026.
+pages-privacy-intro = This note says what { -game-name } and its online server keep about you, and for how long. Last changed on November 21, 2026.
 
 # A heading inside the note.
 pages-privacy-alone-heading = Playing alone
@@ -448,7 +448,11 @@ pages-privacy-songs = When someone in a room adds a song to the room's song list
 # Round TW1b: the Privacy fold's part on a person's Twitch access for a
 # room's features (the same as site/privacy.html's).
 pages-privacy-twitch-heading = Twitch access for a room's features
-pages-privacy-twitch = A room's host may keep out the people they banned or blocked on Twitch, and show their Twitch chat during play. These are off unless you turn them on, and turning one on takes you through Twitch to allow only what it needs: reading who is banned or timed out in your channel, who you blocked, or your channel's chat. If you allow it, our server keeps Twitch's keys for that access (sealed so that only the server can read them) and never gives them to the game. It is used only when a room's feature needs it, and it is deleted when you sign out, when you disconnect it in Options → Data, after 30 days unused, or when Twitch ends it. While a host's room keeps people out this way, the server asks Twitch about each person at their joins, when their connection is reopened and when a song is picked; the answers are kept in memory for at most five minutes (an answer about a timeout no longer than the timeout lasts) and never stored. Someone kept out is told only "You can't join this room."; the other members see them leave. The server's logs count these checks and never name anyone.
+pages-privacy-twitch = A room's host may keep out the people they banned or blocked on Twitch, and show their Twitch chat during play. These are off unless you turn them on, and turning one on takes you through Twitch to allow only what it needs: reading who is banned or timed out in your channel, who you blocked, or chat. If you allow it, our server keeps Twitch's keys for that access (sealed so that only the server can read them) and never gives them to the game. It is used only when a room's feature needs it, and it is deleted when you sign out, when you disconnect it in Options → Data, after 30 days unused, or when Twitch ends it. While a host's room keeps people out this way, the server asks Twitch about each person at their joins, when their connection is reopened and when a song is picked; the answers are kept in memory for at most five minutes (an answer about a timeout no longer than the timeout lasts) and never stored. Someone kept out is told only "You can't join this room."; the other members see them leave. The server's logs count these checks and never name anyone.
+# Round TW7: the Privacy fold's paragraph after the Twitch access part, on
+# a device showing a host's Twitch chat (the same as site/privacy.html's).
+# "Emotes from" and "Twitch" are Options → Display's row and its value.
+pages-privacy-twitch-chat = While your device shows a host's Twitch chat during play, the game connects from your device directly to Twitch, which sends the chat's messages to it: Twitch sees your device's address and that your Twitch account reads that channel's chat (our server only asks Twitch to start this and never sees a message). For emotes, your device asks 7TV, BetterTTV and FrankerFaceZ for the channel's and their global emote lists, and them and Twitch for the emote pictures, so they see your device's address; where a direct request fails, our server asks in its place and they see the server's address instead. Options → Display → Emotes from: Twitch keeps your device from asking the other three.
 # The part on a host's Kick.
 pages-privacy-kick-heading = Removing someone from a room
 pages-privacy-kick = A room's host and co-hosts can remove a member (Kick). Everyone in the room is told who was removed and by whom; nothing else is kept, and the person can come back by the room's invite link.
