@@ -8166,3 +8166,55 @@ fn a_hosts_waiting_choice_says_how_to_start_the_draw() {
     assert_eq!(view(&ea).my_choice, mine);
     assert!(view(&ea).status.ends_with("started by you"), "{}", view(&ea).status);
 }
+
+/// Round FX: Bob's device has "Twitch chat in rooms" on, the room shows
+/// its host's chat and his Twitch access does not allow reading chat: the
+/// status line says to allow it on Twitch with the step beside it ("Allow
+/// on Twitch"); his press starts the trip through Twitch back to this
+/// room (the web's: the server's page with the chat's scope).
+#[test]
+fn the_rooms_line_offers_the_trip_that_allows_chat() {
+    use ddi_room::Identity;
+    let mut s = crate::state::settings::Settings::load();
+    s.twitch_chat = ddi_chat::Level::Messages;
+    s.save();
+    let t = Three::new(false);
+    t.server.borrow_mut().grant_twitch(&Identity::new("dev:alice"), &["chat"]);
+    t.server.borrow_mut().grant_twitch(&Identity::new("dev:bob"), &["bans"]);
+    t.step(400);
+    let eb = env();
+    let orders = Orders::default();
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    t.settle(400, &mut [&mut hb]);
+    assert!(!there(&hb, super::room::ALLOW_CHAT), "no chat shown: nothing offered");
+    let me = t.alice.borrow().me();
+    t.server
+        .borrow_mut()
+        .set_twitch(
+            me,
+            Some(ddi_room::TwitchSetting {
+                by: me,
+                mirror: ddi_room::TwitchMirror::Off,
+                chat: ddi_room::TwitchChat::Emotes,
+                user_id: "1".into(),
+                login: "alice".into(),
+            }),
+        )
+        .unwrap();
+    t.settle(400, &mut [&mut hb]);
+    hb.run(0.2);
+    assert_eq!(view(&eb).status, "To see the host's chat, allow it on Twitch.");
+    assert!(there(&hb, super::room::ALLOW_CHAT), "the step beside the line");
+    assert!(hb.texts().iter().any(|x| x == "Allow on Twitch"), "{:?}", hb.texts());
+    hb.tap(PointerKind::Mouse, super::room::ALLOW_CHAT);
+    hb.run(0.1);
+    let online = t.bob.borrow().online_link().unwrap().online().clone();
+    assert_eq!(
+        online.borrow().sign_in_state(),
+        &crate::state::online::SignIn::Completing {
+            dest: crate::state::online::Dest::Room("Room000001".into())
+        },
+        "through Twitch, back to this room"
+    );
+    crate::state::settings::Settings::default().save();
+}

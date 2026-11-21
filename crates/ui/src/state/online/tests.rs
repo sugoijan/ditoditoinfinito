@@ -1064,6 +1064,90 @@ pub(crate) mod room {
         crate::state::settings::Settings::default().save();
     }
 
+    /// Round FX: where the room's line says the access lacks chat's
+    /// permission, the room offers the trip itself: a button beside the
+    /// line and More's item, back to this room. Canceled at Twitch,
+    /// nothing changes and the line stays; the room asks no more this
+    /// session (another channel shown says nothing), More still offers it;
+    /// asked again and allowed, the line says the chat is on and nothing
+    /// is offered any more. A player whose access allows it is offered
+    /// nothing.
+    #[test]
+    fn a_room_offers_the_trip_that_allows_chat_and_asks_no_more_after_a_no() {
+        use crate::screens::room::{allow_chat_shown, more_items};
+        use crate::state::online::link::LinkNotice;
+        use crate::state::online::{Dest, Redirect};
+        ddi_platform::storage::install(std::rc::Rc::new(ddi_platform::storage::MemoryStore::default()));
+        crate::state::settings::Settings {
+            twitch_chat: ddi_chat::Level::Messages,
+            ..Default::default()
+        }
+        .save();
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob"]);
+        server.borrow_mut().grant_twitch(&ddi_room::Identity::new("dev:alice"), &["chat"]);
+        server.borrow_mut().grant_twitch(&ddi_room::Identity::new("dev:bob"), &["bans"]);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert!(!bob.chat_allow_offered(), "the room shows no chat: nothing");
+        let me = alice.me();
+        let shown = |channel: &str| ddi_room::TwitchSetting {
+            by: me,
+            mirror: ddi_room::TwitchMirror::Off,
+            chat: ddi_room::TwitchChat::Emotes,
+            user_id: channel.into(),
+            login: "alice".into(),
+        };
+        server.borrow_mut().set_twitch(me, Some(shown("1"))).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(bob.link_notice(), Some(LinkNotice::TwitchChatNoAccess));
+        assert!(bob.chat_allow_offered() && allow_chat_shown(&bob));
+        assert!(more_items(&bob, false).iter().any(|(id, _)| id == "allowchat"));
+        assert!(!alice.chat_allow_offered(), "her access allows it");
+        assert!(!more_items(&alice, false).iter().any(|(id, _)| id == "allowchat"));
+        let room = "Room000001".to_string();
+        let trip = || Some(Redirect::Page(
+            "/auth/twitch/login?return=%2Fmp%2Froom%2FRoom000001&scopes=chat".into(),
+        ));
+        // The step: through Twitch, back to this room.
+        assert!(bob.allow_chat());
+        let online = bob.online_link().unwrap().online().clone();
+        assert_eq!(online.borrow_mut().take_redirect(), trip());
+        // Canceled at Twitch: nothing changed, the line and its button
+        // back.
+        bob.set_link_notice(None);
+        online.borrow_mut().sign_in_canceled(Dest::Room(room.clone()));
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(bob.link_notice(), Some(LinkNotice::TwitchChatNoAccess));
+        assert!(allow_chat_shown(&bob));
+        assert_eq!(
+            crate::state::settings::Settings::load().twitch_chat,
+            ddi_chat::Level::Messages
+        );
+        // Asked no more this session: another channel shown says nothing;
+        // More still offers it.
+        bob.set_link_notice(None);
+        server.borrow_mut().set_twitch(me, Some(shown("2"))).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(bob.link_notice(), None);
+        assert!(!allow_chat_shown(&bob));
+        assert!(more_items(&bob, false).iter().any(|(id, _)| id == "allowchat"));
+        // He asks (More), and allows it at Twitch: the chat is on, from the
+        // next stage; nothing is offered any more.
+        online.borrow_mut().clear_sign_in();
+        assert!(bob.allow_chat());
+        assert_eq!(online.borrow_mut().take_redirect(), trip());
+        server.borrow_mut().grant_twitch(&ddi_room::Identity::new("dev:bob"), &["bans", "chat"]);
+        online.borrow_mut().returned(Dest::Room(room));
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(bob.link_notice(), Some(LinkNotice::TwitchChatOn));
+        assert!(!bob.chat_allow_offered());
+        assert!(!more_items(&bob, false).iter().any(|(id, _)| id == "allowchat"));
+        crate::state::settings::Settings::default().save();
+    }
+
     /// Round TW3: a newcomer the host's Twitch lists keep out sees the one
     /// neutral line, and never "You can join now" above it (the browser
     /// walk found both); Join stays, for a timeout that ends.

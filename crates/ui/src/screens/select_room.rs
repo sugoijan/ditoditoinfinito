@@ -294,6 +294,13 @@ impl SelectScreen {
             .is_some_and(|rm| rm.side != Side::Joining && room::retry_shown(&rm.room.borrow()))
     }
 
+    /// Round FX: the status line's button for chat's permission shows.
+    pub(super) fn room_allow_chat_shown(&self) -> bool {
+        self.room
+            .as_ref()
+            .is_some_and(|rm| rm.side != Side::Joining && room::allow_chat_shown(&rm.room.borrow()))
+    }
+
     pub(super) fn room_joining(&self) -> bool {
         self.room
             .as_ref()
@@ -475,6 +482,10 @@ impl SelectScreen {
         // not choose.
         let button = if room::retry_shown(&r) {
             Some((ddi_l10n::msg::room::retry_load(), room::RETRY_LOAD))
+        } else if room::allow_chat_shown(&r) {
+            // Round FX: the line says the Twitch access lacks chat's
+            // permission: the step itself beside it.
+            Some((ddi_l10n::msg::room::twitch_chat_allow(), room::ALLOW_CHAT))
         } else if rm.side == Side::Listed && r.may_take_pick() {
             Some((ddi_l10n::msg::room::take_pick(), room::TAKE_PICK))
         } else {
@@ -1499,6 +1510,11 @@ impl SelectScreen {
                 self.open_players(cx)
             }
             room::TAKE_PICK => self.take_pick(cx),
+            room::ALLOW_CHAT => {
+                if let Some(rm) = &self.room {
+                    room::allow_chat(&self.env, &rm.room, cx);
+                }
+            }
             room::RETRY_LOAD => {
                 if let Some(rm) = &self.room {
                     room::retry_load(&rm.room);
@@ -1740,6 +1756,7 @@ impl SelectScreen {
                 room::MoreAction::Leave => {
                     self.room_leave(room::LeaveBy::More, cx);
                 }
+                room::MoreAction::AllowChat => room::allow_chat(&self.env, &room, cx),
                 room::MoreAction::Done => self.refill_room(root, cx),
             }
         }

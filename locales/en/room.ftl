@@ -2415,14 +2415,23 @@ room-host-twitch-whose = { $login }'s Twitch bans and chat apply.
 room-host-twitch-chat-about = Show my Twitch chat: your channel's chat moves behind the fields during each stage, for the players who turn on Twitch chat in rooms on their own device (Options → Display).
 # Round TW7: the status line, once, where the room shows its host's chat
 # and this player's device has Twitch chat in rooms on (Options → Display),
-# but their Twitch access does not allow reading chat: what to do (turning
-# it on again takes them through Twitch to allow it). One short line: the
-# status line has room for about 60 letters.
-room-twitch-chat-no-access = To see the host's chat, turn Twitch chat in rooms Off and on.
+# but their Twitch access does not allow reading chat (round FX: with a
+# button beside it, room-twitch-chat-allow, that asks Twitch for it). One
+# short line: the status line has room for about 45 letters beside the
+# button.
+room-twitch-chat-no-access = To see the host's chat, allow it on Twitch.
+# Round FX: the button beside that line (about 14 letters): the trip
+# through Twitch that allows this device to read chat, back to the room.
+room-twitch-chat-allow = Allow on Twitch
+# Round FX: the same step as an item of the room's More menu, offered
+# while this device's Twitch access does not allow reading chat and the
+# room shows its host's chat.
+room-twitch-chat-allow-more = Allow Twitch chat
 # Round TW7: one quiet line on a stage's results where this device's
 # Twitch chat could not show during it (never said during the play).
-# Its Twitch access does not allow reading chat.
-room-chat-trouble-access = Twitch chat could not show: your Twitch access does not allow reading chat. Turn Twitch chat in rooms (Options → Display) Off and on again to allow it.
+# Its Twitch access does not allow reading chat (round FX: the room's More
+# has Allow Twitch chat, room-twitch-chat-allow-more).
+room-chat-trouble-access = Twitch chat could not show: your Twitch access does not allow reading chat. In the room, More → Allow Twitch chat asks Twitch for it.
 # Twitch refused this player the channel's chat (banned there, or its
 # limits).
 room-chat-trouble-refused = Twitch chat could not show: Twitch refused this account the channel's chat.

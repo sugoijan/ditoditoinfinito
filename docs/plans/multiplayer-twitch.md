@@ -1410,13 +1410,20 @@ never during a play):
   access does not allow reading chat, so no chat shows. Turn this Off and
   on again to allow it on Twitch." (where the online state last read the
   access, never read for the asking), and in a room that shows chat the
-  status line says once "To see the host's chat, turn Twitch chat in
-  rooms Off and on." (`LinkNotice::TwitchChatNoAccess`).
+  status line says once "To see the host's chat, allow it on Twitch."
+  (`LinkNotice::TwitchChatNoAccess`) with the step itself beside it
+  (round FX: "Allow on Twitch", `screens::room::ALLOW_CHAT`, and More's
+  "Allow Twitch chat" while it is so, `RoomClient::chat_allow_offered`,
+  `allow_chat`: the same trip through Twitch the option's row starts,
+  back to the room, the chat showing from the next stage; canceled,
+  nothing changes, the line comes back and the room asks no more that
+  session, `CHAT_DECLINED`, More still offering it; never in CPU
+  practice or singleplayer).
 - After a stage whose chat could not show, one line under the stage's
   standings (`StageOutcome::chat`, `RoomClient::set_chat_trouble`,
   `StageTable::chat`), by why the connection gave up: the access ("…your
-  Twitch access does not allow reading chat. Turn Twitch chat in rooms
-  (Options → Display) Off and on again to allow it."), Twitch refusing
+  Twitch access does not allow reading chat. In the room, More → Allow
+  Twitch chat asks Twitch for it."), Twitch refusing
   the reader (its 403 or its limits, or a revocation other than the two
   below), the channel gone (a revocation `user_removed`, or a named
   channel Twitch does not know), the connection failing (losses in a row,

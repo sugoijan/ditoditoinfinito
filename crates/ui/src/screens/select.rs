@@ -4283,6 +4283,11 @@ impl Screen for SelectScreen {
         if self.room_retry_shown() {
             v.push(Focusable::new(super::room::RETRY_LOAD));
         }
+        // Chat's permission asked of Twitch, beside the line that says it
+        // is missing (round FX).
+        if self.room_allow_chat_shown() {
+            v.push(Focusable::new(super::room::ALLOW_CHAT));
+        }
         if self.following() {
             v.push(Focusable::new("Panel.Up"));
             v.push(Focusable::new("Panel.Down"));

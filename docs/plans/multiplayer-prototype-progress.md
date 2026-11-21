@@ -13976,6 +13976,20 @@ feature."
   `a_hosts_waiting_choice_says_how_to_start_the_draw` (the screens).
   The countdown that waits for players (`NoStart`) still opens by itself
   once a stage could start: its choice was made when the room could pick.
+- **A room offers the Twitch permission step itself** (recommended;
+  `docs/plans/multiplayer-twitch.md`, "When it cannot run"). Where the
+  room shows its host's chat and this device's option is on but the
+  access lacks chat's permission, the status line says "To see the
+  host's chat, allow it on Twitch." with "Allow on Twitch" beside it
+  (focusable from the keyboard and a pad, as Retry is), and More has
+  "Allow Twitch chat" while it is so: the trip the option's row starts
+  (`Online::connect_twitch_chat`), back to the room (the web leaves the
+  page by the room's redirect; desktop's dialog with the code). Allowed,
+  the line says the chat is on (from the next stage); canceled, nothing
+  changes, the line and its button come back, and the room's line asks
+  no more this session (More still offers it). The results' line points
+  at More's item. Tests: `a_room_offers_the_trip_that_allows_chat_and_asks_no_more_after_a_no`,
+  `the_rooms_line_offers_the_trip_that_allows_chat`.
 
 ## Provisional choices
 

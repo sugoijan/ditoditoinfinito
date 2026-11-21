@@ -1057,6 +1057,42 @@ fn follows(r: &RoomClient) -> Follows {
 pub const TAKE_PICK: &str = "Room.TakePick";
 const MORE_TAKE_PICK: &str = "takepick";
 
+/// Round FX: the name of the button at the room's status line's end while
+/// it says this device's Twitch access does not allow reading chat, and
+/// its item in More while that is so: the trip through Twitch that allows
+/// it (`RoomClient::allow_chat`, [`allow_chat`]).
+pub const ALLOW_CHAT: &str = "Room.AllowChat";
+const MORE_ALLOW_CHAT: &str = "allowchat";
+
+/// The status line's button for chat's permission shows: the line says
+/// the access lacks it and the room offers the trip.
+pub fn allow_chat_shown(r: &RoomClient) -> bool {
+    r.link_notice() == Some(LinkNotice::TwitchChatNoAccess) && r.chat_allow_offered()
+}
+
+/// Round FX: the trip through Twitch for this device's chat, from the
+/// room: started (`RoomClient::allow_chat`); the web leaves the page on
+/// the room's next update, desktop's dialog with the code to type in the
+/// browser opens over the room.
+pub fn allow_chat(env: &Env, room: &SharedRoom, cx: &mut Cx) {
+    if !room.borrow_mut().allow_chat() {
+        return;
+    }
+    let r = room.borrow();
+    if let Some(link) = r.online_link()
+        && link.online().borrow().platform() == crate::state::online::Platform::Desktop
+    {
+        let dialog = super::online_home::SignInDialog::connecting(
+            env.clone(),
+            link.online().clone(),
+            crate::state::online::Dest::Room(link.room_id().to_string()),
+            "chat",
+            None,
+        );
+        cx.overlay(dialog, true);
+    }
+}
+
 /// One person's or CPU's row, as the players panel, its pop-up and the
 /// prompt show it.
 #[derive(Clone, Debug, PartialEq)]
@@ -1942,6 +1978,12 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
     if r.may_take_pick() {
         items.push((MORE_TAKE_PICK.to_string(), m::take_pick().into()));
     }
+    // This device's chat lacks Twitch's permission where the room shows
+    // its host's chat (round FX): the trip that allows it, whenever the
+    // player asks.
+    if r.chat_allow_offered() {
+        items.push((MORE_ALLOW_CHAT.to_string(), m::twitch_chat_allow_more().into()));
+    }
     // Play or Watch, the player's own, outside a stage they are in.
     if r.may_choose_intent() {
         items.push((MORE_INTENT.to_string(), intent_label(r).into()));
@@ -2284,6 +2326,8 @@ pub enum MoreAction {
     ReplaceInvite,
     /// Leave room: asked first where it costs something ([`leave`]).
     Leave,
+    /// Allow Twitch chat: the trip through Twitch ([`allow_chat`]).
+    AllowChat,
     /// Done here (or nothing): the screen redraws.
     Done,
 }
@@ -2709,6 +2753,7 @@ pub fn more_picked(id: &str, room: &SharedRoom, cx: &mut Cx) -> MoreAction {
     match id {
         "rules" => return MoreAction::Rules,
         "players" => return MoreAction::Players,
+        MORE_ALLOW_CHAT => return MoreAction::AllowChat,
         "stop" => {
             let _ = room.borrow_mut().stop_match();
         }

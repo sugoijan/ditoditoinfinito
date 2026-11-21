@@ -96,6 +96,21 @@ pub const SPOTLIGHT_REST_MS: u64 = 3_000;
 /// numbered from 1): the server's grant for "no stage" (M7b).
 pub const SPOTLIGHT: StageId = StageId(0);
 
+/// Round FX: where this session's player said no at Twitch to allowing
+/// chat (a trip canceled), in the session's storage (the web's trip leaves
+/// the page): the room's status line asks no more (More still offers it).
+const CHAT_DECLINED: &str = "ddi.mp.chatdeclined";
+
+/// The player said no at Twitch to allowing chat this session.
+fn chat_declined() -> bool {
+    ddi_platform::storage::get(ddi_platform::storage::Area::Session, CHAT_DECLINED).is_some()
+}
+
+/// [`chat_declined`] from now.
+fn decline_chat() {
+    let _ = ddi_platform::storage::set(ddi_platform::storage::Area::Session, CHAT_DECLINED, "1");
+}
+
 /// What the room's screens show now (M7b's flow): song select (the host
 /// picking, the others following), or a stage's start prompt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2613,6 +2628,12 @@ impl RoomClient {
         if let Some(on) = chat {
             self.set_link_notice(Some(if on {
                 LinkNotice::TwitchChatOn
+            } else if self.chat_allow_offered() {
+                // Round FX: canceled at Twitch where the room shows chat:
+                // nothing changed, the line and its offer stay, and the
+                // room asks no more this session.
+                decline_chat();
+                LinkNotice::TwitchChatNoAccess
             } else {
                 LinkNotice::TwitchNotConnected
             }));
@@ -2682,9 +2703,54 @@ impl RoomClient {
             return;
         }
         self.chat_access_told = Some(chat.channel_id);
-        if lacks {
+        // Never asked again in the session once the player said no at
+        // Twitch (round FX); More's Allow Twitch chat still offers it.
+        if lacks && !chat_declined() {
             self.set_link_notice(Some(LinkNotice::TwitchChatNoAccess));
         }
+    }
+
+    /// Round FX: the room shows its host's chat, this device's "Twitch
+    /// chat in rooms" is on, and the person's Twitch access (as `/me`
+    /// last said it) does not allow reading chat: the room offers the
+    /// trip through Twitch that allows it ([`RoomClient::allow_chat`]: the
+    /// status line's button while it says so, and More's item). Never in
+    /// CPU practice (no online room), never for a bot.
+    pub fn chat_allow_offered(&self) -> bool {
+        if !self.is_online() || self.link_state() != LinkState::Connected {
+            return false;
+        }
+        if crate::state::twitch::RoomChat::of(self.twitch()).is_none()
+            || crate::state::settings::Settings::cached().twitch_chat == ddi_chat::Level::Off
+            || self.state().member(self.me).is_none_or(|m| m.is_bot())
+        {
+            return false;
+        }
+        self.online_link().is_some_and(|link| {
+            link.online()
+                .borrow()
+                .twitch()
+                .is_some_and(|t| !t.features.iter().any(|f| f == "chat"))
+        })
+    }
+
+    /// Round FX: the trip through Twitch for this device's chat started
+    /// from the room (as Options' "Twitch chat in rooms" starts it), back
+    /// to this room, the setting's level kept: the web leaves the page on
+    /// the room's next update (its redirect), desktop's dialog shows the
+    /// code to type in the browser (the caller opens it). False where the
+    /// room offers none.
+    pub fn allow_chat(&mut self) -> bool {
+        if !self.chat_allow_offered() {
+            return false;
+        }
+        let Some(link) = self.online_link() else {
+            return false;
+        };
+        let level = crate::state::settings::Settings::cached().twitch_chat;
+        let dest = crate::state::online::Dest::Room(link.room_id().to_string());
+        link.online().borrow_mut().connect_twitch_chat(dest, level);
+        true
     }
 
     /// Round TW7: why this device's Twitch chat could not show during

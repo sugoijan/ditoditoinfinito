@@ -840,7 +840,7 @@ fn with_attacks_the_lines_count_them_and_the_player_s_battle_is_summed_up() {
     let v = view(&env);
     assert_eq!(
         v.summary,
-        ["Twitch chat could not show: your Twitch access does not allow reading chat. Turn Twitch chat in rooms (Options → Display) Off and on again to allow it."]
+        ["Twitch chat could not show: your Twitch access does not allow reading chat. In the room, More → Allow Twitch chat asks Twitch for it."]
     );
     let panel = h.ui.bounds("Panel.Standings").unwrap();
     assert!(there(&h, "Stand.Battle0"));
