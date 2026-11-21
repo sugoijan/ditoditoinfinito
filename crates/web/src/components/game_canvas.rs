@@ -4386,13 +4386,11 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                         .get(chart)
                         .map_or(0.0, |c| c.timing(&song).beat_at(backgrounds::PLAY_START))
                 },
-                banner: loaded.entry.banner.as_ref().map(|b| {
-                    if crate::songs::is_imported_id(&loaded.entry.id) {
-                        format!("files:{}", crate::songs::file_key(&loaded.entry.id, b))
-                    } else {
-                        format!("songs/{}/{b}", loaded.entry.id)
-                    }
-                }),
+                banner: loaded
+                    .entry
+                    .banner
+                    .as_ref()
+                    .map(|b| crate::songs::picture_source(&loaded.entry.id, b.as_str())),
                 entry: Some(loaded.entry.clone()),
                 song: loaded.song,
                 music_bytes: Some(loaded.music_bytes),

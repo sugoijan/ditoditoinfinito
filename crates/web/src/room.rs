@@ -820,14 +820,14 @@ async fn read_shared(
         })?;
     }
     Ok(SharedFound {
-        banner: entry.banner.as_ref().and_then(|b| {
-            crate::room_store::source(share, b.as_str())
-                .or_else(|| crate::share::file_url(&entry.id, b.as_str()))
-        }),
+        banner: entry
+            .banner
+            .as_ref()
+            .map(|b| crate::songs::picture_source(&entry.id, b.as_str())),
         background: entry
             .background
             .as_ref()
-            .and_then(|b| crate::share::file_url(&entry.id, b.as_str())),
+            .map(|b| crate::songs::picture_source(&entry.id, b.as_str())),
         entry: entry.clone(),
         index: p.index,
         pack: record.pack.clone(),

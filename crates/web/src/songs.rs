@@ -731,6 +731,25 @@ async fn linked_file(db: &Db, key: &str, link: &Link) -> Result<Blob, LoadError>
     }
 }
 
+/// File `file` of song `id` (by the name its entry uses: a banner, a
+/// background) as a texture source (`crate::web::textures`): a shared
+/// song's (an online room's stage's) from the room's area where it was
+/// downloaded ahead (`crate::room_store`), else down its link; an imported
+/// song's from the store; a bundled song's file. (Round FX: a stage's
+/// results took a shared song for a bundled one and showed no banner.)
+pub(crate) fn picture_source(id: &str, file: &str) -> String {
+    if let Some((share, _)) = crate::share::parse_song_id(id)
+        && let Some(source) =
+            crate::room_store::source(share, file).or_else(|| crate::share::file_url(id, file))
+    {
+        source
+    } else if is_imported_id(id) {
+        format!("files:{}", file_key(id, file))
+    } else {
+        format!("songs/{id}/{file}")
+    }
+}
+
 /// Key of an imported song's file in the `files` store.
 pub(crate) fn file_key(id: &str, file: impl AsRef<str>) -> String {
     let file = file.as_ref();

@@ -13941,6 +13941,23 @@ feature."
   `a_frame_read_late_once_a_second_is_never_said` and
   `a_disagreement_just_past_the_line_is_said_once_and_settled_once`
   (`ddi-room`'s `live::slew`: 621 changes of the line before).
+- **A song downloaded ahead showed no banner on the stage's results**
+  (round RL3's "Not done"; the web only). The web's play named a song's
+  banner for its results as an imported song's stored file or else a
+  bundled song's (`songs/<id>/…`), so a shared song (`shared:<share>:<n>`,
+  every stage song read from the room's share, downloaded ahead or not)
+  asked for a file that is not there; a member playing their own copy
+  had an imported song's. Now one function names a song's picture for
+  the textures, `songs::picture_source`: the room's area first
+  (`room_store::source`), then the share's link, the store, the bundled
+  file; the room's song select's banner and background use it too. The
+  prompt's and the play's background and the generated background's
+  cover were already read through the room's area (`songs::song_blob`).
+  Desktop read the store's files already; its test
+  `a_room_song_downloaded_ahead_shows_its_banner_on_its_results`
+  (`results_flow`, with or without a GPU) plays a song registered as the
+  store leaves it (`share::keep_loaded_for_tests`, TESTING ONLY) and
+  finds the banner read from there.
 
 ## Provisional choices
 

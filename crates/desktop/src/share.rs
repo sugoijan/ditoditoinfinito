@@ -213,6 +213,16 @@ pub fn store_dir(store: &str) -> Option<PathBuf> {
     )
 }
 
+/// TESTING ONLY: share `doc` (its `id` set) as [`load_with`] keeps it once
+/// its songs are read into `root`, without the server: what a play of
+/// one of its songs looks for first (`ensure_all`).
+pub fn keep_loaded_for_tests(doc: ShareDoc, root: PathBuf) {
+    if let Ok(mut c) = LOADED.lock() {
+        c.retain(|c| c.doc.id != doc.id);
+        c.push(Current { doc, root });
+    }
+}
+
 /// Room store `store` emptied (the room left or ended): its folder
 /// deleted, its shares forgotten as loaded.
 pub fn forget_store(store: &str) {
