@@ -2214,17 +2214,19 @@ room-song-added-by-you = Added by you
 # Variables:
 #   $name (String) - who added it (data)
 room-song-added-by = Added by { $name }
-# A room song's row's line: its artist, its state and who added it.
+# A room song's row's line: its artist, who added it and its state (who
+# added it before the state, which may be long, since round RL3: anyone
+# may add songs where the host lets them).
 # Variables:
 #   $artist (String) - the song's artist (data)
 #   $state (String) - its state (one of the room-song- states above)
 #   $by (String) - who added it (room-song-added-by…)
-room-song-line = { $artist } · { $state } · { $by }
+room-song-line = { $artist } · { $by } · { $state }
 # The same for a song without an artist.
 # Variables:
 #   $state (String) - its state
 #   $by (String) - who added it
-room-song-line-no-artist = { $state } · { $by }
+room-song-line-no-artist = { $by } · { $state }
 # The same for the song the one who chooses the room's songs is looking at
 # (it may be picked next), said first.
 # Variables:
@@ -2232,7 +2234,7 @@ room-song-line-no-artist = { $state } · { $by }
 #   $state (String) - its state
 #   $by (String) - who added it
 #   $picker (String) - who chooses the room's songs (data)
-room-song-line-spotlight = { $picker } is on it · { $artist } · { $state } · { $by }
+room-song-line-spotlight = { $picker } is on it · { $artist } · { $by } · { $state }
 # The Enter key's hint on My songs for a host: adds the song shown to the
 # room's list (a few words).
 room-add-song-use = Add to the room
@@ -2327,9 +2329,17 @@ room-status-my-songs-count = { $limit ->
     [one] Add songs to the room here. You've added { $added } of the one song you can add.
    *[other] Add songs to the room here. You've added { $added } of the { $limit } songs you can add.
 }
+# The status line on My songs once someone who isn't a host added as
+# many songs as they may (one line: shorter than the refusal's words).
+# Variables:
+#   $limit (Number) - how many they may add
+room-status-my-songs-at-limit = { $limit ->
+    [one] You've added the one song you can. Remove it to add another.
+   *[other] You've added all { $limit } songs you can. Remove one to add another.
+}
 # The status line on My songs where the room's song list is full and takes
 # no more (it refuses new songs, or every song in it is in use).
-room-status-my-songs-full = The room's song list is full. A song must be removed before another is added.
+room-status-my-songs-full = The room's song list is full. A song must be removed first.
 # More's item on My songs for someone who may add songs: adds every song
 # of the shown song's pack that is not in the room yet (as many as they
 # may add).

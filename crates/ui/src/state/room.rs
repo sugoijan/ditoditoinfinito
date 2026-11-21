@@ -3535,8 +3535,12 @@ impl RoomClient {
 
     /// How many songs this player added that are listed, and how many one
     /// who is not a host may (half the list's size); none for a host, a
-    /// co-host or an administrator, who may fill the whole list.
+    /// co-host or an administrator, who may fill the whole list, and none
+    /// where this player may not add.
     pub fn my_song_count(&self) -> Option<(usize, usize)> {
+        if !self.may_add() {
+            return None;
+        }
         let s = self.state();
         s.song_quota(self.me).map(|q| (s.songs.added_by(self.me), q))
     }

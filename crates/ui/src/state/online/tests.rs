@@ -1998,10 +1998,15 @@ pub(crate) mod room {
         assert_eq!((jobs[0].entry, jobs[0].song.id.as_str()), (Some(mine[0]), "u-0"));
         // At his half: said before the press, refused at it, nothing sent.
         assert_eq!(bob.add_blocked(), Some(Rejection::TooManySongs { limit: 2 }));
-        let at_half = "You've added the 2 songs you can add to this room. Remove one of yours to add another.";
-        assert_eq!(status_on_my_songs(&bob).map(text).as_deref(), Some(at_half));
+        assert_eq!(
+            status_on_my_songs(&bob).map(text).as_deref(),
+            Some("You've added all 2 songs you can. Remove one to add another.")
+        );
         let refused = bob.add_song(&songs[2]).unwrap_err();
-        assert_eq!(text(refusal_text(&refused)), at_half);
+        assert_eq!(
+            text(refusal_text(&refused)),
+            "You've added the 2 songs you can add to this room. Remove one of yours to add another."
+        );
         bob.clear_refusal();
         // His own he removes; not Alice's.
         alice.add_song(&songs[3]).unwrap();
@@ -2026,7 +2031,7 @@ pub(crate) mod room {
         alice.set_who_adds(WhoAdds::Everyone).unwrap();
         step!(400);
         assert_eq!(alice.room_songs().len(), 4);
-        let full = "The room's song list is full. A song must be removed before another is added.";
+        let full = "The room's song list is full. A song must be removed first.";
         for r in [&alice, &bob] {
             assert_eq!(r.add_blocked(), Some(Rejection::ListFull));
             assert_eq!(status_on_my_songs(r).map(text).as_deref(), Some(full));

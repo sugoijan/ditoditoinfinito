@@ -668,7 +668,7 @@ pub fn status_on_my_songs(r: &RoomClient) -> Option<UiText> {
     // the list full, or this player's half of it reached.
     match r.add_blocked() {
         Some(Rejection::ListFull) => return Some(m::status_my_songs_full()),
-        Some(Rejection::TooManySongs { limit }) => return Some(m::refused_too_many_songs(limit)),
+        Some(Rejection::TooManySongs { limit }) => return Some(m::status_my_songs_at_limit(limit)),
         _ => {}
     }
     if r.chooses() {
