@@ -243,6 +243,8 @@ pub struct Stats {
     pub shown: u64,
     /// Left out by C11 (commands, links, cheers, shared chat) or empty.
     pub left_out: u64,
+    /// The same by filter (round TW6, for the live chat's report).
+    pub left: LeftOut,
     /// Dropped by a budget: the messages or the emotes on screen, the
     /// messages a second, a chatter's 2 s.
     pub full: u64,
@@ -258,6 +260,22 @@ pub struct Stats {
     pub removed: u64,
     /// Emotes a message brought past its eight, left out.
     pub cut: u64,
+}
+
+/// Messages left out by C11, by filter.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LeftOut {
+    /// A command (a leading `!`).
+    pub command: u64,
+    /// A link in it.
+    pub link: u64,
+    /// Cheered with bits.
+    pub cheer: u64,
+    /// From another channel of a shared chat.
+    pub shared: u64,
+    /// Nothing left to show at the device's level (under Emotes, no
+    /// emote).
+    pub empty: u64,
 }
 
 struct Waiting {
@@ -470,8 +488,16 @@ impl Overlay {
                     self.rules.cut,
                 ) {
                     Ok(c) => c,
-                    Err(Left::Command | Left::Link | Left::Cheer | Left::Shared | Left::Empty) => {
+                    Err(why) => {
                         self.stats.left_out += 1;
+                        let l = &mut self.stats.left;
+                        *match why {
+                            Left::Command => &mut l.command,
+                            Left::Link => &mut l.link,
+                            Left::Cheer => &mut l.cheer,
+                            Left::Shared => &mut l.shared,
+                            Left::Empty => &mut l.empty,
+                        } += 1;
                         return;
                     }
                 };

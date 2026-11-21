@@ -137,6 +137,10 @@ pub struct EmoteSets {
     /// Only overridden images are asked for (the scripted chat: nothing
     /// is ever asked of a provider).
     offline: bool,
+    /// TESTING ONLY: Twitch's images (a message's fragments') served from
+    /// here instead (`<at><host>/<path>`, as the live chat's sets' with
+    /// `mpfakechatimg` and `--mp-dev-chat-at`).
+    served_from: Option<String>,
 }
 
 /// Which of a channel's or the global sets a list came from, and whose:
@@ -198,6 +202,12 @@ impl EmoteSets {
         self.words.is_empty()
     }
 
+    /// TESTING ONLY: Twitch's own images asked of `at` instead of
+    /// Twitch's host ([`EmoteSets::served_from`]).
+    pub fn serve_from(&mut self, at: Option<String>) {
+        self.served_from = at;
+    }
+
     /// `emote`'s image is `image` (the scripted chat's own pictures).
     pub fn set_image(&mut self, emote: Emote, image: Image) {
         self.overrides.insert(emote, image);
@@ -215,11 +225,18 @@ impl EmoteSets {
         if let Some((_, i)) = self.words.values().find(|(e, _)| e == emote) {
             return Some(i.clone());
         }
-        match emote.provider {
-            Provider::Twitch if emote.animated => Some(twitch_animated_image(&emote.id)),
-            Provider::Twitch => Some(twitch_image(&emote.id)),
-            _ => None,
-        }
+        let image = match emote.provider {
+            Provider::Twitch if emote.animated => twitch_animated_image(&emote.id),
+            Provider::Twitch => twitch_image(&emote.id),
+            _ => return None,
+        };
+        Some(match &self.served_from {
+            Some(at) => Image {
+                url: crate::global::local(&image.url, Some(at)),
+                ..image
+            },
+            None => image,
+        })
     }
 }
 

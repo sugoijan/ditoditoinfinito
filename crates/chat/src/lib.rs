@@ -23,6 +23,13 @@
 //! - [`cache`]: the emote images kept (256 at most, four fetched at once,
 //!   the proxy once after a failure, C4) and their places in one atlas,
 //!   an animated emote's frames each a cell, within their budget.
+//! - [`live`]: the live connection to Twitch's EventSub socket (round
+//!   TW6): a state machine fed text frames and time (the welcome, our
+//!   server asked to subscribe inside Twitch's ten seconds, the
+//!   keep-alive's watchdog, Twitch's reconnect followed, revocations,
+//!   closes, backoff and giving up quietly), and what the run reports.
+//! - [`channel`]: the live chat's third-party emote sets, the channel's
+//!   and the global ones, read directly and through the proxy (round TW6).
 //! - [`script`]: the scripted chat the tests and the studies play
 //!   (TESTING ONLY, C16): EventSub messages on a clock, never Twitch.
 //! - [`global`]: the global-emotes demo (TESTING ONLY, round TW5): the
@@ -34,10 +41,12 @@
 
 pub mod anim;
 pub mod cache;
+pub mod channel;
 pub mod emotes;
 pub mod eventsub;
 pub mod global;
 pub mod item;
+pub mod live;
 pub mod overlay;
 pub mod script;
 

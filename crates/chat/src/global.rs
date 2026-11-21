@@ -90,8 +90,10 @@ pub fn provider_name(p: Provider) -> &'static str {
     }
 }
 
-/// `url` (`https://host/path`) as served from `at` (`<at>host/path`).
-fn local(url: &str, at: Option<&str>) -> String {
+/// `url` (`https://host/path`) as served from `at` (`<at>host/path`):
+/// TESTING ONLY, a local folder or server of fixtures standing for the
+/// providers' hosts.
+pub(crate) fn local(url: &str, at: Option<&str>) -> String {
     match at {
         Some(at) if !url.is_empty() => {
             let rest = url.split_once("://").map_or(url, |(_, r)| r);
