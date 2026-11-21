@@ -2398,10 +2398,12 @@ impl<H: PlayHost> PlayView<H> {
         list.clear();
         // The touch controls first, under the rest.
         if let Some(f) = self.touch_frame.take() {
+            let glyphs = crate::touch_controls::glyph_texture(painter, device, queue);
             self.touch.draw(
                 list,
                 &f.controls,
                 &f.glyphs,
+                glyphs,
                 &f.held,
                 f.now,
                 ratio,

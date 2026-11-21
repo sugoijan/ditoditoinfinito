@@ -27,6 +27,8 @@ use ddi_chart::layout::{Glyph, Layout};
 use ddi_dance_mat::MatLayout;
 use serde::{Deserialize, Serialize};
 
+pub mod glyphs;
+
 /// The touch controls' style (Options → Controls, "Touch controls").
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Style {

@@ -13,7 +13,9 @@
 
 use ddi_chart::layout::Glyph;
 use ddi_render::draw2d::{Affine, Quad, Shape};
-use ddi_render::DrawList;
+use ddi_render::texture_cache::{TextureId, TextureKey};
+use ddi_render::{DrawList, Painter};
+use ddi_ui::touch_controls::glyphs::{self as atlas, Weight};
 use ddi_ui::touch_controls::{Controls, Kind, Target};
 
 /// How the controls look (a choice for the maintainer).
@@ -123,15 +125,17 @@ impl TouchView {
         out
     }
 
-    /// Draws `controls` (logical pixels), each lane's glyph of `glyphs`,
-    /// for the lanes held now
-    /// (`held`), `ratio` target pixels a logical one, at host second `now`.
+    /// Draws `controls` (logical pixels), each lane's glyph of `glyphs`
+    /// from the glyphs' atlas `texture` ([`glyph_texture`]), for the lanes
+    /// held now (`held`), `ratio` target pixels a logical one, at host
+    /// second `now`.
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
         list: &mut DrawList,
         controls: &Controls,
         glyphs: &[Glyph],
+        texture: TextureId,
         held: &[bool],
         now: f64,
         ratio: f32,
@@ -181,7 +185,6 @@ impl TouchView {
                 }
             }
             if let Some(glyph) = glyph {
-                let size = side * 0.5;
                 let alpha = match look {
                     Look::Glass => 0.5 + 0.5 * k,
                     Look::Mat => 0.62 + 0.38 * k,
@@ -190,9 +193,10 @@ impl TouchView {
                 draw_glyph(
                     list,
                     glyph,
+                    texture,
+                    Weight::Regular,
                     [(rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0],
-                    size,
-                    (size * 0.12).max(2.0 * ratio),
+                    side * atlas::CELL_SHARE,
                     [1.0, 1.0, 1.0, alpha],
                 );
             }
@@ -247,83 +251,73 @@ fn spill(list: &mut DrawList, rect: [f32; 4], [r, g, b]: [f32; 3], k: f32) {
     list.quad(q);
 }
 
-/// A stroke from `a` to `b`, `thick`, its ends round.
-fn stroke(list: &mut DrawList, a: [f32; 2], b: [f32; 2], thick: f32, color: [f32; 4]) {
-    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
-    let len = dx.hypot(dy) + thick;
-    let mut q = Quad::plain([-len / 2.0, -thick / 2.0, len / 2.0, thick / 2.0], color);
-    q.transform = Affine::rotate(dy.atan2(dx))
-        .then(Affine::translate((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0));
-    q.shape = Shape {
-        radius: [thick / 2.0; 2],
-        ..Shape::NONE
-    };
-    list.quad(q);
-}
-
-/// A lane's glyph `size` across at `center`: an arrow turned as its
-/// receptor (0 points left, turning clockwise), the pump's center a
-/// square, the onigiri a rice ball, anything else a ring.
+/// A lane's glyph, its cell of the glyphs' atlas (`texture`,
+/// `ddi_ui::touch_controls::glyphs`) drawn `side` across at `center`,
+/// turned as its receptor: one quad, one outline, so a translucent glyph
+/// has no darker joints where strokes would cross.
 pub fn draw_glyph(
     list: &mut DrawList,
     glyph: &Glyph,
+    texture: TextureId,
+    weight: Weight,
     center: [f32; 2],
-    size: f32,
-    thick: f32,
+    side: f32,
     color: [f32; 4],
 ) {
-    let h = size / 2.0;
-    match glyph {
-        Glyph::Arrow { rotation_deg } => {
-            let turn = Affine::rotate(rotation_deg.to_radians())
-                .then(Affine::translate(center[0], center[1]));
-            let p = |x: f32, y: f32| turn.apply([x, y]);
-            // Pointing left: the head's two strokes and the shaft.
-            let tip = p(-h, 0.0);
-            stroke(list, tip, p(-h * 0.1, -h * 0.85), thick, color);
-            stroke(list, tip, p(-h * 0.1, h * 0.85), thick, color);
-            stroke(list, tip, p(h, 0.0), thick, color);
-        }
-        Glyph::Center => {
-            let r = [center[0] - h * 0.8, center[1] - h * 0.8, center[0] + h * 0.8, center[1] + h * 0.8];
-            outline(list, r, h * 0.2, thick, color);
-        }
-        Glyph::Onigiri => {
-            // A rounded triangle, its band of nori at the bottom.
-            let top = [center[0], center[1] - h * 0.9];
-            let left = [center[0] - h * 0.95, center[1] + h * 0.7];
-            let right = [center[0] + h * 0.95, center[1] + h * 0.7];
-            stroke(list, top, left, thick, color);
-            stroke(list, left, right, thick, color);
-            stroke(list, right, top, thick, color);
-            let mut nori = Quad::plain(
-                [center[0] - h * 0.3, center[1] + h * 0.15, center[0] + h * 0.3, center[1] + h * 0.7],
-                color,
-            );
-            nori.shape = Shape {
-                radius: [thick * 0.4; 2],
-                ..Shape::NONE
-            };
-            list.quad(nori);
-        }
-        _ => {
-            let r = [center[0] - h * 0.7, center[1] - h * 0.7, center[0] + h * 0.7, center[1] + h * 0.7];
-            outline(list, r, h * 0.7, thick, color);
-        }
+    let (uv, turn) = atlas::cell(glyph, weight);
+    let h = side / 2.0;
+    let mut q = Quad::plain([-h, -h, h, h], color);
+    q.texture = Some(texture);
+    q.uv = uv;
+    q.transform = Affine::rotate(turn.to_radians()).then(Affine::translate(center[0], center[1]));
+    list.quad(q);
+}
+
+/// The glyphs' atlas in `painter` (put in, made once a process, where it
+/// is not loaded): its texture, for [`TouchView::draw`].
+pub fn glyph_texture(painter: &mut Painter, device: &wgpu::Device, queue: &wgpu::Queue) -> TextureId {
+    let id = painter.texture(atlas_key());
+    if !painter.texture_ready(id) {
+        painter.insert_rgba(device, queue, id, atlas::SIZE, atlas::atlas());
     }
+    id
+}
+
+fn atlas_key() -> TextureKey {
+    TextureKey {
+        source: atlas::SOURCE.into(),
+        max_side: 0,
+        blurred: false,
+    }
+}
+
+/// A painter's texture `requests` with the glyphs' atlas answered (put
+/// in `painter`, the prompt's diagram draws it): the rest, for the
+/// shell to load. Both shells' menus' painters go through it.
+pub fn serve(
+    painter: &mut Painter,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    requests: Vec<(TextureId, TextureKey)>,
+) -> Vec<(TextureId, TextureKey)> {
+    requests
+        .into_iter()
+        .filter(|(id, key)| {
+            if &*key.source != atlas::SOURCE || key.blurred {
+                return true;
+            }
+            painter.insert_rgba(device, queue, *id, atlas::SIZE, atlas::atlas());
+            false
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use ddi_chart::layout::Layout;
-    use ddi_ui::touch_controls::{Choice, Screen, plan};
-
-    fn single() -> (Controls, Vec<Glyph>) {
-        let l = Layout::builtin("dance-single").unwrap();
-        let c = plan(&l, Screen::new([390.0, 844.0], [0.0; 4]), Choice::default()).unwrap();
-        (c, l.lanes.iter().map(|l| l.glyph.clone()).collect())
-    }
+    use ddi_render::draw2d::Command;
+    use ddi_ui::touch_controls::{Choice, Screen, Style, plan};
 
     #[test]
     fn a_press_lights_its_lane_and_fades_after_the_release() {
@@ -351,15 +345,73 @@ mod tests {
     }
 
     #[test]
-    fn every_look_draws_each_target_with_its_glyph() {
-        let (c, glyphs) = single();
-        for look in [Look::Glass, Look::Mat, Look::Glyphs] {
+    fn every_look_draws_each_target_with_its_glyph_as_one_quad() {
+        const ATLAS: TextureId = TextureId(7);
+        for id in ["dance-single", "danoni-5", "pump-single", "dance-solo", "danoni-9A"] {
+            let l = Layout::builtin(id).unwrap();
+            let glyphs: Vec<Glyph> = l.lanes.iter().map(|l| l.glyph.clone()).collect();
+            for style in [Style::Buttons, Style::Pad] {
+                let choice = Choice { style, ..Choice::default() };
+                let c = plan(&l, Screen::new([390.0, 844.0], [0.0; 4]), choice).unwrap();
+                for look in [Look::Glass, Look::Mat, Look::Glyphs] {
+                    let mut list = DrawList::new();
+                    let mut v = TouchView::default();
+                    let held: Vec<bool> = (0..glyphs.len()).map(|i| i == 0).collect();
+                    v.draw(&mut list, &c, &glyphs, ATLAS, &held, 0.0, 3.0, false, look);
+                    // Each lane's target: exactly one quad of the atlas,
+                    // centered on it, nothing else of its glyph.
+                    let quads: Vec<&Quad> = list
+                        .commands
+                        .iter()
+                        .filter_map(|c| match c {
+                            Command::Quad(q) if q.texture == Some(ATLAS) => Some(q),
+                            _ => None,
+                        })
+                        .collect();
+                    let lanes: Vec<&Target> = c.targets.iter().filter(|t| t.lane.is_some()).collect();
+                    assert_eq!(quads.len(), lanes.len(), "{id} {style:?} {look:?}");
+                    for (q, t) in quads.iter().zip(&lanes) {
+                        let [x, y] = t.center();
+                        let at = q.transform.apply([0.0, 0.0]);
+                        assert!((at[0] - x * 3.0).abs() < 0.01 && (at[1] - y * 3.0).abs() < 0.01);
+                        let (uv, _) = atlas::cell(&glyphs[t.lane.unwrap()], Weight::Regular);
+                        assert_eq!(q.uv, uv);
+                    }
+                    // Nothing but the atlas is a glyph now: every other
+                    // quad is a plate, an outline or the mat's spill.
+                    assert!(list.commands.iter().all(|c| match c {
+                        Command::Quad(q) => q.texture.is_none() || q.texture == Some(ATLAS),
+                        _ => true,
+                    }));
+                    assert_eq!(Look::from_name(look.name()), Some(look));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_glyph_is_one_quad_turned_as_its_receptor() {
+        for glyph in [
+            Glyph::Arrow { rotation_deg: 0.0 },
+            Glyph::Arrow { rotation_deg: 45.0 },
+            Glyph::Center,
+            Glyph::Onigiri,
+            Glyph::Giko,
+        ] {
             let mut list = DrawList::new();
-            let mut v = TouchView::default();
-            v.draw(&mut list, &c, &glyphs, &[true, false, false, false], 0.0, 3.0, false, look);
-            // A plate or an outline each, and an arrow's three strokes.
-            assert!(list.commands.len() >= c.targets.len() * 4, "{look:?}");
-            assert_eq!(Look::from_name(look.name()), Some(look));
+            draw_glyph(&mut list, &glyph, TextureId(1), Weight::Regular, [50.0, 60.0], 20.0, [1.0; 4]);
+            assert_eq!(list.commands.len(), 1, "{glyph:?}");
+            let Command::Quad(q) = &list.commands[0] else { panic!() };
+            assert_eq!(q.rect, [-10.0, -10.0, 10.0, 10.0]);
+            // The cell's top (the arrow's tip) goes where its receptor points.
+            let tip = q.transform.apply([0.0, -10.0]);
+            if let Glyph::Arrow { rotation_deg } = glyph {
+                let a = rotation_deg.to_radians();
+                let want = [50.0 - 10.0 * a.cos(), 60.0 - 10.0 * a.sin()];
+                assert!((tip[0] - want[0]).abs() < 1e-3 && (tip[1] - want[1]).abs() < 1e-3, "{glyph:?} {tip:?}");
+            } else {
+                assert!((tip[0] - 50.0).abs() < 1e-4 && (tip[1] - 50.0).abs() < 1e-4);
+            }
         }
     }
 }

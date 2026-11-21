@@ -710,6 +710,12 @@ impl Painter {
         self.textures.id(key)
     }
 
+    /// Whether texture `id` is loaded (one a shell makes itself, as the
+    /// touch controls' glyphs, is put in again when it is not).
+    pub fn texture_ready(&self, id: TextureId) -> bool {
+        self.textures.state(id) == Some(crate::texture_cache::TextureState::Ready)
+    }
+
     /// [`Painter::texture`], and the texture asked of the platform now
     /// if it is not loaded, as a draw would: what a shell loads ahead of
     /// the screens that draw it.

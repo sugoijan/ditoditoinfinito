@@ -207,7 +207,11 @@ pub(super) fn draw(
         for (i, cap) in caps.iter().enumerate().skip(start).take(count) {
             let x = left + (i - start) as f32 * cell + cell / 2.0;
             if let Some(plan) = &touch {
-                let mut cut = touch_cut(plan, i, (cell - 10.0).min(48.0));
+                let size = (cell - 10.0).min(48.0);
+                // The glyphs' atlas (`touch_controls::glyphs`), large
+                // enough for a cut's tiles at the screen's scale.
+                let glyphs = cx.texture(crate::touch_controls::glyphs::SOURCE, 256.0);
+                let mut cut = touch_cut(plan, &controls.layout, i, size, glyphs);
                 cut.name = format!("TouchCut{i}");
                 call(&mut cut, "xy", &[x, y + cell + 18.0]);
                 actors.push(cut);
@@ -259,11 +263,19 @@ pub(super) fn draw(
     )
 }
 
-/// Lane `lane`'s touch control in `plan`, cut out of the controls: its
-/// pad whole, or its group of buttons with a line for the screen's
-/// bottom edge under it, at the side it is on; the lane's own target lit.
-/// About `size` wide, around its middle.
-pub fn touch_cut(plan: &crate::touch_controls::Controls, lane: usize, size: f32) -> ddi_actor::Actor {
+/// Lane `lane`'s touch control in `plan` (of `layout`), cut out of the
+/// controls: its pad whole, or its group of buttons with a line for the
+/// screen's bottom edge under it, at the side it is on; the lane's own
+/// target lit; each lane's target with its glyph as the play draws it,
+/// the rain's outline (`touch_controls::glyphs`, the actor texture
+/// `glyphs` of its atlas). About `size` wide, around its middle.
+pub fn touch_cut(
+    plan: &crate::touch_controls::Controls,
+    layout: &Layout,
+    lane: usize,
+    size: f32,
+    glyphs: u32,
+) -> ddi_actor::Actor {
     use crate::look::{call, quad};
     use crate::touch_controls::Kind;
     let own: Vec<&crate::touch_controls::Target> =
@@ -313,8 +325,21 @@ pub fn touch_cut(plan: &crate::touch_controls::Controls, lane: usize, size: f32)
         };
         let mut q = quad("", [w * k, h * k], color);
         call(&mut q, "cornerradius", &[(w.min(h) * k * 0.18).max(1.0)]);
-        call(&mut q, "xy", &[(x - mid[0]) * k + shift, (y - mid[1]) * k]);
+        let at = [(x - mid[0]) * k + shift, (y - mid[1]) * k];
+        call(&mut q, "xy", &at);
         parts.push(q);
+        if let Some(glyph) = t.lane.and_then(|l| crate::touch_controls::glyph(layout, l)) {
+            // Dark on the lit target, light on the others.
+            let ink = if lit {
+                [0.06, 0.05, 0.12, 0.9]
+            } else {
+                [1.0, 1.0, 1.0, 0.85]
+            };
+            let side = w.min(h) * k * GLYPH_SHARE;
+            let mut g = glyph_sprite(glyph, glyphs, side, ink);
+            call(&mut g, "xy", &at);
+            parts.push(g);
+        }
     }
     if !pad {
         // The screen's corner the buttons sit in: its bottom edge under
@@ -335,6 +360,32 @@ pub fn touch_cut(plan: &crate::touch_controls::Controls, lane: usize, size: f32)
     }
     let mut a = super::frame("TouchCut", parts);
     a.decoration = true;
+    a
+}
+
+/// How much of a cut's target its glyph's cell takes (more than the
+/// play's, `glyphs::CELL_SHARE`: the cut is small).
+const GLYPH_SHARE: f32 = 0.8;
+
+/// A glyph of the touch controls' atlas (actor texture `texture`), its
+/// cell `side` across, turned as its receptor, tinted `color`.
+fn glyph_sprite(
+    glyph: &ddi_chart::layout::Glyph,
+    texture: u32,
+    side: f32,
+    color: [f32; 4],
+) -> ddi_actor::Actor {
+    use crate::look::{call, named};
+    use crate::touch_controls::glyphs::{Weight, cell};
+    use ddi_actor::{Kind, Sprite, State};
+    let (rect, turn) = cell(glyph, Weight::Bold);
+    let mut sprite = Sprite::new(texture, vec![State { rect, delay: 1.0 }], [side; 2]);
+    sprite.shape.hide_unloaded = true;
+    let mut a = named(Kind::Sprite(sprite), "");
+    call(&mut a, "diffuse", &color);
+    if turn != 0.0 {
+        call(&mut a, "rotationz", &[turn]);
+    }
     a
 }
 
@@ -368,19 +419,32 @@ mod tests {
         use crate::touch_controls::{Choice, Screen, Style, plan};
         let layout = Layout::builtin("dance-single").unwrap();
         let screen = Screen::new([390.0, 844.0], [0.0; 4]);
+        // Its parts: (plates, glyphs, edges).
         let parts = |style, lane| {
             let c = plan(&layout, screen, Choice { style, ..Choice::default() }).unwrap();
-            let cut = touch_cut(&c, lane, 48.0);
+            let cut = touch_cut(&c, &layout, lane, 48.0, 9);
             let ddi_actor::Kind::Frame(children) = &cut.kind else {
                 panic!("a frame");
             };
             assert!(cut.decoration);
-            children.len()
+            let glyphs: Vec<&ddi_actor::Sprite> = children
+                .iter()
+                .filter_map(|a| match &a.kind {
+                    ddi_actor::Kind::Sprite(s) if s.texture == 9 => Some(s),
+                    _ => None,
+                })
+                .collect();
+            // Each glyph the atlas's bold cell, one sprite.
+            for g in &glyphs {
+                assert!(g.shape.hide_unloaded);
+            }
+            (children.len() - glyphs.len(), glyphs.len())
         };
-        // The left group's two buttons and the screen's corner.
-        assert_eq!(parts(Style::Buttons, 0), 4);
-        // The whole pad.
-        assert_eq!(parts(Style::Pad, 2), 9);
+        // The left group's two buttons and the screen's corner; the two
+        // buttons' glyphs.
+        assert_eq!(parts(Style::Buttons, 0), (4, 2));
+        // The whole pad, its four lanes' tiles with their glyphs.
+        assert_eq!(parts(Style::Pad, 2), (9, 4));
     }
 
     #[test]

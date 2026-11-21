@@ -642,9 +642,11 @@ pub(crate) fn prepare_textures(gfx: &Gfx) {
             });
             copied.push(image);
         }
-        // The prompt's generated still is drawn, not read.
+        // The prompt's generated still is drawn, not read, and so is the
+        // touch controls' glyphs' atlas (the prompt's diagram).
         let requests = p.take_texture_requests();
         let requests = crate::generated::serve_stills(p, gfx, requests);
+        let requests = ddi_shell::touch_controls::serve(p, &gfx.device, &gfx.queue, requests);
         (copied, requests, limit)
     });
     let Some((copied, requests, limit)) = copied else {

@@ -245,6 +245,9 @@ impl Gpu {
         let requests = self
             .stills
             .serve(&mut self.painter, &self.device, &self.queue, requests);
+        // The touch controls' glyphs (the prompt's diagram) are made, not read.
+        let requests =
+            ddi_shell::touch_controls::serve(&mut self.painter, &self.device, &self.queue, requests);
         for (id, key) in requests {
             let side = match key.max_side {
                 0 => limit,
