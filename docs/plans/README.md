@@ -617,7 +617,11 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   showing each receptor's control, both shells (desktop's untried on a
   real touch screen); the old full-height columns kept as a legacy
   choice. Three looks to choose from; Buttons by default changes what
-  every touch player has.
+  every touch player has. Round TC2 (2026-11-21): the glyphs are the
+  start menu's rain outlines, one shape each (the prompt's diagram
+  too); on an upright screen the dancing hand stands clear of the
+  controls, the judgment and the combo; nothing of the page is
+  selected during a play.
 - [Controller input in the UI core](controller-input-core.md) (2026-10-30):
   done. The `Ui` owns the bindings, the connected pads and the hint
   source, takes pads' edges as they are and releases what each held

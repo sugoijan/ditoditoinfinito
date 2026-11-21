@@ -553,12 +553,20 @@ Rust and the browser are implementation details, not advertised features.
   `ddi_dance_mat::MatLayout`, two for the doubles, or the legacy Columns;
   `Settings::touch_hand`, the odd layouts' extra button's side) and finds
   a finger's lane (`Controls::lane_at`: a slide changes lane only
-  `DEAD_BAND` inside the next target); `ddi_shell::touch_controls` draws
+  `DEAD_BAND` inside the next target); their glyphs are the start
+  menu's rain outlines, one quad of an atlas the game rasterizes a
+  target, turned as its receptor (`touch_controls::glyphs`: the rain's
+  arrow, onigiri, a round-cornered square for pump's center, a ring
+  else; source `ddi:touch-glyphs`, answered by
+  `ddi_shell::touch_controls::serve` in both shells' menu painters);
+  `ddi_shell::touch_controls` draws
   them over the unchanged field while touch is the source (the look
   still open: `touchlook=` on the web, `DDI_TOUCH_LOOK` on desktop,
   TESTING ONLY); the shells press lanes through them (the web's
-  `web::touch`, desktop's `Shell::touch_lane`); the prompt's diagram shows
-  each receptor's control cut out under it (`prompt_controls::touch_cut`). Overrides
+  `web::touch`, desktop's `Shell::touch_lane`; while a web play is on
+  nothing of the page is selectable, `web::touch::NoSelection`); the
+  prompt's diagram shows each receptor's control cut out under it, with
+  its glyphs (`prompt_controls::touch_cut`). Overrides
   live separately in `Settings::controller_styles`; raw controls stay numbered
   even under a family override. New Dance Single defaults are LB/LT/RT/RB,
   then D-pad/face alternatives; existing saved/cleared tables are preserved
@@ -1049,7 +1057,11 @@ Rust and the browser are implementation details, not advertised features.
   field during a stage, whole as a solo play shows it, its arm's end
   included, with no fade and no cut, in the band past the receptors'
   row and behind the judgment and the notes, `play_view::behind_field`,
-  `dance::behind_field_distance`), drawn by the play's own noteskin
+  `dance::behind_field_distance`, ending above the touch controls on an
+  upright screen; in a solo play on a screen taller than wide the hand
+  takes the band clear of the receptors, the judgment, the combo and the
+  touch controls, `play_view::upright_band`, `dance::UPRIGHT_ZOOM`),
+  drawn by the play's own noteskin
   after its field on a band as its field's (`ddi_render::scene::Miniature`,
   `NoteLayer::miniature`: no Lua run, the play's field's state put back;
   a large field's miniatures under `opponents::CARRY_SKIN_NOTES` draw

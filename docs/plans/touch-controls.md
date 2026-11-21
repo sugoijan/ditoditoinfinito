@@ -1,6 +1,8 @@
 # Touch controls (2026-11-20)
 
-Status: built (round touch-1, 2026-11-20): the buttons and the pad drawn
+Status: built (round touch-1, 2026-11-20; round TC2, 2026-11-21: the
+rain's outlines as the glyphs, the hand on an upright screen, no
+selection during a play): the buttons and the pad drawn
 over the play, presses and slides on both shells, the option in Options
 and on the prompt, the prompt's diagram, touch as an input source. Open:
 the look (three candidates, below), the default (Buttons: a change for
@@ -93,8 +95,8 @@ notes, and nothing was drawn. Desktop had no touch play at all.
 - **Drawn** (`ddi_shell::touch_controls::TouchView`): by the play's 2D
   pass under everything else of it, over the unchanged field, each
   target a translucent plate with the lane's glyph turned as its
-  receptor (built-in shapes: an arrow, pump's center a square, the
-  onigiri, a ring), lit while held. The quit button and the volume move
+  receptor (since round TC2 the start menu's rain outlines, one shape
+  each, below), lit while held. The quit button and the volume move
   above the left group while the controls show, and a stage's
   opponents' fields keep clear of them. Nothing is drawn under the legacy
   columns.
@@ -124,6 +126,82 @@ notes, and nothing was drawn. Desktop had no touch play at all.
   the UI's source, a key or a pad hides them. TESTING ONLY:
   `DDI_TOUCH_LOOK`. Checked offscreen (`tests/play_pointer.rs`); no touch
   screen was available.
+
+## Round TC2 (2026-11-21): the glyphs, the hand upright, no selection
+
+What the maintainer said after trying the controls on a phone: "None of
+the 3 look great nor terrible, any should be fine. Some bad points that
+stand out are: the arrow strokes overlap, maybe we can use the same
+outline shape as the arrow rain background effect, on the control
+preview it would be good to see the same shape as well. Also, the
+dancing hand is too small when the screen is vertical, maybe we can move
+it up a little (when the screen is vertical), so it doesn't get hidden
+behind the touch controls." And, later the same day, on iPhone Safari:
+"sometimes touching the controls it looks like it 'selected' the canvas.
+Can we disable that behavior?" Nothing else of the mobile play was to
+change; the look stays Mat.
+
+- **The glyphs are the rain's outlines** (`ddi_ui::touch_controls::glyphs`):
+  the arrow and onigiri contours of `assets/ui/menu-rain.svg`, copied
+  as path data (a test holds them to the SVG), stroked at the rain's
+  heaviest weight (4.07 units of a 64-unit cell; a heavier 7 for the
+  prompt's small cut) into an atlas the game rasterizes itself (white,
+  coverage as alpha, each pixel's from its distance to the contour), and
+  drawn as one textured quad a target, turned as its receptor. A
+  translucent glyph is one shape: no two quads of it overlap, so no
+  darker joints at any opacity
+  (`every_look_draws_each_target_with_its_glyph_as_one_quad`). The
+  atlas is no file: the play's 2D pass puts it in its painter
+  (`ddi_shell::touch_controls::glyph_texture`), and both shells' menu
+  painters answer its source, `ddi:touch-glyphs`, from the same bytes
+  (`ddi_shell::touch_controls::serve`).
+  What each layout's lanes draw: every arrow lane the rain's arrow; the
+  diagonals (Solo's up-left and up-right, Pump's four corners, Techno's
+  four) the same arrow turned 45°; Pump's center a square with the
+  arrow's round corners (radius 8.75 units), in the same outline;
+  Dancing☆Onigiri's onigiri (5, 7, 9A, 9B keys) the rain's onigiri; any
+  other glyph a song's layout names (giko, iyo, a custom one) a ring.
+- **The prompt's diagram shows them too**: each target of the cut
+  carries its lane's glyph (the heavier weight), dark on the lit target,
+  light on the others.
+- **The hand on an upright screen** (`ddi_shell::play_view::upright_band`,
+  `dance::Preview::set_upright`): on a screen taller than wide, a solo
+  play's hand keeps its frame's place across (the settings' Hand frame)
+  and takes, down the screen, the lowest band at least three quarters as
+  tall as the tallest of those clear of the receptors' row, of the
+  judgment down to the combo's foot, and of the touch controls while
+  they show: under the combo, its mat 8 px above the Buttons (at the
+  screen's foot with no controls showing); above a pad, which leaves too
+  little under the combo, the band between the receptors and the
+  judgment. In it the hand is whole and as large as the band allows, up
+  to twice its frame's width (`UPRIGHT_ZOOM`, as behind the field).
+  Two candidates were drawn: "moved up only" (never larger than before)
+  and this one, built. Its size against before: on a phone at 390×844,
+  1.11 times above the Buttons or between the receptors and the
+  judgment above the pad, 1.62 times with no controls showing; on a
+  tablet at 820×1180, 0.79 times above the Buttons and 0.71 above the
+  pad (it stood behind them before, larger; the band under the combo
+  is lower there), 1.07 times with none. "Moved up only" is the same
+  but never above 1. A room's stage keeps the hand behind the field,
+  its band now ending above the controls (`play_view::behind_field`'s
+  `floor`). Sideways, and windows wider than tall: unchanged. Placement
+  only: nothing of the hand's planning, pose, contacts or timing
+  changed.
+- **No selection during a play** (`web::touch::NoSelection`, the web
+  shell): while a play is on, the page's root is unselectable and
+  without the long-press callout (set on the element by the shell; the
+  stylesheet is the first round trip's), `selectstart` is refused, a
+  selection that comes anyway is cleared (`selectionchange`), and a
+  finger's `touchstart` on the play's host is default-prevented (no long
+  press, double tap or magnifier; the pointer events the lanes read
+  still come). Gone when the play ends: the prompt's Start, the results
+  and the menus' text fields are as before. `__DDI_DEBUG.touchSelection`
+  counts what it refused. Before it, the one selectable text of the page
+  during a play was the search engines' hidden title and description
+  (`.sr-only`) beside the canvas: a selection of the page landed there,
+  which is where an iPhone's long press or double tap could start one.
+  The real check is the maintainer's phone: a long press on a button, a
+  double tap on a button, two fingers close on one button.
 
 ## The look: three candidates (open)
 
@@ -207,7 +285,7 @@ groups, `opponents::arrange_up_to`'s keep-outs).
 
 ## Later
 
-- The skin's own receptor art on the targets (the built-in shapes are
+- The skin's own receptor art on the targets (the rain's outlines are
   drawn now): the noteskin draws receptors through its Lua on the field
   only; drawing it at the targets would go through the miniatures' way of
   drawing the skin elsewhere (`ddi_render::scene::Miniature`).
