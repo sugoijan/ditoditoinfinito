@@ -2441,11 +2441,12 @@ room-rules-choice-group = Group
 room-rules-choice-host-about = The host picks each song from the room's song list.
 room-rules-choice-group-about = Each player chooses a song from the room's list. A host's or co-host's own choice starts a 10-second draw that picks one player's choice.
 # The row under it while Song choice is Group (about 20 letters): whether
-# a song may be chosen again, and its three values.
+# a song may be chosen again, and its three values (about 12 letters each:
+# they sit between the row's two buttons).
 room-rules-repeats = Repeats
 room-rules-repeats-allowed = Allowed
 room-rules-repeats-not-in-a-row = Not in a row
-room-rules-repeats-not-in-a-match = Not in a match
+room-rules-repeats-not-in-a-match = Once a match
 # A line under the Repeats row.
 room-rules-repeats-about = If the rule would leave no song to choose, any song may be chosen.
 # A change of Song choice from a later stage, in the list of what changes.
@@ -2550,7 +2551,7 @@ room-refused-cannot-choose = { $why ->
 #   $rule (String) - "not_in_a_row" or "not_in_a_match"
 room-refused-repeated = { $rule ->
     [not_in_a_row] That song was just played: Repeats is Not in a row.
-   *[not_in_a_match] That song was played in this match: Repeats is Not in a match.
+   *[not_in_a_match] That song was played in this match: Repeats is Once a match.
 }
 room-refused-group-chooses = The players choose this song: the draw picks it.
 # The players panel's word for someone who has chosen a song.

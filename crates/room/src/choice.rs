@@ -8,7 +8,7 @@
 //! a choice of their own standing while the room could pick: that opens
 //! the draw's countdown ([`Draw`], [`DRAW_V0`]). It ends early once every
 //! player who may choose has chosen (never before [`DrawRules::least_ms`]);
-//! it is cancelled once every choice has gone. At its end the authority
+//! it is canceled once every choice has gone. At its end the authority
 //! draws one member's choice at random ([`crate::Command::Draw`], the
 //! roll a number only it makes, at that moment): each choosing member one
 //! entry, so a song two members chose has two chances. The drawn song is
