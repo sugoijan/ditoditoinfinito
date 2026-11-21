@@ -1352,7 +1352,8 @@ impl Bot {
             self.say("nothing of the room's songs to choose");
             return;
         };
-        match room.borrow_mut().choose(song, &chart) {
+        let chosen = room.borrow_mut().choose(song, &chart);
+        match chosen {
             Ok(()) => self.say(format!("chose {title}")),
             Err(why) => {
                 self.say(format!("choosing {title} refused: {why:?}"));
@@ -2108,7 +2109,8 @@ impl Bot {
         if last {
             room.borrow_mut().toggle_last_song();
         }
-        match room.borrow_mut().pick(&song, &chart) {
+        let picked = room.borrow_mut().pick(&song, &chart);
+        match picked {
             Ok(()) => {
                 let as_last = if last { " as the last song" } else { "" };
                 say(format!("picked {} for stage {number}{as_last}", song.title));
@@ -2185,7 +2187,8 @@ impl Bot {
                 Some(e) => e,
                 None => {
                     if room.borrow().may_add() {
-                        match room.borrow_mut().add_song(&song) {
+                        let added = room.borrow_mut().add_song(&song);
+                        match added {
                             Ok(()) => say(format!("added {} to the room's songs", song.title)),
                             Err(why) => {
                                 say(format!("adding {} refused: {why:?}", song.title));
@@ -2256,7 +2259,9 @@ impl Bot {
             if room.borrow().my_choice().is_some() {
                 return;
             }
-            match room.borrow_mut().choose(entry.id, &chart.chart) {
+            // The borrow ends before the refusal is cleared.
+            let chosen = room.borrow_mut().choose(entry.id, &chart.chart);
+            match chosen {
                 Ok(()) => {
                     say(format!(
                         "chose {} for stage {number}: the draw starts",
@@ -2275,7 +2280,8 @@ impl Bot {
             }
             return;
         }
-        match room.borrow_mut().pick_listed(entry.id, &chart.chart) {
+        let picked = room.borrow_mut().pick_listed(entry.id, &chart.chart);
+        match picked {
             Ok(()) => {
                 let as_last = if last { " as the last song" } else { "" };
                 say(format!(
