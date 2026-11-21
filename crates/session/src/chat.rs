@@ -87,7 +87,7 @@ impl LiveWant {
     /// token or a session).
     pub fn describe(&self) -> String {
         let whose = match (&self.room, self.named) {
-            (_, true) => "named by the development flag (administrators only)",
+            (_, true) => "named by the development flag, administrators only",
             (Some(_), false) => "the room's",
             (None, false) => "your own",
         };
@@ -321,6 +321,12 @@ struct LiveChat {
     want: LiveWant,
     machine: Live,
     sets: ChannelSets,
+    /// The sets are read once the channel's id is known (a named
+    /// channel's, round TW7: from our server's answer).
+    sets_ready: bool,
+    emotes_from: EmotesFrom,
+    api: String,
+    at: Option<String>,
     sets_seen: u64,
     sets_told: bool,
     io: Box<dyn LiveIo>,
@@ -336,6 +342,10 @@ impl LiveChat {
         Some(LiveChat {
             machine: Live::new(LIVE_CHAT_V0, setup.url.clone()),
             sets: ChannelSets::new(&want.channel_id, from, Some(setup.api.clone()), setup.at.clone()),
+            sets_ready: !want.channel_id.is_empty(),
+            emotes_from: from,
+            api: setup.api.clone(),
+            at: setup.at.clone(),
             want,
             sets_seen: 0,
             sets_told: false,
@@ -540,8 +550,10 @@ impl ChatLayer {
             if !l.started {
                 l.started = true;
                 l.machine.start(ms);
-                for r in l.sets.start() {
-                    l.io.read_set(r.key, &r.url, r.via);
+                if l.sets_ready {
+                    for r in l.sets.start() {
+                        l.io.read_set(r.key, &r.url, r.via);
+                    }
                 }
             }
             for input in l.io.poll() {
@@ -559,6 +571,18 @@ impl ChatLayer {
                 }
             }
             l.machine.tick(ms);
+            // A named channel's id, once our server found it: its sets
+            // read from now on (round TW7).
+            if !l.sets_ready
+                && let Some(c) = l.machine.channel()
+            {
+                l.want.channel_id = c.id.clone();
+                l.sets = ChannelSets::new(&c.id, l.emotes_from, Some(l.api.clone()), l.at.clone());
+                l.sets_ready = true;
+                for r in l.sets.start() {
+                    l.io.read_set(r.key, &r.url, r.via);
+                }
+            }
             l.flush(messages);
             for e in l.machine.take_events() {
                 self.events.push_back((self.next, now, e));
@@ -569,7 +593,7 @@ impl ChatLayer {
                 self.sets = l.sets.sets();
                 self.sets_version += 1;
             }
-            if !l.sets_told && l.sets.done() {
+            if l.sets_ready && !l.sets_told && l.sets.done() {
                 l.sets_told = true;
                 for line in l.sets.lines() {
                     l.io.report(&line);
@@ -706,8 +730,14 @@ pub(crate) mod tests {
         fn subscribe(&mut self, socket: u32, session_id: &str, want: &LiveWant, messages: bool) {
             let mut s = self.0.borrow_mut();
             s.subscribed.push((socket, session_id.to_string(), want.clone(), messages));
-            let body = r#"{"subscriptions":[{"type":"channel.chat.message","outcome":"enabled","http":202,"cost":0,"total":1,"total_cost":0,"max_total_cost":10}]}"#;
-            s.queue.push(LiveInput::Subscribed(socket, ddi_chat::live::read_subscribe_answer(200, body)));
+            let subs = r#"[{"type":"channel.chat.message","outcome":"enabled","http":202,"cost":0,"total":1,"total_cost":0,"max_total_cost":10}]"#;
+            // A named channel's found as our server finds it (round TW7).
+            let body = if want.named {
+                format!(r#"{{"channel":"{}","channel_id":"id-{}","subscriptions":{subs}}}"#, want.login, want.login)
+            } else {
+                format!(r#"{{"subscriptions":{subs}}}"#)
+            };
+            s.queue.push(LiveInput::Subscribed(socket, ddi_chat::live::read_subscribe_answer(200, &body)));
             s.live = Some(socket);
         }
         fn read_set(&mut self, key: usize, url: &str, via: Via) {
@@ -851,6 +881,26 @@ pub(crate) mod tests {
         assert_eq!(online.level, Level::Emotes);
         let ChatSource::Live(want) = &online.source else { panic!() };
         assert_eq!((want.named, &*want.login, want.room.as_deref()), (true, "busy", None));
+        // Its emote sets wait for the channel's id, which our server's
+        // answer gives; the report names the channel.
+        let state = fake_live();
+        let mut layer = ChatLayer::new(practice);
+        layer.advance(1.0);
+        assert!(state.borrow().reads.is_empty(), "no set read before the id is known");
+        layer.advance(1.1);
+        layer.advance(1.2);
+        {
+            let st = state.borrow();
+            assert_eq!(st.subscribed[0].2.login, "busy");
+            assert!(st.reads.iter().any(|u| u.contains("id-busy")), "{:?}", st.reads);
+            assert_eq!(
+                st.lines[0],
+                "channel busy (named by the development flag, administrators only), route /me/chat/subscribe"
+            );
+            assert!(st.lines.iter().any(|l| l.ends_with("channel busy is Twitch user id-busy")));
+        }
+        assert_eq!(layer.live_report().unwrap()["named"], true);
+        drop(layer);
         ddi_ui::state::twitch::set_dev_live(None);
         set_live(None);
     }

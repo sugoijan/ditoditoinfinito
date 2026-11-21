@@ -461,7 +461,7 @@ pub fn run() {
         }
         ddi_ui::state::room::set_development(d);
     }
-    // TESTING ONLY (round TW2): `--mp-dev-chat FILE|NAME`, a scripted
+    // TESTING ONLY (round TW2): `--mp-dev-chat FILE|NAME|live|live:LOGIN`, a scripted
     // chat beside every play, as the web's `mpfakechat` (`crate::chat`,
     // `ddi_chat::script`): a script's file, or a built-in one (`demo`,
     // `emotes`, `flood`) or a rate; the room's ceiling is its own line.
@@ -508,6 +508,23 @@ pub fn run() {
             }
             Err(e) => eprintln!("{p} live chat: {e}"),
         }
+    } else if let Some(login) = a.value("--mp-dev-chat").and_then(|v| v.strip_prefix("live:")) {
+        // TESTING ONLY (round TW7): the live chat's development script
+        // with another channel named, for the maintainer to test with a
+        // busy channel: that channel's live chat in solo plays and CPU
+        // practice's stages, and in an online room's stage in the room's
+        // channel's place on this device alone (never what the room's
+        // other members see). Our server reads it with the signed-in
+        // person's own Twitch access, for administrators only.
+        let p = ddi_chat::live::LOG_PREFIX;
+        let Some(login) = ddi_ui::state::twitch::named_login(login) else {
+            eprintln!("--mp-dev-chat live:<login> takes a Twitch login (letters, digits, underscores)");
+            std::process::exit(2);
+        };
+        eprintln!(
+            "{p} live chat: {login}'s channel (the development override; our server allows it for administrators only) in solo plays, CPU practice's stages and an online room's stages on this device; turn on Options → Display → Twitch chat in rooms"
+        );
+        ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Channel { login }));
     } else if a.value("--mp-dev-chat") == Some("global") {
         let from = ddi_ui::state::settings::Settings::load().chat_emotes_from;
         let at = a.value("--mp-dev-chat-at").map(str::to_string);

@@ -168,11 +168,20 @@ impl Subscription {
     }
 }
 
+/// The channel our server read the chat of, as it named it in its answer
+/// (round TW7: a channel named by its login is found by our server).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Channel {
+    pub id: String,
+    pub login: String,
+}
+
 /// Our server's answer to a subscribe.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SubscribeAnswer {
-    /// Twitch answered each type.
-    Subscribed(Vec<Subscription>),
+    /// Twitch answered each type; the channel read, where our server
+    /// named it.
+    Subscribed(Vec<Subscription>, Option<Channel>),
     /// Refused for good (asking again would be refused again): its word
     /// (`signed_out`, `not_a_member`, `chat_off`, `scope_missing`,
     /// `twitch_refused`, `no_twitch`, …).
@@ -201,6 +210,10 @@ pub fn read_subscribe_answer(status: u16, body: &str) -> SubscribeAnswer {
             };
             let text = |s: &Value, k: &str| s.get(k).and_then(Value::as_str).map(str::to_string);
             let int = |s: &Value, k: &str| s.get(k).and_then(Value::as_i64);
+            let channel = match (text(&v, "channel_id"), text(&v, "channel")) {
+                (Some(id), Some(login)) if !id.is_empty() => Some(Channel { id, login }),
+                _ => None,
+            };
             SubscribeAnswer::Subscribed(
                 list.iter()
                     .map(|s| Subscription {
@@ -216,6 +229,7 @@ pub fn read_subscribe_answer(status: u16, body: &str) -> SubscribeAnswer {
                         ms: s.get("ms").and_then(Value::as_u64),
                     })
                     .collect(),
+                channel,
             )
         }
         0 => SubscribeAnswer::Failed("no answer".into()),
@@ -273,7 +287,7 @@ impl Trouble {
             "scope_missing" | "twitch_refused" | "no_twitch" | "signed_out" | "HTTP 401" => {
                 Trouble::Access
             }
-            "no_such_channel" => Trouble::ChannelGone,
+            "no_such_channel" | "bad_channel" => Trouble::ChannelGone,
             "channel_not_allowed" => Trouble::NotAllowed,
             _ => Trouble::Unreachable,
         })
@@ -396,6 +410,7 @@ pub struct Live {
     losses_total: u64,
     sockets: u64,
     trouble: Option<Trouble>,
+    channel: Option<Channel>,
 }
 
 impl Live {
@@ -430,6 +445,7 @@ impl Live {
             losses_total: 0,
             sockets: 0,
             trouble: None,
+            channel: None,
         }
     }
 
@@ -482,6 +498,11 @@ impl Live {
             _ if self.subscribed_ms.is_none() && self.losses_total > 0 => Some(Trouble::Unreachable),
             _ => None,
         }
+    }
+
+    /// The channel our server last said it read (round TW7).
+    pub fn channel(&self) -> Option<&Channel> {
+        self.channel.as_ref()
     }
 
     /// Whether the chat is coming (subscribed, or carried over a
@@ -837,7 +858,13 @@ impl Live {
             _ => return,
         };
         match answer {
-            SubscribeAnswer::Subscribed(list) => {
+            SubscribeAnswer::Subscribed(list, channel) => {
+                if let Some(c) = channel
+                    && self.channel.as_ref() != Some(&c)
+                {
+                    self.line(now, format!("channel {} is Twitch user {}", c.login, c.id));
+                    self.channel = Some(c);
+                }
                 for s in &list {
                     let line = format!(
                         "subscribed {}: {} (HTTP {}, status {}, cost {}, total {}, total cost {} of {}{})",
@@ -1013,6 +1040,7 @@ impl Live {
             "policy": self.policy.name,
             "state": self.state(),
             "why": match &self.phase { Phase::GaveUp(w) => Some(w.clone()), _ => None },
+            "channel": self.channel.as_ref().map(|c| json!({"id": c.id, "login": c.login})),
             "trouble": self.trouble().map(Trouble::word),
             "url_host": host_of(&self.url),
             "sockets": self.sockets,

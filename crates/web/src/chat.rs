@@ -183,6 +183,29 @@ fn live(at: Option<&str>, socket: Option<&str>) {
     });
 }
 
+/// TESTING ONLY (round TW7), `mpfakechat=live:<login>`: the live chat of
+/// the channel `login` names, for the maintainer to test with a busy
+/// channel: in solo plays, CPU practice's stages and, in the room's
+/// channel's place on this device alone, an online room's stages. Our
+/// server reads it with the signed-in person's own Twitch access, for
+/// administrators only.
+fn named(login: &str, at: Option<&str>, socket: Option<&str>) {
+    let p = ddi_chat::live::LOG_PREFIX;
+    ddi_session::chat::set_scripted(None);
+    install_live(socket, at);
+    let line = match ddi_ui::state::twitch::named_login(login) {
+        Some(login) => {
+            let line = format!(
+                "{p} live chat: {login}'s channel (the development override; our server allows it for administrators only) in solo plays, CPU practice's stages and an online room's stages on this device; turn on Options → Display → Twitch chat in rooms"
+            );
+            ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Channel { login }));
+            line
+        }
+        None => format!("{p} mpfakechat=live:<login> takes a Twitch login (letters, digits, underscores)"),
+    };
+    web_sys::console::info_1(&line.into());
+}
+
 /// A live socket: the browser's `WebSocket` and its handlers.
 struct LiveSocket {
     ws: web_sys::WebSocket,
@@ -537,6 +560,10 @@ pub(crate) fn script(what: &str, images: Option<&str>, socket: Option<&str>) {
     }
     if what == "live" {
         live(images, socket);
+        return;
+    }
+    if let Some(login) = what.strip_prefix("live:") {
+        named(login, images, socket);
         return;
     }
     if what == "global" {

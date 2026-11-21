@@ -69,10 +69,13 @@ fn sub(kind: &str, outcome: &str) -> Subscription {
 }
 
 fn enabled() -> SubscribeAnswer {
-    SubscribeAnswer::Subscribed(vec![
-        sub("channel.chat.message", "enabled"),
-        sub("channel.chat.message_delete", "enabled"),
-    ])
+    SubscribeAnswer::Subscribed(
+        vec![
+            sub("channel.chat.message", "enabled"),
+            sub("channel.chat.message_delete", "enabled"),
+        ],
+        None,
+    )
 }
 
 fn opens(d: &[Do]) -> Vec<(u32, String)> {
@@ -386,9 +389,9 @@ fn refusals_and_revocations() {
     for answer in [
         SubscribeAnswer::Refused("scope_missing".into()),
         SubscribeAnswer::Refused("chat_off".into()),
-        SubscribeAnswer::Subscribed(vec![sub("channel.chat.message", "forbidden")]),
-        SubscribeAnswer::Subscribed(vec![sub("channel.chat.message", "limits")]),
-        SubscribeAnswer::Subscribed(vec![sub("channel.chat.clear", "enabled")]),
+        SubscribeAnswer::Subscribed(vec![sub("channel.chat.message", "forbidden")], None),
+        SubscribeAnswer::Subscribed(vec![sub("channel.chat.message", "limits")], None),
+        SubscribeAnswer::Subscribed(vec![sub("channel.chat.clear", "enabled")], None),
     ] {
         let mut l = Live::new(P, "wss://e.test/ws");
         l.start(0);
@@ -406,7 +409,7 @@ fn refusals_and_revocations() {
     l.take_do();
     l.subscribed(
         1,
-        SubscribeAnswer::Subscribed(vec![sub("channel.chat.message", "bad_session")]),
+        SubscribeAnswer::Subscribed(vec![sub("channel.chat.message", "bad_session")], None),
         500,
     );
     assert_eq!(l.state(), "waiting");
@@ -419,10 +422,13 @@ fn refusals_and_revocations() {
     l.take_do();
     l.subscribed(
         1,
-        SubscribeAnswer::Subscribed(vec![
-            sub("channel.chat.message", "enabled"),
-            sub("channel.chat.clear", "forbidden"),
-        ]),
+        SubscribeAnswer::Subscribed(
+            vec![
+                sub("channel.chat.message", "enabled"),
+                sub("channel.chat.clear", "forbidden"),
+            ],
+            None,
+        ),
         500,
     );
     assert_eq!(l.state(), "live");
@@ -453,7 +459,7 @@ fn each_failure_is_one_trouble_for_the_player() {
         l.trouble()
     };
     let refused = |w: &str| after(SubscribeAnswer::Refused(w.into()));
-    let twitch = |o: &str| after(SubscribeAnswer::Subscribed(vec![sub("channel.chat.message", o)]));
+    let twitch = |o: &str| after(SubscribeAnswer::Subscribed(vec![sub("channel.chat.message", o)], None));
     assert_eq!(refused("scope_missing"), Some(Trouble::Access));
     assert_eq!(refused("twitch_refused"), Some(Trouble::Access));
     assert_eq!(refused("no_such_channel"), Some(Trouble::ChannelGone));
@@ -497,6 +503,31 @@ fn each_failure_is_one_trouble_for_the_player() {
     assert_eq!(l.trouble(), None);
 }
 
+/// Round TW7: our server's answer names the channel read (a named one as
+/// Twitch found it): kept, said once in the report.
+#[test]
+fn the_channel_read_is_named_by_the_answer() {
+    let body = r#"{"channel":"busy","channel_id":"141981764","subscriptions":[{"type":"channel.chat.message","outcome":"enabled","http":202}]}"#;
+    let answer = read_subscribe_answer(200, body);
+    let SubscribeAnswer::Subscribed(_, Some(c)) = &answer else {
+        panic!("{answer:?}")
+    };
+    assert_eq!((&*c.id, &*c.login), ("141981764", "busy"));
+    let older = r#"{"channel":"busy","subscriptions":[]}"#;
+    assert!(matches!(read_subscribe_answer(200, older), SubscribeAnswer::Subscribed(_, None)));
+    let mut l = Live::new(P, "wss://e.test/ws");
+    l.start(0);
+    l.take_do();
+    l.text(1, &welcome("s", Some(10)), 0);
+    l.take_do();
+    l.take_lines();
+    l.subscribed(1, answer, 300);
+    assert_eq!(l.channel().map(|c| c.id.as_str()), Some("141981764"));
+    assert_eq!(l.report()["channel"]["login"], "busy");
+    assert!(l.take_lines().iter().any(|t| t.ends_with("channel busy is Twitch user 141981764")));
+    assert_eq!(l.state(), "live");
+}
+
 /// What the readers did not understand is kept as its shape, a few, never
 /// a person's words.
 #[test]
@@ -537,7 +568,7 @@ fn our_servers_answers_are_read() {
          "cost":0,"total":1,"total_cost":0,"max_total_cost":10,"ms":120},
         {"type":"channel.chat.clear","outcome":"forbidden","http":403,
          "error":"subscription missing proper authorization"}]}"#;
-    let SubscribeAnswer::Subscribed(list) = read_subscribe_answer(200, body) else {
+    let SubscribeAnswer::Subscribed(list, _) = read_subscribe_answer(200, body) else {
         panic!()
     };
     assert_eq!(list[0].cost, Some(0));

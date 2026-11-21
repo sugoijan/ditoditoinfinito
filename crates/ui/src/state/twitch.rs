@@ -45,6 +45,14 @@ pub enum DevLive {
     Channel { login: String },
 }
 
+/// TESTING ONLY: the channel a development flag's `live:<login>` names, as
+/// our server takes it (1 to 25 letters, digits or underscores, compared
+/// lowercase); none for anything else.
+pub fn named_login(login: &str) -> Option<String> {
+    ((1..=25).contains(&login.len()) && login.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
+        .then(|| login.to_ascii_lowercase())
+}
+
 /// TESTING ONLY: the live chat's development script from now on (`None`
 /// ends it).
 pub fn set_dev_live(dev: Option<DevLive>) {
@@ -242,6 +250,10 @@ mod tests {
         );
         set_dev_live(None);
         assert_eq!(RoomChat::practice(), None);
+        assert_eq!(named_login("Busy_1").as_deref(), Some("busy_1"));
+        assert_eq!(named_login(""), None);
+        assert_eq!(named_login("a/b"), None);
+        assert_eq!(named_login(&"a".repeat(26)), None);
     }
 
     #[test]
