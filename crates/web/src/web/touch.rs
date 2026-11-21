@@ -99,6 +99,106 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
+/// While a play is on (round TC2: on an iPhone a finger on the touch
+/// controls now and then "selected" the canvas, Safari's long-press or
+/// double-tap selection landing on the page around the game), nothing of
+/// the page may be selected: the page's root unselectable and without
+/// the long-press callout (set on the element, not in the stylesheet,
+/// whose bytes are the first round trip's), a selection's start
+/// refused (`selectstart`), one that came anyway cleared
+/// (`selectionchange`), and a finger's `touchstart` on the play's host
+/// default-prevented (no long press, no double tap, no magnifier; the
+/// pointer events the lanes read still come). Made at the play's start,
+/// gone with it (the prompt's Start, the results and the menus' text
+/// fields are as before). `__DDI_DEBUG.touchSelection` counts what it
+/// refused.
+pub(crate) struct NoSelection {
+    _listeners: Vec<EventListener>,
+}
+
+/// The root's styles a play sets, each restored after it.
+const NO_SELECTION_STYLES: [(&str, &str); 3] = [
+    ("-webkit-user-select", "none"),
+    ("user-select", "none"),
+    ("-webkit-touch-callout", "none"),
+];
+
+thread_local! {
+    /// `[selectstart refused, selections cleared, touchstarts]`.
+    static SELECTION_COUNTS: std::cell::Cell<[u32; 3]> = const { std::cell::Cell::new([0; 3]) };
+}
+
+/// What [`NoSelection`] refused so far: `[selectstart refused,
+/// selections cleared, touchstarts default-prevented]`.
+pub(crate) fn selection_counts() -> [u32; 3] {
+    SELECTION_COUNTS.with(|c| c.get())
+}
+
+fn count_selection(i: usize) {
+    SELECTION_COUNTS.with(|c| {
+        let mut v = c.get();
+        v[i] = v[i].saturating_add(1);
+        c.set(v);
+    });
+}
+
+fn root_style() -> Option<web_sys::CssStyleDeclaration> {
+    let root = web_sys::window()?.document()?.document_element()?;
+    Some(root.dyn_into::<web_sys::HtmlElement>().ok()?.style())
+}
+
+impl NoSelection {
+    /// From now on until dropped, for the play on `host`.
+    pub(crate) fn new(host: &Element) -> NoSelection {
+        if let Some(style) = root_style() {
+            for (name, value) in NO_SELECTION_STYLES {
+                let _ = style.set_property(name, value);
+            }
+        }
+        let opts = EventListenerOptions::enable_prevent_default();
+        let mut listeners = Vec::new();
+        if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+            listeners.push(EventListener::new_with_options(
+                &doc,
+                "selectstart",
+                opts,
+                |e| {
+                    e.prevent_default();
+                    count_selection(0);
+                },
+            ));
+            listeners.push(EventListener::new(&doc, "selectionchange", |_| {
+                if let Some(sel) = web_sys::window().and_then(|w| w.get_selection().ok().flatten())
+                    && sel.range_count() > 0
+                    && !sel.is_collapsed()
+                {
+                    let _ = sel.remove_all_ranges();
+                    count_selection(1);
+                }
+            }));
+        }
+        listeners.push(EventListener::new_with_options(host, "touchstart", opts, |e| {
+            if e.cancelable() {
+                e.prevent_default();
+                count_selection(2);
+            }
+        }));
+        NoSelection {
+            _listeners: listeners,
+        }
+    }
+}
+
+impl Drop for NoSelection {
+    fn drop(&mut self) {
+        if let Some(style) = root_style() {
+            for (name, _) in NO_SELECTION_STYLES {
+                let _ = style.remove_property(name);
+            }
+        }
+    }
+}
+
 /// The touch controls a play starting now plays with.
 pub(crate) fn set_choice(choice: ddi_ui::touch_controls::Choice) {
     CHOICE.with(|c| c.set(choice));

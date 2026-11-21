@@ -316,6 +316,9 @@ pub(crate) struct Props {
 /// The page's few DOM elements around the canvas.
 struct PlayDom {
     overlay: HtmlElement,
+    /// While a play is on: nothing of the page selectable
+    /// (`web::touch::NoSelection`).
+    no_selection: Option<crate::web::touch::NoSelection>,
 
     _pointer: EventListener,
     _moved: EventListener,
@@ -1753,11 +1756,15 @@ impl GameCanvas {
             });
             PlayDom {
                 overlay,
+                no_selection: None,
                 _pointer: pointer,
                 _moved: moved,
             }
         });
         let playing = matches!(self.stage, Stage::Playing);
+        if playing != dom.no_selection.is_some() {
+            dom.no_selection = playing.then(|| crate::web::touch::NoSelection::new(root));
+        }
 
         root.set_class_name(if playing {
             "game-canvas-host playing"

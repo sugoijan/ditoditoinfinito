@@ -135,6 +135,7 @@ web-sys = { workspace = true, features = [
     "Screen",
     "ScrollIntoViewOptions",
     "ScrollLogicalPosition",
+    "Selection",
     "Storage",
     "StorageManager",
     "TextDecoder",

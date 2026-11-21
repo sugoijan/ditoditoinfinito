@@ -1028,6 +1028,10 @@ impl GameLoop {
         video["update_ms_max"] = json!(update_ms_max);
         video["guard"] = json!(self.view.guard().guard.state());
         debug["video"] = video;
+        // What the play refused of a selection of the page
+        // (`web::touch::NoSelection`): selectstarts, selections cleared,
+        // touchstarts.
+        debug["touchSelection"] = json!(crate::web::touch::selection_counts());
         // The touch controls placed (CSS pixels), and whether they show
         // (`docs/plans/touch-controls.md`).
         debug["touch"] = json!(crate::web::touch::controls().map(|c| json!({
