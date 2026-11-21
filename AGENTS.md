@@ -138,9 +138,9 @@ Rust and the browser are implementation details, not advertised features.
   a layer over the backdrop and under the field, composited by the
   backdrop's own shader with the filter's band (`BackgroundPipeline::
   set_overlay`, `Renderer::set_chat_layer`: the room host's chat; over
-  a Dancing☆Onigiri work's back layers where it has them, a scene
-  segment of its own, `scene::Segment::Overlay`, still under the hand
-  behind the field),
+  a Dancing☆Onigiri work's back layers and the dancing hand where a play
+  has them, a scene segment of its own, `scene::Segment::Overlay`, under
+  the filter's band and the field),
   cached menu Gaussian images (`crates/render/src/gaussian.rs`, recorded once
   on upload before mipmaps, keyed separately from sharp images), Options'
   field preview (`crates/render/src/field_preview.rs`: the demo chart drawn as

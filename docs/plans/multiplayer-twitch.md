@@ -423,8 +423,8 @@ Both styles, with emotes and with messages, come in one release
 ### C7. The layer
 
 After the backdrop (the picture, the movie, the generated background, a
-work's back layers), before the field filter, the attack links, the
-miniatures, the field and the HUD. In the lane band the filter darkens
+work's back layers) and the dancing hand (since 2026-11-21), before the
+field filter, the attack links, the miniatures, the field and the HUD. In the lane band the filter darkens
 it with the background, so notes keep their contrast.
 
 An opacity of its own (Options → Display, about 60% to start; tuned in a
@@ -561,7 +561,9 @@ generated background is, not a pass of the 2D painter at that depth.
   background in the shader, or by the filter's quad drawn over it, and
   the notes keep their contrast either way; under a work's back layers
   and the dancing hand behind the field, which belong to the play's
-  picture.
+  picture. (Since round TW4 over a work's back layers, and since
+  2026-11-21 over the dancing hand: "The layer in front of the dancing
+  hand", at the end.)
 
 The play's 2D painter draws twice in a frame for it (the layer before
 the field, the overlay after), its instances kept for the whole frame.
@@ -831,7 +833,9 @@ reads poorly behind the miniatures; a solo play and a watched stage keep
 the choice); a play with no side space beside the field (a phone held
 upright) shows emotes alone; and the chat is drawn over a
 Dancing☆Onigiri work's back layers, still under the dancing hand, the
-field filter's band and the field (C7 had it under them).
+field filter's band and the field (C7 had it under them; since
+2026-11-21 over the dancing hand too, "The layer in front of the dancing
+hand", at the end).
 
 **What each provider serves.** The addresses asked, directly first and
 through the proxy after a failure (C4), as for stills:
@@ -1185,3 +1189,33 @@ web's 0.11 to 0.4 ms. More on screen costs more (up to 80 messages and
 emotes stay one batch from the atlas, the scene's batches are unchanged
 (31 alone, 71 with eight CPUs, with the chat on or off), and the caps
 bound it: the most a frame drew was 95 items and 95 emotes.
+
+## The layer in front of the dancing hand (2026-11-21)
+
+The maintainer: "About the twitch chat, I'm slightly leaning into having
+the layer in front of the dancing hand (but of course always behind the
+notes field)." Built: the chat's layer is drawn over the dancing hand
+(the field's underlay, in a solo play over the frame and in a stage in
+the band behind the field: both the same picture to the renderer), as a
+scene segment of its own right after the hand's quads
+(`scene::Segment::Overlay`, `Renderer::render`'s `overlay_at` the end of
+the back quads, a work's back layers then the hand), still under the
+field filter's band, the attack links, the miniatures, the field, the
+HUD and the judgment, and over a work's back layers as round TW4 made it.
+Where a play has neither a work's back layers nor the hand, it is drawn
+with the backdrop as before.
+
+- The filter's band dims it in the lanes as before: with a hand (or back
+  layers) the band is a quad drawn after the back quads
+  (`filter_path`), so after the layer too.
+- No pass more: the layer's segment joins the scene pass the field's
+  sprites are drawn in (`the_chat_over_the_hand_adds_no_pass`); with the
+  chat off there is no segment at all. Measured through the field
+  preview's renderer (a hand over the frame, 300 frames, the main thread's
+  recording): chat off 0.079 to 0.082 ms, on 0.073 to 0.085 ms, 4 passes
+  and 2 conversions in every case, before the change and after it alike.
+- `chat_order_offscreen`: a red stand-in hand and a green layer over the
+  whole frame, in a solo play's place and a stage's: the layer's green
+  over the hand's red, dimmed in the lanes, the receptors over it (it
+  fails on the order before).
+

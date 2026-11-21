@@ -770,11 +770,14 @@ impl Renderer {
             &self.stage_back
         };
         // The layer over the backdrop (the room host's chat) goes over a
-        // work's back layers (round TW4), under the dancing hand behind
-        // the field, the filter and the field; without back layers, with
-        // the backdrop as before.
-        let overlay_at = (self.background.has_overlay() && !self.stage_back.is_empty())
-            .then_some(self.stage_back.len());
+        // work's back layers (round TW4) and over the dancing hand (the
+        // field's underlay, in a solo play and behind the field in a
+        // stage: the maintainer's word, 2026-11-21), under the filter and
+        // the field; without either, with the backdrop as before. The
+        // filter's band is then a quad after it (`filter_path`: layers
+        // put it there), so it dims the chat in the lanes as before.
+        let overlay_at =
+            (self.background.has_overlay() && !back.is_empty()).then_some(back.len());
         scene::build_into(
             &mut scene,
             frame,
@@ -1325,6 +1328,31 @@ mod tests {
                 plan(false, 1..2, false),
                 plan(true, 2..3, false),
                 plan(false, 3..4, true),
+            ]
+        );
+    }
+
+    /// The chat's layer over the dancing hand (2026-11-21): drawn after
+    /// the hand's quads, it joins the scene pass the field's sprites are
+    /// drawn in, so a frame with a plain view has as many passes (and
+    /// conversions) as with the layer under the hand, in the first pass;
+    /// with the chat off there is no segment at all.
+    #[test]
+    fn the_chat_over_the_hand_adds_no_pass() {
+        use Segment::{Overlay, Quads, Sprites};
+        let under = [Quads(0..1), Sprites(0..4), Quads(1..3)];
+        let over = [Quads(0..1), Overlay, Sprites(0..4), Quads(1..3)];
+        for plain in [false, true] {
+            assert_eq!(passes(&over, plain, NONE).len(), passes(&under, plain, NONE).len());
+        }
+        assert_eq!(
+            passes(&over, true, NONE),
+            [
+                plan(false, 0..0, false),
+                plan(true, 0..1, false),
+                plan(false, 1..3, false),
+                plan(true, 3..4, false),
+                plan(false, 4..4, true),
             ]
         );
     }

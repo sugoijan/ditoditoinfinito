@@ -220,8 +220,8 @@ pub enum Segment {
     Quads(std::ops::Range<u32>),
     /// The layer over the backdrop (the room host's chat,
     /// `BackgroundPipeline::draw_overlay`) drawn here instead: over a
-    /// work's back layers, under the dancing hand behind the field, the
-    /// field filter and the field (round TW4).
+    /// work's back layers (round TW4) and the dancing hand (2026-11-21),
+    /// under the field filter and the field.
     Overlay,
 }
 
