@@ -160,6 +160,9 @@ pub struct ChatView {
     overlay: Overlay,
     cache: EmoteCache,
     seen: u64,
+    /// The chat's emote sets taken (round TW6: the live chat's come in as
+    /// the providers answer).
+    sets_version: u64,
     atlas: Option<wgpu::Texture>,
     layer: Option<wgpu::Texture>,
     list: DrawList,
@@ -191,6 +194,7 @@ impl ChatView {
             // proxy; the global-emotes demo's real ones through ours.
             cache: EmoteCache::new(chat.api()),
             seen: 0,
+            sets_version: chat.sets_version(),
             atlas: None,
             layer: None,
             list: DrawList::new(),
@@ -254,6 +258,10 @@ impl ChatView {
         fetched: Vec<(Fetch, Option<Decoded>)>,
     ) {
         let accepting = !self.shed;
+        if chat.sets_version() != self.sets_version {
+            self.sets_version = chat.sets_version();
+            self.overlay.set_sets(chat.sets().clone());
+        }
         for (n, at, event) in chat.since(self.seen) {
             self.overlay.receive(event, at, accepting);
             self.seen = n;

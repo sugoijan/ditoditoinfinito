@@ -5248,7 +5248,10 @@ impl RoomClient {
                 // host's Twitch: the scripted chat's line under the
                 // testing switch alone.
                 chat: if self.is_online() {
-                    crate::state::twitch::RoomChat::of(self.twitch())
+                    // Round TW6: the room's id names its subscribe route.
+                    crate::state::twitch::RoomChat::of(self.twitch()).map(|c| {
+                        c.in_room(self.online_link().map(|l| l.room_id().to_string()))
+                    })
                 } else {
                     crate::state::twitch::RoomChat::practice()
                 },
