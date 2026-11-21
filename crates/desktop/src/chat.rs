@@ -142,6 +142,90 @@ pub fn record_to(dir: std::path::PathBuf) {
     let _ = RECORD.set(dir);
 }
 
+/// Round TW7: the live chat's report kept beside stderr, so a run's can be
+/// sent later: `chat-report.txt` in the data folder, replaced by the first
+/// live chat of each run of the app, every play's lines after it (the
+/// same redacted lines stderr has, never a token, a session or a person's
+/// chat), [`REPORT_MOST`] bytes at most.
+pub const REPORT_FILE: &str = "chat-report.txt";
+
+/// The report file's size at most; past it, one line saying so.
+pub const REPORT_MOST: u64 = 1 << 20;
+
+/// This run's report file, once opened (`None` inside: none could be).
+static REPORT: std::sync::Mutex<Option<ReportFile>> = std::sync::Mutex::new(None);
+
+/// The folder this run's report file goes in, once set.
+static REPORT_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
+
+/// This run's report file goes in `dir`: the app's run sets the data
+/// folder (`crate::run`), a test a scratch folder of its own; unset, no
+/// file is written (so a test never writes into a player's folders).
+pub fn report_into(dir: std::path::PathBuf) {
+    let _ = REPORT_DIR.set(dir);
+}
+
+/// A run's report file.
+pub struct ReportFile {
+    path: std::path::PathBuf,
+    file: Option<std::fs::File>,
+    written: u64,
+}
+
+impl ReportFile {
+    /// `REPORT_FILE` in `dir`, emptied (created where missing).
+    pub fn open(dir: &std::path::Path) -> ReportFile {
+        let path = dir.join(REPORT_FILE);
+        let _ = std::fs::create_dir_all(dir);
+        let file = std::fs::File::create(&path).ok();
+        ReportFile {
+            path,
+            file,
+            written: 0,
+        }
+    }
+
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
+    /// One line of the report (led by `ddi_chat::live::LOG_PREFIX`, as on
+    /// stderr), within [`REPORT_MOST`].
+    pub fn line(&mut self, line: &str) {
+        use std::io::Write;
+        let Some(f) = self.file.as_mut() else { return };
+        let text = format!("{LOG_PREFIX} {line}\n");
+        if self.written + text.len() as u64 > REPORT_MOST {
+            let _ = writeln!(f, "{LOG_PREFIX} (the report stops here: {REPORT_MOST} bytes)");
+            self.file = None;
+            return;
+        }
+        if f.write_all(text.as_bytes()).is_ok() {
+            self.written += text.len() as u64;
+        }
+    }
+}
+
+/// A line of the live chat's report into this run's file, opened (and
+/// said where on stderr) with the run's first.
+fn report_line(line: &str) {
+    let Ok(mut r) = REPORT.lock() else { return };
+    if r.is_none() {
+        let Some(dir) = REPORT_DIR.get().cloned() else {
+            return;
+        };
+        let file = ReportFile::open(&dir);
+        eprintln!(
+            "{LOG_PREFIX} this run's chat report is also written to {}",
+            file.path().display()
+        );
+        *r = Some(file);
+    }
+    if let Some(f) = r.as_mut() {
+        f.line(line);
+    }
+}
+
 /// The live chat's setup on desktop: Twitch's EventSub socket (or `url`,
 /// a test's), our server at `api`, the providers' addresses from `at`
 /// where a test says.
@@ -296,6 +380,7 @@ impl LiveIo for DesktopLive {
 
     fn report(&mut self, line: &str) {
         eprintln!("{LOG_PREFIX} {line}");
+        report_line(line);
     }
 }
 
@@ -937,9 +1022,12 @@ mod tests {
             || None,
         )));
         ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Own {
-        channel_id: "1001".into(),
-        login: "me".into(),
-    }));
+            channel_id: "1001".into(),
+            login: "me".into(),
+        }));
+        // Round TW7: the run's report also written to a file.
+        let reports = std::env::temp_dir().join(format!("ddi-chat-report-{}", std::process::id()));
+        report_into(reports.clone());
         let config = ddi_session::chat::ChatConfig::for_play(&ddi_ui::state::settings::Settings {
             twitch_chat: ddi_chat::Level::Messages,
             ..Default::default()
@@ -997,7 +1085,40 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
         assert_eq!(*closed.lock().unwrap(), [0, 1], "the play's end closed the second");
+        // The report's lines in the run's file, as stderr has them: the
+        // channel first, the connection, the end's counts; never the
+        // socket's session or a chatter's words.
+        let file = reports.join(REPORT_FILE);
+        if REPORT_DIR.get() == Some(&reports) {
+            let text = std::fs::read_to_string(&file).unwrap();
+            let lines: Vec<&str> = text.lines().collect();
+            assert!(lines.iter().all(|l| l.starts_with("[ddi-chat] ")), "{text}");
+            assert!(lines[0].ends_with("channel me (your own), route /me/chat/subscribe"), "{text}");
+            assert!(text.contains("live, subscribed") && text.contains("received "), "{text}");
+            assert!(!text.contains("hi Kappa") && !text.contains("s1") && !text.contains("s2"), "{text}");
+        }
+        let _ = std::fs::remove_dir_all(&reports);
         ddi_ui::state::twitch::set_dev_live(None);
         ddi_session::chat::set_live(None);
+    }
+
+    /// Round TW7: a report file is emptied when opened, and stops with a
+    /// line saying so at its size.
+    #[test]
+    fn the_report_file_is_replaced_and_bounded() {
+        let dir = std::env::temp_dir().join(format!("ddi-chat-report-bound-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(REPORT_FILE), "an earlier run's").unwrap();
+        let mut f = ReportFile::open(&dir);
+        f.line("first");
+        assert_eq!(std::fs::read_to_string(f.path()).unwrap(), "[ddi-chat] first\n");
+        let long = "x".repeat(4096);
+        for _ in 0..400 {
+            f.line(&long);
+        }
+        let text = std::fs::read_to_string(f.path()).unwrap();
+        assert!(text.len() as u64 <= REPORT_MOST + 200);
+        assert!(text.ends_with("(the report stops here: 1048576 bytes)\n"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

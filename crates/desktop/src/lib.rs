@@ -482,6 +482,11 @@ pub fn run() {
         .map_or_else(|| ddi_chat::live::EVENTSUB_URL.to_string(), str::to_string);
     let chat_at = a.value("--mp-dev-chat-at").map(str::to_string);
     ddi_session::chat::set_live(Some(chat::live_setup(chat_socket, share::base(), chat_at)));
+    // Round TW7: the live chat's report kept in the data folder too
+    // (`chat-report.txt`, replaced each run), so it can be sent later.
+    if let Some(dir) = paths::data_dir() {
+        chat::report_into(dir);
+    }
     if let Some(dir) = a.value("--mp-dev-chat-record") {
         chat::record_to(dir.into());
     }
