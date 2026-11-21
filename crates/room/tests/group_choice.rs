@@ -544,6 +544,17 @@ fn a_room_stored_by_revision_21_reads_as_host() {
         state.choose_refusal(ana, song, &chart),
         Some(Rejection::NotGroupChoice)
     );
+    // It plays as it did: the picker's pick of a listed song (round RL4b).
+    let mut played = state.clone();
+    played
+        .apply(
+            Actor::Member(host),
+            Some(played.revision),
+            &Command::PickListed { song, chart: chart.clone() },
+            Millis(90_000),
+        )
+        .unwrap();
+    assert!(matches!(played.phase, Phase::Preparing { window: Some(_), .. }));
     let from = state.rules_land_on().unwrap();
     let m = state.current.as_ref().unwrap();
     let play = PlayRules {
@@ -557,4 +568,131 @@ fn a_room_stored_by_revision_21_reads_as_host() {
         .apply(Actor::Member(ana), Some(state.revision), &Command::Choose { song: Some(song), chart: Some(chart) }, Millis(90_000))
         .unwrap();
     assert_eq!(state.choices.len(), 1);
+}
+
+/// Round RL4b: the Ready countdown of a stage the draw picked counts from
+/// the end of the draw's reveal, which every device shows before the
+/// stage's Ready card: the players have the whole window to press Ready.
+#[test]
+fn the_ready_countdown_counts_from_the_reveals_end() {
+    let mut g = group(Repeats::Allowed, 3);
+    let (host, ana, bob) = (g.r.host, g.ana, g.bob);
+    g.choose(ana, 2).unwrap();
+    g.choose(host, 1).unwrap();
+    g.choose(bob, 3).unwrap();
+    g.draw(1);
+    let at = g.r.s.drawn.as_ref().unwrap().at;
+    let stage = g.r.s.upcoming_stage().unwrap();
+    // Everyone has the song at once (downloaded ahead): the loading
+    // grace ends at once.
+    for who in [host, ana, bob] {
+        g.r.load_for(who, stage, Loading::Loaded).unwrap();
+    }
+    let window = g.r.s.policy.readiness.window_ms;
+    match &g.r.s.phase {
+        Phase::Preparing { window: Some(w), .. } => {
+            assert!(w.loading_until.is_none(), "the loading is over");
+            assert_eq!(w.deadline, at.after(DRAW_V0.reveal_ms).after(window));
+        }
+        p => panic!("not gathering readiness: {p:?}"),
+    }
+}
+
+/// Round RL4b: a match stopped while the draw counts down takes the
+/// choices made for its next stage with it, each maker told why; nothing
+/// opens again by itself (before, the next change of any kind opened a
+/// countdown for a new match's first stage).
+#[test]
+fn a_match_stopped_during_the_countdown_takes_the_choices_with_it() {
+    let mut g = group(Repeats::Allowed, 3);
+    let (host, ana) = (g.r.host, g.ana);
+    g.choose(host, 1).unwrap();
+    g.draw(0);
+    g.play();
+    assert!(matches!(g.r.s.phase, Phase::Intermission { .. }));
+    g.choose(ana, 2).unwrap();
+    g.choose(host, 3).unwrap();
+    assert!(g.r.s.draw.is_some());
+    let events = g.r.by(host, Command::StopMatch).unwrap();
+    for who in [host, ana] {
+        assert!(
+            events.contains(&Event::ChoiceChanged {
+                participant: who,
+                choice: None,
+                why: Some(ChoiceGone::Stage),
+            }),
+            "{events:?}"
+        );
+    }
+    assert!(events.contains(&Event::DrawCanceled { why: DrawEnd::Rules }));
+    assert!(g.r.s.choices.is_empty() && g.r.s.draw.is_none());
+    // Time passes and someone else acts: no countdown opens.
+    g.r.wait(1_000);
+    let bob = g.bob;
+    g.r.by(bob, Command::SetIntent { intent: Intent::Watch }).unwrap();
+    assert!(g.r.s.draw.is_none());
+    // The host's choice for the new match opens it again.
+    g.choose(host, 3).unwrap();
+    g.r.by(bob, Command::SetIntent { intent: Intent::Play }).unwrap();
+    assert!(g.r.s.draw.is_some());
+}
+
+/// Round RL4b: a choice the room takes away says why (Song choice turned
+/// to Host, the Repeats rule tightened), so its maker is told; one's own
+/// clearing says nothing.
+#[test]
+fn a_choice_the_room_takes_away_says_why() {
+    let mut g = group(Repeats::Allowed, 3);
+    let (host, ana, bob) = (g.r.host, g.ana, g.bob);
+    g.choose(host, 1).unwrap();
+    g.draw(0);
+    g.play();
+    // Song 1 was played; Ana chooses it again (Repeats: Allowed).
+    g.choose(ana, 1).unwrap();
+    let events = g.clear(ana).unwrap();
+    assert!(events.contains(&Event::ChoiceChanged { participant: ana, choice: None, why: None }));
+    g.choose(ana, 1).unwrap();
+    g.choose(bob, 2).unwrap();
+    let change = |g: &mut Group, f: &dyn Fn(&mut PlayRules)| {
+        let from = g.r.s.rules_land_on().unwrap();
+        let mut play = g.r.s.current.as_ref().unwrap().play_rules_for(from);
+        f(&mut play);
+        let host = g.r.host;
+        g.r.by(host, Command::ChangeStageRules { from, rules: play }).unwrap()
+    };
+    let events = change(&mut g, &|p| p.repeats = Repeats::NotInARow);
+    assert!(events.contains(&Event::ChoiceChanged {
+        participant: ana,
+        choice: None,
+        why: Some(ChoiceGone::Repeats),
+    }));
+    assert_eq!(g.chosen(bob), Some(g.ids[1]), "Bob's song was not played");
+    let events = change(&mut g, &|p| p.choice = SongChoice::Host);
+    assert!(events.contains(&Event::ChoiceChanged {
+        participant: bob,
+        choice: None,
+        why: Some(ChoiceGone::Host),
+    }));
+}
+
+/// Round RL4b: a full list whose every song somebody chose takes no new
+/// song, even under Remove the oldest (no song may make room).
+#[test]
+fn a_full_list_of_chosen_songs_refuses_an_addition() {
+    let mut g = group(Repeats::Allowed, 3);
+    let (host, ana, bob) = (g.r.host, g.ana, g.bob);
+    g.r.by(host, Command::SetSongList { rules: ListRules { size: 3, when_full: WhenFull::RemoveOldest } })
+        .unwrap();
+    for (who, n) in [(ana, 1), (bob, 2), (host, 3)] {
+        g.choose(who, n).unwrap();
+    }
+    assert_eq!(g.r.s.add_refusal(host, None), Some(Rejection::ListFull));
+    assert_eq!(
+        g.r.by(host, Command::AddSong { song: Box::new(new_song(9)) }),
+        Err(Rejection::ListFull)
+    );
+    // One choice taken back: its song makes room.
+    g.clear(ana).unwrap();
+    g.r.by(host, Command::AddSong { song: Box::new(new_song(9)) }).unwrap();
+    assert!(g.r.s.songs.get(g.ids[0]).is_none(), "the oldest not chosen went");
 }

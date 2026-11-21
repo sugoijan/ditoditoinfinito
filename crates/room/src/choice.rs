@@ -98,8 +98,10 @@ pub struct DrawRules {
     /// choice, but never before this, so that it is seen.
     pub least_ms: u64,
     /// How long the screens show the draw's reveal before the stage's
-    /// Ready card (every device alike; the room's timing does not wait
-    /// for it: the stage's readiness window opens at the draw).
+    /// Ready card (every device alike). The stage's readiness window opens
+    /// at the draw (its loading may go on meanwhile), and its Ready
+    /// countdown counts from the reveal's end at the earliest (round
+    /// RL4b), so the players have all of it.
     pub reveal_ms: u64,
 }
 
@@ -178,6 +180,28 @@ pub enum DrawEnd {
     /// At its end the drawn song could not be picked (too few players,
     /// the next match's rules to review): the choices stand.
     NoStart,
+}
+
+/// Why the room took a player's choice away where it was not their own
+/// doing ([`crate::Event::ChoiceChanged`] with none; round RL4b): told to
+/// them, once. None on the event where it was theirs (cleared, left,
+/// turned to Watch) or where nothing is to be said (out of the match,
+/// away).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChoiceGone {
+    /// Song choice is Host now (a rule changed, from this stage or for
+    /// the next match).
+    Host,
+    /// The Repeats rule excludes the song now (tightened, or no longer
+    /// giving way).
+    Repeats,
+    /// The song may not be chosen any more (gone from the list, its
+    /// chart gone, not there to load).
+    Song,
+    /// The stage it was for can no longer be drawn for: the match ended
+    /// or was stopped, or a host started the stage with its song.
+    Stage,
 }
 
 /// Why someone may not choose ([`crate::Rejection::CannotChoose`]).

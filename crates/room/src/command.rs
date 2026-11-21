@@ -6,7 +6,7 @@
 use crate::attacks::Targeting;
 use crate::awards::{Finisher, NoAwardRule, StageResult};
 use crate::battle::{ReportedRun, RunDetail};
-use crate::choice::{Choice, Draw, DrawEnd, DrawRecord, NoChoice, Repeats};
+use crate::choice::{Choice, ChoiceGone, Draw, DrawEnd, DrawRecord, NoChoice, Repeats};
 use crate::ids::{
     ChartKey, ContentId, Identity, MatchId, Millis, ParticipantId, Revision, RoomSongId, StageId,
 };
@@ -501,6 +501,10 @@ pub enum Event {
         participant: ParticipantId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         choice: Option<Choice>,
+        /// Where the room took it away and the player is to be told why
+        /// (round RL4b, [`crate::choice::ChoiceGone`]); none otherwise.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        why: Option<ChoiceGone>,
     },
     /// The draw's countdown opened by a host's or co-host's own choice.
     DrawOpened {

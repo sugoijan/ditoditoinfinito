@@ -739,6 +739,7 @@ impl RoomState {
                             Event::ChoiceChanged {
                                 participant: id,
                                 choice: None,
+                                why: None,
                             },
                         );
                     }
@@ -765,6 +766,7 @@ impl RoomState {
                     Event::ChoiceChanged {
                         participant: id,
                         choice: Some(choice),
+                        why: None,
                     },
                 );
                 Ok(())
@@ -1258,7 +1260,7 @@ impl RoomState {
     /// runs, a host's or co-host's own choice opens one, if a draw now
     /// could pick ([`RoomState::draw_refusal`]).
     fn settle_choices(&mut self, now: Millis, out: &mut Vec<Event>) {
-        use crate::choice::{DRAW_V0, Draw, DrawEnd};
+        use crate::choice::{ChoiceGone, DRAW_V0, Draw, DrawEnd};
         if self.closed.is_some() || (self.choices.is_empty() && self.draw.is_none()) {
             return;
         }
@@ -1268,35 +1270,48 @@ impl RoomState {
         } else {
             BTreeSet::new()
         };
-        let gone: Vec<ParticipantId> = self
+        // Each choice that no longer stands, and why its maker is told (none
+        // where it was their own doing or nothing is to be said).
+        let gone: Vec<(ParticipantId, Option<ChoiceGone>)> = self
             .choices
             .iter()
-            .filter(|(id, c)| {
-                !group
-                    || self.chooser_refusal(**id).is_some()
+            .filter_map(|(id, c)| {
+                let why = if !group {
+                    Some(ChoiceGone::Host)
+                } else if self.chooser_refusal(*id).is_some()
                     || self
                         .members
                         .get(id)
                         .is_none_or(|m| m.connection == Connection::Disconnected)
-                    || self
-                        .songs
-                        .get(c.song)
-                        .is_none_or(|e| !e.available() || e.chart(&c.chart).is_none())
-                    || excluded.contains(&c.song)
+                {
+                    None
+                } else if self
+                    .songs
+                    .get(c.song)
+                    .is_none_or(|e| !e.available() || e.chart(&c.chart).is_none())
+                {
+                    Some(ChoiceGone::Song)
+                } else if excluded.contains(&c.song) {
+                    Some(ChoiceGone::Repeats)
+                } else {
+                    return None;
+                };
+                Some((*id, why))
             })
-            .map(|(id, _)| *id)
             .collect();
-        for participant in gone {
+        for (participant, why) in gone {
             self.emit(
                 out,
                 Event::ChoiceChanged {
                     participant,
                     choice: None,
+                    why,
                 },
             );
         }
         if let Some(d) = &self.draw {
-            let why = if !group || self.pick_stage() != Some(d.stage) {
+            let moved = self.pick_stage() != Some(d.stage);
+            let why = if !group || moved {
                 Some(DrawEnd::Rules)
             } else if self.choices.is_empty() {
                 Some(DrawEnd::Empty)
@@ -1312,6 +1327,24 @@ impl RoomState {
             } else {
                 None
             };
+            // The stage it counted down for can no longer be drawn for (the
+            // match ended or was stopped, a host started the stage with its
+            // song; round RL4b): the choices made for it go, each told, so
+            // that no countdown opens again by itself for a stage nobody
+            // chose for (a new match starting ten seconds after a stop).
+            if group && moved {
+                let left: Vec<ParticipantId> = self.choices.keys().copied().collect();
+                for participant in left {
+                    self.emit(
+                        out,
+                        Event::ChoiceChanged {
+                            participant,
+                            choice: None,
+                            why: Some(ChoiceGone::Stage),
+                        },
+                    );
+                }
+            }
             if let Some(why) = why {
                 self.emit(out, Event::DrawCanceled { why });
             }
@@ -1395,7 +1428,7 @@ impl RoomState {
                 Event::PhaseChanged {
                     phase: Phase::Preparing {
                         stage: p,
-                        window: Some(self.window_from(now, w.readiness_rev)),
+                        window: Some(self.window_from(p, now, w.readiness_rev)),
                     },
                 },
             ),
@@ -1539,7 +1572,7 @@ impl RoomState {
             Event::PhaseChanged {
                 phase: Phase::Preparing {
                     stage,
-                    window: Some(self.window_from(now, readiness_rev)),
+                    window: Some(self.window_from(stage, now, readiness_rev)),
                 },
             },
         );
@@ -1603,23 +1636,39 @@ impl RoomState {
 
     /// A readiness window opened at `now` (a pick, the song available to
     /// everyone, a Start): under `hosted-deadline-v2` its loading grace
-    /// first, the Ready countdown's latest end after it.
-    fn window_from(&self, now: Millis, readiness_rev: u32) -> ReadinessWindow {
+    /// first, the Ready countdown's latest end after it. Where the group's
+    /// draw just picked the song the Ready countdown counts from the end of
+    /// the draw's reveal at the earliest ([`RoomState::ready_from`]).
+    fn window_from(&self, stage: StageId, now: Millis, readiness_rev: u32) -> ReadinessWindow {
         let p = &self.policy.readiness;
+        let ready = self.ready_from(stage, now);
         match p.grace() {
             Some(grace) => ReadinessWindow {
-                deadline: now.after(grace).after(p.window_ms),
+                deadline: now.after(grace).max(ready).after(p.window_ms),
                 readiness_rev,
                 loading_until: Some(now.after(grace)),
                 hold_until: None,
             },
             None => ReadinessWindow {
-                deadline: now.after(p.window_ms),
+                deadline: ready.after(p.window_ms),
                 readiness_rev,
                 loading_until: None,
                 hold_until: None,
             },
         }
+    }
+
+    /// When stage `stage`'s Ready countdown may count from at `now`: now,
+    /// or, where the group's draw picked its song (revision 22) and every
+    /// device still shows the draw's reveal, the reveal's end
+    /// (`DRAW_V0.reveal_ms` after the draw; round RL4b: the players see
+    /// their Ready card only then, and the window is theirs whole).
+    fn ready_from(&self, stage: StageId, now: Millis) -> Millis {
+        self.drawn
+            .as_ref()
+            .filter(|d| d.stage == stage)
+            .map(|d| d.at.after(crate::choice::DRAW_V0.reveal_ms))
+            .map_or(now, |end| end.max(now))
     }
 
     /// Someone connected who could play `stage` has not loaded it yet
@@ -1643,7 +1692,7 @@ impl RoomState {
         out: &mut Vec<Event>,
     ) -> ReadinessWindow {
         let window = ReadinessWindow {
-            deadline: now.after(self.policy.readiness.window_ms),
+            deadline: self.ready_from(stage, now).after(self.policy.readiness.window_ms),
             loading_until: None,
             // Ended early: a retrying download may hold the early end
             // until the grace's own end (revision 16).
@@ -2158,7 +2207,7 @@ impl RoomState {
             Event::PhaseChanged {
                 phase: Phase::Preparing {
                     stage,
-                    window: Some(self.window_from(now, readiness_rev)),
+                    window: Some(self.window_from(stage, now, readiness_rev)),
                 },
             },
         );
@@ -2573,6 +2622,7 @@ impl RoomState {
             Event::ChoiceChanged {
                 participant,
                 choice,
+                ..
             } => match choice {
                 Some(c) => {
                     self.choices.insert(*participant, c.clone());

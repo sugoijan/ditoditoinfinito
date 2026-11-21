@@ -93,7 +93,8 @@ pub use awards::{
 };
 pub use battle::{BattlePreset, Entrant, ReportedRun, Run, RunDetail};
 pub use choice::{
-    Choice, DRAW_V0, Draw, DrawEnd, DrawEntry, DrawRecord, DrawRules, NoChoice, Repeats, SongChoice,
+    Choice, ChoiceGone, DRAW_V0, Draw, DrawEnd, DrawEntry, DrawRecord, DrawRules, NoChoice, Repeats,
+    SongChoice,
 };
 pub use command::{Actor, CancelReason, Command, Event, RankingProblem, Rejection};
 pub use ids::{
