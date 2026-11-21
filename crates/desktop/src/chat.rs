@@ -19,12 +19,29 @@
 //! at the start (directly, then through our server's proxy with the
 //! run's session, Twitch's through our server alone), their images as a
 //! real chat's.
+//!
+//! The live chat (round TW6, [`DesktopLive`]): the play's
+//! `ddi_session::chat::LiveIo` on desktop: each socket to Twitch's
+//! EventSub on a thread of its own as a room's socket is
+//! (`crate::online::PlainSocket`, tungstenite over the system's TLS), our
+//! server's subscribe route and the providers' sets through ureq on a
+//! thread a request, and the run's report on stderr, every line led by
+//! `ddi_chat::live::LOG_PREFIX`. `--mp-dev-chat live` runs it in any play
+//! for the signed-in person's own channel ([`own_channel`]);
+//! `--mp-dev-chat-socket URL` points the socket at a local fake;
+//! `--mp-dev-chat-record DIR` writes every raw socket frame to a file
+//! there (the chat's messages in them: only where the maintainer asks).
 
 use std::io::Cursor;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
 use ddi_chat::anim::{self, Format, Kept, Verdict};
+use ddi_chat::live::LOG_PREFIX;
+use ddi_session::chat::{LiveInput, LiveIo, LiveSetup, LiveWant};
 use ddi_chat::cache::Fetch;
 use ddi_chat::script::Script;
 use ddi_shell::chat::{Decoded, decode_size};
@@ -79,9 +96,14 @@ impl Fetcher {
 /// through the shared client (our server's proxy, `proxy`, with the run's
 /// session, which it asks for), else a file's path; or why not.
 fn read(url: &str, proxy: bool) -> Result<Vec<u8>, String> {
+    read_with(url, proxy.then(crate::online::session_token).flatten())
+}
+
+/// [`read`] with the session `token` it is asked with, if any.
+fn read_with(url: &str, token: Option<String>) -> Result<Vec<u8>, String> {
     if url.starts_with("http://") || url.starts_with("https://") {
         let mut request = crate::share::agent().get(url);
-        if proxy && let Some(token) = crate::online::session_token() {
+        if let Some(token) = token {
             request = request.header("Authorization", format!("Bearer {token}"));
         }
         let mut answer = request.call().map_err(|e| e.to_string())?;
@@ -102,6 +124,205 @@ fn read(url: &str, proxy: bool) -> Result<Vec<u8>, String> {
         }
         std::fs::read(path).map_err(|e| e.to_string())
     }
+}
+
+/// TESTING ONLY (round TW6): the folder `--mp-dev-chat-record` writes the
+/// live chat's raw socket frames to.
+static RECORD: OnceLock<std::path::PathBuf> = OnceLock::new();
+
+/// TESTING ONLY: record every raw frame of the live chat's sockets under
+/// `dir` from now on (`--mp-dev-chat-record DIR`).
+pub fn record_to(dir: std::path::PathBuf) {
+    let _ = std::fs::create_dir_all(&dir);
+    eprintln!(
+        "{LOG_PREFIX} recording every raw socket frame (people's chat messages in them) to {}",
+        dir.display()
+    );
+    let _ = RECORD.set(dir);
+}
+
+/// The live chat's setup on desktop: Twitch's EventSub socket (or `url`,
+/// a test's), our server at `api`, the providers' addresses from `at`
+/// where a test says.
+pub fn live_setup(url: String, api: String, at: Option<String>) -> LiveSetup {
+    live_setup_with(url, api, at, crate::online::session_token)
+}
+
+/// [`live_setup`] signed in with what `token` gives (tests: none).
+pub fn live_setup_with(
+    url: String,
+    api: String,
+    at: Option<String>,
+    token: fn() -> Option<String>,
+) -> LiveSetup {
+    let base = api.clone();
+    LiveSetup {
+        url,
+        api,
+        at,
+        make: Box::new(move || Box::new(DesktopLive::new(base.clone(), token))),
+    }
+}
+
+/// The live chat's side on desktop (see the module's notes).
+pub struct DesktopLive {
+    api: String,
+    sockets: HashMap<u32, crate::online::PlainSocket>,
+    tx: Sender<LiveInput>,
+    rx: Receiver<LiveInput>,
+    /// The raw frames' file, where recorded.
+    record: Option<std::fs::File>,
+    began: Instant,
+    /// The run's session (our server's subscribe route and proxy).
+    token: fn() -> Option<String>,
+}
+
+impl DesktopLive {
+    pub fn new(api: String, token: fn() -> Option<String>) -> DesktopLive {
+        let (tx, rx) = channel();
+        let record = RECORD.get().and_then(|dir| {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            let path = dir.join(format!("eventsub-{stamp}.jsonl"));
+            eprintln!("{LOG_PREFIX} recording this play's socket frames to {}", path.display());
+            std::fs::File::create(path).ok()
+        });
+        DesktopLive {
+            api: api.trim_end_matches('/').to_string(),
+            sockets: HashMap::new(),
+            tx,
+            rx,
+            record,
+            began: Instant::now(),
+            token,
+        }
+    }
+}
+
+impl LiveIo for DesktopLive {
+    fn open(&mut self, socket: u32, url: &str) {
+        self.sockets
+            .insert(socket, crate::online::PlainSocket::open(url, "[ddi-chat] socket"));
+    }
+
+    fn close(&mut self, socket: u32) {
+        self.sockets.remove(&socket);
+    }
+
+    fn subscribe(&mut self, socket: u32, session_id: &str, want: &LiveWant, messages: bool) {
+        let url = format!("{}{}", self.api, want.route());
+        let body = LiveWant::body(session_id, messages);
+        let tx = self.tx.clone();
+        let token = self.token;
+        std::thread::Builder::new()
+            .name("ddi-chat-subscribe".into())
+            .spawn(move || {
+                let mut r = crate::share::agent()
+                    .post(&url)
+                    .header("content-type", "application/json");
+                if let Some(token) = token() {
+                    r = r.header("authorization", format!("Bearer {token}"));
+                }
+                let wait = Some(Duration::from_secs(8));
+                let answer = match r
+                    .config()
+                    .timeout_recv_response(wait)
+                    .timeout_recv_body(wait)
+                    .build()
+                    .send(body)
+                {
+                    Ok(mut a) => {
+                        let status = a.status().as_u16();
+                        let text = a.body_mut().read_to_string().unwrap_or_default();
+                        ddi_chat::live::read_subscribe_answer(status, &text)
+                    }
+                    Err(e) => ddi_chat::live::SubscribeAnswer::Failed(format!("no answer: {e}")),
+                };
+                let _ = tx.send(LiveInput::Subscribed(socket, answer));
+            })
+            .ok();
+    }
+
+    fn read_set(&mut self, key: usize, url: &str, via: ddi_chat::cache::Via) {
+        let tx = self.tx.clone();
+        let url = url.to_string();
+        let token = self.token;
+        std::thread::Builder::new()
+            .name("ddi-chat-set".into())
+            .spawn(move || {
+                let proxy = via == ddi_chat::cache::Via::Proxy;
+                let answer = read_with(&url, proxy.then(token).flatten())
+                    .map(|b| String::from_utf8_lossy(&b).into_owned());
+                let _ = tx.send(LiveInput::SetRead(key, via, answer));
+            })
+            .ok();
+    }
+
+    fn poll(&mut self) -> Vec<LiveInput> {
+        use ddi_room::TransportEvent;
+        let mut out: Vec<LiveInput> = self.rx.try_iter().collect();
+        let mut gone = Vec::new();
+        for (n, s) in &self.sockets {
+            for e in s.poll() {
+                match e {
+                    TransportEvent::Opened => out.push(LiveInput::Opened(*n)),
+                    TransportEvent::Text(t) => {
+                        if let Some(f) = self.record.as_mut() {
+                            use std::io::Write;
+                            let line = serde_json::json!({
+                                "ms": self.began.elapsed().as_millis() as u64,
+                                "socket": n,
+                                "frame": t,
+                            });
+                            let _ = writeln!(f, "{line}");
+                        }
+                        out.push(LiveInput::Text(*n, t));
+                    }
+                    TransportEvent::Binary(_) => {}
+                    TransportEvent::Closed { code } => {
+                        gone.push(*n);
+                        out.push(LiveInput::Closed(*n, code));
+                    }
+                }
+            }
+        }
+        for n in gone {
+            self.sockets.remove(&n);
+        }
+        out
+    }
+
+    fn report(&mut self, line: &str) {
+        eprintln!("{LOG_PREFIX} {line}");
+    }
+}
+
+/// TESTING ONLY (round TW6), `--mp-dev-chat live`: the signed-in person's
+/// own channel (their Twitch user id and login) as our server at `api`
+/// says (`GET /me`), and whether their access has the chat's scope; or
+/// why not.
+pub fn own_channel(api: &str) -> Result<(String, String, bool), String> {
+    let token = crate::online::session_token().ok_or("not signed in: sign in first (Multiplayer)")?;
+    let mut answer = crate::share::agent()
+        .get(format!("{}/me", api.trim_end_matches('/')))
+        .header("authorization", format!("Bearer {token}"))
+        .call()
+        .map_err(|e| format!("GET /me: {e}"))?;
+    if !answer.status().is_success() {
+        return Err(format!("GET /me: HTTP {}", answer.status().as_u16()));
+    }
+    let me: ddi_ui::state::online::api::Me =
+        serde_json::from_str(&answer.body_mut().read_to_string().unwrap_or_default())
+            .map_err(|e| format!("GET /me: {e}"))?;
+    let id = me
+        .player_id
+        .strip_prefix("twitch:")
+        .map(str::to_string)
+        .or_else(|| me.player_id.strip_prefix("dev:").map(|n| format!("dev-{n}")))
+        .ok_or("signed in without a Twitch account (a bot?)")?;
+    let login = me.twitch.login.clone().unwrap_or(me.login);
+    Ok((id, login, me.twitch.features.iter().any(|f| f == "chat")))
 }
 
 /// TESTING ONLY (round TW5): the global-emotes demo's chat
@@ -589,5 +810,190 @@ mod tests {
         let webp = std::fs::read(dir.join("c2.webp")).unwrap();
         assert_eq!(decode(&webp).unwrap().durations, vec![70; 12]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A local fake of Twitch's EventSub socket (round TW6, never
+    /// Twitch's): the first connection welcomes as `s1`, chats, then asks
+    /// for a reconnect to the second, which welcomes as `s2` and chats;
+    /// each waits for the client to close it. Its address, and the
+    /// closes it saw.
+    fn fake_eventsub() -> (String, std::sync::Arc<std::sync::Mutex<Vec<usize>>>) {
+        use tungstenite::Message;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let closed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = closed.clone();
+        std::thread::spawn(move || {
+            for n in 0..2usize {
+                let Ok((stream, _)) = listener.accept() else { return };
+                let seen = seen.clone();
+                std::thread::spawn(move || {
+                    let mut ws = tungstenite::accept(stream).unwrap();
+                    let session = format!("s{}", n + 1);
+                    let welcome = format!(
+                        r#"{{"metadata":{{"message_id":"w{n}","message_type":"session_welcome"}},"payload":{{"session":{{"id":"{session}","status":"connected","keepalive_timeout_seconds":10,"reconnect_url":null}}}}}}"#
+                    );
+                    ws.send(Message::text(welcome)).unwrap();
+                    for k in 0..10 {
+                        std::thread::sleep(Duration::from_millis(60));
+                        let chat = format!(
+                            r#"{{"metadata":{{"message_id":"n{n}-{k}","message_type":"notification","subscription_type":"channel.chat.message"}},"payload":{{"event":{{"broadcaster_user_id":"1001","chatter_user_id":"{k}","chatter_user_login":"v","chatter_user_name":"V","message_id":"m{n}-{k}","message_type":"text","message":{{"text":"hi Kappa","fragments":[{{"type":"text","text":"hi "}},{{"type":"emote","text":"Kappa","emote":{{"id":"25","format":["static"]}}}}]}}}}}}}}"#
+                        );
+                        if ws.send(Message::text(chat)).is_err() {
+                            return;
+                        }
+                    }
+                    if n == 0 {
+                        let reconnect = format!(
+                            r#"{{"metadata":{{"message_id":"r","message_type":"session_reconnect"}},"payload":{{"session":{{"id":"s1","status":"reconnecting","reconnect_url":"ws://127.0.0.1:{port}/second"}}}}}}"#
+                        );
+                        ws.send(Message::text(reconnect)).unwrap();
+                    }
+                    loop {
+                        match ws.read() {
+                            Ok(Message::Close(_)) | Err(_) => {
+                                seen.lock().unwrap().push(n);
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
+                });
+            }
+        });
+        (format!("ws://127.0.0.1:{port}/ws"), closed)
+    }
+
+    /// A local fake of our server's subscribe route and the providers'
+    /// sets under `/g/` (the global ones from the fixtures, a channel's
+    /// 404): what it was asked.
+    fn fake_http() -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        use std::io::{BufRead, BufReader, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = asked.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut first = String::new();
+                reader.read_line(&mut first).unwrap();
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = v.trim().parse().unwrap_or(0);
+                    }
+                    if line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                }
+                let mut body = vec![0; length];
+                reader.read_exact(&mut body).unwrap();
+                let path = first.split(' ').nth(1).unwrap_or("").to_string();
+                log.lock().unwrap().push(format!("{path} {}", String::from_utf8_lossy(&body)));
+                let fixture = |name: &str| {
+                    std::fs::read_to_string(format!("{}/../chat/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+                };
+                let (status, answer) = if path == "/me/chat/subscribe" {
+                    (200, r#"{"channel":"me","subscriptions":[{"type":"channel.chat.message","outcome":"enabled","http":202,"status":"enabled","cost":0,"total":1,"total_cost":0,"max_total_cost":10,"ms":3}]}"#.to_string())
+                } else if path.ends_with("/v3/emote-sets/global") {
+                    (200, fixture("7tv-global.json"))
+                } else if path.ends_with("/3/cached/emotes/global") {
+                    (200, fixture("bttv-global.json"))
+                } else if path.ends_with("/v1/set/global") {
+                    (200, fixture("ffz-global.json"))
+                } else {
+                    (404, "{}".to_string())
+                };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
+                    answer.len()
+                );
+            }
+        });
+        (base, asked)
+    }
+
+    /// Round TW6: desktop's side of the live chat against a local fake
+    /// socket and server (never Twitch): the socket opened, the welcome's
+    /// session subscribed through the route (no session sent: the test
+    /// has none), the chat taken, Twitch's reconnect followed and the old
+    /// socket closed after the new one's welcome, the sets read, and the
+    /// play's end closing the rest.
+    #[test]
+    fn the_live_chat_runs_over_desktops_sockets() {
+        let (socket, closed) = fake_eventsub();
+        let (http, asked) = fake_http();
+        ddi_session::chat::set_scripted(None);
+        ddi_session::chat::set_live(Some(live_setup_with(
+            socket,
+            http.clone(),
+            Some(format!("{http}/g/")),
+            || None,
+        )));
+        ddi_ui::state::twitch::set_live_own(Some(("1001".into(), "me".into())));
+        let config = ddi_session::chat::ChatConfig::for_play(&ddi_ui::state::settings::Settings {
+            twitch_chat: ddi_chat::Level::Messages,
+            ..Default::default()
+        })
+        .unwrap()
+        .under_room(None)
+        .unwrap();
+        let mut chat = ddi_session::chat::ChatLayer::new(config);
+        let began = Instant::now();
+        let now = || began.elapsed().as_secs_f64() + 100.0;
+        let done = |c: &ddi_session::chat::ChatLayer| {
+            let r = c.live_report().unwrap();
+            r["connection"]["reconnects"]["done"] == 1 && c.counts().0 >= 20
+        };
+        while began.elapsed() < Duration::from_secs(10) && !done(&chat) {
+            chat.advance(now());
+            std::thread::sleep(Duration::from_millis(15));
+        }
+        let r = chat.live_report().unwrap();
+        assert!(done(&chat), "{r:#}");
+        assert_eq!(r["connection"]["state"], "live");
+        assert_eq!(r["connection"]["subscriptions"][0]["max_total_cost"], 10);
+        assert_eq!(r["connection"]["received"]["duplicate"], 0);
+        // Subscribed once (the reconnect carried it over), messages too.
+        let asked_now = asked.lock().unwrap().clone();
+        let subscribes: Vec<&String> = asked_now.iter().filter(|a| a.starts_with("/me/chat/subscribe")).collect();
+        assert_eq!(subscribes.len(), 1, "{asked_now:?}");
+        assert!(subscribes[0].contains(r#""session_id":"s1""#) && subscribes[0].contains(r#""messages":true"#));
+        assert!(asked_now.iter().any(|a| a.starts_with("/g/7tv.io/v3/users/twitch/1001")));
+        // The first socket closed once the second welcomed.
+        let t = Instant::now();
+        while closed.lock().unwrap().is_empty() && t.elapsed() < Duration::from_secs(3) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(*closed.lock().unwrap(), [0]);
+        // The words of the global sets are matched.
+        let asking = |c: &ddi_session::chat::ChatLayer| {
+            c.live_report().unwrap()["emote_sets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s["state"] == "asked" || s["state"] == "waiting")
+        };
+        while asking(&chat) && began.elapsed() < Duration::from_secs(10) {
+            chat.advance(now());
+            std::thread::sleep(Duration::from_millis(15));
+        }
+        assert!(!chat.sets().is_empty());
+        let sets = chat.live_report().unwrap()["emote_sets"].clone();
+        assert_eq!(sets[0]["state"], "no set", "{sets:#}");
+        assert_eq!(sets[1]["state"], "read", "{sets:#}");
+        drop(chat);
+        let t = Instant::now();
+        while closed.lock().unwrap().len() < 2 && t.elapsed() < Duration::from_secs(3) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(*closed.lock().unwrap(), [0, 1], "the play's end closed the second");
+        ddi_ui::state::twitch::set_live_own(None);
+        ddi_session::chat::set_live(None);
     }
 }

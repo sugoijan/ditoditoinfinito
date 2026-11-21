@@ -531,7 +531,7 @@ impl Transport for SocketTransport {
             .name("ddi-room-socket".into())
             .spawn({
                 let own = self.own_keepalive;
-                move || run_socket(&url, &out_rx, &ev_tx, own)
+                move || run_socket(&url, &out_rx, &ev_tx, own, "online: the room's socket")
             })
             .ok();
         self.socket = Some(Running {
@@ -586,6 +586,43 @@ impl Transport for SocketTransport {
 impl Drop for SocketTransport {
     fn drop(&mut self) {
         self.close();
+    }
+}
+
+/// A socket at an address of its own (round TW6: the live chat's to
+/// Twitch's EventSub), on a thread as a room's is: text in, nothing out
+/// (Twitch's socket takes nothing but pongs, which tungstenite writes by
+/// itself), no keep-alive of its own (the chat's state machine watches
+/// Twitch's). Dropped, it closes.
+pub(crate) struct PlainSocket {
+    out: Sender<Outgoing>,
+    events: Receiver<TransportEvent>,
+}
+
+impl PlainSocket {
+    pub(crate) fn open(url: &str, label: &'static str) -> PlainSocket {
+        let (out_tx, out_rx) = channel();
+        let (ev_tx, ev_rx) = channel();
+        let url = url.to_string();
+        std::thread::Builder::new()
+            .name("ddi-chat-socket".into())
+            .spawn(move || run_socket(&url, &out_rx, &ev_tx, false, label))
+            .ok();
+        PlainSocket {
+            out: out_tx,
+            events: ev_rx,
+        }
+    }
+
+    /// What came since: opened, text, closed.
+    pub(crate) fn poll(&self) -> Vec<TransportEvent> {
+        self.events.try_iter().collect()
+    }
+}
+
+impl Drop for PlainSocket {
+    fn drop(&mut self) {
+        let _ = self.out.send(Outgoing::Close);
     }
 }
 
@@ -646,6 +683,7 @@ fn run_socket(
     out: &Receiver<Outgoing>,
     events: &Sender<TransportEvent>,
     own_keepalive: bool,
+    label: &str,
 ) {
     use tungstenite::Message;
     use tungstenite::stream::MaybeTlsStream;
@@ -661,7 +699,7 @@ fn run_socket(
     let (mut ws, _) = match opened {
         Ok(x) => x,
         Err(e) => {
-            eprintln!("online: the room's socket: {e}");
+            eprintln!("{label}: {e}");
             return closed(1006);
         }
     };
@@ -682,7 +720,7 @@ fn run_socket(
         // (Without its own keep-alive, the room's judges it.)
         let quiet = heard.elapsed();
         if own_keepalive && quiet >= DEAD_AFTER {
-            eprintln!("online: the room's socket: nothing heard for {quiet:?}");
+            eprintln!("{label}: nothing heard for {quiet:?}");
             return closed(1006);
         }
         if own_keepalive && quiet >= PING_AFTER && !pinged {
@@ -735,7 +773,7 @@ fn run_socket(
                 return closed(1005);
             }
             Err(e) => {
-                eprintln!("online: the room's socket: {e}");
+                eprintln!("{label}: {e}");
                 return closed(1006);
             }
         }

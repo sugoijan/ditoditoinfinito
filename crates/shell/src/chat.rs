@@ -478,6 +478,14 @@ impl ChatView {
             renderer.set_chat_layer(device, Some((&layer, opacity)));
             drawn.opacity = opacity;
         }
+        if chat.is_live() {
+            chat.note_view(ddi_session::chat::ViewNote {
+                stats: drawn.stats,
+                images: drawn.images,
+                proxied: drawn.proxied.clone(),
+                animated: drawn.animated.0,
+            });
+        }
         self.drawn = drawn;
     }
 

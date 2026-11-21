@@ -267,6 +267,23 @@ pub struct ChatLayer {
     sets_version: u64,
     /// Socket messages that could not be read.
     unread: u64,
+    /// What the view last showed of it, for the live chat's last lines.
+    view_note: RefCell<Option<ViewNote>>,
+}
+
+/// What a play's view showed of its chat (`ddi_shell::chat`), told back
+/// for the live chat's report at the play's end.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ViewNote {
+    /// The overlay's counts: shown, left out by each filter, dropped by
+    /// each budget, removed by moderation.
+    pub stats: ddi_chat::overlay::Stats,
+    /// Images ready, in flight, failed; hosts through the proxy.
+    pub images: (usize, usize, usize, usize),
+    /// The hosts that needed our server's proxy.
+    pub proxied: Vec<String>,
+    /// Animated emotes ready.
+    pub animated: usize,
 }
 
 /// A play's live chat: the connection's state machine, the channel's
@@ -343,6 +360,41 @@ impl Drop for ChatLayer {
             {
                 l.io.report(&format!("not understood: {sample}"));
             }
+            if let Some(n) = self.view_note.borrow().as_ref() {
+                let s = n.stats;
+                l.io.report(&format!(
+                    "shown: {} items from {} messages; left out {} (commands {}, links {}, cheers {}, shared chat {}, nothing to show {}); dropped: screen full {}, 20 a second {}, a chatter's 2 s {}, frames late {}, no room {}, no image {}; taken off by moderation {}; emotes past eight {}",
+                    s.shown,
+                    s.messages,
+                    s.left_out,
+                    s.left.command,
+                    s.left.link,
+                    s.left.cheer,
+                    s.left.shared,
+                    s.left.empty,
+                    s.full,
+                    s.rate,
+                    s.chatter,
+                    s.shed,
+                    s.no_room,
+                    s.no_image,
+                    s.removed,
+                    s.cut,
+                ));
+                let (ready, flying, failed, proxied) = n.images;
+                l.io.report(&format!(
+                    "images: {ready} ready ({} animated), {flying} in flight, {failed} failed, {proxied} hosts through our proxy{}",
+                    n.animated,
+                    if n.proxied.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" ({})", n.proxied.join(", "))
+                    }
+                ));
+            }
+            for line in l.sets.lines() {
+                l.io.report(&line);
+            }
         }
     }
 }
@@ -368,7 +420,13 @@ impl ChatLayer {
             sets,
             sets_version: 0,
             unread: 0,
+            view_note: RefCell::new(None),
         }
+    }
+
+    /// The view tells what it showed (each frame of a live chat).
+    pub fn note_view(&self, note: ViewNote) {
+        *self.view_note.borrow_mut() = Some(note);
     }
 
     /// Bumped whenever the emote sets changed (a provider's set read):

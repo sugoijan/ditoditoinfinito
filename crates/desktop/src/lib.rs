@@ -469,7 +469,43 @@ pub fn run() {
     // Round TW5: `--mp-dev-chat global` is the global-emotes demo (the
     // providers' real global sets, read now; `--mp-dev-chat-at BASE`
     // serves their addresses from a local folder or server instead).
-    if a.value("--mp-dev-chat") == Some("global") {
+    // Round TW6: the live chat's side on this shell (a room's stage, the
+    // development script below); whether a play shows it is the
+    // settings', the room's and, until the maintainer verified it, the
+    // testing switch's (`ddi_ui::state::twitch::chat_rows_shown`).
+    // TESTING ONLY: `--mp-dev-chat-socket URL` a local fake socket in
+    // place of Twitch's, `--mp-dev-chat-at BASE` the providers' addresses
+    // served from a local base, `--mp-dev-chat-record DIR` every raw
+    // socket frame written there.
+    let chat_socket = a
+        .value("--mp-dev-chat-socket")
+        .map_or_else(|| ddi_chat::live::EVENTSUB_URL.to_string(), str::to_string);
+    let chat_at = a.value("--mp-dev-chat-at").map(str::to_string);
+    ddi_session::chat::set_live(Some(chat::live_setup(chat_socket, share::base(), chat_at)));
+    if let Some(dir) = a.value("--mp-dev-chat-record") {
+        chat::record_to(dir.into());
+    }
+    if a.value("--mp-dev-chat") == Some("live") {
+        // TESTING ONLY (round TW6): the live chat's development script:
+        // the signed-in person's own channel's chat in every play outside
+        // a room (a solo play, autoplay, CPU practice's stages), through
+        // the code a room's stage uses.
+        let p = ddi_chat::live::LOG_PREFIX;
+        match chat::own_channel(&share::base()) {
+            Ok((id, login, scope)) => {
+                eprintln!(
+                    "{p} live chat: {login}'s own channel in every play; turn on Options → Display → Twitch chat in rooms"
+                );
+                if !scope {
+                    eprintln!(
+                        "{p} live chat: your Twitch access lacks the chat's scope (user:read:chat): turning the option on asks for it"
+                    );
+                }
+                ddi_ui::state::twitch::set_live_own(Some((id, login)));
+            }
+            Err(e) => eprintln!("{p} live chat: {e}"),
+        }
+    } else if a.value("--mp-dev-chat") == Some("global") {
         let from = ddi_ui::state::settings::Settings::load().chat_emotes_from;
         let at = a.value("--mp-dev-chat-at").map(str::to_string);
         let script = chat::global_script(from, share::base(), at);
