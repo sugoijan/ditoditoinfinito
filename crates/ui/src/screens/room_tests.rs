@@ -7962,6 +7962,10 @@ fn choosing_by_the_group_on_room_songs() {
         "You're watching, so you don't choose: only players choose the next song."
     );
     t.carol.borrow_mut().clear_refusal();
+    assert_eq!(
+        String::from(super::room::group_status(&t.carol.borrow())),
+        "1 of 2 players chose stage 1's song. Only players choose."
+    );
     // The host's Enter starts the draw.
     ha.key("Enter", "Enter");
     ha.run(0.1);

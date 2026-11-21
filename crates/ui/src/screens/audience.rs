@@ -252,12 +252,32 @@ fn doing(a: &AudienceClient, v: &PublicView) -> UiText {
             .and_then(|s| s.card.as_ref())
             .map(|c| UiText::data(format!("{} — {}", c.title, c.artist)).to_string())
     };
+    let picked = |stage: ddi_room::StageId| {
+        v.stages
+            .iter()
+            .find(|s| s.id == stage)
+            .is_some_and(|s| matches!(s.content, PublicContent::Available | PublicContent::Pending))
+    };
     match &v.phase {
         _ if v.closed && a.closed_by_operator() => m::closed_by_operator(),
         _ if v.closed => m::invite_room_closed(),
+        // The players choose the next song (revision 22): how many chose,
+        // the draw's countdown.
+        Phase::Lobby | Phase::Intermission { .. } | Phase::Preparing { window: None, .. }
+            if v.rules.choice == ddi_room::SongChoice::Group
+                && !matches!(v.phase, Phase::Preparing { stage, .. } if picked(stage)) =>
+        {
+            group_doing(a, v)
+        }
         Phase::Lobby => m::audience_doing_lobby(),
         Phase::Preparing { stage, .. } | Phase::Intermission { next: stage } => {
             match (song(*stage), v.stages.iter().find(|s| s.id == *stage).map(|s| s.content)) {
+                // Its song drawn from the players' choices: whose it was.
+                (Some(_), Some(PublicContent::Available | PublicContent::Pending))
+                    if let Some(line) = drawn_line(v, *stage) =>
+                {
+                    line
+                }
                 (Some(song), Some(PublicContent::Available | PublicContent::Pending)) => {
                     m::audience_doing_picked(number(v, *stage), song)
                 }
@@ -278,6 +298,49 @@ fn doing(a: &AudienceClient, v: &PublicView) -> UiText {
         Phase::MatchResults => m::audience_doing_match_over(),
         Phase::Interrupted { .. } => m::audience_doing_stopped(),
     }
+}
+
+/// Under Song choice: Group (revision 22), what the audience is told
+/// while the players choose: the draw's countdown (its seconds on the
+/// room's clock as the seat estimates it, how many chose, who started it),
+/// else how many of the players chose.
+fn group_doing(a: &AudienceClient, v: &PublicView) -> UiText {
+    use crate::state::room::LiveRoom;
+    let stage = match v.phase {
+        Phase::Intermission { next } => Some(next),
+        Phase::Preparing { stage, .. } => Some(stage),
+        _ => v.stages.first().map(|s| s.id),
+    };
+    let n = stage.map_or(1, |st| number(v, st));
+    let chose = v.choices.len();
+    let of = v
+        .players
+        .iter()
+        .filter(|p| !p.left && !p.out_for_match && !matches!(p.kind, PublicKind::Cpu { .. }))
+        .count()
+        .max(chose);
+    match &v.draw {
+        Some(d) => {
+            let seconds = a
+                .room_ms_at(a.now_ms())
+                .map_or(0, |now| d.ends_at.0.saturating_sub(now.0).div_ceil(1000));
+            m::status_draw(seconds, chose, of, UiText::data(player_name(v, d.by)))
+        }
+        None => m::status_group_watching(chose, of, n),
+    }
+}
+
+/// Whose choice stage `stage`'s song was, where the players' draw picked
+/// it (revision 22).
+fn drawn_line(v: &PublicView, stage: ddi_room::StageId) -> Option<UiText> {
+    let d = v.drawn.as_ref().filter(|d| d.stage == stage)?;
+    let won = d.entries.get(usize::from(d.winner))?;
+    let chart = UiText::data(format!("{} {}", won.card.difficulty, won.card.meter));
+    Some(m::draw_won(
+        UiText::data(player_name(v, won.participant)),
+        UiText::data(&won.card.title),
+        chart,
+    ))
 }
 
 /// The song the room picked for the stage it is on, as the page shows
@@ -1339,6 +1402,35 @@ mod tests {
     fn the_audience_sees_a_cpu_at_the_level_the_members_see() {
         let levels: Vec<Option<u8>> = player_rows(&view()).iter().map(|r| r.level).collect();
         assert_eq!(levels, [None, Some(1), Some(5), Some(10)]);
+    }
+
+    /// Round RL4 (revision 22): a stage whose song the players' draw
+    /// picked says whose choice it was, as the members' reveal does.
+    #[test]
+    fn the_audience_is_told_whose_choice_was_drawn() {
+        use ddi_room::audience::public::{PublicChoice, PublicDrawn};
+        let mut v = view();
+        let stage = v.stages[0].id;
+        assert!(drawn_line(&v, stage).is_none());
+        let card = |title: &str| ddi_room::ContentCard {
+            title: title.into(),
+            difficulty: "Hard".into(),
+            meter: 9,
+            ..Default::default()
+        };
+        v.drawn = Some(PublicDrawn {
+            stage,
+            entries: vec![
+                PublicChoice { participant: ParticipantId(1), card: card("Beatucada") },
+                PublicChoice { participant: ParticipantId(5), card: card("Sweeteners") },
+            ],
+            winner: 1,
+            at: ddi_room::Millis(0),
+        });
+        assert_eq!(
+            String::from(drawn_line(&v, stage).unwrap()),
+            "dan's choice: Sweeteners · Hard 9"
+        );
     }
 
     /// ui-screens-11: the count is of the players listed, not of those
