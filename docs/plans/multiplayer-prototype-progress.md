@@ -13834,6 +13834,81 @@ any revision.
 - The privacy note's words for this stage are a commit of their own,
   the last of the round.
 
+## Round TW7: the live Twitch chat available to players (no change to the room model, 2026-11-21)
+
+`docs/plans/multiplayer-twitch.md`, "Round TW7". The maintainer, after
+their own run: "I think we should make it available by default, we
+could keep a dev option to override which channel's chat it connects
+to"; then: "singleplayer should never require online connectivity, the
+chat/emotes background should be purely an optional multiplayer
+feature."
+
+- **Players**: Options → Display's "Twitch chat in rooms" and Host
+  options' "Show my Twitch chat" show to everyone, both Off by default
+  (the testing switch removed; the scripted chat's line is
+  `scripted_ceiling`, TESTING ONLY). The chat shows only in an online
+  room's stage; CPU practice and singleplayer show none and make no
+  request for it (a fresh singleplayer session with both options on,
+  Options, song select, a play and its results walked in Chrome and
+  Firefox: 0 requests to the API, 0 off the page's files, no socket).
+  Turning the option on while not signed in only saves it.
+- **When it cannot run**: the option's row and, once, a room's status
+  line say what to do where the access lacks the chat's permission; a
+  stage whose chat could not show says why in one line under its
+  standings (`ddi_chat::live::Trouble`: the access, Twitch refusing, the
+  channel gone, the connection failing, and TESTING ONLY a named channel
+  refused); never during a play.
+- **The development override** (TESTING ONLY): `--mp-dev-chat
+  live:<login>` / `mpfakechat=live:<login>`, that channel's chat in solo
+  plays, CPU practice's stages and in an online room's stage on this
+  device in the room's channel's place; the server's own route takes
+  `channel` for `ADMIN_TWITCH_IDS` alone (`403 channel_not_allowed`,
+  `400 bad_channel`, `404 no_such_channel`), found with Get Users.
+  `--mp-dev-chat live` and the scripted chats keep playing in solo plays
+  (testing only).
+- **The report kept**: desktop also writes the `[ddi-chat]` lines to the
+  data folder's `chat-report.txt`, replaced each run.
+- **The privacy note**: round TW6's approved paragraph on what a device
+  showing a host's chat connects to, in `site/privacy.html` (both
+  languages) and the Credits' Privacy fold, the note dated 2026-11-21; in
+  the Twitch access paragraph "or your channel's chat" became "or chat"
+  (a player reads a host's chat with their own access).
+- **Verified by the maintainer's run (2026-11-21)**: the subscription
+  binds to the game's socket, the four types under `user:read:chat` with
+  our body (202, enabled), cost 0 and 0 of 10, the 10 s keep-alive, a
+  message's and a clear's shapes, the providers' channel and global sets
+  read directly on desktop (FrankerFaceZ's animated flag too), animated
+  images, desktop's TLS to Twitch. Still unverified: a delete and a
+  user's clear, Twitch's reconnect and a silent socket, the web's sockets
+  and cross-origin reads, Twitch's globals through our route, a channel
+  without a third-party set, several devices of one person, a room's
+  route with several members, Get Users against Twitch.
+- **Server** (`../ddi-server`, `tw7`): the own route's `channel`, Get
+  Users on `barbed`'s types, the fake Twitch's channels, the answer's
+  `channel_id`; nothing to set.
+- **Validated**: suites chat, session, shell, ui, theme and the web's
+  routes 1,408 passed, 0 failed; desktop 410 passed, 0 failed (23
+  ignored; `live_chat_offscreen` also with `DDI_NO_GPU=1`); the server's
+  workspace and `--features dev-auth` all passed, its clippy native and
+  wasm with and without `dev-auth`, its format; clippy native and wasm;
+  `l10n check`; a release build's `check-boot` (12419 of 12552 bytes
+  gzipped). Walked in Chrome and Firefox on a local server (its fake
+  Twitch, a scratch configuration) and a local fake EventSub socket
+  (`target/scratch/mp/tw7/walks/`): a fresh singleplayer session (the
+  rows Off, turned on, song select, a play, its results: no request to
+  the API, none off the page, no socket), an online room (the host's
+  Show my Twitch chat on, a guest with the permission seeing the chat in
+  the stage, a guest without it told on the status line and on the
+  stage's results), the override in a solo play and CPU practice (an
+  administrator's busy channel shown; another person's refused, the
+  results saying so) and the route's answers (`route.mjs`); desktop
+  offscreen (`live_chat_offscreen`). Pictures in
+  `target/scratch/mp/tw7/shots/`.
+- **Deploy**: the server first, then the
+  game (a game asking for a named channel of an older server gets its
+  own channel's chat, without third-party emotes; nothing else depends on the order). The room
+  model's revision is unchanged.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

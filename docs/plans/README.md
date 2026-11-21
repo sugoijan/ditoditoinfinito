@@ -78,11 +78,14 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   documentation and `barbed` and verified by the maintainer's own run
   (the server's subscribe route, each shell's own EventSub socket over a
   pure state machine, the channel's emote sets, the development script
-  `--mp-dev-chat live` / `mpfakechat=live`, the run's report), still
-  behind the testing switch; the layer drawn over the dancing hand.
-  The Twitch client is
-  unverified until the maintainer's spike, and the chat's transports wait
-  for it. A streaming host's Twitch bans and blocks
+  `--mp-dev-chat live` / `mpfakechat=live`, the run's report); the layer
+  drawn over the dancing hand; round TW7 (2026-11-21), after the
+  maintainer's run verified the connection on desktop, the chat
+  available to players as a multiplayer feature alone (both options Off
+  by default, none and no connection in singleplayer, one quiet line
+  where it cannot run), the development override of the channel for
+  administrators (`live:<login>`), the run's report kept in a file on
+  desktop and the privacy note's paragraph. A streaming host's Twitch bans and blocks
   keeping people out of the room (the host's token on the server, checked
   at join, ticket and each pick; room model revision 18), a host's or
   co-host's Kick behind a Moderate toggle, and the host's chat behind

@@ -8,9 +8,11 @@ Twitch ("T1 and T2" below, and its section at the end); round TW3 joined
 the two and walked them on a local server (its section at the end).
 Round TW6 (2026-11-21) built the chat's transports and its subscribe
 route from Twitch's documentation and `barbed` without the spike, the
-maintainer's own run being their verification ("Round TW6" at the end);
-until it has run, the chat's rows and the live chat stay behind the
-testing switch. The maintainer answered
+maintainer's own run being their verification ("Round TW6" at the end).
+The maintainer ran it on their own channel the same day; since round TW7
+(2026-11-21) the chat is available to players, a multiplayer feature
+alone, both options Off by default ("Round TW7" at the end, with what the
+run verified and what it did not). The maintainer answered
 the design round's ten questions and the three that followed from them
 the same day; they are listed under "The maintainer's answers", and
 where an answer differed from the proposal the answer won.
@@ -1365,3 +1367,169 @@ providers' channel answers (`/v3/users/twitch/<id>`,
 channel without a set; Twitch's reconnect and keep-alive in practice; the
 desktop's TLS handshake to `eventsub.wss.twitch.tv`.
 
+## Round TW7 (2026-11-21): available to players, a multiplayer feature alone
+
+The maintainer, after running the live chat on their own channel: "I
+just tested it and it seems to work. I think we should make it available
+by default, we could keep a dev option to override which channel's chat
+it connects to, so I can test with a busy channel." And the same day:
+"we shouldn't show emotes on singlplayer plays, only on multiplayer
+plays", then "For testing and under a flag it's fine. But singleplayer
+should never require online connectivity, the chat/emotes background
+should be purely an optional multiplayer feature."
+
+**What a player has now.** Options → Display's "Twitch chat in rooms"
+(and under it, while on, Chat style, Chatter names, Emotes from, Chat
+opacity) and Host options' "Show my Twitch chat" show to everyone, both
+Off by default; the testing switch (`chat_rows_shown`, `chat_testing`)
+is gone, and the scripted chat's line is `scripted_ceiling` (TESTING
+ONLY). The chat shows only in an online room's stage, where the host's
+"Show my Twitch chat" and the device's option are both on, never more
+than the host allows (C1): the room's channel through the room's route.
+CPU practice has no host's Twitch and shows none; a singleplayer play
+shows none, opens no socket and makes no request for it, whatever the
+options say (`ChatConfig::under_room`: a play outside a stage reads only
+the development script's channel). Turning the option on where the
+device is not signed in (singleplayer, or multiplayer not opened this
+session) only saves it: nothing is asked of our server or Twitch; signed
+in without the chat's permission it takes the trip through Twitch as
+before (C1, round TW3). The words: the option's description says what it
+shows, whose chat, that the host chooses, never in singleplayer, the
+permission and where it is disconnected; Host options has a line under
+its Twitch rows saying what "Show my Twitch chat" does and that each
+player turns it on for their own device; Options → Data's Twitch access
+says a player connects it to see a host's chat. (C14 and step 4, a
+streamer's own chat in singleplayer, are set aside by the maintainer's
+rule: singleplayer never needs the network for this.)
+
+**When it cannot run** (`ddi_chat::live::Trouble`, said once and quietly,
+never during a play):
+
+- The device's access does not allow reading chat (never allowed,
+  disconnected, ended by Twitch): the option's row says "Your Twitch
+  access does not allow reading chat, so no chat shows. Turn this Off and
+  on again to allow it on Twitch." (where the online state last read the
+  access, never read for the asking), and in a room that shows chat the
+  status line says once "To see the host's chat, turn Twitch chat in
+  rooms Off and on." (`LinkNotice::TwitchChatNoAccess`).
+- After a stage whose chat could not show, one line under the stage's
+  standings (`StageOutcome::chat`, `RoomClient::set_chat_trouble`,
+  `StageTable::chat`), by why the connection gave up: the access ("…your
+  Twitch access does not allow reading chat. Turn Twitch chat in rooms
+  (Options → Display) Off and on again to allow it."), Twitch refusing
+  the reader (its 403 or its limits, or a revocation other than the two
+  below), the channel gone (a revocation `user_removed`, or a named
+  channel Twitch does not know), the connection failing (losses in a row,
+  or never live), and, TESTING ONLY, a named channel refused to someone
+  who is no administrator. A room's own change (its chat turned off, the
+  player no member) says nothing.
+
+**The development override of the channel** (TESTING ONLY): desktop's
+`--mp-dev-chat live:<login>` and the web's `mpfakechat=live:<login>` show
+that channel's live chat wherever the live flag plays (solo plays, CPU
+practice's stages) and in an online room's stage in the room's channel's
+place on this device alone (`RoomChat::on_this_device`; never what the
+room or its other members see, never a way to make a room show another
+channel). It is read with the signed-in person's own access through
+`POST <api>/me/chat/subscribe {session_id, messages, channel}`, which our
+server allows only for `ADMIN_TWITCH_IDS` people (`403
+channel_not_allowed` for anyone else, `400 bad_channel`, `404
+no_such_channel`), the login found with Get Users (`barbed`'s
+`users::GetUsersRequest`, the checks' 2 s deadline); its answer names the
+channel (`channel`, `channel_id`), whose emote sets are then read. The
+report's first line names the channel and its route; a line names its
+Twitch id once our server found it. Plain `live` stays the person's own
+channel.
+
+**The run's report kept**: desktop writes the `[ddi-chat]` lines into the
+data folder's `chat-report.txt` too (replaced by the first live chat of
+each run of the app, every play's lines after it, the same redacted
+lines, 1 MB at most), and says where on stderr; so the next run's report
+can be sent later.
+
+### Verified by the maintainer's run on 2026-11-21
+
+Desktop, their own channel, `--mp-dev-chat live`, a solo play; the log
+they pasted:
+
+```
+[ddi-chat] +0 ms live-chat-v0: connecting to eventsub.wss.twitch.tv
+[ddi-chat] +599 ms socket 1: open in 599 ms
+[ddi-chat] +599 ms socket 1: welcomed in 599 ms (keepalive 10 s as Twitch stated it)
+[ddi-chat] +1423 ms subscribed channel.chat.message: enabled (HTTP 202, status enabled, cost 0, total 1, total cost 0 of 10)
+[ddi-chat] +1423 ms subscribed channel.chat.message_delete: enabled (HTTP 202, status enabled, cost 0, total 1, total cost 0 of 10)
+[ddi-chat] +1423 ms subscribed channel.chat.clear_user_messages: enabled (HTTP 202, status enabled, cost 0, total 1, total cost 0 of 10)
+[ddi-chat] +1423 ms subscribed channel.chat.clear: enabled (HTTP 202, status enabled, cost 0, total 1, total cost 0 of 10)
+[ddi-chat] +1423 ms socket 1: live, subscribed 824 ms after the welcome
+[ddi-chat] emotes 7tv channel: read direct (1 emotes, 1 animated)
+[ddi-chat] emotes 7tv global: read direct (42 emotes, 18 animated)
+[ddi-chat] emotes bttv channel: read direct (1 emotes, 1 animated)
+[ddi-chat] emotes bttv global: read direct (56 emotes, 1 animated)
+[ddi-chat] emotes ffz channel: read direct (3 emotes, 2 animated)
+[ddi-chat] emotes ffz global: read direct (9 emotes, 0 animated)
+[ddi-chat] +108848 ms stopped
+[ddi-chat] received 13 frames: 1 chat messages, 0 deletes, 0 user clears, 1 clears, 0 other; 10 keepalives, 0 duplicates, 0 not understood
+[ddi-chat] shown: 8 items from 1 messages; left out 0 (commands 0, links 0, cheers 0, shared chat 0, nothing to show 0); dropped: screen full 0, 20 a second 0, a chatter's 2 s 0, frames late 0, no room 0, no image 0; taken off by moderation 0; emotes past eight 2
+[ddi-chat] images: 8 ready (8 animated), 0 in flight, 0 failed, 0 hosts through our proxy
+```
+
+What it verifies, each taken off round TW6's unverified list:
+
+- A subscription our server makes binds to the socket the game opened (a
+  message and a clear arrived on it).
+- All four types are accepted with the one `user:read:chat` access, the
+  three moderation types included, and Twitch takes the request body as
+  we send it, without the `null`s (HTTP 202, `enabled`).
+- Each costs 0, the total cost 0 of 10.
+- Twitch states a keep-alive of 10 s.
+- A real chat message's shape and a clear's are understood (0 not
+  understood).
+- The three providers' channel and global sets are read directly from
+  desktop (`/v3/users/twitch/<id>`, `/3/cached/users/twitch/<id>`,
+  `/v1/room/id/<id>` and the globals), FrankerFaceZ's `animated` reading
+  included (2 animated in the channel's set).
+- Animated images decode (8 of 8 ready, all animated).
+- Desktop's TLS handshake to `eventsub.wss.twitch.tv` works.
+
+Also from it: one message brought ten emotes, eight were drawn and two
+cut by the per-message cap (`chat-overlay-v1`'s eight, "emotes past
+eight 2"), as designed.
+
+**"total 1" on each of the four lines.** Twitch's `total` is the number
+of subscriptions the token has made, as the create call answering it
+counted them. Our server makes the four calls at once (round TW6), so
+each was most likely answered before the others were recorded, and each
+says 1: it is each call's own count, not four in all (one device, one
+socket). The line prints each answer as Twitch gave it; it would read
+more plainly as "total 1 at this call", a one-word change left for the
+maintainer so this run's lines stay comparable with the next.
+
+### Still unverified (no report has said them yet)
+
+- A delete and a user's clear in practice (none arrived in the run).
+- Twitch's reconnect message and a silent socket, in practice.
+- The web shell's sockets and its cross-origin reads of the providers
+  (and the proxy's fallback where one fails).
+- Twitch's global emotes through our server's route.
+- A channel with no third-party set (the providers' 404).
+- More than one device of one person (Twitch's three sockets).
+- A room's route with several members.
+- The named channel's Get Users lookup against Twitch (round TW7; the
+  fake Twitch answers it locally).
+
+Built and checked without Twitch: the rows shown to everyone and both
+Off by default; a singleplayer play with every option on building no
+layer and opening no socket (`a_singleplayer_play_shows_no_live_chat_whatever_the_options`,
+and in the browsers every request of a fresh singleplayer session with
+both options turned on recorded: none to our server's API or beyond the
+page's files, no socket); each trouble from each refusal, answer and
+revocation (`each_failure_is_one_trouble_for_the_player`); the results'
+line (`with_attacks_the_lines_count_them_and_the_player_s_battle_is_summed_up`);
+the room's notice (`a_player_whose_access_cannot_show_the_chat_is_told_once`);
+the named channel through the session (`a_named_channel_is_asked_for_by_its_login`)
+and the server (`a_channel_is_found_by_its_login`,
+`the_fake_link_finds_a_channel_or_says_why_not`); the report file
+(`the_live_chat_runs_over_desktops_sockets`,
+`the_report_file_is_replaced_and_bounded`). Walked in Chrome and Firefox
+on a local server and a local fake EventSub socket (round TW7's
+`target/scratch/mp/tw7/walks/tw7.mjs`, `route.mjs`).

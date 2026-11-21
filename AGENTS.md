@@ -943,17 +943,24 @@ Rust and the browser are implementation details, not advertised features.
   `docs/plans/multiplayer-twitch.md`, part C): its source advanced on
   the host's clock in the session's tick, never judged, logged or
   replayed, `PlaySession::chat`; its sources the scripted chat (TESTING
-  ONLY, `chat::set_scripted`, which is also the testing switch,
-  `ddi_ui::state::twitch::chat_testing`) and since round TW6 the live
-  chat (`ChatSource::Live`: `ddi_chat::live`'s connection driven in the
+  ONLY, `chat::set_scripted`, its line
+  `ddi_ui::state::twitch::scripted_ceiling`) and since round TW6 the live chat
+  (`ChatSource::Live`: `ddi_chat::live`'s connection driven in the
   tick over a shell's `LiveIo`, installed by `chat::set_live`, the
-  channel's emote sets, from the play's start to its end; a room's
-  stage the room's channel through `POST <api>/rooms/<id>/chat/subscribe`
-  (`RoomChat::room`), outside a room only the development script's own
-  channel, `ddi_ui::state::twitch::set_live_own`, through `POST
-  <api>/me/chat/subscribe`; only while `chat_rows_shown`, the testing
-  switch until the maintainer's run verified it; `ChatLayer::live_report`,
-  and the report's lines through `LiveIo::report`), where Options →
+  channel's emote sets, from the play's start to its end; every
+  player's since round TW7, a multiplayer feature alone: an online
+  room's stage the room's channel through `POST <api>/rooms/<id>/chat/subscribe`
+  (`RoomChat::room`), a singleplayer play and CPU practice none and no
+  connection for it; only the development script,
+  `ddi_ui::state::twitch::set_dev_live` (one's own channel, or with
+  `live:<login>` a named one, `DevLive::Channel`, also in an online
+  stage's room's channel's place on that device,
+  `RoomChat::on_this_device`), gives solo plays and practice one,
+  through `POST <api>/me/chat/subscribe` (a named channel's `channel`,
+  administrators only); `ChatLayer::live_report`, the report's lines
+  through `LiveIo::report`, and why it could not show,
+  `ChatLayer::trouble`, `ddi_chat::live::Trouble`, one quiet line on
+  the stage's results, `StageOutcome::chat`), where Options →
   Display's "Twitch chat in rooms" is on; `chat::room_ceiling` the one
   answer to the room's ceiling: in a room's stage the room's own
   (`RoomState::twitch`'s chat, carried by `StageSetup::chat`, a
@@ -2316,14 +2323,17 @@ Rust and the browser are implementation details, not advertised features.
   from that beat, as `mpdevmines=BEAT`; TESTING ONLY, `--mp-dev-chat
   FILE|NAME`, a scripted chat beside every play where Options →
   Display's Twitch chat in rooms is on, as the web's `mpfakechat`,
-  `ddi_chat::script`; it is the testing switch that shows the chat's
-  rows, Options → Display's and Host options' Show my Twitch chat,
-  hidden otherwise until the maintainer has verified the live chat,
-  `ddi_ui::state::twitch::chat_testing`; CPU practice's stages take its
-  line as their room's ceiling; `--mp-dev-chat live`, round TW6, the
-  live chat's development script: the signed-in person's own channel's
-  chat in every play outside a room, through a room's code, the testing
-  switch on, its lines on stderr led by `[ddi-chat]`; TESTING ONLY,
+  `ddi_chat::script`; CPU practice's stages take its line as their
+  room's ceiling (the chat's rows show to everyone since round TW7);
+  `--mp-dev-chat live`, round TW6, the live chat's development script:
+  the signed-in person's own channel's chat in solo plays and CPU
+  practice's stages, through a room's code, its lines on stderr led by
+  `[ddi-chat]` and, since round TW7, in the data folder's
+  `chat-report.txt` (replaced each run; `chat::report_into`);
+  `--mp-dev-chat live:LOGIN`, round TW7, that channel's chat there and
+  in an online room's stage in the room's channel's place on this
+  device, as the web's `mpfakechat=live:LOGIN` (our server allows it
+  for administrators only); TESTING ONLY,
   `--mp-dev-chat-socket URL` a local fake EventSub socket in Twitch's
   place, `--mp-dev-chat-at BASE` the providers' addresses from a local
   base, `--mp-dev-chat-record DIR` every raw socket frame written
