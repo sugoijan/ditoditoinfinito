@@ -700,3 +700,29 @@ fn a_full_list_of_chosen_songs_refuses_an_addition() {
     g.r.by(host, Command::AddSong { song: Box::new(new_song(9)) }).unwrap();
     assert!(g.r.s.songs.get(g.ids[0]).is_none(), "the oldest not chosen went");
 }
+
+/// Round RL4b: Repeats counts what was played or is picked, never a pick
+/// whose start was called off: a drawn song whose stage a host canceled
+/// may be chosen again for that same stage under Not in a match and Not
+/// in a row, while the stage before it stays excluded under Not in a row.
+#[test]
+fn repeats_pass_over_a_canceled_start() {
+    for repeats in [Repeats::NotInAMatch, Repeats::NotInARow] {
+        let mut g = group(repeats, 3);
+        let (host, ana) = (g.r.host, g.ana);
+        g.choose(host, 1).unwrap();
+        g.draw(0);
+        g.play();
+        // Stage 2: song 2 drawn, then its start canceled by the host.
+        g.choose(host, 2).unwrap();
+        g.draw(0);
+        let stage = g.r.s.upcoming_stage().unwrap();
+        g.r.by(host, Command::CancelStart { stage }).unwrap();
+        assert!(matches!(g.r.s.phase, Phase::Preparing { window: None, .. }));
+        assert_eq!(g.r.s.choosing_for(), Some(stage));
+        let excluded = g.r.s.excluded_songs().1;
+        assert!(!excluded.contains(&g.ids[1]), "{repeats:?}: the canceled pick was never played");
+        assert!(excluded.contains(&g.ids[0]), "{repeats:?}: stage 1's song");
+        g.choose(ana, 2).unwrap();
+    }
+}
