@@ -614,12 +614,13 @@ fn a_match_stopped_during_the_countdown_takes_the_choices_with_it() {
     g.choose(host, 3).unwrap();
     assert!(g.r.s.draw.is_some());
     let events = g.r.by(host, Command::StopMatch).unwrap();
-    for who in [host, ana] {
+    // Ana is told why; the host, who stopped it, knows.
+    for (who, why) in [(host, None), (ana, Some(ChoiceGone::Stage))] {
         assert!(
             events.contains(&Event::ChoiceChanged {
                 participant: who,
                 choice: None,
-                why: Some(ChoiceGone::Stage),
+                why,
             }),
             "{events:?}"
         );
@@ -667,12 +668,15 @@ fn a_choice_the_room_takes_away_says_why() {
         why: Some(ChoiceGone::Repeats),
     }));
     assert_eq!(g.chosen(bob), Some(g.ids[1]), "Bob's song was not played");
+    g.choose(host, 3).unwrap();
     let events = change(&mut g, &|p| p.choice = SongChoice::Host);
     assert!(events.contains(&Event::ChoiceChanged {
         participant: bob,
         choice: None,
         why: Some(ChoiceGone::Host),
     }));
+    // The host's own change takes the host's choice without a why.
+    assert!(events.contains(&Event::ChoiceChanged { participant: host, choice: None, why: None }));
 }
 
 /// Round RL4b: a full list whose every song somebody chose takes no new

@@ -40,7 +40,13 @@ impl RoomState {
         work.settle_host(&mut out);
         work.seat_newcomers(&mut out);
         work.maybe_commit(now, &mut out);
-        work.settle_choices(now, &mut out);
+        // A choice the room takes from the sender of the change is theirs
+        // to know of: said to the others only (round RL4b).
+        let by = match actor {
+            Actor::Member(id) => Some(id),
+            Actor::Authority => None,
+        };
+        work.settle_choices(now, by, &mut out);
         if !out.is_empty() {
             work.revision = work.revision.next();
             *self = work;
@@ -57,7 +63,7 @@ impl RoomState {
             return out;
         }
         self.tick(now, &mut out);
-        self.settle_choices(now, &mut out);
+        self.settle_choices(now, None, &mut out);
         if !out.is_empty() {
             self.revision = self.revision.next();
         }
@@ -1258,8 +1264,9 @@ impl RoomState {
     /// any more); a countdown whose choices all went, or whose stage the
     /// room can no longer pick by the group, is canceled; and where none
     /// runs, a host's or co-host's own choice opens one, if a draw now
-    /// could pick ([`RoomState::draw_refusal`]).
-    fn settle_choices(&mut self, now: Millis, out: &mut Vec<Event>) {
+    /// could pick ([`RoomState::draw_refusal`]). `by`: who sent the change
+    /// (a member's command), whose own choice taken away says no why.
+    fn settle_choices(&mut self, now: Millis, by: Option<ParticipantId>, out: &mut Vec<Event>) {
         use crate::choice::{ChoiceGone, DRAW_V0, Draw, DrawEnd};
         if self.closed.is_some() || (self.choices.is_empty() && self.draw.is_none()) {
             return;
@@ -1296,7 +1303,7 @@ impl RoomState {
                 } else {
                     return None;
                 };
-                Some((*id, why))
+                Some((*id, why.filter(|_| by != Some(*id))))
             })
             .collect();
         for (participant, why) in gone {
@@ -1340,7 +1347,7 @@ impl RoomState {
                         Event::ChoiceChanged {
                             participant,
                             choice: None,
-                            why: Some(ChoiceGone::Stage),
+                            why: (by != Some(participant)).then_some(ChoiceGone::Stage),
                         },
                     );
                 }
