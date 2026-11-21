@@ -1,7 +1,10 @@
 //! The room's song list (room model revision 17, round RL1), through the
 //! reducer: adding (the hosts), the same song twice, removing, a full list
 //! under both rules, a person's share of it, uploads done and failed, an
-//! adder gone, a pick from the list and a room stored by revision 16.
+//! adder gone, a pick from the list and a room stored by revision 16; and
+//! Who can add songs (revision 21, round RL3): everyone adding, their
+//! half, their own songs removed, a full list under both rules, the
+//! setting turned back, a kicked adder and a room stored by revision 20.
 //! Every revision's events are applied to a mirror, which must stay equal.
 
 mod common;
@@ -528,6 +531,267 @@ fn a_room_stored_by_revision_18_keeps_its_bundled_entry_playable() {
         .unwrap();
     let added = state.songs.entries.last().unwrap();
     assert!(!added.bundled && added.status == ContentStatus::Pending);
+}
+
+/// Round RL3 (revision 21): Who can add songs. Hosts by default: a member
+/// is refused and the setting is the owner's alone (a co-host is refused
+/// it). Everyone: every person in the room adds (one who plays, one who
+/// chose to watch, a bot), never one held to watching by the watch-only
+/// link; each who is not a host up to half the list's size, hosts and
+/// co-hosts exempt; the client's question (`add_refusal`) is the
+/// reducer's answer.
+#[test]
+fn everyone_adds_up_to_half_the_list_when_the_host_lets_them() {
+    let mut r = online();
+    let host = r.host;
+    let cy = r.cohost("cy");
+    let ana = r.join_as("ana", Intent::Play, false).unwrap();
+    let wes = r.join_as("wes", Intent::Watch, false).unwrap();
+    let bot = {
+        let identity = Identity::new("bot:beep");
+        r.sys(Command::Join {
+            identity: identity.clone(),
+            name: "Beep".into(),
+            admin: false,
+            intent: Intent::Play,
+        })
+        .unwrap();
+        r.s.member_by_identity(&identity).unwrap().id
+    };
+    let fan = r.join_as("fan", Intent::Watch, false).unwrap();
+    r.sys(Command::SetWatchOnly { participant: fan, on: true }).unwrap();
+    assert_eq!(r.s.songs.who_adds, WhoAdds::Hosts);
+    let hosts_only = Rejection::Unauthorized {
+        capability: Capability::AddSongs,
+    };
+    assert_eq!(r.add(ana, 1), Err(hosts_only.clone()));
+    assert_eq!(r.s.add_refusal(ana, Some(&new_song(1))), Some(hosts_only.clone()));
+    // The owner's setting, as the list's size is.
+    assert_eq!(
+        r.by(cy, Command::SetWhoAdds { who: WhoAdds::Everyone }),
+        Err(Rejection::Unauthorized {
+            capability: Capability::ChangeAccess
+        })
+    );
+    let events = r.by(host, Command::SetWhoAdds { who: WhoAdds::Everyone }).unwrap();
+    assert_eq!(events, [Event::WhoAddsChanged { who: WhoAdds::Everyone }]);
+    assert_eq!(r.s.songs.changed_at, r.s.revision, "the list's row is written");
+    // The same again changes nothing.
+    let rev = r.s.revision;
+    assert_eq!(r.by(host, Command::SetWhoAdds { who: WhoAdds::Everyone }).unwrap(), []);
+    assert_eq!(r.s.revision, rev);
+    for who in [host, cy, ana, wes, bot] {
+        assert!(r.s.may_add(who), "{who:?} may add");
+    }
+    assert!(!r.s.may_add(fan), "held to watching by the watch-only link");
+    assert_eq!(r.add(fan, 9), Err(hosts_only));
+    // Half a list of six: three each, hosts exempt.
+    r.by(
+        host,
+        Command::SetSongList {
+            rules: ListRules {
+                size: 6,
+                when_full: WhenFull::Refuse,
+            },
+        },
+    )
+    .unwrap();
+    assert_eq!([host, cy, ana, wes].map(|w| r.s.song_quota(w)), [None, None, Some(3), Some(3)]);
+    for n in 1..=3 {
+        r.add(ana, n).unwrap();
+    }
+    assert_eq!(r.listed(1).unwrap().by, ana);
+    assert_eq!(r.s.add_refusal(ana, Some(&new_song(4))), Some(Rejection::TooManySongs { limit: 3 }));
+    assert_eq!(r.add(ana, 4), Err(Rejection::TooManySongs { limit: 3 }));
+    // Without a song: what the screens ask (the half reached, the list full).
+    assert_eq!(r.s.add_refusal(ana, None), Some(Rejection::TooManySongs { limit: 3 }));
+    assert_eq!(r.s.add_refusal(wes, None), None);
+    r.add(wes, 4).unwrap();
+    r.add(bot, 5).unwrap();
+    r.add(cy, 6).unwrap();
+    // Full and refusing: everyone is refused, a host too.
+    for who in [host, cy, wes] {
+        assert_eq!(r.s.add_refusal(who, Some(&new_song(7))), Some(Rejection::ListFull));
+        assert_eq!(r.add(who, 7), Err(Rejection::ListFull));
+    }
+    assert_eq!(r.s.songs.len(), 6);
+}
+
+/// Under Everyone a person removes what they added (not while a stage not
+/// yet over names it) and no one else's; a host or a co-host removes
+/// anyone's.
+#[test]
+fn an_adder_removes_their_own_songs_and_a_host_anyones() {
+    let mut r = online();
+    let host = r.host;
+    let cy = r.cohost("cy");
+    let ana = r.join_as("ana", Intent::Play, false).unwrap();
+    let bo = r.join_as("bo", Intent::Play, false).unwrap();
+    r.by(host, Command::SetWhoAdds { who: WhoAdds::Everyone }).unwrap();
+    let a1 = r.add(ana, 1).unwrap();
+    let a2 = r.add(ana, 2).unwrap();
+    let b3 = r.add(bo, 3).unwrap();
+    let h4 = r.add(host, 4).unwrap();
+    for id in [a1, a2, b3, h4] {
+        r.uploaded(id);
+    }
+    let not_yours = Err(Rejection::Unauthorized {
+        capability: Capability::AddSongs,
+    });
+    assert_eq!(r.by(ana, Command::RemoveSong { song: b3 }), not_yours);
+    assert_eq!(r.by(ana, Command::RemoveSong { song: h4 }), not_yours);
+    // Her own, picked: in use until its stage is over.
+    r.by(host, Command::PickListed { song: a2, chart: chart_line(2, 0).chart }).unwrap();
+    assert_eq!(r.by(ana, Command::RemoveSong { song: a2 }), Err(Rejection::SongInUse));
+    let events = r.by(ana, Command::RemoveSong { song: a1 }).unwrap();
+    assert_eq!(
+        events,
+        [Event::SongRemoved {
+            song: a1,
+            why: Removal::Removed,
+            share: Some("share001".into()),
+        }]
+    );
+    // A co-host removes a member's song.
+    r.by(cy, Command::RemoveSong { song: b3 }).unwrap();
+    assert_eq!(r.keys(), ["Song 2", "Song 4"]);
+}
+
+/// A full list under Remove the oldest, the adder not a host: the oldest
+/// song no stage names goes, whoever added it (the simplest rule: one who
+/// is not a host is refused at their half before anything goes, so they
+/// push out at most half the list); at their half nothing is removed.
+#[test]
+fn a_full_list_makes_room_for_an_adder_until_their_half() {
+    let mut r = online();
+    let host = r.host;
+    let ana = r.join_as("ana", Intent::Play, false).unwrap();
+    r.by(host, Command::SetWhoAdds { who: WhoAdds::Everyone }).unwrap();
+    r.by(
+        host,
+        Command::SetSongList {
+            rules: ListRules {
+                size: 4,
+                when_full: WhenFull::RemoveOldest,
+            },
+        },
+    )
+    .unwrap();
+    for n in 1..=4 {
+        let id = r.add(host, n).unwrap();
+        r.uploaded(id);
+    }
+    // Song 1 picked: in use, so Song 2 goes for Ana's first.
+    r.by(host, Command::PickListed { song: RoomSongId(1), chart: chart_line(1, 0).chart }).unwrap();
+    let events = r.by(ana, Command::AddSong { song: Box::new(new_song(5)) }).unwrap();
+    assert_eq!(
+        events[0],
+        Event::SongRemoved {
+            song: RoomSongId(2),
+            why: Removal::ListFull,
+            share: Some("share002".into()),
+        }
+    );
+    r.add(ana, 6).unwrap();
+    assert_eq!(r.keys(), ["Song 1", "Song 4", "Song 5", "Song 6"]);
+    // At her half (two): refused, nothing removed.
+    let rev = r.s.revision;
+    assert_eq!(r.add(ana, 7), Err(Rejection::TooManySongs { limit: 2 }));
+    assert_eq!(r.s.revision, rev);
+    assert_eq!(r.keys(), ["Song 1", "Song 4", "Song 5", "Song 6"]);
+}
+
+/// Turned back to Hosts: what is listed stays (an upload under way
+/// finishes and the song is there), new additions are refused, the song a
+/// member added is picked and played as any, and its adder may still
+/// remove it.
+#[test]
+fn back_to_hosts_keeps_what_is_listed() {
+    let mut r = online();
+    let host = r.host;
+    let ana = r.join_as("ana", Intent::Play, false).unwrap();
+    r.by(host, Command::SetWhoAdds { who: WhoAdds::Everyone }).unwrap();
+    let done = r.add(ana, 1).unwrap();
+    r.uploaded(done);
+    let uploading = r.add(ana, 2).unwrap();
+    let events = r.by(host, Command::SetWhoAdds { who: WhoAdds::Hosts }).unwrap();
+    assert_eq!(events, [Event::WhoAddsChanged { who: WhoAdds::Hosts }]);
+    assert_eq!(r.keys(), ["Song 1", "Song 2"]);
+    assert!(!r.s.may_add(ana));
+    assert_eq!(
+        r.add(ana, 3),
+        Err(Rejection::Unauthorized {
+            capability: Capability::AddSongs
+        })
+    );
+    // Her upload under way finishes.
+    r.uploaded(uploading);
+    assert!(r.listed(2).unwrap().available());
+    // Her song picked, readied and started as any.
+    r.by(host, Command::PickListed { song: done, chart: chart_line(1, 1).chart }).unwrap();
+    let stage = r.s.upcoming_stage().unwrap();
+    for p in [host, ana] {
+        r.load_for(p, stage, Loading::Loaded).unwrap();
+        r.ready_for(p, stage, true).unwrap();
+    }
+    assert!(matches!(r.s.phase, Phase::Countdown { .. }));
+    // Her own, not in use: hers to remove still.
+    r.by(ana, Command::RemoveSong { song: uploading }).unwrap();
+    assert_eq!(r.keys(), ["Song 1"]);
+}
+
+/// An adder removed by a host's Kick: their songs that are there stay (the
+/// room's), their upload under way goes with them.
+#[test]
+fn a_kicked_adder_leaves_their_songs_that_are_there() {
+    let mut r = online();
+    let host = r.host;
+    let ana = r.join_as("ana", Intent::Play, false).unwrap();
+    r.by(host, Command::SetWhoAdds { who: WhoAdds::Everyone }).unwrap();
+    let done = r.add(ana, 1).unwrap();
+    r.uploaded(done);
+    let unfinished = r.add(ana, 2).unwrap();
+    let events = r.by(host, Command::Remove { participant: ana }).unwrap();
+    assert!(events.contains(&Event::SongRemoved {
+        song: unfinished,
+        why: Removal::AdderGone,
+        share: None,
+    }));
+    assert_eq!(r.keys(), ["Song 1"]);
+    assert_eq!(r.listed(1).unwrap().by, ana);
+}
+
+/// A room stored by revision 20 (`room-revision-20.json`, written by
+/// revision 20's own reducer: an online room's song list of ten that
+/// refuses when full, two songs of the host's there and one of a co-host's
+/// uploading, one picked; a member and a watcher) reads as Hosts, writes
+/// back what it reads (nothing of the setting), and takes the setting.
+#[test]
+fn a_room_stored_by_revision_20_reads_as_hosts() {
+    let text = include_str!("room-revision-20.json");
+    let mut state: RoomState = serde_json::from_str(text).unwrap();
+    let back = serde_json::to_value(&state).unwrap();
+    assert_eq!(
+        back,
+        serde_json::from_str::<serde_json::Value>(text).unwrap(),
+        "written as it was read"
+    );
+    assert_eq!(state.songs.who_adds, WhoAdds::Hosts);
+    assert!(!text.contains("who_adds"));
+    let host = ParticipantId(1);
+    let ana = state.member_by_identity(&Identity::new("twitch:ana")).unwrap().id;
+    assert!(!state.may_add(ana));
+    state
+        .apply(Actor::Member(host), Some(state.revision), &Command::SetWhoAdds { who: WhoAdds::Everyone }, Millis(80_000))
+        .unwrap();
+    assert!(state.may_add(ana));
+    assert_eq!(state.song_quota(ana), Some(5));
+    state
+        .apply(Actor::Member(ana), Some(state.revision), &Command::AddSong { song: Box::new(new_song(4)) }, Millis(81_000))
+        .unwrap();
+    assert_eq!(state.songs.entries.last().unwrap().by, ana);
+    let written = serde_json::to_value(&state).unwrap();
+    assert_eq!(written["songs"]["who_adds"], "everyone");
 }
 
 /// What a list costs (round RL1's measure, `--ignored --nocapture` in a

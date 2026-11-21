@@ -801,6 +801,95 @@ fn a_host_fills_the_whole_song_list_through_both_authorities() {
     assert_eq!(titles, ["Song 2", "Song 3"]);
 }
 
+/// Round RL3 (revision 21): Who can add songs through both authorities
+/// alike. Under Hosts Bob is refused; Bob may not change the setting;
+/// Alice opens it to Everyone; Bob adds up to his half of a list of four
+/// (two) and is refused a third; he removes his own, not Alice's; Alice
+/// turns it back to Hosts: Bob's songs stay, his next refused.
+#[test]
+fn who_can_add_songs_is_kept_alike_by_both_authorities() {
+    use ddi_room::{RoomSongId, WhoAdds};
+    let song = |n: u8| ddi_room::NewSong {
+        key: SongKey::new(format!("s{n:015x}")),
+        card: ddi_room::SongCard {
+            title: format!("Song {n}"),
+            ..ddi_room::SongCard::default()
+        },
+        charts: vec![ddi_room::ChartLine {
+            chart: ChartKey::new(format!("d{n}")),
+            style: "dance-single".into(),
+            difficulty: "Hard".into(),
+            meter: 9,
+        }],
+    };
+    let add = |n| Command::AddSong {
+        song: Box::new(song(n)),
+    };
+    let who = |who| Command::SetWhoAdds { who };
+    let remove = |id| Command::RemoveSong {
+        song: RoomSongId(id),
+    };
+    let steps = vec![
+        Step::Connect("dev:alice"),
+        Step::Join("dev:bob", "Bob"),
+        Step::Connect("dev:bob"),
+        Step::Cmd(
+            "dev:alice",
+            Command::SetSongList {
+                rules: ddi_room::ListRules {
+                    size: 4,
+                    when_full: ddi_room::WhenFull::Refuse,
+                },
+            },
+        ),
+        Step::Cmd("dev:bob", add(1)),
+        Step::Cmd("dev:bob", who(WhoAdds::Everyone)),
+        Step::Cmd("dev:alice", who(WhoAdds::Everyone)),
+        Step::Cmd("dev:alice", add(1)),
+        Step::Cmd("dev:bob", add(2)),
+        Step::Cmd("dev:bob", add(3)),
+        Step::Cmd("dev:bob", add(4)),
+        Step::Cmd("dev:bob", remove(1)),
+        Step::Cmd("dev:bob", remove(2)),
+        Step::Cmd("dev:alice", who(WhoAdds::Hosts)),
+        Step::Cmd("dev:bob", add(5)),
+    ];
+    let (local, local_answers) = run_local(&steps);
+    let (server, online_answers, mirrors) = run_online(&steps, &[]);
+    assert_eq!(local_answers, online_answers);
+    assert_eq!(local, server, "the server's room is the local one");
+    for m in &mirrors {
+        assert_eq!(m, &server, "a client's mirror is the room");
+    }
+    let hosts_only = Some(Rejection::Unauthorized {
+        capability: ddi_room::Capability::AddSongs,
+    });
+    assert_eq!(
+        local_answers,
+        vec![
+            None,
+            hosts_only.clone(),
+            Some(Rejection::Unauthorized {
+                capability: ddi_room::Capability::ChangeAccess
+            }),
+            None,
+            None,
+            None,
+            None,
+            Some(Rejection::TooManySongs { limit: 2 }),
+            Some(Rejection::Unauthorized {
+                capability: ddi_room::Capability::AddSongs
+            }),
+            None,
+            None,
+            hosts_only,
+        ]
+    );
+    let titles: Vec<&str> = local.songs.entries.iter().map(|e| e.card.title.as_str()).collect();
+    assert_eq!(titles, ["Song 1", "Song 3"]);
+    assert_eq!(local.songs.who_adds, WhoAdds::Hosts);
+}
+
 /// The DDI ruleset's round 3: Difficulty and Boos are match rules, saved
 /// like the others, locked with the match, and kept alike by the local
 /// authority, the online one and every mirror; rules that name a ruleset

@@ -96,7 +96,9 @@ pub use ids::{
     ChartKey, ClientId, ContentId, Identity, MatchId, Millis, ParticipantId, Revision, RoomId,
     RoomSongId, SongKey, StageId,
 };
-pub use songs::{ChartLine, ListRules, NewSong, Removal, RoomSong, RoomSongs, SongCard, WhenFull};
+pub use songs::{
+    ChartLine, ListRules, NewSong, Removal, RoomSong, RoomSongs, SongCard, WhenFull, WhoAdds,
+};
 pub use member::{Capability, Connection, Intent, Member, MemberKind, OpponentSpec, Role, can};
 pub use online::{
     LinkState, OnlineAuthority, ReconnectPolicy, TicketProblem, Transport, TransportEvent,

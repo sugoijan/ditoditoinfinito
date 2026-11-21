@@ -1512,23 +1512,84 @@ impl RoomState {
     }
 
     /// Whether `id` may add songs to the room's list (revision 17): a
-    /// person present in an online room whose role lets them
-    /// (`Capability::AddSongs`: the hosts in this stage), never one held
-    /// to watching.
+    /// person present in an online room (a bot too; never a CPU), never
+    /// one held to watching by the watch-only link (they came to look),
+    /// whose role lets them (`Capability::AddSongs`: the hosts), or
+    /// anyone such where the owner's setting is Everyone ([`WhoAdds`],
+    /// revision 21, round RL3: watching by their own choice they may add
+    /// all the same; adding is not choosing a stage's song). The one check
+    /// of who may add: the reducer's, the clients' and the server's grant
+    /// route (an entry exists only where its adder might add it).
+    ///
+    /// [`WhoAdds`]: crate::songs::WhoAdds
     pub fn may_add(&self, id: ParticipantId) -> bool {
         self.source == ContentSource::Shared
             && self.members.get(&id).is_some_and(|m| {
                 m.present_person()
                     && !m.watch_only
-                    && can(m.role, m.admin, Capability::AddSongs, self.phase.kind())
+                    && (self.songs.who_adds == crate::songs::WhoAdds::Everyone
+                        || can(m.role, m.admin, Capability::AddSongs, self.phase.kind()))
             })
+    }
+
+    /// Why `id` could not add a song to the room's list now, if anything
+    /// stops them (none: an addition would be taken): the room has no list
+    /// ([`Rejection::NoSongList`]), they may not add
+    /// ([`RoomState::may_add`]), and with `song` its bounds, the same song
+    /// listed, their half ([`RoomState::song_quota`]) and a full list that
+    /// refuses or has nothing it may remove ([`Rejection::ListFull`]).
+    /// What the reducer decides `Command::AddSong` by, and what a client
+    /// asks before sending one, so a refusal is said at the press.
+    ///
+    /// [`Rejection::NoSongList`]: crate::Rejection::NoSongList
+    /// [`Rejection::ListFull`]: crate::Rejection::ListFull
+    pub fn add_refusal(
+        &self,
+        id: ParticipantId,
+        song: Option<&crate::songs::NewSong>,
+    ) -> Option<crate::Rejection> {
+        use crate::Rejection;
+        if self.source != ContentSource::Shared {
+            return Some(Rejection::NoSongList);
+        }
+        if !self.may_add(id) {
+            return Some(Rejection::Unauthorized {
+                capability: Capability::AddSongs,
+            });
+        }
+        if let Some(song) = song {
+            if !song.fits() {
+                return Some(Rejection::InvalidSong);
+            }
+            if let Some(e) = self.songs.by_key(&song.key) {
+                return Some(Rejection::AlreadyListed { song: e.id });
+            }
+        }
+        if let Some(quota) = self.song_quota(id)
+            && self.songs.added_by(id) >= quota
+        {
+            return Some(Rejection::TooManySongs {
+                limit: u16::try_from(quota).unwrap_or(u16::MAX),
+            });
+        }
+        let rules = self.songs.rules;
+        let size = usize::from(rules.size);
+        if self.songs.len() >= size {
+            let free = self.songs.entries.iter().filter(|e| !self.song_in_use(e)).count();
+            if rules.when_full == crate::songs::WhenFull::Refuse
+                || free < self.songs.len() + 1 - size
+            {
+                return Some(Rejection::ListFull);
+            }
+        }
+        None
     }
 
     /// The most songs `id` may have added to the list, if any: none for a
     /// host, a co-host or an administrator (who has a co-host's powers),
     /// held only by the list's size and what a full list does; anyone
-    /// else (once a setting lets everyone add, stage 3) half the list's
-    /// size, [`crate::songs::ListRules::per_person`] (round DB, the
+    /// else (under Who can add songs: Everyone, revision 21) half the
+    /// list's size, [`crate::songs::ListRules::per_person`] (round DB, the
     /// maintainer, 2026-11-20: "Hosts and co-hosts are exempt").
     pub fn song_quota(&self, id: ParticipantId) -> Option<usize> {
         let host = self

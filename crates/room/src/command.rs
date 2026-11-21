@@ -13,7 +13,7 @@ use crate::live::PlanDigest;
 use crate::member::{Capability, Connection, Intent, Member, Role};
 use crate::phase::{Interruption, Phase, PhaseKind};
 use crate::rules::{Access, Admission, CapExceeded, MatchRules, PlayRules, RulesProblem};
-use crate::songs::{ChartLine, ListRules, NewSong, Removal, RoomSong};
+use crate::songs::{ChartLine, ListRules, NewSong, Removal, RoomSong, WhoAdds};
 use crate::twitch::TwitchSetting;
 use crate::state::{
     Closure, ContentCard, ContentStatus, HostLeaves, Loading, MatchEnding, SitOutReason, Spotlight,
@@ -129,6 +129,12 @@ pub enum Command {
     /// size removes nothing by itself.
     SetSongList {
         rules: ListRules,
+    },
+    /// Who may add songs to the list (room model revision 21, round RL3):
+    /// the owner's room setting "Who can add songs", Hosts or Everyone
+    /// (`RoomState::may_add`). Back to Hosts removes nothing listed.
+    SetWhoAdds {
+        who: WhoAdds,
     },
 
     // Operators (owner, co-hosts, admins). Edits carry the envelope's base.
@@ -456,6 +462,10 @@ pub enum Event {
     /// [`Command::SetSongList`].
     SongListChanged {
         rules: ListRules,
+    },
+    /// [`Command::SetWhoAdds`] (revision 21).
+    WhoAddsChanged {
+        who: WhoAdds,
     },
     /// The pick changed hands ([`Command::TakePick`], or its holder could
     /// hold it no longer); none: nobody chooses until an operator takes

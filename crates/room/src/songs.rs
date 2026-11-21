@@ -13,9 +13,13 @@
 //! once uploaded. The room never reads a song: its key and its charts'
 //! digests are opaque to it.
 //!
-//! Who may add (`RoomState::may_add`): the hosts (the owner, co-hosts and
-//! administrators: `Capability::AddSongs`) in this stage; one place to
-//! open it to everyone later. Removing: whoever added it, or a host.
+//! Who may add (`RoomState::may_add`, the one check): the hosts (the
+//! owner, co-hosts and administrators: `Capability::AddSongs`), and with
+//! the owner's room setting "Who can add songs" at Everyone ([`WhoAdds`],
+//! room model revision 21, round RL3: stage 3) every person in the room
+//! who is not held to watching by the watch-only link (playing or
+//! watching by choice; bots too; never a CPU or the audience). Removing:
+//! whoever added it, or a host.
 //! Bounds ([`MAX_SONGS`], [`ListRules`]): at most a hundred songs, the
 //! list's size a host setting up to it, what happens when it is full
 //! another (remove the oldest not in use, or refuse), and a person at
@@ -56,10 +60,15 @@ pub struct RoomSongs {
     #[serde(default, skip_serializing_if = "ListRules::is_default")]
     pub rules: ListRules,
     /// The revision of the list's last change (an entry, its content, its
-    /// rules): what the server compares to write its row only when the
-    /// list changed.
+    /// rules, who may add): what the server compares to write its row
+    /// only when the list changed.
     #[serde(default)]
     pub changed_at: Revision,
+    /// Who may add songs (revision 21, [`crate::Command::SetWhoAdds`]):
+    /// the hosts until the owner opens it to everyone. Left out of the
+    /// JSON at Hosts, so a room stored before reads as Hosts.
+    #[serde(default, skip_serializing_if = "WhoAdds::is_hosts")]
+    pub who_adds: WhoAdds,
 }
 
 impl RoomSongs {
@@ -123,12 +132,39 @@ impl ListRules {
     }
 }
 
+/// Who may add songs to the room's list: the owner's room setting "Who
+/// can add songs" (room model revision 21, round RL3, stage 3 of
+/// `docs/plans/multiplayer-room-songs.md`; the maintainer, 2026-11-19:
+/// Hosts by default, Everyone a setting the host turns on). Hosts and
+/// co-hosts may fill the whole list either way; anyone else, under
+/// Everyone, half of it ([`ListRules::per_person`]). Turned back to
+/// Hosts, nothing listed is removed (uploads under way finish) and only
+/// new additions are refused.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WhoAdds {
+    /// The owner, co-hosts and administrators.
+    #[default]
+    Hosts,
+    /// Every person in the room (`RoomState::may_add`).
+    Everyone,
+}
+
+impl WhoAdds {
+    pub fn is_hosts(&self) -> bool {
+        *self == WhoAdds::Hosts
+    }
+}
+
 /// What an addition to a full list does.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WhenFull {
     /// The oldest songs go to make room: never one a stage not yet
-    /// played names (the song picked, being readied or played).
+    /// played names (the song picked, being readied or played). Whoever
+    /// added them (round RL3: the oldest of all, not the adder's own; one
+    /// who is not a host is refused at their half before anything goes,
+    /// so they push out at most half the list).
     #[default]
     RemoveOldest,
     /// The song is refused until one is removed.

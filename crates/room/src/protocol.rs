@@ -202,7 +202,15 @@ pub fn supported(version: u32) -> bool {
 ///     life and send reports without scores, so it is refused. A room
 ///     stored by revision 19 reads as it was
 ///     (`tests/room-revision-19.json`).
-pub const ROOM_MODEL_REVISION: u32 = 20;
+/// 21. round RL3 (2026-11-21): who may add songs to the room's list, the
+///     owner's room setting "Who can add songs" (`crate::songs::WhoAdds`,
+///     Hosts or Everyone, `RoomSongs::who_adds`, `Command::SetWhoAdds`,
+///     `Event::WhoAddsChanged`), read by `RoomState::may_add`; under
+///     Everyone a person who is not a host adds up to half the list's size
+///     and removes what they added. An older client would neither show the
+///     setting nor read the event, so it is refused. A room stored by
+///     revision 20 reads as Hosts (`tests/room-revision-20.json`).
+pub const ROOM_MODEL_REVISION: u32 = 21;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being

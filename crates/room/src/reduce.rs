@@ -614,28 +614,12 @@ impl RoomState {
             }
             Command::AddSong { song } => {
                 let id = self.own(actor)?;
-                if self.source != ContentSource::Shared {
-                    return Err(Rejection::NoSongList);
-                }
-                if !self.may_add(id) {
-                    return Err(Rejection::Unauthorized {
-                        capability: Capability::AddSongs,
-                    });
-                }
-                if !song.fits() {
-                    return Err(Rejection::InvalidSong);
-                }
-                if let Some(e) = self.songs.by_key(&song.key) {
-                    return Err(Rejection::AlreadyListed { song: e.id });
+                // Who may add, the same song, a person's half and a full
+                // list: the one decision the clients ask before sending.
+                if let Some(why) = self.add_refusal(id, Some(song)) {
+                    return Err(why);
                 }
                 let rules = self.songs.rules;
-                if let Some(quota) = self.song_quota(id)
-                    && self.songs.added_by(id) >= quota
-                {
-                    return Err(Rejection::TooManySongs {
-                        limit: u16::try_from(quota).unwrap_or(u16::MAX),
-                    });
-                }
                 self.make_room(usize::from(rules.size), rules.when_full, out)?;
                 let entry = crate::songs::RoomSong {
                     id: crate::ids::RoomSongId(self.songs.next.max(1)),
@@ -689,6 +673,16 @@ impl RoomState {
                 }
                 if self.songs.rules != *rules {
                     self.emit(out, Event::SongListChanged { rules: *rules });
+                }
+                Ok(())
+            }
+            Command::SetWhoAdds { who } => {
+                self.require(actor, Capability::ChangeAccess)?;
+                if self.source != ContentSource::Shared {
+                    return Err(Rejection::NoSongList);
+                }
+                if self.songs.who_adds != *who {
+                    self.emit(out, Event::WhoAddsChanged { who: *who });
                 }
                 Ok(())
             }
@@ -2336,6 +2330,11 @@ impl RoomState {
             Event::SongListChanged { rules } => {
                 let list = std::sync::Arc::make_mut(&mut self.songs);
                 list.rules = *rules;
+                list.changed_at = pending;
+            }
+            Event::WhoAddsChanged { who } => {
+                let list = std::sync::Arc::make_mut(&mut self.songs);
+                list.who_adds = *who;
                 list.changed_at = pending;
             }
             Event::SpotlightChanged { spotlight } => self.spotlight = spotlight.clone(),

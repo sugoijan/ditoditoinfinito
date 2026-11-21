@@ -296,8 +296,10 @@ pub enum Capability {
     ReplaceInvite,
     /// Add songs to the room's list and remove any of them (room model
     /// revision 17, `crate::songs`; anyone removes what they added): an
-    /// operator's in this stage. The one check of it is
-    /// `RoomState::may_add`, which a later setting opens to everyone.
+    /// operator's. The one check of adding is `RoomState::may_add`, which
+    /// the owner's setting Who can add songs: Everyone (revision 21,
+    /// `crate::songs::WhoAdds`) opens to every person in the room;
+    /// removing anyone's songs stays an operator's.
     AddSongs,
     /// Remove someone from the room (room model revision 18,
     /// `crate::Command::Remove`, the Players pop-up's Kick): the host's
