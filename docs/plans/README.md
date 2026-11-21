@@ -56,7 +56,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   half the list and removed by them; stage 4 built (revision 22): the
   match rule Song choice (Host or Group) with Repeats, each player's
   choice, a host's own choice starting a countdown, the server's draw
-  shown as a short reel.
+  shown as a short reel (to the audience too), reviewed in round RL4b
+  (the Ready window after the reveal, a stopped match's choices, a choice
+  taken away told).
 - [The host's Twitch in a room](multiplayer-twitch.md) (2026-11-20):
   built without Twitch itself, room model revision 18: round TW1 the
   model, Kick, the Twitch link and the mirror on the server behind a fake

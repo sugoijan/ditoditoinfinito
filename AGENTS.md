@@ -1567,12 +1567,15 @@ Rust and the browser are implementation details, not advertised features.
   `RoomState::draw`; `draw-v0`, `DRAW_V0`: ten seconds, early once
   everyone who may has chosen, never before three, `draw_ends_at` in
   `next_deadline`), canceled when its choices all go
-  (`Event::DrawCanceled`), and the authority's draw at its end
+  (`Event::DrawCanceled`; the match stopped or ended taking the choices
+  with it), a choice the room took away saying why to its maker
+  (`ChoiceGone`), and the authority's draw at its end
   (`draw_due`, `Command::Draw { roll }`, the roll the server's random
   bytes, `LocalAuthority::set_draw_seed`, `FakeServer::set_draw_seed`
   for tests; `Event::Drawn`, `RoomState::drawn`, `DrawRecord`: the
   entries by id, the winner `roll % n`), then a pick of the drawn song
-  as `PickListed`'s, the choices cleared; a picker's pick refused under
+  as `PickListed`'s, its Ready countdown from the reveal's end
+  (`ready_from`), the choices cleared; a picker's pick refused under
   Group (`Rejection::GroupChooses`); a chosen song in use
   (`song_in_use`); the audience's public view the choices, the countdown
   and the draw; round RL4; `tests/room-revision-21.json` reads as Host;
@@ -1871,14 +1874,19 @@ Rust and the browser are implementation details, not advertised features.
   taking it back, refused at the press as the room would,
   `choice_blocked`, `repeat_refused`, `chose_count`, `draw_countdown`,
   `draw_waits`), a host's or co-host's starting the draw
-  (`starts_draw`); the draw's reveal, `RoomClient::reveal`
-  (`DRAW_V0.reveal_ms` from when this device saw it, the stage's prompt
-  held back meanwhile), drawn over the room's song select by
-  `screens/room_reveal.rs` (`RevealDialog`, layer `room-draw`: a reel of
-  the entries slowing to the one drawn, `reel_at`, made from the record
-  alone; still under reduced motion), the rows saying who chose them,
-  the status line the choosing (`room::group_status`), the players
-  panel a tick (`Mark::Chose`), Rules' Song choice and Repeats rows.
+  (`starts_draw`, `someone_starts_draw`); the draw's reveal,
+  `RoomClient::reveal` (`DRAW_V0.reveal_ms` from when this device saw
+  it, the stage's prompt held back meanwhile), drawn over the room's
+  song select by `screens/room_reveal.rs` (`RevealDialog`, layer
+  `room-draw`: a reel of the entries slowing to the one drawn,
+  `reel_at`, made from the record alone, `Reel`; still under reduced
+  motion), and over the audience's page from the public view
+  (`AudienceClient::reveal`, `open_audience_reveal`), the rows saying
+  who chose them, Enter's hint on a song Repeats excludes saying why, the
+  status line the choosing (`room::group_status`: a watching host told
+  what starts the draw; a choice the room took away,
+  `LinkNotice::ChoiceGone`), the players panel a tick (`Mark::Chose`),
+  Rules' Song choice and Repeats rows.
   Stage 2 (still revision 17):
   each member's device downloads the listed songs it does not have ahead
   of the picks into a store of the room's own (`state/room/preload.rs`,
