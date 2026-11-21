@@ -16,7 +16,7 @@ use ddi_actor::Actor;
 use ddi_l10n::{UiText, msg::room as m};
 use ddi_room::{DrawEntry, DrawRecord};
 
-use super::dialog::{dialog_root, shell};
+use super::dialog::{fitted_dialog, shell};
 use super::{Env, left};
 use crate::look::{self, quad_at};
 use crate::nav::Focusable;
@@ -105,7 +105,8 @@ impl Screen for RevealDialog {
 
     fn build(&mut self, cx: &mut Cx) -> Actor {
         let vp = cx.viewport().screen;
-        let screen = [vp.width, vp.height];
+        // A phone's narrow screen: drawn on a wider one, scaled to fit.
+        let (screen, scale) = super::narrow_fit(&self.env, vp);
         let env = self.env.clone();
         let r = self.room.borrow();
         let now = r.now_ms();
@@ -178,7 +179,7 @@ impl Screen for RevealDialog {
             c.push(left(t, x + 24.0, y + h - 36.0));
         }
         drop(r);
-        dialog_root(c)
+        fitted_dialog(c, screen, h, scale)
     }
 
     fn focusables(&self) -> Vec<Focusable> {

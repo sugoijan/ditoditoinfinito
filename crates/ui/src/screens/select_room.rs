@@ -1810,8 +1810,11 @@ impl SelectScreen {
         if let Some(play) = hit::find_mut(root, "Play") {
             play.visible = hint != Some(None);
         }
+        // On My songs, and on Room songs under Song choice: Group (revision
+        // 22), it says what it does there.
+        let says = rm.tab == Tab::Mine || rm.room.borrow().group_choice();
         if rm.side == Side::Listed
-            && rm.tab == Tab::Mine
+            && says
             && let Some(Some(words)) = hint
         {
             crate::screens::set(root, "Play", "Label", &String::from(words));
