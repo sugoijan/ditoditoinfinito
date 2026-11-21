@@ -13634,7 +13634,7 @@ the choices are cleared.
   refusals, the reveal), the audience's line
   (`the_audience_is_told_whose_choice_was_drawn`). Suites: room, ui,
   theme, session, shell and the web's routes 1,665 passed, 0 failed;
-  desktop 409 passed, 0 failed (23 ignored); the server's workspace 218 and `--features
+  desktop 409 passed, 0 failed (23 ignored); the server's workspace 223 (the Worker's 218) and `--features
   dev-auth` 219; clippy native and wasm, the server's lints and format;
   `l10n check`; a release build's `check-boot` (12418 of 12552 bytes
   gzipped); the singleplayer smoke check in Chrome and Firefox.
@@ -13667,6 +13667,14 @@ the choices are cleared.
   room's stage takes no autoplay, as in round RL3). Pictures:
   `target/scratch/mp/rl4/shots/`, the reveal's candidates
   `reveal-candidates.png`.
+- Bots alone (`walks/bots-alone.sh`: `--host --group --repeats row
+  --guests 3 --choose random`, two stages): the guests chose, the host
+  bot's choice opened each countdown, both draws three seconds later;
+  under Not in a row the host bot's next song (the one just played) was
+  refused and the guests' choices kept to the others. The first run
+  found a bot's refused choice panicking (the room's borrow held across
+  the refusal's clearing, as two older matches of the bots held it for a
+  refused pick or addition): fixed for all three.
 
 ### Not done
 
