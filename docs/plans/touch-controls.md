@@ -279,9 +279,15 @@ groups, `opponents::arrange_up_to`'s keep-outs).
 - The smallest phone (360×640): everything places and presses; seven
   lanes play the pad; the pad upright covers the bottom 42%.
 - On a page loaded straight on a play (not from song select), the first
-  tap on the prompt starts nothing; the second does. This was so before
-  the round (the prompt is rebuilt when the page first sees a touch,
-  `Msg::TouchSeen`), and is left for a later fix.
+  tap on the prompt seemed to start nothing and the second to start.
+  Round LO (2026-11-22) found the walk's first tap landing on the page's
+  loader (`#boot-canvas`): the prompt says `ready` in `__DDI_DEBUG` a
+  moment before the loader turns click-through and fades, so a tap then
+  meets the loader, which a person still sees. The first tap once the
+  prompt shows starts the play and its sound, in Chrome under
+  `--autoplay-policy=document-user-activation-required` and in Firefox;
+  the prompt rebuilt for the first touch (`Msg::TouchSeen`) does not
+  spend it (`the_first_touch_starts_though_it_rebuilds_the_prompt`).
 
 ## Later
 

@@ -3129,6 +3129,27 @@ mod tests {
         assert!(seen.borrow().is_empty());
     }
 
+    /// Round LO, item 3: the page's first touch rebuilds the prompt between
+    /// the finger's down and its lift (the input source turns to touch, the
+    /// page's `set_touch` changes the card: no footer), and that tap still
+    /// starts, inside its gesture. (The "first tap does nothing" seen on a
+    /// play page loaded by its address was the tap landing on the page's
+    /// loader, which still covers the prompt for a moment after it says
+    /// ready: `site/boot.js`'s shell, click-through once it fades.)
+    #[test]
+    fn the_first_touch_starts_though_it_rebuilds_the_prompt() {
+        let state = SharedPrompt::default();
+        let (mut h, seen) = prompt(&state);
+        let before = h.texts();
+        h.pointer(1, PointerKind::Touch, crate::PointerPhase::Down, [100.0, 100.0]);
+        state.borrow_mut().set_touch(true);
+        h.run(0.05);
+        assert_ne!(h.texts(), before, "rebuilt as a touch screen's: no footer");
+        h.now += 80.0;
+        h.pointer(1, PointerKind::Touch, crate::PointerPhase::Up, [100.0, 100.0]);
+        assert_eq!(seen.borrow().first(), Some(&(PromptChoice::Start, true)));
+    }
+
     #[test]
     fn start_and_back_reach_the_shell_inside_the_gesture() {
         let state = SharedPrompt::default();
