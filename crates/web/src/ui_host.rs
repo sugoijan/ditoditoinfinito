@@ -2490,9 +2490,13 @@ fn publish_now(h: &Host) {
                     }
                 }
             }
-            // A room's stage with attacks: the attack policy's row.
-            for part in ["", ".Down", ".Up", ".Value"] {
-                names.push(format!("Opt.room.targeting{part}"));
+            // A room's stage with attacks: the attack policy's row; an
+            // open-ended match's Last song; under Adaptive the player's own
+            // chart (round OC).
+            for row in ["targeting", "last", "chart"] {
+                for part in ["", ".Down", ".Up", ".Value", ".Label"] {
+                    names.push(format!("Opt.room.{row}{part}"));
+                }
             }
         } else if st.screen == "editor" {
             // The chart editor's buttons, field and dialogs (a list's

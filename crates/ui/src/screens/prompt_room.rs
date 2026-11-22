@@ -728,6 +728,23 @@ impl PromptScreen {
         Some((row, name.into(), OPTION_ROW))
     }
 
+    /// Under Charts: Adaptive the card's chart line (`line`: "Hard 11 ·
+    /// Single", the picked chart's) for the chart this player starts on
+    /// (round OC), in its difficulty's name for the color; none elsewhere.
+    pub(super) fn room_own_chart(&self, line: &str) -> Option<(String, String)> {
+        let rm = self.room.as_ref()?;
+        let r = rm.room.borrow();
+        if !r.own_starts(rm.stage) || !r.in_stage(rm.stage) {
+            return None;
+        }
+        let c = r.start_shown(rm.stage, r.me())?;
+        let style = line.rsplit_once(" · ").map_or("", |(_, s)| s);
+        Some((
+            super::chart_line_rated(c.difficulty, c.meter, Some(c.meter_text()), style),
+            c.difficulty.name().to_string(),
+        ))
+    }
+
     /// The chart row stepped by `by` (Left, Right, ◀ ▶, a tap or Enter on
     /// the row; round OC): the next easier or harder of the song's charts
     /// (no wrapping), chosen for the stage and remembered for the song,

@@ -1377,12 +1377,19 @@ impl PromptScreen {
         }
         if !i.chart.is_empty() {
             y += 6.0;
-            let color = if i.difficulty.is_empty() {
+            // A room's stage under Adaptive: the chart this player starts
+            // on (round OC), not the pick's.
+            let own = self.room_own_chart(&i.chart);
+            let (chart, difficulty) = match &own {
+                Some((text, d)) => (text.as_str(), d.as_str()),
+                None => (i.chart.as_str(), i.difficulty.as_str()),
+            };
+            let color = if difficulty.is_empty() {
                 "Text".to_string()
             } else {
-                format!("Difficulty.{}", i.difficulty)
+                format!("Difficulty.{difficulty}")
             };
-            line(&mut c, "Chart", &i.chart, BODY, 700, &color, &mut y);
+            line(&mut c, "Chart", chart, BODY, 700, &color, &mut y);
         }
         if i.badge != Badge::None {
             line(

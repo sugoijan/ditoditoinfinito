@@ -8531,7 +8531,12 @@ fn the_ready_card_has_the_players_own_chart_under_adaptive() {
     h.push(
         PromptScreen::new(
             env(),
-            Rc::new(RefCell::new(PromptState::default())),
+            Rc::new(RefCell::new({
+                let mut st = PromptState::default();
+                st.info.chart = "Hard 9 · Single".into();
+                st.info.difficulty = "Hard".into();
+                st
+            })),
             Rc::new(|_, _| {}),
         )
         .with_room(room.clone(), stage, shell(&room, &Orders::default())),
@@ -8545,6 +8550,9 @@ fn the_ready_card_has_the_players_own_chart_under_adaptive() {
     assert!(there(&h, row));
     assert_eq!(said(&h, &format!("{row}.Label")), "Your chart");
     assert!(said(&h, &format!("{row}.Value")).starts_with("MEDIUM"), "{}", said(&h, &format!("{row}.Value")));
+    // The card's chart line names the player's own, not the pick's.
+    assert!(has(&h, "Medium 6 · Single"), "{:?}", h.texts());
+    assert!(!has(&h, "Hard 9 · Single"));
     assert_eq!(start(&room), key(1), "told the room before any press");
     // Up from Ready reaches the row; Right steps it harder, to the end.
     for _ in 0..4 {
