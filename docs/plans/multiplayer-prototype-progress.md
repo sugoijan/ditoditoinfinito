@@ -14367,6 +14367,123 @@ longer pin a win).
 - The song list's rows show the level of the chart song select would give
   (the preferred difficulty), not the one remembered for the song.
 
+## Round LO: leftovers the last rounds named (2026-11-22, no change to the room model)
+
+Ten small leftovers, each its own commit with a test (game `lo-1`, server
+`tw7`). The room model's revision is unchanged (23).
+
+- **Each player's own chart named in three more places** (round OC's "Not
+  done"). The stage's results' title line names the chart the player
+  started on and, where they finished on another, that one ("Easy 3 →
+  Medium 7 · Single"; `PlaySession::charts_played`,
+  `prompt::chart_line_played`, both shells), never the stage's chart for
+  someone on their own. The audience's page shows each player's chart
+  beside their name as the members' Players pop-up does
+  (`AudienceClient::start_shown`): the public view now carries the starts
+  chosen for a stage not yet started (`PublicStage::starts`, additive JSON;
+  once the start commits, `PublicPlay::starts` as before). A room's song
+  rows show the chart chosen for each song this session
+  (`select_room::remembered_pick`, the side's own rule), not the preferred
+  difficulty's. Tests: the session's
+  `everyone_starts_on_their_own_chart_from_the_first_note` (the title
+  line), the room's `a_start_is_locked_once_the_stage_starts` (the view's
+  starts before and after the commitment), the audience's
+  `the_audience_page_shows_each_players_own_chart`, the theme's
+  `a_rooms_row_shows_the_chart_chosen_for_its_song` (before: "8", the
+  Hard kept, for a song whose Easy was chosen).
+- **A field followed from part-way with Attacks Off.** Not as described:
+  every device already starts each field on its competitor's own start
+  from the room's state (round OC's `Live::set_starts`), and a snapshot's
+  step "from the stage's chart" (a room without a plan cannot tell rungs)
+  changes nothing of it. What was wrong in that window, from part-way or
+  not, was the step's direction: another player's step up between two
+  charts below the stage's (Easy to Medium on a Hard stage, the usual climb
+  from one's own start) was drawn as a step down, their field empty from
+  the decision to the boundary while they went on playing Easy; a step
+  down between two charts above it the reverse. A remote step's direction
+  is now the ladder's places, as its counted totals already were (no wire
+  change). Test `a_step_up_below_the_stages_chart_is_drawn_as_a_step_up`
+  (the stream's step and a plan-less snapshot's; failed before: Medium
+  shown at the decision).
+- **The first tap on a play page loaded by its address.** Not
+  reproduced as described: the walk's first tap landed on the page's
+  loader (`#boot-canvas`), which still covers the page a moment after
+  `__DDI_DEBUG.prompt.step` says ready; the first tap once the loader is
+  click-through starts the play and its sound, in Chrome under
+  `--autoplay-policy=document-user-activation-required` (an AudioContext
+  made and running) and in Firefox, the prompt's rebuild for the first
+  touch notwithstanding. Pinned by
+  `the_first_touch_starts_though_it_rebuilds_the_prompt`; the touch plan's
+  sentence and the verify skill's touch recipe corrected.
+- **A desktop Twitch trip that fails** (the server refusing the attempt,
+  the attempt expiring, its poll refused, the network gone before `/me`)
+  now ends as a canceled one: the room's setting comes back as not
+  connected ("Twitch access was not connected: nothing changed.") and the
+  device's chat wish as not granted, both forgotten; an attempt the server
+  still holds after a refused poll is ended there
+  (`a_failed_desktop_twitch_trip_ends_as_a_canceled_one`; before, the
+  wish stayed in the session, to be made later by any trip that granted
+  it).
+- **The link's "access ended"** (server): cleared only by `GET /me`'s read
+  of the link (`TwitchLink`'s `/info` with `tell`); a trip's, a room's
+  setting's and a sign-in's reads leave it. Walked on a local server: the
+  fake Twitch refusing, a newcomer's join checked (the link deleted), the
+  room's setting asked again (409), then `/me` says `ended: true` once.
+  Test `only_the_read_that_tells_the_person_clears_ended`.
+- **A replaced Twitch setting request** kept its first answer in the
+  online state's answers for the rest of the session (the desktop run,
+  the web page's life): Host options' second row within the round trip
+  replaced the request id and nobody took the first's answer. It is now
+  dropped, come or to come (`Online::forget_answer`;
+  `a_replaced_twitch_setting_leaves_no_answer_unread`).
+- **`duplicate column` in the server's log** (server): the share index
+  made its table and ran `ALTER TABLE shares ADD COLUMN owner` and `room`
+  on every request (and `room_id` once per object), failing past the
+  first; the development build logged each failure (838 and 834 lines in
+  round TB's log). Production ran the same failing statements on every
+  share index request; its release build has no such log line, so they
+  cost work rather than log noise there. Now once per object life, asked
+  first (`PRAGMA table_info`), only missing columns added, a fresh table
+  made with them all; where the table cannot be asked, "duplicate column
+  name" alone is passed over. A fresh local state logs none. Test
+  `the_shares_table_is_altered_only_for_the_columns_it_lacks`.
+- **Group song choice with more newcomers than places**: only those who
+  will be seated (`RoomState::late_entrants`, arrival order) choose; the
+  others are refused as playing from the next match and their state says
+  every place is taken (`Participation::WaitingPlace`)
+  (`only_the_newcomers_who_will_be_seated_choose`). In practice a match
+  with CPUs: a join counts the people who want to play against the cap, a
+  place counts the CPUs too.
+- **The live chat's report** says "total 1 at this call" on each
+  subscription's line.
+- **Round FX's validation bullet** corrected.
+
+**Validated**: suites room, session, shell, ui, theme, engine, chat and
+the web's routes 2,202 passed, 0 failed (30 ignored); desktop 413 passed,
+0 failed (23 ignored; `results_flow` also with `DDI_NO_GPU=1`); the
+server's workspace 227 and `--features dev-auth` 227 passed against this
+round's `crates/room` (a `paths` override), its clippy native and wasm
+with and without `dev-auth`, its format; clippy native and wasm (`ddi-web`,
+`ddi`); `l10n check` (no text changed); a release build's `check-boot`
+(12421 of 12552 bytes gzipped); the singleplayer smoke check in Chrome
+(WebGPU) and Firefox (WebGL2). Walks in `target/scratch/mp/lo/walks/`:
+`firsttap.mjs` (item 3, touch-emulated Chrome under
+`document-user-activation-required` and Firefox), `probe3*.mjs` (where the
+lost tap went), `ended.mjs` (item 5, on a local server with the
+development provider and a fresh state, whose log has no SQL error).
+
+**Deploy**: the server first (`tw7`: the link's `/info` with `tell`, the
+shares table's migration; it builds against this round's `crates/room`,
+whose public view and Group choosers changed, as a `paths` override did
+here), then the game. Mixed: an older game with the new server reads the
+public view's new field as nothing (no charts on the audience's page
+before a start) and offers a newcomer without a place a choice the server
+refuses (said as "You play from the next match"); the new game with an
+older server shows no charts before a start, and a newcomer without a
+place is told by their own device that they do not choose while the
+older server would still take a choice from an older client. Nothing to
+set, no binding, no secret.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
