@@ -261,6 +261,8 @@ impl RoomState {
         now: Millis,
         out: &mut Vec<Event>,
     ) -> Decided {
+        // Kept within its bounds, as its detail is (round RFa).
+        let run = &run.bounded();
         // After a result confirmed before the song's end (a live room's,
         // decided as the stage went), a report is taken for the standings'
         // detail alone, and the song ends once everyone reported.

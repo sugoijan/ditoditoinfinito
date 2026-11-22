@@ -394,3 +394,39 @@ fn an_addition_held_to_a_half_pushes_out_one_song() {
     r.by(host, Command::AddSong { song: Box::new(song(30)) }).unwrap();
     assert_eq!(r.s.songs.len(), 4);
 }
+
+/// Finding 7: a run's reported life is kept within a full gauge (only its
+/// detail's was): `life_ppm: u32::MAX` ranked first under As picked.
+#[test]
+fn a_reported_runs_life_is_kept_within_a_full_gauge() {
+    let mut r = hosted();
+    let host = r.host;
+    let ana = join(&mut r, "ana");
+    r.by(host, Command::Pick { content: song(1), card: None }).unwrap();
+    let s = r.s.upcoming_stage().unwrap();
+    r.sys(Command::SetContentStatus { stage: s, status: ContentStatus::Available, share: Some("sh".into()) })
+        .unwrap();
+    for p in [host, ana] {
+        r.load_for(p, s, Loading::Loaded).unwrap();
+        r.ready_for(p, s, true).unwrap();
+    }
+    for _ in 0..400 {
+        if matches!(r.s.phase, Phase::Stage { .. }) {
+            break;
+        }
+        let next = r.now + 100;
+        r.wait_to(next);
+    }
+    let forged = ReportedRun::Live { life_ppm: u32::MAX, score: 10, steps: 0 };
+    r.by(ana, Command::ReportOutcome { stage: s, run: forged, detail: None }).unwrap();
+    let kept = r.s.stage(s).unwrap().play.as_ref().unwrap().reports[&ana];
+    assert_eq!(kept, ReportedRun::Live { life_ppm: 1_000_000, score: 10, steps: 0 });
+    // The same report again is the same report.
+    assert_eq!(r.by(ana, Command::ReportOutcome { stage: s, run: forged, detail: None }), Ok(vec![]));
+    let honest = ReportedRun::Live { life_ppm: 500_000, score: 20, steps: 0 };
+    r.by(host, Command::ReportOutcome { stage: s, run: honest, detail: None }).unwrap();
+    // Ranked by life: the host's half gauge below ana's full one, by
+    // life first; the life no longer past a full gauge.
+    let result = r.s.stage(s).unwrap().play.as_ref().unwrap().result.clone().unwrap();
+    assert_eq!(result.placements[0].participant, ana);
+}

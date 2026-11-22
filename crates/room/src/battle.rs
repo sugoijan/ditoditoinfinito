@@ -139,6 +139,23 @@ pub enum ReportedRun {
 impl ReportedRun {
     pub const SCALE: f64 = 1_000_000.0;
 
+    /// As the room keeps it: its life within a full gauge (round RFa; a
+    /// device's run, [`ReportedRun::of`], never says more).
+    pub fn bounded(self) -> ReportedRun {
+        match self {
+            ReportedRun::Live {
+                life_ppm,
+                score,
+                steps,
+            } => ReportedRun::Live {
+                life_ppm: life_ppm.min(Self::SCALE as u32),
+                score,
+                steps,
+            },
+            other => other,
+        }
+    }
+
     pub fn of(run: Run) -> ReportedRun {
         let ppm = |x: f64| (x.clamp(0.0, 1.0) * Self::SCALE).round() as u32;
         match run {
