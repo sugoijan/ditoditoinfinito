@@ -326,7 +326,8 @@ impl RoomState {
 
     /// Why `id` will not play the stage choices are for, if not: a person
     /// present (a bot too) who plays, seated in the running match or to
-    /// be seated in its next stage (joining during a match, a place free);
+    /// be seated in its next stage (joining during a match, a place free
+    /// for them, `RoomState::late_entrants`, in arrival order);
     /// before a match, anyone who plays. Never a CPU, a watcher, one out
     /// of the match or one who waits for the next match.
     pub fn chooser_refusal(&self, id: ParticipantId) -> Option<Rejection> {
@@ -356,7 +357,10 @@ impl RoomState {
                     });
                 }
                 Some(_) => {}
-                None if self.admits_next_stage() && self.late_places() > 0 => {}
+                // Seated in its next stage: one of the newcomers there is
+                // a place for (round LO: not every newcomer while more
+                // wait than there are places).
+                None if self.admits_next_stage() && self.late_entrants().contains(&id) => {}
                 None => {
                     return Some(Rejection::CannotChoose {
                         why: NoChoice::NextMatch,

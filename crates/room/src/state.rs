@@ -762,8 +762,9 @@ pub enum Participation {
     WaitingNextStage,
     /// Wants to play; arrived during a match that seats newcomers, every
     /// place of which is taken (the competitor cap reached, its CPUs
-    /// counted: a newcomer never takes a CPU's place): seated once one
-    /// frees before a stage, else from the next match.
+    /// counted: a newcomer never takes a CPU's place), or taken by the
+    /// newcomers who came before them (round LO): seated once one frees
+    /// before a stage, else from the next match.
     WaitingPlace,
     /// Persistent elimination ended their match.
     OutForMatch,
@@ -1515,7 +1516,9 @@ impl RoomState {
         let Some(seat) = current.roster.get(&id) else {
             return Some(match m.intent {
                 Intent::Play if !self.admits_next_stage() => Participation::WaitingNextMatch,
-                Intent::Play if self.late_places() == 0 => Participation::WaitingPlace,
+                // No place for them: every place taken, or taken by
+                // those who came before (round LO).
+                Intent::Play if !self.late_entrants().contains(&id) => Participation::WaitingPlace,
                 Intent::Play => Participation::WaitingNextStage,
                 Intent::Watch => Participation::Watching,
             });

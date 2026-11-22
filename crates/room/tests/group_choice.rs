@@ -204,6 +204,46 @@ fn only_those_who_will_play_choose_and_only_under_group() {
     );
 }
 
+/// Round LO: with more newcomers waiting than places for the next stage,
+/// only those who will be seated choose (in arrival order, as they are
+/// seated); the rest are refused as waiting for the next match and their
+/// state says every place is taken. A place that frees lets the next one
+/// choose.
+#[test]
+fn only_the_newcomers_who_will_be_seated_choose() {
+    let mut g = group(Repeats::Allowed, 3);
+    let (host, ana, bob) = (g.r.host, g.ana, g.bob);
+    g.choose(host, 1).unwrap();
+    g.draw(0);
+    g.play();
+    assert!(matches!(g.r.s.phase, Phase::Intermission { .. }));
+    let cy = g.r.join_as("cy", Intent::Play, false).unwrap();
+    let di = g.r.join_as("di", Intent::Play, false).unwrap();
+    // One place left beside the host, Ana and Bob. (A join counts the
+    // people who want to play against the cap, a place counts the
+    // match's CPUs too: a match with CPUs seats fewer newcomers than join
+    // to play; the cap lowered here stands for them.)
+    g.r.s.policy.max_competitors = 4;
+    g.r.mirror.policy.max_competitors = 4;
+    assert_eq!(g.r.s.late_places(), 1);
+    assert_eq!(g.r.s.participation(cy), Some(Participation::WaitingNextStage));
+    assert_eq!(g.r.s.participation(di), Some(Participation::WaitingPlace));
+    g.choose(cy, 2).unwrap();
+    assert_eq!(
+        g.choose(di, 3),
+        Err(Rejection::CannotChoose {
+            why: NoChoice::NextMatch
+        })
+    );
+    let choosers = g.r.s.choosers();
+    assert!(choosers.contains(&cy) && !choosers.contains(&di), "{choosers:?}");
+    assert!([host, ana, bob].iter().all(|p| choosers.contains(p)));
+    // Bob leaves: a place for Di too.
+    g.r.by(bob, Command::Leave).unwrap();
+    assert_eq!(g.r.s.participation(di), Some(Participation::WaitingNextStage));
+    g.choose(di, 3).unwrap();
+}
+
 /// One choice each: Enter on another song moves it, clearing takes it
 /// back, the same again changes nothing; a member's choice opens no
 /// countdown, the host's own does, named as theirs.
