@@ -1470,6 +1470,36 @@ impl RoomState {
         usize::from(self.policy.max_competitors).saturating_sub(seated)
     }
 
+    /// Whether `id`, seated in the running match, may play its stages
+    /// again (choosing Play, or coming back to the room) without its
+    /// competitors passing the cap (round RFa): its seat was given to
+    /// someone while it was gone ([`RoomState::late_places`] frees the
+    /// seat of one who left), so those seated who play, its CPUs and the
+    /// people who want to play, are counted with it. Anyone not seated
+    /// in it has a place to wait for (the late entrants are seated within
+    /// the places left).
+    pub fn match_place_for(&self, id: ParticipantId) -> Result<(), crate::rules::CapExceeded> {
+        let Some(m) = &self.current else {
+            return Ok(());
+        };
+        if !m.roster.get(&id).is_some_and(|seat| !seat.out_for_match) {
+            return Ok(());
+        }
+        let others = m
+            .roster
+            .iter()
+            .filter(|(p, seat)| {
+                **p != id
+                    && !seat.out_for_match
+                    && self
+                        .members
+                        .get(p)
+                        .is_some_and(|x| x.is_cpu() || x.wants_to_play())
+            })
+            .count();
+        self.policy.check_competitors(others + 1)
+    }
+
     /// Who would be seated now in the running match's stage `stage` not
     /// begun, in arrival order (by id): people who want to play and have
     /// no seat in it, as many as there are places

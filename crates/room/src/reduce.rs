@@ -381,6 +381,7 @@ impl RoomState {
                     self.policy
                         .check_competitors(self.reserved_humans() + 1)
                         .map_err(Rejection::Cap)?;
+                    self.match_place_for(id).map_err(Rejection::Cap)?;
                 }
                 // A committed starter who chooses to watch invalidates the
                 // lineup, as one leaving or disconnecting does.
@@ -1039,7 +1040,11 @@ impl RoomState {
                     }
                     let m = &self.members[&participant];
                     if m.left || m.connection != Connection::Connected {
-                        let to_watch = m.left && m.intent == Intent::Play && self.players_full();
+                        // Its seat given away meanwhile, with every place
+                        // taken: to watch too (round RFa).
+                        let to_watch = m.left
+                            && m.intent == Intent::Play
+                            && (self.players_full() || self.match_place_for(participant).is_err());
                         self.emit(out, Event::MemberRestored { participant });
                         if to_watch {
                             self.emit(
@@ -2401,8 +2406,12 @@ impl RoomState {
         }) else {
             return;
         };
-        if self.confirm(stage, &ranking, out).is_ok() {
-            self.end_song(stage, out);
+        // A result no rule can confirm (a field no award rule knows)
+        // interrupts the match (round RFa): the stage stayed, its report
+        // deadline past, every alarm doing nothing.
+        match self.confirm(stage, &ranking, out) {
+            Ok(_) => self.end_song(stage, out),
+            Err(_) => self.interrupt(crate::phase::Interruption::AuthorityFailed, out),
         }
     }
 

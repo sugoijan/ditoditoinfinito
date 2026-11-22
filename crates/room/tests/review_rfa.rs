@@ -173,3 +173,95 @@ fn a_kicked_co_host_comes_back_a_member() {
     assert_eq!(join(&mut r, "di"), di);
     assert_eq!(r.s.member(di).unwrap().role, Role::CoHost);
 }
+
+/// Finding 3 (a): with CPUs, a seated player who left and comes back to
+/// a match whose places are all taken (their own given to someone since)
+/// comes back to watch: the lineup never passes the competitor cap (it
+/// reached 74, a field no award rule knows, and the stage never settled).
+#[test]
+fn a_returning_player_never_takes_a_stage_past_the_cap_with_cpus() {
+    let policy = RoomPolicy::default();
+    let mut rules = MatchRules::hosted();
+    rules.stages = 3;
+    rules.seats = 73;
+    rules.cpu.mode = CpuMode::Fixed { count: 71 };
+    let mut r = Room::open("host", "Host", policy, rules, ContentSource::LocalLibrary);
+    let host = r.host;
+    let ana = join(&mut r, "ana");
+    let w = r.join_as("w", Intent::Watch, false).unwrap();
+    r.by(host, Command::Pick { content: song(1), card: None }).unwrap();
+    assert_eq!(r.s.candidates().len(), 73);
+    r.by(ana, Command::Leave).unwrap();
+    r.by(w, Command::SetIntent { intent: Intent::Play }).unwrap();
+    assert!(r.s.current.as_ref().unwrap().roster.contains_key(&w), "w seated in ana's place");
+    assert_eq!(join(&mut r, "ana"), ana);
+    assert_eq!(r.s.member(ana).unwrap().intent, Intent::Watch, "back to watch: no place");
+    let stage = r.s.upcoming_stage().unwrap();
+    for p in [host, ana, w] {
+        let _ = r.load_for(p, stage, Loading::Loaded);
+        let _ = r.ready_for(p, stage, true);
+    }
+    for _ in 0..400 {
+        if matches!(r.s.phase, Phase::Stage { .. }) {
+            break;
+        }
+        let next = r.now + 100;
+        r.wait_to(next);
+    }
+    let play = r.s.stage(stage).unwrap().play.clone().unwrap();
+    assert_eq!(play.lineup.len(), 73);
+    // Choosing Play again is refused while every place is taken.
+    assert!(r.by(ana, Command::SetIntent { intent: Intent::Play }).is_err());
+}
+
+/// Finding 3 (b): a stage the room ranks from reports whose result no
+/// award rule can confirm interrupts the match at its report deadline
+/// (it stayed in its stage, the deadline past, every alarm doing
+/// nothing, until an operator stopped the match).
+#[test]
+fn a_stage_that_cannot_be_confirmed_interrupts_the_match() {
+    let mut r = hosted();
+    let host = r.host;
+    let ana = join(&mut r, "ana");
+    r.by(host, Command::Pick { content: song(1), card: None }).unwrap();
+    let s = r.s.upcoming_stage().unwrap();
+    r.sys(Command::SetContentStatus { stage: s, status: ContentStatus::Available, share: Some("sh".into()) })
+        .unwrap();
+    for p in [host, ana] {
+        r.load_for(p, s, Loading::Loaded).unwrap();
+        r.ready_for(p, s, true).unwrap();
+    }
+    for _ in 0..400 {
+        if matches!(r.s.phase, Phase::Stage { .. }) {
+            break;
+        }
+        let next = r.now + 100;
+        r.wait_to(next);
+    }
+    assert!(matches!(r.s.phase, Phase::Stage { .. }));
+    // A field of 74, as the lineup above once reached: no rule awards it.
+    for room in [&mut r.s, &mut r.mirror] {
+        let play = room
+            .current
+            .as_mut()
+            .unwrap()
+            .stages
+            .iter_mut()
+            .find(|x| x.id == s)
+            .unwrap()
+            .play
+            .as_mut()
+            .unwrap();
+        for i in 0..72 {
+            play.lineup.insert(ParticipantId(10_000 + i));
+        }
+    }
+    assert!(r.s.report_deadline(s).is_some());
+    let deadline = r.s.report_deadline(s).unwrap().0;
+    r.wait_to(deadline + 1);
+    assert_eq!(
+        r.s.phase,
+        Phase::Interrupted { reason: Interruption::AuthorityFailed }
+    );
+    assert_eq!(r.s.next_deadline(), None, "nothing left to wake for");
+}
