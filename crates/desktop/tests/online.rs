@@ -73,6 +73,13 @@ fn until(online: &SharedOnline, mut done: impl FnMut(&mut Online) -> bool) {
 /// own origin, goes on to the development provider as `user` and back to
 /// the server's callback, with the sign-in's binding cookie.
 fn browser(url: &str, code: &str, user: &str) {
+    browser_with(url, code, user, "");
+}
+
+/// [`browser`], `extra` added to the provider's address (a link trip's
+/// fake Twitch lists, `&bans=eve`); the scopes the trip asked for.
+fn browser_with(url: &str, code: &str, user: &str, extra: &str) -> Option<String> {
+    let mut asked = None;
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .max_redirects(0)
         .http_status_as_error(false)
@@ -119,12 +126,16 @@ fn browser(url: &str, code: &str, user: &str) {
         let Some(location) = r.headers().get("location") else {
             assert_eq!(r.status().as_u16(), 200, "the callback's page");
             assert!(next.is_some(), "the confirmation led on");
-            return;
+            return asked;
         };
         let mut to = location.to_str().unwrap().to_string();
         if to.contains("/auth/fake/authorize") {
             assert!(to.contains("force_verify=true"), "{to}");
-            to = format!("{to}&user={user}&name={user}");
+            asked = to
+                .split(['?', '&'])
+                .find_map(|p| p.strip_prefix("scope="))
+                .map(|s| s.replace("%3A", ":").replace(['+'], " ").replace("%20", " "));
+            to = format!("{to}&user={user}&name={user}{extra}");
         }
         next = Some(to.clone());
         let mut req = agent.get(&to);
@@ -540,4 +551,154 @@ fn the_rooms_keep_alive_keeps_an_idle_socket_and_replaces_one_cut_silently() {
     assert!(back <= Duration::from_secs(46), "{back:?}");
     assert_eq!(keep(&a).1, 1);
     a.leave();
+}
+
+/// One step a room's host takes (round TB): a change in Host options (the
+/// room's Twitch setting asked as the dialog asks it, its trip through
+/// Twitch where the access lacks a scope), or this device's own "Twitch
+/// chat in rooms" turned on (its own trip, for `chat`).
+#[derive(Clone, Copy, Debug)]
+enum TwitchStep {
+    Host(ddi_room::TwitchMirror, ddi_room::TwitchChat),
+    Device,
+}
+
+/// Round TB (the maintainer, 2026-11-22: "Does the 'Twitch bans' work
+/// together with 'Show my Twitch chat'?"): on desktop, against a local
+/// server's fake Twitch, a host turns on the room's Twitch bans (or bans
+/// and blocks) and Show my Twitch chat in every order, with the access
+/// starting empty or with one feature connected first by this device's
+/// own chat option, each trip through Twitch played as desktop's (the
+/// attempt's code typed in the browser's page). Every case ends with both
+/// features on in the room, the access granting all they need, a person
+/// the host banned refused at the door with the setting still on, and the
+/// host's device subscribed to the room's chat.
+#[test]
+fn a_hosts_twitch_bans_and_chat_are_both_kept_in_any_order() {
+    use ddi_room::{TwitchChat as C, TwitchMirror as M};
+    use ddi_ui::state::online::api::{ApiRequest, Method};
+    use TwitchStep::{Device, Host};
+    let Some(api) = api() else {
+        eprintln!("DDI_ONLINE_API not set: skipped");
+        return;
+    };
+    let suffix = now() % 100_000;
+    // Eve, whom every host here banned (the fake Twitch's `bans=eve`).
+    let eve = person(&api);
+    eve.borrow_mut().check();
+    until(&eve, |o| !matches!(o.account(), ddi_ui::state::online::Account::Checking));
+    sign_in(&eve, "eve", Dest::Home);
+    until(&eve, |o| o.me().is_some() && !o.sign_in_state().busy());
+    let cases: Vec<(&str, Vec<TwitchStep>)> = vec![
+        ("banschat", vec![Host(M::Bans, C::Off), Host(M::Bans, C::Emotes)]),
+        ("chatbans", vec![Host(M::Off, C::Emotes), Host(M::Bans, C::Emotes)]),
+        ("blockschat", vec![Host(M::BansAndBlocks, C::Off), Host(M::BansAndBlocks, C::EmotesAndMessages)]),
+        ("deviceboth", vec![Device, Host(M::Bans, C::Emotes)]),
+        ("devicebans", vec![Device, Host(M::Bans, C::Off), Host(M::Bans, C::Emotes)]),
+        ("bansdevice", vec![Host(M::Bans, C::Off), Device, Host(M::Bans, C::Emotes)]),
+        ("bothdevice", vec![Host(M::Bans, C::Off), Host(M::Bans, C::Emotes), Device]),
+    ];
+    for (case, steps) in cases {
+        let user = format!("tb{case}{suffix}");
+        let host = person(&api);
+        host.borrow_mut().check();
+        until(&host, |o| !matches!(o.account(), ddi_ui::state::online::Account::Checking));
+        host.borrow_mut().private_room();
+        let (url, code) = attempt_of(&host);
+        browser(&url, &code, &user);
+        let mut room_id = None;
+        until(&host, |o| {
+            room_id = o.take_entered();
+            room_id.is_some()
+        });
+        let room_id = room_id.unwrap();
+        let mut a = connect(&host, &api, &room_id, &user);
+        let mut trips = Vec::new();
+        let mut last = (M::Off, C::Off);
+        for step in &steps {
+            match *step {
+                Host(mirror, chat) => {
+                    // What Host options sends: the room's setting with the
+                    // row changed; a trip where the access lacks a scope,
+                    // the setting made by itself on the way back.
+                    a.set_twitch(mirror, chat);
+                    let start = Instant::now();
+                    loop {
+                        a.tick(now());
+                        if let Some(need) = a.take_twitch_trip() {
+                            let (url, code) = attempt_of(&host);
+                            let asked = browser_with(&url, &code, &user, "&bans=eve&blocks=eve");
+                            trips.push((need, asked));
+                        }
+                        let now_set = a.twitch().map(|t| (t.mirror, t.chat));
+                        if now_set == Some((mirror, chat)) && !host.borrow().sign_in_state().busy() {
+                            break;
+                        }
+                        assert!(
+                            start.elapsed() < Duration::from_secs(20),
+                            "{case}: {step:?} never made: the room's setting {now_set:?}; trips (need, scopes asked) {trips:?}; access {:?}",
+                            host.borrow().twitch()
+                        );
+                        std::thread::sleep(Duration::from_millis(30));
+                    }
+                    last = (mirror, chat);
+                }
+                Device => {
+                    host.borrow_mut()
+                        .connect_twitch_chat(Dest::Room(room_id.clone()), ddi_chat::Level::Emotes);
+                    let (url, code) = attempt_of(&host);
+                    let asked = browser_with(&url, &code, &user, "&bans=eve&blocks=eve");
+                    trips.push(("chat (device)".into(), asked));
+                    tick_until(&mut [&mut a], |_| {
+                        let o = host.borrow();
+                        !o.sign_in_state().busy() && o.twitch().is_some_and(|t| t.features.iter().any(|f| f == "chat"))
+                    });
+                }
+            }
+        }
+        // The access grants everything both features need.
+        let needs = ddi_ui::state::online::api::twitch_needs(last.0, last.1);
+        let features = host.borrow().twitch().map(|t| t.features.clone()).unwrap_or_default();
+        for n in &needs {
+            assert!(features.iter().any(|f| f == n), "{case}: the access lacks {n}: {features:?}; trips {trips:?}");
+        }
+        // Eve, banned by the host, is refused at the door, and the setting
+        // stays as it is (the host's lists read with the access kept).
+        a.fetch_invite();
+        tick_until(&mut [&mut a], |r| r[0].invite_link().is_some());
+        let invite = ddi_ui::state::online::api::invite_in(&a.invite_link().unwrap()).unwrap();
+        eve.borrow_mut().open_invite(&invite);
+        until(&eve, |o| o.invite().is_some_and(|v| v.preview.is_some()));
+        eve.borrow_mut().join_invite();
+        until(&eve, |o| o.invite().is_some_and(|v| !v.joining && v.refused.is_some()));
+        assert_eq!(
+            eve.borrow().invite().unwrap().refused.as_ref().unwrap().code,
+            "not_admitted",
+            "{case}"
+        );
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_millis(600) {
+            a.tick(now());
+            std::thread::sleep(Duration::from_millis(30));
+        }
+        assert_eq!(a.twitch().map(|t| (t.mirror, t.chat)), Some(last), "{case}: the setting after the door's check");
+        // The host's device subscribes to the room's chat (the fake
+        // Twitch answers).
+        let id = host.borrow_mut().request(ApiRequest {
+            method: Method::Post,
+            path: format!("/rooms/{room_id}/chat/subscribe"),
+            body: Some(r#"{"session_id":"tb-session","messages":false}"#.into()),
+            bearer: None,
+            poll: None,
+        });
+        let mut answer = None;
+        until(&host, |o| {
+            answer = o.take_answer(id);
+            answer.is_some()
+        });
+        let answer = answer.unwrap();
+        assert_eq!(answer.status, 200, "{case}: the chat's subscription: {}", answer.body);
+        eprintln!("{case}: {last:?}, access {features:?}, trips (need, scopes asked) {trips:?}");
+        a.leave();
+    }
 }
