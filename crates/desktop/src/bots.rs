@@ -52,7 +52,7 @@ use crate::clock::now_ms;
 use ddi_ui::screens::data::{ChartEntry, SongEntry};
 use ddi_ui::state::online::{Account, SharedOnline};
 use ddi_ui::state::room::{
-    CpuSeat, LoadProblem, RoomClient, RoomView, SPOTLIGHT, SharedRoom, StageOrder, eligible,
+    CpuSeat, LoadProblem, RoomClient, RoomView, SPOTLIGHT, SharedRoom, StageOrder, StartRule, eligible,
 };
 
 /// Bots in one run at most: a room's whole field (the cap, 73; the
@@ -112,6 +112,12 @@ pub struct Options {
     /// bot chooses the song it would have picked, its choice starting the
     /// draw.
     pub choose: ChooseBy,
+    /// The chart each bot starts a stage on under Charts: Adaptive (round
+    /// OC, room model revision 23; `--start own|easiest|hardest`): as a
+    /// CPU of its level starts (its own, `cpu-start-v0`, where not
+    /// given), the song's easiest or its hardest; told the room as a
+    /// person's device tells it.
+    pub start: StartRule,
     /// A song the host removes from the room's list once a stage settled
     /// (`--remove TITLE`), its upload deleted by the server.
     pub remove: Option<String>,
@@ -215,6 +221,7 @@ impl Default for Options {
             group: false,
             repeats: None,
             choose: ChooseBy::Random,
+            start: StartRule::Preferred,
             remove: None,
             rest_ms: 8_000,
             stages: None,
@@ -277,6 +284,9 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
   --choose C           what each guest bot chooses under Group: random (a
                        song of the list drawn from --seed, the default), first
                        (the first it may) or none
+  --start S            the chart each bot starts a stage on under Charts:
+                       Adaptive: own (as a CPU of its level starts, the
+                       default), easiest or hardest
   --remove TITLE       the host removes that song from the room's list once
                        a stage settled
   --rest SECONDS       the host's rest on a song before picking it (default 8)
@@ -491,6 +501,15 @@ impl Options {
                         "match" => ddi_room::Repeats::NotInAMatch,
                         _ => return Err("--repeats takes allowed, row or match".into()),
                     });
+                }
+                "--start" => {
+                    o.start = match value(i, a)?.as_str() {
+                        // Its level's, set for each bot as it joins.
+                        "own" => StartRule::Preferred,
+                        "easiest" => StartRule::Easiest,
+                        "hardest" => StartRule::Hardest,
+                        _ => return Err("--start takes own, easiest or hardest".into()),
+                    };
                 }
                 "--choose" => {
                     o.choose = match value(i, a)?.as_str() {
@@ -773,8 +792,11 @@ pub struct StagePlay {
     /// It leaves its play at this song second (`--quit-after`): a forfeit.
     pub quit_at: Option<f64>,
     /// The stage's ladder, where its charts adapt: the chart it finished
-    /// on, for its detail.
+    /// on, for its detail; as charts, and the rung it started on (room
+    /// model revision 23: its own chart, which it told the room).
     rungs: Vec<Rung>,
+    charts: ddi_engine::ladder::Ladder,
+    start: u8,
     started_ms: u64,
     /// The stage played live (`ddi_session::battle::live`): its stream to
     /// the room and the room's attacks into its CPU's play.
@@ -799,13 +821,18 @@ impl StagePlay {
     ) -> Result<StagePlay, String> {
         // Its ladder where the stage's charts adapt, as everyone's CPUs.
         let ladder = ddi_session::battle::stage_ladder(song, chart, &order.setup.clone());
-        let mut opponent = cpu_for(song, chart, &order.rules, &ladder, profile, seed)?;
+        // On its own chart where it has one (revision 23), as the room has
+        // it and everyone draws it.
+        let start = ddi_session::battle::start_rung(song, chart, &ladder, order.setup.start.as_ref());
+        let mut opponent = cpu_for(song, chart, &order.rules, &ladder, profile, seed, start)?;
         opponent.start(0.0);
         Ok(StagePlay {
             stage: order.stage,
             number: order.number,
             opponent,
             rungs: ddi_session::battle::ladder_rungs(song, &ladder)?,
+            charts: ddi_engine::cpu::planned_charts(chart, &ladder),
+            start,
             started_ms: now_ms,
             live: None,
             fails_on: order.rules.plays_on_failed(),
@@ -893,7 +920,7 @@ impl StagePlay {
     /// its own play: as a CPU's, the chart it finished on named where it
     /// stepped.
     pub fn detail(&self) -> ddi_room::RunDetail {
-        ddi_session::battle::cpu_detail(&self.opponent, None, &self.rungs)
+        ddi_session::battle::cpu_detail(&self.opponent, None, &self.rungs, &self.charts, self.start)
     }
 }
 
@@ -909,6 +936,7 @@ fn cpu_for(
     ladder: &[PlannedRung],
     profile: &Profile,
     seed: u64,
+    start: u8,
 ) -> Result<Opponent, String> {
     song.charts.get(chart).ok_or("no such chart")?;
     let seat = CpuSeat {
@@ -921,12 +949,20 @@ fn cpu_for(
         targeting: Default::default(),
     };
     let ruleset = ddi_session::battle::stage_ruleset(rules);
-    ddi_session::battle::cpus::opponent(&PlannedRung::new(song, chart)?, &ruleset, &seat, ladder)
+    // From its own start (revision 23), the ladder seen from there.
+    ddi_session::battle::cpus::opponent_from(
+        &mut Vec::new(),
+        &PlannedRung::new(song, chart)?,
+        &ruleset,
+        &seat,
+        ladder,
+        start,
+    )
 }
 
 /// Whether `profile`'s CPU can play chart `chart` of `song`, or why not.
 fn cpu_plays(song: &ddi_chart::Song, chart: usize, profile: &Profile) -> Result<(), String> {
-    cpu_for(song, chart, &Default::default(), &[], profile, 1).map(|_| ())
+    cpu_for(song, chart, &Default::default(), &[], profile, 1, 0).map(|_| ())
 }
 
 /// A run in a line of the log.
@@ -1099,6 +1135,9 @@ struct Bot {
     place: u64,
     chose_for: u64,
     choose_at: Option<u64>,
+    /// How it starts a stage under Adaptive (`--start`; its level's where
+    /// own).
+    start: StartRule,
 }
 
 impl Bot {
@@ -1260,6 +1299,12 @@ impl Bot {
         room.set_inbox(inbox);
         // The Rules pop-up is a screen's; a bot has read them.
         room.set_rules_seen(true);
+        // Its own chart under Adaptive (round OC): as a CPU of its level
+        // starts, unless `--start` says the easiest or the hardest.
+        room.set_start_rule(match self.start {
+            StartRule::Preferred => StartRule::Level(u8::try_from(self.profile.level).unwrap_or(u8::MAX)),
+            other => other,
+        });
         // Its own store of the room's songs (bots share the cache folder).
         room.set_store(format!(
             "{id}-{}",
@@ -1686,6 +1731,9 @@ impl Bot {
         if self.order.is_none() && room.borrow().view() != RoomView::Select {
             let order = room.borrow_mut().take_stage_order();
             if let Some(order) = order {
+                if let Some(start) = room.borrow().start_shown(order.stage, order.me) {
+                    self.say(format!("starts stage {} on {} {}", order.number, start.difficulty.name(), start.meter));
+                }
                 // A stage it is not in (it joined during its play, round
                 // AA): watched, never played or reported as its own.
                 if order.watching {
@@ -1730,6 +1778,9 @@ impl Bot {
         }
         let started = room.borrow().stage_started(order.stage);
         if started {
+            // Its own chart as the room has it, locked at the start.
+            let mut order = order;
+            order.setup.start = room.borrow().start_for(&order);
             let seed = mix(self.seed, order.stage.0 ^ (u64::from(self.matches) << 32));
             // The song as its preparation read it (the others prepared
             // before are not played any more).
@@ -2679,6 +2730,7 @@ pub fn run_with(o: Options, token: &str) -> i32 {
             place: n as u64,
             chose_for: 0,
             choose_at: None,
+            start: o.start,
         });
     }
     catch_stop();
@@ -2990,7 +3042,7 @@ mod tests {
             level: 2,
             skills: "balanced".into(),
         };
-        let bot = cpu_for(&song, chart, &rules, &[], &profile, 9).unwrap();
+        let bot = cpu_for(&song, chart, &rules, &[], &profile, 9, 0).unwrap();
         let on = |scale| {
             let ruleset = ddi_session::battle::stage_ruleset(&rules);
             Opponent::on_scale(&song, chart, ruleset, scale, 2, 9, Skills::default())
@@ -3013,6 +3065,7 @@ mod tests {
                 battle: ddi_room::BattlePreset::GaugeSurvivalV0,
                 rules,
                 dev_mines_at_beat: None,
+                start: None,
                 me: ddi_room::ParticipantId(2),
                 targeting: Default::default(),
                 cpus: Vec::new(),
@@ -3145,7 +3198,7 @@ mod tests {
             Run::Forfeit => panic!("never a forfeit"),
         }
         // A chart the CPU cannot plan is refused.
-        assert!(cpu_for(&song, 99, &Default::default(), &[], &profile, 1).is_err());
+        assert!(cpu_for(&song, 99, &Default::default(), &[], &profile, 1, 0).is_err());
     }
 
     #[test]

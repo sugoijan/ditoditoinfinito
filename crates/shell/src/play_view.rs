@@ -2210,23 +2210,28 @@ impl<H: PlayHost> PlayView<H> {
             // The chart played now, where the stage has a ladder: the
             // player's own, or the followed competitor's (none over a
             // spectator's grid).
-            let steps: Option<Vec<(f64, u8)>> = match focus {
-                Some(seat) => b
-                    .feeds()
-                    .nth(seat)
-                    .map(|f| f.steps().map(|(_, boundary, rung)| (boundary, rung)).collect()),
+            let steps: Option<(u8, Vec<(f64, u8)>)> = match focus {
+                Some(seat) => b.feeds().nth(seat).map(|f| {
+                    (
+                        f.start_rung(),
+                        f.steps().map(|(_, boundary, rung)| (boundary, rung)).collect(),
+                    )
+                }),
                 None if grid => None,
-                None => Some(
+                // The player's own play keeps the stage's rung numbers
+                // (`Player::start_on`).
+                None => Some((
+                    b.my_start(),
                     session
                         .player
                         .steps()
                         .iter()
                         .map(|st| (st.boundary, st.rung))
                         .collect(),
-                ),
+                )),
             };
             let chart = steps
-                .and_then(|steps| b.chart_line(steps, t))
+                .and_then(|(start, steps)| b.chart_line(start, steps, t))
                 .and_then(|line| {
                     let text = b.chart_shown(line.rung)?.to_string();
                     let step = line.step.map(|(up, age)| {

@@ -392,6 +392,10 @@ struct Seat {
     /// every device, its reports sent to the room ([`cpus::Drive`]); its
     /// run sent once its stream ended.
     drive: Option<cpus::Drive>,
+    /// The rung of the stage's ladder it started on (room model revision
+    /// 23: under Adaptive by its level, `cpu-start-v0`; 0 the stage's
+    /// chart).
+    start: u8,
 }
 
 impl Seat {
@@ -517,6 +521,16 @@ pub struct Battle {
     /// competitor's percent is worked out against as they step
     /// (`live::Shown`, round Y3); empty otherwise.
     counted: Vec<Rc<live::Counted>>,
+    /// The stage's ladder as charts (`ddi_engine::cpu::planned_charts`):
+    /// what puts a play's steps on the stage's rung numbers by the chart
+    /// it plays (a CPU's play is planned from its own start).
+    charts: ddi_engine::ladder::Ladder,
+    /// The rung the local player starts on (room model revision 23: their
+    /// own chart under Adaptive, [`start_rung`]; 0 the stage's chart).
+    my_start: u8,
+    /// The stage's chart's digest, then each rung's: what finds each
+    /// remote competitor's own start on the ladder (`live::Live::set_starts`).
+    start_keys: Vec<String>,
 }
 
 /// A rung of the stage's ladder as the battle shows it.
@@ -547,6 +561,72 @@ pub fn stage_ladder(song: &Song, chart: usize, setup: &StageSetup) -> Vec<ddi_en
         return Vec::new();
     }
     ddi_engine::cpu::planned_ladder(song, chart)
+}
+
+/// The rung of the stage's ladder `ladder` (a stage on chart `chart` of
+/// `song`) chart `key` is (room model revision 23: under Adaptive a
+/// competitor's own start, a chart of the song by its digest); 0, the
+/// stage's chart, where none is named or one this device does not have;
+/// for a chart of the song that is no rung, the rung nearest it. Every
+/// device has the same charts, so it is the same everywhere.
+pub fn start_rung(
+    song: &Song,
+    chart: usize,
+    ladder: &[ddi_engine::cpu::PlannedRung],
+    key: Option<&ddi_room::ChartKey>,
+) -> u8 {
+    let Some(key) = key else {
+        return 0;
+    };
+    let charts = ddi_engine::cpu::planned_charts(chart, ladder);
+    let Some(named) = (0..song.charts.len()).find(|&c| song.chart_digest(c).to_string() == key.as_str())
+    else {
+        return 0;
+    };
+    if let Some(r) = charts.rung_of_chart(named) {
+        return r;
+    }
+    // A chart of the song that is no rung (a timing of its own, one the
+    // CPUs cannot plan, or of the stage chart's slot): the rung nearest
+    // it, by slot then meter, the easier of two as near (never a harder
+    // chart than the one chosen because it is not a rung).
+    let at = |c: usize| (song.charts[c].difficulty as i32, song.charts[c].meter as i32);
+    let (d, m) = at(named);
+    let line = charts.line();
+    line.iter()
+        .enumerate()
+        .min_by_key(|&(i, &c)| {
+            let (cd, cm) = at(c);
+            ((cd - d).abs(), (cm - m).abs(), i)
+        })
+        .and_then(|(_, &c)| charts.rung_of_chart(c))
+        .unwrap_or(0)
+}
+
+/// The charts of a stage on chart `chart` of `song` with ladder `ladder`
+/// by their digests: the stage's first, then each rung's.
+pub fn ladder_keys(song: &Song, chart: usize, ladder: &[ddi_engine::cpu::PlannedRung]) -> Vec<String> {
+    std::iter::once(chart)
+        .chain(ladder.iter().map(|r| r.chart))
+        .map(|c| song.chart_digest(c).to_string())
+        .collect()
+}
+
+/// The rung a CPU of level `level` (an index of the ten) starts a stage
+/// on chart `chart` of `song` on, with ladder `ladder`
+/// (`ddi_engine::ladder::cpu_start`, `cpu-start-v0`): 0 where the stage
+/// has no ladder (As picked).
+pub fn cpu_start_rung(
+    song: &Song,
+    chart: usize,
+    ladder: &[ddi_engine::cpu::PlannedRung],
+    level: u8,
+) -> u8 {
+    if ladder.is_empty() {
+        return 0;
+    }
+    let charts = ddi_engine::cpu::planned_charts(chart, ladder);
+    ddi_engine::ladder::cpu_start(song, &charts, usize::from(level))
 }
 
 /// The stage's ladder `ladder` of `song` as the battle shows it: each
@@ -589,15 +669,25 @@ pub struct ChartLine {
     pub step: Option<(bool, f64)>,
 }
 
-/// A run's detail's chart where `player` finished on another than the
-/// stage's (a rung of `rungs`, the stage's ladder): its name, and whether
-/// it is harder.
-fn finished_on(rungs: &[Rung], detail: &mut RunDetail, player: &Player) {
-    let rung = usize::from(player.rung())
-        .checked_sub(1)
-        .and_then(|i| rungs.get(i));
-    detail.chart = rung.map(|r| r.name.clone());
-    detail.harder = rung.is_some_and(|r| r.up);
+/// A run's detail's charts where `player` (whose play started on rung
+/// `start` of the stage's ladder, `charts`; `rungs` as the battle shows
+/// them) finished on another than the stage's (its name, and whether it
+/// is harder), and where it started on another (room model revision 23).
+/// By the chart it plays, so a CPU's play (planned from its own start,
+/// its rungs numbered from it) reads as a person's.
+fn finished_on(
+    rungs: &[Rung],
+    charts: &ddi_engine::ladder::Ladder,
+    start: u8,
+    detail: &mut RunDetail,
+    player: &Player,
+) {
+    let of = |rung: u8| usize::from(rung).checked_sub(1).and_then(|i| rungs.get(i));
+    let end = charts.rung_of_chart(player.chart_now()).unwrap_or(player.rung());
+    detail.chart = of(end).map(|r| r.name.clone());
+    detail.harder = of(end).is_some_and(|r| r.up);
+    detail.start = of(start).map(|r| r.name.clone());
+    detail.start_harder = of(start).is_some_and(|r| r.up);
 }
 
 /// A competitor's grade as their run ended (round AC): a forfeit QUIT,
@@ -620,10 +710,16 @@ pub fn graded_as_run(detail: &mut RunDetail, run: &Run) {
 /// rung of `rungs`, the stage's ladder): what a practice's results and an
 /// online room's standings show of it, a person's device's and a bot's
 /// alike.
-pub fn cpu_detail(opponent: &Opponent, launched: Option<(u32, u32)>, rungs: &[Rung]) -> RunDetail {
+pub fn cpu_detail(
+    opponent: &Opponent,
+    launched: Option<(u32, u32)>,
+    rungs: &[Rung],
+    charts: &ddi_engine::ladder::Ladder,
+    start: u8,
+) -> RunDetail {
     let player = opponent.player();
     let mut detail = run_detail(&player.results_brief(), player.ruleset(), opponent.life(), launched);
-    finished_on(rungs, &mut detail, player);
+    finished_on(rungs, charts, start, &mut detail, player);
     detail.bounded()
 }
 
@@ -749,17 +845,26 @@ impl Battle {
         // one song time, under the match's rules alone.
         let online = setup.live.is_some();
         let mut home = None;
+        // Each CPU starts on the chart its level is at home on (room
+        // model revision 23, `cpu-start-v0`), its play planned from there
+        // (the stage's ladder seen from its own rung), the same on every
+        // device; each start's plan made once.
+        let mut around: Vec<(u8, cpus::Around)> = Vec::new();
         let seats = setup
             .cpus
             .iter()
             .map(|seat| {
                 let level = usize::from(seat.level).min(levels - 1);
                 let home = cpus::home(&mut home, song, chart)?;
-                let mut opponent = cpus::opponent(home, ruleset, seat, ladder)?;
+                let start = cpu_start_rung(song, chart, ladder, seat.level);
+                let mut opponent = cpus::opponent_from(&mut around, home, ruleset, seat, ladder, start)?;
                 if !online {
                     opponent.start(song_offset);
                 }
                 let mut feed = feed::FieldFeed::new(&cpu_track, opponent.life(), feed::LOCAL_DELAY);
+                if let Some(track) = usize::from(start).checked_sub(1).and_then(|i| cpu_rungs.get(i)) {
+                    feed.start_on(start, Rc::clone(track));
+                }
                 // A shock stepped on locks its lane where the rules do
                 // (DDI): its miniature shows the lock.
                 feed.set_lock(opponent.player().ruleset().judge.lock);
@@ -776,6 +881,7 @@ impl Battle {
                     plays_on: false,
                     failed_told: false,
                     drive: None,
+                    start,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -819,7 +925,16 @@ impl Battle {
                 setup.rules.shocks.count(),
             )
         });
-        let own = feed::FieldFeed::new(&track, 1.0, feed::LOCAL_DELAY);
+        let charts = ddi_engine::cpu::planned_charts(chart, ladder);
+        let my_start = if setup.watching {
+            0
+        } else {
+            start_rung(song, chart, ladder, setup.start.as_ref())
+        };
+        let mut own = feed::FieldFeed::new(&track, 1.0, feed::LOCAL_DELAY);
+        if let Some(r) = usize::from(my_start).checked_sub(1).and_then(|i| rungs.get(i)) {
+            own.start_on(my_start, Rc::clone(&r.track));
+        }
         let counted = if online && !rungs.is_empty() && ruleset.is_ddi() {
             std::iter::once(chart)
                 .chain(rungs.iter().map(|r| r.chart))
@@ -880,8 +995,18 @@ impl Battle {
             remote_live: None,
             rungs,
             counted,
+            charts,
+            my_start,
+            start_keys: ladder_keys(song, chart, ladder),
         })
     }
+
+    /// The rung the local player starts on ([`Battle::new`]'s
+    /// [`start_rung`]: 0 the stage's chart).
+    pub fn my_start(&self) -> u8 {
+        self.my_start
+    }
+
 
     /// The stage's ladder ([`stage_ladder`]), numbered from 1 as
     /// `Ladder::rungs`: empty where the charts are as picked.
@@ -934,21 +1059,24 @@ impl Battle {
         }
     }
 
-    /// The chart line of a competitor whose steps are `steps` (each its
-    /// boundary and the rung stepped to, in order) at song second `t`:
+    /// The chart line of a competitor who started on rung `start` and
+    /// whose steps are `steps` (each its boundary and the rung stepped
+    /// to, in order) at song second `t`:
     /// the rung they play from the last boundary passed, and that step's
     /// direction and age. `None` where the stage has no ladder (as
     /// picked, or a song with no other chart to step to).
     pub fn chart_line(
         &self,
+        start: u8,
         steps: impl IntoIterator<Item = (f64, u8)>,
         t: f64,
     ) -> Option<ChartLine> {
         if self.rungs.is_empty() {
             return None;
         }
+        // From the chart they started on (their own, revision 23).
         let mut line = ChartLine {
-            rung: 0,
+            rung: start,
             step: None,
         };
         for (boundary, rung) in steps {
@@ -979,19 +1107,23 @@ impl Battle {
     fn feed_steps(
         stage: &Rc<feed::TapTrack>,
         rungs: &[Rc<feed::TapTrack>],
+        charts: &ddi_engine::ladder::Ladder,
         field: &mut feed::FieldFeed,
         player: &Player,
     ) {
         let known = field.steps().count();
         for st in player.steps().iter().skip(known) {
-            let rung = match usize::from(st.rung).checked_sub(1) {
+            // On the stage's numbers, by the chart it steps to (a CPU's
+            // play numbers its rungs from its own start).
+            let to = charts.rung_of_chart(st.chart).unwrap_or(st.rung);
+            let rung = match usize::from(to).checked_sub(1) {
                 None => stage,
                 Some(i) => match rungs.get(i) {
                     Some(r) => r,
                     None => continue,
                 },
             };
-            field.step(Rc::clone(rung), (st.at, st.boundary, st.tick), st.rung, st.up);
+            field.step(Rc::clone(rung), (st.at, st.boundary, st.tick), to, st.up);
             let life = player.life_at(st.at + 1e-6).clamp(0.0, 1.0);
             field.push(
                 rung,
@@ -999,7 +1131,7 @@ impl Battle {
                     at: st.at,
                     tick: st.tick,
                     lane: 0,
-                    kind: feed::MomentKind::Step(st.rung),
+                    kind: feed::MomentKind::Step(to),
                     life,
                     combo: player.combo(),
                     out: false,
@@ -1056,6 +1188,7 @@ impl Battle {
             l.set_most(most, max);
             l.set_rungs(self.rungs.iter().map(|r| (Rc::clone(&r.track), r.up)).collect());
             l.set_counted(self.counted.clone());
+            l.set_starts(self.start_keys.clone(), self.charts.clone());
             self.log.push(l.describe());
             if !self.seats.is_empty() {
                 self.log.push(format!(
@@ -1435,7 +1568,7 @@ impl Battle {
         } else {
             Vec::new()
         };
-        Self::feed_steps(&self.track, &rungs, &mut self.own, human);
+        Self::feed_steps(&self.track, &rungs, &self.charts, &mut self.own, human);
         let judge = &human.ruleset().judge;
         let (life, combo) = (human.ruleset().gauge.life().clamp(0.0, 1.0), human.combo());
         let score = human.ruleset().score.view();
@@ -1551,7 +1684,7 @@ impl Battle {
                     a.out_at(s.seat.participant, at);
                 }
             }
-            Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, s, events, fails_on);
+            Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, &self.charts, s, events, fails_on);
         }
     }
 
@@ -1560,11 +1693,12 @@ impl Battle {
     fn feed_cpu(
         track: &Rc<feed::TapTrack>,
         rungs: &[Rc<feed::TapTrack>],
+        charts: &ddi_engine::ladder::Ladder,
         s: &mut Seat,
         events: Vec<JudgeEvent>,
         fails_on: bool,
     ) {
-        Self::feed_steps(track, rungs, &mut s.feed, s.opponent.player());
+        Self::feed_steps(track, rungs, charts, &mut s.feed, s.opponent.player());
         let (life, combo, out_at) = (s.opponent.life(), s.opponent.combo(), s.out_at());
         // Its score as the room shows it, for its field shown large.
         let score = s.opponent.score();
@@ -1650,11 +1784,12 @@ impl Battle {
             let (events, ended) = cpus::step(d, &mut s.opponent, room, stage, (known, limit_us));
             s.feed.set_delay(l.field_delay_s(s.seat.participant));
             let fails_on = d.fails_on();
-            Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, s, events, fails_on);
+            Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, &self.charts, s, events, fails_on);
             if ended {
                 // The ledger is `l`'s, taken out of the battle meanwhile.
                 let p = self.seats[i].seat.participant;
-                let detail = cpu_detail(&self.seats[i].opponent, self.launched_in(Some(l), p), &self.rungs);
+                let s = &self.seats[i];
+                let detail = cpu_detail(&s.opponent, self.launched_in(Some(l), p), &self.rungs, &self.charts, s.start);
                 let s = &self.seats[i];
                 if let Some(d) = &s.drive {
                     cpus::report_run(room, stage, d, &s.opponent, detail);
@@ -2642,7 +2777,7 @@ impl Battle {
                 human.ruleset().gauge.life(),
                 self.launched(self.setup.me),
             );
-            finished_on(&self.rungs, &mut detail, human);
+            finished_on(&self.rungs, &self.charts, self.my_start, &mut detail, human);
             graded_as_run(&mut detail, &mine);
             details.push((self.setup.me, detail.bounded()));
         }
@@ -2743,7 +2878,7 @@ impl Battle {
     /// How the `i`th CPU performed, as judged by its own play.
     fn cpu_detail(&self, i: usize) -> RunDetail {
         let s = &self.seats[i];
-        cpu_detail(&s.opponent, self.launched(s.seat.participant), &self.rungs)
+        cpu_detail(&s.opponent, self.launched(s.seat.participant), &self.rungs, &self.charts, s.start)
     }
 
     /// The stage's end as the local player's results tell it, from its

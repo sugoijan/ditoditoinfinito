@@ -139,6 +139,17 @@ impl StageRoom {
         }
     }
 
+    /// Stage `order`'s own starting chart as its play starts (room model
+    /// revision 23): the room's, where it is the room's stage (it may have
+    /// been told or chosen on the stage's Ready card since the order was
+    /// made), else the order's own.
+    pub fn start(&self, order: &ddi_ui::state::room::StageOrder) -> Option<ddi_room::ChartKey> {
+        match self.room() {
+            Some(room) => room.borrow().start_for(order),
+            None => order.start.clone(),
+        }
+    }
+
     /// Stage `order`'s room client for its play, where the room plays it
     /// live (`ddi_session::battle::live`): the play starts at the room's
     /// instant and streams through it (watched with the room's audience,

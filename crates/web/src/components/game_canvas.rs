@@ -2306,6 +2306,8 @@ impl GameCanvas {
                 setup.targeting = crate::room::stage_targeting(order);
                 // Its last song marked on the Ready card (round AC).
                 setup.of = crate::room::stage_of(order);
+                // Its own chart under Adaptive (revision 23).
+                setup.start = crate::room::stage_start(order);
             }
             setup
         });

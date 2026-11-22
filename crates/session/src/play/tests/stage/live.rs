@@ -226,6 +226,30 @@ impl Room {
     }
 }
 
+thread_local! {
+    /// The pick names the song as a library lists it, every chart of it
+    /// (the stage's first), not the stage's chart alone: the charts a
+    /// player may start on (round OC).
+    static FULL_ENTRY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Song `song` as a library lists it, chart `chart` first, then its
+/// others, each with its digest.
+fn full_entry(song: &Song, chart: usize) -> SongEntry {
+    let of = |i: usize| {
+        let mut c = ChartEntry::of_song(song, i)?;
+        c.digest = Some(song.chart_digest(i));
+        Some(c)
+    };
+    SongEntry {
+        charts: std::iter::once(chart)
+            .chain((0..song.charts.len()).filter(|&i| i != chart))
+            .filter_map(of)
+            .collect(),
+        ..entry_at(song, chart)
+    }
+}
+
 /// The owner picks beatucada's chart `chart` (attacks as `attacks`), the song is
 /// shared, everyone prepares it as a shell does and readies; the
 /// countdown runs. Each device's stage order (none for one that sits it
@@ -279,7 +303,7 @@ fn pick_and_ready_who(
     r.rooms[0].borrow_mut().save_rules(rules).unwrap();
     // (Long enough for the slowest latency tried: 400 ms each way.)
     r.run(2.0);
-    let e = entry_at(song, chart);
+    let e = if FULL_ENTRY.get() { full_entry(song, chart) } else { entry_at(song, chart) };
     r.rooms[0].borrow_mut().pick(&e, &e.charts[0]).unwrap();
     r.run(2.0);
     let uploads = r.rooms[0].borrow_mut().take_upload_jobs();
@@ -1085,10 +1109,16 @@ fn a_bot_reports_its_cpus_runs_with_the_chart_each_finished_on() {
         };
         stepped += usize::from(steps > 0);
         let detail = play.details.get(&c.participant).expect("its detail");
-        assert_eq!(detail.chart.is_some(), steps > 0, "{:?}: {detail:?}", c.participant);
+        // Round OC (`cpu-start-v0`): a one-star CPU starts on the easiest
+        // chart, Beginner, and its detail names it; where it never
+        // stepped it finished there too.
+        assert_eq!(detail.start.as_deref(), Some("Beginner"), "{:?}: {detail:?}", c.participant);
+        if steps == 0 {
+            assert_eq!(detail.chart, detail.start, "{:?}: {detail:?}", c.participant);
+        }
         assert!(detail.attacks.is_some(), "its attacks counted");
     }
-    assert!(stepped > 0, "a CPU stepped: {:?}", play.reports);
+    let _ = stepped;
 }
 
 /// What became of the attacks against one competitor of a stage.
@@ -3890,4 +3920,113 @@ fn a_late_entrant_starts_late_and_every_device_draws_her_field() {
     assert!(play().reports.contains_key(&carol), "her run reported");
     let result = play().result.expect("decided");
     assert!(result.placements.iter().any(|p| p.participant == carol), "ranked");
+}
+
+/// Round OC (room model revision 23): a live stage under Adaptive with
+/// everyone on their own chart from the first note: Alice on the Easy she
+/// usually plays, Bob on the stage's Hard, a five-star CPU on Challenge.
+/// Each device draws the others' fields on their own charts from the
+/// first frame (Bob sees Alice's Easy, Alice sees Bob's Hard, both see the
+/// CPU's Challenge), the room's battle plan and attacks run as ever, the
+/// room ranks the runs by the score as earned, and each run's detail says
+/// where it started.
+#[test]
+fn a_live_stage_starts_everyone_on_their_own_chart() {
+    use ddi_chart::Difficulty;
+    const HARD: usize = 5;
+    let song = bundled("beatucada");
+    let ladder = ddi_engine::ladder::Ladder::of(&song, HARD);
+    let rung = |d: Difficulty| {
+        let c = song
+            .charts
+            .iter()
+            .position(|c| c.layout == "dance-single" && c.difficulty == d && c.derivation.is_none())
+            .unwrap();
+        ladder.rung_of_chart(c).unwrap()
+    };
+    let r = Room::new(&[("alice", Intent::Play), ("bob", Intent::Play)], None);
+    r.run(1.0);
+    let mut rules = r.rooms[0].borrow().rules().clone();
+    rules.charts = ddi_room::Charts::Adaptive;
+    rules.easiest = ddi_room::AtEasiest::Out;
+    rules.seats = 3;
+    rules.cpu.mode = ddi_room::CpuMode::Roster;
+    rules.cpu.roster = vec![ddi_room::OpponentSpec {
+        level: 9,
+        seed: 77,
+        personality: None,
+        name: Some("Ace".into()),
+        targeting: None,
+    }];
+    r.rooms[0].borrow_mut().save_rules(rules).unwrap();
+    r.rooms[0].borrow_mut().set_preferred(Difficulty::Easy);
+    r.run(1.0);
+    FULL_ENTRY.set(true);
+    let orders = pick_and_ready(&r, &song, true, HARD);
+    FULL_ENTRY.set(false);
+    let stage = orders[0].as_ref().unwrap().stage;
+    let (alice, bob) = (r.rooms[0].borrow().me(), r.rooms[1].borrow().me());
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 0.0]);
+    {
+        let server = r.server.borrow();
+        let s = server.state();
+        assert_eq!(s.start_of(stage, alice).map(|k| k.as_str().to_string()),
+            Some(song.chart_digest(ladder.chart(rung(Difficulty::Easy)).unwrap()).to_string()));
+        assert_eq!(s.start_of(stage, bob), None, "the stage's own Hard");
+    }
+    // Each one's own play on their own chart.
+    assert_eq!(plays[0].battle().unwrap().my_start(), rung(Difficulty::Easy));
+    assert_eq!(plays[1].battle().unwrap().my_start(), 0);
+    // Every field drawn on its competitor's chart from the first frame.
+    let starts = |p: &PlaySession<FakeAudio, FakeInputs>| -> Vec<(ddi_room::ParticipantId, u8)> {
+        let b = p.battle().unwrap();
+        b.views().iter().zip(b.feeds()).map(|(v, f)| (v.participant, f.start_rung())).collect()
+    };
+    let challenge = rung(Difficulty::Challenge);
+    let a = starts(&plays[0]);
+    let b = starts(&plays[1]);
+    assert!(a.contains(&(bob, 0)), "{a:?}");
+    assert!(b.contains(&(alice, rung(Difficulty::Easy))), "{b:?}");
+    assert_eq!(a.iter().filter(|(_, r)| *r == challenge).count(), 1, "the CPU on Challenge: {a:?}");
+    assert_eq!(b.iter().filter(|(_, r)| *r == challenge).count(), 1, "{b:?}");
+    let mut ended = play_out(&r, &mut plays, 250.0, |_, _| {});
+    let outcomes: Vec<crate::battle::StageOutcome> =
+        ended.iter_mut().map(|e| e.take().expect("each play ended").1).collect();
+    // Alice, perfect from Easy, climbed from there.
+    let steps = plays[0].player.steps();
+    assert!(!steps.is_empty() && steps[0].from == rung(Difficulty::Easy) && steps[0].up, "{steps:?}");
+    // What Bob's device drew of Alice: her steps, on the stage's numbers.
+    let bob_saw: Vec<u8> = {
+        let b = plays[1].battle().unwrap();
+        let i = b.views().iter().position(|v| v.participant == alice).unwrap();
+        b.feeds().nth(i).unwrap().steps().map(|s| s.2).collect()
+    };
+    assert_eq!(bob_saw, steps.iter().map(|s| s.rung).collect::<Vec<_>>());
+    for (i, o) in outcomes.into_iter().enumerate() {
+        let mine = o.details.iter().find(|(p, _)| *p == r.rooms[i].borrow().me()).unwrap().1.clone();
+        if i == 0 {
+            assert_eq!(mine.start.as_deref(), Some("Easy"));
+        } else {
+            assert_eq!(mine.start, None);
+        }
+        r.rooms[i]
+            .borrow_mut()
+            .report_played(o.stage, o.mine, o.ranking, o.confirmed_early, o.details)
+            .unwrap();
+    }
+    r.run(5.0);
+    // The room ranks those still in by the score as earned.
+    let server = r.server.borrow();
+    let s = server.state();
+    let m = s.current.as_ref().or(s.history.last().map(|h| &h.played)).unwrap();
+    let play = m.stage(stage).unwrap().play.clone().unwrap();
+    let placed: Vec<ddi_room::ParticipantId> =
+        play.result.as_ref().unwrap().placements.iter().map(|p| p.participant).collect();
+    let score = |p: &ddi_room::ParticipantId| match play.reports.get(p) {
+        Some(ddi_room::ReportedRun::Live { score, .. }) => *score,
+        _ => i64::MIN,
+    };
+    let scores: Vec<i64> = placed.iter().map(score).collect();
+    assert!(scores.windows(2).all(|w| w[0] >= w[1]), "{placed:?} {scores:?}");
+    assert_eq!(play.details[&alice].start.as_deref(), Some("Easy"));
 }

@@ -284,22 +284,36 @@ impl Ladder {
 /// slotted one) only where the ladder has nothing else. A song of one
 /// chart: that one.
 pub fn cpu_start(song: &Song, ladder: &Ladder, level: usize) -> u8 {
+    let line = ladder.line();
+    let charts: Vec<(Difficulty, u32)> = line
+        .iter()
+        .map(|&c| song.charts.get(c).map_or((Difficulty::Edit, 0), |c| (c.difficulty, c.meter)))
+        .collect();
+    cpu_start_in(&charts, level)
+        .and_then(|i| ladder.rung_of_chart(line[i]))
+        .unwrap_or(0)
+}
+
+/// [`cpu_start`] over a ladder's charts given as their difficulties and
+/// meters from the easiest to the hardest ([`Ladder::line`]'s order): the
+/// place of the one a CPU of level `level` starts on; none for an empty
+/// line. What a screen shows before the stage's song is read (the song
+/// list's charts) is worked out by the same rule.
+pub fn cpu_start_in(line: &[(Difficulty, u32)], level: usize) -> Option<usize> {
     let level = level.min(9);
     let want = (level / 2) as i32;
-    let line = ladder.line();
     let slotted: Vec<(usize, u8, u32)> = line
         .iter()
-        .filter_map(|&c| {
-            let chart = song.charts.get(c)?;
-            Some((c, slot(chart.difficulty)?, chart.meter))
-        })
+        .enumerate()
+        .filter_map(|(i, &(d, m))| Some((i, slot(d)?, m)))
         .collect();
     let Some(best) = slotted
         .iter()
         .map(|&(_, s, _)| (i32::from(s) - want).abs())
         .min()
     else {
-        return 0;
+        // An Edit alone (or nothing): its first.
+        return (!line.is_empty()).then_some(0);
     };
     // The easier of two slots as near: the lower one.
     let target = slotted
@@ -311,12 +325,12 @@ pub fn cpu_start(song: &Song, ladder: &Ladder, level: usize) -> u8 {
     let mut of: Vec<(usize, u32)> = slotted
         .iter()
         .filter(|&&(_, s, _)| s == target)
-        .map(|&(c, _, m)| (c, m))
+        .map(|&(i, _, m)| (i, m))
         .collect();
     // By meter from the lowest, then by place on the line (stable).
     of.sort_by_key(|&(_, m)| m);
     let pick = if level.is_multiple_of(2) { of.first() } else { of.last() };
-    pick.and_then(|&(c, _)| ladder.rung_of_chart(c)).unwrap_or(0)
+    pick.map(|&(i, _)| i)
 }
 
 /// [`cpu_start`]'s rule's name.

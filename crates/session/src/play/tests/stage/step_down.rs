@@ -324,7 +324,15 @@ fn the_player_and_strong_cpus_step_up_alike_at_any_frame_rate() {
         s.battle().unwrap().feeds().map(|f| f.steps().collect()).collect()
     };
     assert_eq!(cpu_steps(&a), cpu_steps(&b));
-    assert!(cpu_steps(&a).iter().any(|f| !f.is_empty()), "a strong CPU climbs");
+    // Round OC (`cpu-start-v0`): five stars start on the hardest chart,
+    // their fields from its first note, with nothing above to climb to.
+    let ladder = ddi_engine::ladder::Ladder::of(&song, stage);
+    let top = ladder.rung_of_chart(*ladder.line().last().unwrap()).unwrap();
+    for f in a.battle().unwrap().feeds() {
+        assert_eq!(f.start_rung(), top);
+        assert_eq!(f.rung_at(0.0), top);
+        assert!(f.steps().all(|(_, _, r)| r != top || f.steps().count() > 1));
+    }
     // The details: the player finished on a harder chart, marked so.
     let mine = oa.details.iter().find(|(p, _)| *p == order.me).unwrap().1.clone();
     let last = song.charts[steps.last().unwrap().chart].difficulty.name();
@@ -344,10 +352,9 @@ fn the_player_and_strong_cpus_step_up_alike_at_any_frame_rate() {
 /// back).
 const LEVEL_UP_DOWN: u8 = 1;
 
-/// Two-star CPUs on Medium (they climb to Hard now and then, and fall
-/// back; from Hard the song is too short for any to come back up): their
-/// fields and their plays agree on every step, both ways, at any frame
-/// rate.
+/// Two-star CPUs on a Medium stage (since round OC starting on
+/// Beginner, the chart their level is at home on): their fields and their
+/// plays agree on every step, at any frame rate.
 
 #[test]
 fn fields_follow_steps_down_and_back_up() {
@@ -359,9 +366,16 @@ fn fields_follow_steps_down_and_back_up() {
     let (b, _, _) = idle(&song, &order, 144.0);
     let battle = a.battle().unwrap();
     let mut both = false;
+    // A CPU's play is planned from its own start (round OC): its steps
+    // are put on the stage's rung numbers by the chart they go to.
+    let ladder = ddi_engine::ladder::Ladder::of(&song, medium(&song));
     for (seat, field) in battle.feeds().enumerate() {
         let player = battle.opponent_player(seat).unwrap();
-        let steps: Vec<(f64, f64, u8)> = player.steps().iter().map(|s| (s.at, s.boundary, s.rung)).collect();
+        let steps: Vec<(f64, f64, u8)> = player
+            .steps()
+            .iter()
+            .map(|s| (s.at, s.boundary, ladder.rung_of_chart(s.chart).unwrap()))
+            .collect();
         let seen: Vec<(f64, f64, u8)> = field.steps().collect();
         assert_eq!(seen, steps, "seat {seat}");
         both |= player.steps().iter().any(|s| s.up) && player.steps().iter().any(|s| !s.up);
@@ -370,7 +384,15 @@ fn fields_follow_steps_down_and_back_up() {
         s.battle().unwrap().feeds().map(|f| f.steps().collect()).collect()
     };
     assert_eq!(fields(&a), fields(&b));
-    assert!(both, "a two-star CPU up to Hard and back down");
+    // Since round OC two stars start on Beginner, the chart their level
+    // is at home on (`cpu-start-v0`), and climb from there: none falls
+    // back on this short song (levels 1 to 8: 4 to 14 steps up, none
+    // down). The way down is followed by the step-down tests.
+    assert!(!both);
+    assert!(
+        battle.feeds().any(|f| f.start_rung() != 0 && f.steps().count() > 0),
+        "a two-star CPU climbs from its own start"
+    );
 }
 
 /// A step down that closes the chart it left (the rule's: life ran out
@@ -437,7 +459,7 @@ fn the_chart_line_changes_at_each_boundary_both_ways() {
         let steps = s.player.steps().to_vec();
         assert!(!steps.is_empty());
         let pairs: Vec<(f64, u8)> = steps.iter().map(|st| (st.boundary, st.rung)).collect();
-        let line = |t: f64| b.chart_line(pairs.iter().copied(), t).expect("a ladder");
+        let line = |t: f64| b.chart_line(0, pairs.iter().copied(), t).expect("a ladder");
         // The stage's chart, named as song select names it.
         let name = crate::battle::chart_shown(&song, stage);
         assert_eq!(b.chart_shown(0), Some(name.as_str()));
@@ -471,7 +493,7 @@ fn the_chart_line_changes_at_each_boundary_both_ways() {
     let mut now = 0;
     let order = begin_at(&song, &mut picked, &mut now, HARD);
     let (s, _) = stage_session(&song, &order, false, &[]);
-    assert_eq!(s.battle().unwrap().chart_line([], 10.0), None);
+    assert_eq!(s.battle().unwrap().chart_line(0, [], 10.0), None);
 }
 
 /// `battle-voice-v1`: the player's steps told at their boundaries, each
@@ -634,4 +656,121 @@ fn under_as_picked_a_failed_player_plays_on_and_ranks_under_the_survivors() {
     assert_eq!(detail.grade, ddi_engine::rules::ddi::FAILED);
     assert_eq!(detail.percent, Some(0), "never below 0 % as reported");
     assert!(a.battle().unwrap().failed_playing_on(&a.player));
+}
+
+
+/// Round OC (room model revision 23): under Adaptive everyone starts on
+/// their own chart from the first note: the player on the Easy they
+/// usually play (told the room by their device once the song is known,
+/// read back from the room as the play starts), five-star CPUs on
+/// Challenge (`cpu-start-v0`), the stage's chart Hard. The player's play
+/// is Easy's notes from the first, their own field and the CPUs' drawn on
+/// their charts from the first frame; the autoplayed player climbs from
+/// Easy; the details name where each started; the stage ranks those still
+/// in by the score as earned. The same at 60 and 144 frames a second.
+#[test]
+fn everyone_starts_on_their_own_chart_from_the_first_note() {
+    use ddi_chart::Difficulty;
+    let song = bundled("beatucada");
+    let single = |d: Difficulty| {
+        song.charts
+            .iter()
+            .position(|c| c.layout == "dance-single" && c.difficulty == d && c.derivation.is_none())
+            .unwrap()
+    };
+    let (easy, challenge) = (single(Difficulty::Easy), single(Difficulty::Challenge));
+    let ladder = ddi_engine::ladder::Ladder::of(&song, HARD);
+    let (easy_rung, top) = (
+        ladder.rung_of_chart(easy).unwrap(),
+        ladder.rung_of_chart(challenge).unwrap(),
+    );
+    let mut practice = step_room(2, 9, ddi_room::Charts::Adaptive);
+    practice.set_preferred(Difficulty::Easy);
+    // The song as the library lists it: every chart (the start's line).
+    let entry = SongEntry {
+        id: "beatucada".into(),
+        title: "Beatucada".into(),
+        charts: (0..song.charts.len())
+            .filter_map(|i| {
+                let mut c = ChartEntry::of_song(&song, i)?;
+                c.digest = Some(song.chart_digest(i));
+                Some(c)
+            })
+            .collect(),
+        ..SongEntry::default()
+    };
+    let stage_chart = entry.charts.iter().find(|c| c.index == HARD).unwrap().clone();
+    practice.pick(&entry, &stage_chart).unwrap();
+    let mut order = practice.take_stage_order().expect("its prompt");
+    for job in practice.take_load_jobs() {
+        let checked = check_chart(&song, job.chart, job.digest, &mut |e| panic!("{e}"));
+        practice.finish_load(&job, checked);
+    }
+    // What the player starts on before Ready: their Easy, of the song's
+    // single charts.
+    let line: Vec<Difficulty> = practice.start_charts(order.stage).iter().map(|c| c.difficulty).collect();
+    assert_eq!(
+        line,
+        [Difficulty::Beginner, Difficulty::Easy, Difficulty::Medium, Difficulty::Hard, Difficulty::Challenge]
+    );
+    assert_eq!(
+        practice.start_shown(order.stage, order.me).map(|c| c.index),
+        Some(easy)
+    );
+    practice.set_ready(true).unwrap();
+    practice.tick(3_000);
+    assert!(practice.stage_started(order.stage));
+    // Told the room with the pick (the song known here), and read back
+    // from the room as the play starts.
+    assert_eq!(order.setup.start, practice.start_for(&order));
+    order.setup.start = practice.start_for(&order);
+    assert_eq!(
+        order.setup.start.as_ref().map(|k| k.as_str().to_string()),
+        Some(song.chart_digest(easy).to_string())
+    );
+    let (a, oa, _) = autoplayed(&song, &order, 60.0);
+    let (b, ob, _) = autoplayed(&song, &order, 144.0);
+    assert_eq!(a.player.steps(), b.player.steps(), "60 and 144 frames a second");
+    assert_eq!(ids(&oa), ids(&ob));
+    // Easy's notes from the first: the play's first notes are Easy's.
+    let first_easy = song.charts[easy].notes.iter().map(|n| n.tick).min().unwrap();
+    let first_played = a.player.judge().notes().iter().map(|n| n.note.tick).min().unwrap();
+    assert_eq!(first_played, first_easy);
+    let battle = a.battle().unwrap();
+    assert_eq!(battle.my_start(), easy_rung);
+    assert_eq!(battle.own_feed().start_rung(), easy_rung);
+    assert_eq!(battle.own_feed().rung_at(0.0), easy_rung);
+    for f in battle.feeds() {
+        assert_eq!(f.start_rung(), top, "a five-star CPU on Challenge");
+        assert_eq!(f.rung_at(0.0), top);
+    }
+    // Perfect from Easy: up, never down, each step from where it was.
+    let steps = a.player.steps();
+    assert!(!steps.is_empty() && steps.iter().all(|s| s.up), "{steps:?}");
+    assert_eq!(steps[0].from, easy_rung);
+    assert_eq!(steps[0].rung, ladder.rung_of_chart(single(Difficulty::Medium)).unwrap());
+    // Its own field and its stream say the same steps on the stage's
+    // numbers.
+    let own: Vec<u8> = battle.own_feed().steps().map(|s| s.2).collect();
+    assert_eq!(own, steps.iter().map(|s| s.rung).collect::<Vec<_>>());
+    // The details say where each started.
+    for (p, d) in &oa.details {
+        if *p == order.me {
+            assert_eq!(d.start.as_deref(), Some("Easy"));
+            assert!(!d.start_harder);
+        } else {
+            assert_eq!(d.start.as_deref(), Some("Challenge"), "{p:?}");
+            assert!(d.start_harder);
+        }
+    }
+    // Ranked by the score as earned among those still in.
+    let score = |p: ddi_room::ParticipantId| oa.details.iter().find(|(q, _)| *q == p).and_then(|(_, d)| d.score);
+    let still_in: Vec<i64> = oa
+        .ranking
+        .iter()
+        .flatten()
+        .filter(|f| f.finish == Finish::Survived)
+        .filter_map(|f| score(f.participant))
+        .collect();
+    assert!(still_in.windows(2).all(|w| w[0] >= w[1]), "{still_in:?}");
 }

@@ -234,6 +234,9 @@ impl Request {
                 setup.targeting = room.targeting(order);
                 // Its last song marked on the Ready card (round AC).
                 setup.of = room.stage_of(order);
+                // Its own chart under Adaptive (revision 23), told or
+                // chosen on the Ready card since the order was made.
+                setup.start = room.start(order);
                 // An online room's stage played live: its room's client.
                 config.live = room.live_handle(order);
             }

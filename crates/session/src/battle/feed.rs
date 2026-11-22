@@ -356,6 +356,11 @@ pub struct FieldFeed {
     /// Their steps down and up the ladder, in order: what the field
     /// draws from each one on ([`FieldFeed::step`]).
     steps: Vec<FeedStep>,
+    /// The chart they started on where it is not the stage's (room model
+    /// revision 23: under Adaptive their own, [`FieldFeed::start_on`]):
+    /// its rung and its notes as the field draws them, in place of the
+    /// stage's chart before their first step.
+    home: Option<(u8, Rc<TapTrack>)>,
 }
 
 /// A step in a field: the chart they play from its boundary, and what of
@@ -412,7 +417,24 @@ impl FieldFeed {
             failed_at: f64::INFINITY,
             left: false,
             steps: Vec::new(),
+            home: None,
         }
+    }
+
+    /// They start on rung `rung` of the stage's ladder (room model
+    /// revision 23: their own chart under Adaptive), whose chart is
+    /// `track`: the field draws it in place of the stage's chart until
+    /// their first step. Before any moment (the field's notes are
+    /// `track`'s from then); rung 0 is the stage's chart again.
+    pub fn start_on(&mut self, rung: u8, track: Rc<TapTrack>) {
+        self.gone = vec![f64::INFINITY; track.len()];
+        self.hold_end = vec![None; track.len()];
+        self.home = (rung != 0).then_some((rung, track));
+    }
+
+    /// The rung they started on (0 the stage's chart).
+    pub fn start_rung(&self) -> u8 {
+        self.home.as_ref().map_or(0, |h| h.0)
     }
 
     /// They stepped at song second `at` to rung `rung` (a match's
@@ -457,7 +479,7 @@ impl FieldFeed {
             .iter()
             .rev()
             .find(|s| s.cut() <= v)
-            .map_or(0, |s| s.rung)
+            .map_or(self.start_rung(), |s| s.rung)
     }
 
     /// The rungs they stepped to, with when (judged song seconds: the
@@ -566,6 +588,8 @@ impl FieldFeed {
     /// Takes in a moment of the stream (they come in the order they
     /// happened; one out of order is put in its place).
     pub fn push(&mut self, track: &TapTrack, m: Moment) {
+        let home = self.home.as_ref().map(|h| Rc::clone(&h.1));
+        let track = home.as_deref().unwrap_or(track);
         let step = self.step_of(m.at, m.tick);
         let (track, gone, hold_end) = match step {
             Some(k) => {
@@ -690,6 +714,7 @@ impl FieldFeed {
         t: f64,
         range: f32,
     ) -> Frame {
+        let track = self.home.as_ref().map_or(track, |h| &*h.1);
         let v = self.view_time(t);
         let state = ScrollState::at(scroll, &track.timing, v);
         let shown = self.shown_moments(t);
@@ -730,7 +755,9 @@ impl FieldFeed {
             };
             self.draw_notes(
                 (track, &self.gone, &self.hold_end),
-                (f64::NEG_INFINITY, cut_after(0), 0),
+                // Numbered as its rung's (its own start's: a step back to
+                // the stage's chart is numbered from 0).
+                (f64::NEG_INFINITY, cut_after(0), STEP_INDEX * usize::from(self.start_rung())),
                 (v, &state, range),
                 &mut notes,
                 &mut receptors,

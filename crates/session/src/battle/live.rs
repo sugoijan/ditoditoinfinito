@@ -403,6 +403,22 @@ impl RemoteSeat {
         }
     }
 
+    /// It starts on rung `rung` of the stage's ladder (room model
+    /// revision 23: its own chart under Adaptive): its field drawn on that
+    /// chart from the first note, its totals counted over it. Before any
+    /// moment; 0, or a rung this device has not, changes nothing.
+    fn start_on(&mut self, (rungs, counted): Ladder<'_>, rung: u8) {
+        let Some((track, _)) = usize::from(rung).checked_sub(1).and_then(|i| rungs.get(i)) else {
+            return;
+        };
+        self.feed.start_on(rung, Rc::clone(track));
+        self.steps = rung;
+        self.steps_from = rung;
+        if let (Some(shown), Some(c)) = (self.shown.as_mut(), counted.get(usize::from(rung))) {
+            *shown = Shown::new(c);
+        }
+    }
+
     /// Its most and its full combo's part where its steps are followed,
     /// else `stage`'s (the stage's chart's).
     fn totals(&self, stage: (Option<i64>, i64)) -> (Option<i64>, i64) {
@@ -706,6 +722,13 @@ pub(crate) struct Live {
     /// The stage's chart's and each rung's notes as DDI's totals count
     /// them, where the charts adapt ([`Shown`]).
     counted: Vec<Rc<Counted>>,
+    /// The ladder's charts by their digests, the stage's first
+    /// ([`Live::set_starts`]): each competitor's own start found on it;
+    /// and as charts, which put a play's steps on the stage's numbers by
+    /// the chart they go to (a bot's play is a CPU's, planned from its own
+    /// start).
+    start_keys: Vec<String>,
+    charts: ddi_engine::ladder::Ladder,
     steps_sent: usize,
     /// The stage plays on at zero life on the easiest chart (Charts:
     /// Adaptive's Play on, room model revision 15): the local play's
@@ -1005,6 +1028,8 @@ impl Live {
             seat_end: None,
             rungs: Vec::new(),
             counted: Vec::new(),
+            start_keys: Vec::new(),
+            charts: ddi_engine::ladder::Ladder::default(),
             steps_sent: 0,
             fails_on: false,
             failed_sent: false,
@@ -1036,8 +1061,37 @@ impl Live {
         for (p, name) in entered {
             let mut seat = remote_seat(p, &name, &self.track, delay, self.lock);
             seat.shown = self.counted.first().map(|c| Shown::new(c));
+            let rung = self.start_rung(p);
+            seat.start_on((&self.rungs, &self.counted), rung);
             self.seats.push(seat);
         }
+    }
+
+    /// The charts of the stage's ladder by their digests, the stage's
+    /// first (`[0]`), then each rung's: what finds the rung each
+    /// competitor starts on (room model revision 23), which the room
+    /// says ([`LiveRoom::start_of`](ddi_ui::state::room::LiveRoom::start_of)).
+    /// Each field there now is started on its own.
+    pub(crate) fn set_starts(&mut self, keys: Vec<String>, charts: ddi_engine::ladder::Ladder) {
+        self.start_keys = keys;
+        self.charts = charts;
+        for i in 0..self.seats.len() {
+            let rung = self.start_rung(self.seats[i].participant);
+            self.seats[i].start_on((&self.rungs, &self.counted), rung);
+        }
+    }
+
+    /// The rung `p` starts on: their own chart the room says, found on
+    /// the ladder ([`Live::set_starts`]); 0, the stage's.
+    fn start_rung(&self, p: ParticipantId) -> u8 {
+        let Some(key) = self.handle.room.borrow().start_of(self.stage, p) else {
+            return 0;
+        };
+        self.start_keys
+            .iter()
+            .position(|k| k == key.as_str())
+            .and_then(|i| u8::try_from(i).ok())
+            .unwrap_or(0)
     }
 
     /// How far ahead of this play's song time the CPUs computed here are
@@ -1301,7 +1355,9 @@ impl Live {
                 at_ms: (slew.to_room(micros(st.at)) as f64 / 1_000.0).round() as i32,
                 tick: st.tick.0,
                 lane: 0,
-                kind: MomentKind::Step { rung: st.rung },
+                kind: MomentKind::Step {
+                    rung: self.charts.rung_of_chart(st.chart).unwrap_or(st.rung),
+                },
                 life_ppm: life_ppm(human.life_at(st.at + 1e-6)),
                 combo,
                 score,
@@ -1831,14 +1887,18 @@ pub struct LivePlay {
     /// (`crate::battle::cpus`): a bot reports for them as a person's
     /// device does.
     cpus: Vec<BotCpu>,
-    /// The stage's ladder (its rungs' names, for a CPU's run's chart).
+    /// The stage's ladder (its rungs' names, for a CPU's run's chart),
+    /// and as charts.
     rungs: Vec<crate::battle::Rung>,
+    charts: ddi_engine::ladder::Ladder,
 }
 
 /// A CPU of the stage as a bot's play computes it.
 struct BotCpu {
     opponent: ddi_engine::cpu::Opponent,
     drive: crate::battle::cpus::Drive,
+    /// The rung it started on (revision 23, `cpu-start-v0`).
+    start: u8,
 }
 
 impl LivePlay {
@@ -1876,18 +1936,27 @@ impl LivePlay {
         let setup = order.setup.clone();
         let ruleset = crate::battle::stage_ruleset(&order.rules);
         let ladder = crate::battle::stage_ladder(song, chart, &setup);
+        play.set_starts(
+            crate::battle::ladder_keys(song, chart, &ladder),
+            ddi_engine::cpu::planned_charts(chart, &ladder),
+        );
         let checkpoints = prep
             .plan
             .as_ref()
             .filter(|_| order.battle.attacks())
             .map(|p| p.checkpoints_us.clone());
         let mut home = None;
+        let mut around = Vec::new();
         let cpus = order
             .cpus
             .iter()
             .map(|seat| {
                 let home = crate::battle::cpus::home(&mut home, song, chart)?;
-                let mut opponent = crate::battle::cpus::opponent(home, &ruleset, seat, &ladder)?;
+                // On the chart its level is at home on (revision 23), as
+                // every device plays it.
+                let start = crate::battle::cpu_start_rung(song, chart, &ladder, seat.level);
+                let mut opponent =
+                    crate::battle::cpus::opponent_from(&mut around, home, &ruleset, seat, &ladder, start)?;
                 let mut drive = crate::battle::cpus::Drive::new(
                     ddi_room::live::cpus::ONLINE_CPUS_V0,
                     seat.participant,
@@ -1895,7 +1964,7 @@ impl LivePlay {
                     &mut opponent,
                 );
                 drive.set_fails_on(fails_on);
-                Ok(BotCpu { opponent, drive })
+                Ok(BotCpu { opponent, drive, start })
             })
             .collect::<Result<Vec<_>, String>>()?;
         if !cpus.is_empty() {
@@ -1907,6 +1976,7 @@ impl LivePlay {
             log,
             cpus,
             rungs: crate::battle::ladder_rungs(song, &ladder)?,
+            charts: ddi_engine::cpu::planned_charts(chart, &ladder),
         }))
     }
 
@@ -1932,7 +2002,8 @@ impl LivePlay {
                 // As a person's device reports it: with the rung's chart
                 // it finished on.
                 let launched = self.live.ledger.launched(c.drive.participant());
-                let detail = crate::battle::cpu_detail(&c.opponent, Some(launched), &self.rungs);
+                let detail =
+                    crate::battle::cpu_detail(&c.opponent, Some(launched), &self.rungs, &self.charts, c.start);
                 crate::battle::cpus::report_run(room, stage, &c.drive, &c.opponent, detail);
             }
         }

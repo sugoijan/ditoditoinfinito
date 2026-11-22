@@ -79,6 +79,79 @@ pub fn home<'a>(
     }
 }
 
+/// A CPU's play planned from a rung of its own (room model revision 23:
+/// under Adaptive a CPU starts on the chart its level is at home on,
+/// `ddi_engine::ladder::cpu_start`): that rung's chart as its home, the
+/// stage's ladder seen from it ([`around`]). Its steps are numbered from
+/// its own chart; the battle puts them back on the stage's numbers by the
+/// chart they go to.
+pub struct Around {
+    pub home: PlannedRung,
+    pub ladder: Vec<PlannedRung>,
+}
+
+/// The stage's ladder `ladder` (planned from its chart, `home`) as a CPU
+/// starting on rung `start` plays it ([`Around`]): copies of the same
+/// plans, none made again. Refused for a rung the ladder has not.
+pub fn around(home: &PlannedRung, ladder: &[PlannedRung], start: u8) -> Result<Around, String> {
+    let charts = ddi_engine::cpu::planned_charts(home.chart, ladder);
+    let local = charts.around(start).ok_or("no such rung")?;
+    let find = |c: usize| {
+        if c == home.chart {
+            Some(home)
+        } else {
+            ladder.iter().find(|r| r.chart == c)
+        }
+    };
+    let copy = |r: &PlannedRung, up: bool| PlannedRung {
+        chart: r.chart,
+        plan: r.plan.clone(),
+        play: r.play,
+        projected: r.projected.clone(),
+        notes: r.notes.clone(),
+        up,
+    };
+    let own = find(local.stage).ok_or("no such rung")?;
+    let rungs = local
+        .below
+        .iter()
+        .map(|&c| find(c).map(|r| copy(r, false)))
+        .chain(local.above.iter().map(|&c| find(c).map(|r| copy(r, true))))
+        .collect::<Option<Vec<_>>>()
+        .ok_or("no such rung")?;
+    Ok(Around {
+        home: copy(own, false),
+        ladder: rungs,
+    })
+}
+
+/// CPU `seat` starting on rung `start` of the stage's ladder `ladder`
+/// (planned from the stage's chart, `home`): [`opponent`] on its own
+/// chart's plan, the ladder seen from it ([`around`], each start's copies
+/// made once in `made`). What practice, a person's device and a bot all
+/// play a CPU as, so that its play is the same everywhere.
+pub fn opponent_from(
+    made: &mut Vec<(u8, Around)>,
+    home: &PlannedRung,
+    ruleset: &ddi_engine::rules::Ruleset,
+    seat: &ddi_ui::state::room::CpuSeat,
+    ladder: &[PlannedRung],
+    start: u8,
+) -> Result<Opponent, String> {
+    if start == 0 {
+        return opponent(home, ruleset, seat, ladder);
+    }
+    let i = match made.iter().position(|(r, _)| *r == start) {
+        Some(i) => i,
+        None => {
+            made.push((start, around(home, ladder, start)?));
+            made.len() - 1
+        }
+    };
+    let a = &made[i].1;
+    opponent(&a.home, ruleset, seat, &a.ladder)
+}
+
 /// A commitment against the CPU not put in yet.
 #[derive(Clone, Debug)]
 struct Pending {

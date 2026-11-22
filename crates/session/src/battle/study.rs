@@ -78,6 +78,7 @@ pub(super) fn cpu_practice(
             })
             .collect(),
         dev_mines_at_beat: None,
+        start: None,
         others: 0,
         watching: false,
         live: None,

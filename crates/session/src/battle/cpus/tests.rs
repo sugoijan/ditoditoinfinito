@@ -160,9 +160,15 @@ fn play(song: &ddi_chart::Song, chart: usize, rules: &StageRules, cpus: &[CpuSea
     };
     let o = ONLINE_CPUS_V0;
     let home = PlannedRung::new(song, chart).expect("plans");
+    // Each on the chart its level is at home on (round OC,
+    // `cpu-start-v0`), as every device starts it.
+    let mut made = Vec::new();
     let mut opps: Vec<Opponent> = cpus
         .iter()
-        .map(|c| opponent(&home, &ruleset, c, &ladder).expect("plans"))
+        .map(|c| {
+            let start = crate::battle::cpu_start_rung(song, chart, &ladder, c.level);
+            opponent_from(&mut made, &home, &ruleset, c, &ladder, start).expect("plans")
+        })
         .collect();
     let mut drives: Vec<Drive> = cpus
         .iter()

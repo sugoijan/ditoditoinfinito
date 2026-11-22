@@ -864,6 +864,16 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                     player.add_rung(song, r.chart)?;
                 }
             }
+            // Their own chart under Adaptive (room model revision 23):
+            // the one the room has for them now that the start is locked
+            // (an online stage's), else the order's.
+            if let Some(stage) = config.opponents.as_mut() {
+                if let Some(h) = config.live.as_ref().filter(|_| stage.live.is_some()) {
+                    stage.start = h.room.borrow().start_of(stage.stage, stage.me);
+                }
+                let rung = crate::battle::start_rung(song, chart_index, &ladder, stage.start.as_ref());
+                player.start_on(rung)?;
+            }
         }
         player.set_autoplay(auto_play);
         // A replay of an autoplayed record is graded as the play was.

@@ -987,6 +987,7 @@ impl AudienceClient {
                 targeting: Default::default(),
                 cpus,
                 dev_mines_at_beat: None,
+                start: None,
                 others: u16::try_from(people.len()).unwrap_or(u16::MAX),
                 watching: true,
                 live: Some(LiveOrder {
@@ -1128,6 +1129,14 @@ impl LiveRoom for AudienceClient {
 
     fn now_ms(&self) -> u64 {
         self.clock.now().0
+    }
+
+    /// The starters' own charts the room's public view carries (room
+    /// model revision 23, `PublicPlay::starts`).
+    fn start_of(&self, stage: StageId, p: ParticipantId) -> Option<ddi_room::ChartKey> {
+        let v = self.view()?;
+        let play = v.stages.iter().find(|s| s.id == stage)?.play.as_ref()?;
+        play.starts.iter().find(|(who, _)| *who == p).map(|(_, c)| c.clone())
     }
 
     fn tick(&mut self, now_ms: u64) {

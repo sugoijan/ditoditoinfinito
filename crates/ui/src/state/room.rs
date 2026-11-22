@@ -65,7 +65,9 @@ use crate::screens::data::{ChartEntry, SongEntry};
 
 mod choosing;
 mod preload;
+mod starts;
 pub use choosing::Reveal;
+pub use starts::{StartRule, start_line};
 pub use preload::{Listing, PRELOAD_V1, PreloadJob, PreloadProblem, PreloadRules, Stop};
 
 /// The engine's CPU levels (`ddi_engine::cpu::CPU_LEVELS`, ten, since
@@ -680,6 +682,12 @@ pub struct StageSetup {
     /// player's play from this beat on ([`Development::mines_at_beat`]:
     /// `--mp-dev-mines`, `mpdevmines=`).
     pub dev_mines_at_beat: Option<u32>,
+    /// The chart the local player starts on where it is their own (room
+    /// model revision 23: under Adaptive, `ddi_room::RoomState::start_of`,
+    /// a chart of the stage's song by its digest); none: the stage's own
+    /// chart. The others' come from the room (`LiveRoom::start_of`); a
+    /// CPU's from its level (`ddi_engine::ladder::cpu_start`).
+    pub start: Option<ddi_room::ChartKey>,
     /// Other people starting it, each on their own device (an online
     /// room's): the stage is decided by the room from everyone's reports,
     /// never on this device ([`RoomClient::report_run`]). Not shown during
@@ -1534,6 +1542,9 @@ pub struct RoomClient {
     /// Revision 22: the group's countdown as first seen here and the
     /// draw's reveal (`choosing`).
     choosing: choosing::Choosing,
+    /// Revision 23: this player's own starting charts under Adaptive
+    /// (`starts`).
+    starts: starts::Starts,
 }
 
 /// What an entry of the room's song list is for this player (revision
@@ -1713,6 +1724,13 @@ pub trait LiveRoom {
     /// stage's order, taken as its prompt opened, names every candidate.
     /// None where it is not known (the order's people then stand).
     fn lineup(&self, _stage: StageId) -> Option<Vec<ParticipantId>> {
+        None
+    }
+    /// The chart `p` starts `stage` on where it is their own (room model
+    /// revision 23: under Adaptive, `ddi_room::RoomState::start_of`; the
+    /// stage's own chart where none): what their field is drawn on from
+    /// its first note.
+    fn start_of(&self, _stage: StageId, _p: ParticipantId) -> Option<ddi_room::ChartKey> {
         None
     }
     /// Why this device's link to the stage ended for good, where it did
@@ -1909,6 +1927,10 @@ impl LiveRoom for RoomClient {
     fn lineup(&self, stage: StageId) -> Option<Vec<ParticipantId>> {
         let play = self.state().stage(stage)?.play.as_ref()?;
         Some(play.lineup.iter().copied().collect())
+    }
+
+    fn start_of(&self, stage: StageId, p: ParticipantId) -> Option<ddi_room::ChartKey> {
+        self.state().start_of(stage, p).cloned()
     }
 
     fn live_rules(&self) -> ddi_room::live::LiveRules {
@@ -2226,6 +2248,7 @@ impl RoomClient {
             ahead: Default::default(),
             pack_keys: Vec::new(),
             choosing: Default::default(),
+            starts: Default::default(),
             live_news: LiveNewsTap::default(),
             preparing: BTreeMap::new(),
             offered: BTreeSet::new(),
@@ -3266,6 +3289,7 @@ impl RoomClient {
         self.tell_spotlight();
         self.sync_preload();
         self.sync_choosing();
+        self.sync_start();
         // A stage's prompt opens with no notice from before it (nor a
         // refusal of something done before it), and the room comes back
         // from a stage with none from it; joined to watch is said its
@@ -5481,6 +5505,9 @@ impl RoomClient {
                 battle: BattlePreset::with_attacks(self.attacks_played(&m.rules_for(stage))),
                 rules: StageRules::of_stage(m, stage),
                 dev_mines_at_beat: development().mines_at_beat,
+                // Its own chart under Adaptive (revision 23), locked once
+                // the start committed.
+                start: s.start_of(stage, self.me).cloned(),
                 me: self.me,
                 targeting: self.my_targeting(),
                 cpus,
@@ -5937,6 +5964,7 @@ impl RoomClient {
                 self.refusal = None;
                 self.version += 1;
                 self.sync_loading();
+                self.sync_start();
                 Ok(())
             }
         }
@@ -5961,6 +5989,7 @@ impl RoomClient {
             self.ready_asked = None;
         }
         self.sync_loading();
+        self.sync_start();
     }
 
     /// Applies what the authority sent; the answer to `seq` if among it

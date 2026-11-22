@@ -732,6 +732,7 @@ fn adaptive_cost_of_72_cpus() {
                 })
                 .collect(),
             dev_mines_at_beat: None,
+            start: None,
             others: 0,
             watching: false,
             live: None,

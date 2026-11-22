@@ -1009,6 +1009,21 @@ pub(crate) fn stage_of(order: &StageOrder) -> u16 {
     .unwrap_or(order.of)
 }
 
+/// Stage `order`'s own starting chart as its play starts (room model
+/// revision 23): the room's, where it may have been told or chosen on the
+/// Ready card since the order was made
+/// ([`ddi_ui::state::room::RoomClient::start_for`]).
+pub(crate) fn stage_start(order: &StageOrder) -> Option<ddi_room::ChartKey> {
+    let room = PLAYING.with(|p| {
+        p.borrow()
+            .as_ref()
+            .filter(|p| p.order.stage == order.stage)
+            .map(|p| p.room.clone())
+    });
+    room.and_then(|room| Some(room.try_borrow().ok()?.start_for(order)))
+        .unwrap_or_else(|| order.start.clone())
+}
+
 /// Where a stage's results go back to: the room it was played in.
 pub(crate) fn back_route() -> Route {
     LAST.with(|l| l.borrow().as_ref().map(|(r, _)| r.clone()))

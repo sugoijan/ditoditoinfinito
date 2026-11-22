@@ -1005,6 +1005,7 @@ mod preload_tests {
             targeting: ddi_session::battle::Targeting::Spread,
             cpus: Vec::new(),
             dev_mines_at_beat: None,
+            start: None,
             others: 0,
             watching: false,
             live: None,

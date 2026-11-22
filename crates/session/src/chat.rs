@@ -670,6 +670,7 @@ pub(crate) mod tests {
             targeting: Default::default(),
             cpus: Vec::new(),
             dev_mines_at_beat: None,
+            start: None,
             others: 0,
             watching: false,
             live: None,
