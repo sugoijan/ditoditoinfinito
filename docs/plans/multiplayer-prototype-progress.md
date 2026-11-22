@@ -14549,6 +14549,98 @@ change). The room model's revision is unchanged (23).
   image; more distinct animated emotes than their cells show still. For
   the maintainer: whether the atlas should grow for animated walls.
 
+## Review fixes: the room model and live play (round RFa, 2026-11-22)
+
+A read-only review of the room model and of live play found these; each
+was reproduced first as a test that failed (`crates/room/tests/review_rfa.rs`,
+`review_rfa_live.rs`; the session's in `battle/live.rs`), denial of
+service with small numbers, then fixed. `ROOM_MODEL_REVISION` stays 23:
+no new command, event or refusal; every peer reads what changed as it
+read it before. The model's fixes run on the authority, the live side's
+in the room's live server: online rooms get them with a server built on
+this crate; the clients' fixes with the game's next deploy, in either
+order.
+
+The room model:
+
+- **A loading failure's code** is kept within 64 bytes
+  (`Loading::MAX_CODE`; a client's longest, `battle_plan_mismatch`, is
+  20): two codes of 700 KB filled the stored row and every later command
+  that grew it was refused.
+- **The next match's rules** bound the battle's id at 64 bytes and the
+  CPU roster at the competitor cap whatever the CPU mode (a client's
+  roster is at most the cap less one).
+- **People's rows**: someone who left keeps their row (results name them
+  by id, a returning person finds theirs by identity on every device, so
+  rows cannot be dropped without peers disagreeing: that would need a
+  revision). A new person is refused as a full room once the room keeps
+  `RoomPolicy::member_rows` people's rows, present or not: four times
+  the member bound and the administrators' reserve, 1,552 today (about
+  170 bytes a row, 430 with the longest names: under 700 KB). Anyone
+  with a row comes back as before; a room stored with more loads.
+- **A kicked co-host** loses the role with the kick (`RoleChanged` before
+  `MemberRemoved`): back by the invite, a member. One who leaves keeps
+  it. The model remembers no kicked list: keeping someone out after a
+  kick without the invite is the server's (its own finding).
+- **With CPUs, a returning player** whose seat was given to someone while
+  they were gone comes back to watch when every place is taken, and
+  Play is refused (`Cap`) meanwhile (`RoomState::match_place_for`): a
+  lineup reached 74, a field no award rule knows. A stage the room
+  ranks from reports whose result no rule confirms interrupts the match
+  at its report deadline (`AuthorityFailed`) instead of staying in it.
+- **A late entrant who readied while loading** chooses their own start
+  once loaded (only the lineup locks it).
+- **An administrator who held the pick** and comes back without the flag
+  lets it go, as a co-host losing the role does.
+- **A smaller song list**: an addition by someone held to half the list
+  pushes out one song, never all down to the new size at once (91 of
+  100); a host's addition still makes room down to the size.
+- **A run's reported life** is kept within a full gauge, as its detail's
+  was.
+
+Live play:
+
+- **A remote combo** is added in closed form (`ddi::full_combo_points`,
+  the same sum exactly, checked to 250,000 and around large squares),
+  saturating: alternating combos of billions froze every device and
+  seat. **A remote field's steps**: a step to the chart it is on is
+  nothing, and at most eight steps a chart of the ladder are taken (an
+  honest play makes at most five). **The room refuses a batch** whose
+  moments no play sends: life past a full gauge, a step past the plan's
+  ladder, more steps than `STEPS_PER_RUNG` a chart (64 without a plan).
+- **A tick takes** at most 2,048 moments of one member (four full
+  batches) and 8,192 of everyone's (`LiveRules::max_tick_moments_each`,
+  `max_tick_moments`; about 90 KB a frame): a batch past them is not
+  taken yet, as one out of order, and is taken when sent again.
+  **Resumes** are answered four times a member in 2 s, the rest passed
+  over (the reader asks again).
+- **The CPUs' news and runs** come from a person of the stage's lineup,
+  or from the watchers `cpu-reporters-v0` names when no player is
+  connected (`sends_for_cpus`, what every device reads): a watcher's
+  forged ends put every CPU out at song zero.
+- **A stall's backlog** is cut into batches within the room's bounds,
+  each judged no further than its moments, the end with the last (a
+  laptop asleep for 35 s froze its stream for good). A stream the room
+  refuses (`bad_batch`) stops (`Outbox::abandon`): nothing sent again,
+  the play goes on unstreamed and its run is reported at its end, the
+  status line saying so as for a lost live part.
+- **The audience's frames** leave out players' changes of attack policy
+  (`Retargeted`), as the public view promises.
+- **A relay's fold** steps a player who started on their own chart from
+  it: the room's snapshot says each competitor's start
+  (`CompetitorStatus::start`, additive, left out at 0).
+- **Self-reported values**: a stream's judged time is taken no further
+  than 5 s past the room's song time (`LiveRules::ahead_us`), and a
+  report of a checkpoint further on is passed over; a battle plan whose
+  seed is not the stage's (`seed_for`) is refused. Judged counts against
+  each checkpoint's notes would need the plan to carry them: a change of
+  its digest every device must agree on, so not done.
+
+For the maintainer: the member rows' bound refuses newcomers to a room
+joined by more than 1,552 different people over its life (pruning rows
+needs a revision); and whether a smaller song list should instead be
+trimmed by its owner only (refusing additions until then).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

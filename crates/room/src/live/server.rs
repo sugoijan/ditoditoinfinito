@@ -953,8 +953,9 @@ impl LiveStage {
     /// CPU's reports, the first of each checkpoint taken (counted at its
     /// checkpoint, or at the next one where it came after its deadline,
     /// as a person's late report), a later one compared; its end, the
-    /// first taken. From any person of the room (a player or a watcher),
-    /// never for anyone but a CPU of the stage. Whether a CPU's stream
+    /// first taken. From a person of the stage's lineup, or a watcher
+    /// `cpu-reporters-v0` names ([`reports_for_cpus`]), never for anyone
+    /// but a CPU of the stage. Whether a CPU's stream
     /// ended with it (the stage may be decided).
     pub fn accept_cpus(
         &mut self,
@@ -1117,8 +1118,9 @@ impl LiveStage {
         self.comps.get(&p).is_some_and(|c| c.live)
     }
 
-    /// A batch from `from`: taken in order (an old one passed over, a
-    /// later one left for the sender to send again after the one missing).
+    /// A batch from `from` at room time `now`: taken in order (an old one
+    /// passed over, a later one, or one past the tick's bounds, left for
+    /// the sender to send again).
     pub fn accept(
         &mut self,
         from: ParticipantId,
