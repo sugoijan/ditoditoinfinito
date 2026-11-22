@@ -13990,6 +13990,24 @@ feature."
   no more this session (More still offers it). The results' line points
   at More's item. Tests: `a_room_offers_the_trip_that_allows_chat_and_asks_no_more_after_a_no`,
   `the_rooms_line_offers_the_trip_that_allows_chat`.
+- **Validated**: suites room, session, shell, ui, theme, engine and the
+  web's routes 1,684 and 1,147 passed, 0 failed; desktop 411 passed, 0
+  failed (23 ignored; `results_flow` also with `DDI_NO_GPU=1`); the
+  server's workspace 225 and `--features dev-auth` 222 passed against
+  this round's `crates/room` (a `paths` override; the server's code
+  unchanged); clippy native and wasm; `l10n check`; a release build's
+  `check-boot` (12421 of 12552 bytes gzipped); the singleplayer smoke
+  check in Chrome and Firefox. Walked in Chrome and Firefox on a local
+  server (`target/scratch/mp/fx/walks/fx.mjs`): Bob's line and its
+  "Allow on Twitch", denied at the fake provider (the line back), Bob's
+  song downloaded ahead by the host and played: her results show its
+  banner (round RL3's showed the placeholder), More → Allow Twitch chat
+  allowed (chat on). Pictures in `target/scratch/mp/fx/shots/`.
+- **Deploy**: the room model's revision is unchanged (22). The server
+  takes the new `crates/room` (item 3's choice that waits is the
+  reducer's), so deploy the server, then the game; a game before it reads
+  the server's choices as before, and a server before it opens the
+  countdown as before.
 
 ## Provisional choices
 
