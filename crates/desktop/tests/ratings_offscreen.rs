@@ -339,9 +339,9 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
             }
             if id == "z-partial" {
                 for k in 0..8 {
-                    assert_eq!(ui.bounds_of("Radar", &format!("Point{k}")).is_some(), matches!(k, 0 | 2 | 7));
+                    assert_eq!(ui.bounds_of("Radar", &format!("Point{k}")).is_some(), matches!(k, 0 | 1 | 2 | 7));
                 }
-                for (k, expected) in [(0, "Number"), (1, "Status"), (2, "Number"), (7, "Status")] {
+                for (k, expected) in [(0, "Number"), (1, "Number"), (2, "Number"), (7, "Status")] {
                     assert!(ui.bounds_of(&format!("Label{k}"), expected).is_some());
                 }
             }
