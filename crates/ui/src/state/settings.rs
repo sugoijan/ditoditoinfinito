@@ -364,6 +364,13 @@ pub struct Settings {
     /// the device's own Twitch access to read chat).
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub twitch_chat: ddi_chat::Level,
+    /// Round TB: the Twitch permissions this device used (`bans`,
+    /// `blocks`, `chat`) and when each was last used (milliseconds since
+    /// the epoch), so that a sign-in asks Twitch for those used within
+    /// `crate::state::twitch::TWITCH_KEEP_DAYS` again in the same step
+    /// (`crate::state::twitch::kept_features`); forgotten by Options →
+    /// Data's Disconnect. Kept across signing out.
+    pub twitch_used: BTreeMap<String, u64>,
     /// "Chat style": the chat crossing the screen or falling (C6).
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub chat_style: ddi_chat::Style,
@@ -882,6 +889,7 @@ impl Default for Settings {
             touch_controls: Default::default(),
             touch_hand: Default::default(),
             twitch_chat: ddi_chat::Level::Off,
+            twitch_used: BTreeMap::new(),
             chat_style: ddi_chat::Style::Across,
             chat_names: false,
             chat_emotes_from: ddi_chat::EmotesFrom::default(),
@@ -1256,6 +1264,9 @@ impl Settings {
             ddi_noteskin::params::bound_stored(values);
         }
         self.skin_params.retain(|_, v| !v.is_empty());
+        // Round TB: the Twitch permissions used, by the server's words.
+        self.twitch_used
+            .retain(|k, _| matches!(k.as_str(), "bans" | "blocks" | "chat"));
         while self.announcer_params.len() > MAX_ANNOUNCERS_WITH_PARAMS {
             self.announcer_params.pop_last();
         }

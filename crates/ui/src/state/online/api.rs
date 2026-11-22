@@ -468,6 +468,15 @@ pub fn login_path(route: &str) -> String {
     format!("/auth/twitch/login?return={}", percent_encode(route))
 }
 
+/// [`login_path`] asking Twitch again for the permissions `keep` (round
+/// TB, `crate::state::twitch::kept_features`) in the sign-in's own step.
+pub fn login_path_keeping(route: &str, keep: &[&str]) -> String {
+    match keep {
+        [] => login_path(route),
+        keep => format!("{}&keep={}", login_path(route), percent_encode(&keep.join(","))),
+    }
+}
+
 /// The web's trip through Twitch for the person's Twitch access (round
 /// TW1): `scopes` the features to connect (`bans,chat`), back to `route`.
 pub fn connect_path(route: &str, scopes: &str) -> String {
@@ -488,8 +497,17 @@ pub fn connect_attempt(route: &str, scopes: &str) -> ApiRequest {
 /// Desktop's attempt; `shows_code`: this build shows the attempt's code
 /// (a server refuses a client that does not, `update_required`).
 pub fn new_attempt(route: &str) -> ApiRequest {
-    ApiRequest::new(Method::Post, "/auth/attempts")
-        .json(serde_json::json!({ "return": route, "shows_code": true }))
+    new_attempt_keeping(route, &[])
+}
+
+/// [`new_attempt`] asking Twitch again for the permissions `keep` (round
+/// TB), as the web's [`login_path_keeping`].
+pub fn new_attempt_keeping(route: &str, keep: &[&str]) -> ApiRequest {
+    let mut body = serde_json::json!({ "return": route, "shows_code": true });
+    if !keep.is_empty() {
+        body["keep"] = keep.join(",").into();
+    }
+    ApiRequest::new(Method::Post, "/auth/attempts").json(body)
 }
 
 pub fn poll_attempt(id: &str, secret: &str) -> ApiRequest {

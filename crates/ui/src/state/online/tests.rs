@@ -2167,3 +2167,90 @@ pub(crate) mod room {
     }
 
 }
+
+thread_local! {
+    /// A test's epoch clock (milliseconds), for `ddi_platform::storage`.
+    static EPOCH_NOW: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
+}
+
+fn epoch_now() -> f64 {
+    EPOCH_NOW.with(std::cell::Cell::get)
+}
+
+/// Round TB (the maintainer, 2026-11-22: "we should avoid downgrading the
+/// permissions, at least within a time-frame, so that turning off and on
+/// again is not annoying, maybe if a permission isn't used for 30 or 60
+/// days, it isn't requested on the next sign-in"): the device remembers
+/// which Twitch permissions it used and when, and a sign-in on either
+/// shell asks Twitch for those used within `TWITCH_KEEP_DAYS` in its own
+/// step (the web's `keep=`, the desktop attempt's `keep`); one unused
+/// longer is left out; Options → Data's Disconnect forgets them all.
+#[test]
+fn a_sign_in_asks_again_for_the_twitch_permissions_used_lately() {
+    use crate::state::twitch::{TWITCH_KEEP_DAYS, kept_features, mark_used};
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    ddi_platform::storage::install_clock(epoch_now);
+    const DAY: f64 = 86_400_000.0;
+    let t0 = 1_800_000_000_000.0;
+    EPOCH_NOW.with(|n| n.set(t0));
+    let web_path = || {
+        let r = rig(Platform::Web, Box::new(|_| None));
+        let mut o = r.online.borrow_mut();
+        o.sign_in(Dest::Home);
+        match o.take_redirect() {
+            Some(Redirect::Page(p)) => p,
+            other => panic!("{other:?}"),
+        }
+    };
+    let desktop_body = || {
+        let r = rig(Platform::Desktop, Box::new(|_| None));
+        r.online.borrow_mut().sign_in(Dest::Home);
+        let log = r.log.borrow();
+        log.last().and_then(|q| q.body.clone()).unwrap_or_default()
+    };
+    // Nothing used: a plain sign-in, as before.
+    assert_eq!(web_path(), "/auth/twitch/login?return=%2Fmp");
+    assert_eq!(desktop_body(), r#"{"return":"/mp","shows_code":true}"#);
+    // A host's bans and a room's chat used.
+    mark_used(&["bans", "chat"]);
+    assert_eq!(kept_features(), ["bans", "chat"]);
+    assert_eq!(web_path(), "/auth/twitch/login?return=%2Fmp&keep=bans%2Cchat");
+    let body: serde_json::Value = serde_json::from_str(&desktop_body()).unwrap();
+    assert_eq!(body["keep"], "bans,chat");
+    // The chat used again later; the bans not since: past the window
+    // they are not asked for.
+    EPOCH_NOW.with(|n| n.set(t0 + 20.0 * DAY));
+    mark_used(&["chat"]);
+    EPOCH_NOW.with(|n| n.set(t0 + TWITCH_KEEP_DAYS as f64 * DAY - 1.0));
+    assert_eq!(kept_features(), ["bans", "chat"]);
+    EPOCH_NOW.with(|n| n.set(t0 + TWITCH_KEEP_DAYS as f64 * DAY));
+    assert_eq!(kept_features(), ["chat"]);
+    assert_eq!(web_path(), "/auth/twitch/login?return=%2Fmp&keep=chat");
+    // Signing out keeps them (the server deletes the link, the device
+    // asks again at its next sign-in).
+    {
+        let r = rig(Platform::Web, Box::new(|_| None));
+        r.online.borrow_mut().sign_out();
+    }
+    assert_eq!(kept_features(), ["chat"]);
+    // Disconnect forgets them: nothing asked at the next sign-in.
+    {
+        let r = rig(Platform::Web, Box::new(|_| None));
+        r.online.borrow_mut().disconnect_twitch();
+    }
+    assert!(kept_features().is_empty());
+    assert_eq!(web_path(), "/auth/twitch/login?return=%2Fmp");
+    // Written at most once an hour a feature (not once a frame).
+    let written = || crate::state::settings::Settings::load().twitch_used.get("blocks").copied();
+    mark_used(&["blocks"]);
+    let first = written();
+    assert!(first.is_some());
+    EPOCH_NOW.with(|n| n.set(t0 + TWITCH_KEEP_DAYS as f64 * DAY + 60_000.0));
+    mark_used(&["blocks"]);
+    assert_eq!(written(), first, "a minute later: nothing written");
+    // A stored entry that is not a feature is dropped on load.
+    let mut s = crate::state::settings::Settings::load();
+    s.twitch_used.insert("moderation:read".into(), 1);
+    s.save();
+    assert!(!crate::state::settings::Settings::load().twitch_used.contains_key("moderation:read"));
+}

@@ -77,6 +77,74 @@ pub fn take_chat_trip() -> Option<Level> {
     CHAT_TRIP.take()
 }
 
+/// Round TB (the maintainer, 2026-11-22: "we should avoid downgrading the
+/// permissions, at least within a time-frame, so that turning off and on
+/// again is not annoying, maybe if a permission isn't used for 30 or 60
+/// days, it isn't requested on the next sign-in"): a Twitch permission
+/// this device used within so many days is asked for again at its next
+/// sign-in, in the same step through Twitch; one unused longer is not. The
+/// same 30 days after which our server deletes a link nobody used.
+pub const TWITCH_KEEP_DAYS: u64 = 30;
+
+const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
+
+/// How often a permission's use is written down at most (one write an
+/// hour, not one a frame).
+const MARK_EVERY_MS: u64 = 60 * 60 * 1_000;
+
+/// The Twitch features this device used now (`bans`, `blocks`, `chat`,
+/// as the server names them; `blocks` stands for both of its scopes):
+/// what marks a use is a room this person hosts with the feature on, or
+/// a room whose host's chat this device shows
+/// (`RoomClient`'s tick). Written to the settings at most once an hour a
+/// feature; nothing without the epoch's clock.
+pub fn mark_used(features: &[&str]) {
+    let now = ddi_platform::storage::now_ms() as u64;
+    if now == 0 || features.is_empty() {
+        return;
+    }
+    let cached = crate::state::settings::Settings::cached();
+    let due = features.iter().any(|f| {
+        cached
+            .twitch_used
+            .get(*f)
+            .is_none_or(|t| now.saturating_sub(*t) >= MARK_EVERY_MS)
+    });
+    if !due {
+        return;
+    }
+    let mut s = crate::state::settings::Settings::load();
+    for f in features {
+        s.twitch_used.insert((*f).to_string(), now);
+    }
+    s.save();
+}
+
+/// The features to ask Twitch for again at a sign-in: those this device
+/// used within [`TWITCH_KEEP_DAYS`], as the server's closed list names
+/// them (`bans,chat`), in its order.
+pub fn kept_features() -> Vec<&'static str> {
+    let now = ddi_platform::storage::now_ms() as u64;
+    let used = &crate::state::settings::Settings::cached().twitch_used;
+    ["bans", "blocks", "chat"]
+        .into_iter()
+        .filter(|f| {
+            used.get(*f)
+                .is_some_and(|t| now.saturating_sub(*t) < TWITCH_KEEP_DAYS * DAY_MS)
+        })
+        .collect()
+}
+
+/// Options → Data's Disconnect: nothing is asked for again at the next
+/// sign-in.
+pub fn forget_used() {
+    let mut s = crate::state::settings::Settings::load();
+    if !s.twitch_used.is_empty() {
+        s.twitch_used.clear();
+        s.save();
+    }
+}
+
 /// TESTING ONLY: the scripted chat plays this run at `ceiling` (its own
 /// line), or none. Set by `ddi_session::chat::set_scripted` (the shells'
 /// `mpfakechat` and `--mp-dev-chat`).

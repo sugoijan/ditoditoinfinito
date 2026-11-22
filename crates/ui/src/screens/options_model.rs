@@ -2851,9 +2851,11 @@ impl OptionsModel {
                     .retain(|k, _| ddi_library::announcer::is_bundled(k));
             }
             Reset::History => {}
-            // Nothing of the settings: the access is gone from the row.
+            // The access is gone from the row, and (round TB) nothing of
+            // it is asked for again at the next sign-in.
             Reset::Twitch => {
                 self.world.twitch.features.clear();
+                self.settings.twitch_used.clear();
                 self.notice = ddi_l10n::msg::twitch::notice_disconnected().into();
             }
             // What was chosen and is gone: the built-in speaks for it.

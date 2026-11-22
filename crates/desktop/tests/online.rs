@@ -702,3 +702,98 @@ fn a_hosts_twitch_bans_and_chat_are_both_kept_in_any_order() {
         a.leave();
     }
 }
+
+thread_local! {
+    /// The test's epoch clock (milliseconds) for the device's settings.
+    static EPOCH: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
+}
+
+fn epoch() -> f64 {
+    EPOCH.with(std::cell::Cell::get)
+}
+
+/// Round TB (the maintainer, 2026-11-22: "we should avoid downgrading the
+/// permissions, at least within a time-frame"): on desktop against a local
+/// server, a host who used Twitch bans and chat in their room, signed out
+/// and in again, has both back from the sign-in's own step through Twitch
+/// (the attempt asks for them), with no second trip; a permission unused
+/// past `TWITCH_KEEP_DAYS` (a test clock) is not asked for; after Options
+/// → Data's Disconnect nothing is asked.
+#[test]
+fn a_sign_in_brings_back_the_twitch_permissions_used_lately() {
+    use ddi_room::{TwitchChat as C, TwitchMirror as M};
+    use ddi_ui::state::twitch::TWITCH_KEEP_DAYS;
+    let Some(api) = api() else {
+        eprintln!("DDI_ONLINE_API not set: skipped");
+        return;
+    };
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    ddi_platform::storage::install_clock(epoch);
+    let t0 = 1_800_000_000_000.0;
+    EPOCH.with(|e| e.set(t0));
+    let user = format!("tbkeep{}", now() % 100_000);
+    let features = |o: &SharedOnline| o.borrow().twitch().map(|t| t.features.clone()).unwrap_or_default();
+    // Signs in with desktop's attempt as the app does it; the scopes the
+    // step through Twitch asked.
+    let sign_in_fresh = || {
+        let o = person(&api);
+        o.borrow_mut().check();
+        until(&o, |o| !matches!(o.account(), ddi_ui::state::online::Account::Checking));
+        o.borrow_mut().sign_in(Dest::Home);
+        let (url, code) = attempt_of(&o);
+        let asked = browser_with(&url, &code, &user, "&bans=eve").unwrap_or_default();
+        until(&o, |o| o.me().is_some() && !o.sign_in_state().busy());
+        (o, asked)
+    };
+    let (host, asked) = sign_in_fresh();
+    assert_eq!(asked, "", "nothing used yet: a plain sign-in");
+    host.borrow_mut().private_room();
+    let mut room_id = None;
+    until(&host, |o| {
+        room_id = o.take_entered();
+        room_id.is_some()
+    });
+    let room_id = room_id.unwrap();
+    let mut a = connect(&host, &api, &room_id, &user);
+    for (mirror, chat) in [(M::Bans, C::Off), (M::Bans, C::Emotes)] {
+        a.set_twitch(mirror, chat);
+        let start = Instant::now();
+        loop {
+            a.tick(now());
+            if a.take_twitch_trip().is_some() {
+                let (url, code) = attempt_of(&host);
+                browser_with(&url, &code, &user, "&bans=eve");
+            }
+            if a.twitch().map(|t| (t.mirror, t.chat)) == Some((mirror, chat)) && !host.borrow().sign_in_state().busy() {
+                break;
+            }
+            assert!(start.elapsed() < Duration::from_secs(20), "{mirror:?}/{chat:?} never made");
+            std::thread::sleep(Duration::from_millis(30));
+        }
+    }
+    // Used in the room: written down on the device.
+    tick_until(&mut [&mut a], |_| ddi_ui::state::twitch::kept_features() == ["bans", "chat"]);
+    a.leave();
+    host.borrow_mut().sign_out();
+    until(&host, |_| true);
+    // Signed in again: both back from the sign-in's own step.
+    let (again, asked) = sign_in_fresh();
+    assert_eq!(asked, "moderation:read user:read:chat");
+    assert_eq!(features(&again), ["bans", "chat"], "no second trip");
+    // Past the window without use: not asked for.
+    again.borrow_mut().sign_out();
+    until(&again, |_| true);
+    EPOCH.with(|e| e.set(t0 + TWITCH_KEEP_DAYS as f64 * 86_400_000.0 + 1.0));
+    let (late, asked) = sign_in_fresh();
+    assert_eq!(asked, "", "unused for {TWITCH_KEEP_DAYS} days");
+    assert!(features(&late).is_empty());
+    // Used again, then Disconnect: nothing asked at the next sign-in.
+    ddi_ui::state::twitch::mark_used(&["chat"]);
+    late.borrow_mut().disconnect_twitch();
+    until(&late, |_| true);
+    late.borrow_mut().sign_out();
+    until(&late, |_| true);
+    let (after, asked) = sign_in_fresh();
+    assert_eq!(asked, "", "nothing after Disconnect");
+    assert!(features(&after).is_empty());
+}

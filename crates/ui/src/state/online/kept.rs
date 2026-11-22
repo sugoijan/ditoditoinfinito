@@ -83,6 +83,9 @@ impl Kept {
         if let Some(online) = self.online.borrow().clone() {
             online.borrow_mut().disconnect_twitch();
         }
+        // Round TB: not asked for again at the next sign-in, whatever
+        // this run knew of the access.
+        crate::state::twitch::forget_used();
     }
 
     /// Online room `id`'s client: the one kept where it is that room's,

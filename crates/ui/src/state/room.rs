@@ -2793,6 +2793,38 @@ impl RoomClient {
         }
     }
 
+    /// Round TB: the Twitch permissions this device uses in this room,
+    /// written down for its next sign-in to ask for again
+    /// (`crate::state::twitch::mark_used`): what the room's Twitch setting
+    /// needs where this player set it (they host with it on), and the
+    /// chat where the room shows its host's chat and this device shows it
+    /// (its "Twitch chat in rooms" on, its access allowing chat).
+    fn mark_twitch_used(&self) {
+        if !self.is_online() || self.link_state() != LinkState::Connected {
+            return;
+        }
+        let Some(t) = self.twitch() else {
+            return;
+        };
+        let mut used = Vec::new();
+        if t.by == self.me {
+            used.extend(crate::state::online::api::twitch_needs(t.mirror, t.chat));
+        }
+        let shows_chat = t.chat != ddi_room::TwitchChat::Off
+            && !used.contains(&"chat")
+            && self.online_link().is_some_and(|l| {
+                l.online()
+                    .borrow()
+                    .twitch()
+                    .is_some_and(|a| a.features.iter().any(|f| f == "chat"))
+            })
+            && crate::state::settings::Settings::cached().twitch_chat != ddi_chat::Level::Off;
+        if shows_chat {
+            used.push("chat");
+        }
+        crate::state::twitch::mark_used(&used);
+    }
+
     /// Round FX: the room shows its host's chat, this device's "Twitch
     /// chat in rooms" is on, and the person's Twitch access (as `/me`
     /// last said it) does not allow reading chat: the room offers the
@@ -3227,6 +3259,7 @@ impl RoomClient {
         }
         self.tell_twitch_end();
         self.tell_chat_access();
+        self.mark_twitch_used();
         self.read_live();
         self.tell_spotlight();
         self.sync_preload();

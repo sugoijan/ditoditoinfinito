@@ -460,9 +460,12 @@ impl Online {
     /// system browser on it.
     pub fn sign_in(&mut self, dest: Dest) {
         self.trip = false;
+        // Round TB: the Twitch permissions this device used recently,
+        // asked for again in the same step.
+        let keep = crate::state::twitch::kept_features();
         match self.config.platform {
             Platform::Web => {
-                self.redirect = Some(Redirect::Page(api::login_path(&dest.route())));
+                self.redirect = Some(Redirect::Page(api::login_path_keeping(&dest.route(), &keep)));
                 self.sign_in = SignIn::Completing { dest };
             }
             Platform::Desktop => {
@@ -473,7 +476,7 @@ impl Online {
                     let cancel = api::cancel_attempt(attempt, secret);
                     self.start(cancel, Want::Cancel);
                 }
-                self.start(api::new_attempt(&dest.route()), Want::NewAttempt);
+                self.start(api::new_attempt_keeping(&dest.route(), &keep), Want::NewAttempt);
                 self.sign_in = SignIn::Starting { dest };
             }
         }
@@ -613,6 +616,8 @@ impl Online {
     /// Disconnect the person's Twitch access (A4): deleted on the server,
     /// revoked at Twitch; `/me` read again after.
     pub fn disconnect_twitch(&mut self) {
+        // Round TB: nor asked for again at the next sign-in.
+        crate::state::twitch::forget_used();
         self.start(api::twitch_disconnect(), Want::TwitchDisconnected);
         self.changed();
     }

@@ -7798,6 +7798,66 @@ fn desktops_second_twitch_trip_shows_its_code_over_host_options() {
     assert!(matches!(online.borrow().sign_in_state(), SignIn::Idle));
 }
 
+thread_local! {
+    static TB_NOW: std::cell::Cell<f64> = const { std::cell::Cell::new(1_800_000_000_000.0) };
+}
+
+fn tb_now() -> f64 {
+    TB_NOW.with(std::cell::Cell::get)
+}
+
+/// Round TB: what marks a Twitch permission used on this device, for its
+/// next sign-in to ask for again: a room this person hosts with the
+/// feature on (bans, blocks, the chat), and a room whose host's chat this
+/// device shows (its "Twitch chat in rooms" on, its access allowing chat).
+/// Turning a feature off gives nothing up.
+#[test]
+fn hosting_with_twitch_on_and_showing_a_hosts_chat_mark_permissions_used() {
+    use crate::state::online::tests::room::tick;
+    use crate::state::online::Dest;
+    use crate::state::settings::Settings;
+    use ddi_room::{Identity, TwitchChat, TwitchMirror};
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    ddi_platform::storage::install_clock(tb_now);
+    let t = Three::new(false);
+    let used = || Settings::load().twitch_used.keys().cloned().collect::<Vec<_>>();
+    t.server
+        .borrow_mut()
+        .grant_twitch(&Identity::new("dev:alice"), &["blocks", "bans", "chat"]);
+    let alice = |ms| tick(&t.clock, &mut [&mut t.alice.borrow_mut()], ms);
+    alice(400);
+    assert!(used().is_empty(), "nothing on: nothing used");
+    t.alice.borrow_mut().set_twitch(TwitchMirror::BansAndBlocks, TwitchChat::Off);
+    alice(400);
+    assert_eq!(used(), ["blocks"]);
+    t.alice.borrow_mut().set_twitch(TwitchMirror::Off, TwitchChat::Emotes);
+    alice(400);
+    assert_eq!(used(), ["blocks", "chat"], "off keeps what was used");
+    t.alice.borrow_mut().set_twitch(TwitchMirror::Off, TwitchChat::Off);
+    alice(400);
+    assert_eq!(used(), ["blocks", "chat"]);
+    // Bob's device (its own settings) in a room that shows alice's chat.
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    t.alice.borrow_mut().set_twitch(TwitchMirror::Off, TwitchChat::Emotes);
+    alice(400);
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    let bob = |ms| tick(&t.clock, &mut [&mut t.bob.borrow_mut()], ms);
+    bob(400);
+    assert!(used().is_empty(), "the device's option off: nothing used");
+    let mut s = Settings::load();
+    s.twitch_chat = ddi_chat::Level::Emotes;
+    s.save();
+    bob(400);
+    assert!(used().is_empty(), "no access to chat: nothing shown");
+    t.server
+        .borrow_mut()
+        .grant_twitch(&Identity::new("dev:bob"), &["chat"]);
+    let online = t.bob.borrow().online_link().unwrap().online().clone();
+    online.borrow_mut().returned(Dest::Room("Room000001".into()));
+    bob(400);
+    assert_eq!(used(), ["chat"]);
+}
+
 /// Round TW1b: a trip through Twitch canceled changes nothing and the
 /// status line says so; the setting asked is forgotten.
 #[test]
