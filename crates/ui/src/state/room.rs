@@ -5038,6 +5038,10 @@ impl RoomClient {
         }
         self.offered.clear();
         self.preload_again();
+        // Away past the room's patience, the room forgot this member's
+        // own start too (`drop_prep`): told again by the next
+        // `sync_start` (review 2026-11-22, room-client 2).
+        self.starts.sent = None;
         // Away past the room's patience, the room forgot what this member
         // had loaded of its stages not yet started (`ddi_room`'s
         // `drop_prep`): each such stage is prepared and reported again by

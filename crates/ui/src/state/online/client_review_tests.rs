@@ -150,3 +150,95 @@ fn the_prompt_left_before_the_room_answered_ready_takes_it_back() {
     assert!(!ready, "Bob left the prompt but the room has him ready");
     assert!(!bob.ready_as_asked());
 }
+
+/// A song of three charts in one style, Easy, Medium and Hard (digests 7,
+/// 8 and 9).
+fn three_charts() -> crate::screens::data::SongEntry {
+    use ddi_chart::Difficulty::*;
+    let of = |index: usize, difficulty, meter, digest| crate::screens::data::ChartEntry {
+        style: "dance-single".into(),
+        index,
+        difficulty,
+        meter,
+        digest: Some(ddi_chart::ChartDigest(digest)),
+        ..Default::default()
+    };
+    crate::screens::data::SongEntry {
+        id: "bundled:a".into(),
+        title: "A".into(),
+        charts: vec![of(0, Easy, 3, 7), of(1, Medium, 6, 8), of(2, Hard, 9, 9)],
+        ..Default::default()
+    }
+}
+
+/// room-client 2: under Charts: Adaptive a member's own start (their Easy
+/// where the stage's chart is Hard) is told the room again after they
+/// were away past its patience (the room forgot what they had told it):
+/// every device and their play start them where their Ready card says.
+/// (Before: the start was taken as told already and never sent again.)
+#[test]
+fn a_members_own_start_is_told_again_after_being_away() {
+    use super::live_tests::room_with;
+    use super::tests::room::upload;
+    use crate::state::room::Picked;
+    use ddi_room::RoomPolicy;
+    let clock = ManualClock::new(1_000);
+    let server = room_with(&clock, &["bob"], RoomPolicy::default().with_live());
+    server.borrow_mut().set_grace(Some(2_000));
+    let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+    let tab = Tab::new(&server);
+    let mut bob = RoomClient::online(
+        person(&server, "bob"),
+        "Room000001",
+        Box::new(tab.clone()),
+        ClientId::new("bob-web"),
+        1_000,
+    );
+    for _ in 0..20 {
+        tick(&clock, &mut [&mut alice, &mut bob], 40);
+    }
+    let mut rules = alice.rules().clone();
+    rules.charts = ddi_room::Charts::Adaptive;
+    alice.save_rules(rules).unwrap();
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    bob.set_preferred(ddi_chart::Difficulty::Easy);
+    let s = three_charts();
+    alice.pick(&s, &s.charts[2]).unwrap();
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    upload(&server, &mut alice, "abc12345");
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let stage = alice.stages()[0].id;
+    for j in alice.take_load_jobs() {
+        alice.finish_load(&j, Ok(()));
+    }
+    for j in bob.take_load_jobs() {
+        let picked = Picked {
+            song: crate::screens::data::SongEntry {
+                id: "shared:abc12345:0".into(),
+                ..s.clone()
+            },
+            chart: s.charts[2].clone(),
+        };
+        bob.finish_shared_load(&j, Ok(picked));
+    }
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let easy = Some(ddi_room::ChartKey::new(ddi_chart::ChartDigest(7).to_string()));
+    let start = |server: &ddi_room::fake::SharedFake| server.borrow().state().start_of(stage, BOB).cloned();
+    assert_eq!(start(&server), easy, "told the room");
+    // Away past the room's patience: the room forgets it.
+    server.borrow_mut().drop_socket(BOB);
+    tab.network();
+    tick(&clock, &mut [&mut alice], 3_000);
+    assert_eq!(start(&server), None, "the room forgot it");
+    // Back: told again.
+    for _ in 0..10 {
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+    }
+    assert_eq!(bob.link_state(), LinkState::Connected);
+    assert_eq!(start(&server), easy, "told the room again");
+    assert_eq!(
+        bob.start_shown(stage, BOB).and_then(|c| c.digest),
+        Some(ddi_chart::ChartDigest(7)),
+        "his Ready card says the same"
+    );
+}
