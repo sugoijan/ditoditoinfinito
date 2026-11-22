@@ -1293,10 +1293,10 @@ impl Shell {
     }
 
     /// A primary press or release at `pos` on a play's quit button (or
-    /// the release of one begun there): the play's `cancel` control, as
-    /// the web's touch screens send it (hold or double-tap to quit).
-    /// Whether it was taken.
-    fn quit_button(&mut self, phase: PointerPhase, pos: [f32; 2]) -> bool {
+    /// the release of one begun there by the same pointer `id`): the
+    /// play's `cancel` control, as the web's touch screens send it (hold
+    /// or double-tap to quit). Whether it was taken.
+    fn quit_button(&mut self, id: u64, phase: PointerPhase, pos: [f32; 2]) -> bool {
         if !self.play.playing() {
             return false;
         }
@@ -1309,11 +1309,11 @@ impl Shell {
                 if (pos[0] - x).powi(2) + (pos[1] - y).powi(2) > r * r {
                     return false;
                 }
-                feed.quit_down = true;
+                feed.quit_down = Some(id);
                 true
             }
-            PointerPhase::Up | PointerPhase::Cancel if feed.quit_down => {
-                feed.quit_down = false;
+            PointerPhase::Up | PointerPhase::Cancel if feed.quit_down == Some(id) => {
+                feed.quit_down = None;
                 false
             }
             _ => return false,
@@ -1396,16 +1396,76 @@ impl Shell {
         true
     }
 
-    /// The primary button or a touch at `pos` (logical pixels, as the
-    /// window's cursor and the play's rects are) while a play runs: the
-    /// music's volume, its quit button, a stage's attack policy label, a
-    /// watched stage's fields and its skip plate, in that order. Whether
-    /// the play took it (else it is the UI's).
+    /// The mouse's primary button at `pos` while a play runs
+    /// ([`Shell::play_pointer_of`]).
     pub fn play_pointer(&mut self, phase: PointerPhase, pos: [f32; 2]) -> bool {
-        self.play_volume(phase, pos)
-            || self.quit_button(phase, pos)
-            || self.policy_label(phase, pos)
+        self.play_pointer_of(MOUSE, phase, pos)
+    }
+
+    /// Pointer `id`'s edge (the mouse's primary button, or a finger: its
+    /// touch id plus one, as the UI numbers them) at `pos` (logical
+    /// pixels, as the window's cursor and the play's rects are) while a
+    /// play runs: the music's volume, its quit button, a stage's attack
+    /// policy label, a watched stage's fields and its skip plate, in that
+    /// order. A control held takes the moves and the release of the
+    /// pointer that went down on it alone, never another finger's (review
+    /// 2026-11-22, chat-touch 2: a lane's lift taken so stayed held for
+    /// the rest of the play). Whether the play took it (else it is the
+    /// UI's, or the touch controls').
+    pub fn play_pointer_of(&mut self, id: u64, phase: PointerPhase, pos: [f32; 2]) -> bool {
+        self.play_volume(id, phase, pos)
+            || self.quit_button(id, phase, pos)
+            || self.policy_label(id, phase, pos)
             || self.watch_press(phase, pos)
+    }
+
+    /// A finger's edge on the window (winit's touch `id`): the play's
+    /// controls, then its touch controls, else the UI's.
+    pub fn touch(&mut self, id: u64, phase: PointerPhase, pos: [f32; 2]) {
+        self.pointer_over_play();
+        if self.play_pointer_of(id + 1, phase, pos) {
+            return;
+        }
+        // A play's touch controls (`docs/plans/touch-controls.md`).
+        if self.touch_lane(id, phase, pos) {
+            return;
+        }
+        self.pointer(id + 1, PointerKind::Touch, phase, pos);
+    }
+
+    /// The window lost the focus during a play: every finger on its touch
+    /// controls lets go of its lane and a control held (the quit button,
+    /// the policy label, the volume) is released, as the web's page does
+    /// on `blur` (no touch's end may come to a window without the focus).
+    pub fn release_touches(&mut self) {
+        let mut feed = self.play.feed.borrow_mut();
+        let now = crate::clock::now();
+        let mut lanes: Vec<usize> = feed.touch_fingers.drain(..).map(|(_, l)| l).collect();
+        lanes.sort_unstable();
+        lanes.dedup();
+        let mut controls: Vec<String> = lanes.into_iter().map(|l| format!("lane:{l}")).collect();
+        if feed.quit_down.take().is_some() {
+            controls.push(ddi_session::play::TOUCH_CANCEL_CONTROL.into());
+        }
+        if feed.policy_down.take().is_some() {
+            controls.push(ddi_session::play::TOUCH_POLICY_CONTROL.into());
+        }
+        for control in controls {
+            feed.edges.push(ddi_platform::RawInput {
+                device: ddi_platform::DeviceId::Touch,
+                control,
+                pressed: false,
+                host_time: now,
+                slot: 0,
+            });
+        }
+        if feed.volume_down.take().is_some() {
+            let pos = feed.volume_edges.last().map_or([0.0; 2], |e| e.pos);
+            feed.volume_edges.push(ddi_shell::play_volume::Edge {
+                phase: ddi_shell::play_volume::Phase::Cancel,
+                pos,
+            });
+        }
     }
 
     /// A pointer's edge at `pos` on the music's volume beside the quit
@@ -1413,7 +1473,7 @@ impl Shell {
     /// to the play's view at its next frame, never to the play's inputs.
     /// A press elsewhere while its slider is open closes it and is not
     /// taken. Whether it was taken.
-    fn play_volume(&mut self, phase: PointerPhase, pos: [f32; 2]) -> bool {
+    fn play_volume(&mut self, id: u64, phase: PointerPhase, pos: [f32; 2]) -> bool {
         use ddi_shell::play_volume::{Edge, Phase};
         if !self.play.playing() {
             return false;
@@ -1429,15 +1489,17 @@ impl Shell {
                 if held || at.plate.is_some() {
                     feed.volume_edges.push(edge(Phase::Down));
                 }
-                feed.volume_down = held;
+                if held {
+                    feed.volume_down = Some(id);
+                }
                 held
             }
-            PointerPhase::Move if feed.volume_down => {
+            PointerPhase::Move if feed.volume_down == Some(id) => {
                 feed.volume_edges.push(edge(Phase::Move));
                 true
             }
-            PointerPhase::Up | PointerPhase::Cancel if feed.volume_down => {
-                feed.volume_down = false;
+            PointerPhase::Up | PointerPhase::Cancel if feed.volume_down == Some(id) => {
+                feed.volume_down = None;
                 let phase = if phase == PointerPhase::Up {
                     Phase::Up
                 } else {
@@ -1451,9 +1513,10 @@ impl Shell {
     }
 
     /// A primary press or release at `pos` on a stage's attack policy
-    /// label (or the release of one begun there): the play's `policy`
-    /// control, which cycles the policy. Whether it was taken.
-    fn policy_label(&mut self, phase: PointerPhase, pos: [f32; 2]) -> bool {
+    /// label (or the release of one begun there by the same pointer
+    /// `id`): the play's `policy` control, which cycles the policy.
+    /// Whether it was taken.
+    fn policy_label(&mut self, id: u64, phase: PointerPhase, pos: [f32; 2]) -> bool {
         if !self.play.playing() {
             return false;
         }
@@ -1466,11 +1529,11 @@ impl Shell {
                 if !(l..=r).contains(&pos[0]) || !(t..=b).contains(&pos[1]) {
                     return false;
                 }
-                feed.policy_down = true;
+                feed.policy_down = Some(id);
                 true
             }
-            PointerPhase::Up | PointerPhase::Cancel if feed.policy_down => {
-                feed.policy_down = false;
+            PointerPhase::Up | PointerPhase::Cancel if feed.policy_down == Some(id) => {
+                feed.policy_down = None;
                 false
             }
             _ => return false,
@@ -1759,6 +1822,7 @@ impl ApplicationHandler for Shell {
             WindowEvent::Focused(f) => {
                 if !f {
                     self.input.keyboard.release_all(crate::clock::now());
+                    self.release_touches();
                 }
                 // Typing ends with the window's focus, as the web's
                 // textarea blurs with its page.
@@ -1802,7 +1866,7 @@ impl ApplicationHandler for Shell {
                 self.cursor = to_logical(position, self.scale);
                 self.pointer_over_play();
                 // A drag along the play's music volume.
-                if self.play_volume(PointerPhase::Move, self.cursor) {
+                if self.play_volume(MOUSE, PointerPhase::Move, self.cursor) {
                     return;
                 }
                 self.pointer(MOUSE, PointerKind::Mouse, PointerPhase::Move, self.cursor);
@@ -1879,15 +1943,7 @@ impl ApplicationHandler for Shell {
                     TouchPhase::Cancelled => PointerPhase::Cancel,
                 };
                 let pos = to_logical(t.location, self.scale);
-                self.pointer_over_play();
-                if self.play_pointer(phase, pos) {
-                    return;
-                }
-                // A play's touch controls (`docs/plans/touch-controls.md`).
-                if self.touch_lane(t.id, phase, pos) {
-                    return;
-                }
-                self.pointer(t.id + 1, PointerKind::Touch, phase, pos);
+                self.touch(t.id, phase, pos);
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 let down = event.state == ElementState::Pressed;

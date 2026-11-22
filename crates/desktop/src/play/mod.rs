@@ -275,13 +275,14 @@ pub struct Feed {
     /// a moment: `ddi_session::play::quit_shown`).
     pub pointer_at: Option<std::time::Instant>,
     /// Where the quit button was drawn last (logical pixels: middle and
-    /// radius), for the presses on it, and whether one is down on it.
+    /// radius), for the presses on it, and the pointer down on it (the
+    /// shell's pointer id: the mouse's, or a finger's), if one is.
     pub quit_at: Option<[f32; 3]>,
-    pub quit_down: bool,
+    pub quit_down: Option<u64>,
     /// Where a stage's attack policy label takes a press (logical
-    /// pixels: left, top, right, bottom), and whether one is down on it.
+    /// pixels: left, top, right, bottom), and the pointer down on it.
     pub policy_at: Option<[f32; 4]>,
-    pub policy_down: bool,
+    pub policy_down: Option<u64>,
     /// A watched stage's fields a press follows (each with its seat;
     /// none: back to every field), and where one skips a stage the
     /// player is out of to its results (logical pixels: left, top,
@@ -289,11 +290,11 @@ pub struct Feed {
     pub watch_at: Vec<(Option<usize>, [f32; 4])>,
     pub skip_at: Option<[f32; 4]>,
     /// Where the music's volume takes a press (logical pixels;
-    /// `ddi_shell::play_volume`), whether a pointer holds it, and its
+    /// `ddi_shell::play_volume`), the pointer that holds it, and its
     /// edges since the last frame: the play's view's, never the play's
     /// inputs or log.
     pub volume_at: Option<ddi_shell::play_volume::VolumeAt>,
-    pub volume_down: bool,
+    pub volume_down: Option<u64>,
     pub volume_edges: Vec<ddi_shell::play_volume::Edge>,
     /// The touch controls the play was started with
     /// (`docs/plans/touch-controls.md`), whether they show (touch is the

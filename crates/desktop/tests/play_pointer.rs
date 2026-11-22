@@ -179,11 +179,11 @@ fn a_press_on_the_policy_label_cycles_the_policy_once() {
     assert_eq!(w.policy(), before);
     // Down and up on the label: the next policy, once.
     assert!(w.shell.play_pointer(PointerPhase::Down, center(label)));
-    assert!(w.shell.play.feed.borrow().policy_down);
+    assert!(w.shell.play.feed.borrow().policy_down.is_some());
     w.frames(2);
     // (Released off the label: the press begun on it is still its own.)
     assert!(w.shell.play_pointer(PointerPhase::Up, beside), "the release is the label's");
-    assert!(!w.shell.play.feed.borrow().policy_down);
+    assert!(w.shell.play.feed.borrow().policy_down.is_none());
     w.frames(4);
     assert_eq!(w.policy(), Targeting::Retaliate, "cycled once");
     let p = w.shell.play.running().expect("playing");
@@ -318,4 +318,57 @@ fn fingers_on_the_touch_controls_press_slide_and_lift() {
     assert!(w.shell.touch_lane(3, PointerPhase::Up, [640.0, 100.0]));
     w.frames(2);
     assert_eq!(held(&w), [false; 4]);
+}
+
+/// A finger's edge as the window hands it on (`WindowEvent::Touch`).
+fn finger(w: &mut Window, id: u64, phase: PointerPhase, pos: [f32; 2]) {
+    w.shell.touch(id, phase, pos);
+}
+
+/// Review 2026-11-22, chat-touch 2: while one finger holds the attack
+/// policy's label, another finger's lift on a lane is the lane's (it was
+/// the label's: the lane stayed held for the rest of the play); the
+/// label's own finger still cycles the policy once. The window's focus
+/// lost lets go of every finger's lane.
+#[test]
+fn a_second_fingers_lift_is_its_lanes_while_the_label_is_held() {
+    use ddi_ui::touch_controls::{Choice, Screen, plan};
+    let mut w = Window::new();
+    w.start(false);
+    w.frames(8);
+    if w.shell.play.feed.borrow().touch_at.is_none() {
+        let layout = w.shell.play.running().expect("playing").session.layout.clone();
+        w.shell.play.feed.borrow_mut().touch_at =
+            plan(&layout, Screen::new(LOGICAL, [0.0; 4]), Choice::default());
+    }
+    if !w.draws.drawn() {
+        w.shell.play.feed.borrow_mut().policy_at = Some([440.0, 30.0, 520.0, 52.0]);
+    }
+    let label = w.shell.play.feed.borrow().policy_at.expect("the label's place");
+    let c = w.shell.play.feed.borrow().touch_at.clone().expect("the controls");
+    let at = |lane: usize| c.targets.iter().find(|t| t.lane == Some(lane)).unwrap().center();
+    let held = |w: &Window| w.shell.play.running().expect("playing").session.held().to_vec();
+    finger(&mut w, 1, PointerPhase::Down, center(label));
+    finger(&mut w, 2, PointerPhase::Down, at(1));
+    w.frames(2);
+    assert_eq!(held(&w), [false, true, false, false]);
+    finger(&mut w, 2, PointerPhase::Up, at(1));
+    w.frames(2);
+    assert_eq!(held(&w), [false; 4], "the lane let go");
+    finger(&mut w, 1, PointerPhase::Up, center(label));
+    w.frames(4);
+    assert_eq!(w.policy(), Targeting::Retaliate, "cycled once");
+    // The same finger again on the lane: pressed (it was dead to touch).
+    finger(&mut w, 2, PointerPhase::Down, at(1));
+    finger(&mut w, 3, PointerPhase::Down, at(2));
+    w.frames(2);
+    assert_eq!(held(&w), [false, true, true, false]);
+    // The window's focus lost: every lane let go, no finger kept.
+    w.shell.release_touches();
+    w.frames(2);
+    assert_eq!(held(&w), [false; 4], "let go with the focus");
+    assert!(w.shell.play.feed.borrow().touch_fingers.is_empty());
+    finger(&mut w, 2, PointerPhase::Down, at(1));
+    w.frames(2);
+    assert_eq!(held(&w), [false, true, false, false], "a finger down again presses");
 }
