@@ -1132,6 +1132,10 @@ pub struct PlayerRow {
     /// Their attack policy's word, where the match has attacks (empty
     /// otherwise): shown quietly, a policy and never a skill.
     pub policy: String,
+    /// Under Charts: Adaptive the chart they start the stage on (room
+    /// model revision 23: their own, `RoomClient::start_shown`): its level
+    /// number shown in its difficulty's color, as they choose it.
+    pub chart: Option<(u32, ddi_chart::Difficulty)>,
     /// A person's id in the room (none: a CPU).
     pub id: Option<u64>,
     /// The Players pop-up of the room's host: a tap on this row opens
@@ -1465,6 +1469,18 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
             .map(|st| (st.rank, String::from(points_text(st.total))))
     };
     let upcoming = s.upcoming_stage().and_then(|id| s.stage(id));
+    // The stage whose charts the rows say (revision 23): the one being
+    // readied, counted down or played, once its song is picked.
+    let chart_stage = match s.phase {
+        Phase::Countdown { stage, .. } | Phase::Stage { stage } | Phase::SongCompletion { stage } => Some(stage),
+        _ => s.upcoming_stage(),
+    }
+    .filter(|id| s.stage(*id).is_some_and(|st| st.content.is_some()));
+    let chart_of = |p: ddi_room::ParticipantId| {
+        chart_stage
+            .and_then(|stage| r.start_shown(stage, p))
+            .map(|c| (c.meter, c.difficulty))
+    };
     let plays = plays(s);
     let attacks = r.attacks_on();
     let policy = |t: ddi_room::attacks::Targeting| -> String {
@@ -1510,6 +1526,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     status,
                     tone,
                     policy: policy(member.targeting()),
+                    chart: if plays(member.id) { chart_of(member.id) } else { None },
                     id: Some(member.id.0),
                     manage: false,
                     kick: false,
@@ -1536,6 +1553,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     status: String::new(),
                     tone: Tone::Plain,
                     policy: policy(member.targeting()),
+                    chart: chart_of(member.id),
                     id: None,
                     manage: false,
                     kick: false,
@@ -1567,6 +1585,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                 status: m::cpu_at_start().into(),
                 tone: Tone::Plain,
                 policy: policy(spec.targeting.unwrap_or_default()),
+                chart: None,
                 id: None,
                 manage: false,
                 kick: false,
@@ -3234,7 +3253,27 @@ pub fn player_line(
         look::ellipsized(&mut policy, 90.0);
         c.push(right(policy, end - status_w, mid + 1.0));
     }
-    let room = (end - status_w - policy_w - name_x).max(60.0);
+    // The chart they start on (revision 23): its level number in its
+    // difficulty's color, before the policy.
+    let chart_w = match &p.chart {
+        Some((meter, difficulty)) => {
+            let text = meter.to_string();
+            let w = look::mono_width(&text, 14.0) + 12.0;
+            c.push(right(
+                env.numbers(
+                    &format!("{id}.Chart"),
+                    &text,
+                    14.0,
+                    &format!("Difficulty.{}", difficulty.name()),
+                ),
+                end - status_w - policy_w,
+                mid,
+            ));
+            w
+        }
+        None => 0.0,
+    };
+    let room = (end - status_w - policy_w - chart_w - name_x).max(60.0);
     let color = match (p.me, p.tone) {
         (_, Tone::Away) => "Faint",
         (true, _) => "Text",

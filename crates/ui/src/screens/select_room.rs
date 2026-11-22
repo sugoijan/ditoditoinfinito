@@ -819,6 +819,13 @@ impl SelectScreen {
             self.swap_side(now, enter, root, cx);
         }
         let side = self.room.as_ref().map_or(Side::Joining, |rm| rm.side);
+        // The difficulty this player usually plays (round OC): their start
+        // where they chose nothing for a song.
+        if let Some(rm) = &self.room
+            && let Ok(mut r) = rm.room.try_borrow_mut()
+        {
+            r.set_preferred(self.preferred);
+        }
         match side {
             Side::Picker => self.tell_hover(),
             Side::Listed => {
@@ -878,6 +885,39 @@ impl SelectScreen {
         rm.room
             .borrow_mut()
             .hover(song.as_ref().zip(chart.as_ref()));
+    }
+
+    /// Under Charts: Adaptive (round OC) the chart remembered for `song`
+    /// this session (chosen on its side or on a stage's Ready card): what
+    /// its side shows where nothing was picked on it since it was shown.
+    pub(super) fn room_remembered_pick(&self, song: &SongEntry, charts: &[&ChartEntry]) -> Option<usize> {
+        let rm = self.room.as_ref()?;
+        let r = rm.room.try_borrow().ok()?;
+        if !r.songs_without_charts() {
+            return None;
+        }
+        let key = r.remembered_start(song)?;
+        charts
+            .iter()
+            .position(|c| c.digest.is_some_and(|d| d.to_string() == key.as_str()))
+    }
+
+    /// The chart picked on the song's side under Charts: Adaptive (round
+    /// OC): this player's own for that song, remembered for the room's
+    /// session and their start when it is played.
+    pub(super) fn room_remember_chart(&self) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        let (charts, pick) = self.charts();
+        let (Some(song), Some(chart)) = (self.song(), pick.and_then(|p| charts.get(p).copied())) else {
+            return;
+        };
+        if let Ok(mut r) = rm.room.try_borrow_mut()
+            && r.songs_without_charts()
+        {
+            r.remember_start(song, chart);
+        }
     }
 
     /// The picker's song and chart shown on Room songs, told the room when

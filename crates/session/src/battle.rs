@@ -671,12 +671,14 @@ pub struct ChartLine {
 
 /// A run's detail's charts where `player` (whose play started on rung
 /// `start` of the stage's ladder, `charts`; `rungs` as the battle shows
-/// them) finished on another than the stage's (its name, and whether it
-/// is harder), and where it started on another (room model revision 23).
+/// them, the stage's chart named `stage_name`) finished on another than
+/// the stage's (its name, and whether it is harder; where it started on
+/// one of its own, also the stage's), and where it started on another
+/// (room model revision 23).
 /// By the chart it plays, so a CPU's play (planned from its own start,
 /// its rungs numbered from it) reads as a person's.
 fn finished_on(
-    rungs: &[Rung],
+    (rungs, stage_name): (&[Rung], &str),
     charts: &ddi_engine::ladder::Ladder,
     start: u8,
     detail: &mut RunDetail,
@@ -684,7 +686,13 @@ fn finished_on(
 ) {
     let of = |rung: u8| usize::from(rung).checked_sub(1).and_then(|i| rungs.get(i));
     let end = charts.rung_of_chart(player.chart_now()).unwrap_or(player.rung());
-    detail.chart = of(end).map(|r| r.name.clone());
+    // Started on a chart of their own: the one finished on is named even
+    // where it is the stage's, so that the Standings say both.
+    detail.chart = match of(end) {
+        Some(r) => Some(r.name.clone()),
+        None if start != 0 => Some(stage_name.to_string()),
+        None => None,
+    };
     detail.harder = of(end).is_some_and(|r| r.up);
     detail.start = of(start).map(|r| r.name.clone());
     detail.start_harder = of(start).is_some_and(|r| r.up);
@@ -713,7 +721,7 @@ pub fn graded_as_run(detail: &mut RunDetail, run: &Run) {
 pub fn cpu_detail(
     opponent: &Opponent,
     launched: Option<(u32, u32)>,
-    rungs: &[Rung],
+    rungs: (&[Rung], &str),
     charts: &ddi_engine::ladder::Ladder,
     start: u8,
 ) -> RunDetail {
@@ -1789,7 +1797,7 @@ impl Battle {
                 // The ledger is `l`'s, taken out of the battle meanwhile.
                 let p = self.seats[i].seat.participant;
                 let s = &self.seats[i];
-                let detail = cpu_detail(&s.opponent, self.launched_in(Some(l), p), &self.rungs, &self.charts, s.start);
+                let detail = cpu_detail(&s.opponent, self.launched_in(Some(l), p), (&self.rungs, &self.stage_name), &self.charts, s.start);
                 let s = &self.seats[i];
                 if let Some(d) = &s.drive {
                     cpus::report_run(room, stage, d, &s.opponent, detail);
@@ -2777,7 +2785,7 @@ impl Battle {
                 human.ruleset().gauge.life(),
                 self.launched(self.setup.me),
             );
-            finished_on(&self.rungs, &self.charts, self.my_start, &mut detail, human);
+            finished_on((&self.rungs, &self.stage_name), &self.charts, self.my_start, &mut detail, human);
             graded_as_run(&mut detail, &mine);
             details.push((self.setup.me, detail.bounded()));
         }
@@ -2878,7 +2886,7 @@ impl Battle {
     /// How the `i`th CPU performed, as judged by its own play.
     fn cpu_detail(&self, i: usize) -> RunDetail {
         let s = &self.seats[i];
-        cpu_detail(&s.opponent, self.launched(s.seat.participant), &self.rungs, &self.charts, s.start)
+        cpu_detail(&s.opponent, self.launched(s.seat.participant), (&self.rungs, &self.stage_name), &self.charts, s.start)
     }
 
     /// The stage's end as the local player's results tell it, from its

@@ -1891,6 +1891,7 @@ pub struct LivePlay {
     /// and as charts.
     rungs: Vec<crate::battle::Rung>,
     charts: ddi_engine::ladder::Ladder,
+    stage_name: String,
 }
 
 /// A CPU of the stage as a bot's play computes it.
@@ -1977,6 +1978,7 @@ impl LivePlay {
             cpus,
             rungs: crate::battle::ladder_rungs(song, &ladder)?,
             charts: ddi_engine::cpu::planned_charts(chart, &ladder),
+            stage_name: ddi_engine::ladder::rung_name(&song.charts[chart]),
         }))
     }
 
@@ -2003,7 +2005,7 @@ impl LivePlay {
                 // it finished on.
                 let launched = self.live.ledger.launched(c.drive.participant());
                 let detail =
-                    crate::battle::cpu_detail(&c.opponent, Some(launched), &self.rungs, &self.charts, c.start);
+                    crate::battle::cpu_detail(&c.opponent, Some(launched), (&self.rungs, &self.stage_name), &self.charts, c.start);
                 crate::battle::cpus::report_run(room, stage, &c.drive, &c.opponent, detail);
             }
         }

@@ -54,6 +54,7 @@ room-end-match-body = { $count ->
    *[other] プレイした{ $count }曲のポイントで、今すぐ対戦を終えます。次の対戦も同じルールです。
 }
 room-ready-last-song = 最後の曲
+room-ready-chart = あなたの譜面
 room-make-last = この曲を最後の曲にする
 room-not-last = 最後の曲にしない
 room-pick-last-next = 次に選ぶ曲を最後の曲にする
@@ -158,7 +159,7 @@ room-rules-charts-as-picked = 選んだまま
 room-rules-charts-adaptive = 適応
 
 room-rules-charts-picked-about = 全員が選ばれた譜面をプレイします。
-room-rules-charts-adaptive-about = 各プレイヤーの譜面が実力に合わせて変わります。
+room-rules-charts-adaptive-about = 各プレイヤーが自分の譜面から始め、実力に合わせて上下します。
 
 room-rules-charts-no-ladder = 選ばれた曲にはこのスタイルの譜面がほかにないため、選んだままと同じになります。
 
@@ -816,6 +817,7 @@ room-table-failed = 失敗 { $time }
 room-table-left = 退出
 room-table-stepped = ↓ { $chart }
 room-table-stepped-up = ↑ { $chart }
+room-table-started-moved = { $start } → { $chart }
 
 room-table-sent = 発動
 
@@ -1097,3 +1099,6 @@ room-draw-won = { $name }さんの選択：{ $title } · { $chart }
 room-draw-won-you = あなたの選択：{ $title } · { $chart }
 room-draw-entry = { $name } · { $title } · { $chart }
 room-draw-entry-you = あなた
+room-draw-won-song = { $name }さんの選択：{ $title }
+room-draw-won-you-song = あなたの選択：{ $title }
+room-draw-entry-song = { $name } · { $title }

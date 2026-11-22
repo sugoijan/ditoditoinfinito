@@ -797,6 +797,7 @@ pub struct StagePlay {
     rungs: Vec<Rung>,
     charts: ddi_engine::ladder::Ladder,
     start: u8,
+    stage_name: String,
     started_ms: u64,
     /// The stage played live (`ddi_session::battle::live`): its stream to
     /// the room and the room's attacks into its CPU's play.
@@ -833,6 +834,7 @@ impl StagePlay {
             rungs: ddi_session::battle::ladder_rungs(song, &ladder)?,
             charts: ddi_engine::cpu::planned_charts(chart, &ladder),
             start,
+            stage_name: ddi_engine::ladder::rung_name(&song.charts[chart]),
             started_ms: now_ms,
             live: None,
             fails_on: order.rules.plays_on_failed(),
@@ -920,7 +922,7 @@ impl StagePlay {
     /// its own play: as a CPU's, the chart it finished on named where it
     /// stepped.
     pub fn detail(&self) -> ddi_room::RunDetail {
-        ddi_session::battle::cpu_detail(&self.opponent, None, &self.rungs, &self.charts, self.start)
+        ddi_session::battle::cpu_detail(&self.opponent, None, (&self.rungs, &self.stage_name), &self.charts, self.start)
     }
 }
 

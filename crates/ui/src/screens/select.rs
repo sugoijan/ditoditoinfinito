@@ -1936,7 +1936,10 @@ impl SelectScreen {
             return (Vec::new(), None);
         };
         let charts = song.charts_in(self.style_id());
-        let pick = would_play(&charts, self.pick, self.preferred);
+        // In a room under Adaptive, the chart remembered for the song
+        // (round OC) where none was picked on it since it was shown.
+        let pick = self.pick.or_else(|| self.room_remembered_pick(song, &charts));
+        let pick = would_play(&charts, pick, self.preferred);
         (charts, pick)
     }
 
@@ -3604,6 +3607,7 @@ impl SelectScreen {
         }
         self.preferred = charts[to].difficulty;
         self.pick = Some(to);
+        self.room_remember_chart();
         self.fill_charts(root);
     }
 
@@ -3626,6 +3630,7 @@ impl SelectScreen {
         }
         self.preferred = charts[to].difficulty;
         self.pick = Some(to);
+        self.room_remember_chart();
         self.fill_charts(root);
     }
 

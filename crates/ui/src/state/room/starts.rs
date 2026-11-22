@@ -113,10 +113,9 @@ impl RoomClient {
         let (Some(song), Some(chart)) = (song_key(song), key_of(chart)) else {
             return;
         };
-        if self.starts.by_song.get(&song) != Some(&chart) {
-            self.starts.by_song.insert(song, chart);
-            self.version += 1;
-        }
+        // This device's own memory: nothing of the room changes (no
+        // version: the screens are not built again for it).
+        self.starts.by_song.insert(song, chart);
     }
 
     /// The chart remembered for `song`, if one was chosen this session.

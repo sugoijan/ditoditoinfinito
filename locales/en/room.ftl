@@ -123,6 +123,10 @@ room-end-match-body = { $count ->
 # mark it, a row whose value (On or Off, the usual words) says whether
 # this stage is the match's last song (about 16 letters).
 room-ready-last-song = Last song
+# The stage's Ready card under Charts: Adaptive (round OC): the row's label
+# for the chart of the song this player starts on, which they change with
+# Left and Right until they are ready (about 12 letters).
+room-ready-chart = Your chart
 
 # More's items for an open-ended match's last song (about 24 letters each):
 # the stage picked and not started made the match's last song, or not;
@@ -332,7 +336,7 @@ room-rules-charts-adaptive = Adaptive
 
 # A line under the Charts row saying what the chosen value does.
 room-rules-charts-picked-about = Everyone plays the chart picked.
-room-rules-charts-adaptive-about = Each player's chart changes with their skill.
+room-rules-charts-adaptive-about = Each player starts on their own chart of the song and moves up or down with their skill.
 
 # Added after that line where the song picked for the stage has no other
 # chart in its style to move to.
@@ -1874,6 +1878,13 @@ room-table-stepped = ↓ { $chart }
 #   $chart (String) - the chart's name ("Challenge")
 room-table-stepped-up = ↑ { $chart }
 
+# Under Charts: Adaptive (round OC) where a player started on a chart of
+# their own and finished on another: both, the one started on first.
+# Variables:
+#   $start (String) - the chart started on ("Easy")
+#   $chart (String) - the chart finished on ("Medium")
+room-table-started-moved = { $start } → { $chart }
+
 # Three small columns at the table's end where the match has attacks,
 # a number under each (their headings as the others': capitals small,
 # very short: 4 to 6 letters). The attacks this player launched.
@@ -2684,3 +2695,17 @@ room-draw-entry = { $name } · { $title } · { $chart }
 # The draw's reveal's entry of this player's own choice: "You" as the
 # name at its start.
 room-draw-entry-you = You
+# Under Charts: Adaptive (round OC) the draw names the song alone: each
+# player starts on their own chart of it. The same lines without the
+# chart.
+# Variables:
+#   $name (String) - whose choice it took
+#   $title (String) - the song's title
+room-draw-won-song = { $name }'s choice: { $title }
+# Variables:
+#   $title (String) - the song's title
+room-draw-won-you-song = Your choice: { $title }
+# Variables:
+#   $name (String) - whose choice (a name, or "you")
+#   $title (String) - the song's title
+room-draw-entry-song = { $name } · { $title }

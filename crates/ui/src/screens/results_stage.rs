@@ -537,9 +537,19 @@ fn row_view(r: &dyn TableWho, table: &StageTable, row: &StageRow, percent: bool)
                 d.shocks.unwrap_or(0),
             ))
         }),
-        stepped: d.and_then(|d| {
-            let c = UiText::data(d.chart.as_deref()?);
-            Some(if d.harder { m::table_stepped_up(c) } else { m::table_stepped(c) }.into())
+        // Under Adaptive with a chart of their own (round OC): where they
+        // started, and where they finished if elsewhere; else where they
+        // finished where it is not the stage's.
+        stepped: d.and_then(|d| match (d.start.as_deref(), d.chart.as_deref()) {
+            (Some(s), Some(c)) if s != c => {
+                Some(m::table_started_moved(UiText::data(s), UiText::data(c)).into())
+            }
+            (Some(s), _) => Some(s.to_string()),
+            (None, Some(c)) => {
+                let c = UiText::data(c);
+                Some(if d.harder { m::table_stepped_up(c) } else { m::table_stepped(c) }.into())
+            }
+            (None, None) => None,
         }),
     }
 }

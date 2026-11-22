@@ -1543,6 +1543,15 @@ impl PromptScreen {
             }
             y = top + per as f32 * OPTION_ROW;
         }
+        // Under Charts: Adaptive the player's own chart (round OC), one
+        // row, changed until Ready.
+        if state.step == PromptStep::Ready
+            && let Some((row, name, height)) = self.room_chart_row(inner, y + 10.0)
+        {
+            c.push(row);
+            controls.push(name);
+            y += 10.0 + height;
+        }
         // A room's stage with attacks: the player's attack policy, one
         // quiet row (Left and Right or a tap change it) and what it does.
         if state.step == PromptStep::Ready
@@ -2646,6 +2655,10 @@ impl Screen for PromptScreen {
             ) = (input, &row)
             {
                 let by = if *action == MenuAction::Left { -1 } else { 1 };
+                if id == room_mode::CHART_ID {
+                    self.room_chart_step(by, root, cx);
+                    return Handled::Yes;
+                }
                 if id == room_mode::LAST_SONG_ID {
                     if !repeat {
                         self.room_last_song_toggle(root, cx);
@@ -2682,6 +2695,10 @@ impl Screen for PromptScreen {
                     (1, true)
                 };
                 cx.focus(name.clone());
+                if id == room_mode::CHART_ID {
+                    self.room_chart_step(if wrap { 1 } else { by }, root, cx);
+                    return Handled::Yes;
+                }
                 if id == room_mode::LAST_SONG_ID {
                     self.room_last_song_toggle(root, cx);
                     return Handled::Yes;
@@ -2701,6 +2718,14 @@ impl Screen for PromptScreen {
                 ..
             } => {
                 self.choose(PromptChoice::Back, cx);
+                Handled::Yes
+            }
+            // On the chart row (round OC): the next harder, never Ready.
+            Input::Menu {
+                action: MenuAction::Start,
+                ..
+            } if step == PromptStep::Ready && cx.focused() == Some(room_mode::CHART) => {
+                self.room_chart_step(1, root, cx);
                 Handled::Yes
             }
             // On the Last song row (round AC): it changes, never Ready.
@@ -2724,6 +2749,10 @@ impl Screen for PromptScreen {
             }
             Input::Activate { name } if name == room_mode::TARGETING => {
                 self.room_targeting_step(1, root, cx);
+                Handled::Yes
+            }
+            Input::Activate { name } if name == room_mode::CHART => {
+                self.room_chart_step(1, root, cx);
                 Handled::Yes
             }
             Input::Activate { name } if name == room_mode::LAST_SONG => {

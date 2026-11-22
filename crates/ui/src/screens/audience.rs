@@ -351,11 +351,12 @@ fn drawn_line(v: &PublicView, stage: ddi_room::StageId) -> Option<UiText> {
     let d = v.drawn.as_ref().filter(|d| d.stage == stage)?;
     let won = d.entries.get(usize::from(d.winner))?;
     let chart = UiText::data(format!("{} {}", won.card.difficulty, won.card.meter));
-    Some(m::draw_won(
-        UiText::data(player_name(v, won.participant)),
-        UiText::data(&won.card.title),
-        chart,
-    ))
+    let who = UiText::data(player_name(v, won.participant));
+    // Under Adaptive the song alone (round OC).
+    if v.rules.charts == ddi_room::Charts::Adaptive {
+        return Some(m::draw_won_song(who, UiText::data(&won.card.title)));
+    }
+    Some(m::draw_won(who, UiText::data(&won.card.title), chart))
 }
 
 /// The song the room picked for the stage it is on, as the page shows
@@ -548,6 +549,7 @@ pub fn player_rows(v: &PublicView) -> Vec<super::room::PlayerRow> {
                     RowTone::Plain
                 },
                 policy: String::new(),
+                chart: None,
                 id: None,
                 manage: false,
                 kick: false,

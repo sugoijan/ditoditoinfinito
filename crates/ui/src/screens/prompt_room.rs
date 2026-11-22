@@ -77,6 +77,13 @@ pub(super) const TARGETING_ID: &str = "room.targeting";
 pub(super) const LAST_SONG: &str = "Opt.room.last";
 pub(super) const LAST_SONG_ID: &str = "room.last";
 
+/// Under Charts: Adaptive the chart this player starts on (round OC, room
+/// model revision 23): one of the rows as the policy's is, the song's
+/// charts stepped through by Left and Right, ◀ ▶ or a tap until they are
+/// ready.
+pub(super) const CHART: &str = "Opt.room.chart";
+pub(super) const CHART_ID: &str = "room.chart";
+
 pub(super) struct PromptRoom {
     room: SharedRoom,
     stage: StageId,
@@ -646,6 +653,110 @@ impl PromptScreen {
         let mut row = frame(name, parts);
         call(&mut row, "y", &[y]);
         Some((row, name.into(), OPTION_ROW))
+    }
+
+    /// Under Charts: Adaptive the chart this player starts on (round OC):
+    /// its label and the chart as song select names it, in its
+    /// difficulty's color, changed by Left and Right, ◀ ▶ or a tap until
+    /// they are ready; then the chart alone, the row kept in its place.
+    /// Its control's name and its height.
+    pub(super) fn room_chart_row(&self, inner: f32, y: f32) -> Option<(Actor, String, f32)> {
+        let rm = self.room.as_ref()?;
+        if rm.gone.get().is_some() {
+            return None;
+        }
+        let (chart, charts, changeable) = {
+            let r = rm.room.borrow();
+            if !r.in_stage(rm.stage) {
+                return None;
+            }
+            let charts = r.start_charts(rm.stage);
+            let chart = r.start_shown(rm.stage, r.me())?;
+            let changeable = charts.len() > 1 && !r.ready_as_asked() && !r.stage_started(rm.stage);
+            (chart, charts, changeable)
+        };
+        let env = &self.env;
+        let name = CHART;
+        let x0 = 24.0;
+        let mid = OPTION_ROW / 2.0;
+        let label_text = msg::room::ready_chart();
+        let label_w = look::mono_width(&label_text, 14.0).min(inner * 0.4);
+        let vw = charts
+            .iter()
+            .map(|c| look::mono_width(&crate::screens::select::chart_shown(c), 14.0))
+            .fold(60.0, f32::max)
+            .min(inner - label_w - 70.0)
+            + 8.0;
+        let vx = x0 + label_w + 14.0;
+        let row_w = label_w + 14.0 + 44.0 + vw;
+        let mut light = quad(
+            &format!("{name}.Light"),
+            [row_w + 12.0, OPTION_ROW - 2.0],
+            [1.0, 1.0, 1.0, 0.004],
+        );
+        call(&mut light, "cornerradius", &[6.0]);
+        call(&mut light, "xy", &[x0 + row_w / 2.0, mid]);
+        let mut label = env.text(&format!("{name}.Label"), &label_text, 14.0, 400, "Muted");
+        call(&mut label, "maxwidth", &[label_w]);
+        let mut value = env.text(
+            &format!("{name}.Value"),
+            &crate::screens::select::chart_shown(&chart),
+            14.0,
+            700,
+            &format!("Difficulty.{}", chart.difficulty.name()),
+        );
+        call(&mut value, "maxwidth", &[vw]);
+        call(&mut value, "xy", &[vx + 22.0 + vw / 2.0, mid]);
+        let mut parts = vec![light, left(label, x0, mid), value];
+        if changeable {
+            let arrow = |part: &str, glyph: &str, x: f32| {
+                let mut hit = quad(
+                    &format!("{name}.{part}"),
+                    [26.0, OPTION_ROW],
+                    [1.0, 1.0, 1.0, 0.004],
+                );
+                call(&mut hit, "xy", &[x, mid]);
+                let mut g = env.text("", glyph, 12.0, 400, "Accent");
+                call(&mut g, "xy", &[x, mid]);
+                frame(&format!("{name}.{part}"), vec![hit, g])
+            };
+            parts.push(arrow("Down", "◀", vx + 9.0));
+            parts.push(arrow("Up", "▶", vx + 22.0 + vw + 13.0));
+        }
+        let mut row = frame(name, parts);
+        call(&mut row, "y", &[y]);
+        Some((row, name.into(), OPTION_ROW))
+    }
+
+    /// The chart row stepped by `by` (Left, Right, ◀ ▶, a tap or Enter on
+    /// the row; round OC): the next easier or harder of the song's charts
+    /// (no wrapping), chosen for the stage and remembered for the song,
+    /// the room told; until the player is ready.
+    pub(super) fn room_chart_step(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        if rm.started.get() || rm.gone.get().is_some() {
+            return;
+        }
+        let next = {
+            let r = rm.room.borrow();
+            if !r.in_stage(rm.stage) || r.ready_as_asked() {
+                return;
+            }
+            let charts = r.start_charts(rm.stage);
+            let now = r.start_shown(rm.stage, r.me());
+            let i = now
+                .and_then(|n| charts.iter().position(|c| c.index == n.index))
+                .unwrap_or(0) as i32;
+            let to = (i + by).clamp(0, charts.len() as i32 - 1);
+            (to != i).then(|| charts[to as usize].clone())
+        };
+        if let Some(chart) = next {
+            let _ = rm.room.borrow_mut().choose_start(rm.stage, &chart);
+            self.rebuild(root, cx);
+            self.publish();
+        }
     }
 
     /// The Last song row pressed or stepped (round AC): the stage made

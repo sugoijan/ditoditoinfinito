@@ -81,23 +81,32 @@ impl Reel {
                 .unwrap_or_default();
             (who, UiText::data(title), UiText::data(chart))
         };
+        // Under Adaptive the song alone: each starts on their own chart.
+        let song_only = r.own_starts(record.stage);
         let lines = record
             .entries
             .iter()
             .map(|e| {
                 let (who, title, chart) = words(e);
-                m::draw_entry(who, title, chart).into()
+                if song_only {
+                    m::draw_entry_song(who, title).into()
+                } else {
+                    m::draw_entry(who, title, chart).into()
+                }
             })
             .collect();
         let result = record
             .won()
             .map(|won| {
                 let (_, title, chart) = words(won);
-                if won.participant == r.me() {
-                    m::draw_won_you(title, chart).into()
-                } else {
-                    let who = r.member_of(won.participant).map(super::room::person_name).unwrap_or_default();
-                    m::draw_won(UiText::data(who), title, chart).into()
+                let who = || {
+                    UiText::data(r.member_of(won.participant).map(super::room::person_name).unwrap_or_default())
+                };
+                match (won.participant == r.me(), song_only) {
+                    (true, true) => m::draw_won_you_song(title).into(),
+                    (true, false) => m::draw_won_you(title, chart).into(),
+                    (false, true) => m::draw_won_song(who(), title).into(),
+                    (false, false) => m::draw_won(who(), title, chart).into(),
                 }
             })
             .unwrap_or_default();
@@ -120,20 +129,30 @@ impl Reel {
     pub fn of_public(v: &ddi_room::audience::PublicView, drawn: &ddi_room::audience::public::PublicDrawn) -> Reel {
         let name = |id| super::audience::player_name(v, id);
         let chart = |c: &ddi_room::ContentCard| UiText::data(format!("{} {}", c.difficulty, c.meter));
+        // Under Adaptive the song alone (round OC).
+        let song_only = v.rules.charts == ddi_room::Charts::Adaptive;
         let lines = drawn
             .entries
             .iter()
             .map(|e| {
-                m::draw_entry(UiText::data(name(e.participant)), UiText::data(&e.card.title), chart(&e.card))
-                    .into()
+                let (who, title) = (UiText::data(name(e.participant)), UiText::data(&e.card.title));
+                if song_only {
+                    m::draw_entry_song(who, title).into()
+                } else {
+                    m::draw_entry(who, title, chart(&e.card)).into()
+                }
             })
             .collect();
         let result = drawn
             .entries
             .get(usize::from(drawn.winner))
             .map(|won| {
-                m::draw_won(UiText::data(name(won.participant)), UiText::data(&won.card.title), chart(&won.card))
-                    .into()
+                let (who, title) = (UiText::data(name(won.participant)), UiText::data(&won.card.title));
+                if song_only {
+                    m::draw_won_song(who, title).into()
+                } else {
+                    m::draw_won(who, title, chart(&won.card)).into()
+                }
             })
             .unwrap_or_default();
         let number = v.stages.iter().position(|s| s.id == drawn.stage).map_or(1, |i| i + 1);

@@ -750,7 +750,7 @@ fn the_charts_row_chooses_adaptive_where_the_room_offers_it() {
     assert_eq!(said(&h, "Rule.charts.Value"), "Adaptive");
     assert_eq!(view(&env).draft_charts.as_deref(), Some("adaptive"));
     assert!(
-        h.texts().iter().any(|t| t.starts_with("Each player's chart changes with their skill.")),
+        h.texts().iter().any(|t| t.starts_with("Each player starts on their own chart of the song")),
         "{:?}",
         h.texts()
     );
@@ -2237,6 +2237,14 @@ fn a_rooms_chart_row_keeps_a_place_per_chart() {
     use crate::nav::MenuAction;
     let room = RoomClient::shared(0, 1);
     room.borrow_mut().set_rules_seen(true);
+    // As picked: under Adaptive the chart chosen is remembered for the
+    // song (round OC, its own test), which would carry from one size to
+    // the next.
+    {
+        let mut rules = room.borrow().rules().clone();
+        rules.charts = ddi_room::Charts::AsPicked;
+        room.borrow_mut().save_rules(rules).unwrap();
+    }
     let orders = Orders::default();
     let places = |h: &Harness| -> Vec<[f32; 4]> {
         (0..8).filter_map(|k| h.ui.bounds(&format!("Chart{k}"))).collect()
@@ -6294,12 +6302,15 @@ fn the_rooms_screens_draw_as_pinned() {
 /// (revision 21) moved "host": its Who can add songs row, and the list's
 /// note under Hosts saying only hosts and co-hosts add songs. Round TW7
 /// moved "host": its Show my Twitch chat row, shown to every host, and
-/// the line under the Twitch rows saying what it does.
+/// the line under the Twitch rows saying what it does. Round OC
+/// (revision 23) moved "rules" and the two pop-ups drawn over it, "add"
+/// and "add-level": Adaptive's sentence says each player starts on their
+/// own chart.
 const PINNED: [(&str, u64); 10] = [
     ("select", 1409723276464905846),
-    ("rules", 16654682003949843511),
-    ("add", 18046060427307913317),
-    ("add-level", 61495232555110500),
+    ("rules", 6687782191474637924),
+    ("add", 17422314779345185112),
+    ("add-level", 5301032595464307603),
     ("players", 15355125971359581996),
     ("standings", 2078648925402476071),
     ("online-select", 6323310014290112460),
@@ -8485,4 +8496,139 @@ fn the_rooms_line_offers_the_trip_that_allows_chat() {
         "through Twitch, back to this room"
     );
     crate::state::settings::Settings::default().save();
+}
+
+/// Round OC (room model revision 23): under Charts: Adaptive the stage's
+/// Ready card has the player's own chart as one row: the chart they
+/// usually play preselected (their Medium, the picker's Hard
+/// notwithstanding), told the room at once; Left and Right (a pad's or the
+/// keyboard's), a tap on its arrows, Enter on the row step it through the
+/// song's charts without wrapping, each told; Ready locks it (its arrows
+/// go, presses change nothing). The players' rows say each one's chart:
+/// the player's and the CPUs' by their level.
+#[test]
+fn the_ready_card_has_the_players_own_chart_under_adaptive() {
+    use crate::MenuAction;
+    use ddi_chart::Difficulty::*;
+    let row = "Opt.room.chart";
+    let room = RoomClient::shared(0, 1);
+    assert_eq!(room.borrow().rules().charts, ddi_room::Charts::Adaptive);
+    let of = |index: usize, difficulty, meter| ChartEntry {
+        difficulty,
+        ..chart("dance-single", index, meter)
+    };
+    let song = SongEntry {
+        id: "four".into(),
+        title: "Four Charts".into(),
+        charts: vec![of(0, Easy, 3), of(1, Medium, 6), of(2, Hard, 9), of(3, Challenge, 12)],
+        ..SongEntry::default()
+    };
+    room.borrow_mut().set_preferred(Medium);
+    room.borrow_mut().pick(&song, &song.charts[2]).unwrap();
+    let order = room.borrow_mut().take_stage_order().unwrap();
+    let stage = order.stage;
+    let mut h = harness();
+    h.push(
+        PromptScreen::new(
+            env(),
+            Rc::new(RefCell::new(PromptState::default())),
+            Rc::new(|_, _| {}),
+        )
+        .with_room(room.clone(), stage, shell(&room, &Orders::default())),
+    );
+    h.run(0.5);
+    let key = |i: usize| song.charts[i].digest.map(|d| ddi_room::ChartKey::new(d.to_string()));
+    let start = |room: &SharedRoom| {
+        let r = room.borrow();
+        r.state().start_of(stage, r.me()).cloned()
+    };
+    assert!(there(&h, row));
+    assert_eq!(said(&h, &format!("{row}.Label")), "Your chart");
+    assert!(said(&h, &format!("{row}.Value")).starts_with("MEDIUM"), "{}", said(&h, &format!("{row}.Value")));
+    assert_eq!(start(&room), key(1), "told the room before any press");
+    // Up from Ready reaches the row; Right steps it harder, to the end.
+    for _ in 0..4 {
+        if h.ui.focused() == Some(row) {
+            break;
+        }
+        h.pad(MenuAction::Up, true);
+        h.pad(MenuAction::Up, false);
+        h.run(0.1);
+    }
+    assert_eq!(h.ui.focused(), Some(row));
+    h.pad(MenuAction::Right, true);
+    h.pad(MenuAction::Right, false);
+    h.run(0.2);
+    assert_eq!(start(&room), None, "the stage's own Hard");
+    assert!(said(&h, &format!("{row}.Value")).starts_with("HARD"));
+    h.pad(MenuAction::Right, true);
+    h.pad(MenuAction::Right, false);
+    h.pad(MenuAction::Right, true);
+    h.pad(MenuAction::Right, false);
+    h.run(0.2);
+    assert_eq!(start(&room), key(3), "Challenge, and no further");
+    // A tap on its arrows; Enter on the row.
+    press(&mut h, &format!("{row}.Down"));
+    press(&mut h, &format!("{row}.Down"));
+    assert_eq!(start(&room), key(1));
+    assert_eq!(h.ui.focused(), Some(row), "a tap focuses the row");
+    h.pad(MenuAction::Start, true);
+    h.pad(MenuAction::Start, false);
+    h.run(0.2);
+    assert_eq!(start(&room), None, "Enter: the next harder");
+    assert!(!room.borrow().ready(), "never Ready from the row");
+    // The players' rows: the player's chart, each CPU's by its level.
+    let rows = super::room::player_rows(&room.borrow());
+    let me = rows.iter().find(|p| p.me).unwrap();
+    assert_eq!(me.chart, Some((9, Hard)));
+    assert!(rows.iter().filter(|p| p.cpu).all(|p| p.chart.is_some()), "{rows:?}");
+    // Ready: locked, its arrows gone.
+    press(&mut h, "Start");
+    assert!(room.borrow().ready());
+    assert!(!there(&h, &format!("{row}.Down")));
+    press(&mut h, &format!("{row}.Label"));
+    h.pad(MenuAction::Left, true);
+    h.pad(MenuAction::Left, false);
+    h.run(0.2);
+    assert_eq!(start(&room), None, "locked while ready");
+}
+
+/// Round OC: under Charts: Adaptive the chart chosen on a song's side in
+/// the room's song select is this player's own for that song, remembered
+/// for the session (the song shown again shows it), and their start when
+/// the song is picked.
+#[test]
+fn a_songs_chart_chosen_in_the_room_is_remembered_as_ones_own() {
+    use crate::nav::MenuAction;
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let env = env();
+    let mut h = harness();
+    let mut data = many_charts(4);
+    let second = SongEntry {
+        id: "second".into(),
+        title: "Second Song".into(),
+        charts: vec![chart("dance-single", 0, 5)],
+        ..SongEntry::default()
+    };
+    data.songs.push(second);
+    let song = data.songs[0].clone();
+    h.push(sample::room_select(&env, room.clone(), data).with_room(room.clone(), shell(&room, &orders)));
+    h.run(0.5);
+    let first = chart_shown(&env);
+    h.pad(MenuAction::Previous, true);
+    h.pad(MenuAction::Previous, false);
+    h.run(0.3);
+    let chosen = chart_shown(&env);
+    assert_ne!(chosen, first);
+    let key = room.borrow().remembered_start(&song).cloned();
+    assert!(key.is_some(), "remembered for the song");
+    // Away and back: the same chart.
+    h.key("ArrowDown", "ArrowDown");
+    h.run(0.8);
+    assert_ne!(chart_shown(&env), chosen);
+    h.key("ArrowUp", "ArrowUp");
+    h.run(0.8);
+    assert_eq!(chart_shown(&env), chosen, "the song shown again shows its own");
 }
