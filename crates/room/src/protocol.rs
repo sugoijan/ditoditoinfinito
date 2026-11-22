@@ -218,7 +218,17 @@ pub fn supported(version: u32) -> bool {
 ///     draw (`Command::Draw`, `Event::Drawn`, `RoomState::drawn`). An older
 ///     client would read none of it, so it is refused. A room stored by
 ///     revision 21 reads as Host (`tests/room-revision-21.json`).
-pub const ROOM_MODEL_REVISION: u32 = 22;
+/// 23. round OC (2026-11-22): under Charts: Adaptive each competitor's
+///     own starting chart (`Command::SetStart`, `Event::StartChosen`,
+///     `Prep::start`, `RoomState::start_of`, `Rejection::ChartsAsPicked`):
+///     the pick or the draw names the song, everyone starts on their own
+///     chart of it (the stage's own where they chose none), which every
+///     device must know to draw their field from its first note; a run's
+///     starting chart in its detail (`RunDetail::start`). An older client
+///     would draw everyone on the stage's chart, so it is refused. A room
+///     stored by revision 22 reads with no starts and plays as it did
+///     (`tests/room-revision-22.json`).
+pub const ROOM_MODEL_REVISION: u32 = 23;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being

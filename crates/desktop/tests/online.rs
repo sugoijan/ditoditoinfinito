@@ -353,11 +353,8 @@ fn desktop_signs_in_makes_a_room_and_a_guest_joins_it() {
     ddi_desktop::room::prepare_online(&b, jobs.into_iter().next().unwrap());
     tick_until(&mut [&mut a.borrow_mut(), &mut b.borrow_mut()], |r| {
         r.iter().all(|r| {
-            r.stages()[0].prep(r.me())
-                == ddi_room::Prep {
-                    ready: false,
-                    loading: ddi_room::Loading::Loaded,
-                }
+            let prep = r.stages()[0].prep(r.me());
+            !prep.ready && prep.loading == ddi_room::Loading::Loaded
         })
     });
     let content = b.borrow().stages()[0].content.clone().unwrap();

@@ -474,6 +474,8 @@ fn a_reports_detail_is_kept_alike_by_both_authorities_and_every_mirror() {
         shocks: None,
         chart: None,
         harder: false,
+        start: None,
+        start_harder: false,
     };
     let mut steps = script();
     steps.push(Step::Cmd(
@@ -2748,4 +2750,94 @@ fn the_mirror_checks_a_playing_administrator_not_an_observing_one() {
         .borrow_mut()
         .join(Identity::new("dev:obs"), "Obs", Intent::Watch)
         .is_ok());
+}
+
+/// Round OC (room model revision 23): each player's own starting chart
+/// under Adaptive is kept alike by both authorities and every mirror:
+/// chosen, changed, refused for a chart of another song, locked once the
+/// stage starts.
+#[test]
+fn own_starts_are_kept_alike_by_both_authorities_and_every_mirror() {
+    use ddi_room::StageId;
+    let song = ddi_room::NewSong {
+        key: SongKey::new("s000000000000001"),
+        card: ddi_room::SongCard {
+            title: "Song 1".into(),
+            ..ddi_room::SongCard::default()
+        },
+        charts: ["Easy", "Medium", "Hard"]
+            .iter()
+            .enumerate()
+            .map(|(k, d)| ddi_room::ChartLine {
+                chart: ChartKey::new(format!("d1-{k}")),
+                style: "dance-single".into(),
+                difficulty: (*d).into(),
+                meter: 3 + 3 * k as u32,
+            })
+            .collect(),
+    };
+    let stage = StageId(1);
+    let mut rules = MatchRules::hosted();
+    rules.charts = ddi_room::Charts::Adaptive;
+    let mut steps = vec![
+        Step::Connect("dev:alice"),
+        Step::Join("dev:bob", "Bob"),
+        Step::Connect("dev:bob"),
+        Step::Cmd("dev:alice", Command::AddSong { song: Box::new(song) }),
+        Step::Authority(Command::SetSongContent {
+            song: ddi_room::RoomSongId(1),
+            status: ContentStatus::Available,
+            share: Some("share1".into()),
+            charts: None,
+        }),
+        Step::Cmd("dev:alice", Command::SaveNextRules { rules }),
+        Step::Cmd(
+            "dev:alice",
+            Command::PickListed {
+                song: ddi_room::RoomSongId(1),
+                chart: ChartKey::new("d1-2"),
+            },
+        ),
+    ];
+    let (picked, _) = run_local(&steps);
+    let rev = picked.stage(stage).unwrap().readiness_rev;
+    let start = |chart: &str| Command::SetStart {
+        stage,
+        readiness_rev: rev,
+        chart: Some(ChartKey::new(chart)),
+    };
+    steps.push(Step::Cmd("dev:bob", start("d1-0")));
+    steps.push(Step::Cmd("dev:bob", start("d2-0")));
+    steps.push(Step::Cmd("dev:alice", start("d1-1")));
+    steps.push(Step::Cmd("dev:alice", start("d1-0")));
+    for who in ["dev:alice", "dev:bob"] {
+        steps.push(Step::Cmd(
+            who,
+            Command::ReportLoading {
+                stage,
+                readiness_rev: rev,
+                loading: Loading::Loaded,
+            },
+        ));
+        steps.push(Step::Cmd(
+            who,
+            Command::SetReady {
+                stage,
+                readiness_rev: rev,
+                ready: true,
+            },
+        ));
+    }
+    steps.push(Step::Cmd("dev:bob", start("d1-1")));
+    let (local, local_answers) = run_local(&steps);
+    let (server, online_answers, mirrors) = run_online(&steps, &[]);
+    assert_eq!(local_answers, online_answers);
+    assert_eq!(local, server, "the server's room is the local one");
+    for m in &mirrors {
+        assert_eq!(m, &server, "a client's mirror is the room");
+    }
+    let refused: Vec<_> = local_answers.iter().flatten().collect();
+    assert_eq!(refused, [&Rejection::ChartNotInSong, &Rejection::StartCommitted]);
+    assert_eq!(local.start_of(stage, ParticipantId(1)).map(ChartKey::as_str), Some("d1-0"));
+    assert_eq!(local.start_of(stage, ParticipantId(2)).map(ChartKey::as_str), Some("d1-0"));
 }

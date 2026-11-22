@@ -482,6 +482,7 @@ fn the_public_view_says_nothing_a_member_alone_knows() {
                 loading: Loading::Failed {
                     code: "secret_failure_code".into(),
                 },
+                start: None,
             },
         );
     });

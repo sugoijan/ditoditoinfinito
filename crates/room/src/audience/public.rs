@@ -305,6 +305,12 @@ pub struct PublicPlay {
     /// How the starters who said so performed (the Standings' lines).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub details: Vec<(ParticipantId, RunDetail)>,
+    /// Under Charts: Adaptive, the starters who start on a chart of their
+    /// own and which (room model revision 23, `RoomState::start_of`): what
+    /// an audience device draws their fields on from the first note.
+    /// Additive: left out while empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub starts: Vec<(ParticipantId, ChartKey)>,
 }
 
 fn public_stage(m: Option<&crate::state::Match>, s: &Stage) -> PublicStage {
@@ -336,6 +342,17 @@ fn public_stage(m: Option<&crate::state::Match>, s: &Stage) -> PublicStage {
             interrupted: p.interrupted,
             result: p.result.clone(),
             details: p.details.iter().map(|(k, d)| (*k, d.clone())).collect(),
+            starts: if m.is_some_and(|m| m.rules_for(s.id).charts == crate::rules::Charts::Adaptive) {
+                p.lineup
+                    .iter()
+                    .filter_map(|id| {
+                        let own = s.prep.get(id)?.start.clone()?;
+                        (content.is_none_or(|c| c.id.chart != own)).then_some((*id, own))
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            },
         }),
     }
 }

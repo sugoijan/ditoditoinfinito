@@ -132,7 +132,14 @@ pub struct StepStatus {
 impl StepStatus {
     /// `step` moved on by `moments` (a stream's, in order): the last
     /// step among them, stepped from the rung before it.
-    pub fn after(mut step: Option<StepStatus>, moments: &[Moment]) -> Option<StepStatus> {
+    pub fn after(step: Option<StepStatus>, moments: &[Moment]) -> Option<StepStatus> {
+        Self::after_from(step, 0, moments)
+    }
+
+    /// [`StepStatus::after`] for a competitor who started on rung `start`
+    /// (room model revision 23: their own chart under Adaptive): their
+    /// first step is from it.
+    pub fn after_from(mut step: Option<StepStatus>, start: u8, moments: &[Moment]) -> Option<StepStatus> {
         for m in moments {
             if let MomentKind::Step { rung } = m.kind
                 // The same step again (a replay) changes nothing.
@@ -140,7 +147,7 @@ impl StepStatus {
             {
                 step = Some(StepStatus {
                     rung,
-                    from: step.map_or(0, |s| s.rung),
+                    from: step.map_or(start, |s| s.rung),
                     at_ms: m.at_ms,
                     tick: m.tick,
                 });
@@ -492,7 +499,7 @@ impl LiveServer {
             (Some((id, play)), Some(s)) if s.id == id => {
                 // A late entry (round P1b): the lineup grew since.
                 if play.lineup.len() > s.comps.len() {
-                    s.admit(room, play, self.prepared.get(&id));
+                    s.admit(room, play, self.prepared.get(&id), self.plans.get(&id));
                 }
             }
             (Some((id, play)), old) => {
@@ -553,6 +560,10 @@ struct Comp {
     steps: u8,
     /// Its last step, for a snapshot ([`CompetitorStatus::step`]).
     step: Option<StepStatus>,
+    /// The rung it started on (room model revision 23: its own chart
+    /// under Adaptive, found on the plan's ladder; 0 the stage's chart,
+    /// and where the room has no plan to find it on).
+    start: u8,
     /// When it failed (song µs: its life out on the easiest chart under
     /// Charts: Adaptive's Play on, room model revision 15), from its
     /// stream's [`MomentKind::Failed`] or a CPU's report saying it out
@@ -665,6 +676,18 @@ pub struct LiveStage {
     cpu_reports_seen: u32,
 }
 
+/// The rung of stage `stage`'s ladder `p` starts on (room model revision
+/// 23): their own chart ([`RoomState::start_of`]) where the plan's ladder
+/// names it, else 0 (the stage's chart; a room with no plan cannot tell).
+fn start_rung(room: &RoomState, stage: StageId, p: ParticipantId, plan: Option<&BattlePlan>) -> u8 {
+    let Some(own) = room.start_of(stage, p) else {
+        return 0;
+    };
+    plan.and_then(|plan| plan.ladder.iter().position(|d| d == own.as_str()))
+        .and_then(|i| u8::try_from(i + 1).ok())
+        .unwrap_or(0)
+}
+
 impl LiveStage {
     fn new(
         room: &RoomState,
@@ -708,8 +731,9 @@ impl LiveStage {
                         reported: None,
                         life_ppm: 1_000_000,
                         score: 0,
-                        steps: 0,
+                        steps: start_rung(room, id, *p, plan),
                         step: None,
+                        start: start_rung(room, id, *p, plan),
                         failed_us: None,
                     },
                 )
@@ -788,8 +812,10 @@ impl LiveStage {
         room: &RoomState,
         play: &StagePlay,
         prepared: Option<&BTreeMap<ParticipantId, Prepared>>,
+        full_plan: Option<&BattlePlan>,
     ) {
         let plan = self.plan.clone();
+        let full_plan = full_plan.filter(|p| plan.as_ref() == Some(&p.digest));
         for p in play.lineup.iter().copied() {
             if self.comps.contains_key(&p) {
                 continue;
@@ -813,8 +839,9 @@ impl LiveStage {
                     reported: None,
                     life_ppm: 1_000_000,
                     score: 0,
-                    steps: 0,
+                    steps: start_rung(room, self.id, p, full_plan),
                     step: None,
+                    start: start_rung(room, self.id, p, full_plan),
                     failed_us: None,
                 },
             );
@@ -1048,8 +1075,8 @@ impl LiveStage {
         if let Some(m) = b.moments.last() {
             c.last = Some(*m);
         }
-        c.step = StepStatus::after(c.step, &b.moments);
-        c.steps = c.step.map_or(0, |s| s.rung);
+        c.step = StepStatus::after_from(c.step, c.start, &b.moments);
+        c.steps = c.step.map_or(c.start, |s| s.rung);
         if let Some(m) = b.moments.iter().find(|m| m.kind == MomentKind::Failed) {
             c.failed_us = earliest(c.failed_us, Some(i64::from(m.at_ms) * 1_000));
         }

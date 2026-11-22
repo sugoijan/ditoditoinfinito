@@ -249,6 +249,16 @@ pub struct RunDetail {
     /// as false where missing (a step down, all there was before).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub harder: bool,
+    /// The chart they started on where it is not the stage's (room model
+    /// revision 23: under Adaptive each starts on their own,
+    /// `crate::RoomState::start_of`): its name as the song list names it
+    /// (data); none on the stage's chart. Additive as the rest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<String>,
+    /// That chart is harder than the stage's. Additive: left out while
+    /// false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub start_harder: bool,
 }
 
 impl RunDetail {
@@ -284,10 +294,10 @@ impl RunDetail {
         if self.grade.chars().count() > Self::MAX_GRADE {
             self.grade = self.grade.chars().take(Self::MAX_GRADE).collect();
         }
-        if let Some(c) = self.chart.as_mut()
-            && c.chars().count() > Self::MAX_CHART
-        {
-            *c = c.chars().take(Self::MAX_CHART).collect();
+        for c in [self.chart.as_mut(), self.start.as_mut()].into_iter().flatten() {
+            if c.chars().count() > Self::MAX_CHART {
+                *c = c.chars().take(Self::MAX_CHART).collect();
+            }
         }
         self.tiers.truncate(Self::MAX_TIERS);
         self.life_ppm = self.life_ppm.min(ReportedRun::SCALE as u32);

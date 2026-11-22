@@ -486,6 +486,26 @@ impl RoomState {
                 }
                 Ok(())
             }
+            Command::SetStart {
+                stage,
+                readiness_rev,
+                chart,
+            } => {
+                let id = self.own(actor)?;
+                let chart = self.start_refusal(id, *stage, *readiness_rev, chart.as_ref(), now)?;
+                let s = self.stage(*stage).ok_or(Rejection::UnknownStage)?;
+                if s.prep_ref(id).start != chart {
+                    self.emit(
+                        out,
+                        Event::StartChosen {
+                            stage: *stage,
+                            participant: id,
+                            chart,
+                        },
+                    );
+                }
+                Ok(())
+            }
             Command::Leave => {
                 let id = self.own(actor)?;
                 self.depart(id, Event::MemberLeft { participant: id }, out);
@@ -1723,6 +1743,61 @@ impl RoomState {
         window
     }
 
+    /// Why `id` may not start `stage` on `chart` now ([`Command::SetStart`]),
+    /// else the start as kept (none for the stage's own chart).
+    fn start_refusal(
+        &self,
+        id: ParticipantId,
+        stage: StageId,
+        readiness_rev: u32,
+        chart: Option<&crate::ids::ChartKey>,
+        now: Millis,
+    ) -> Result<Option<crate::ids::ChartKey>, Rejection> {
+        if self.members[&id].intent != Intent::Play {
+            return Err(Rejection::NotPlaying);
+        }
+        let s = self.stage(stage).ok_or(Rejection::UnknownStage)?;
+        // Locked from the start; one counted out of it who may still
+        // enter late chooses until they do.
+        if let Some(play) = &s.play {
+            if play.lineup.contains(&id) || s.prep_ref(id).ready {
+                return Err(Rejection::StartCommitted);
+            }
+            self.late_entry_open(id, stage, now)?;
+            if s.readiness_rev != readiness_rev {
+                return Err(Rejection::StaleReadiness {
+                    current: s.readiness_rev,
+                });
+            }
+        } else {
+            self.check_preparing(id, stage, readiness_rev)?;
+        }
+        if self.charts_for(stage) != crate::rules::Charts::Adaptive {
+            return Err(Rejection::ChartsAsPicked);
+        }
+        let content = s.content.as_ref().ok_or(Rejection::NoContent)?;
+        let Some(chart) = chart.filter(|c| **c != content.id.chart) else {
+            return Ok(None);
+        };
+        if chart.as_str().is_empty() || chart.as_str().len() > crate::songs::MAX_KEY {
+            return Err(Rejection::ChartNotInSong);
+        }
+        // A listed song's: one of its charts, in the stage chart's style
+        // (the style its ladder is of). A song picked otherwise is not
+        // known to the room: a chart its devices do not find on the
+        // stage's ladder plays the stage's own.
+        if let Some(entry) = content.song.and_then(|e| self.songs.get(e)) {
+            let line = entry.chart(chart).ok_or(Rejection::ChartNotInSong)?;
+            if entry
+                .chart(&content.id.chart)
+                .is_some_and(|stage| stage.style != line.style)
+            {
+                return Err(Rejection::ChartNotInSong);
+            }
+        }
+        Ok(Some(chart.clone()))
+    }
+
     /// May `id` prepare for `stage` now?
     fn check_preparing(&self, id: ParticipantId, stage: StageId, readiness_rev: u32) -> Decided {
         if self.upcoming_stage() != Some(stage) {
@@ -2725,6 +2800,15 @@ impl RoomState {
             } => {
                 if let Some(s) = self.stage_mut(*stage) {
                     s.prep.entry(*participant).or_default().loading = loading.clone();
+                }
+            }
+            Event::StartChosen {
+                stage,
+                participant,
+                chart,
+            } => {
+                if let Some(s) = self.stage_mut(*stage) {
+                    s.prep.entry(*participant).or_default().start = chart.clone();
                 }
             }
             Event::NextRulesSaved { rules, added } => {

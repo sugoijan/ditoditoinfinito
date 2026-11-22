@@ -54,6 +54,23 @@ pub enum Command {
         loading: Loading,
     },
     Leave,
+    /// One's own chart to start stage `stage` on under Charts: Adaptive
+    /// (room model revision 23, round OC): chart `chart` of the stage's
+    /// song (of a listed song, one of its entry's charts in the stage's
+    /// chart's style), or none: the stage's own chart. Their device sends
+    /// the one they usually play once the song is loaded, and their
+    /// choice on the stage's Ready card. Taken while the stage gathers
+    /// readiness (as `readiness_rev` saw it) and, for one counted out of
+    /// its start who may still enter it late, until they do; locked from
+    /// its start (`Rejection::StartCommitted`). Refused under As picked
+    /// ([`Rejection::ChartsAsPicked`]). Clears nobody's readiness: it is
+    /// nobody else's chart.
+    SetStart {
+        stage: StageId,
+        readiness_rev: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chart: Option<ChartKey>,
+    },
     /// One's own attack policy (M8 round 3, D8: how they pick whom to
     /// attack where a match has attacks), what the next stage's battle
     /// starts them with. Taken outside a stage's play (before a match,
@@ -567,6 +584,14 @@ pub enum Event {
         participant: ParticipantId,
         loading: Loading,
     },
+    /// A competitor's own starting chart for `stage`
+    /// ([`Command::SetStart`], revision 23): none, the stage's own.
+    StartChosen {
+        stage: StageId,
+        participant: ParticipantId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chart: Option<ChartKey>,
+    },
     /// A starter's own report of their run, at authority time `at`.
     OutcomeReported {
         stage: StageId,
@@ -831,6 +856,9 @@ pub enum Rejection {
     GroupChooses,
     /// Revision 22: an authority's draw with no countdown at its end.
     NoDrawDue,
+    /// Revision 23: a starting chart of one's own asked of a stage played
+    /// as picked (one chart for everyone).
+    ChartsAsPicked,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

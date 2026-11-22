@@ -751,7 +751,11 @@ pub enum Charts {
     /// Each competitor steps down the song's ladder at zero life and up
     /// it after full bars, out at zero on the lowest rung; the stage
     /// ranked by the score as earned (`adaptive-v0`; "Step down" before
-    /// it, `step_down`, read as this).
+    /// it, `step_down`, read as this). Since room model revision 23
+    /// (round OC) the pick or the draw names the song (its chart the
+    /// stage's own, what one who chose none starts on) and each
+    /// competitor starts on their own chart of it
+    /// ([`crate::Command::SetStart`], [`crate::RoomState::start_of`]).
     #[serde(alias = "step_down")]
     Adaptive,
 }

@@ -357,6 +357,7 @@ impl Stage {
         static NONE: Prep = Prep {
             ready: false,
             loading: Loading::NotStarted,
+            start: None,
         };
         self.prep.get(&id).unwrap_or(&NONE)
     }
@@ -404,6 +405,15 @@ pub enum ContentStatus {
 pub struct Prep {
     pub ready: bool,
     pub loading: Loading,
+    /// Under Charts: Adaptive (room model revision 23, round OC), the
+    /// chart of the stage's song they start on ([`crate::Command::SetStart`]):
+    /// their own, chosen on their device; none, the stage's own chart
+    /// (the pick's, or the drawn choice's). Read only under Adaptive
+    /// ([`RoomState::start_of`]); locked once the stage's start commits.
+    /// Left out of the JSON while none: a room stored before reads with
+    /// none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<ChartKey>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -807,6 +817,32 @@ impl RoomState {
             .as_ref()
             .map(|m| m.rules_for(stage).charts.rank_by())
             .unwrap_or_default()
+    }
+
+    /// The Charts rule stage `stage` is (or will be) played under: the
+    /// running match's for one of its stages, else the next match's.
+    pub fn charts_for(&self, stage: StageId) -> crate::rules::Charts {
+        match &self.current {
+            Some(m) if m.stage(stage).is_some() => m.rules_for(stage).charts,
+            _ => self.next.rules.charts,
+        }
+    }
+
+    /// The chart `participant` starts stage `stage` on where it is their
+    /// own (room model revision 23, round OC): under Charts: Adaptive the
+    /// one they chose ([`Prep::start`]); none where they chose none, or
+    /// the stage is played as picked: the stage's own chart. Every device
+    /// reads it alike once the stage's start commits (it is locked then):
+    /// what draws their field from its first note and what their play
+    /// starts on.
+    pub fn start_of(&self, stage: StageId, participant: ParticipantId) -> Option<&ChartKey> {
+        if self.charts_for(stage) != crate::rules::Charts::Adaptive {
+            return None;
+        }
+        let s = self.stage(stage)?;
+        let own = s.prep.get(&participant)?.start.as_ref()?;
+        // The stage's own chart named is no start of one's own.
+        (s.content.as_ref().is_none_or(|c| c.id.chart != *own)).then_some(own)
     }
 
     /// The stage a change of the running match's per-stage rules saved now
