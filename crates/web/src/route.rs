@@ -601,9 +601,126 @@ pub(crate) fn has_bars(route: &Route) -> bool {
     )
 }
 
+/// The hosts a testing parameter's address may name: this machine.
+const LOOPBACK: [&str; 3] = ["127.0.0.1", "localhost", "[::1]"];
+
+/// Whether `rest` (an address's path and what follows) is only of the
+/// plain characters a test's address takes: no escapes, no spaces or
+/// controls (which a browser's parser drops or reads), no backslashes.
+fn plain_path(rest: &str) -> bool {
+    rest.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b"/._~-?=&,:".contains(&b))
+}
+
+/// `scheme://host[:port]` at the start of `url` where its host is this
+/// machine's (exactly, never a name that merely begins so): what follows
+/// it, which must be nothing or a path.
+fn on_loopback<'a>(url: &'a str, schemes: &[&str]) -> Option<&'a str> {
+    let rest = schemes
+        .iter()
+        .find_map(|s| url.strip_prefix(s).and_then(|r| r.strip_prefix("://")))?;
+    let host = LOOPBACK.iter().find(|h| rest.starts_with(**h))?;
+    let mut rest = &rest[host.len()..];
+    if let Some(port) = rest.strip_prefix(':') {
+        let digits = port.bytes().take_while(u8::is_ascii_digit).count();
+        if !(1..=5).contains(&digits) {
+            return None;
+        }
+        rest = &port[digits..];
+    }
+    (rest.is_empty() || rest.starts_with('/')).then_some(rest)
+}
+
+/// TESTING ONLY: whether `mpfakechaturl`'s socket may be opened: a
+/// WebSocket on this machine (`ws://127.0.0.1:<port>/…`, a local fake
+/// EventSub socket), never another's, which a link could otherwise point
+/// a player's live chat at (review 2026-11-22, chat-touch 3).
+pub(crate) fn local_socket(url: &str) -> bool {
+    on_loopback(url, &["ws", "wss"]).is_some_and(plain_path)
+}
+
+/// TESTING ONLY: whether a testing parameter's base address
+/// (`mpfakechatimg`, `#/video-check`'s `src`) may be fetched from: a path
+/// beside the page (relative, or under the page's own `origin`) or one on
+/// this machine, never another's (review 2026-11-22, chat-touch 3).
+pub(crate) fn local_base(base: &str, origin: &str) -> bool {
+    if let Some(rest) = on_loopback(base, &["http", "https"]) {
+        return plain_path(rest);
+    }
+    if let Some(rest) = base.strip_prefix(origin).filter(|_| !origin.is_empty()) {
+        return rest.starts_with('/') && plain_path(rest);
+    }
+    // Relative: no scheme (no colon before the path), never `//host`.
+    !base.starts_with("//") && !base.contains(':') && plain_path(base)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review 2026-11-22, chat-touch 3: the testing chat's socket and
+    /// images, and the video check's files, are this machine's or the
+    /// page's own alone; every way of naming another host is refused
+    /// (a name that begins as a loopback one, credentials, escapes,
+    /// backslashes, a scheme-relative address, controls a browser drops).
+    #[test]
+    fn testing_addresses_are_this_machines_or_the_pages() {
+        for ok in [
+            "ws://127.0.0.1:9123/eventsub",
+            "ws://localhost:8164/scenario?x=1",
+            "wss://[::1]:443/ws",
+            "ws://127.0.0.1",
+        ] {
+            assert!(local_socket(ok), "{ok}");
+        }
+        for bad in [
+            "wss://evil.example/ws",
+            "wss://eventsub.wss.twitch.tv/ws",
+            "ws://127.0.0.1.evil.example/",
+            "ws://localhost.evil.example:80/",
+            "ws://localhost@evil.example/",
+            "ws://user@127.0.0.1/",
+            "ws://127.0.0.1%2eevil.example/",
+            "ws://localhost\\@evil.example/",
+            "ws://local\thost.evil.example/",
+            "ws://127.0.0.1:99999999/",
+            "ws://127.0.0.1:/",
+            "http://127.0.0.1:9/",
+            "//127.0.0.1/",
+            "",
+        ] {
+            assert!(!local_socket(bad), "{bad}");
+        }
+        let origin = "https://sugoijan.dev";
+        for ok in [
+            "chat-test/",
+            "./global/",
+            "/ditoditoinfinito/chat-test/",
+            "http://localhost:8098/chat-test/",
+            "http://127.0.0.1:8098/global/",
+            "https://sugoijan.dev/ditoditoinfinito/chat/",
+            "movies/a.mp4",
+        ] {
+            assert!(local_base(ok, origin), "{ok}");
+        }
+        for bad in [
+            "https://evil.example/",
+            "//evil.example/",
+            "\\\\evil.example/",
+            "/\\evil.example/",
+            "https://sugoijan.dev.evil.example/",
+            "https://sugoijan.dev@evil.example/",
+            "http:evil.example/",
+            "javascript:alert(1)",
+            "data:image/png;base64,AAAA",
+            "http://localhost.evil.example/",
+            "chat%2f..%2f/",
+            "chat test/",
+        ] {
+            assert!(!local_base(bad, origin), "{bad}");
+        }
+        assert!(!local_base("https://x.example/", ""), "no origin known: never an absolute address");
+    }
 
     #[test]
     fn an_address_splits_into_its_path_and_parameters() {

@@ -563,6 +563,26 @@ pub(crate) fn rules(name: Option<&str>) {
 /// from `mpfakechatimg=<path>` (`<path><emote's id>.png`, an animated
 /// one's `.gif`, [`ddi_chat::script::Script::images_at`]) where given.
 pub(crate) fn script(what: &str, images: Option<&str>, socket: Option<&str>) {
+    // Only this machine's addresses, or the page's own for pictures: a
+    // link can never point a player's chat at another server (review
+    // 2026-11-22, chat-touch 3), whatever route or session carries it.
+    let origin = web_sys::window()
+        .and_then(|w| w.location().origin().ok())
+        .unwrap_or_default();
+    let images = images.filter(|base| {
+        let ok = crate::route::local_base(base, &origin);
+        if !ok {
+            web_sys::console::warn_1(&format!("mpfakechatimg={base}: not beside the page nor on this machine; not taken").into());
+        }
+        ok
+    });
+    let socket = socket.filter(|url| {
+        let ok = crate::route::local_socket(url);
+        if !ok {
+            web_sys::console::warn_1(&format!("mpfakechaturl={url}: not a socket on this machine; not taken").into());
+        }
+        ok
+    });
     if what == "0" {
         // No script: a player's live chat, its socket and the providers'
         // addresses where a test points them at local fakes (round TW7:

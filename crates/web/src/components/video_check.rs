@@ -136,7 +136,15 @@ impl Component for VideoCheck {
         if !sources.is_empty() {
             ctx.link().send_future(async move {
                 let mut files = Vec::new();
+                let origin = web_sys::window()
+                    .and_then(|w| w.location().origin().ok())
+                    .unwrap_or_default();
                 for path in sources {
+                    // Files beside the page or on this machine alone
+                    // (review 2026-11-22, chat-touch 3).
+                    if !crate::route::local_base(&path, &origin) {
+                        return Msg::Fetched(Err(format!("{path}: not beside the page nor on this machine")));
+                    }
                     let bytes = match crate::songs::fetch_bytes(&path).await {
                         Ok(b) => b,
                         Err(e) => return Msg::Fetched(Err(e)),
