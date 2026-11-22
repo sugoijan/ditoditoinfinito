@@ -14641,6 +14641,100 @@ joined by more than 1,552 different people over its life (pruning rows
 needs a revision); and whether a smaller song list should instead be
 trimmed by its owner only (refusing additions until then).
 
+## Review fixes, round RFb: the room's client, the chat and touch (2026-11-22, no change to the room model)
+
+The code review's findings on the room as each device runs it and on the
+chat and touch code, each reproduced by a test that failed first, then
+fixed (game `rfb-1`; no server change, nothing either side must deploy
+first). The room model's revision is unchanged (23); every fix is the
+client's own and reads today's rooms as they are.
+
+- **A reconnect first read by a command** (room-client 1): the client now
+  compares the link with what the last tick left it at
+  (`RoomClient::link_seen`), so a socket whose first snapshot a `send`
+  read between two ticks still tells the room again what it forgot
+  (`connected_again`). Test:
+  `a_reconnect_first_read_by_a_command_still_tells_the_room_again`.
+- **One's own start after being away** (room-client 2): a reconnect
+  tells the room the player's own start again (`starts.sent` cleared).
+  Test: `a_members_own_start_is_told_again_after_being_away`.
+- **Back right after Ready** (room-client 3): leaving the prompt takes
+  back the Ready asked, not only the one the room has answered. Test:
+  `the_prompt_left_before_the_room_answered_ready_takes_it_back`.
+- **Leaving while the socket is down** (room-client 4): `leave` sends the
+  Leave whatever the link (kept unanswered until a socket has the room,
+  the reconnect tried at once) and the shells keep driving the left
+  client's link (`Kept::drive_leaving`: the web on a 200 ms timer,
+  desktop from its loop) until the room read it, `room::LEAVE_WAIT_MS`
+  (10 s, PROVISIONAL) at most; the room's chat closes and its downloads
+  stop at once. A quit waits `QUIT_WAIT` for it as for a connected
+  link. No server route was needed. Test:
+  `a_member_who_leaves_while_reconnecting_is_told_the_room`.
+- **One song fetched twice** (room-client 5): a download ahead of the
+  song a stage's own load reads (its job handed out) stops, and none is
+  asked for it meanwhile. Test:
+  `a_song_picked_while_downloaded_ahead_is_fetched_once`.
+- **Downloads ahead after leaving** (room-client 6): leaving, or the
+  client let go, stops every download ahead; desktop adds nothing of a
+  download stopped as it ended to the library. Test:
+  `leaving_the_room_stops_its_downloads_ahead`.
+- **Notes**: a member's page loaded again during a stage's Ready window
+  no longer reveals the group's draw again (its reveal's end on the
+  room's clock, as the audience's seat reads it; test
+  `a_draw_revealed_before_a_page_was_loaded_is_not_revealed_again`); a
+  link let go forgets the answers it waited for
+  (`a_link_let_go_leaves_no_answers_unread`). Not changed:
+  `ready_asked` taking another command's number (both answers come in
+  one poll on every transport tried, so nothing shows), and a replaced
+  stage upload's late answer (reachable only through `Command::Pick` in
+  an online room, which no screen sends since revision 17: the bots'
+  `--pick` alone).
+- **A room's chat that gave up** (chat-touch 1): the kept connection is
+  closed when it gives up and opened again `chat::ROOM_RETRY_MS` (60 s,
+  PROVISIONAL) later; a stage meanwhile opens its own, as before round
+  DE; one the room itself ended (its chat off for this player, no
+  member) waits for the room's chat to change. Test:
+  `a_rooms_kept_chat_that_gave_up_is_opened_again`.
+- **Desktop touch** (chat-touch 2): the quit button, the policy label and
+  the volume take the moves and the release of the pointer that pressed
+  them alone (`Shell::play_pointer_of`, `Shell::touch`), and the
+  window's focus lost lets go of every finger (`Shell::release_touches`),
+  as the web's page does on `blur`. Test:
+  `a_second_fingers_lift_is_its_lanes_while_the_label_is_held`.
+- **Testing parameters from a link** (chat-touch 3): `mpfakechaturl` is
+  taken only for a socket on this machine (`ws://127.0.0.1…`,
+  `localhost`, `[::1]`), `mpfakechatimg` and `#/video-check`'s `src`
+  only beside the page or on this machine (`route::local_socket`,
+  `local_base`); anything else is refused with a line on the console.
+  The others name nothing outside the page (the fake rooms, the scripts,
+  `mpcpus` capped at 128). Test:
+  `testing_addresses_are_this_machines_or_the_pages`.
+- **Emote reads on the web** (chat-touch 4) give up after 8 s
+  (`READ_WAIT_MS`), so a provider whose traffic is dropped no longer
+  holds the cache's four places. Walked in a browser.
+- **Providers' ids and paths** (chat-touch 5): an id or a path that would
+  leave the provider's images (`..`, escapes, a query, backslashes)
+  makes no image, and a channel id of another shape reads no set
+  (`emotes::plain_id`). Test: `ids_and_paths_that_leave_the_images_make_none`.
+- **Suspicions checked**: Twitch's reconnect address is followed only to
+  `wss://…twitch.tv` or the first socket's host (a local fake's)
+  (`a_reconnect_goes_only_to_twitch_or_the_first_host`); a reconnect
+  asked before the first socket was subscribed subscribes the new one
+  (`a_reconnect_before_the_subscription_subscribes_the_new_socket`); a
+  grapheme keeps four combining marks at most (`item::MOST_MARKS`;
+  `a_flood_of_combining_marks_is_cut_to_a_few`). Refuted: a lent
+  connection undriven at the prompt (the play's session, and its chat,
+  begins at Start and is ticked every frame from then). Left as they
+  are, for the maintainer: the chat turned off during a stage goes on
+  to its end (a stage carries the room's chat from its start); hidden
+  touch controls still take a finger's first press where they would
+  show; the chat's debug bookkeeping each frame (bounded, about 480
+  entries); only the picker's device offers the battle plan, and a
+  refused offer is never offered again (offering the same plan again
+  cannot help; round RFa looks at the room's side); the Ready card's
+  start charts are the listing's, the play's the read chart's ladder
+  (documented since round OC).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
