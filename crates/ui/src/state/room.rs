@@ -3636,7 +3636,10 @@ impl RoomClient {
             let _ = self.cancel_start();
         }
         if self.state().upcoming_stage() == Some(stage) {
-            if self.ready() {
+            // Ready as asked: one pressed a moment ago, the room's answer
+            // still to come, is taken back too (review 2026-11-22,
+            // room-client 3).
+            if self.ready_as_asked() {
                 let _ = self.set_ready(false);
             }
             if self.chooses()

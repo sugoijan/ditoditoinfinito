@@ -116,3 +116,37 @@ fn a_reconnect_first_read_by_a_command_still_tells_the_room_again() {
     }
     assert_eq!(loading(&server), Loading::Loaded, "told the room again");
 }
+
+/// room-client 3: Ready pressed, then the stage's prompt left before the
+/// room answered (a slow link, Back pressed twice at once): the Ready
+/// asked is taken back too, so that the room never starts the stage with
+/// a player who left its prompt.
+#[test]
+fn the_prompt_left_before_the_room_answered_ready_takes_it_back() {
+    let clock = ManualClock::new(1_000);
+    let server = room_of(&clock, &["bob"]);
+    let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+    let tab = Tab::new(&server);
+    let mut bob = lagged_bob(&server, &tab);
+    for _ in 0..3 {
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+    }
+    let stage = picked_and_prompted(&clock, &server, &mut alice, &mut bob);
+    for _ in 0..3 {
+        let s = song();
+        for j in bob.take_load_jobs() {
+            bob.finish_shared_load(&j, Ok(shared_pick(&s)));
+        }
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+    }
+    bob.set_ready(true).unwrap();
+    assert!(bob.ready_as_asked());
+    assert!(!bob.ready(), "the case under test: the room has not answered");
+    let _ = bob.leave_prompt(stage);
+    for _ in 0..3 {
+        tick(&clock, &mut [&mut alice, &mut bob], 100);
+    }
+    let ready = server.borrow().state().stage(stage).unwrap().prep(BOB).ready;
+    assert!(!ready, "Bob left the prompt but the room has him ready");
+    assert!(!bob.ready_as_asked());
+}
