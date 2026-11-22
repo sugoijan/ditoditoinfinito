@@ -54,3 +54,41 @@ fn a_loading_failures_code_is_kept_bounded() {
         Loading::Failed { code: honest.into() }
     );
 }
+
+/// Finding 1 (c): the next match's rules an operator saves are bounded:
+/// the battle's id at 64 bytes (as a stage's rules already were,
+/// `PlayRules::check`) and the CPU roster at the room's competitor cap
+/// whatever the CPU mode (it was read only under `CpuMode::Roster`, so
+/// a co-host could park any number of entries in the draft). An honest
+/// roster seats its CPUs beside one person at least: at most the cap
+/// less one.
+#[test]
+fn the_next_rules_are_bounded() {
+    let mut r = hosted();
+    let host = r.host;
+    let mut rules = r.s.next.rules.clone();
+    rules.battle = "x".repeat(700_000);
+    let got = r.by(host, Command::SaveNextRules { rules });
+    assert!(
+        matches!(got, Err(Rejection::InvalidRules(RulesProblem::BattleId))),
+        "the battle's id refused"
+    );
+
+    let mut rules = r.s.next.rules.clone();
+    rules.cpu.mode = CpuMode::Fill;
+    rules.cpu.roster = vec![rules.cpu.opponent.clone(); 10_000];
+    let got = r.by(host, Command::SaveNextRules { rules: rules.clone() });
+    assert!(
+        matches!(got, Err(Rejection::InvalidRules(RulesProblem::OverCap(_)))),
+        "the roster refused"
+    );
+    // Within the cap it is saved as before.
+    rules.cpu.roster.truncate(usize::from(r.s.policy.max_competitors) - 1);
+    r.by(host, Command::SaveNextRules { rules }).unwrap();
+    // A practice roster as the client makes it (`cpu_roster::with_roster`).
+    let mut rules = MatchRules::practice(OpponentSpec { level: 5, seed: 1, personality: None, name: None, targeting: None });
+    rules.cpu.roster = vec![rules.cpu.opponent.clone(); 3];
+    rules.cpu.mode = CpuMode::Roster;
+    rules.seats = 4;
+    assert_eq!(rules.validate(&RoomPolicy::default(), 1), Ok(()));
+}

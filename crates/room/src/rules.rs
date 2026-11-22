@@ -1140,6 +1140,18 @@ impl MatchRules {
         if !self.cpu.opponent.fits() || !self.cpu.roster.iter().all(OpponentSpec::fits) {
             return Err(RulesProblem::CpuText);
         }
+        // Bounded whatever the CPU mode (round RFa: the roster was read
+        // only under `CpuMode::Roster`, so any number of entries could be
+        // kept in a draft): never more CPUs than the room's competitors,
+        // a client's roster at most the cap less the one who plays.
+        if let Err(cap) = policy.check_competitors(self.cpu.roster.len()) {
+            return Err(RulesProblem::OverCap(cap));
+        }
+        // The battle's id as a stage's rules bound it (`PlayRules::check`;
+        // the presets' ids are under 20 bytes).
+        if self.battle.len() > 64 {
+            return Err(RulesProblem::BattleId);
+        }
         let id = self.ruleset.as_str();
         if !Self::RULESETS.contains(&id) && !Self::LEGACY_RULESETS.contains(&id) {
             return Err(RulesProblem::UnknownRuleset);
