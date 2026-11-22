@@ -14089,10 +14089,288 @@ them; a refusal deletes the link for both, by design, A3).
   old server keeps the first fault (each trip replaces the link) and
   signs in plainly (the old server ignores `keep`).
 
+## Round OC: under Adaptive, the song is the group's and the chart each player's own (room model revision 23, 2026-11-22)
+
+The maintainer: "When letting the group pick a song, the difficulty chart
+is also picked along, and whether it is suitable to everyone can be very
+assymetrical … decouple the song choice from the difficulty and leave the
+difficulty as purely a local choice (or maybe at least when it's
+Adaptative)". Their answers: Adaptive only; chosen on the room's song list
+and on the stage's Ready card (until Ready), their usual difficulty where
+they chose none; ranked by the score as earned; CPUs by their level.
+
+### What a host, a member and a watcher see
+
+- **On Room songs** under Adaptive the chart row of the song's side is the
+  player's own for that song: the one they move to is remembered for the
+  room's session (`RoomClient::remember_start`) and shown again when the
+  song is shown again. The picker's Enter picks the song; the chart shown
+  with it is the stage's own (what anyone who chose nothing starts on,
+  rung 0 of its ladder). Under Group a choice is a song: the draw's reel
+  and its line name the song alone ("Bob · Sweeteners", "Bob's choice:
+  Sweeteners"), the audience's too.
+- **The Ready card** has a row "Your chart" above Targeting: the song's
+  charts of the stage chart's style, the player's own preselected, Left
+  and Right (keyboard or pad), ◀ ▶ (a tap or a click) and Enter on the
+  row stepping it through them without wrapping, each change told the
+  room at once; once Ready its arrows go and nothing changes it (taking
+  Ready back opens it again). Each player's row (the card's columns, the
+  players panel, the Players pop-up) shows the level number of the chart
+  they start on in its difficulty's color, a CPU's by its level, as they
+  choose it.
+- **In play** every field (the player's own, the miniatures, a followed
+  competitor large, a watcher's grid, the audience's) is drawn on its
+  competitor's own chart from the first note and follows their steps as
+  before; the chart line by the life gauge names the player's own.
+- **The Standings** say where each started where it is their own:
+  "Easy" (started there and finished there), "Easy → Medium" (finished
+  elsewhere); a start on the stage's chart reads as before ("↑
+  Challenge", "↓ Easy" where they finished elsewhere).
+- **Rules**: Adaptive's sentence is now "Each player starts on their own
+  chart of the song and moves up or down with their skill." Nothing new is
+  a setting. Under As picked nothing changes: no chart row, one chart for
+  everyone.
+- A watcher and the audience see everyone's charts and choose none.
+
+### Decisions (each with its alternative)
+
+- **The start is room state, chosen by the player's own command, locked at
+  the start.** `Command::SetStart { stage, readiness_rev, chart }` keeps a
+  chart's digest in the player's `Prep` for the stage (`Prep::start`,
+  `Event::StartChosen`); `RoomState::start_of` reads it under Adaptive
+  only. It is taken while the stage gathers readiness and, from one
+  counted out of its start who may still enter late, until they enter;
+  from the start's commitment it is refused (`StartCommitted`), so every
+  device reads the same start from the same revision, and a stored room or
+  a reconnecting device has it. A new pick for the stage (its song
+  replaced) clears it with the rest of the stage's preparation. The model
+  does not lock it at Ready: this device may tell the room its default a
+  moment after the player pressed Ready (the song's load ending after the
+  press); the Ready card locks it for the person (its arrows go).
+  Alternatives: lock at Ready in the model (a default told late would then
+  be refused, the player started on the picker's chart); carry the starts
+  in the start's commitment (`StartCommitted`), which would need the room
+  to read charts.
+- **None means the stage's own chart.** A player who sent nothing starts
+  on the pick's (or the drawn choice's) chart, which stays as the
+  fallback and as "what the picker had in mind". Every device sends its
+  default as soon as the stage's song is known here, so in practice
+  everyone has their own.
+- **The default is the device's: the chart song select would give them**
+  (`screens::data::closest` to their preferred difficulty, song select's
+  own, the easier of two as close), among the song's charts in the stage
+  chart's style; a chart remembered for the song this session first.
+  Never harder than their preference because the picker chose one.
+- **Under As picked the command is refused** (`Rejection::ChartsAsPicked`)
+  and a start kept from before a change of the rule is read as none.
+- **The style is the stage's chart's** (the pick's, as today): a listed
+  song's chart of another style is refused (`ChartNotInSong`), and a
+  remembered Double chart for a Single stage is passed over for the
+  default.
+- **Rungs stay numbered against the stage's chart.** A start is a rung
+  other than 0; the plan's ladder, a stream's step moments and the
+  snapshot's step status keep their meaning, and a stored room is
+  unchanged. A person's play starts on its rung (`Player::start_on`: that
+  chart's notes, meter and reading horizon from the first, the rungs
+  keeping their numbers). A CPU's play is planned from its own chart (the
+  CPU code is another session's, untouched): the stage's ladder seen from
+  its rung (`Ladder::around`, the session's `cpus::around`, copies of the
+  same plans), its steps put back on the stage's numbers by the chart
+  they go to (`Ladder::rung_of_chart`) wherever they are read (its field,
+  its detail, a bot's stream). Alternative: renumber per competitor
+  (rung 0 each one's own start), which every reader of a step would have
+  to translate, the room's live side included.
+- **A start that is the song's but no rung** (a chart of a timing of its
+  own, one the CPUs cannot plan, or one of the stage chart's own slot,
+  which the ladder never holds) plays the rung nearest it, by slot then
+  meter, the easier of two as near (`ddi_session::battle::start_rung`),
+  the same on every device.
+- **The room's live side** starts each competitor's step status from
+  their own rung where the stage's plan names the ladder
+  (`StepStatus::after_from`), so a snapshot's first step says where it
+  came from. Where the stage has no plan (Attacks Off) it cannot tell: a
+  field followed from part-way within the few seconds between a first
+  step up's decision and its boundary may draw the stage's chart until
+  the boundary instead of the start's (known limit).
+- **CPUs by their level** (`cpu-start-v0`, PROVISIONAL,
+  `ddi_engine::ladder::cpu_start`, `cpu_start_in`): each pair of levels a
+  difficulty, as each level is at home on (levels 1 and 2 Beginner, 3 and
+  4 Easy, 5 and 6 Medium, 7 and 8 Hard, 9 and 10 Challenge); the nearest
+  the song has where it lacks that one, the easier of two as near; of
+  several charts of that difficulty the lowest meter for the first of the
+  pair and the highest for the second. A song of one chart: that chart; a
+  song whose easiest chart is Hard: every weak CPU on it. Worked out by
+  every device from the charts the plan's ladder proves alike; the Ready
+  card's columns show it from the song's listing by the same rule.
+  Alternative: by meter (the scales differ: 10 and 20) or by notes a
+  second (`cpu-levels-v2`'s own unit; closer to what a level is at home
+  on, but not what the screens can say before the song is read).
+- **Practice** follows the same rule: its CPUs no longer all start on the
+  player's chart. Someone practising alone with mixed levels sees weak
+  CPUs on the song's easy charts and strong ones on its hardest; a
+  stage's outcome then rests on the score as earned, which a harder chart
+  gives more of (below). It may surprise someone who expected everyone on
+  their pick; the Ready card's columns say it before the start.
+- **Bots** choose as a CPU of their level does (`--start own`, the
+  default), or the easiest or the hardest chart (`--start easiest|hardest`),
+  told the room as a person's device tells it.
+
+| Bundled song (stage on Hard) | Levels 1 · 2 | 3 · 4 | 5 · 6 | 7 · 8 | 9 · 10 |
+| --- | --- | --- | --- | --- | --- |
+| Beatucada | Beginner 1 | Easy 3 | Medium 7 | Hard 11 | Challenge 11 |
+| Into My Dream | Beginner 1 · Beginner 2 | Easy 3 | Easy 3 | Hard 12 | Hard 12 |
+| Some Things Must | Beginner 2 | Easy 9 | Medium 10 | Hard 13 | Challenge 16 |
+| Sweeteners | Beginner 3 | Beginner 3 | Medium 10 | Hard 13 | Hard 13 |
+
+(`a_cpu_starts_on_the_chart_its_level_is_at_home_on`, from every original
+single chart picked: the same CPU starts alike whatever the pick.)
+
+### The score each chart can earn
+
+Nothing is rescaled: a stage under Adaptive ranks those still in by DDI's
+sum as earned, which grows with the notes played (the absolute part and
+the combo part). A perfect play of each original single chart of the
+bundled songs under DDI Normal (`perfect_scores_by_chart`, `cargo test
+--release -p ddi-engine --test adaptive perfect_scores_by_chart --
+--ignored --nocapture`):
+
+| Song | Beginner | Easy | Medium | Hard | Challenge |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Beatucada | 1 194 484 (1) | 1 798 312 (3) | 2 387 977 (7) | 2 649 427 (11) | 2 682 672 (11) |
+| Into My Dream | 1 392 700 (1), 1 337 935 (2) | 1 642 532 (3) | 2 916 532 (8) | 4 008 127 (12) | 5 435 826 (15) |
+| Some Things Must | 1 447 015 (2) | 2 899 874 (9) | 3 164 533 (10) | 4 502 171 (13) | 6 204 083 (16) |
+| Sweeteners | 1 558 601 (3) | | 3 134 909 (10) | 3 739 872 (13) | |
+
+A perfect Hard earns 1.47 times a perfect Easy on Beatucada, 2.44 times
+on Into My Dream and 1.55 times on Some Things Must (2.40 times a perfect
+Beginner on Sweeteners, which has no Easy); a perfect Challenge up to 4.3
+times a perfect Beginner. So the ranking rewards playing a harder chart
+well over playing an easier one perfectly: someone who starts on Easy and
+climbs is usually still behind someone who holds a Hard, and a player who
+sets a hard start and falls back loses less than they risk. It is what
+the maintainer chose ("the score as earned"); a per-chart factor remains
+the alternative, deferred since `adaptive-v0`. In the desktop's practice
+tests a perfect autoplayed Hard now places second of four behind a
+five-star CPU on Challenge (`room_stage_flow`, `room_stage_voice` no
+longer pin a win).
+
+### What moved and why
+
+- The room model (revision 23): `Prep::start`, `Command::SetStart`,
+  `Event::StartChosen`, `RoomState::start_of`, `charts_for`,
+  `Rejection::ChartsAsPicked`, `RunDetail::start`/`start_harder`,
+  `PublicPlay::starts`, `StepStatus::after_from`. Wire forms that change:
+  the command `set_start`, the event `start_chosen`, a person's prep's
+  `start`, the refusal `charts_as_picked`, the detail's `start` and
+  `start_harder`, the public view's `starts` (all additive JSON; the live
+  stream's binary forms and the battle plan are unchanged).
+  `tests/room-revision-22.json` (written by revision 22's own reducer)
+  reads with no starts and plays as before.
+- The engine: `Player::start_on`, `chart_now`; `Ladder::rung_of_chart`,
+  `line`, `around`; `cpu_start`, `cpu_start_in` (`CPU_START`). Nothing
+  under `crates/engine/src/cpu/` changed.
+- The session: a person's play starts on their rung, a CPU's (and a bot's)
+  is planned from its own chart (`cpus::around`, `opponent_from`), fields
+  start on their competitors' charts (`FieldFeed::start_on`,
+  `RemoteSeat::start_on`, `Live::set_starts`), steps put on the stage's
+  numbers by chart, `start_rung` (the nearest rung for a chart that is no
+  rung), the run's detail with its start.
+- The client (`state/room/starts.rs`), both shells (the start read back
+  from the room as a play starts), the screens, the bots (`--start`).
+- Pins: the session's `pinned.txt` and `live_pinned.txt` (CPUs start on
+  their levels' charts; the outcome's debug text has the detail's new
+  fields), the CPUs' fixture's scenarios 1, 3 and 4 (the Adaptive ones:
+  each CPU on its level's chart; 0, 2 and 5, As picked, unchanged), the
+  room screens' "rules", "add" and "add-level" (Adaptive's new sentence).
+  Desktop tests that assumed every CPU starts on the pick (a perfect
+  autoplayed Hard winning against a five-star CPU, the two-rung climb of
+  strong CPUs from Medium, a weak CPU's step down on Hard) now assert what
+  the new rule gives.
+
+### Validated
+
+- Tests: the room crate's `tests/own_start.rs` (chosen, changed, none
+  the stage's chart, a chart of another song or style refused, a
+  watcher's, a stale readiness, locked at the start, a late entrant's
+  until they enter, As picked refused and read as none, a new pick
+  clearing starts, the stored revision-22 room, a first step's origin),
+  `online.rs`'s `own_starts_are_kept_alike_by_both_authorities_and_every_mirror`
+  (LocalAuthority and FakeServer, every mirror equal); the engine's
+  `a_play_started_on_its_own_rung_steps_on_from_there` (Easy's notes,
+  meter and horizon; up from Easy to Medium to Hard, down from Hard; the
+  same at 60 and 144 Hz and from the log), `a_ladder_seen_from_another_rung_has_the_same_charts`,
+  `a_cpu_starts_on_the_chart_its_level_is_at_home_on` (every bundled
+  song, from every single chart picked); the session's
+  `everyone_starts_on_their_own_chart_from_the_first_note` (practice:
+  the player on their usual Easy, CPUs on Challenge, the fields from the
+  first frame, ranked by the score) and
+  `a_live_stage_starts_everyone_on_their_own_chart` (FakeServer: Alice on
+  Easy, Bob on the stage's Hard, a CPU on Challenge, each device drawing
+  the others on their charts, Bob's view of Alice's steps, the room's
+  ranking by score, the details); the screens'
+  `the_ready_card_has_the_players_own_chart_under_adaptive` (keyboard,
+  pad, taps and Enter; no wrapping; locked at Ready; the card's chart
+  line; the rows' charts) and
+  `a_songs_chart_chosen_in_the_room_is_remembered_as_ones_own`. Suites
+  room, engine, session, shell, ui, theme, desktop and the web's routes:
+  2,517 passed, 0 failed (52 ignored); the CPUs' fixture natively and
+  under WASI; the server's workspace 226 and `--features dev-auth` 223
+  passed against this round's `crates/room` (a `paths` override), its
+  clippy; clippy native and wasm; `l10n check`.
+- Walked on a local server (revision 23: the server worktree built
+  against this round's crates; a scratch configuration; the development
+  provider) through the site's proxy, Chrome then Firefox
+  (`target/scratch/mp/oc/walks/oc.mjs`), the host and Bob in two contexts,
+  two guest bots (`--level 2 --start hardest`) and two CPUs the host
+  added in Rules: the host picked Beatucada on its Hard; on the Ready
+  cards everyone's chart showed as they chose it (Host 11, Bob 11 then 3
+  once he took Easy with two taps on ◀, the bots 11 on Challenge, the CPUs
+  by their levels: Easy 3 and Hard 11); in play every field started on
+  its competitor's chart (the debug state's `battle.ladder.starts`: Bob's
+  rung 2 (Easy) on the host's device from the first frame, the host's 0
+  on Bob's, the bots' 4 (Challenge)); steps from own starts both ways (a
+  CPU from Easy up to Medium, one from Hard up to Challenge, the bots
+  from Challenge down to Medium, Bob from Easy down to Beginner: the two
+  people's plays are not autoplayed in a room's stage, so they miss and
+  step down); the Standings ("Easy → Medium", "Challenge → Medium",
+  "↑ Challenge", "↓ Beginner"); Song choice: Group: the reel and its line
+  named the song alone, the drawn stage's charts each one's (Bob's Easy
+  remembered for Beatucada); then Charts: As picked from the next stage:
+  no chart row, no charts in the rows, every field on the one chart
+  (`starts` all 0). Pictures: `target/scratch/mp/oc/shots/` (`*-ready-*`,
+  `*-play-*`, `*-standings-*`, `*-reveal-*`, `*-rules-*`).
+- A release build's `check-boot`: 12423 of 12552 bytes gzipped; the
+  singleplayer smoke check in Chrome (WebGPU) and Firefox (WebGL2) passed.
+
+### For the maintainer
+
+- The score as earned rewards a harder start (above): someone who plays
+  Easy well ranks behind someone who plays Hard decently. A per-chart
+  factor is the alternative if that is not what the room should feel like.
+- `cpu-start-v0`'s mapping by slot (one pair of levels a difficulty), or
+  by the notes a second each level keeps up with.
+- The model locks a start at the start, the screen at Ready; locking at
+  Ready in the model too is possible once every device tells its default
+  before its Ready.
+
+### Not done
+
+- The results' own side (the score, the grade) still names the stage's
+  chart in its title line ("Hard 10.5 · Single") for a player who started
+  on their own; the Standings beside it say their start and end.
+- The audience's page between stages draws no chart per player (the
+  rows' charts are a member's); its watched stage draws each field on its
+  own chart.
+- A room without a battle plan (Attacks Off) cannot tell the live side
+  where a first step came from (see Decisions).
+- The song list's rows show the level of the chart song select would give
+  (the preferred difficulty), not the one remembered for the song.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `cpu-start-v0` (2026-11-22, round OC, revision 23): under Adaptive a CPU starts on the difficulty its pair of levels is at home on (1–2 Beginner, 3–4 Easy, 5–6 Medium, 7–8 Hard, 9–10 Challenge), the nearest the song has, the easier of two as near; the lowest meter of that difficulty for the first of the pair, the highest for the second | `ddi_engine::ladder::cpu_start`, `cpu_start_in` | Weak CPUs on a song's easy charts, strong ones on its hardest, in practice too; their scores (as earned) follow their charts | The mapping; whether by notes a second instead |
 | `live-chat-v0` (2026-11-21, round TW6): a welcome subscribed within Twitch's 10 s (a failure in passing asked again once while 4 s are left), the keep-alive Twitch stated plus 3 s of silence a loss, a reconnect's new socket given 30 s to welcome, losses opened again after 0, 1, 2, 5, 10, 30, 60 s and given up after eight in a row; the server's 2 s deadline a subscription, 20 subscribes a minute a person | `ddi_chat::live::LIVE_CHAT_V0`, the server's `twitch::SUBSCRIBE_DEADLINE_MS`, `room::CHATS_A_MINUTE` | None while hidden; then: a dropped chat comes back within seconds, a broken one stops quietly | The numbers once the maintainer's run and real chats are seen |
 | `chat-overlay-v1` (2026-11-20, round TW5): every emote drawn by itself; a message's first 8 emotes; at most 80 messages and 160 emotes on screen, 20 new messages a second, one a chatter every 2 s; dropped when full or without a free place, never queued | `ddi_chat::overlay::CHAT_OVERLAY_V1`, `ddi_chat::item::Cut` | None while the chat is hidden; then: a burst of emotes fills the screen behind the fields, past the budgets or the space the rest is left out | The numbers once real chats are seen |
 | The chat's look (2026-11-20, round TW5): `scattered` (emotes 1.6 lines, inline 1.35, sizes ±20%, times on screen ±25%, an emote-only message's emotes each by itself 0.12 s apart) of three candidates | `ddi_chat::overlay::LOOKS`, `CHAT_OVERLAY_V1.look` | As above | The maintainer's choice of look (the gallery) |

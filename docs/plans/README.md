@@ -58,7 +58,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   choice, a host's own choice starting a countdown, the server's draw
   shown as a short reel (to the audience too), reviewed in round RL4b
   (the Ready window after the reveal, a stopped match's choices, a choice
-  taken away told).
+  taken away told); round OC (revision 23): under Charts: Adaptive the
+  pick or the draw names the song and each player starts on their own
+  chart of it (chosen on the list or the Ready card, their usual
+  difficulty where they chose none), CPUs on their level's.
 - [The host's Twitch in a room](multiplayer-twitch.md) (2026-11-20):
   built without Twitch itself, room model revision 18: round TW1 the
   model, Kick, the Twitch link and the mirror on the server behind a fake

@@ -73,7 +73,13 @@ Rust and the browser are implementation details, not advertised features.
   set variants of it, `Player::set_ladder_rule`:
   a song's ladder of easier and harder charts, `ladder::Ladder`,
   `below`, `above`, its rungs numbered from 1, the easier then the
-  harder, 0 the stage's; a play changes chart, `Player::add_rung`,
+  harder, 0 the stage's; since room model revision 23 a play may start
+  on any rung, `Player::start_on` (its own chart under Adaptive, the
+  rungs keeping their numbers), a CPU on the chart its level is at home
+  on, `ladder::cpu_start`, `cpu_start_in` (`cpu-start-v0`), its play
+  planned from there (`Ladder::around`, the session's `cpus::around`,
+  its steps put on the stage's numbers by chart, `rung_of_chart`); a
+  play changes chart, `Player::add_rung`,
   `add_rung_up`, `Player::steps`: down at zero life, the old chart's
   notes not judged taken away, `NoteState::Removed`, `Judge::step_down`,
   the next rung's from a bar line past the reading horizon, half the
@@ -1560,7 +1566,17 @@ Rust and the browser are implementation details, not advertised features.
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 22 since 2026-11-21: choosing by the group,
+  (`ROOM_MODEL_REVISION`, 23 since 2026-11-22: under Charts: Adaptive
+  each player starts on their own chart of the song, round OC
+  (`Command::SetStart`, `Event::StartChosen`, `Prep::start`,
+  `RoomState::start_of`, `charts_for`, `Rejection::ChartsAsPicked`; a
+  listed song's chart in the stage chart's style, taken while the stage
+  gathers readiness and from a late entrant, locked from its start; the
+  pick's or the drawn choice's chart the stage's own, the start of one
+  who chose none; `RunDetail::start`, `PublicPlay::starts`, the live
+  side's `StepStatus::after_from`; `tests/own_start.rs`,
+  `tests/room-revision-22.json` read with no starts); 22 since
+  2026-11-21: choosing by the group,
   `crate::choice` (`docs/plans/multiplayer-room-songs.md`, "Stage 4 as
   built"): the per-stage match rules Song choice, Host or Group
   (`MatchRules::choice`, `PlayRules::choice`, `SongChoice`; Group only
@@ -1684,6 +1700,14 @@ Rust and the browser are implementation details, not advertised features.
   Adaptive, a new room's default where it plays it since 2026-11-14,
   `MatchRules::practice`, `hosted_for`, the field still read as As picked
   where missing; read from the "At zero life" rule before it, `at_zero`;
+  under Adaptive the pick or the draw names the song and each competitor
+  starts on their own chart of it (revision 23, round OC:
+  `RoomState::start_of`; this device's default the chart song select
+  would give the player, `state/room/starts.rs`, `RoomClient::start_charts`,
+  `start_shown`, `choose_start`, `remember_start` for the room's song
+  list's song side, told the room as soon as the song is known here,
+  `sync_start`; the stage's Ready card's chart row, `prompt_room.rs`'s
+  `CHART`; a bot's `--start own|easiest|hardest`);
   a stage under Adaptive ranks those still in by
   the score as earned, life the tie-break, `RankBy::Score`,
   `Charts::rank_by`, `battle::rank`'s argument, never by steps,

@@ -546,6 +546,27 @@ would have picked; its choice starts the draw (one that waits, made
 during a stage, it makes again; round FX). Every bot says how many
 chose, the countdown opening and ending, and each draw.
 
+## Under Adaptive, the song alone (round OC, room model revision 23, 2026-11-22)
+
+The maintainer: "decouple the song choice from the difficulty … each
+player will play their preferred difficulty on that song" (Adaptive only;
+both places; the score as earned; CPUs by their level). Under Charts:
+Adaptive a host's pick and the group's draw name the song (the chart that
+comes with them stays as the stage's own: what one who chose nothing
+starts on, and the ladder's rung 0), and each player starts on their own
+chart of it, stepping up or down from there as `adaptive-v5` has it.
+On the room's song list the chart row of the song's side is the player's
+own for that song, remembered for the room's session
+(`RoomClient::remember_start`); a choice under Group is a song (the reel
+and its line name the song alone); the stage's Ready card has the
+player's chart as a row, changed until Ready (`Opt.room.chart`); each
+player's row shows their chart's level in its difficulty's color. Chosen
+nothing, a player starts on the chart song select would give them (their
+usual difficulty, the easier of two as close), never a harder chart
+because the picker's was; a CPU on the chart its level is at home on
+(`cpu-start-v0`). Under As picked nothing changes. See
+`multiplayer-prototype-progress.md`, "Round OC".
+
 ## Not in stage 1
 
 Bests on songs not in one's library (a downloaded song's row has none,

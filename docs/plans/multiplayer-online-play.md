@@ -250,6 +250,28 @@ in by the streamed and reported score (DDI's sum, as earned), life the
 tie-break, never the steps; `RoomPolicy::adaptive` says the room honors it.
 Peers must agree on all of it: `ddi_room::ROOM_MODEL_REVISION` is 3.
 
+Since room model revision 23 (round OC, 2026-11-22) each competitor of an
+Adaptive stage starts on their own chart of the song, and the rungs keep
+their numbers against the stage's chart (the pick's, or the drawn
+choice's): a start is merely a rung other than 0. Nothing on the wire of
+the play changes. The start is room state (`Prep::start`, a chart's
+digest, `Command::SetStart`), locked when the stage's start commits, so
+every member reads it from the same revision (`RoomState::start_of`) and
+the audience from the public view (`PublicPlay::starts`); each device
+finds it on the stage's ladder by its digest (the plan's `ladder` already
+proves every device has the same charts), the nearest rung where the
+chart is the song's but no rung, 0 where nothing is named. A field is
+drawn on its competitor's start from the first note (`FieldFeed::start_on`,
+`RemoteSeat::start_on`); a step moment names a rung of the stage's ladder
+as ever (a CPU's or a bot's play is planned from its own chart, its steps
+put back on the stage's numbers by the chart they go to); the room's
+live side starts a competitor's step status from their own rung where the
+stage's plan names the ladder (`StepStatus::after_from`), so a snapshot's
+first step says where it came from. The plan itself, its checkpoints
+(from the stage's chart) and its sections (over every rung at once) are
+unchanged: a start is only when a competitor is on another rung, which a
+step already did.
+
 ## The play stream
 
 ### A moment
