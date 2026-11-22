@@ -147,3 +147,29 @@ fn a_room_keeps_a_bounded_number_of_peoples_rows() {
     assert_eq!(back.join_as("old3", Intent::Watch, false), Ok(ParticipantId(1_003)));
     assert_eq!(back.join_as("newcomer", Intent::Watch, false), Err(Rejection::RoomFull));
 }
+
+/// Finding 2: a co-host the owner kicks loses the role with the kick, so
+/// coming back by the invite they are a member like anyone (they came
+/// back a co-host, with Kick, the pick and the rules). A co-host who
+/// leaves by themselves keeps it, as before.
+#[test]
+fn a_kicked_co_host_comes_back_a_member() {
+    let mut r = hosted();
+    let host = r.host;
+    let cy = join(&mut r, "cy");
+    let di = join(&mut r, "di");
+    for p in [cy, di] {
+        r.by(host, Command::SetCoHost { participant: p, on: true }).unwrap();
+    }
+    r.by(host, Command::Remove { participant: cy }).unwrap();
+    assert_eq!(r.s.member(cy).unwrap().role, Role::Member);
+    assert_eq!(join(&mut r, "cy"), cy);
+    let m = r.s.member(cy).unwrap();
+    assert!(!m.left);
+    assert_eq!(m.role, Role::Member, "back as a member");
+    assert!(r.by(cy, Command::Remove { participant: di }).is_err());
+    // Leaving by oneself keeps the role.
+    r.by(di, Command::Leave).unwrap();
+    assert_eq!(join(&mut r, "di"), di);
+    assert_eq!(r.s.member(di).unwrap().role, Role::CoHost);
+}

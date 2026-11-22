@@ -519,6 +519,17 @@ impl RoomState {
                     // A host's Kick, told to everyone.
                     Actor::Member(by) => {
                         self.may_kick(by, id)?;
+                        // A co-host kicked loses the role with the kick
+                        // (round RFa): back by the invite, a member.
+                        if self.members.get(&id).is_some_and(|m| m.role == Role::CoHost) {
+                            self.emit(
+                                out,
+                                Event::RoleChanged {
+                                    participant: id,
+                                    role: Role::Member,
+                                },
+                            );
+                        }
                         Event::MemberRemoved { participant: id, by }
                     }
                     // The mirror's: to the others, a member leaving.
