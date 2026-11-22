@@ -435,10 +435,14 @@ impl Screen for Home {
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
         self.time = cx.time();
         let now = cx.wall_ms();
+        // A room entered is the home's to show only while the home is
+        // shown (round TB: under a room, the end of the room's trip through
+        // Twitch once pushed a second room over the first's Host options).
+        let current = cx.is_current_screen();
         let (redirect, entered) = {
             let mut o = self.online.borrow_mut();
             o.poll(now);
-            (o.take_redirect(), o.take_entered())
+            (o.take_redirect(), if current { o.take_entered() } else { None })
         };
         if let Some(r) = redirect {
             (self.shell)(OnlineCall::Redirect(r), cx);
@@ -462,6 +466,17 @@ impl Screen for Home {
         // (rebuilt, it would drop the line as the exit begins).
         if entering {
             self.seen = self.online.borrow().version();
+        }
+        // A trip through Twitch is shown by the screen that asked for it
+        // (round TB): one left over here, its dialog gone with that screen
+        // (a room closed during it), is stopped, and one that ended is
+        // forgotten, so the home never shows it as a sign-in.
+        if self.online.borrow().twitch_trip() {
+            let mut o = self.online.borrow_mut();
+            if o.sign_in_state().busy() {
+                o.cancel_sign_in();
+            }
+            o.clear_sign_in();
         }
         // A sign-in under way (back from the server's page, or begun
         // elsewhere) shows in its dialog.

@@ -7590,6 +7590,181 @@ fn host_options_set_the_rooms_twitch_after_the_trip() {
     assert!(has(&ha, "alice's Twitch bans and chat apply."), "{:?}", ha.texts());
 }
 
+/// Desktop's online state over the fake room as `who` (round TB): the
+/// fake room's answers, and sign-in attempts numbered from 1 that the
+/// "browser" finishes by raising `done` to their number.
+fn desktop_person(
+    server: &ddi_room::fake::SharedFake,
+    who: &'static str,
+    done: Rc<std::cell::Cell<u32>>,
+    attempts: Rc<std::cell::Cell<u32>>,
+) -> crate::state::online::SharedOnline {
+    use crate::state::online::api::{ApiResponse, Method};
+    use crate::state::online::tests::room::handler_of;
+    use crate::state::online::tests::{FakeHttp, Handler, ok};
+    use crate::state::online::{Online, OnlineConfig, Platform};
+    let mut inner = handler_of(server, who);
+    let handler: Handler = Box::new(move |req| match (req.method, req.path.as_str()) {
+        (Method::Post, "/auth/attempts") => {
+            attempts.set(attempts.get() + 1);
+            let n = attempts.get();
+            Some(ApiResponse {
+                status: 201,
+                body: format!(
+                    r#"{{"attempt_id":"a{n}","poll_secret":"s{n}","open_url":"http://api/auth/attempts/a{n}/open","user_code":"ABC23{n}","expires_at_ms":9}}"#
+                ),
+                session: None,
+            })
+        }
+        (Method::Delete, p) if p.starts_with("/auth/attempts/a") => Some(ApiResponse {
+            status: 204,
+            body: String::new(),
+            session: None,
+        }),
+        (Method::Get, p) if p.starts_with("/auth/attempts/a") => {
+            let n: u32 = p["/auth/attempts/a".len()..].parse().unwrap();
+            if done.get() >= n {
+                ok(r#"{"status":"done","session_token":"tok","return":"/mp","expires_at_ms":9}"#)
+            } else {
+                ok(r#"{"status":"pending","return":"/mp","expires_at_ms":9}"#)
+            }
+        }
+        _ => inner(req),
+    });
+    let http = FakeHttp {
+        handler: Rc::new(RefCell::new(handler)),
+        log: Rc::new(RefCell::new(Vec::new())),
+        out: std::collections::VecDeque::new(),
+    };
+    let online = Online::new(
+        Box::new(http),
+        OnlineConfig {
+            platform: Platform::Desktop,
+            site: "http://localhost:8080/".into(),
+        },
+    )
+    .with_token(Some("tok".into()), Rc::new(|_| {}))
+    .shared();
+    online.borrow_mut().check();
+    online.borrow_mut().poll(0);
+    online
+}
+
+/// Round TB (the maintainer, 2026-11-22, desktop: "creating a private
+/// room, turning on 'Twitch chat' which goes through the flow and works,
+/// trying to turn on 'Twitch bans', doesn't even open the pop-up with the
+/// code, but opens the web page to sign-in", and "when I closed the room
+/// the Sign in pop up appeared"): desktop stacks the room over the
+/// multiplayer home. A trip through Twitch ends as a sign-in does, with
+/// the room it came back to "entered"; the home under the room took that
+/// as a room to show and pushed a second room screen over Host options,
+/// so the next trip's dialog with its code was opened by the first room
+/// screen's Host options, under the second, with only the browser to show
+/// for it. Two trips in a row each show their code over Host options, the
+/// home shows nothing of them, and both settings are made.
+#[test]
+fn desktops_second_twitch_trip_shows_its_code_over_host_options() {
+    use crate::state::online::tests::room::client;
+    use crate::state::online::{Dest, SignIn};
+    use ddi_room::{Identity, TwitchChat, TwitchMirror};
+    use std::cell::Cell;
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    let t = Three::new(false);
+    let (done, attempts) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+    let online = desktop_person(&t.server, "alice", done.clone(), attempts.clone());
+    let alice: SharedRoom = Rc::new(RefCell::new(client(&t.server, online.clone(), "alice", 1_000)));
+    let env = env();
+    let orders = Orders::default();
+    // As desktop's shell: a room entered from the home is pushed over it.
+    let entered = Rc::new(Cell::new(0));
+    let rooms = Rc::new(RefCell::new(Vec::new()));
+    let home_shell: super::online::OnlineShell = {
+        let (entered, env, alice, orders, rooms) =
+            (entered.clone(), env.clone(), alice.clone(), orders.clone(), rooms.clone());
+        Rc::new(move |call, cx| {
+            if let super::online::OnlineCall::EnterRoom(_) = call {
+                entered.set(entered.get() + 1);
+                rooms.borrow_mut().push(());
+                cx.push(
+                    sample::room_select(&env, alice.clone(), songs_of(&["Alpha One"]))
+                        .with_room(alice.clone(), shell(&alice, &orders)),
+                );
+            }
+        })
+    };
+    let mut h = harness();
+    h.push(super::online_home::Home::new(env.clone(), online.clone(), home_shell));
+    h.run(0.5);
+    h.push(
+        sample::room_select(&env, alice.clone(), songs_of(&["Alpha One"]))
+            .with_room(alice.clone(), shell(&alice, &orders)),
+    );
+    let settle = |h: &mut Harness| {
+        for _ in 0..4 {
+            t.clock.advance(100);
+            alice.borrow_mut().tick(ddi_room::Clock::now(&t.clock).0);
+            h.run(0.2);
+        }
+    };
+    settle(&mut h);
+    open_players(&mut h);
+    press(&mut h, "HostOptions");
+    assert_eq!(top(&h), "room-host");
+    // A trip for each feature in turn, each as the person takes it.
+    for (row, feature, k, granted) in [
+        ("Inc.twitchchat", "chat", 1, vec!["chat"]),
+        ("Inc.twitchbans", "bans", 2, vec!["chat", "bans"]),
+    ] {
+        press(&mut h, row);
+        settle(&mut h);
+        assert_eq!(top(&h), "sign-in", "{feature}: its dialog over Host options: {:?}", h.ui.layers());
+        let code = crate::state::online::api::grouped_code(&format!("ABC23{k}"));
+        assert!(h.texts().iter().any(|s| s.contains(&code)), "{feature}: its code shown: {:?}", h.texts());
+        assert_eq!(attempts.get(), k, "{feature}: one attempt");
+        // The browser: the code typed, Twitch's consent, back.
+        t.server.borrow_mut().grant_twitch(&Identity::new("dev:alice"), &granted);
+        done.set(k);
+        settle(&mut h);
+        settle(&mut h);
+        assert_eq!(top(&h), "room-host", "{feature}: back on Host options: {:?}", h.ui.layers());
+        assert_eq!(entered.get(), 0, "{feature}: no room entered again over it");
+        assert!(matches!(online.borrow().sign_in_state(), SignIn::Idle));
+    }
+    let set = t.server.borrow().state().twitch.clone().expect("set");
+    assert_eq!((set.mirror, set.chat), (TwitchMirror::Bans, TwitchChat::Emotes));
+    // A third trip asked, canceled, and the room closed: the home shown
+    // under it asks nothing (it once showed its own sign-in dialog for a
+    // trip left so).
+    press(&mut h, "Inc.twitchbans");
+    settle(&mut h);
+    assert_eq!(top(&h), "sign-in");
+    assert_eq!(attempts.get(), 3);
+    for _ in 0..8 {
+        if top(&h) == "multiplayer" {
+            break;
+        }
+        if top(&h) == crate::LEAVE_QUESTION {
+            h.tap(PointerKind::Mouse, "Confirm");
+        } else {
+            h.key("Escape", "Escape");
+        }
+        settle(&mut h);
+    }
+    assert_eq!(top(&h), "multiplayer", "{:?}", h.ui.layers());
+    h.run(1.0);
+    assert!(!h.ui.layers().iter().any(|l| l.name == "sign-in"), "{:?}", h.ui.layers());
+    assert!(matches!(online.borrow().sign_in_state(), SignIn::Idle));
+    // A trip still waiting whose dialog went with the screen that asked
+    // for it is stopped once the home shows, never shown there.
+    online
+        .borrow_mut()
+        .connect_twitch_for(Dest::Room("Room000001".into()), "blocks", None);
+    h.run(1.0);
+    assert_eq!(attempts.get(), 4);
+    assert!(!h.ui.layers().iter().any(|l| l.name == "sign-in"), "{:?}", h.ui.layers());
+    assert!(matches!(online.borrow().sign_in_state(), SignIn::Idle));
+}
+
 /// Round TW1b: a trip through Twitch canceled changes nothing and the
 /// status line says so; the setting asked is forgotten.
 #[test]

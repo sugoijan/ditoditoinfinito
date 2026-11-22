@@ -268,6 +268,11 @@ pub struct Online {
     /// [`Online::connect_twitch_chat`]): connected, or not (nothing
     /// changed), until a screen takes it.
     chat_outcome: Option<bool>,
+    /// Round TB: the sign-in state's attempt is a trip through Twitch for
+    /// the person's Twitch access ([`Online::connect_twitch_for`]), not a
+    /// sign-in: its dialog is the screen's that asked for it, and its end
+    /// enters no room.
+    trip: bool,
 }
 
 /// The shell's account of what kind of client it is, asked when a report
@@ -296,6 +301,7 @@ impl Online {
             seated_to_watch: None,
             redirect: None,
             chat_outcome: None,
+            trip: false,
             next_id: 1,
             pending: BTreeMap::new(),
             answers: BTreeMap::new(),
@@ -453,6 +459,7 @@ impl Online {
     /// ([`Redirect::Page`]); desktop asks for an attempt and opens the
     /// system browser on it.
     pub fn sign_in(&mut self, dest: Dest) {
+        self.trip = false;
         match self.config.platform {
             Platform::Web => {
                 self.redirect = Some(Redirect::Page(api::login_path(&dest.route())));
@@ -491,6 +498,7 @@ impl Online {
         {
             let _ = ddi_platform::storage::set(ddi_platform::storage::Area::Session, TWITCH_WANTED, &text);
         }
+        self.trip = true;
         match self.config.platform {
             Platform::Web => {
                 self.redirect = Some(Redirect::Page(api::connect_path(&dest.route(), scopes)));
@@ -555,6 +563,13 @@ impl Online {
     /// setting made) or not (nothing changed).
     pub fn take_chat_outcome(&mut self) -> Option<bool> {
         self.chat_outcome.take()
+    }
+
+    /// Round TB: the sign-in state is a trip through Twitch for the
+    /// person's Twitch access, not a sign-in: the screen that asked for it
+    /// shows its dialog; a sign-in's screens leave it alone.
+    pub fn twitch_trip(&self) -> bool {
+        self.trip
     }
 
     /// Desktop or the web.
@@ -816,7 +831,14 @@ impl Online {
                         if let Some(dest) = dest {
                             self.sign_in = SignIn::Idle;
                             self.epoch += 1;
-                            self.resume(dest);
+                            // A trip through Twitch comes back to where it
+                            // was asked from, already shown (round TB: the
+                            // home under a room once took it for a room to
+                            // show and pushed a second room over the
+                            // first's Host options).
+                            if !std::mem::take(&mut self.trip) {
+                                self.resume(dest);
+                            }
                         }
                         self.settle_chat_wish();
                     }
