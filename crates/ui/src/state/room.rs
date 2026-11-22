@@ -96,6 +96,22 @@ pub const SPOTLIGHT_REST_MS: u64 = 3_000;
 /// numbered from 1): the server's grant for "no stage" (M7b).
 pub const SPOTLIGHT: StageId = StageId(0);
 
+/// Round TB: how long after the server took a Twitch setting asked Host
+/// options show it while the room has not said it yet.
+const TWITCH_SAID_MS: u64 = 5_000;
+
+/// Round TB: where a Twitch setting asked stands
+/// ([`RoomClient::twitch_shown`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TwitchAsking {
+    /// Sent, not answered yet.
+    Sent,
+    /// The access needs a trip through Twitch first.
+    Trip,
+    /// Answered (taken, or refused): shown until then at most.
+    Taken(u64),
+}
+
 /// Round FX: where this session's player said no at Twitch to allowing
 /// chat (a trip canceled), in the session's storage (the web's trip leaves
 /// the page): the room's status line asks no more (More still offers it).
@@ -1368,6 +1384,10 @@ pub struct RoomClient {
     /// said on the status line (round TW3, [`RoomClient::tell_twitch_end`]).
     seen_twitch: Option<ddi_room::TwitchSetting>,
     twitch_off_asked: bool,
+    /// Round TB: the room's Twitch setting this player asked and the room
+    /// has not said yet ([`RoomClient::twitch_shown`]), and where its
+    /// asking stands.
+    twitch_pending: Option<(ddi_room::TwitchMirror, ddi_room::TwitchChat, TwitchAsking)>,
     /// Round TW7: the room's chat channel this player was told their
     /// Twitch access cannot show ([`RoomClient::tell_chat_access`]).
     chat_access_told: Option<String>,
@@ -2157,6 +2177,7 @@ impl RoomClient {
             chat_access_told: None,
             chat_troubles: BTreeMap::new(),
             twitch_off_asked: false,
+            twitch_pending: None,
             placeholder,
             clock,
             client,
@@ -2589,6 +2610,66 @@ impl RoomClient {
             mirror == ddi_room::TwitchMirror::Off && chat == ddi_room::TwitchChat::Off;
         if let Some(l) = self.online_link_mut() {
             l.set_twitch(mirror, chat);
+            self.twitch_pending = Some((mirror, chat, TwitchAsking::Sent));
+            self.version += 1;
+        }
+    }
+
+    /// The room's Twitch setting as Host options show it and build the
+    /// next change on (round TB): the one this player asked until the room
+    /// says it (a trip through Twitch on the way, the answer in flight),
+    /// else the room's. Each change asks for the whole setting, so a
+    /// second row changed within the room's round trip once read the first
+    /// row from the room and undid it.
+    pub fn twitch_shown(&self) -> (ddi_room::TwitchMirror, ddi_room::TwitchChat) {
+        match self.twitch_pending {
+            Some((mirror, chat, _)) => (mirror, chat),
+            None => self.twitch().map_or(
+                (ddi_room::TwitchMirror::Off, ddi_room::TwitchChat::Off),
+                |t| (t.mirror, t.chat),
+            ),
+        }
+    }
+
+    /// Round TB: the setting asked is forgotten once the room says it,
+    /// once the server refused it, a moment after the server took it (the
+    /// room says it with its next change; another change may have come
+    /// first), or once its trip through Twitch ended without the access.
+    fn settle_twitch_pending(&mut self) {
+        let answer = self.online_link_mut().and_then(OnlineLink::take_twitch_answer);
+        let Some((mirror, chat, asking)) = self.twitch_pending else {
+            return;
+        };
+        let now = self.now_ms();
+        let said = self
+            .twitch()
+            .map_or((ddi_room::TwitchMirror::Off, ddi_room::TwitchChat::Off), |t| (t.mirror, t.chat));
+        let asking = match answer {
+            // A trip through Twitch first: kept until it ends.
+            Some(409) => TwitchAsking::Trip,
+            Some(s) if (200..300).contains(&s) => TwitchAsking::Taken(now + TWITCH_SAID_MS),
+            Some(_) => TwitchAsking::Taken(now),
+            None => asking,
+        };
+        // The trip ended without the access (canceled, failed): nothing
+        // was set (one still to start keeps it).
+        let trip_ended = asking == TwitchAsking::Trip
+            && self.online_link().is_some_and(|l| {
+                !l.twitch_trip_waiting()
+                    && matches!(
+                        l.online().borrow().sign_in_state(),
+                        crate::state::online::SignIn::Canceled { .. }
+                            | crate::state::online::SignIn::Failed { .. }
+                    )
+            });
+        let given_up = matches!(asking, TwitchAsking::Taken(until) if now >= until);
+        self.twitch_pending = if said == (mirror, chat) || trip_ended || given_up {
+            None
+        } else {
+            Some((mirror, chat, asking))
+        };
+        if self.twitch_pending.is_none() {
+            self.version += 1;
         }
     }
 
@@ -2642,6 +2723,8 @@ impl RoomClient {
             return;
         };
         if canceled {
+            self.twitch_pending = None;
+            self.version += 1;
             self.set_link_notice(Some(LinkNotice::TwitchNotConnected));
         } else {
             self.set_twitch(wanted.mirror, wanted.chat);
@@ -3134,6 +3217,7 @@ impl RoomClient {
         {
             self.version += 1;
         }
+        self.settle_twitch_pending();
         self.take_grants();
         self.read_inbox();
         self.retry_due();

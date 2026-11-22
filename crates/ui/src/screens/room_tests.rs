@@ -7590,6 +7590,39 @@ fn host_options_set_the_rooms_twitch_after_the_trip() {
     assert!(has(&ha, "alice's Twitch bans and chat apply."), "{:?}", ha.texts());
 }
 
+/// Round TB (the maintainer, 2026-11-22: "Does the 'Twitch bans' work
+/// together with 'Show my Twitch chat'?"): in Host options a second row
+/// changed before the room has said the first change keeps the first:
+/// each press asks for the whole setting, and the second once read the
+/// first row from the room's state, so "Twitch bans" then "Show my Twitch
+/// chat" pressed within the room's round trip turned the bans off again.
+/// The rows show what was asked until the room says it.
+#[test]
+fn host_options_second_row_keeps_the_first_rows_change_in_flight() {
+    use ddi_room::{Identity, TwitchChat, TwitchMirror};
+    let t = Three::new(false);
+    let ea = env();
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    t.settle(400, &mut [&mut ha]);
+    t.server
+        .borrow_mut()
+        .grant_twitch(&Identity::new("dev:alice"), &["bans", "chat"]);
+    open_players(&mut ha);
+    press(&mut ha, "HostOptions");
+    assert_eq!(top(&ha), "room-host");
+    // Two presses in one frame: the room has not said the first yet.
+    ha.tap(PointerKind::Mouse, "Inc.twitchbans");
+    assert_eq!(said(&ha, "TwitchBans.Value"), "Bans", "the row shows what was asked");
+    ha.tap(PointerKind::Mouse, "Inc.twitchchat");
+    t.settle(400, &mut [&mut ha]);
+    t.settle(400, &mut [&mut ha]);
+    let set = t.server.borrow().state().twitch.clone().expect("set");
+    assert_eq!((set.mirror, set.chat), (TwitchMirror::Bans, TwitchChat::Emotes));
+    assert_eq!(said(&ha, "TwitchBans.Value"), "Bans");
+    assert_eq!(said(&ha, "TwitchChat.Value"), "Emotes");
+}
+
 /// Desktop's online state over the fake room as `who` (round TB): the
 /// fake room's answers, and sign-in attempts numbered from 1 that the
 /// "browser" finishes by raising `done` to their number.

@@ -134,6 +134,9 @@ pub struct OnlineLink {
     twitch_trip: Option<String>,
     /// The setting last asked, for the trip to make it after.
     twitch_asked: Option<(ddi_room::TwitchMirror, ddi_room::TwitchChat)>,
+    /// How the server answered the setting last asked (its status), once
+    /// (round TB, [`Self::take_twitch_answer`]).
+    twitch_answer: Option<u16>,
     grant_reqs: Vec<(u64, StageId, Revision)>,
     grants: Vec<GrantNews>,
     song_grant_reqs: Vec<(u64, ddi_room::RoomSongId)>,
@@ -183,6 +186,7 @@ impl OnlineLink {
             twitch_req: None,
             twitch_trip: None,
             twitch_asked: None,
+            twitch_answer: None,
             grant_reqs: Vec::new(),
             grants: Vec::new(),
             song_grant_reqs: Vec::new(),
@@ -287,6 +291,18 @@ impl OnlineLink {
     pub fn take_twitch_trip(&mut self) -> Option<(String, Option<(ddi_room::TwitchMirror, ddi_room::TwitchChat)>)> {
         let trip = self.twitch_trip.take()?;
         Some((trip, self.twitch_asked))
+    }
+
+    /// Whether a trip through Twitch the setting asked needs waits to be
+    /// taken ([`Self::take_twitch_trip`]).
+    pub fn twitch_trip_waiting(&self) -> bool {
+        self.twitch_trip.is_some()
+    }
+
+    /// How the server answered the setting last asked (its HTTP status:
+    /// `409` a trip first), once.
+    pub fn take_twitch_answer(&mut self) -> Option<u16> {
+        self.twitch_answer.take()
     }
 
     /// The owner replaces the invite: old links stop working.
@@ -436,6 +452,7 @@ impl OnlineLink {
         }
         if let Some(r) = self.take(self.twitch_req) {
             self.twitch_req = None;
+            self.twitch_answer = Some(r.status);
             if r.status == 409
                 && let Ok(v) = serde_json::from_str::<serde_json::Value>(&r.body)
                 && v["error"] == "scope_missing"

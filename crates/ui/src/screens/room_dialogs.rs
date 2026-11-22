@@ -2803,7 +2803,7 @@ impl Screen for HostDialog {
                     inner,
                     13.0,
                 ));
-                (t, whose)
+                (r.twitch_shown(), whose)
             })
         };
         // Twitch bans, then "Show my Twitch chat" (every host's since
@@ -2925,11 +2925,10 @@ impl Screen for HostDialog {
             }
             ry += list_h - ROW;
         }
-        if let Some((t, whose)) = &twitch {
+        if let Some(((mirror, chat), whose)) = &twitch {
+            let (mirror, chat) = (*mirror, *chat);
             let labels = (&*m::rules_previous(), &*m::rules_next());
             let at = |mid: f32| [x0 + inner - 210.0, x0 + inner - 114.0, x0 + inner - 18.0, mid];
-            let mirror = t.as_ref().map_or(ddi_room::TwitchMirror::Off, |t| t.mirror);
-            let chat = t.as_ref().map_or(ddi_room::TwitchChat::Off, |t| t.chat);
             let mid = ry + ROW / 2.0;
             let mut label = env.text("TwitchBans", &m::host_twitch_bans(), 14.0, 400, "Secondary");
             look::ellipsized(&mut label, inner - 250.0);
@@ -3223,9 +3222,11 @@ impl Screen for HostDialog {
                 match name.as_str() {
                     "Dec.twitchbans" | "Inc.twitchbans" | "Dec.twitchchat" | "Inc.twitchchat" => {
                         use ddi_room::{TwitchChat, TwitchMirror};
-                        let now = self.room.borrow().twitch().cloned();
-                        let mut mirror = now.as_ref().map_or(TwitchMirror::Off, |t| t.mirror);
-                        let mut chat = now.as_ref().map_or(TwitchChat::Off, |t| t.chat);
+                        // Round TB: on what was asked last, the room not
+                        // having said it yet (a trip on the way, the
+                        // answer in flight), so one row never undoes the
+                        // other.
+                        let (mut mirror, mut chat) = self.room.borrow().twitch_shown();
                         let step = |k: usize, up: bool, n: usize| {
                             if up { (k + 1).min(n - 1) } else { k.saturating_sub(1) }
                         };
