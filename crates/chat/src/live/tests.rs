@@ -146,6 +146,15 @@ fn a_welcome_is_subscribed_and_chat_comes() {
     let lines = l.take_lines();
     assert!(lines.iter().any(|x| x.contains("welcomed in 200 ms (keepalive 10 s")), "{lines:?}");
     assert!(lines.iter().any(|x| x.contains("subscribed channel.chat.message: enabled (HTTP 202")));
+    // Twitch's totals are each call's own (round LO), never one in all.
+    let subscribed: Vec<&String> = lines.iter().filter(|x| x.contains("subscribed channel.chat.")).collect();
+    assert_eq!(subscribed.len(), 2, "{lines:?}");
+    assert!(
+        subscribed
+            .iter()
+            .all(|x| x.contains("total 1 at this call, total cost 0 of 10")),
+        "{subscribed:?}"
+    );
     // Nothing of the chat in the lines.
     assert!(!lines.iter().any(|x| x.contains("hello")));
 }

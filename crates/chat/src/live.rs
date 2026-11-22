@@ -866,8 +866,11 @@ impl Live {
                     self.channel = Some(c);
                 }
                 for s in &list {
+                    // Twitch's totals are each call's own count, the calls
+                    // made at once (round LO: "total 1" on each of four
+                    // lines read as one in all).
                     let line = format!(
-                        "subscribed {}: {} (HTTP {}, status {}, cost {}, total {}, total cost {} of {}{})",
+                        "subscribed {}: {} (HTTP {}, status {}, cost {}, total {} at this call, total cost {} of {}{})",
                         s.kind,
                         s.outcome,
                         opt(s.http),
