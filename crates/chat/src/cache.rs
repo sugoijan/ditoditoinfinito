@@ -539,7 +539,7 @@ mod tests {
         c.want(&e(2), &sets());
         assert_eq!(c.start()[0].via, Via::Proxy);
         // The sets' reads follow the same rule.
-        let (at, via) = c.set_address(&twitch_image("9"));
+        let (at, via) = c.set_address(&twitch_image("9").unwrap());
         assert_eq!(via, Via::Proxy);
         assert!(at.starts_with("https://api.test/x/emotes/twitch/"));
     }
