@@ -2988,29 +2988,36 @@ mod receptor_lift_tests {
     }
 
     /// The numbers for the plan (`docs/plans/touch-controls.md`, "Round
-    /// DE"): the receptors' row before and after, the arrows of the field
-    /// lost, and the reading time at ×2.5 at 150 BPM (2.5 beats a second:
-    /// 6.25 arrows a second), from the screen's top to the row.
+    /// DE"): on devices at their pixel ratios (a phone's arrow is capped
+    /// at 160 of its pixels), the receptors' row before and after (logical
+    /// pixels), the arrows of the field lost, and the reading time at ×2.5
+    /// at 150 BPM (2.5 beats a second: 6.25 arrows a second), from the
+    /// screen's top to the row; every size.
     #[test]
     #[ignore]
     fn receptor_lift_table() {
-        println!("| screen | controls | row before | row after | arrows lost | arrows read before | after | at ×2.5, 150 BPM before | after |");
-        println!("|---|---|---|---|---|---|---|---|---|");
-        for size @ [w, h] in UPRIGHT {
-            let g = FieldGeometry::placed(w, h, 4.0, true, Default::default());
+        use ddi_ui::touch_controls::Size;
+        println!("| screen | controls | size | row before → after | arrows lost | arrows read | at ×2.5, 150 BPM |");
+        println!("|---|---|---|---|---|---|---|");
+        for ([w, h], r) in [([390.0, 844.0], 3.0), ([360.0, 640.0], 3.0), ([820.0, 1180.0], 2.0)] {
+            let g = FieldGeometry::placed(w * r, h * r, 4.0, true, Default::default());
             for style in [Style::Buttons, Style::Pad] {
-                let c = controls(&g, size, style);
-                let lifted = g.lifted(receptor_floor(&c, &single(), true, size, 1.0));
-                let per_second = 2.5 * 2.5;
-                let (before, after) = (g.receptor_y / g.arrow, lifted.receptor_y / g.arrow);
-                println!(
-                    "| {w}×{h} | {style:?} | {:.0} | {:.0} | {:.1} | {before:.1} | {after:.1} | {:.2} s | {:.2} s |",
-                    g.receptor_y,
-                    lifted.receptor_y,
-                    lifted.lift() / g.arrow,
-                    before / per_second,
-                    after / per_second,
-                );
+                for size in [Size::Smaller, Size::Standard, Size::Larger] {
+                    let field = [g.left / r, (g.left + 4.0 * g.arrow) / r];
+                    let place = Screen::new([w, h], [0.0; 4]).with_field(field);
+                    let c = plan(&single(), place, Choice { style, size, ..Choice::default() }).unwrap();
+                    let lifted = g.lifted(receptor_floor(&c, &single(), true, [w * r, h * r], r));
+                    let per_second = 2.5 * 2.5;
+                    let (before, after) = (g.receptor_y / g.arrow, lifted.receptor_y / g.arrow);
+                    println!(
+                        "| {w}×{h} at {r}× | {style:?} | {size:?} | {:.0} → {:.0} | {:.1} | {before:.1} → {after:.1} | {:.2} → {:.2} s |",
+                        g.receptor_y / r,
+                        lifted.receptor_y / r,
+                        lifted.lift() / g.arrow,
+                        before / per_second,
+                        after / per_second,
+                    );
+                }
             }
         }
     }

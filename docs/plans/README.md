@@ -93,7 +93,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   permission, desktop's second trip shows its code over Host options,
   one row no longer undoes the other) and permissions kept across
   sign-outs (a sign-in asks again for those the device used within 30
-  days). A streaming host's Twitch bans and blocks
+  days); round DE (2026-11-22) the live chat's connection kept for the
+  room between its stages (the chat there from a stage's first frame)
+  and the layer's limits tripled, `chat-overlay-v2`, measured against
+  v1. A streaming host's Twitch bans and blocks
   keeping people out of the room (the host's token on the server, checked
   at join, ticket and each pick; room model revision 18), a host's or
   co-host's Kick behind a Moderate toggle, and the host's chat behind
@@ -638,7 +641,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   start menu's rain outlines, one shape each (the prompt's diagram
   too); on an upright screen the dancing hand stands clear of the
   controls, the judgment and the combo; nothing of the page is
-  selected during a play.
+  selected during a play. Round DE (2026-11-22): under Reverse on an
+  upright screen the receptors stand above the controls; a size option
+  (Smaller, Standard, Larger) in Options and on the prompt.
 - [Controller input in the UI core](controller-input-core.md) (2026-10-30):
   done. The `Ui` owns the bindings, the connected pads and the hint
   source, takes pads' edges as they are and releases what each held

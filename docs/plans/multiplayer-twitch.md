@@ -460,7 +460,9 @@ each gets a message when Twitch sends it.
 
 Named `chat-overlay-v1` since round TW5 (`chat-overlay-v0` retired:
 its runs drawn once with "×N" are gone; "Round TW5" at the end), every
-number provisional:
+number provisional. Since round DE `chat-overlay-v2`: the limits below
+tripled (24 emotes a message, 240 messages and 480 emotes on screen, 60
+new messages a second; "Round DE" at the end):
 
 - At most 80 messages and 160 emotes on screen and 20 new messages a
   second; one a chatter every 2 s.
@@ -1297,7 +1299,8 @@ a channel's 404 no failure; Twitch's own from the fragments.
 (`ddi_session::chat`, `ChatSource::Live`, over a shell's `LiveIo`: the
 web's `WebSocket` and `fetch`, desktop's tungstenite on a thread a socket
 as the room's, ureq threads), from the play's start to its end (the
-session dropped closes its sockets): "ends with the stage", the brief's
+session dropped closes its sockets; replaced in a room by round DE's
+connection kept for the room, "Round DE" at the end): "ends with the stage", the brief's
 choice over keeping a socket across a room's stages, simpler and with no
 socket left over between plays (a stage's first second of chat is spent
 on the welcome). It runs only where a play may show chat (the device's
@@ -1608,3 +1611,154 @@ plain sign-in, on any device, leaves it as it is. Now:
   asked at the next sign-in. Resetting the settings does too.
 - Nothing new is shown when it works; Options → Data's row says what is
   connected, as before.
+
+## Round DE (2026-11-22): the connection kept for the room, and larger limits
+
+The maintainer's decisions of 2026-11-22: the live chat's connection
+stays open for as long as a player is in a room that shows chat, so the
+chat is there from a stage's first frame (round TW6 opened it at each
+stage's start and closed it at its end: the chat came about a second
+into every stage); and "Increase both limits, maybe triple of what they
+are."
+
+### The connection kept for the room
+
+- **When**: from the moment a member is in an online room that shows its
+  host's chat (the room's ceiling on), this device's "Twitch chat in
+  rooms" is on and its Twitch access allows chat (as `/me` last said it),
+  until they leave the room or any of those turns off
+  (`RoomClient::chat_kept`, a `ddi_ui::state::twitch::KeptChat`: the
+  room's channel as this device shows it, at the device's level under the
+  ceiling, and where the emotes come from). The room's client tells it as
+  it ticks (`keep_room_chat`, every frame of a room's screens, the
+  prompt's and the stage's ticks, and the web's kept room's timer under a
+  hidden tab or a page over the room, as a room's stage treats them) to
+  the keeper `ddi_session::chat` installs with the live chat
+  (`keep_for_room`); a room's client dropped says nothing is wanted any
+  more. CPU practice tells it nothing; a bot never has one.
+- **Between stages** (`chat::Keeper`): the connection driven on the
+  room's clock, nothing drawn, and nothing kept for later but the last
+  `BUFFER_SECONDS` (2 s) of events, `BUFFER_MOST` (20) at most, which
+  the next stage's first frame shows; the emote sets read once and kept
+  warm. The keep-alive's watchdog, Twitch's reconnect, the backoff and
+  giving up are the connection's own, as before (`live-chat-v0`).
+- **A stage** takes it (`ChatLayer::new`: the room's connection where it
+  holds one for this chat; the play's host clock drives it from there,
+  going on from the room's time) and gives it back at its end
+  (`give_back`: kept where the room still wants it, else closed with the
+  stage's last lines). A stage that opened its own (the access not known
+  yet when it began) gives it to the room at its end where the room
+  wants it by then; the room opens none of its own while a stage holds
+  one. A change of channel or of what shows closes it and opens another.
+- **Outside a room** nothing changes: a singleplayer play opens no
+  socket and makes no request whatever the options say
+  (`a_singleplayer_play_shows_no_live_chat_whatever_the_options` still
+  passes), and the development flags' live chat (`live`, `live:<login>`)
+  in solo plays and CPU practice keeps its per-play lifetime.
+- **Said**: the report's lines (desktop's `chat-report.txt` and stderr,
+  the web's console) say the lifetime: `kept for the room: open until the
+  room is left or its chat turned off`, `a stage took the room's
+  connection (live, N events from the last 2 s)`, `the stage ended: N
+  chat messages during it; kept for the room` with the stage's shown and
+  images lines, and `closed for the room (why): kept N s, K stages took
+  it` with what was received. `__DDI_DEBUG.chat.live` has `lifetime`
+  (`room` or `play`) and `taken_from_room`; every page's
+  `__DDI_DEBUG.chatKept` is the room's connection between stages
+  (`held`, `lent`, `stages`, `kept_ms`, `buffered`, the connection's
+  report).
+- **Tests**: `a_rooms_chat_stays_connected_across_its_stages` and
+  `a_stages_own_connection_is_given_to_the_room` (`ddi-session`, on a
+  fake clock over a fake shell's side: one socket for two stages, the
+  chat at each stage's first frame, the buffer's cap, closed on leaving,
+  a change of what shows reopening it, a solo play's own connection
+  closed with it), `a_room_tells_its_keeper_what_chat_to_keep_connected`
+  (`ddi-ui`, over the fake server: alice's access allows chat, bob's
+  does not; the option or the room's chat off; leaving; practice silent).
+- **Walked** in Chrome and Firefox on a local server (its fake Twitch)
+  and a local fake EventSub socket, every request outside localhost
+  aborted (`target/scratch/mp/de/walks/room.mjs`): a guest with the
+  chat's permission joined a room with no chat (no socket), the host
+  turned Show my Twitch chat to Emotes then Emotes and messages (the
+  guest's connection opened at once, closed and opened again for the
+  messages: two sockets in all), two stages (each took the room's
+  connection, live, with the last 2 s's 5 or 6 events: messages there
+  at the play's first debug read, before the song's first second; the
+  room held it again after each, 6 or 7 events buffered), then the
+  guest left (closed: "kept 36 s, 2 stages took it", 116 chat messages
+  received over it); a solo play with every option on and a session
+  with the chat's permission opened no socket and asked nothing.
+
+### `chat-overlay-v2` (PROVISIONAL, `ddi_chat::overlay::CHAT_OVERLAY_V2`)
+
+| | v1 (round TW5) | v2 (round DE) |
+|---|---|---|
+| Emotes a message brings | 8 | 24 |
+| On screen | 80 messages, 160 emotes | 240 messages, 480 emotes |
+| New a second | 20 messages | 60 messages |
+| One chatter | every 2 s | every 2 s |
+
+The rate rises with the screen's caps because at 20 a second, with an
+item on screen 7 to 8.75 s (Across, ±25%), at most about 175 messages
+are ever on screen: the rate, not v2's 240, would have been what limits
+a busy chat. A chatter's 2 s stays: it limits one person's flood, never a
+busy chat of many chatters. Two things still bite before the caps, as
+before: the space (an item comes in only where nothing else is still
+coming in across its width; in a wall of 60 messages a second of 30
+emotes, most are "no room") and, in a look that keeps a message's
+emotes in one row (not v2's scattered one), the screen's width (21 of a
+message's 24 at 1280 pixels). The scripts `wall` and `animated-wall`
+(60 messages a second of 30 emotes each, all animated in the second)
+test the new limits; `mpfakechatrules=v1` (the web) and
+`ddi_shell::chat::set_rules` (desktop's study) lay the chat by v1 for
+the comparison, TESTING ONLY.
+
+**Frame costs**, v1 against v2 on the same build and the same machine
+(load averages 5 to 11 through the runs, other work on it): a solo play
+of Beatucada autoplayed, measured from its fourth second. Desktop:
+offscreen, the recorded frame's main-thread milliseconds (mean; the
+chat's own part in brackets), the test profile
+(`DDI_CHAT_COST=cost cargo test -p ddi-desktop --test chat_offscreen study
+-- --ignored --nocapture`). The browsers: the release build, the frame
+recorder's whole frame (`perf=1`, mean), the chat's own part from the
+debug state in brackets (`target/scratch/mp/de/walks/cost.mjs`).
+
+| | off | on (`demo`) v1 → v2 | burst or flood v1 → v2 | `wall` v1 → v2 | `animated-wall` v1 → v2 |
+|---|---|---|---|---|---|
+| Desktop 1280×720 | 0.10 | 0.19 → 0.20 (0.09 → 0.10) | flood 0.23 → 0.28 (0.13 → 0.17) | 0.23 → 0.33 (0.09 → 0.18) | 0.21 → 0.28 (0.09 → 0.16) |
+| Desktop, eight CPUs | 0.27 | 0.37 → 0.40 | flood 0.44 → 0.48 | 0.43 → 0.50 | 0.39 → 0.49 |
+| Desktop phone 390×844 | 0.09 | 0.18 → 0.19 | flood 0.26 → 0.24 | 0.22 → 0.27 (0.08 → 0.13) | 0.21 → 0.26 (0.09 → 0.13) |
+| Desktop phone, eight CPUs | 0.31 | 0.37 → 0.37 | flood 0.43 → 0.44 | 0.42 → 0.47 | 0.42 → 0.45 |
+| Chrome (WebGPU) 1280×720 | 0.50 | 0.93 → 0.99 | burst 0.92 → 0.85 | 1.29 → 1.45 (0.33 → 0.51) | 1.12 → 1.48 (0.30 → 0.54) |
+| Chrome phone (390×844 at 3×) | 0.66 | 0.95 → 0.95 | burst 0.90 → 0.88 | 1.24 → 1.25 (0.32 → 0.42) | 1.27 → 1.17 (0.32 → 0.41) |
+| Firefox (WebGL2) 1280×720 | 0.90 | 1.10 → 1.10 | burst 1.05 → 1.09 | 1.21 → 1.28 (0.29 → 0.25) | 1.19 → 1.27 (0.20 → 0.36) |
+| Firefox phone | 1.03 | 1.12 → 1.09 | burst 1.12 → 1.10 | 1.24 → 1.28 | 1.17 → 1.26 |
+
+The most tripling costs anywhere is 0.36 ms a frame (Chrome, 1280×720,
+the animated wall), 0.10 on desktop: under a millisecond everywhere, so
+no smaller caps are proposed. What was drawn at once at most: at
+1280×720 152 emotes in the wall with v2 (117 with v1), on a phone 104
+(89); the 480 counts the emotes a message is let in with, of which many
+find no place on their way in. Firefox's clock is a millisecond here,
+so its medians read 1. The hold under load (no new items from a late
+second) did not engage with v2 in any run, ordinary bursts included,
+on Firefox too (once with v1, 12 of 89 reads of the phone's burst, the
+machine's load). Round TW5's numbers were taken at load 15 to 21: off,
+on and flooded 0.39, 0.76 and 1.01 on desktop, 0.53 and 0.75 in Chrome,
+1.03 and 1.20 in Firefox, its animated burst 2.33 while shedding.
+
+**The emote atlas at the new caps** (`ddi_chat::cache`, unchanged): 256
+images kept, 768 of its 1024 cells for animated frames. The scripted
+chats use eleven distinct emotes (four animated: 62 cells), far inside
+it. A real chat's distinct emotes count: where more than 256 distinct
+images are drawn in one frame (none of them may go), those past 256 are
+not placed, their items go without them after the second's wait (`no
+image`) and the image stays failed for the play
+(`past_256_distinct_images_drawn_at_once_the_rest_go_without`); since
+at most about 150 emotes were drawn at once in a 60-a-second wall, 256
+distinct at once is unlikely. Animated frames bind sooner: twelve
+emotes of 64 frames fill their 768 cells, and past that the least
+recently drawn animation goes, or, where all are drawn this frame, the
+new one is still (its first frame), as round TW4 built it; a chat with
+more distinct animated emotes on screen at once than fit shows the rest
+still. Not changed in this round: a decision for the maintainer if
+animated walls of many distinct emotes matter.

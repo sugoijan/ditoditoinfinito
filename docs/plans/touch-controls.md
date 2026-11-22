@@ -2,7 +2,8 @@
 
 Status: built (round touch-1, 2026-11-20; round TC2, 2026-11-21: the
 rain's outlines as the glyphs, the hand on an upright screen, no
-selection during a play): the buttons and the pad drawn
+selection during a play; round DE, 2026-11-22: the receptors above the
+controls under Reverse upright, a size): the buttons and the pad drawn
 over the play, presses and slides on both shells, the option in Options
 and on the prompt, the prompt's diagram, touch as an input source. Open:
 the look (three candidates, below), the default (Buttons: a change for
@@ -93,7 +94,8 @@ notes, and nothing was drawn. Desktop had no touch play at all.
   never flutters. Several fingers on one lane hold it until the last
   lifts (the shells count them, as the columns did).
 - **Drawn** (`ddi_shell::touch_controls::TouchView`): by the play's 2D
-  pass under everything else of it, over the unchanged field, each
+  pass under everything else of it, over the unchanged field (but for
+  round DE's receptors above them under Reverse upright), each
   target a translucent plate with the lane's glyph turned as its
   receptor (since round TC2 the start menu's rain outlines, one shape
   each, below), lit while held. The quit button and the volume move
@@ -203,6 +205,102 @@ change; the look stays Mat.
   The real check is the maintainer's phone: a long press on a button, a
   double tap on a button, two fingers close on one button.
 
+## Round DE (2026-11-22): the receptors above the controls, and a size
+
+The maintainer's two decisions of 2026-11-22: under Reverse on a screen
+held upright the receptors stand above the controls (this plan's open
+question "Reverse upright"), and the controls have a size.
+
+- **Reverse upright: the receptors above the controls**
+  (`ddi_render::FieldGeometry::lifted`, `RenderOptions::receptor_floor`,
+  `ddi_shell::play_view::receptor_floor`). Only where the touch controls
+  show, the screen is taller than wide and the play is in Reverse, the
+  receptors' row stands just above them: its foot 8 px (`GAP`) above the
+  controls' top, never above two fifths of the screen from its top
+  (`RECEPTOR_LIFT_MOST`, which no control reaches today). The judgment and
+  the combo follow it: they are placed from the field's middle, which is
+  now the middle of the field above where the row stands
+  (`FieldGeometry::middle`); so do the hold explosions and the Held and
+  Let go words, the attack warning, the lane covers, the lyrics' keep-out,
+  the quit button's side and the dancing hand's band (round TC2's
+  `upright_band` and a stage's `behind_field` read the lifted rows). The
+  life gauge stays at the top; the opponents' miniatures keep their own
+  rows (they have no controls). Nothing else moves: normal scroll,
+  sideways, a keyboard or a pad as the input source (the controls hidden),
+  the legacy columns, and a layout whose lanes scroll both ways (its
+  receptors at both ends) keep their geometry. `__DDI_DEBUG.receptors` is
+  `{y, lifted}` (CSS pixels).
+
+  What it costs, Single, on devices at their pixel ratios (a phone's
+  arrow is 160 of its pixels at most, 53 CSS pixels at 3×; `cargo test -p
+  ddi-shell --lib receptor_lift_table -- --ignored --nocapture`, which the
+  browsers' `__DDI_DEBUG.receptors` matched: 698 and 453 on the 390×844
+  phone): the receptors' row down the screen before and after (CSS
+  pixels), the arrows of the field lost, and the reading time from the
+  screen's top to the row at ×2.5 at 150 BPM (6.25 arrows a second):
+
+  | screen | controls | row before → after | arrows lost | arrows read | at ×2.5, 150 BPM |
+  |---|---|---|---|---|---|
+  | 390×844 at 3× | Buttons | 764 → 698 | 1.2 | 14.3 → 13.1 | 2.29 → 2.09 s |
+  | 390×844 at 3× | Pad | 764 → 453 | 5.8 | 14.3 → 8.5 | 2.29 → 1.36 s |
+  | 360×640 at 3× | Buttons | 560 → 502 | 1.1 | 10.5 → 9.4 | 1.68 → 1.51 s |
+  | 360×640 at 3× | Pad | 560 → 335 | 4.2 | 10.5 → 6.3 | 1.68 → 1.00 s |
+  | 820×1180 at 2× | Buttons | 1060 → 1002 | 0.7 | 13.2 → 12.5 | 2.12 → 2.00 s |
+  | 820×1180 at 2× | Pad | 1060 → 746 | 3.9 | 13.2 → 9.3 | 2.12 → 1.49 s |
+
+  Above the Buttons it is about an arrow; above the pad, which takes 42%
+  of the height, four to six arrows, and the smallest phone reads a
+  second at ×2.5 and 150 BPM (still slower than the reading times many
+  players choose; a slower speed gives it back). The sizes (below) move
+  it with the controls: on the 390×844 phone Smaller and Larger Buttons
+  718 and 673 (2.15 and 2.02 s), Smaller and Larger pads 522 and 429
+  (1.57 and 1.29 s); the Larger pad on the smallest phone 285 (0.86 s).
+  The dancing hand (round TC2's band) follows the rows: above the Buttons
+  it keeps the band above the judgment as before; above the pad the
+  judgment and the combo move up with the row, so the band left above
+  them is shorter and the hand drawn there smaller (on the 390×844 phone
+  564 of the target's pixels tall where it was 1030): placement only, its
+  planning and motion unchanged.
+
+- **A size** (`ddi_ui::touch_controls::Size`, `Choice::size`,
+  `Settings::touch_size`, saved on the device as every setting is):
+  Options → Controls, under "Touch screens", "Touch controls size":
+  Smaller (0.8), Standard, Larger (1.25); the same row in the start
+  prompt's play options on a touch screen (with Touch controls). Three
+  words rather than a percent scale: it is a comfort choice, and a phone
+  held upright leaves the buttons no room to grow wider anyway. Each group
+  grows or shrinks from its corner at the screen's foot (the left group
+  from its left corner, the right one from its right, a pad under the
+  field from its foot's middle, a pad beside the field from its outer
+  corner), within the safe area and the room its place has: a button at
+  most the side's share of the width and two fifths of the safe height
+  (`BUTTON_TALL`), a pad under the field at most half the height
+  (`PAD_TALL_MOST`, the standard 42%), beside the field its room beside
+  it. The rule that Buttons narrower than 44 px play the pad instead is
+  decided at the standard size, so a size never changes the style played;
+  Smaller never draws a target under 44 px where Standard does not (it
+  stops there). The prompt's diagram follows: its cut of each control is
+  drawn at the size's share of the standard one's, within its cell.
+
+  Single's targets (`cargo test -p ddi-ui --lib sizes_by_choice_table --
+  --ignored --nocapture`), width × height in CSS pixels, and where the
+  controls begin down the screen:
+
+  | screen | style | Smaller | Standard | Larger |
+  |---|---|---|---|---|
+  | phone 390×844 | Buttons | 68×81, from 753 | 84×101, from 733 | 84×127, from 707 |
+  | phone 390×844 | Pad | tiles 87, from 557 | 110, from 488 | 118, from 464 |
+  | phone 844×390 | Buttons | 90×90, from 290 | 113×113, from 267 | 141×141, from 239 |
+  | phone 844×390 | Pad (beside) | 81, from 121 | 103, from 56 | 103 (no room), from 56 |
+  | 360×640 | Buttons | 62×75 | 77×94 | 77×117 |
+  | 360×640 | Pad | 64 | 81 | 98 |
+  | tablet 820×1180 | Buttons | 96×96 | 120×120 | 150×150 |
+  | tablet 820×1180 | Pad | 95 | 120 | 151 |
+
+  Upright, Larger buttons grow in height alone (two a side already fill
+  the width), and the pad grows to the width; on its side a phone's pad
+  beside the field has no room to grow.
+
 ## The look: three candidates (open)
 
 The pictures (the study's sheets, `q5-looks`) show each at rest, with
@@ -263,10 +361,8 @@ groups, `opponents::arrange_up_to`'s keep-outs).
 
 ## What does not fit, and open questions
 
-- **Reverse upright**: the receptors are at the bottom, under the
-  buttons (translucent) or the pad. The field stays as the maintainer
-  said; Reverse on a phone upright is the one case where moving the
-  receptors above the controls would help. A decision for the maintainer.
+- **Reverse upright**: decided and built in round DE (above): the
+  receptors stand above the controls while they show.
 - Five and six lanes on Buttons upright on a phone: 54 px (8.9 mm) wide
   each, 49 (8.1 mm) on the smallest; usable, under the aim; the pad is
   larger there (18.3 mm) and covers more of the field.
@@ -295,7 +391,7 @@ groups, `opponents::arrange_up_to`'s keep-outs).
   drawn now): the noteskin draws receptors through its Lua on the field
   only; drawing it at the targets would go through the miniatures' way of
   drawing the skin elsewhere (`ddi_render::scene::Miniature`).
-- A size adjustment (smaller, larger buttons) once players say.
+- A size adjustment: built in round DE (above), three sizes.
 - Edge swipes (the browsers' back swipe, iOS's bottom edge): kept as the
   safe area today; to be adjusted after feedback.
 - Remove the legacy columns once the maintainer decides.

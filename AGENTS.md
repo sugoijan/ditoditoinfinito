@@ -557,7 +557,9 @@ Rust and the browser are implementation details, not advertised features.
   pure (`Settings::touch_controls`: Buttons under the thumbs, by default,
   up to seven lanes and 44 px wide, else the dance mat's pad,
   `ddi_dance_mat::MatLayout`, two for the doubles, or the legacy Columns;
-  `Settings::touch_hand`, the odd layouts' extra button's side) and finds
+  `Settings::touch_hand`, the odd layouts' extra button's side;
+  `Settings::touch_size`, Smaller, Standard or Larger from their
+  corners, round DE) and finds
   a finger's lane (`Controls::lane_at`: a slide changes lane only
   `DEAD_BAND` inside the next target); their glyphs are the start
   menu's rain outlines, one quad of an atlas the game rasterizes a
@@ -566,7 +568,10 @@ Rust and the browser are implementation details, not advertised features.
   else; source `ddi:touch-glyphs`, answered by
   `ddi_shell::touch_controls::serve` in both shells' menu painters);
   `ddi_shell::touch_controls` draws
-  them over the unchanged field while touch is the source (the look
+  them over the field while touch is the source (the field unchanged
+  but under Reverse on an upright screen, where its receptors stand just
+  above them, round DE, `ddi_shell::play_view::receptor_floor`,
+  `FieldGeometry::lifted`; the look
   still open: `touchlook=` on the web, `DDI_TOUCH_LOOK` on desktop,
   TESTING ONLY); the shells press lanes through them (the web's
   `web::touch`, desktop's `Shell::touch_lane`; while a web play is on
@@ -953,7 +958,11 @@ Rust and the browser are implementation details, not advertised features.
   `ddi_ui::state::twitch::scripted_ceiling`) and since round TW6 the live chat
   (`ChatSource::Live`: `ddi_chat::live`'s connection driven in the
   tick over a shell's `LiveIo`, installed by `chat::set_live`, the
-  channel's emote sets, from the play's start to its end; every
+  channel's emote sets, from the play's start to its end, but in an
+  online room the room's: kept connected between its stages while the
+  room shows chat and this device may, lent to each stage, round DE,
+  `chat::keep_for_room` told by `RoomClient::chat_kept` as the room
+  ticks, `__DDI_DEBUG.chatKept`; every
   player's since round TW7, a multiplayer feature alone: an online
   room's stage the room's channel through `POST <api>/rooms/<id>/chat/subscribe`
   (`RoomChat::room`), a singleplayer play and CPU practice none and no
@@ -1368,9 +1377,9 @@ Rust and the browser are implementation details, not advertised features.
   huge refused, or their first frame still), the frames kept and which
   is drawn when (`anim.rs`, round TW4), a message made into an item
   after C11's filters
-  (`item.rs`: every emote a piece of its own, eight a message),
-  `chat-overlay-v1`'s budgets (round TW5: no emote summarized, budgets
-  in emotes), the moderation events and the two motions over the whole
+  (`item.rs`: every emote a piece of its own, 24 a message),
+  `chat-overlay-v2`'s budgets (round DE: `chat-overlay-v1`'s of round
+  TW5 tripled; no emote summarized, budgets in emotes), the moderation events and the two motions over the whole
   screen on the host's clock (`overlay.rs`: Across, Falling, reduced
   motion's fixed places; the looks shown to the maintainer, `LOOKS`,
   scattered by default), the emote images kept and their atlas cells,

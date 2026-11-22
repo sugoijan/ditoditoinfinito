@@ -14484,6 +14484,71 @@ place is told by their own device that they do not choose while the
 older server would still take a choice from an older client. Nothing to
 set, no binding, no secret.
 
+## Round DE: the receptors above the touch controls, their size, the chat kept for the room, larger chat limits (2026-11-22, no change to the room model)
+
+Four decided changes, each its own commit (game `de-1`; no server
+change). The room model's revision is unchanged (23).
+
+- **Reverse upright: the receptors above the touch controls**
+  (`docs/plans/touch-controls.md`, "Round DE"). Only where the controls
+  show, the screen is held upright and the play is in Reverse, the
+  receptors' row stands 8 px above them (`FieldGeometry::lifted`,
+  `RenderOptions::receptor_floor`, `play_view::receptor_floor`); the
+  judgment, the combo and what hangs off the row follow, the dancing
+  hand's band is worked out against the new rows, nothing else moves.
+  On a 390×844 phone the row goes from 764 to 698 (Buttons, 1.2 arrows
+  lost; 2.29 to 2.09 s of reading at ×2.5 and 150 BPM) or to 453 (the
+  pad, 5.8 arrows, 1.36 s); the smallest phone's pad leaves 1.00 s.
+  Tests: `reverse_upright_lifts_the_receptors_above_the_touch_controls`
+  (`ddi-shell`); walked in Chrome and Firefox, pictures before and after
+  in `target/scratch/mp/de/shots/`. For the maintainer: above the pad the
+  hand's band, now above a judgment that moved up, is about half as tall
+  (the hand drawn smaller there).
+- **A size for the touch controls**: Options → Controls' "Touch controls
+  size" and the prompt's play options on a touch screen: Smaller (0.8),
+  Standard, Larger (1.25), from each group's corner at the screen's foot
+  within the safe area; the 44 px rule decided at Standard, so the size
+  never changes the style, and Smaller never under 44 px where Standard
+  is not (`touch_controls::Size`, `Settings::touch_size`). Upright on a
+  phone Larger buttons grow in height alone (84×101 to 84×127), the pad
+  to the width (tiles 110 to 118); on its side the pad beside the field
+  has no room to grow. Tests: `a_size_scales_the_controls_from_their_corners_within_the_safe_area`,
+  `a_touch_screen_offers_the_controls_and_their_size`; the prompt's
+  diagram's cuts follow the size (pictures). New messages
+  `options-touch-size*` in English and Japanese (a draft; 裕 and 角 cut
+  into the Japanese faces).
+- **The chat's connection kept for the room**
+  (`docs/plans/multiplayer-twitch.md`, "Round DE"): opened when a member
+  is in a room that shows chat with the device's option on and the
+  access allowing chat, kept between stages (the last 2 s of events, 20
+  at most, for the next stage's first frame; nothing drawn), lent to each
+  stage, closed on leaving or when any of those turns off. Tests:
+  `a_rooms_chat_stays_connected_across_its_stages`,
+  `a_stages_own_connection_is_given_to_the_room`,
+  `a_room_tells_its_keeper_what_chat_to_keep_connected`; the singleplayer
+  test still passes. Walked in Chrome and Firefox on a local server and a
+  local fake EventSub socket: one socket kept through two stages, the
+  chat there at each stage's first frame (5 or 6 events from the room's
+  last 2 s), closed on leaving ("kept 36 s, 2 stages took it"); a solo
+  play with every option on opened no socket and asked nothing.
+- **`chat-overlay-v2`**: v1's limits tripled (24 emotes a message, 240
+  messages and 480 emotes on screen) and the new messages a second with
+  them (60: at 20 an item's 7 to 8.75 s on screen held at most about 175,
+  so the rate, not the screen, would have limited a busy chat); one a
+  chatter every 2 s kept (it limits one chatter, never a busy chat of
+  many). Tests: `v2_is_v1_with_its_limits_tripled`, the caps' tests over
+  both rule sets, `the_rules_are_v2s_unless_a_test_sets_others`. Frame
+  costs measured against v1 on the same build and load (desktop
+  offscreen, Chrome and Firefox; the tables in the Twitch plan): the
+  most tripling adds anywhere is 0.36 ms a frame (Chrome at 1280×720, a
+  wall of animated emotes: 1.12 to 1.48 ms), 0.10 on desktop; the hold
+  under load never engaged with v2, Firefox included. At most 152 emotes
+  were drawn at once (the space limits a burst before the 480 does). The
+  emote atlas is unchanged (256 images, 768 cells of animated frames):
+  past 256 distinct images drawn at once the rest go without their
+  image; more distinct animated emotes than their cells show still. For
+  the maintainer: whether the atlas should grow for animated walls.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

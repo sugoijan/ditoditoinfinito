@@ -637,6 +637,31 @@ mod tests {
         assert!(matches!(c.readiness(&e(100)), Readiness::Ready { .. }));
     }
 
+    /// Round DE: `chat-overlay-v2` lets 480 emotes on screen, the atlas
+    /// keeps 256 images. Where more distinct emotes than that are drawn in
+    /// one frame (none of them may go), those past 256 are not placed:
+    /// their items go without them (`no_image` after the wait), and the
+    /// image stays failed for the play. In the bursts measured the most
+    /// emotes drawn at once was about 150, of a few dozen distinct ones.
+    #[test]
+    fn past_256_distinct_images_drawn_at_once_the_rest_go_without() {
+        let mut c = EmoteCache::new(None);
+        c.next_frame();
+        let mut placed = 0;
+        let mut failed = 0;
+        for i in 0..480u32 {
+            c.want(&e(i), &sets());
+            for f in c.start() {
+                match c.fetched(&f.emote, f.via, Some(Got::still([56, 56]))) {
+                    Answer::Place { .. } => placed += 1,
+                    Answer::Failed => failed += 1,
+                    other => panic!("{other:?}"),
+                }
+            }
+        }
+        assert_eq!((placed, failed), (KEPT, 480 - KEPT));
+    }
+
     fn moving(frames: usize, ms: u32) -> Got {
         Got {
             size: [56, 56],
