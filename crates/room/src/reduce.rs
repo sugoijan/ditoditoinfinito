@@ -474,13 +474,15 @@ impl RoomState {
                 if s.content.is_none() {
                     return Err(Rejection::NoContent);
                 }
-                if s.prep_ref(id).loading != *loading {
+                // Kept bounded, whatever was sent (round RFa).
+                let loading = loading.clone().bounded();
+                if s.prep_ref(id).loading != loading {
                     self.emit(
                         out,
                         Event::LoadingChanged {
                             stage: *stage,
                             participant: id,
-                            loading: loading.clone(),
+                            loading,
                         },
                     );
                 }

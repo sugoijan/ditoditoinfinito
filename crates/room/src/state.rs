@@ -443,6 +443,30 @@ impl Loading {
     pub fn in_progress(&self) -> bool {
         matches!(self, Loading::NotStarted | Loading::Loading { .. } | Loading::Retrying)
     }
+
+    /// The most bytes of a [`Loading::Failed`] code the room keeps (round
+    /// RFa, 2026-11-22: a member's code was kept whatever its size, and
+    /// two of 700 KB filled the stored row). A client's codes are a few
+    /// words (`ddi_ui`'s `LoadProblem::code`, the longest
+    /// `battle_plan_mismatch`, 20 bytes).
+    pub const MAX_CODE: usize = 64;
+
+    /// As the room keeps it: a failure's code cut to [`Loading::MAX_CODE`]
+    /// bytes, between characters.
+    pub fn bounded(self) -> Loading {
+        match self {
+            Loading::Failed { code } if code.len() > Self::MAX_CODE => {
+                let mut end = Self::MAX_CODE;
+                while !code.is_char_boundary(end) {
+                    end -= 1;
+                }
+                Loading::Failed {
+                    code: code[..end].to_string(),
+                }
+            }
+            other => other,
+        }
+    }
 }
 
 /// A committed stage.
