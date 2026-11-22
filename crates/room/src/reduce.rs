@@ -1048,6 +1048,12 @@ impl RoomState {
                 if self.present_people() >= limit {
                     return Err(Rejection::RoomFull);
                 }
+                // The rows the room keeps, those who left too (round
+                // RFa): a new person past them is refused as a full room.
+                let rows = self.members.values().filter(|m| !m.is_cpu()).count();
+                if rows >= self.policy.member_rows() {
+                    return Err(Rejection::RoomFull);
+                }
                 // Every player's place taken: in to watch, not refused.
                 let intent = &self.arrival_intent(*intent);
                 let id = ParticipantId(self.counters.participant);

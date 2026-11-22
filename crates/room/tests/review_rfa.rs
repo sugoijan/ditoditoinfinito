@@ -92,3 +92,58 @@ fn the_next_rules_are_bounded() {
     rules.seats = 4;
     assert_eq!(rules.validate(&RoomPolicy::default(), 1), Ok(()));
 }
+
+/// Finding 1 (b): rows of people who left are kept (results name them by
+/// id), and a room bounded only the people present, so a room joined
+/// over its life by thousands of sign-ins grew its stored row without
+/// bound. A new person is refused as a full room once the room keeps
+/// `RoomPolicy::member_rows` people's rows, present or not (four times
+/// its member bound and administrators' reserve: 1,552 for a room of
+/// today's bound); someone with a row comes back as before. Proven with
+/// a member bound of 4 (rows: 20).
+#[test]
+fn a_room_keeps_a_bounded_number_of_peoples_rows() {
+    let mut policy = RoomPolicy::default().with_live().with_audience();
+    policy.max_members = 4;
+    policy.admin_reserve = 1;
+    assert_eq!(policy.member_rows(), 20);
+    assert_eq!(RoomPolicy::default().member_rows(), 1_552);
+    let mut r = Room::open("host", "Host", policy, MatchRules::hosted(), ContentSource::Shared);
+    let first = r.join_as("p0", Intent::Watch, false).unwrap();
+    r.by(first, Command::Leave).unwrap();
+    for i in 1..18 {
+        let id = r.join_as(&format!("p{i}"), Intent::Watch, false).unwrap();
+        r.by(id, Command::Leave).unwrap();
+    }
+    assert_eq!(r.s.members.len(), 19, "the host and 18 who left");
+    // The twentieth row is taken; a twenty-first person is refused.
+    let last = r.join_as("p18", Intent::Watch, false).unwrap();
+    r.by(last, Command::Leave).unwrap();
+    assert_eq!(r.join_as("p19", Intent::Watch, false), Err(Rejection::RoomFull));
+    // An administrator too: the bound is the room's stored size.
+    assert_eq!(r.join_as("pat", Intent::Watch, true), Err(Rejection::RoomFull));
+    // Someone who has a row comes back.
+    assert_eq!(r.join_as("p0", Intent::Watch, false), Ok(first));
+    assert!(!r.s.member(first).unwrap().left);
+    // A room stored with more rows than that (before the bound) loads,
+    // and its people come back.
+    let mut big = r.s.clone();
+    let json = {
+        let mut room = r.s.clone();
+        for i in 0..30u64 {
+            let id = ParticipantId(1_000 + i);
+            let mut m = room.members[&first].clone();
+            m.id = id;
+            m.kind = MemberKind::Human { identity: Identity::new(format!("twitch:old{i}")), name: format!("old{i}") };
+            m.left = true;
+            room.members.insert(id, m);
+        }
+        room.counters.participant = 1_030;
+        serde_json::to_string(&room).unwrap()
+    };
+    big = serde_json::from_str(&json).unwrap_or(big);
+    assert_eq!(big.members.len(), 50);
+    let mut back = Room { mirror: big.clone(), s: big, now: r.now, host: r.host };
+    assert_eq!(back.join_as("old3", Intent::Watch, false), Ok(ParticipantId(1_003)));
+    assert_eq!(back.join_as("newcomer", Intent::Watch, false), Err(Rejection::RoomFull));
+}
