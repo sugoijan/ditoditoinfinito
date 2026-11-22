@@ -1025,7 +1025,7 @@ room-rules-choice-group-about = プレイヤーがそれぞれルームのリス
 room-rules-repeats = 繰り返し
 room-rules-repeats-allowed = 可
 room-rules-repeats-not-in-a-row = 連続は不可
-room-rules-repeats-not-in-a-match = 対戦中1回まで
+room-rules-repeats-not-in-a-match = 対戦中1回
 room-rules-repeats-about = { $repeats ->
     [not_in_a_row] 直前にプレイした曲は次のステージに選べません。選べる曲がなくなる場合は、どの曲でも選べます。
     [not_in_a_match] 各曲は1回の対戦につき1回までです。この対戦でプレイした曲は、次の対戦まで選べません。選べる曲がなくなる場合は、どの曲でも選べます。
@@ -1089,7 +1089,7 @@ room-refused-cannot-choose = { $why ->
 }
 room-refused-repeated = { $rule ->
     [not_in_a_row] その曲は前のステージの曲です（繰り返し：連続は不可）。
-   *[not_in_a_match] その曲はこの対戦ですでに選ばれています（繰り返し：対戦中1回まで）。
+   *[not_in_a_match] その曲はこの対戦ですでに選ばれています（繰り返し：対戦中1回）。
 }
 room-refused-group-chooses = 次の曲はプレイヤーが選び、抽選で決まります（曲の決め方：グループ）。
 room-role-chose = 曲を選択済み

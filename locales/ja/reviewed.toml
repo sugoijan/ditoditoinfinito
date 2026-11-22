@@ -10433,7 +10433,7 @@ date = "2026-11-22"
 
 [room-refused-repeated]
 source = "bdbb14797be03721"
-text = "42884c881164b602"
+text = "5c1ffcadf025d8bd"
 by = "agent"
 date = "2026-11-22"
 
@@ -11117,7 +11117,7 @@ date = "2026-11-22"
 
 [room-rules-repeats-not-in-a-match]
 source = "68e7401c62c0e139"
-text = "aac67578e7446d57"
+text = "367714c148387c04"
 by = "agent"
 date = "2026-11-22"
 
