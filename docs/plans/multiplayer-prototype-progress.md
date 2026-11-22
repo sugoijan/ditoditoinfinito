@@ -14461,7 +14461,7 @@ Ten small leftovers, each its own commit with a test (game `lo-1`, server
 **Validated**: suites room, session, shell, ui, theme, engine, chat and
 the web's routes 2,202 passed, 0 failed (30 ignored); desktop 413 passed,
 0 failed (23 ignored; `results_flow` also with `DDI_NO_GPU=1`); the
-server's workspace 227 and `--features dev-auth` 227 passed against this
+server's workspace 225 and `--features dev-auth` 227 passed against this
 round's `crates/room` (a `paths` override), its clippy native and wasm
 with and without `dev-auth`, its format; clippy native and wasm (`ddi-web`,
 `ddi`); `l10n check` (no text changed); a release build's `check-boot`
