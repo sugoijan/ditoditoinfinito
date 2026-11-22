@@ -14009,6 +14009,86 @@ feature."
   the server's choices as before, and a server before it opens the
   countdown as before.
 
+## Round TB: Twitch bans and chat together, and permissions kept (2026-11-22)
+
+`docs/plans/multiplayer-twitch.md`, "Round TB". The maintainer asked
+whether "Twitch bans" works with "Show my Twitch chat"; on desktop,
+after the chat's trip, the bans' trip opened the browser with no dialog
+for its code, and the dialog showed only once the room was closed. Three
+faults, each its own commit with a test that failed before it:
+
+- **A second trip gave up the first permission** (server `tw7`, both
+  shells): a trip's "what the link has" was read from a field the link's
+  `/info` never said, so each trip asked Twitch for its own scope alone
+  and replaced the link: the setting asked on the way back waited for a
+  scope never granted, each press started a trip for the other one, and
+  the mirror's next check turned the room's Twitch setting off ("Twitch
+  access ended"), letting a banned person in. Reproduced on the local
+  server (every order, blocks with chat, the device's chat trip before
+  and after: the second trip asked `user:read:chat` alone) and through
+  desktop's own client (`a_hosts_twitch_bans_and_chat_are_both_kept_in_any_order`,
+  `DDI_ONLINE_API`). Server test `a_second_trip_keeps_what_the_link_has`.
+- **Desktop's second trip's code under the room**: the end of a trip
+  "entered" its room, the multiplayer home under the room pushed a
+  second room screen over Host options, the next trip's dialog opened
+  under it, and closing the room showed the home's Sign in dialog. A
+  trip enters no room (`Online::twitch_trip`), the home enters a room
+  only while it is shown and stops a trip left over, never showing it.
+  Test `desktops_second_twitch_trip_shows_its_code_over_host_options`
+  (the room over the home as desktop stacks them; before: a second
+  `select` layer over `room-host` after the first trip, and the home's
+  `sign-in` with Retry after the room closed).
+- **Host options' second row undid the first** when pressed before the
+  room said the first (both sent whole): the rows build on what was
+  asked until the room says it (`RoomClient::twitch_shown`). Test
+  `host_options_second_row_keeps_the_first_rows_change_in_flight` (before:
+  Off and Emotes).
+
+**Permissions kept** (the maintainer's request the same day): the device
+remembers the Twitch permissions it used (`Settings::twitch_used`; used
+= hosting a room with the feature on, or this device showing a host's
+chat) and a sign-in asks Twitch for those used within
+`TWITCH_KEEP_DAYS` (30) in its own step (`keep`, server `tw7`); a link
+that already grants them all is kept; Disconnect forgets them. Tests:
+`a_sign_in_keeps_a_link_that_grants_what_it_asked` (server),
+`a_sign_in_asks_again_for_the_twitch_permissions_used_lately`,
+`hosting_with_twitch_on_and_showing_a_hosts_chat_mark_permissions_used`,
+desktop's `a_sign_in_brings_back_the_twitch_permissions_used_lately`
+(`DDI_ONLINE_API`). The privacy note says it (its own commit, for the
+maintainer's approval).
+
+Checked and not faulty: the server's `POST /rooms/<id>/twitch` checks
+every scope the whole setting needs; turning a feature off never touches
+the link; a plain sign-in on any device leaves the link as it is; a
+trip's return and the device chat's trip's return do not cross (each its
+own stored wish); Disconnect turns the host's whole setting off, as
+designed. Not reproducible without Twitch: one feature's use refreshing
+the link while another reads it (one Durable Object a link serializes
+them; a refusal deletes the link for both, by design, A3).
+
+- **Validated**: suites ui and theme 936 passed; room, session, shell
+  and the web's routes 752; desktop 413 passed, 0 failed (23 ignored);
+  the server's workspace 222 and `--features dev-auth` 224, its clippy
+  native and wasm with and without `dev-auth`, its format; clippy native
+  (ui, desktop) and wasm (`ddi-web`, `ddi`); `l10n check` (the privacy
+  text's new kanji cut into the faces). On a local server with the
+  development provider (`target/scratch/mp/tb/`): `walks/probe.mjs` in
+  five orders before and after the server's fix (`logs/probe-before.txt`,
+  `probe-after.txt`), `walks/keep.mjs` (a sign-in keeping both, another
+  device's keeping less, Disconnect), desktop's `tests/online.rs` with
+  `DDI_ONLINE_API` (all five), and `walks/web.mjs` in Chrome and Firefox,
+  both orders (the trips leave and come back, both on, both changed in
+  one visit with the access there, a banned newcomer refused, the
+  device's permissions written down, signed out and in from the home:
+  both back from the sign-in's own step); the singleplayer smoke check
+  in Chrome and Firefox. Pictures in `target/scratch/mp/tb/shots/`.
+- **Deploy**: the server first (`tw7`: the link's scopes in `/info`,
+  `keep` at a sign-in), then the game; nothing to set, no binding or
+  secret. The room model's revision is unchanged (22). A game before it
+  works with the new server (it sends no `keep`); this game against the
+  old server keeps the first fault (each trip replaces the link) and
+  signs in plainly (the old server ignores `keep`).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

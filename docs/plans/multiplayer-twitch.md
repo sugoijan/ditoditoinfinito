@@ -166,7 +166,10 @@ device if it was a viewer's. The person is told once.
 
 ### A4. Ending it
 
-- Sign out deletes the link and revokes the token at Twitch.
+- Sign out deletes the link and revokes the token at Twitch. Since round
+  TB the device remembers which permissions it used and asks Twitch for
+  those used within 30 days again at its next sign-in, in the same step
+  ("Round TB" below).
 - Options → Data has "Twitch access: Disconnect" for a person who wants
   to stay signed in.
 - A link unused for 30 days is deleted (answer 1; the same horizon as a
@@ -1540,3 +1543,68 @@ and the server (`a_channel_is_found_by_its_login`,
 `the_report_file_is_replaced_and_bounded`). Walked in Chrome and Firefox
 on a local server and a local fake EventSub socket (round TW7's
 `target/scratch/mp/tw7/walks/tw7.mjs`, `route.mjs`).
+
+## Round TB (2026-11-22): the bans and the chat together, and permissions kept
+
+The maintainer: "Does the 'Twitch bans' work together with 'Show my
+Twitch chat'? Because both need an extra permission from the Twitch
+connection and maybe enabling both is not working correctly (at least on
+desktop)", then, on desktop: "creating a private room, turning on
+'Twitch chat' which goes through the flow and works, trying to turn on
+'Twitch bans', doesn't even open the pop-up with the code, but opens the
+web page to sign-in", and "when I closed the room the Sign in pop up
+appeared". It did not work, for three reasons, each fixed:
+
+1. **The second trip gave up the first permission** (the server, both
+   shells). A trip asks Twitch for what the link has plus what is wanted
+   (review note 1), but the link's `have` was read from a `scopes` field
+   its `/info` never said, so every trip asked for its own feature alone
+   and Twitch's new token replaced the link's: the room's setting asked
+   on the way back (bans and chat) needed the other permission again and
+   was never made, each later press started another trip for the other
+   one, and the mirror's next check found no `moderation:read` and
+   turned the room's whole Twitch setting off. `/info` says the link's
+   scopes now (`twitch::info`, `twitch::have`).
+2. **Desktop's second trip showed its code under the room.** A trip ends
+   as a sign-in does, its room "entered"; the multiplayer home under the
+   room took that for a room to show and pushed a second room screen over
+   the first's Host options, so the next trip's dialog with its code was
+   opened by the first screen's Host options, under the second (the
+   browser opened, nothing to type the code from), and closing the room
+   showed the home's own Sign in dialog for it. A trip enters no room now
+   (`Online::twitch_trip`), the home takes a room to enter only while it
+   is shown, and a trip left over when the home shows is stopped, never
+   shown as a sign-in.
+3. **Host options' second row could undo the first.** Each press asks for
+   the whole setting; the other row was read from the room's state, so
+   a second row changed before the room had said the first (its answer in
+   flight) asked for the first row as it was. The rows show and build on
+   what was asked until the room says it (`RoomClient::twitch_shown`).
+
+**Permissions kept** (the maintainer: "we should avoid downgrading the
+permissions, at least within a time-frame, so that turning off and on
+again is not annoying, maybe if a permission isn't used for 30 or 60
+days, it isn't requested on the next sign-in"). Before, a person lost a
+permission and went through Twitch again: at every sign-out (the link
+deleted), after 30 days unused, when Twitch refused a refresh, by
+Disconnect, and (reason 1 above) whenever another feature's trip
+replaced the link. Turning a feature off never touched the link, and a
+plain sign-in, on any device, leaves it as it is. Now:
+
+- The device remembers which permissions it used and when
+  (`Settings::twitch_used`: `bans`, `blocks`, `chat`, the time of their
+  last use, written at most once an hour). Used means: a room this
+  person hosts with the feature on, or a room whose host's chat this
+  device shows (its "Twitch chat in rooms" on and its access allowing
+  chat) (`RoomClient::mark_twitch_used`).
+- A sign-in asks Twitch for those used within `TWITCH_KEEP_DAYS` (30, the
+  server's own horizon for an unused link; 60 is that one number) in the
+  sign-in's own step: the web's `login?keep=bans,chat`, the desktop
+  attempt's `keep`. The server signs in whoever Twitch signs in and keeps
+  their link with those scopes, unless the link they have already grants
+  them all (another device's): then it stays and the new token is
+  revoked. Signing out still deletes the link on the server.
+- Disconnect in Options → Data forgets them on that device: nothing is
+  asked at the next sign-in. Resetting the settings does too.
+- Nothing new is shown when it works; Options → Data's row says what is
+  connected, as before.

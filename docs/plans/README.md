@@ -85,7 +85,12 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   by default, none and no connection in singleplayer, one quiet line
   where it cannot run), the development override of the channel for
   administrators (`live:<login>`), the run's report kept in a file on
-  desktop and the privacy note's paragraph. A streaming host's Twitch bans and blocks
+  desktop and the privacy note's paragraph; round TB (2026-11-22) the
+  bans and the chat together (a second trip no longer gives up the first
+  permission, desktop's second trip shows its code over Host options,
+  one row no longer undoes the other) and permissions kept across
+  sign-outs (a sign-in asks again for those the device used within 30
+  days). A streaming host's Twitch bans and blocks
   keeping people out of the room (the host's token on the server, checked
   at join, ticket and each pick; room model revision 18), a host's or
   co-host's Kick behind a Moderate toggle, and the host's chat behind
