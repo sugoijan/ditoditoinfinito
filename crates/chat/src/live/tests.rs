@@ -262,9 +262,9 @@ fn the_watchdog_on_silence() {
 #[test]
 fn a_reconnect_hands_over() {
     let mut l = live();
-    l.text(1, &reconnect("wss://other.test/ws?id=xyz"), 5_000);
+    l.text(1, &reconnect("wss://eventsub.test/ws?id=xyz"), 5_000);
     let d = l.take_do();
-    assert_eq!(opens(&d), [(2, "wss://other.test/ws?id=xyz".to_string())]);
+    assert_eq!(opens(&d), [(2, "wss://eventsub.test/ws?id=xyz".to_string())]);
     assert!(closes(&d).is_empty(), "the old socket is kept");
     assert_eq!(l.state(), "reconnecting");
     assert!(l.is_live());
@@ -296,7 +296,7 @@ fn a_reconnect_hands_over() {
 #[test]
 fn a_reconnect_that_fails() {
     let mut l = live();
-    l.text(1, &reconnect("wss://other.test/ws"), 5_000);
+    l.text(1, &reconnect("wss://eventsub.test/ws?id=2"), 5_000);
     l.take_do();
     l.closed(1, 4004, 6_000);
     assert_eq!(l.state(), "connecting");
@@ -305,7 +305,7 @@ fn a_reconnect_that_fails() {
     assert!(subscribes(&l.take_do()).is_empty());
 
     let mut l = live();
-    l.text(1, &reconnect("wss://other.test/ws"), 5_000);
+    l.text(1, &reconnect("wss://eventsub.test/ws?id=2"), 5_000);
     l.take_do();
     l.text(1, &keepalive(1), 20_000);
     l.tick(35_000);
@@ -323,6 +323,48 @@ fn a_reconnect_that_fails() {
     l.text(1, &reconnect("http://nope"), 5_000);
     assert!(l.take_do().is_empty());
     assert_eq!(l.report()["not_understood"]["count"], 1);
+}
+
+/// Review 2026-11-22 (chat-touch, a suspicion): a reconnect is followed
+/// only to Twitch's own sockets (`wss://…twitch.tv`) or to the host the
+/// connection was opened at (a test's local fake); any other address is
+/// noted and waited out, never opened.
+#[test]
+fn a_reconnect_goes_only_to_twitch_or_the_first_host() {
+    let mut l = Live::new(P, EVENTSUB_URL);
+    l.start(1_000);
+    l.take_do();
+    l.opened(1, 1_100);
+    l.text(1, &welcome("s1", Some(10)), 1_200);
+    l.subscribed(1, enabled(), 1_300);
+    l.take_do();
+    for bad in [
+        "wss://evil.example/ws",
+        "ws://eventsub.wss.twitch.tv/ws",
+        "wss://twitch.tv.evil.example/ws",
+        "wss://eventsub.wss.twitch.tv@evil.example/ws",
+        "wss://evil.example#.twitch.tv/ws",
+        "wss://evil.example\\.twitch.tv/ws",
+        "wss://eviltwitch.tv/ws",
+    ] {
+        l.text(1, &reconnect(bad), 5_000);
+        assert!(opens(&l.take_do()).is_empty(), "{bad}");
+        assert_eq!(l.state(), "live", "{bad}");
+    }
+    l.text(1, &reconnect("wss://eventsub.wss.twitch.tv/ws?id=abc"), 6_000);
+    assert_eq!(opens(&l.take_do()).len(), 1, "Twitch's own");
+    // A local fake's own host (its port too).
+    let mut l = Live::new(P, "ws://127.0.0.1:8314/normal");
+    l.start(1_000);
+    l.take_do();
+    l.opened(1, 1_100);
+    l.text(1, &welcome("s1", Some(10)), 1_200);
+    l.subscribed(1, enabled(), 1_300);
+    l.take_do();
+    l.text(1, &reconnect("ws://127.0.0.1:9999/ws"), 5_000);
+    assert!(opens(&l.take_do()).is_empty(), "another port");
+    l.text(1, &reconnect("ws://127.0.0.1:8314/ws?scenario=normal&reconnected=1"), 5_100);
+    assert_eq!(opens(&l.take_do()).len(), 1);
 }
 
 /// Each close code: 4001 (we never send) gives up; the others are losses

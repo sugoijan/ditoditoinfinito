@@ -796,7 +796,7 @@ impl Live {
             self.line(now, format!("socket {socket}: another reconnect message, passed over"));
             return;
         }
-        if !(url.starts_with("wss://") || url.starts_with("ws://")) {
+        if !reconnect_allowed(&url, &self.url) {
             self.sample("a reconnect without a usable address".into(), text);
             self.line(now, format!("socket {socket}: a reconnect message without an address; waiting for its close"));
             return;
@@ -1097,6 +1097,32 @@ fn opt<T: std::fmt::Display>(v: Option<T>) -> String {
 pub fn host_of(url: &str) -> String {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     rest.split(['/', '?']).next().unwrap_or_default().to_string()
+}
+
+/// An address's scheme and authority (`scheme://host[:port]`), where
+/// the authority is plain (lowercase letters, digits, `.`, `-`, a port):
+/// nothing a browser's parser would read as another host.
+fn origin_of(url: &str) -> Option<(&str, &str)> {
+    let (scheme, rest) = url.split_once("://")?;
+    let end = rest.find(['/', '?']).unwrap_or(rest.len());
+    let authority = &rest[..end];
+    let plain = !authority.is_empty()
+        && authority
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b".-:".contains(&b));
+    plain.then_some((scheme, authority))
+}
+
+/// Whether a reconnect message's address may be opened (review
+/// 2026-11-22, chat-touch, a suspicion): Twitch's own sockets
+/// (`wss://…twitch.tv`), or the host the connection was opened at
+/// (`first`: a test's local fake EventSub socket); never another.
+fn reconnect_allowed(url: &str, first: &str) -> bool {
+    let Some((scheme, authority)) = origin_of(url) else {
+        return false;
+    };
+    let host = authority.split(':').next().unwrap_or_default();
+    (scheme == "wss" && host.ends_with(".twitch.tv")) || origin_of(first) == Some((scheme, authority))
 }
 
 /// A socket message's `metadata.message_id`.
