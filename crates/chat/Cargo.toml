@@ -12,3 +12,4 @@ description = "DitoDitoInfinito: a room host's Twitch chat behind the play (Twit
 serde.workspace = true
 serde_json.workspace = true
 unicode-segmentation.workspace = true
+unicode-normalization.workspace = true

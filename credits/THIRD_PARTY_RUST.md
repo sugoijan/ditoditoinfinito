@@ -6,7 +6,7 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 
 ## Web build (the app and its Opus and SVG workers, wasm32)
 
-168 crates.
+169 crates.
 
 | Crate | Version | Licence | Used under | Notices |
 |---|---|---|---|---|
@@ -160,6 +160,7 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 | unicode-bidi | 0.3.18 | MIT OR Apache-2.0 | MIT | [75](#notice-75) |
 | unicode-ident | 1.0.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | MIT AND Unicode-3.0 | [1](#notice-1), [76](#notice-76) |
 | unicode-linebreak | 0.1.5 | Apache-2.0 | Apache-2.0 | [13](#notice-13) |
+| unicode-normalization | 0.1.25 | MIT OR Apache-2.0 | MIT | [75](#notice-75) |
 | unicode-script | 0.5.8 | MIT OR Apache-2.0 | MIT | [77](#notice-77) |
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | MIT | [75](#notice-75) |
 | unicode-width | 0.2.2 | MIT OR Apache-2.0 | MIT | [75](#notice-75) |

@@ -245,8 +245,48 @@ pub fn content(
     })
 }
 
-/// One line: whitespace runs made one space, the ends trimmed, cut at
-/// `most` graphemes (an emote one) with an ellipsis.
+/// The combining marks a grapheme keeps (review 2026-11-22, chat-touch,
+/// a suspicion): enough for any script's stacked vowels and tones (Thai
+/// takes two, Tibetan's stacks a few), never a "zalgo" grapheme of
+/// hundreds drawn far above and below its line.
+pub const MOST_MARKS: usize = 4;
+
+/// The characters a grapheme keeps: an emoji's family with its tones is
+/// eleven.
+const MOST_GRAPHEME_CHARS: usize = 16;
+
+/// `text` with each grapheme's combining marks past [`MOST_MARKS`] (and
+/// its characters past [`MOST_GRAPHEME_CHARS`]) left out.
+fn tame_marks(text: &str) -> std::borrow::Cow<'_, str> {
+    use unicode_normalization::char::is_combining_mark;
+    let heavy = text.graphemes(true).any(|g| {
+        g.chars().count() > MOST_GRAPHEME_CHARS || g.chars().filter(|c| is_combining_mark(*c)).count() > MOST_MARKS
+    });
+    if !heavy {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    for g in text.graphemes(true) {
+        let mut marks = 0;
+        for (i, c) in g.chars().enumerate() {
+            if i >= MOST_GRAPHEME_CHARS {
+                break;
+            }
+            if i > 0 && is_combining_mark(c) {
+                marks += 1;
+                if marks > MOST_MARKS {
+                    continue;
+                }
+            }
+            out.push(c);
+        }
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+/// One line: whitespace runs made one space, the ends trimmed, each
+/// grapheme's marks tamed ([`tame_marks`]), cut at `most` graphemes (an
+/// emote one) with an ellipsis.
 fn cut_line(pieces: Vec<Piece>, most: usize) -> Vec<Piece> {
     let mut out = Vec::new();
     let mut left = most;
@@ -257,7 +297,7 @@ fn cut_line(pieces: Vec<Piece>, most: usize) -> Vec<Piece> {
         }
         match p {
             Piece::Text(t) => {
-                let mut s = t.split_whitespace().collect::<Vec<_>>().join(" ");
+                let mut s = tame_marks(&t).split_whitespace().collect::<Vec<_>>().join(" ");
                 if t.starts_with(char::is_whitespace) && i > 0 {
                     s.insert(0, ' ');
                 }
@@ -346,6 +386,29 @@ mod tests {
 
     fn t(s: &str) -> Fragment {
         Fragment::Text(s.into())
+    }
+
+    /// Review 2026-11-22 (chat-touch, a suspicion): a grapheme carrying
+    /// hundreds of combining marks (a "zalgo" line, within Twitch's 500
+    /// characters) keeps a few, so that no line is drawn far above and
+    /// below its place; ordinary text with marks (decomposed accents,
+    /// Thai, an emoji's family) is kept whole.
+    #[test]
+    fn a_flood_of_combining_marks_is_cut_to_a_few() {
+        let zalgo = format!("Z{}algo", "\u{0336}\u{0301}".repeat(150));
+        let m = message(vec![t(&zalgo)]);
+        let c = content(&m, &sets(), Level::Messages, false, CUT).unwrap();
+        let Piece::Text(text) = &c.pieces[0] else {
+            panic!("{:?}", c.pieces)
+        };
+        let first = text.graphemes(true).next().unwrap();
+        assert!(first.chars().count() <= 1 + MOST_MARKS, "{} chars", first.chars().count());
+        assert!(text.ends_with("algo"));
+        for plain in ["nai\u{0308}ve", "กิ่ง", "👨‍👩‍👧‍👦 family", "क्षि"] {
+            let m = message(vec![t(plain)]);
+            let c = content(&m, &sets(), Level::Messages, false, CUT).unwrap();
+            assert_eq!(c.pieces, [Piece::Text(plain.into())], "{plain}");
+        }
     }
 
     #[test]
