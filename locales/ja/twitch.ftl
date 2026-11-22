@@ -10,5 +10,5 @@ twitch-feature-chat = チャット
 twitch-disconnect = 切断
 twitch-connected-description = サーバーにだけ保存され、ゲームには渡されません。30日使われなかったときとサインアウトしたときに削除されます。
 twitch-confirm = Twitchアクセスを切断しますか？
-twitch-confirm-body = サーバーから削除され、Twitchでも取り消されます。あなたのルームでTwitchのバンを使っていたりチャットを表示していたりする場合は、そこですぐにオフになり、誰も退出させられません。
+twitch-confirm-body = サーバーから削除され、Twitchでも取り消されます。ホストしているルームでTwitchのバンを使っていたりチャットを表示していたりする場合は、そこですぐにオフになります。誰かが退出させられることはありません。
 twitch-notice-disconnected = Twitchアクセスを切断しました。

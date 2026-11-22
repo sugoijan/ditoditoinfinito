@@ -92,7 +92,7 @@ prompt-play-restart = { $key }を長押しまたは2回押しでリスタート
 # CPU prototype controls on the start card and results footer (wraps).
 # $seed (String) is the exact reproducible random seed, without grouping.
 # $strength (Number) is the ability multiplier, not a promised score.
-prompt-cpu-description = CPU · タップのみ · 途中終了なし · 強さ { $strength }× · シード { $seed }
+prompt-cpu-description = CPU · タップのみ · 途中終了なし · 強さ{ $strength }× · シード{ $seed }
 
 # The same where the CPU plays at a level of the multiplayer CPUs' scale
 # instead of a strength (wraps): what the level keeps up with, never a
@@ -102,7 +102,7 @@ prompt-cpu-description = CPU · タップのみ · 途中終了なし · 強さ 
 #   $seed (String) - the exact reproducible random seed, without grouping
 #   $level (Number) - the level, the weakest 1
 #   $levels (Number) - how many levels there are (10)
-prompt-cpu-description-level = CPU · 途中終了なし · レベル { $level }/{ $levels } · シード { $seed }
+prompt-cpu-description-level = CPU · 途中終了なし · レベル{ $level }/{ $levels } · シード{ $seed }
 
 # $skills (String) is the seven comma-separated CPU skill multipliers.
-prompt-cpu-skills = スキル: { $skills }
+prompt-cpu-skills = スキル：{ $skills }

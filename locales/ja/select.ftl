@@ -12,7 +12,7 @@ select-pack-songs-found = { $count }曲中{ $found }曲
 
 select-row-no-charts = { $style }の譜面なし
 
-select-row-new = 未プレイ
+select-row-new = NEW
 
 ## ヘッダー。
 
@@ -74,7 +74,7 @@ select-radar-handstream = ハンド
 select-radar-stamina = スタミナ
 select-radar-jackspeed = 縦連
 select-radar-chordjack = 同時縦連
-select-radar-technical = 技巧
+select-radar-technical = テクニカル
 select-radar-stream-full = ストリーム
 select-radar-jumpstream-full = ジャンプストリーム
 select-radar-handstream-full = ハンドストリーム
@@ -83,7 +83,7 @@ select-radar-jackspeed-full = 縦連の速さ
 select-radar-chordjack-full = 同時押し縦連
 select-radar-technical-full = テクニカル
 select-radar-overall = MSD
-select-radar-rating = この譜面のMSDを計算中…
+select-radar-rating = この譜面の難易度を計算中…
 select-radar-no-layout = このレイアウトはMSDの対象外です
 select-radar-none = この譜面のMSDはありません
 select-radar-evasion = 回避

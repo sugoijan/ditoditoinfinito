@@ -220,3 +220,38 @@ the tone's reference but read as net slang.
   in it (room-make-host-body: "{ $name }がルームを管理し、あなたは共同ホスト
   になります").
 
+## Terms the multiplayer drafts settled on (round JA, 2026-11-22, an agent's review)
+
+The rooms' messages were drafted over many rounds; this pass chose one word
+each where two rounds had two. A native review may change any of them, here
+first.
+
+| English | 日本語 |
+| --- | --- |
+| room / private room | ルーム / プライベートルーム |
+| host / co-host / admin | ホスト / 共同ホスト / 管理者 |
+| match | 対戦 (never 試合: two rounds wrote both; 対戦 was the older and commoner) |
+| battle (the provisional mode, in its note) | バトル |
+| stage, stage N | ステージ, ステージ{ $number } (no space, as other Latin digits in Japanese) |
+| Ready (the button and the state) / Not ready / Cancel ready | 準備OK / 未準備 / 準備を取り消す |
+| pick, choose (the room's songs) / Pick songs / Picks | 選ぶ・選曲 / 選曲する / 選曲 |
+| Song choice: Host / Group; the draw | 曲の決め方：ホスト / グループ; 抽選 |
+| Repeats: Allowed / Not in a row / Once a match | 繰り返し：可 / 連続は不可 / 対戦中1回まで |
+| watch (a stage) / Watch only / watching | 観戦する / 観戦のみ / 観戦中 |
+| audience (the room's) / audience link | 観客席 (as a place: open, close, join), 観客 (people) / 観客用リンク |
+| sit out (a stage) | 見学 |
+| invite link / watch-only link | 招待リンク / 観戦専用リンク |
+| place, seat (a player's in a room or match) | 席 (never 枠) |
+| Out (life ran out; a label and the rule's value) / to be out | アウト / 脱落する |
+| Failed (played on) / left the stage (a forfeit) | 失敗 / 途中退出 |
+| life (a play's) | ライフ (never ゲージ where English says life; the gauge itself stays ゲージ) |
+| points (a match's), their unit | ポイント, pt (+3pt; 得点 and 点 read as a play's score) |
+| Points: Strong / Medium / Mild | 強め / 中くらい / 弱め |
+| Charts: As picked / Adaptive | 選んだまま / 適応 (適応譜面 in summaries) |
+| shock (an attack's hazard) / power bar | ショック / パワーゲージ |
+| Kick / Moderate | 退出させる / 管理モード |
+| this device (the phone, tablet or computer the game runs on) | このデバイス (as the privacy note and input devices: one word; 端末, which two rounds wrote, was unified to it) |
+| a player's name in a sentence | the name alone, no さん (as the older messages: { $name }がホストになります) |
+| You (another person's choice beside one's own, the draw's entries) | 自分 (as the players' rows) |
+| Twitch access / connect, disconnect / allow (on Twitch) | Twitchアクセス / 接続、切断 / 許可 |
+| ban, timeout, block (Twitch's) / emote / chat | バン、タイムアウト、ブロック / エモート / チャット |

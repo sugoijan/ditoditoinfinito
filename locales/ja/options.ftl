@@ -4,7 +4,7 @@ options-language = 言語（Language）
 
 options-language-system = システムに合わせる（{ $language }）
 
-options-language-description = メニューの言語です。スコアやグレードはどの言語でも同じで、判定の文字は変えない限り英語です。
+options-language-description = メニューの言語です。スコアや評価はどの言語でも同じです。判定の言葉は、変更しない限り英語です。
 
 ## The screen.
 
@@ -133,26 +133,26 @@ options-ruleset-mode-danoni = Dancing☆Onigiri
 options-ruleset-mode-description = すべての譜面に下のルールセットを使うか、各譜面が作られたゲームのルールを使うか（Dancing☆Onigiriの作品とFFRのレベルはそれぞれのルール、その他は下のルールセット）、すべての譜面にDancing☆Onigiriのルールを使うかを選びます。
 options-ruleset = ルールセット
 options-ruleset-approximate = { $ruleset }（近似）
-options-ruleset-description = タイミングの判定とスコアの計算方法です。このゲーム独自のDDI、または名前のゲームのルールを使います。
+options-ruleset-description = タイミングの判定とスコアの計算方法です。このゲーム独自のDDI、または名前を挙げたゲームのルールを使います。
 options-ddi-difficulty = タイミング難易度
 options-ddi-easy = イージー
 options-ddi-normal = ノーマル
 options-ddi-hard = ハード
 options-ddi-difficulty-description = イージーはすべての判定幅が広くなり、ミスで減るライフが5分の1になります。ハードは判定幅が狭くなり、減るライフが2倍になります。ベストはタイミング難易度ごとに別々に記録されます。
 options-ddi-boos = Boo
-options-ddi-boos-description = オンにすると、ノーツのないところを押すとBooになります。ライフとスコアが減り、フルコンボのランプも取れなくなります。地雷から離れるとき、リフトの準備中、ロックされたレーン、長い休みの間はBooになりません。Booがオンのベストは別々に記録されます。
+options-ddi-boos-description = オンにすると、ノーツのないところを押すとBooになります。ライフとスコアが減り、フルコンボのランプも取れなくなります。地雷から離れるとき、リフトの準備中、ロックされたレーン、譜面の長い休みの間はBooになりません。Booがオンのときのベストは別に記録されます。
 options-ddi-practice = 練習
 options-ddi-practice-description = オンにすると、ライフが空になってもプレイは終わりません。ライフが0のまま最後まで続き、失敗として記録されます。
 options-ddi-score = スコア表示
 options-ddi-score-score = スコア
 options-ddi-score-percent = パーセント
 options-ddi-score-description = プレイ中と選曲でのスコアの表示です。譜面が長いほど高くなるスコアか、パーセントを選びます。リザルトには両方が表示されます。
-options-ddi-words = 判定の表示
+options-ddi-words = 判定の言葉
 options-ddi-words-game = ゲームの言語に合わせる
 options-ddi-words-description = プレイ中の判定の言葉を、英語、ほかの言語、またはメニューの言語で表示します。変わるのは言葉だけで、判定は変わりません。
 options-rejudge = 記録済みのプレイ
 options-rejudge-button = 判定し直す
-options-rejudge-description = 記録済みのすべてのプレイを、今選んでいるルールで入力記録から判定し直し、そのスコアをここのベストに反映します。プレイしたときの結果も残ります。判定し直したプレイは、地雷でロックされるレーンやBooなど、このルールに合わせた動きにはなっていません。
+options-rejudge-description = 記録済みのすべてのプレイを、今選んでいるルールで入力記録から判定し直し、そのスコアをここのベストに反映します。プレイしたときの結果も残ります。判定し直したプレイは、プレイ中にこのルール（地雷によるレーンのロックやBoo）に合わせて動いていたわけではありません。
 options-holds = ホールド
 options-holds-by-game = ゲームどおり
 options-holds-dance = ダンス
@@ -224,7 +224,7 @@ options-announcer-language-game = ゲームの言語に合わせる（{ $languag
 options-announcer-language-mixed = ミックス
 options-announcer-language-description = アナウンサーが話す言語です。標準ではゲームの言語に合わせますが、その言語のひとつや、すべての言語のミックスも選べます。
 options-announcer-script-stopped = スクリプトが停止しました
-options-announcer-tag-description = パックがこう印を付けたセリフを、アナウンサーが話すかどうかです。
+options-announcer-tag-description = パックがこの名前で印を付けたセリフを、アナウンサーが話すかどうかです。
 options-announcer-volume = アナウンサーの音量
 options-announcer-volume-description = アナウンサーの声の大きさで、音量に対する割合です（音量をミュートするとこちらもミュートされます）。
 options-announcer-remove = このアナウンサー
@@ -251,16 +251,16 @@ options-show-deltas-description = 各判定が何ミリ秒早かったか遅か�
 options-dancing-hand = 踊る手
 options-dancing-hand-description = シングル、ソロ、Pumpシングル、Techno 8パネル、5key、7key、9Bkeyの譜面に合わせて手が踊ります（おにぎりは中央のタイル）。同時押しはホールドを含めて最大2つです。
 options-dancing-hand-multiplayer = マルチプレイでの踊る手
-options-dancing-hand-multiplayer-description = マルチプレイのステージでも、自分のフィールドの後ろで手が踊るかどうか。オフにすると、ほかのプレイヤーのフィールドで忙しいあいだ手の準備をしません。
+options-dancing-hand-multiplayer-description = マルチプレイのステージでも、自分のフィールドの後ろで手が踊るかどうか。オフにすると、ほかのプレイヤーのフィールドを表示しているあいだ、手を準備する処理を省けます。
 options-opponent-fields = 対戦相手のフィールド
 options-opponent-fields-all = 入るだけ
 options-opponent-fields-eight = 8人まで
-options-opponent-fields-description = マルチプレイのステージで、画面に入るだけの対戦相手それぞれに小さなフィールドを表示するか、最大8人（あなたを攻撃している人、あなたが攻撃した人、順位の近いライバル）にするか。大人数のルームでは「8人まで」のほうがコンピューターの負担が軽くなります。
+options-opponent-fields-description = マルチプレイのステージで、画面に入るだけの対戦相手それぞれに小さなフィールドを表示するか、最大8人（自分を攻撃している人、自分が攻撃した人、順位の近いライバル）にするか。大人数のルームでは「8人まで」のほうがコンピューターの負担が軽くなります。
 options-twitch-chat = ルームでのTwitchチャット
 options-twitch-chat-emotes = エモート
 options-twitch-chat-messages = エモートとメッセージ
-options-twitch-chat-description = ホストがTwitchチャットを表示しているオンラインルームで、プレイ中にこのデバイスのフィールドの後ろをチャットが流れます。ホストが許可した範囲を超えることはなく、シングルプレイでは表示されません。チャットを読むにはTwitchでの許可が必要で、サインイン中にオンにすると求められます。許可は「オプション → データ」で解除できます。
-options-twitch-chat-no-access = あなたのTwitchアクセスではチャットを読めないため、チャットは表示されません。一度オフにしてからオンにすると、Twitchで許可できます。
+options-twitch-chat-description = ホストがTwitchチャットを表示しているオンラインルームで、プレイ中にフィールドの後ろをチャットが流れます。シングルプレイでは表示されません。チャットを読むにはTwitchでの許可が必要で、サインイン中にオンにすると求められます。許可は「オプション → データ」で解除できます。
+options-twitch-chat-no-access = Twitchアクセスがチャットの読み取りを許可していないため、チャットは表示されません。一度オフにしてからオンにすると、Twitchで許可できます。
 options-chat-style = チャットの表示
 options-chat-style-across = 横に流れる
 options-chat-style-falling = 縦に落ちる
@@ -270,14 +270,14 @@ options-chat-names-description = チャットの各メッセージの先頭に�
 options-chat-emotes-from = エモートの取得元
 options-chat-emotes-from-twitch = Twitch
 options-chat-emotes-from-others = Twitchとその他
-options-chat-emotes-from-description = Twitchのエモートだけか、チャンネルの7TV・BetterTTV・FrankerFaceZのエモートも表示するか。画像はそれぞれの保存先から取得され、取得先にはこの端末のアドレスが伝わります。
+options-chat-emotes-from-description = Twitchのエモートだけか、チャンネルの7TV・BetterTTV・FrankerFaceZのエモートも表示するか。画像はそれぞれの保存先から取得され、取得先にはこのデバイスのアドレスが伝わります。
 options-chat-opacity = チャットの不透明度
 options-chat-opacity-description = フィールドの後ろでチャットがどれだけはっきり見えるか。レーンの中では、背景と同じようにフィールドフィルターで暗くなります。
 options-room-ahead = ルームの曲の先読み
 options-room-ahead-everything = すべて
 options-room-ahead-likely = 次に遊びそうな曲
 options-room-ahead-off = オフ
-options-room-ahead-description = オンラインのルームで、曲が選ばれる前にルームの曲を用意し、ステージをすぐに始められるようにします。すべて（ムービーは除く）、次に遊びそうな8曲（128 MBまで）、またはなし。ルームを出ると削除されます。この端末の既定：{ $device }。
+options-room-ahead-description = オンラインルームで、曲が選ばれる前にルームの曲を用意し、ステージをすぐに始められるようにします。すべて（動画は除く）、次に遊びそうな8曲（128 MBまで）、またはなし。ルームを出ると削除されます。このデバイスの既定：{ $device }。
 options-hand-layout = フィールドと手の配置
 options-hand-layout-follow = フィールドに従う
 options-hand-layout-right-left = フィールド右／手左
@@ -483,13 +483,13 @@ options-reset-settings-description = { $platform ->
 }
 options-privacy-button = 読む
 options-privacy-description = { $platform ->
-    [web] ゲームとそのオンラインサーバーがあなたについて保存するものと、サーバーが数える利用統計の合計です。ゲームのサイトでお知らせを開きます。クレジットにも載っています。
-   *[desktop] ゲームとそのオンラインサーバーがあなたについて保存するものと、サーバーが数える利用統計の合計です。Webでお知らせを開きます。クレジットにも載っています。
+    [web] ゲームとそのオンラインサーバーが保存するプレイヤーの情報と、サーバーが集計する利用統計です。ゲームのサイトでお知らせを開きます。クレジットにも載っています。
+   *[desktop] ゲームとそのオンラインサーバーが保存するプレイヤーの情報と、サーバーが集計する利用統計です。Webでお知らせを開きます。クレジットにも載っています。
 }
 options-usage-stats = 利用統計を送る
 options-usage-stats-description = { $platform ->
-    [web] オンラインのルームで、どんなデバイスか、前回の接続がどうだったかを、決まった範囲の値で名前なしにサーバーへ伝えます。オフにすると何も送りません。
-   *[desktop] オンラインのルームで、どんなコンピューターか、前回の接続がどうだったかを、決まった範囲の値で名前なしにサーバーへ伝えます。オフにすると何も送りません。
+    [web] オンラインルームで、どんなデバイスか、前回の接続がどうだったかを、決まった範囲の値で名前なしにサーバーへ伝えます。オフにすると何も送りません。
+   *[desktop] オンラインルームで、どんなコンピューターか、前回の接続がどうだったかを、決まった範囲の値で名前なしにサーバーへ伝えます。オフにすると何も送りません。
 }
 options-error-reports = エラーレポートを送る
 options-error-reports-description = ゲーム自体に問題が起きたとき（クラッシュ、グラフィックスデバイスの喪失、ゲームを始められないページなど）、どんな種類のエラーかを、パス・アドレス・名前・IDを取り除いたメッセージとともにサーバーへ伝えます。オフにすると何も送りません。

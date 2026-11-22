@@ -297,7 +297,7 @@ studio-when-battle-match-drawn = 対戦の最後のステージのリザルト�
 
 studio-line-folder = フォルダー：{ $folder }
 
-studio-recordings-heading = 録音
+studio-recordings-heading = 自分の録音
 studio-examples-heading = 例
 
 studio-example = 「{ $words }」
@@ -316,7 +316,7 @@ studio-add-text = セリフの文を追加
 
 studio-add-text-recording = このセリフの録音を追加…
 
-studio-words-hint = 言うこと
+studio-words-hint = セリフの内容
 
 studio-remove-combo = このセリフを外す
 
@@ -434,7 +434,7 @@ studio-status-used = { $name }をゲームに追加しました。オプショ�
 
 studio-status-not-used = 追加できませんでした：{ $error }
 
-studio-status-unread = 作成したパックを、ゲームが作ったとおりに読み込めませんでした（{ $error }）。これはスタジオの不具合で、あなたの操作によるものではありません。何も保存されていません。報告をお願いします。
+studio-status-unread = 作成したパックを、ゲームが作ったとおりに読み込めませんでした（{ $error }）。これはスタジオの不具合で、操作の誤りではありません。何も保存されていません。報告をお願いします。
 
 studio-status-no-select = 選曲画面を表示できませんでした。
 studio-status-no-results = リザルトを表示できませんでした。
@@ -507,7 +507,9 @@ studio-caption-life-lost = バッテリーゲージのライフがひとつ減�
 studio-caption-last-life = バッテリーゲージのライフが残りひとつになります。
 studio-caption-ends-full-combo-best = フルコンボで曲が終わります：すべてのノーツが{ $judgment }です。
 studio-caption-ends-full-combo = フルコンボで曲が終わります：すべてのノーツが{ $judgment }以上です。
-studio-caption-cleared = 最後のノーツが判定され、曲をクリアします。# Variables:
+studio-caption-cleared = 最後のノーツが判定され、曲をクリアします。
+
+# Variables:
 #   $state (String) - "on" or "off"
 studio-stadium = { $state ->
     [on] スタジアム効果：オン
