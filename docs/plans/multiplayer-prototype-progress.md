@@ -13990,9 +13990,10 @@ feature."
   no more this session (More still offers it). The results' line points
   at More's item. Tests: `a_room_offers_the_trip_that_allows_chat_and_asks_no_more_after_a_no`,
   `the_rooms_line_offers_the_trip_that_allows_chat`.
-- **Validated**: suites room, session, shell, ui, theme, engine and the
-  web's routes 1,684 and 1,147 passed, 0 failed; desktop 411 passed, 0
-  failed (23 ignored; `results_flow` also with `DDI_NO_GPU=1`); the
+- **Validated**: suites room, session, shell, ui, theme and the web's
+  routes 1,684 passed, 0 failed; room, session, shell and engine again
+  after item 1, 1,147 passed, 0 failed; desktop 411 passed, 0 failed (23
+  ignored; `results_flow` also with `DDI_NO_GPU=1`); the
   server's workspace 225 and `--features dev-auth` 222 passed against
   this round's `crates/room` (a `paths` override; the server's code
   unchanged); clippy native and wasm; `l10n check`; a release build's
