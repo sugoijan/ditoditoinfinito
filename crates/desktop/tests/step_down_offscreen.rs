@@ -366,8 +366,9 @@ fn a_practice_stage_steps_down_the_player_and_a_cpu() {
 
 /// The player, autoplayed from Medium, steps up (the cue says so, the old
 /// chart is played to the boundary, the harder one's notes come in from
-/// it); the strongest CPUs climb too, one at least two rungs; the
-/// standings mark the charts finished on with ↑.
+/// it); the strongest CPUs start on the song's hardest chart (round OC;
+/// they climbed to it from Medium before); the standings mark the charts
+/// finished on with ↑.
 #[test]
 fn a_practice_stage_steps_up_the_player_and_a_cpu_climbs_two_rungs() {
     let song = ddi_desktop::play::load::read_chart("beatucada").unwrap();
@@ -385,6 +386,11 @@ fn a_practice_stage_steps_up_the_player_and_a_cpu_climbs_two_rungs() {
     let (mut shot_cue, mut shot_new, mut shot_cpu) = (false, false, false);
     let mut player_up = 0;
     let mut two_rungs = false;
+    // Round OC (`cpu-start-v0`): five-star CPUs start on the song's
+    // hardest chart (where they climbed two rungs to from Medium before).
+    let ladder = ddi_engine::ladder::Ladder::of(&song, medium);
+    let hardest = ladder.rung_of_chart(*ladder.line().last().unwrap()).unwrap();
+    let mut on_top = false;
     let mut chart_shots = [false; 3];
     let mut chart_shot_names: Vec<String> = Vec::new();
     while rig.host.playing() {
@@ -396,6 +402,7 @@ fn a_practice_stage_steps_up_the_player_and_a_cpu_climbs_two_rungs() {
             player_up = steps.iter().filter(|s| s.up).count();
             let t = s.player.judge().last_time().unwrap_or(0.0);
             if let Some(b) = s.battle() {
+                on_top |= b.feeds().count() > 0 && b.feeds().all(|f| f.start_rung() == hardest);
                 for i in 0..b.views().len() {
                     let Some(cpu) = b.opponent_player(i) else {
                         continue;
@@ -460,7 +467,8 @@ fn a_practice_stage_steps_up_the_player_and_a_cpu_climbs_two_rungs() {
     assert!(player_up >= 1, "the player stepped up");
     assert!(seen_cue, "the status line said it");
     assert!(shot_cue && shot_new, "{shot_cue} {shot_new}");
-    assert!(two_rungs, "a CPU climbed two rungs");
+    assert!(on_top, "the strong CPUs started on the hardest chart");
+    let _ = two_rungs;
     ui.update(1.0);
     let view = rig.env.state.borrow().stage.clone().expect("the standings");
     let me = view.rows.iter().find(|r| r.me).expect("the player's line");
@@ -497,9 +505,10 @@ fn absolute_levels_end_a_stage_on_different_charts() {
     while rig.host.playing() {
         rig.frame();
         if let Some(b) = rig.host.running().and_then(|p| p.session.battle()) {
+            // The chart each plays now (round OC: from its own start).
             finals = (0..b.views().len())
                 .filter_map(|i| b.opponent_player(i))
-                .map(|cpu| cpu.steps().last().map(|s| s.chart))
+                .map(|cpu| Some(cpu.chart_now()))
                 .collect();
             // A picture once the three play three different charts, a
             // few seconds on.

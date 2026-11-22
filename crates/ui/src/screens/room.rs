@@ -310,6 +310,10 @@ pub struct RoomMemberView {
     pub targeting: String,
     /// They choose the room's songs now.
     pub picker: bool,
+    /// Under Charts: Adaptive (round OC) the chart they start the stage
+    /// being readied, counted down or played on, as this device shows it
+    /// (`RoomClient::start_shown`): "Hard 9"; none otherwise.
+    pub chart: Option<String>,
 }
 
 /// A room screen's per-frame work: the client ticked on the UI's clock,
@@ -1469,13 +1473,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
             .map(|st| (st.rank, String::from(points_text(st.total))))
     };
     let upcoming = s.upcoming_stage().and_then(|id| s.stage(id));
-    // The stage whose charts the rows say (revision 23): the one being
-    // readied, counted down or played, once its song is picked.
-    let chart_stage = match s.phase {
-        Phase::Countdown { stage, .. } | Phase::Stage { stage } | Phase::SongCompletion { stage } => Some(stage),
-        _ => s.upcoming_stage(),
-    }
-    .filter(|id| s.stage(*id).is_some_and(|st| st.content.is_some()));
+    let chart_stage = chart_stage(s);
     let chart_of = |p: ddi_room::ParticipantId| {
         chart_stage
             .and_then(|stage| r.start_shown(stage, p))
@@ -1608,6 +1606,19 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
         });
     }
     rows
+}
+
+/// The stage whose charts the players' rows say (room model revision
+/// 23): the one being readied, counted down or played, once its song is
+/// picked.
+fn chart_stage(s: &ddi_room::RoomState) -> Option<ddi_room::StageId> {
+    match s.phase {
+        Phase::Countdown { stage, .. } | Phase::Stage { stage } | Phase::SongCompletion { stage } => {
+            Some(stage)
+        }
+        _ => s.upcoming_stage(),
+    }
+    .filter(|id| s.stage(*id).is_some_and(|st| st.content.is_some()))
 }
 
 /// Who counts among the room's players, the one definition the Ready
@@ -3477,6 +3488,9 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
             at_start: false,
             targeting: snake(&mb.targeting()),
             picker: s.picker() == Some(mb.id),
+            chart: chart_stage(s)
+                .and_then(|stage| r.start_shown(stage, mb.id))
+                .map(|c| format!("{} {}", c.difficulty.name(), c.meter)),
         })
         .collect();
     let roster = crate::state::cpu_roster::roster_of(&s.next.rules, r.humans());

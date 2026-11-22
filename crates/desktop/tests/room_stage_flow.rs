@@ -372,9 +372,16 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
     ui.update(0.05);
     assert_eq!(top(&ui), "results");
     let shown = common::ui::results_shown(&ui);
-    assert_eq!(
-        shown.notes,
-        "Autoplay: this play does not count toward your bests. · Stage 1: place 1 of 4 · +12 pts"
+    // Its place by the score as earned: since round OC (revision 23) its
+    // CPUs start on the charts their levels are at home on, a strong one
+    // on the song's hardest, whose score a perfect play of the picked
+    // chart may not reach.
+    assert!(
+        shown
+            .notes
+            .starts_with("Autoplay: this play does not count toward your bests. · Stage 1: place "),
+        "{}",
+        shown.notes
     );
     assert!(!shown.retry && !shown.offset, "{shown:?}");
     assert!(attacks > 0, "full bars launched");

@@ -356,9 +356,13 @@ fn our_announcers_say_the_battle_lines_in_a_practice_stage() {
         assert_eq!(heard.spoken[1], "gameplay here we go normal", "{key}");
         assert!(said("battle attack incoming") > 0, "{key}: {:?}", heard.spoken);
         quiet_launches_are_said(key, &heard);
-        assert_eq!(
-            heard.spoken.last().map(String::as_str),
-            Some("battle match won"),
+        // The match's outcome, whichever it is (since round OC its CPUs
+        // start on their levels' charts, a strong one on the hardest).
+        assert!(
+            matches!(
+                heard.spoken.last().map(String::as_str),
+                Some("battle match won" | "battle match not won")
+            ),
             "{key}: {:?}",
             heard.spoken
         );

@@ -1015,3 +1015,33 @@ fn a_cpu_starts_on_the_chart_its_level_is_at_home_on() {
         }
     }
 }
+
+/// Round OC's study (with `--ignored --nocapture`): a perfect play's DDI
+/// score (the sum a stage under Adaptive ranks by) of every original
+/// single chart of the bundled songs, under DDI Normal: how much more a
+/// harder chart can score than an easier one of the same song.
+#[test]
+#[ignore]
+fn perfect_scores_by_chart() {
+    for id in ["beatucada", "into-my-dream", "some-things-must", "sweeteners"] {
+        let song = common::bundled(id);
+        let mut line = Vec::new();
+        for (c, chart) in song.charts.iter().enumerate() {
+            if chart.layout != "dance-single" || chart.derivation.is_some() || chart.notes.is_empty() {
+                continue;
+            }
+            let mut p = Player::new(&song, c, ddi::ruleset(&DdiOptions::default()), PlayOptions::default());
+            let mut edges = ddi_engine::autoplay::edges(ddi_engine::autoplay::script(p.judge().notes(), 0.0));
+            ddi_engine::autoplay::sort_edges(&mut edges);
+            p.start(0.0, 0.0);
+            for (t, lane, pressed) in edges {
+                p.update_at(t);
+                p.input_at(lane, pressed, t);
+            }
+            p.update_at(1e6);
+            let score = p.ruleset().score.view().ddi.map_or(0, |d| d.score);
+            line.push(format!("{} {}: {score}", chart.difficulty.name(), chart.meter));
+        }
+        println!("{id}: {}", line.join(" | "));
+    }
+}

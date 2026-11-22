@@ -210,14 +210,15 @@ fn a_followed_field_in_japanese() {
     followed_behind([390, 844], "ja");
 }
 
-/// Charts: Adaptive on Beatucada's Hard chart, the weak CPUs stepping
-/// down: the first to step followed. Its field shows one chart at any
-/// time: of two charts' notes in a frame, every one of the earlier chart
-/// is nearer the receptors than every one of the later.
+/// Charts: Adaptive on Beatucada's Hard chart, CPUs of levels 3 and 4
+/// starting on Easy (round OC, `cpu-start-v0`) and stepping: the first to
+/// step followed. Its field shows one chart at any time: of two charts'
+/// notes in a frame, every one of the earlier chart is nearer the
+/// receptors than every one of the later.
 #[test]
 fn a_followed_competitor_who_steps_shows_one_chart() {
     let size = [1280, 720];
-    let Some((mut rig, _room)) = stage(size, 5, Difficulty::Hard, [0, 0, 1], true) else {
+    let Some((mut rig, _room)) = stage(size, 5, Difficulty::Hard, [2, 2, 3], true) else {
         return;
     };
     follow(&mut rig, 0);
@@ -263,8 +264,11 @@ fn a_followed_competitor_who_steps_shows_one_chart() {
         let charts: std::collections::BTreeSet<usize> = notes.iter().map(|n| n.0).collect();
         if charts.len() > 1 {
             two += 1;
-            let old = notes.iter().filter(|n| n.0 == 0).map(|n| n.1).fold(f32::MIN, f32::max);
-            let new = notes.iter().filter(|n| n.0 != 0).map(|n| n.1).fold(f32::MAX, f32::min);
+            // The new chart's notes are numbered by its rung (the one it
+            // started on by its own: a start is no longer the stage's 0).
+            let to = usize::from(rung);
+            let old = notes.iter().filter(|n| n.0 != to).map(|n| n.1).fold(f32::MIN, f32::max);
+            let new = notes.iter().filter(|n| n.0 == to).map(|n| n.1).fold(f32::MAX, f32::min);
             assert!(old < new, "the charts overlap at {}: {old} and {new}", w.song);
         }
         let t = w.song;

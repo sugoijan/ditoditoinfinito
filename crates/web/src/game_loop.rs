@@ -1767,7 +1767,8 @@ fn extend(debug: &mut Value, more: Value) {
 /// A stage's ladder as the debug state has it (`battle.ladder`, named
 /// `battle.step_down` before 2026-11-14): its rungs, each step's moment,
 /// boundary, rung, whether it was up and whether it was an early step up, the cue's rung and direction,
-/// each field's steps.
+/// each field's steps, and (round OC) the rung each field and the player
+/// started on.
 fn ladder_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
     s: &ddi_session::play::PlaySession<A, I>,
     host: f64,
@@ -1790,6 +1791,14 @@ fn ladder_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
     let fields: Vec<usize> = s
         .battle()
         .map_or_else(Vec::new, |b| b.feeds().map(|f| f.steps().count()).collect());
+    // Round OC: the rung each field started on, its steps' rungs, and the
+    // player's own start (0: the stage's chart).
+    let starts: Vec<serde_json::Value> = s.battle().map_or_else(Vec::new, |b| {
+        b.feeds()
+            .map(|f| json!([f.start_rung(), f.steps().map(|st| st.2).collect::<Vec<u8>>()]))
+            .collect()
+    });
+    let mine = s.battle().map_or(0, |b| b.my_start());
     let told: Vec<serde_json::Value> = s
         .steps_told()
         .iter()
@@ -1800,6 +1809,8 @@ fn ladder_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
         "steps": steps,
         "cue": cue,
         "fields": fields,
+        "starts": starts,
+        "start": mine,
         "chart": chart.map(|(text, bright)| json!({"text": text, "bright": bright})),
         "told": told,
     })
