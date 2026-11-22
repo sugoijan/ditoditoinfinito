@@ -403,17 +403,28 @@ pages-credits-rust-notice-for = for { $crates }
 
 ## The privacy note: what the game and its online server keep, and the
 ## usage totals the server counts. A fold near the top of the credits
-## (its label, then headings and paragraphs, wrapped in a column about
-## 880 px wide), the same text as the site's privacy page. Plain words,
-## no legal terms. Twitch is the sign-in's provider, named as people see
+## (its label, then headings and text, wrapped in a column about 880 px
+## wide), the same text as the site's privacy page (site/privacy.html).
+##
+## Written in plain language (since 2026-11-22): short sentences with one
+## idea each, active voice, "we" for the people who run the server and
+## "you" for the reader, the same word for the same thing every time
+## (keep, delete, our server, your device, the game, the app), no facts
+## in parentheses, and a list wherever there are three or more items. A
+## body's paragraphs are separated by an empty line; a list's lines
+## start with "• " (the fold has no list of its own: each line is drawn
+## as text). Keep the lines and the empty lines as they are. Japanese:
+## やさしい日本語 (locales/ja/GLOSSARY.md, "The privacy note").
+## No legal terms. Twitch is the sign-in's provider, named as people see
 ## it; "User-Agent" is a browser's technical header, kept as it is.
+## Options' rows are named as they read there.
 
 # The fold's label, and what the multiplayer home's footer and Options'
 # row are called (a word or two).
 pages-privacy = Privacy
 
 # The note's first paragraph.
-pages-privacy-intro = This note says what { -game-name } and its online server keep about you, and for how long. Last changed on November 22, 2026.
+pages-privacy-intro = This note tells you what { -game-name } and its online server keep about you. It also tells you for how long. We last changed this note on November 22, 2026.
 
 # A heading inside the note.
 pages-privacy-alone-heading = Playing alone
@@ -421,8 +432,14 @@ pages-privacy-alone-heading = Playing alone
 # Variables:
 #   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
 pages-privacy-alone = { $platform ->
-    [web] Playing alone, the game keeps everything on your device: your settings, your songs and your play history stay in your browser's storage, or in the app's folders on your computer. It sends nothing about you or your plays to our server. A song someone shared with you by link is read from our server.
-   *[desktop] Playing alone, the game keeps everything on your device: your settings, your songs and your play history stay in the app's folders on your computer. It sends nothing about you or your plays to our server. A song someone shared with you by link is read from our server.
+    [web]
+        When you play alone, the game keeps everything on your device: your settings, your songs and your play history. In a browser, they stay in the browser's storage. In the app, they stay in the app's folders on your computer.
+
+        The game sends nothing about you or your plays to our server. If someone shares a song with you by a link, the game reads that song from our server.
+   *[desktop]
+        When you play alone, the game keeps everything on your device: your settings, your songs and your play history. They stay in the app's folders on your computer.
+
+        The game sends nothing about you or your plays to our server. If someone shares a song with you by a link, the game reads that song from our server.
 }
 
 # A heading inside the note.
@@ -430,74 +447,286 @@ pages-privacy-sign-in-heading = Signing in
 
 # Variables:
 #   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
-pages-privacy-sign-in = Online rooms need you to sign in with Twitch (watching a room with its audience does not). When you sign in, our server asks Twitch for your Twitch user id, your login name and your display name, and keeps none of Twitch's keys. { $platform ->
-    [web] These three go into a signed session that your browser keeps as a cookie (the app keeps it in its settings folder).
-   *[desktop] These three go into a signed session that the app keeps in its settings folder.
-} A session lasts a week, is renewed while you use it, and never lasts more than 30 days after you signed in. Our server keeps no list of the people who signed in. Signing out removes the session from your device. We never ask Twitch for your email address.
+pages-privacy-sign-in = { $platform ->
+    [web]
+        To use online rooms, you must sign in with Twitch. You do not have to sign in to watch a room with its audience.
+
+        When you sign in, our server asks Twitch for three things:
+        • your Twitch user ID
+        • your login name
+        • your display name
+
+        Our server keeps none of Twitch's keys. The three things go into a signed session. Your browser keeps the session as a cookie. The app keeps the session in its settings folder.
+
+        A session lasts one week. It is renewed while you use it. It never lasts more than 30 days after you signed in.
+
+        Our server keeps no list of the people who signed in. Signing out removes the session from your device. We never ask Twitch for your email address.
+   *[desktop]
+        To use online rooms, you must sign in with Twitch. You do not have to sign in to watch a room with its audience.
+
+        When you sign in, our server asks Twitch for three things:
+        • your Twitch user ID
+        • your login name
+        • your display name
+
+        Our server keeps none of Twitch's keys. The three things go into a signed session. The app keeps the session in its settings folder.
+
+        A session lasts one week. It is renewed while you use it. It never lasts more than 30 days after you signed in.
+
+        Our server keeps no list of the people who signed in. Signing out removes the session from your device. We never ask Twitch for your email address.
+}
 
 # A heading inside the note.
 pages-privacy-rooms-heading = Rooms
 
-pages-privacy-rooms = A room keeps what its members see: its name, each member's display name and Twitch user id (so they can come back), their roles, the room's song list (each song's title, artist, pack and charts, and who added it), the players' choices of the next song until each draw and the last draw (who chose which song, and which one was drawn) where the players choose the songs, the songs picked and the results of its matches. A room is deleted when it ends: two minutes after its last member's connection closed, after a week without activity, when its host leaves and it is not passed on, or when the server's administrators close it. After that, only a note that it ended (its id, when and why) is kept for a week, so that its links can say the room is closed; its session log, described below, is kept apart and names nobody. While a room is open, the server's administrators can see it listed with its name, its members' display names and how many people are in it.
+# "A room's session log" names the note's heading of that part
+# (pages-privacy-sessions-heading).
+pages-privacy-rooms =
+    A room keeps what its members see:
+    • the room's name
+    • each member's display name and Twitch user ID, so that members can come back
+    • each member's role
+    • the room's song list: each song's title, artist, pack and charts, and who added the song
+    • where the players choose the songs: each player's choice of the next song until each draw
+    • where the players choose the songs: the last draw, that is, who chose which song and which song was drawn
+    • the songs picked
+    • the results of the room's matches
+
+    A room is deleted when it ends. A room ends:
+    • two minutes after the connection of its last member closed
+    • after one week without activity
+    • when its host leaves and the room does not pass to another member
+    • when the server's administrators close it
+
+    After a room ends, our server keeps only a note that the room ended. This note holds the room's ID, when the room ended and why. Our server keeps this note for one week, so that the room's links can say that the room is closed.
+
+    The room's session log is kept apart and names nobody. The part "A room's session log" below tells you about it.
+
+    While a room is open, the server's administrators can see it in a list. The list shows the room's name, its members' display names and how many people are in the room.
 
 # A heading inside the note.
 pages-privacy-songs-heading = Songs
 
-pages-privacy-songs = When someone in a room adds a song to the room's song list (its host or a co-host, or anyone in the room where the host lets everyone add songs), the game uploads it from their device to our server so that everyone in the room can play it, and the room keeps who added it. Anyone with that copy's link could read it while the room is open. It is kept as long as the room lives: it is deleted when it is removed from the list (by whoever added it, by a host, or to make room in a full list) and when the room ends. Should a room ever stop without ending, its songs are deleted a day after it last showed it was still open, at the latest. A few people we give a key can also share songs by link: such a song is kept until the expiry chosen when it was shared (from an hour to no expiry) or until it is deleted. While you are in a room, the game also downloads the room's songs onto your device before they are picked, so that a stage can start at once: every song of the list by default, or only the likely next ones or none, as Options → Data → Room songs ahead says, never their movies. They are kept apart from your own songs and your play history (in your browser's storage, or the app's cache folder), and deleted when you leave the room, or the next time the game starts if it stopped while you were in one. Your device tells our server which of the room's songs it has, so that everyone sees how many have each one; the server keeps this only while your connection to the room is open and stores none of it.
+pages-privacy-songs =
+    The host and the co-hosts of a room can add songs to the room's song list. If the host lets everyone add songs, anyone in the room can add songs.
 
-# Round TW1b: the Privacy fold's part on a person's Twitch access for a
-# room's features (the same as site/privacy.html's).
+    When someone adds a song, the game uploads the song from their device to our server. This lets everyone in the room play it. The room keeps who added the song.
+
+    While the room is open, anyone with the link to this copy can read it. Our server keeps the copy as long as the room exists. It deletes the copy:
+    • when the song is removed from the list: by the person who added it, by a host, or to make space in a full list
+    • when the room ends
+
+    If a room ever stops without ending, our server deletes its songs. It does this one day at the latest after the room last showed that it was still open.
+
+    We give a key to a few people. These people can also share songs by link. Such a song is kept until the expiry that was chosen when it was shared, or until it is deleted. The expiry can be from one hour to no expiry.
+
+# A heading inside the note: the room's songs the game downloads ahead.
+pages-privacy-songs-ahead-heading = Room songs on your device
+
+# "Room songs ahead" is Options → Data's row (options-room-ahead), named as
+# it reads there; its values are Everything, Likely next and Off.
+# Variables:
+#   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
+pages-privacy-songs-ahead = { $platform ->
+    [web]
+        While you are in a room, the game also downloads the room's songs onto your device before they are picked. This lets a stage start at once. The game never downloads the songs' movies.
+
+        Options → Data → Room songs ahead decides which songs the game downloads:
+        • every song of the list, which is the default
+        • only the songs that will likely come next
+        • none
+
+        The game keeps these songs apart from your own songs and your play history. In a browser, it keeps them in the browser's storage. In the app, it keeps them in the app's cache folder.
+
+        The game deletes these songs when you leave the room. If the game stopped while you were in a room, it deletes them the next time it starts.
+
+        Your device tells our server which of the room's songs it has. This lets everyone see how many people have each song. Our server keeps this only while your connection to the room is open. It stores none of it.
+   *[desktop]
+        While you are in a room, the game also downloads the room's songs onto your device before they are picked. This lets a stage start at once. The game never downloads the songs' movies.
+
+        Options → Data → Room songs ahead decides which songs the game downloads:
+        • every song of the list, which is the default
+        • only the songs that will likely come next
+        • none
+
+        The game keeps these songs apart from your own songs and your play history. It keeps them in the app's cache folder.
+
+        The game deletes these songs when you leave the room. If the game stopped while you were in a room, it deletes them the next time it starts.
+
+        Your device tells our server which of the room's songs it has. This lets everyone see how many people have each song. Our server keeps this only while your connection to the room is open. It stores none of it.
+}
+
+# A heading inside the note: a person's Twitch access for a room's
+# features (round TW1b).
 pages-privacy-twitch-heading = Twitch access for a room's features
-pages-privacy-twitch = A room's host may keep out the people they banned or blocked on Twitch, and show their Twitch chat during play. These are off unless you turn them on, and turning one on takes you through Twitch to allow only what it needs: reading who is banned or timed out in your channel, who you blocked, or chat. If you allow it, our server keeps Twitch's keys for that access (sealed so that only the server can read them) and never gives them to the game. It is used only when a room's feature needs it, and it is deleted when you sign out, when you disconnect it in Options → Data, after 30 days unused, or when Twitch ends it. This device also remembers which of these permissions you used and when (in the game's settings on this device, never on our server): hosting a room with one of these features on, or showing a host's chat on this device. When you sign in on this device again, it asks Twitch in the same step for the ones you used in the last 30 days, so that signing out and in does not take you through Twitch again for each; one you have not used for 30 days is not asked for. Disconnecting in Options → Data forgets them on this device. While a host's room keeps people out this way, the server asks Twitch about each person at their joins, when their connection is reopened and when a song is picked; the answers are kept in memory for at most five minutes (an answer about a timeout no longer than the timeout lasts) and never stored. Someone kept out is told only "You can't join this room."; the other members see them leave. The server's logs count these checks and never name anyone.
-# Round TW7: the Privacy fold's paragraph after the Twitch access part, on
-# a device showing a host's Twitch chat (the same as site/privacy.html's).
+
+# "Options → Data" is where the Twitch access is disconnected.
+pages-privacy-twitch =
+    A room's host can turn on two features that use Twitch:
+    • keep out of the room the people that the host banned or blocked on Twitch
+    • show the host's Twitch chat during play
+
+    These features are off until you turn them on. When you turn one on, the game takes you through Twitch. There, you allow only what the feature needs:
+    • reading who is banned or timed out in your channel
+    • reading who you blocked
+    • reading chat
+
+    If you allow it, our server keeps Twitch's keys for this access. It seals the keys so that only the server can read them. It never gives the keys to the game.
+
+    Our server uses this access only when a room's feature needs it. It deletes the access:
+    • when you sign out
+    • when you disconnect it in Options → Data
+    • after 30 days without use
+    • when Twitch ends it
+
+    This device also remembers which of these permissions you used, and when. It keeps this in the game's settings on this device, never on our server. You use a permission when you:
+    • host a room with one of these features on
+    • show a host's chat on this device
+
+    When you sign in on this device again, it asks Twitch for the permissions that you used in the last 30 days. It does this in the same step as the sign-in. So you do not go through Twitch again for each permission when you sign out and in. The device does not ask for a permission that you have not used for 30 days.
+
+    When you disconnect in Options → Data, this device forgets these permissions.
+
+    When a host's room keeps people out in this way, our server asks Twitch about each person:
+    • when the person joins
+    • when the person's connection opens again
+    • when a song is picked
+
+    Our server keeps the answers only in memory, for five minutes at most. It keeps an answer about a timeout no longer than the timeout lasts. It never stores the answers.
+
+    Someone who is kept out is told only: "You can't join this room." The other members see that person leave. The server's logs count these checks and never name anyone.
+
+# A heading inside the note: a device showing a host's Twitch chat
+# (round TW7).
+pages-privacy-twitch-chat-heading = A host's Twitch chat on your device
+
 # "Emotes from" and "Twitch" are Options → Display's row and its value.
-pages-privacy-twitch-chat = While your device shows a host's Twitch chat during play, the game connects from your device directly to Twitch, which sends the chat's messages to it: Twitch sees your device's address and that your Twitch account reads that channel's chat (our server only asks Twitch to start this and never sees a message). For emotes, your device asks 7TV, BetterTTV and FrankerFaceZ for the channel's and their global emote lists, and them and Twitch for the emote pictures, so they see your device's address; where a direct request fails, our server asks in its place and they see the server's address instead. Options → Display → Emotes from: Twitch keeps your device from asking the other three.
+pages-privacy-twitch-chat =
+    When your device shows a host's Twitch chat during play, the game on your device connects directly to Twitch. Twitch sends the chat's messages to your device. So Twitch sees:
+    • your device's address
+    • that your Twitch account reads that channel's chat
+
+    Our server only asks Twitch to start this. It never sees a message.
+
+    To show emotes, your device asks 7TV, BetterTTV and FrankerFaceZ for emote lists: the channel's lists and their global lists. It also asks these three services and Twitch for the emote pictures. So these services see your device's address.
+
+    If a direct request fails, our server asks in place of your device. Then the services see the server's address instead.
+
+    If you set Options → Display → Emotes from to Twitch, your device does not ask the other three services.
+
 # The part on a host's Kick.
 pages-privacy-kick-heading = Removing someone from a room
-pages-privacy-kick = A room's host and co-hosts can remove a member (Kick). Everyone in the room is told who was removed and by whom; nothing else is kept, and the person can come back by the room's invite link.
+pages-privacy-kick = The host and the co-hosts of a room can remove a member. The game calls this Kick. Everyone in the room is told who was removed and who removed them. Nothing else is kept. The removed person can come back by the room's invite link.
 
 # A heading inside the note.
 pages-privacy-audience-heading = Watching with an audience
 
-pages-privacy-audience = You can watch a room with its audience without signing in. So that one network cannot take every seat, our server turns your network's address into a mark: a code made with a secret key, different every day, that cannot be turned back into the address. The address itself is not kept. The mark exists only in the server's memory while your seat is open, and the server's administrators see only its first eight characters. Signed in, your seats count against your account instead, and no mark is made.
+pages-privacy-audience =
+    You can watch a room with its audience without signing in.
+
+    Our server then turns your network's address into a mark, so that one network cannot take every seat. The mark is a code made with a secret key. The code is different every day. It cannot be turned back into the address. Our server does not keep the address itself.
+
+    The mark exists only in the server's memory, and only while your seat is open. The server's administrators see only its first eight characters.
+
+    If you are signed in, your seats count against your account instead. Then no mark is made.
 
 # A heading inside the note.
 pages-privacy-stats-heading = Usage statistics
 
-pages-privacy-stats = To see whether online play works well, our server counts what happens in rooms as daily totals, for example:
-
-# A line of the list of what is counted (after a bullet).
+# What the server counts by itself, as a list. Adaptive is the match
+# rule's name (Charts: Adaptive), shocks a battle's arrows.
 # Variables:
 #   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
-pages-privacy-stats-devices = { $platform ->
-    [web] what kind of device and browser opened a connection (phone, tablet or computer; Chrome, Edge, Firefox, Safari, Samsung Internet or another), read from your browser's User-Agent when the connection opens and then dropped;
-   *[desktop] what kind of device opened a connection (a phone, a tablet, a computer or this app), read from the connection's User-Agent when it opens and then dropped;
+pages-privacy-stats = { $platform ->
+    [web]
+        Our server counts what happens in rooms, as daily totals. This helps us see whether online play works well. For example, our server counts:
+        • what kind of device and browser opened a connection: a phone, a tablet or a computer, and Chrome, Edge, Firefox, Safari, Samsung Internet or another browser. Our server reads this from your browser's User-Agent when the connection opens. Then it drops the User-Agent. The User-Agent is a line of text in which your browser describes itself.
+        • how connections closed
+        • how long connections lasted, in ranges
+        • how long people were away, in ranges, and whether they came back
+        • the round trip from your network to our server, in ranges. The round trip is the time that a message takes to go to our server and back.
+        • how long songs took to upload and to load
+        • why players sat a stage out
+        • what was played: the charts' difficulty range and style, the rules, when runs ran out of life, the attacks sent, the shocks stepped on and the steps on the Adaptive ladder
+        • how many different people were in rooms each day
+   *[desktop]
+        Our server counts what happens in rooms, as daily totals. This helps us see whether online play works well. For example, our server counts:
+        • what kind of device opened a connection: a phone, a tablet, a computer or this app. Our server reads this from the connection's User-Agent when the connection opens. Then it drops the User-Agent. The User-Agent is a line of text in which a program describes itself.
+        • how connections closed
+        • how long connections lasted, in ranges
+        • how long people were away, in ranges, and whether they came back
+        • the round trip from your network to our server, in ranges. The round trip is the time that a message takes to go to our server and back.
+        • how long songs took to upload and to load
+        • why players sat a stage out
+        • what was played: the charts' difficulty range and style, the rules, when runs ran out of life, the attacks sent, the shocks stepped on and the steps on the Adaptive ladder
+        • how many different people were in rooms each day
 }
 
-# A line of the list of what is counted (after a bullet).
-pages-privacy-stats-connections = how connections closed and how long they lasted, how long people were away and whether they came back, and the round trip from your network to our server, in ranges;
+# After the list of what is counted.
+pages-privacy-stats-kept =
+    These totals contain no names, accounts, addresses, rooms or song titles.
 
-# A line of the list of what is counted (after a bullet).
-pages-privacy-stats-loading = how long songs took to upload and to load, and why players sat a stage out;
+    Our server counts the people of each day without knowing who they are. For this, it keeps a code made from each account with a secret key. The key changes every day. Our server deletes the code once it has counted the day.
 
-# A line of the list of what is counted (after a bullet). Adaptive is
-# the match rule's name (Charts: Adaptive), shocks a battle's arrows.
-pages-privacy-stats-play = what was played: the charts' difficulty range and style, the rules, when runs ran out of life, the attacks sent and shocks stepped on, and the steps on the Adaptive ladder;
+    Our server keeps the totals day by day for 13 months. After that, it keeps them month by month.
 
-# A line of the list of what is counted (after a bullet).
-pages-privacy-stats-people = how many different people were in rooms each day.
+    Bots and the game's computer players are counted apart from people. Playing alone is never counted.
 
-pages-privacy-stats-kept = These totals contain no names, accounts, addresses, rooms or song titles. To count the people of a day without knowing who they are, the server keeps a code made from each account with a secret key that changes every day, and deletes it once the day is counted. The totals are kept day by day for 13 months, then month by month. Bots and the game's computer players are counted apart from people. Playing alone is never counted.
+# A heading inside the note: what the game itself sends for the totals
+# (the stats proposal's step 2).
+# Variables:
+#   $platform (String) - web or desktop (desktop's says the app)
+pages-privacy-stats-game-heading = { $platform ->
+    [web] What the game sends for the totals
+   *[desktop] What the app sends for the totals
+}
 
-# What the game itself sends for the totals (the stats proposal's step 2),
-# and the Options row that turns it off (options-usage-stats, "Send usage
-# statistics", in the Data section).
+# What the game itself sends for the totals, and the Options row that
+# turns it off (options-usage-stats, "Send usage statistics", in the Data
+# section). The site's page adds a list of how the desktop app's report
+# differs.
 # Variables:
 #   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
 pages-privacy-stats-game = { $platform ->
-    [web] While you are in an online room, the game also tells our server a few things for these totals, each time its connection to the room opens: that it is the game in a browser; your system (such as Windows, macOS, Android or iOS); whether your device is a phone, a tablet or a computer; whether the game draws with WebGPU or WebGL2; whether the screen is a touch screen; the game's version; how many times it has connected to the room and how many tries this connection took; and how its previous connection to the room ended (closed or dropped, and with which code), how long that connection lasted, how long the page was in the background while it lasted, whether its keep-alive messages were answered, and the round trip to our server. Each of these is one value from a fixed list or a range, never a name, an account, an address, a room or a song. The server adds them to the totals and keeps nothing else of them. To turn this off, set Options → Data → Send usage statistics to Off: the game then sends none of it, and the server's own counts above go on. Watching with an audience sends none of it.
-   *[desktop] While you are in an online room, the app also tells our server a few things for these totals, each time its connection to the room opens: that it is the app; your system (Windows, macOS or Linux); whether it draws with Metal, Vulkan, DirectX 12 or OpenGL; the game's version; how many times it has connected to the room and how many tries this connection took; and how its previous connection to the room ended (closed or dropped, and with which code), how long that connection lasted, how long the window was hidden while it lasted, and the round trip to our server. Each of these is one value from a fixed list or a range, never a name, an account, an address, a room or a song. The server adds them to the totals and keeps nothing else of them. To turn this off, set Options → Data → Send usage statistics to Off: the app then sends none of it, and the server's own counts above go on. Watching with an audience sends none of it.
+    [web]
+        While you are in an online room, the game also tells our server a few things for these totals. It does this each time its connection to the room opens. It tells:
+        • that it is the game in a browser
+        • your system, such as Windows, macOS, Android or iOS
+        • whether your device is a phone, a tablet or a computer
+        • whether the game draws with WebGPU or WebGL2
+        • whether the screen is a touch screen
+        • the game's version
+        • how many times it has connected to the room
+        • how many tries this connection took
+        • how its previous connection to the room ended: closed or dropped, and with which code
+        • how long that connection lasted
+        • how long the page was in the background during that connection
+        • whether that connection's keep-alive messages were answered. Keep-alive messages check that a connection still works.
+        • the round trip to our server
+
+        Each of these things is one value from a fixed list, or a range. It is never a name, an account, an address, a room or a song. Our server adds these values to the totals and keeps nothing else of them.
+
+        To turn this off, set Options → Data → Send usage statistics to Off. Then the game sends none of these things. Our server's own counts above go on.
+
+        When you watch with an audience, the game sends none of these things.
+   *[desktop]
+        While you are in an online room, the app also tells our server a few things for these totals. It does this each time its connection to the room opens. It tells:
+        • that it is the app
+        • your system: Windows, macOS or Linux
+        • whether it draws with Metal, Vulkan, DirectX 12 or OpenGL
+        • the game's version
+        • how many times it has connected to the room
+        • how many tries this connection took
+        • how its previous connection to the room ended: closed or dropped, and with which code
+        • how long that connection lasted
+        • how long the window was hidden during that connection
+        • the round trip to our server
+
+        Each of these things is one value from a fixed list, or a range. It is never a name, an account, an address, a room or a song. Our server adds these values to the totals and keeps nothing else of them.
+
+        To turn this off, set Options → Data → Send usage statistics to Off. Then the app sends none of these things. Our server's own counts above go on.
+
+        When you watch with an audience, the app sends none of these things.
 }
 
 # A heading inside the note (the stats proposal's step 3: what a room's
@@ -506,7 +735,28 @@ pages-privacy-sessions-heading = A room's session log
 
 # Send usage statistics is the Options row (options-usage-stats), named
 # as it reads there.
-pages-privacy-sessions = So that problems in a room can be understood afterwards (for example, why people lost their connection), each room keeps a short log of its session: when each connection opened and closed and with which code, when someone was away and whether they came back, each seat's role and whether it played or watched, the kind of device and browser of each seat as in the totals above, how long songs took to upload and to load, when a song was added to the room's list (by which seat) or left it (and why, never which song), when a seat's own choice started the countdown to a draw of the next song, each draw (how many choices, never which song) and why a countdown ended without one, who was ready, who sat a stage out and why, how runs ended, and when someone was turned away (a full room, for example). It names nobody: each person is only a seat number that means something inside that room alone, and the log holds no names, accounts, addresses, room name or id, or song titles. Bots and the game's computer players are marked as such. If you turned Send usage statistics off, it has only what our server saw by itself. The room keeps the log while it is open; when the room ends, our server keeps it for 14 days for its administrators to read, then deletes it.
+pages-privacy-sessions =
+    Each room keeps a short log of its session. It is there so that problems in a room can be understood afterwards. For example, the log can show why people lost their connection. The log holds:
+    • when each connection opened and closed, and with which code
+    • when someone was away, and whether they came back
+    • each seat's role, and whether the seat played or watched
+    • the kind of device and browser of each seat, as in the totals above
+    • how long songs took to upload and to load
+    • when a song was added to the room's list, and by which seat
+    • when a song left the room's list, and why, but never which song
+    • when a seat's own choice started the countdown to a draw of the next song
+    • each draw: how many choices there were, but never which song
+    • why a countdown ended without a draw
+    • who was ready
+    • who sat a stage out, and why
+    • how runs ended
+    • when someone was turned away, for example because the room was full
+
+    The log names nobody. Each person is only a seat number, and a seat number means something only inside that room. The log holds no names, accounts, addresses, room name, room ID or song titles.
+
+    The log marks bots and the game's computer players as such. If you turned Send usage statistics off, the log has only what our server saw by itself.
+
+    The room keeps the log while it is open. When the room ends, our server keeps the log for 14 days for its administrators to read. Then our server deletes the log.
 
 # A heading inside the note (the stats proposal's step 4: the web game's
 # own error reports).
@@ -514,23 +764,66 @@ pages-privacy-errors-heading = Error reports
 
 # Send error reports is the Options row (options-error-reports), named as
 # it reads there; Global Privacy Control is a browser setting, named as
-# browsers name it.
+# browsers name it. "Watching with an audience" names the note's heading
+# of that part (pages-privacy-audience-heading).
 # Variables:
 #   $platform (String) - web or desktop (the app sends none)
 pages-privacy-errors = { $platform ->
-    [web] When the game itself goes wrong in your browser (a crash, a failure in its code that nothing caught, a graphics device lost or missing, or a page that cannot start the game), it sends our server a short report holding at most the kind of error, the kind of screen you were on (such as song select or a play, never the page's address), the game's version, your system, the kind of device, the graphics it uses and the error's message. The game takes out of the message file paths (but where in the game's program the error happened), web and email addresses, network addresses, quoted text, long numbers, ids and any letters beyond English, and cuts it to 300 characters. A message can still hold an ordinary English word, such as a word of a song's title that the game's own message did not quote. Our server reads the kind of browser and device from your browser's User-Agent, as for the totals, and drops it; it takes the same things out of the message again and drops a report that still holds any of them. It counts reports in the daily totals by kind, version, screen, browser, device and graphics, and keeps one example message of each distinct error for 30 days after it was last seen. To stop floods, it counts the reports from one network for a minute by the daily mark described above, only in its memory. The game sends at most five reports a visit and never the same error twice in one visit. To turn this off, set Options → Data → Send error reports to Off. If your browser sends the Global Privacy Control signal, the game sends no error reports whatever that option says. The app on a computer sends no error reports.
+    [web]
+        When the game itself goes wrong in your browser, it sends our server a short report. The game goes wrong when there is:
+        • a crash
+        • a failure in the game's code that nothing caught
+        • a graphics device that is lost or missing
+        • a page that cannot start the game
+
+        The report holds at most:
+        • the kind of error
+        • the kind of screen you were on, such as song select or a play, but never the page's address
+        • the game's version
+        • your system
+        • the kind of device
+        • the graphics that the game uses
+        • the error's message
+
+        The game takes these things out of the message:
+        • file paths, but it keeps where in the game's program the error happened
+        • web addresses and email addresses
+        • network addresses
+        • quoted text
+        • long numbers
+        • IDs
+        • any letters beyond English
+
+        The game also cuts the message to 300 characters. The message can still hold an ordinary English word. An example is a word of a song's title that the game's own message did not quote.
+
+        Our server reads the kind of browser and device from your browser's User-Agent, as it does for the totals. Then it drops the User-Agent. Our server takes the same things out of the message again. It drops a report that still holds any of them.
+
+        Our server counts reports in the daily totals by kind, version, screen, browser, device and graphics. For each distinct error, it keeps one example message. It keeps that example for 30 days after the error was last seen.
+
+        To stop floods of reports, our server counts the reports from one network for one minute. It counts them by the daily mark from "Watching with an audience" above, and only in its memory.
+
+        The game sends at most five reports in one visit. It never sends the same error twice in one visit.
+
+        To turn this off, set Options → Data → Send error reports to Off. If your browser sends the Global Privacy Control signal, the game sends no error reports, whatever that option says.
+
+        The app on a computer sends no error reports.
    *[desktop] The app sends no error reports.
 }
 
 # A heading inside the note.
 pages-privacy-logs-heading = Server logs
 
-pages-privacy-logs = Our server runs on Cloudflare, which handles the connections to it and keeps logs of the requests it receives for up to 7 days. These logs can include the address asked for (an invite link, for example) and technical details of the connection. Our own lines in these logs name rooms by their ids and never a player (only the administrator who changes the server's settings).
+pages-privacy-logs =
+    Our server runs on Cloudflare. Cloudflare handles the connections to our server. It keeps logs of the requests that it receives for up to 7 days.
+
+    These logs can include the address that was asked for, for example an invite link. They can also include technical details of the connection.
+
+    Our own lines in these logs name rooms by their IDs and never name a player. The only person that they name is the administrator who changes the server's settings.
 
 # A heading inside the note.
 pages-privacy-questions-heading = Questions
 
-pages-privacy-questions = If something in this note is unclear, open an issue on the game's repository, or write to me@sugoijan.dev.
+pages-privacy-questions = If something in this note is not clear, open an issue on the game's repository. Or write to me@sugoijan.dev.
 
 # A link to the same note on the game's site (opens the browser).
 # Variables:

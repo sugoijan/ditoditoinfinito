@@ -80,7 +80,10 @@ pub fn privacy_url() -> String {
 /// The privacy note (the stats proposal's step 1, 2026-11-16): what the
 /// game and its online server keep, and the usage totals the server
 /// counts, folded near the top of the credits, as the site's page says
-/// it; the multiplayer home and Options link to the page.
+/// it; the multiplayer home and Options link to the page. Written in
+/// plain language since 2026-11-22: each part's text is one message
+/// whose paragraphs are separated by an empty line and whose lists are
+/// lines starting with "• " (the page has no list of its own).
 pub fn privacy(platform: &str) -> Block {
     fn part(body: &mut Vec<Block>, heading: UiText, text: UiText) {
         body.push(Block::Subheading(heading.into()));
@@ -99,26 +102,34 @@ pub fn privacy(platform: &str) -> Block {
     );
     part(&mut body, pm::privacy_rooms_heading(), pm::privacy_rooms());
     part(&mut body, pm::privacy_songs_heading(), pm::privacy_songs());
+    part(
+        &mut body,
+        pm::privacy_songs_ahead_heading(),
+        pm::privacy_songs_ahead(platform),
+    );
     part(&mut body, pm::privacy_twitch_heading(), pm::privacy_twitch());
-    body.push(Block::Text(pm::privacy_twitch_chat().into()));
+    part(
+        &mut body,
+        pm::privacy_twitch_chat_heading(),
+        pm::privacy_twitch_chat(),
+    );
     part(&mut body, pm::privacy_kick_heading(), pm::privacy_kick());
     part(
         &mut body,
         pm::privacy_audience_heading(),
         pm::privacy_audience(),
     );
-    part(&mut body, pm::privacy_stats_heading(), pm::privacy_stats());
-    for line in [
-        pm::privacy_stats_devices(platform),
-        pm::privacy_stats_connections(),
-        pm::privacy_stats_loading(),
-        pm::privacy_stats_play(),
-        pm::privacy_stats_people(),
-    ] {
-        body.push(Block::Text(format!("• {}", String::from(line))));
-    }
+    part(
+        &mut body,
+        pm::privacy_stats_heading(),
+        pm::privacy_stats(platform),
+    );
     body.push(Block::Text(pm::privacy_stats_kept().into()));
-    body.push(Block::Text(pm::privacy_stats_game(platform).into()));
+    part(
+        &mut body,
+        pm::privacy_stats_game_heading(platform),
+        pm::privacy_stats_game(platform),
+    );
     part(
         &mut body,
         pm::privacy_sessions_heading(),
@@ -559,6 +570,42 @@ mod rust_tests {
             body.iter()
                 .any(|b| matches!(b, Block::Subheading(h) if h == "Usage statistics"))
         );
+    }
+
+    /// The note in plain language (2026-11-22): a part's paragraphs are
+    /// separated by an empty line and its lists are lines starting with
+    /// "• ", as the messages write them, on each platform.
+    #[test]
+    fn the_privacy_note_keeps_its_paragraphs_and_lists() {
+        for platform in ["web", "desktop"] {
+            let Block::Fold { body, .. } = privacy(platform) else {
+                unreachable!()
+            };
+            let texts: Vec<&str> = body
+                .iter()
+                .filter_map(|b| match b {
+                    Block::Text(t) => Some(t.as_str()),
+                    _ => None,
+                })
+                .collect();
+            let rooms = texts
+                .iter()
+                .find(|t| t.starts_with("A room keeps what its members see:"))
+                .expect("the rooms' part");
+            let lines: Vec<&str> = rooms.lines().collect();
+            assert_eq!(lines[1], "• the room's name", "{platform}");
+            assert!(lines.contains(&""), "{platform}: its paragraphs");
+            assert!(
+                !rooms.starts_with(' ') && lines.iter().all(|l| !l.starts_with(' ')),
+                "{platform}: no indentation left"
+            );
+            // The web's errors are a part of their own; the app sends none.
+            let errors = texts
+                .iter()
+                .find(|t| t.contains("error reports"))
+                .expect("the errors' part");
+            assert_eq!(errors.contains('•'), platform == "web", "{platform}");
+        }
     }
 
     /// The generated files parse, when `xtask gen-credits` has run.

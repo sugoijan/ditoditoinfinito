@@ -7701,18 +7701,6 @@ text = "3e334b99605f2adb"
 by = "agent"
 date = "2026-11-22"
 
-[pages-privacy-stats-connections]
-source = "65498e7d7b7b00cf"
-text = "a8c10332c76556a9"
-by = "agent"
-date = "2026-11-22"
-
-[pages-privacy-stats-devices]
-source = "da2e771aae8128c2"
-text = "dfcca8a8bc0dc69b"
-by = "agent"
-date = "2026-11-22"
-
 [pages-privacy-stats-game]
 source = "2f99fa8a9e231074"
 text = "78d9e4d8c1693c5a"
@@ -7728,24 +7716,6 @@ date = "2026-11-22"
 [pages-privacy-stats-kept]
 source = "2999ff1c074f3cfd"
 text = "303f9eed66624b86"
-by = "agent"
-date = "2026-11-22"
-
-[pages-privacy-stats-loading]
-source = "dba4af2c1b39514e"
-text = "b4df8a1b00319684"
-by = "agent"
-date = "2026-11-22"
-
-[pages-privacy-stats-people]
-source = "b8770ac05210193f"
-text = "066490021b876fcc"
-by = "agent"
-date = "2026-11-22"
-
-[pages-privacy-stats-play]
-source = "50d9daf112cd7a69"
-text = "43e310767cc5fff6"
 by = "agent"
 date = "2026-11-22"
 

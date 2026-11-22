@@ -15,6 +15,34 @@ alike. Changes to this list are the maintainer's.
 - A Latin word or name inside Japanese keeps no extra spaces around it
   unless English text follows.
 
+## The privacy note (2026-11-22, an agent's draft for the maintainer's review)
+
+The privacy note (`pages-privacy-*`, and the Japanese half of
+`site/privacy.html`) is written in やさしい日本語, the plain Japanese that
+public bodies use for residents (出入国在留管理庁・文化庁「在留支援のための
+やさしい日本語ガイドライン」, 2020), more plainly than the rest of the UI:
+
+- One idea a sentence, です・ます throughout; aim for 40 characters or
+  fewer (a sentence that lists names, services or options may run longer).
+- Three or more items as a list (lines starting with "• "), not a chain
+  of 、 before a noun; a list item may be a noun phrase.
+- Active sentences with the doer named (サーバーは…削除します), not
+  passives or causatives, except 退出させる, which is the game's word for
+  Kick. No double negatives.
+- Common words: 保存する (keep, store), 削除する (delete), 捨てる
+  (drop), だれ in kana, コピー (not 複製), 最初の設定 (not 既定). A hard
+  word explained once in a sentence of its own: セッション, メモリー,
+  User-Agent, 往復時間, リクエスト. A common kanji word stays in kanji
+  (案内, 覚える, 防ぐ: the font cut gains them, as for any message).
+- The game's terms as above (ルーム, ホスト, 共同ホスト, 管理者, 観客席,
+  席, 対戦, 抽選, 準備OK, このデバイス); "sat a stage out" stays ステージに
+  参加しなかった here, plainer than 見学.
+- Options' rows named as they read there, in 「」 with their path:
+  「オプション → データ → 利用統計を送る」.
+- No furigana and no spaces between phrases (分かち書き), which some
+  やさしい日本語 guidance uses: neither the page nor the game's text has
+  ruby, and spaces would read as broken lines in the fold.
+
 ## Never translated
 
 - The game's name: Dito Dito Infinito (`-game-name`).
