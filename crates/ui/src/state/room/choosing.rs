@@ -234,7 +234,15 @@ impl RoomClient {
             }
             _ => {}
         }
-        if let Some((record, fresh)) = drawn {
+        // A draw past its reveal on the room's clock (a page loaded again,
+        // or joined, during the stage's Ready window) is passed over, as the
+        // audience's seat passes it over (review 2026-11-22, room-client
+        // note); a room played live is read once its clock is known.
+        let room_now = self.room_now();
+        let clock_known = room_now.is_some() || !self.plays_live();
+        if let Some((record, fresh)) = drawn.filter(|_| clock_known) {
+            let fresh = fresh
+                && room_now.is_none_or(|n| n.0 < record.at.0.saturating_add(ddi_room::DRAW_V0.reveal_ms));
             let key = (record.stage, record.roll);
             if self.choosing.revealed.insert(key) && fresh {
                 self.choosing.reveal = Some(Reveal { record, from_ms: now });

@@ -290,3 +290,77 @@ fn a_member_who_leaves_while_reconnecting_is_told_the_room() {
     assert!(gone, "the room has Bob left");
     assert!(!kept.drive_leaving(ddi_room::Clock::now(&clock).0), "and lets the link go");
 }
+
+/// room-client, note: a member's page loaded again (or joined) during a
+/// stage's Ready window after the group's draw was revealed does not
+/// reveal it again: its reveal's time on the room's clock is past (as the
+/// audience's seat reads it), so its prompt is not held back for it while
+/// the window runs. A draw fresh on the room's clock is revealed as
+/// before.
+#[test]
+fn a_draw_revealed_before_a_page_was_loaded_is_not_revealed_again() {
+    use super::live_tests::room_with;
+    use ddi_room::RoomPolicy;
+    let clock = ManualClock::new(5_000);
+    let server = room_with(&clock, &["bob", "carol"], RoomPolicy::default().with_live());
+    server.borrow_mut().rewrite(|s| {
+        s.next.rules.choice = ddi_room::SongChoice::Group;
+        let list = std::sync::Arc::make_mut(&mut s.songs);
+        for n in 1..=2u64 {
+            let id = ddi_room::RoomSongId(list.next.max(1));
+            list.next = id.0 + 1;
+            list.entries.push(ddi_room::RoomSong {
+                id,
+                key: ddi_room::SongKey::new(format!("s{n:015x}")),
+                card: ddi_room::SongCard {
+                    title: format!("Song {n}"),
+                    ..Default::default()
+                },
+                charts: vec![ddi_room::ChartLine {
+                    chart: ddi_room::ChartKey::new(format!("d{n}")),
+                    style: "dance-single".into(),
+                    difficulty: "Hard".into(),
+                    meter: 9,
+                }],
+                by: ParticipantId(1),
+                added_at: s.revision,
+                status: ddi_room::ContentStatus::Available,
+                share: Some(format!("share{n}")),
+                bundled: false,
+            });
+        }
+    });
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 5_000);
+    let step = |ms: u64, rooms: &mut [&mut RoomClient]| {
+        for _ in 0..ms / 50 {
+            clock.advance(50);
+            server.borrow_mut().pump();
+            for r in rooms.iter_mut() {
+                r.tick(ddi_room::Clock::now(&clock).0);
+            }
+        }
+    };
+    step(2_000, &mut [&mut alice, &mut bob]);
+    bob.choose(ddi_room::RoomSongId(2), &ddi_room::ChartKey::new("d2")).unwrap();
+    step(200, &mut [&mut alice, &mut bob]);
+    alice.choose(ddi_room::RoomSongId(1), &ddi_room::ChartKey::new("d1")).unwrap();
+    let mut revealed = false;
+    for _ in 0..120 {
+        step(50, &mut [&mut alice, &mut bob]);
+        if bob.reveal().is_some() {
+            revealed = true;
+            break;
+        }
+    }
+    assert!(revealed, "a fresh draw is revealed");
+    // Its reveal over on the room's clock, Carol's page is loaded.
+    step(4_000, &mut [&mut alice, &mut bob]);
+    assert!(server.borrow().state().drawn.is_some());
+    let mut carol = client(&server, person(&server, "carol"), "carol", ddi_room::Clock::now(&clock).0);
+    for _ in 0..60 {
+        step(50, &mut [&mut alice, &mut bob, &mut carol]);
+        assert!(carol.reveal().is_none(), "revealed again on a page loaded after it");
+    }
+    assert_eq!(carol.link_state(), LinkState::Connected);
+}
