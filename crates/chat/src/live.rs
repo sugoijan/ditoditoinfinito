@@ -351,6 +351,10 @@ struct Conn {
     sub: Sub,
     /// Opened from a reconnect message: its subscriptions carried over.
     handover: bool,
+    /// Opened from a reconnect message before the old socket's session was
+    /// subscribed: nothing carried over, its own session subscribed once
+    /// it welcomes (review 2026-11-22, chat-touch, a suspicion).
+    resubscribe: bool,
 }
 
 /// What came in, counted for the report.
@@ -552,6 +556,7 @@ impl Live {
             heard: now,
             sub: Sub::No,
             handover,
+            resubscribe: false,
         });
         self.todo.push(Do::Open { socket: id, url });
     }
@@ -754,7 +759,7 @@ impl Live {
             // A reconnect's new socket: the subscriptions carried over;
             // the old one closed now.
             self.conns[k].sub = Sub::Done;
-            self.conns[k].session = Some(session_id);
+            self.conns[k].session = Some(session_id.clone());
             let old: Vec<u32> = self
                 .conns
                 .iter()
@@ -766,15 +771,25 @@ impl Live {
                 self.todo.push(Do::Close { socket: *o });
             }
             self.reconnects_done += 1;
-            self.losses = 0;
-            self.line(
-                now,
-                format!(
-                    "socket {socket}: welcomed after a reconnect in {in_ms} ms (keepalive {keepalive_s} s); the old socket closed, nothing subscribed again"
-                ),
-            );
-            return;
+            if !self.conns[0].resubscribe {
+                self.losses = 0;
+                self.line(
+                    now,
+                    format!(
+                        "socket {socket}: welcomed after a reconnect in {in_ms} ms (keepalive {keepalive_s} s); the old socket closed, nothing subscribed again"
+                    ),
+                );
+                return;
+            }
+            // Asked before the old session was subscribed: this one's own
+            // (the old socket closed, its subscription never done).
+            self.conns[0].handover = false;
+            self.conns[0].sub = Sub::No;
         }
+        // (Where the old sockets went, its place moved.)
+        let Some(k) = self.index(socket) else {
+            return;
+        };
         if session_id.is_empty() {
             self.sample("a welcome without a session id".into(), text);
             self.lose(now, "a welcome without a session id".into());
@@ -805,7 +820,11 @@ impl Live {
             now,
             format!("socket {socket}: Twitch asked for a reconnect to {}; the old socket kept until the new one welcomes", host_of(&url)),
         );
+        let carried = self.conns[k].sub == Sub::Done;
         self.open(now, url, true);
+        if let Some(new) = self.conns.last_mut() {
+            new.resubscribe = !carried;
+        }
     }
 
     /// Socket `socket` closed with `code` (1006 for a drop without one).

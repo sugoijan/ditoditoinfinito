@@ -325,6 +325,33 @@ fn a_reconnect_that_fails() {
     assert_eq!(l.report()["not_understood"]["count"], 1);
 }
 
+/// Review 2026-11-22 (chat-touch, a suspicion): Twitch asks for a
+/// reconnect before our server answered the first socket's subscribe:
+/// the new socket's session is subscribed once it welcomes (nothing was
+/// carried over), never taken as live without a subscription; the old
+/// socket's late answer counts for nothing.
+#[test]
+fn a_reconnect_before_the_subscription_subscribes_the_new_socket() {
+    let mut l = Live::new(P, "wss://eventsub.test/ws");
+    l.start(1_000);
+    l.take_do();
+    l.opened(1, 1_100);
+    l.text(1, &welcome("s1", Some(10)), 1_200);
+    assert_eq!(subscribes(&l.take_do()), [(1, "s1".to_string())]);
+    l.text(1, &reconnect("wss://eventsub.test/ws?id=2"), 2_000);
+    assert_eq!(opens(&l.take_do()).len(), 1);
+    l.opened(2, 2_100);
+    l.text(2, &welcome("s2", Some(10)), 2_200);
+    let d = l.take_do();
+    assert_eq!(closes(&d), [1]);
+    assert_eq!(subscribes(&d), [(2, "s2".to_string())], "the new session subscribed");
+    assert_ne!(l.state(), "live", "not live before it is subscribed");
+    l.subscribed(1, enabled(), 2_300);
+    assert_ne!(l.state(), "live", "the old socket's answer counts for nothing");
+    l.subscribed(2, enabled(), 2_400);
+    assert_eq!(l.state(), "live");
+}
+
 /// Review 2026-11-22 (chat-touch, a suspicion): a reconnect is followed
 /// only to Twitch's own sockets (`wss://…twitch.tv`) or to the host the
 /// connection was opened at (a test's local fake); any other address is
