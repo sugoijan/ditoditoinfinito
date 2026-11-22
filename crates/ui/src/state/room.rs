@@ -1425,6 +1425,11 @@ pub struct RoomClient {
     /// Ready (or not) asked of the room and not answered yet: the command's
     /// `seq` and the readiness asked ([`Self::ready_as_asked`]).
     ready_asked: Option<(u64, bool)>,
+    /// The link's state as the end of the last tick left it: a reconnect
+    /// is the link Connected now and not then, however it came (a command
+    /// sent between two ticks may be the first to read the new socket's
+    /// room; review 2026-11-22, room-client 1).
+    link_seen: LinkState,
     mirror: Mirror,
     me: ParticipantId,
     picks: BTreeMap<ContentId, Picked>,
@@ -2218,6 +2223,7 @@ impl RoomClient {
             seq: 0,
             unanswered: None,
             ready_asked: None,
+            link_seen: LinkState::Joining,
             mirror: Mirror::new(),
             me,
             picks: BTreeMap::new(),
@@ -3334,7 +3340,9 @@ impl RoomClient {
         self.read_inbox();
         self.retry_due();
         self.pump();
-        if before != LinkState::Connected && self.link_state() == LinkState::Connected {
+        // Connected since the last tick, whoever read it first (this
+        // tick's poll, or a command's sent since).
+        if self.link_seen != LinkState::Connected && self.link_state() == LinkState::Connected {
             self.connected_again();
         }
         self.tell_twitch_end();
@@ -3370,6 +3378,7 @@ impl RoomClient {
         if self.link_state() != before {
             self.version += 1;
         }
+        self.link_seen = self.link_state();
     }
 
     /// The picker's song select rests on `song`'s `chart` (none: no

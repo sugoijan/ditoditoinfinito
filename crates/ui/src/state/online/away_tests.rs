@@ -20,13 +20,13 @@ const BOB: ParticipantId = ParticipantId(2);
 /// A browser tab's socket: the browser reads it whether or not the page
 /// runs ([`Tab::network`]), and the page takes what came at its next run.
 #[derive(Clone)]
-struct Tab {
+pub(super) struct Tab {
     socket: Rc<RefCell<FakeSocket>>,
-    came: Rc<RefCell<Vec<TransportEvent>>>,
+    pub(super) came: Rc<RefCell<Vec<TransportEvent>>>,
 }
 
 impl Tab {
-    fn new(server: &SharedFake) -> Tab {
+    pub(super) fn new(server: &SharedFake) -> Tab {
         Tab {
             socket: Rc::new(RefCell::new(FakeSocket::new(server.clone()))),
             came: Rc::default(),
@@ -35,7 +35,7 @@ impl Tab {
 
     /// The network runs though the page does not (a hidden tab): what
     /// the socket brings (its close too) is queued for the page.
-    fn network(&self) {
+    pub(super) fn network(&self) {
         let got = self.socket.borrow_mut().poll();
         self.came.borrow_mut().extend(got);
     }
