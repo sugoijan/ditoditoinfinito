@@ -289,3 +289,47 @@ fn resumes_are_answered_at_a_bounded_rate() {
     let out = l.server.receive(&l.r.s, ana, ClientLive::Resume { stage, after: None }, Millis(l.r.now));
     assert!(!out.reply.is_empty(), "answered again after the window");
 }
+
+/// Finding 3: the CPUs' news and runs were taken from anyone present, the
+/// first kept: a watcher's forged ends put every CPU out at song zero.
+/// They are taken from those `cpu-reporters-v0` names, as every device
+/// reads it (`sends_for_cpus`): a person of the lineup, or, with none of
+/// them connected, the watchers it names.
+#[test]
+fn the_cpus_news_is_taken_from_those_who_send_it() {
+    use ddi_room::live::cpus::{CpuEntry, CpuNews, CpuRun, sends_for_cpus};
+    use ddi_room::live::stream::StreamEnd;
+    let mut l = Live::new(true, 2);
+    l.wait(100);
+    let (stage, wes, host) = (l.stage, l.watcher, l.host);
+    assert_eq!(l.cpus.len(), 2);
+    assert!(!sends_for_cpus(&l.r.s, stage, wes));
+    let out_at_zero = CpuNews {
+        stage,
+        entries: l
+            .cpus
+            .iter()
+            .map(|c| CpuEntry { end: Some(StreamEnd::Out { at_us: 0 }), ..CpuEntry::new(*c, 0) })
+            .collect(),
+    };
+    let out = l.server.receive_binary(&l.r.s, wes, &wire::encode_cpus(&out_at_zero), Millis(l.r.now));
+    assert_eq!(refused(&out), Some(LiveRefusal::NotInLineup { stage }));
+    for c in &l.cpus {
+        assert_eq!(l.server.stage().unwrap().end(*c), None, "the watcher's end not taken");
+    }
+    let run = CpuRun { cpu: l.cpus[0], run: ReportedRun::Out { at_ms: 0 }, detail: None };
+    let out = l.server.receive(&l.r.s, wes, ClientLive::CpuRuns { stage, runs: vec![run.clone()] }, Millis(l.r.now));
+    assert_eq!(refused(&out), Some(LiveRefusal::NotInLineup { stage }));
+    assert!(out.commands.is_empty());
+    // A player of the stage sends it.
+    let news = CpuNews { stage, entries: vec![CpuEntry::new(l.cpus[0], 1_000)] };
+    let out = l.server.receive_binary(&l.r.s, host, &wire::encode_cpus(&news), Millis(l.r.now));
+    assert_eq!(refused(&out), None);
+    // With no player of the stage connected, the watcher it names does.
+    for p in [l.host, l.ana] {
+        l.r.sys(Command::SetConnection { participant: p, connection: Connection::Reconnecting }).unwrap();
+    }
+    assert!(sends_for_cpus(&l.r.s, stage, wes));
+    let out = l.server.receive_binary(&l.r.s, wes, &wire::encode_cpus(&news), Millis(l.r.now));
+    assert_eq!(refused(&out), None);
+}

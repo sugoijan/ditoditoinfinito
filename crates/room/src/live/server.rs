@@ -687,6 +687,20 @@ pub struct LiveStage {
     resumes: BTreeMap<ParticipantId, (Millis, usize)>,
 }
 
+/// Whether the room takes stage `stage`'s CPUs' news and runs from
+/// member `from` (round RFa: from anyone present, the first kept, so a
+/// watcher could end every CPU at song zero): a person of its lineup, or
+/// one `cpu-reporters-v0` names ([`crate::live::cpus::sends_for_cpus`],
+/// what every device reads from the room's state to decide whether it
+/// sends).
+fn reports_for_cpus(room: &RoomState, stage: StageId, from: ParticipantId) -> bool {
+    let Some(play) = room.stage(stage).and_then(|s| s.play.as_ref()) else {
+        return false;
+    };
+    let person = room.member(from).is_some_and(|m| m.present_person());
+    person && (play.lineup.contains(&from) || crate::live::cpus::sends_for_cpus(room, stage, from))
+}
+
 /// The most steps a batch may say for each chart of the stage's ladder
 /// (round RFa): more than a whole play makes (under `adaptive-v5` at most
 /// five a chart: down from it twice before it closes, up from it once
@@ -931,10 +945,7 @@ impl LiveStage {
     ) -> Result<bool, LiveRefusal> {
         let stage = self.id;
         let rules = crate::live::cpus::ONLINE_CPUS_V0;
-        if !room
-            .member(from)
-            .is_some_and(|m| m.present_person())
-        {
+        if !reports_for_cpus(room, stage, from) {
             return Err(LiveRefusal::NotInLineup { stage });
         }
         if n.entries.len() > rules.max_entries
@@ -1020,7 +1031,7 @@ impl LiveStage {
         detail: Option<crate::battle::RunDetail>,
         out: &mut LiveOut,
     ) {
-        if !room.member(from).is_some_and(|m| m.present_person())
+        if !reports_for_cpus(room, self.id, from)
             || !self.comps.get(&cpu).is_some_and(|c| c.cpu && c.live)
         {
             out.refuse(LiveRefusal::NotInLineup { stage: self.id });
