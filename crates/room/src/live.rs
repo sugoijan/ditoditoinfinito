@@ -103,6 +103,16 @@ pub struct LiveRules {
     pub max_batch_moments: usize,
     pub max_batch_reports: usize,
     pub max_report_judged: usize,
+    /// Bounds on the moments the room takes in one tick (round RFa): of
+    /// one member's, and everyone's together. A batch past them is not
+    /// taken yet, as one out of order, and is taken when sent again.
+    pub max_tick_moments_each: usize,
+    pub max_tick_moments: usize,
+    /// A member's resumes answered in a window (round RFa: answered at
+    /// any rate, each a snapshot and up to `resync_window` frames); more
+    /// are passed over, and its reader asks again.
+    pub resumes_each: usize,
+    pub resume_window_ms: u64,
 }
 
 /// `live-v1` (PROVISIONAL): a frame every 250 ms, batches every 250 ms,
@@ -128,6 +138,16 @@ pub const LIVE_V1: LiveRules = LiveRules {
     max_batch_moments: 512,
     max_batch_reports: 16,
     max_report_judged: 4_096,
+    // Four full batches of one member's, sixteen of everyone's (an
+    // honest stream says a few moments a tick, 73 competitors a few
+    // hundred together; 8,192 moments a frame are about 90 KB, well under
+    // a socket's message and kept 120 times in a few MB).
+    max_tick_moments_each: 2_048,
+    max_tick_moments: 8_192,
+    // A new socket's resume, and one a gap at most each 2 s
+    // (`FrameReader::RESUME_AGAIN_MS`) on each of a person's devices.
+    resumes_each: 4,
+    resume_window_ms: 2_000,
 };
 
 /// `live-v2` (PROVISIONAL, 2026-11-13): `live-v1`'s contract with a frame

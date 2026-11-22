@@ -340,8 +340,13 @@ impl LiveServer {
             ClientLive::OfferPlan { stage, plan } => {
                 self.offer(room, from, stage, *plan, &mut out);
             }
-            ClientLive::Resume { stage, after } => match &self.stage {
-                Some(s) if s.id == stage => out.reply.extend(s.resume(after, now)),
+            ClientLive::Resume { stage, after } => match self.stage.as_mut() {
+                // At a bounded rate (round RFa): past it, passed over.
+                Some(s) if s.id == stage => {
+                    if s.may_resume(from, now) {
+                        out.reply.extend(s.resume(after, now));
+                    }
+                }
                 _ => out.refuse(LiveRefusal::UnknownStage { stage }),
             },
             ClientLive::CpuRuns { stage, runs } => match self.stage.as_mut() {
@@ -677,6 +682,9 @@ pub struct LiveStage {
     /// CPU messages taken, and the reports in them (duplicates included).
     cpu_messages: u32,
     cpu_reports_seen: u32,
+    /// Each member's resumes answered in the window that began at its
+    /// time ([`LiveRules::resumes_each`]).
+    resumes: BTreeMap<ParticipantId, (Millis, usize)>,
 }
 
 /// The most steps a batch may say for each chart of the stage's ladder
@@ -835,6 +843,7 @@ impl LiveStage {
             cpu_ends: BTreeMap::new(),
             cpu_runs: BTreeMap::new(),
             cpu_mismatches: 0,
+            resumes: BTreeMap::new(),
             cpu_messages: 0,
             cpu_reports_seen: 0,
         }
@@ -1099,6 +1108,19 @@ impl LiveStage {
         if b.seq != c.seq + 1 {
             return Ok(());
         }
+        // A tick takes a bounded number of moments, one member's and
+        // everyone's (round RFa): past them, not taken yet, as a batch
+        // out of order is (its sender sends it again).
+        let theirs = self.pending.get(&from).map_or(0, |e| e.moments.len());
+        let all: usize = self.pending.values().map(|e| e.moments.len()).sum();
+        if theirs + b.moments.len() > rules.max_tick_moments_each
+            || all + b.moments.len() > rules.max_tick_moments
+        {
+            return Ok(());
+        }
+        let Some(c) = self.comps.get_mut(&from) else {
+            return Err(LiveRefusal::NotInLineup { stage });
+        };
         if b.moments.len() > rules.max_batch_moments
             || b.reports.len() > rules.max_batch_reports
             || b.reports
@@ -1432,6 +1454,20 @@ impl LiveStage {
 
     /// The frames after `after` where they are all kept; otherwise a
     /// snapshot and the last few frames.
+    /// Whether member `from`'s resume is answered at `now`: at most
+    /// [`LiveRules::resumes_each`] in [`LiveRules::resume_window_ms`]
+    /// (round RFa).
+    fn may_resume(&mut self, from: ParticipantId, now: Millis) -> bool {
+        let window = self.rules.resume_window_ms;
+        let (start, n) = self.resumes.entry(from).or_insert((now, 0));
+        if now.0 >= start.0.saturating_add(window) {
+            *start = now;
+            *n = 0;
+        }
+        *n += 1;
+        *n <= self.rules.resumes_each
+    }
+
     pub fn resume(&self, after: Option<u32>, now: Millis) -> Vec<LiveReply> {
         let (snapshot, frames) =
             self.kept

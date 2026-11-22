@@ -218,3 +218,74 @@ fn a_batch_no_play_could_send_is_refused() {
     assert_eq!(l.seq(ana), 1);
     assert_eq!(l.server.stage().unwrap().steps(ana), 2);
 }
+
+/// `n` taps from `at`, a millisecond apart.
+fn taps(at: i32, n: usize) -> Vec<Moment> {
+    (0..n).map(|i| tap(at + i as i32, i as u32)).collect()
+}
+
+/// Finding 2: the room took a member's batches as fast as they came and
+/// sent them all in its next frame, kept 120 times; it takes at most
+/// `LiveRules::max_tick_moments_each` moments of one member a tick
+/// (four full batches: an honest reconnect's resend of every batch not
+/// acknowledged is taken over a few ticks) and `max_tick_moments` of
+/// everyone's; a batch past them is not taken yet, as one that came out
+/// of order, and is taken when sent again. Proven with a room's total
+/// of 3,000 moments a tick.
+#[test]
+fn a_tick_takes_a_bounded_number_of_moments() {
+    let mut l = Live::new(true, 0);
+    let rules = ddi_room::live::LiveRules { max_tick_moments: 3_000, ..LIVE_V2 };
+    assert_eq!(LIVE_V2.max_tick_moments_each, 4 * LIVE_V2.max_batch_moments);
+    l.server = LiveServer::new(rules);
+    l.wait(100);
+    let (ana, host) = (l.ana, l.host);
+    let at = l.song_ms();
+    let full = LIVE_V2.max_batch_moments;
+    for seq in 1..=5 {
+        let b = l.batch(seq, taps(at, full));
+        assert_eq!(refused(&l.send(ana, &b)), None);
+    }
+    assert_eq!(l.seq(ana), 4, "four full batches a tick from one member");
+    // Everyone's: the host's first two batches fit, the third does not.
+    for seq in 1..=3 {
+        let b = l.batch(seq, taps(at, 400));
+        l.send(host, &b);
+    }
+    assert_eq!(l.seq(host), 2);
+    let out = l.wait(100);
+    let sent: usize = out.broadcast.iter().flat_map(|f| &f.frame.entries).map(|e| e.moments.len()).sum();
+    assert_eq!(sent, 4 * full + 800);
+    // Sent again, the rest is taken in the next tick.
+    let b = l.batch(5, taps(at, full));
+    l.send(ana, &b);
+    let b = l.batch(3, taps(at, 400));
+    l.send(host, &b);
+    assert_eq!((l.seq(ana), l.seq(host)), (5, 3));
+}
+
+/// Finding 2: `Resume` was answered at any rate with a snapshot and up to
+/// 120 kept frames; a member is answered at most
+/// `LiveRules::resumes_each` times in `LiveRules::resume_window_ms`
+/// (an honest device asks on each new socket and at most once in 2 s
+/// after a gap), the rest passed over (its reader asks again).
+#[test]
+fn resumes_are_answered_at_a_bounded_rate() {
+    let mut l = Live::new(true, 0);
+    l.wait(100);
+    let (ana, stage) = (l.ana, l.stage);
+    let mut answered = 0;
+    for _ in 0..10 {
+        let out = l.server.receive(&l.r.s, ana, ClientLive::Resume { stage, after: None }, Millis(l.r.now));
+        if !out.reply.is_empty() {
+            answered += 1;
+        }
+    }
+    assert_eq!(answered, LIVE_V2.resumes_each);
+    // The host is answered still.
+    let out = l.server.receive(&l.r.s, l.host, ClientLive::Resume { stage, after: None }, Millis(l.r.now));
+    assert!(!out.reply.is_empty());
+    l.wait(LIVE_V2.resume_window_ms);
+    let out = l.server.receive(&l.r.s, ana, ClientLive::Resume { stage, after: None }, Millis(l.r.now));
+    assert!(!out.reply.is_empty(), "answered again after the window");
+}
