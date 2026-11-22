@@ -112,6 +112,16 @@ pub struct CompetitorStatus {
     /// chart until their next step). Additive: left out where none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step: Option<StepStatus>,
+    /// The rung they started on (room model revision 23: their own chart
+    /// under Adaptive, numbered as the plan's `ladder`; 0 the stage's
+    /// chart), what a relay folds their first step from (round RFa).
+    /// Additive: left out at 0, read as 0 where missing.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub start: u8,
+}
+
+fn is_zero(n: &u8) -> bool {
+    *n == 0
 }
 
 /// A competitor's last step on the stage's ladder, as its stream said it
@@ -1511,6 +1521,7 @@ impl LiveStage {
                     score: c.last.map_or(0, |m| m.score),
                     power: self.ledger.as_ref().map_or(0, |l| l.power(*p)),
                     step: c.step,
+                    start: c.start,
                 })
                 .collect(),
             commitments: self.commitments.clone(),

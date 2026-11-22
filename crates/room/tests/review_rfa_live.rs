@@ -34,12 +34,21 @@ impl Live {
     /// CPUs of a roster), its first stage started: with attacks, a battle
     /// plan of two rungs offered by the host and taken.
     fn new(attacks: bool, cpus: usize) -> Live {
+        Self::build(attacks, cpus, None)
+    }
+
+    /// [`Live::new`] under Charts: Adaptive, ana starting on `start` of
+    /// the ladder where given.
+    fn build(attacks: bool, cpus: usize, start: Option<&str>) -> Live {
         let mut policy = RoomPolicy::default().with_live().with_audience();
         policy.readiness.window_ms = 15_000;
         let mut rules = MatchRules::hosted();
         rules.stages = 2;
         rules.set_attacks(attacks);
         rules.seats = 2 + cpus as u16;
+        if start.is_some() {
+            rules.charts = Charts::Adaptive;
+        }
         if cpus > 0 {
             rules.cpu.mode = CpuMode::Roster;
             rules.cpu.roster = (0..cpus)
@@ -79,6 +88,11 @@ impl Live {
             }
             plan.digest
         });
+        if let Some(start) = start {
+            let readiness_rev = r.rev(stage);
+            r.by(ana, Command::SetStart { stage, readiness_rev, chart: Some(ChartKey::new(start)) })
+                .unwrap();
+        }
         for p in [host, ana] {
             server.receive(
                 &r.s,
@@ -414,4 +428,48 @@ fn the_audiences_frames_never_say_a_players_attack_policy() {
     let events = &f.checkpoints[0].record.events;
     assert_eq!(events, &vec![AttackEvent::Cleared { attack: 3 }]);
     assert_eq!(f.checkpoints[0].record.power.len(), 2);
+}
+
+/// Finding 6: a relay folds the frames onto the room's snapshot for a seat
+/// that arrives mid-stage; its steps were folded as if every competitor
+/// started on the stage's chart, so a player who started on their own
+/// chart (revision 23) was said to have stepped from the stage's. The
+/// room's snapshot says where each started (`CompetitorStatus::start`,
+/// additive), and the fold steps from it: the same step the room's own
+/// snapshot says.
+#[test]
+fn a_relays_fold_steps_from_where_each_started() {
+    use ddi_room::audience::frames::fold;
+    use ddi_room::live::stream::{Frame, FrameEntry};
+    let mut l = Live::build(true, 0, Some(LADDER[0]));
+    l.wait(100);
+    let (ana, stage) = (l.ana, l.stage);
+    // A relay's copy: the room's snapshot before any step.
+    let mut relay = l.server.stage().unwrap().snapshot(1, Millis(l.r.now));
+    let at = l.song_ms();
+    let step = Moment { kind: MomentKind::Step { rung: 2 }, ..tap(at, 1) };
+    let b = l.batch(1, vec![step]);
+    assert_eq!(refused(&l.send(ana, &b)), None);
+    let room = l.server.stage().unwrap().snapshot(1, Millis(l.r.now));
+    let theirs = |s: &ddi_room::live::server::LiveSnapshot| {
+        s.competitors.iter().find(|c| c.participant == ana).unwrap().step
+    };
+    assert_eq!(theirs(&room).map(|s| (s.rung, s.from)), Some((2, 1)), "the room's: from her start");
+    let frame = Frame {
+        stage,
+        n: 1,
+        at: Millis(l.r.now),
+        entries: vec![FrameEntry { moments: b.moments.clone(), seq: 1, through_us: b.through_us, ..FrameEntry::new(ana) }],
+        commitments: Vec::new(),
+        checkpoints: Vec::new(),
+        settling: None,
+    };
+    fold(&mut relay, &frame);
+    assert_eq!(theirs(&relay), theirs(&room));
+    // A snapshot from a room that predates the field reads as before.
+    let json = serde_json::to_string(&room).unwrap();
+    assert!(json.contains("\"start\":1"));
+    let old: ddi_room::live::server::LiveSnapshot =
+        serde_json::from_str(&json.replace(",\"start\":1", "")).unwrap();
+    assert_eq!(old.competitors.len(), room.competitors.len());
 }

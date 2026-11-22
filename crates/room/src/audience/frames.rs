@@ -123,6 +123,7 @@ pub fn fold(snap: &mut LiveSnapshot, f: &Frame) {
                         score: 0,
                         power: 0,
                         step: None,
+                        start: 0,
                     },
                 );
                 i
@@ -139,7 +140,9 @@ pub fn fold(snap: &mut LiveSnapshot, f: &Frame) {
             c.combo = m.combo;
             c.score = m.score;
         }
-        c.step = crate::live::server::StepStatus::after(c.step, &e.moments);
+        // From where they started (round RFa: from the stage's chart, a
+        // start of their own passed over).
+        c.step = crate::live::server::StepStatus::after_from(c.step, c.start, &e.moments);
     }
     for k in &f.commitments {
         if !snap.commitments.iter().any(|c| c.attack == k.attack) {
