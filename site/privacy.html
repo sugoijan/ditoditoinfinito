@@ -67,6 +67,7 @@
         </ul>
         <p>Our server keeps none of Twitch's keys. The three things go into a signed session. Your browser keeps the session as a cookie. The app keeps the session in its settings folder.</p>
         <p>A session lasts one week. It is renewed while you use it. It never lasts more than 30 days after you signed in.</p>
+        <p>When you sign in from the app, our server keeps the sign-in attempt for 11 minutes at most. The attempt holds your Twitch user ID, your login name and your display name. It also holds the session until the app takes it.</p>
         <p>Our server keeps no list of the people who signed in. Signing out removes the session from your device. We never ask Twitch for your email address.</p>
 
         <h2>Rooms</h2>
@@ -84,36 +85,48 @@
         <p>A room is deleted when it ends. A room ends:</p>
         <ul>
           <li>two minutes after the connection of its last member closed</li>
-          <li>after one week without activity</li>
+          <li>two minutes after it was made, if no member connected to it</li>
           <li>when its host leaves and the room does not pass to another member</li>
+          <li>when its host loses the connection for too long, in a room set to close when its host leaves</li>
           <li>when the server's administrators close it</li>
         </ul>
         <p>After a room ends, our server keeps only a note that the room ended. This note holds the room's ID, when the room ended and why. Our server keeps this note for one week, so that the room's links can say that the room is closed.</p>
+        <p>These times are the usual ones. The server's administrators can change them. They can also turn off the two-minute limit. Then a room with no member connected ends after one week without activity.</p>
         <p>The room's session log is kept apart and names nobody. The part "<a href="#sessions">A room's session log</a>" below tells you about it.</p>
-        <p>While a room is open, the server's administrators can see it in a list. The list shows the room's name, its members' display names and how many people are in the room.</p>
+        <p>While a room is open, the server's administrators can see it in a list. The list shows the room's name and the display name of its host. It also shows what the room is doing, for example which stage it plays. It also shows counts, for example how many people are in the room.</p>
+        <p>An administrator can also open the details of a room. The details show each member's display name, role and connection, and whether the member plays or watches. They also show the seats of the audience by short codes. The part "<a href="#audience">Watching with an audience</a>" below tells you about these codes.</p>
 
         <h2>Songs</h2>
         <p>The host and the co-hosts of a room can add songs to the room's song list. If the host lets everyone add songs, anyone in the room can add songs.</p>
-        <p>When someone adds a song, the game uploads the song from their device to our server. This lets everyone in the room play it. The room keeps who added the song.</p>
+        <p>When someone adds a song, the game uploads the song from their device to our server. This lets everyone in the room play it. The room keeps who added the song. With the copy, our server keeps the room's ID. It also keeps the Twitch user ID of the person who added the song.</p>
         <p>While the room is open, anyone with the link to this copy can read it. Our server keeps the copy as long as the room exists. It deletes the copy:</p>
         <ul>
           <li>when the song is removed from the list: by the person who added it, by a host, or to make space in a full list</li>
           <li>when the room ends</li>
         </ul>
         <p>If a room ever stops without ending, our server deletes its songs. It does this one day at the latest after the room last showed that it was still open.</p>
-        <p>We give a key to a few people. These people can also share songs by link. Such a song is kept until the expiry that was chosen when it was shared, or until it is deleted. The expiry can be from one hour to no expiry.</p>
+        <p>We give a key to a few people. These people can also share songs by link. Such a song is kept until the expiry that was chosen when it was shared, or until it is deleted. The expiry can be from one hour to no expiry. With such a song, our server keeps a short code made from the key that shared it.</p>
+        <p>If the upload of a song never finishes, our server deletes the song after one day.</p>
 
         <h2>Room songs on your device</h2>
         <p>While you are in a room, the game also downloads the room's songs onto your device before they are picked. This lets a stage start at once. The game never downloads the songs' movies.</p>
         <p>Options → Data → Room songs ahead decides which songs the game downloads:</p>
         <ul>
-          <li>every song of the list, which is the default</li>
+          <li>every song of the list</li>
           <li>only the songs that will likely come next</li>
           <li>none</li>
         </ul>
+        <p>The songs that will likely come next are:</p>
+        <ul>
+          <li>the song picked for the next stage</li>
+          <li>the song that the person who picks the songs is looking at</li>
+          <li>up to 8 of the newest other songs, 128 MB at most in all</li>
+        </ul>
+        <p>Unless you choose none, the game first downloads a banner and a list of files. It does this for each song that your device does not have.</p>
+        <p>Every song of the list is the default. A browser on a small screen, such as a phone, has another default: only the songs that will likely come next. The default is the same in a browser that is set to save data. If the browser's storage becomes full, the game downloads only the songs that will likely come next.</p>
         <p>The game keeps these songs apart from your own songs and your play history. In a browser, it keeps them in the browser's storage. In the app, it keeps them in the app's cache folder.</p>
-        <p>The game deletes these songs when you leave the room. If the game stopped while you were in a room, it deletes them the next time it starts.</p>
-        <p>Your device tells our server which of the room's songs it has. This lets everyone see how many people have each song. Our server keeps this only while your connection to the room is open. It stores none of it.</p>
+        <p>The game deletes these songs when you leave the room. If the game stopped while you were in a room, it deletes them the next time it starts. In a browser, it does this only when no page of the game has used them for 30 minutes.</p>
+        <p>Your device tells our server which of the room's songs it has. Our server passes this on to the devices of the room's members. Then the game can show how many players have each song. Our server keeps this only while your connection to the room is open. It stores none of it.</p>
 
         <h2>Twitch access for a room's features</h2>
         <p>A room's host can turn on two features that use Twitch:</p>
@@ -147,6 +160,8 @@
           <li>when the person joins</li>
           <li>when the person's connection opens again</li>
           <li>when a song is picked</li>
+          <li>when the host turns this on, or changes it to keep out blocked people too</li>
+          <li>when a new host of the room sets it</li>
         </ul>
         <p>Our server keeps the answers only in memory, for five minutes at most. It keeps an answer about a timeout no longer than the timeout lasts. It never stores the answers.</p>
         <p>Someone who is kept out is told only: "You can't join this room." The other members see that person leave. The server's logs count these checks and never name anyone.</p>
@@ -159,7 +174,7 @@
         </ul>
         <p>Our server only asks Twitch to start this. It never sees a message.</p>
         <p>To show emotes, your device asks 7TV, BetterTTV and FrankerFaceZ for emote lists: the channel's lists and their global lists. It also asks these three services and Twitch for the emote pictures. So these services see your device's address.</p>
-        <p>If a direct request fails, our server asks in place of your device. Then the services see the server's address instead.</p>
+        <p>If a direct request fails, our server asks in place of your device. Then the services see the server's address instead. Our server keeps each emote picture or list that it gets in this way for one day at most. It does not store who asked for it.</p>
         <p>If you set Options → Display → Emotes from to Twitch, your device does not ask the other three services.</p>
 
         <h2>Removing someone from a room</h2>
@@ -167,9 +182,9 @@
 
         <h2 id="audience">Watching with an audience</h2>
         <p>You can watch a room with its audience without signing in.</p>
-        <p>Our server then turns your network's address into a mark, so that one network cannot take every seat. The mark is a code made with a secret key. The code is different every day. It cannot be turned back into the address. Our server does not keep the address itself.</p>
-        <p>The mark exists only in the server's memory, and only while your seat is open. The server's administrators see only its first eight characters.</p>
-        <p>If you are signed in, your seats count against your account instead. Then no mark is made.</p>
+        <p>Our server then turns your network's address into a mark, so that one network cannot take every seat. The mark is a code made with a secret key. The code is different every day. Without the key, nobody can turn the mark back into the address. The key never leaves our server. Our server does not keep the address itself.</p>
+        <p>The mark exists only in the server's memory, and only while your seat is open. The server's administrators see only a short code of eight characters made from the mark.</p>
+        <p>If you are signed in, your seats count against your account instead. Then no mark is made. The server's administrators see a short code of eight characters made from your account.</p>
 
         <h2>Usage statistics</h2>
         <p>Our server counts what happens in rooms, as daily totals. This helps us see whether online play works well. For example, our server counts:</p>
@@ -185,7 +200,7 @@
           <li>how many different people were in rooms each day</li>
         </ul>
         <p>These totals contain no names, accounts, addresses, rooms or song titles.</p>
-        <p>Our server counts the people of each day without knowing who they are. For this, it keeps a code made from each account with a secret key. The key changes every day. Our server deletes the code once it has counted the day.</p>
+        <p>Our server counts the people of each day without knowing who they are. For this, it keeps a code made from each account and the day, with a secret key. The code changes every day. Our server deletes the code once it has counted the day.</p>
         <p>Our server keeps the totals day by day for 13 months. After that, it keeps them month by month.</p>
         <p>Bots and the game's computer players are counted apart from people. Playing alone is never counted.</p>
 
@@ -200,18 +215,21 @@
           <li>the game's version</li>
           <li>how many times it has connected to the room</li>
           <li>how many tries this connection took</li>
-          <li>how its previous connection to the room ended: closed or dropped, and with which code</li>
+          <li>how its previous connection to the room ended, for example closed or dropped, and with which code</li>
           <li>how long that connection lasted</li>
           <li>how long the page was in the background during that connection</li>
+          <li>whether the page was in the background when that connection ended, and for how long</li>
           <li>whether that connection's keep-alive messages were answered. Keep-alive messages check that a connection still works.</li>
           <li>the round trip to our server</li>
         </ul>
         <p>The desktop app sends the same things, with these differences:</p>
         <ul>
           <li>It says that it is the app.</li>
+          <li>It says that your device is a computer.</li>
           <li>It names Metal, Vulkan, DirectX 12 or OpenGL as what it draws with.</li>
           <li>It says nothing about a touch screen.</li>
-          <li>It counts the time that its window was hidden.</li>
+          <li>It counts the time that its window was hidden, in place of the page's time in the background.</li>
+          <li>It says that it keeps its connection alive by itself, in place of whether keep-alive messages were answered.</li>
         </ul>
         <p>Each of these things is one value from a fixed list, or a range. It is never a name, an account, an address, a room or a song. Our server adds these values to the totals and keeps nothing else of them.</p>
         <p>To turn this off, set Options → Data → Send usage statistics to Off. Then the game sends none of these things. Our server's own counts above go on.</p>
@@ -220,24 +238,30 @@
         <h2 id="sessions">A room's session log</h2>
         <p>Each room keeps a short log of its session. It is there so that problems in a room can be understood afterwards. For example, the log can show why people lost their connection. The log holds:</p>
         <ul>
-          <li>when each connection opened and closed, and with which code</li>
-          <li>when someone was away, and whether they came back</li>
+          <li>when each seat joined, left or came back</li>
           <li>each seat's role, and whether the seat played or watched</li>
+          <li>when each connection was asked for, opened and closed, with which code, and how long it lasted</li>
+          <li>when someone was away, and whether they came back</li>
           <li>the kind of device and browser of each seat, as in the totals above</li>
+          <li>what the game of each seat told our server for the totals above</li>
           <li>how long songs took to upload and to load</li>
-          <li>when a song was added to the room's list, and by which seat</li>
+          <li>how big each upload was, in ranges</li>
+          <li>when a seat could not load a song, and why</li>
+          <li>when a song was added to the room's list, and by which seat, but never which song</li>
           <li>when a song left the room's list, and why, but never which song</li>
           <li>when a seat's own choice started the countdown to a draw of the next song</li>
           <li>each draw: how many choices there were, but never which song</li>
           <li>why a countdown ended without a draw</li>
           <li>who was ready</li>
           <li>who sat a stage out, and why</li>
+          <li>who entered a stage late</li>
           <li>how runs ended</li>
+          <li>the room's own steps, for example when a match or a stage started or ended, and how the room closed</li>
           <li>when someone was turned away, for example because the room was full</li>
         </ul>
         <p>The log names nobody. Each person is only a seat number, and a seat number means something only inside that room. The log holds no names, accounts, addresses, room name, room ID or song titles.</p>
         <p>The log marks bots and the game's computer players as such. If you turned Send usage statistics off, the log has only what our server saw by itself.</p>
-        <p>The room keeps the log while it is open. When the room ends, our server keeps the log for 14 days for its administrators to read. Then our server deletes the log.</p>
+        <p>The room keeps the log while it is open. If the log becomes too long, the room drops the oldest events. When the room ends, our server keeps the log for 14 days for its administrators to read. Then our server deletes the log. Our server deletes the oldest logs sooner if it holds more than 20,000 logs or 512 MB of logs.</p>
 
         <h2>Error reports</h2>
         <p>When the game itself goes wrong in your browser, it sends our server a short report. The game goes wrong when there is:</p>
@@ -269,8 +293,8 @@
         </ul>
         <p>The game also cuts the message to 300 characters. The message can still hold an ordinary English word. An example is a word of a song's title that the game's own message did not quote.</p>
         <p>Our server reads the kind of browser and device from your browser's User-Agent, as it does for the totals. Then it drops the User-Agent. Our server takes the same things out of the message again. It drops a report that still holds any of them.</p>
-        <p>Our server counts reports in the daily totals by kind, version, screen, browser, device and graphics. For each distinct error, it keeps one example message. It keeps that example for 30 days after the error was last seen.</p>
-        <p>To stop floods of reports, our server counts the reports from one network for one minute. It counts them by the daily mark from "<a href="#audience">Watching with an audience</a>" above, and only in its memory.</p>
+        <p>Our server counts reports in the daily totals by kind, version, screen, browser, device and graphics. For each distinct error, it keeps one example message. It keeps that example for 30 days after the error was last seen. It keeps 500 examples at most. When it has more, it first deletes the examples whose errors were last seen longest ago.</p>
+        <p>To stop floods of reports, our server counts the reports from one network for one minute. It counts them by the daily mark from "<a href="#audience">Watching with an audience</a>" above, and only in its memory. It takes at most 20 reports in one minute from one network. It drops the rest.</p>
         <p>The game sends at most five reports in one visit. It never sends the same error twice in one visit.</p>
         <p>To turn this off, set Options → Data → Send error reports to Off. If your browser sends the Global Privacy Control signal, the game sends no error reports, whatever that option says.</p>
         <p>The app on a computer sends no error reports.</p>
@@ -278,7 +302,8 @@
         <h2>Server logs</h2>
         <p>Our server runs on Cloudflare. Cloudflare handles the connections to our server. It keeps logs of the requests that it receives for up to 7 days.</p>
         <p>These logs can include the address that was asked for, for example an invite link. They can also include technical details of the connection.</p>
-        <p>Our own lines in these logs name rooms by their IDs and never name a player. The only person that they name is the administrator who changes the server's settings.</p>
+        <p>Our own lines in these logs name rooms by their IDs and never name a player. The only person that they name is an administrator, by display name. They name an administrator who changes the server's settings, closes a room, or opens or closes a room's audience.</p>
+        <p>Our server also keeps a list of the last 1,000 changes to its settings and rooms closed by administrators. The list holds the administrator's name. It is there for the server's administrators to read.</p>
 
         <h2>Questions</h2>
         <p>If something in this note is not clear, open an issue on <a href="https://github.com/sugoijan/ditoditoinfinito">the game's repository</a>. Or write to <a href="mailto:me@sugoijan.dev">me@sugoijan.dev</a>.</p>
@@ -302,6 +327,7 @@
         </ul>
         <p>サーバーは、Twitchの鍵を何も保存しません。この3つは、署名付きのセッションに入れます。セッションは、サインインしていることを示すデータです。ブラウザーは、セッションをCookieとして保存します。アプリは、セッションを設定フォルダーに保存します。</p>
         <p>セッションの有効期間は1週間です。使っている間は、セッションを更新します。ただし、サインインしてから30日を超えることはありません。</p>
+        <p>アプリでサインインするときは、サーバーは、サインインの手続きを長くても11分間保存します。この手続きには、TwitchのユーザーID、ログイン名、表示名が入ります。アプリがセッションを受け取るまでは、セッションも入ります。</p>
         <p>サーバーは、サインインした人の一覧を保存しません。サインアウトすると、セッションはデバイスから消えます。Twitchにメールアドレスを求めることはありません。</p>
 
         <h2>ルーム</h2>
@@ -319,36 +345,48 @@
         <p>ルームが終わると、サーバーはルームを削除します。ルームが終わるのは、次のときです。</p>
         <ul>
           <li>最後のメンバーの接続が切れてから2分後</li>
-          <li>1週間、何も動きがなかったとき</li>
+          <li>メンバーがだれも接続しなかったときは、ルームを作ってから2分後</li>
           <li>ホストがルームを出て、ほかのメンバーにルームが引き継がれなかったとき</li>
+          <li>ホストの接続が切れて、時間内に戻らなかったとき。ホストが出たら閉じる設定のルームだけです。</li>
           <li>サーバーの管理者がルームを閉じたとき</li>
         </ul>
         <p>ルームが終わったあと、サーバーは、ルームが終わったという記録だけを残します。記録に入るのは、ルームのID、終わった日時、終わった理由です。サーバーは、この記録を1週間保存します。ルームのリンクで、ルームが閉じたことを伝えるためです。</p>
+        <p>上の時間は、ふだんの設定です。サーバーの管理者は、これらの時間を変えられます。2分の制限をオフにすることもできます。そのときは、メンバーがだれも接続していないルームは、1週間何も動きがないと終わります。</p>
         <p>ルームのセッションログは、別に保存します。セッションログには、だれの名前も入っていません。くわしくは、下の「<a href="#ja-sessions">ルームのセッションログ</a>」に書いてあります。</p>
-        <p>ルームが開いている間、サーバーの管理者は、ルームを一覧で見ることができます。一覧には、ルームの名前、メンバーの表示名、ルームにいる人数が出ます。</p>
+        <p>ルームが開いている間、サーバーの管理者は、ルームを一覧で見ることができます。一覧には、ルームの名前とホストの表示名が出ます。ルームが何をしているかも出ます。たとえば、どのステージを遊んでいるかです。数も出ます。たとえば、ルームにいる人数です。</p>
+        <p>管理者は、ルームのくわしい情報を開くこともできます。そこには、各メンバーの表示名、役割、接続の状態と、遊ぶか観戦するかが出ます。観客席は、短いコードで出ます。このコードについては、下の「<a href="#ja-audience">観客席での観戦</a>」に書いてあります。</p>
 
         <h2>曲</h2>
         <p>ルームのホストと共同ホストは、ルームの曲リストに曲を追加できます。ホストが全員に曲の追加を許している場合は、ルームのだれでも曲を追加できます。</p>
-        <p>だれかが曲を追加すると、ゲームは、その人のデバイスからサーバーに曲をアップロードします。ルームの全員がその曲で遊べるようにするためです。ルームは、だれが曲を追加したかを保存します。</p>
+        <p>だれかが曲を追加すると、ゲームは、その人のデバイスからサーバーに曲をアップロードします。ルームの全員がその曲で遊べるようにするためです。ルームは、だれが曲を追加したかを保存します。サーバーは、コピーといっしょに、ルームのIDと、曲を追加した人のTwitchのユーザーIDも保存します。</p>
         <p>ルームが開いている間は、この曲のコピーのリンクを知っている人なら、だれでもコピーを読み込めます。サーバーは、ルームがある間、コピーを保存します。コピーを削除するのは、次のときです。</p>
         <ul>
           <li>曲がリストから外されたとき。追加した人かホストが外したときと、いっぱいのリストに空きを作るときです。</li>
           <li>ルームが終わったとき</li>
         </ul>
         <p>ルームが終わらずに止まってしまうことがあれば、サーバーはそのルームの曲を削除します。ルームがまだ開いていると最後に示してから、遅くとも1日後に削除します。</p>
-        <p>また、私たちは一部の人に鍵を渡しています。その人たちは、曲をリンクで共有することもできます。その曲は、共有したときに選んだ期限まで、または削除されるまで保存します。期限は、1時間から無期限までです。</p>
+        <p>また、私たちは一部の人に鍵を渡しています。その人たちは、曲をリンクで共有することもできます。その曲は、共有したときに選んだ期限まで、または削除されるまで保存します。期限は、1時間から無期限までです。サーバーは、その曲といっしょに、共有に使った鍵から作った短いコードを保存します。</p>
+        <p>曲のアップロードが最後まで終わらなかったときは、サーバーは1日後にその曲を削除します。</p>
 
         <h2>デバイスにダウンロードするルームの曲</h2>
         <p>ルームにいる間、ゲームは、ルームの曲が選ばれる前に、その曲をあなたのデバイスにダウンロードします。ステージをすぐに始められるようにするためです。動画はダウンロードしません。</p>
         <p>どの曲をダウンロードするかは、「オプション → データ → ルームの曲の先読み」で決まります。</p>
         <ul>
-          <li>リストのすべての曲。最初はこの設定です。</li>
+          <li>リストのすべての曲</li>
           <li>次に遊びそうな曲だけ</li>
           <li>なし</li>
         </ul>
+        <p>次に遊びそうな曲とは、次のものです。</p>
+        <ul>
+          <li>次のステージに選ばれた曲</li>
+          <li>曲を選ぶ人が見ている曲</li>
+          <li>そのほかの新しい曲。8曲までで、合わせて128 MBまでです。</li>
+        </ul>
+        <p>「なし」以外を選んだときは、ゲームは、まず、デバイスにない各曲のバナーとファイルの一覧をダウンロードします。</p>
+        <p>最初の設定は、リストのすべての曲です。スマートフォンのような小さい画面のブラウザーでは、最初の設定は、次に遊びそうな曲だけです。データを節約する設定のブラウザーでも、同じです。ブラウザーの保存領域がいっぱいになると、ゲームは、次に遊びそうな曲だけをダウンロードします。</p>
         <p>ゲームは、これらの曲を、あなた自身の曲やプレイ履歴とは別に保存します。ブラウザーでは、ブラウザーの保存領域に保存します。アプリでは、アプリのキャッシュフォルダーに保存します。</p>
-        <p>あなたがルームを出ると、ゲームはこれらの曲を削除します。ルームにいる間にゲームが止まった場合は、次にゲームを起動したときに削除します。</p>
-        <p>あなたのデバイスは、ルームの曲のうちどれを持っているかを、サーバーに伝えます。全員が、それぞれの曲を何人が持っているかを見られるようにするためです。サーバーは、あなたのルームへの接続が開いている間だけ、この情報を持っています。どこにも保存しません。</p>
+        <p>あなたがルームを出ると、ゲームはこれらの曲を削除します。ルームにいる間にゲームが止まった場合は、次にゲームを起動したときに削除します。ブラウザーでは、ゲームのページが30分間これらの曲を使っていないときだけ、削除します。</p>
+        <p>あなたのデバイスは、ルームの曲のうちどれを持っているかを、サーバーに伝えます。サーバーは、これをルームのメンバーのデバイスに伝えます。そのため、ゲームは、それぞれの曲を何人のプレイヤーが持っているかを表示できます。サーバーは、あなたのルームへの接続が開いている間だけ、この情報を持っています。どこにも保存しません。</p>
 
         <h2>ルームの機能のためのTwitchアクセス</h2>
         <p>ルームのホストは、Twitchを使う2つの機能をオンにできます。</p>
@@ -382,6 +420,8 @@
           <li>その人がルームに参加するとき</li>
           <li>その人の接続がもう一度開くとき</li>
           <li>曲が選ばれたとき</li>
+          <li>ホストがこの機能をオンにしたとき、またはブロックした人も入れないように変えたとき</li>
+          <li>ルームの新しいホストが、この機能を設定したとき</li>
         </ul>
         <p>サーバーは、答えをメモリーにだけ、長くても5分間持っています。メモリーは、一時的に使う記憶の場所です。タイムアウトについての答えは、タイムアウトが終わるまでしか持ちません。答えを保存することはありません。</p>
         <p>入れなかった人には、「このルームには参加できません。」とだけ伝えます。ほかのメンバーには、その人がルームを出たように見えます。サーバーのログは、この確認の回数だけを数えます。だれの名前も書きません。</p>
@@ -394,7 +434,7 @@
         </ul>
         <p>サーバーは、これを始めるようにTwitchに頼むだけです。メッセージを見ることはありません。</p>
         <p>エモートを表示するために、デバイスは、7TV、BetterTTV、FrankerFaceZに、エモートの一覧を問い合わせます。チャンネルの一覧と、それぞれのサービス全体の一覧です。また、この3つのサービスとTwitchに、エモートの画像を問い合わせます。そのため、これらのサービスには、あなたのデバイスのアドレスが伝わります。</p>
-        <p>直接の問い合わせがうまくいかないときは、サーバーが代わりに問い合わせます。そのときは、サービスには、サーバーのアドレスが伝わります。</p>
+        <p>直接の問い合わせがうまくいかないときは、サーバーが代わりに問い合わせます。そのときは、サービスには、サーバーのアドレスが伝わります。サーバーは、こうして取得したエモートの画像や一覧を、長くても1日間保存します。だれが問い合わせたかは保存しません。</p>
         <p>「オプション → 表示 → エモートの取得元」を「Twitch」にすると、デバイスは、ほかの3つのサービスに問い合わせません。</p>
 
         <h2>ルームから退出させる</h2>
@@ -402,9 +442,9 @@
 
         <h2 id="ja-audience">観客席での観戦</h2>
         <p>ルームは、サインインしなくても、観客席から観戦できます。</p>
-        <p>そのとき、サーバーは、あなたのネットワークのアドレスを「目印」に変えます。ひとつのネットワークがすべての席を取らないようにするためです。目印は、秘密の鍵で作るコードです。コードは毎日変わります。コードをアドレスに戻すことはできません。サーバーは、アドレスそのものを保存しません。</p>
-        <p>目印は、席が開いている間だけ、サーバーのメモリーにあります。サーバーの管理者に見えるのは、目印の最初の8文字だけです。</p>
-        <p>サインインしている場合は、代わりにアカウントで席を数えます。目印は作りません。</p>
+        <p>そのとき、サーバーは、あなたのネットワークのアドレスを「目印」に変えます。ひとつのネットワークがすべての席を取らないようにするためです。目印は、秘密の鍵で作るコードです。コードは毎日変わります。鍵がなければ、だれも目印をアドレスに戻すことはできません。鍵は、サーバーの外に出ません。サーバーは、アドレスそのものを保存しません。</p>
+        <p>目印は、席が開いている間だけ、サーバーのメモリーにあります。サーバーの管理者に見えるのは、目印から作った8文字の短いコードだけです。</p>
+        <p>サインインしている場合は、代わりにアカウントで席を数えます。目印は作りません。サーバーの管理者には、アカウントから作った8文字の短いコードが見えます。</p>
 
         <h2>利用統計</h2>
         <p>サーバーは、ルームで起きたことを数えて、1日ごとの合計にします。オンライン対戦がうまく動いているかを確かめるためです。たとえば、次のことを数えます。</p>
@@ -420,7 +460,7 @@
           <li>1日にルームにいた人の数。同じ人は1回だけ数えます。</li>
         </ul>
         <p>この合計には、名前、アカウント、アドレス、ルーム、曲名は入っていません。</p>
-        <p>サーバーは、だれかを知らずに、1日の人数を数えます。そのために、各アカウントから、秘密の鍵でコードを作って保存します。この鍵は毎日変わります。その日を数え終わったら、サーバーはコードを削除します。</p>
+        <p>サーバーは、だれかを知らずに、1日の人数を数えます。そのために、各アカウントとその日の日付から、秘密の鍵でコードを作って保存します。このコードは毎日変わります。その日を数え終わったら、サーバーはコードを削除します。</p>
         <p>サーバーは、合計を13か月間は1日ごとに保存します。そのあとは、1か月ごとに保存します。</p>
         <p>ボットとゲームのコンピュータープレイヤーは、人とは分けて数えます。ひとりで遊んだ分は、数えません。</p>
 
@@ -435,18 +475,21 @@
           <li>ゲームのバージョン</li>
           <li>ルームに何回接続したか</li>
           <li>今回の接続のために、何回試したか</li>
-          <li>ルームへの前の接続がどう終わったか。閉じたか途切れたかと、そのときのコードです。</li>
+          <li>ルームへの前の接続がどう終わったか。たとえば、閉じたか途切れたかと、そのときのコードです。</li>
           <li>前の接続がどのくらい続いたか</li>
           <li>前の接続の間に、ページがバックグラウンドにあった時間</li>
+          <li>前の接続が終わったときに、ページがバックグラウンドにあったか。あったときは、その時間。</li>
           <li>前の接続で、接続を保つためのメッセージに答えがあったか。このメッセージは、接続がまだ使えるかを確かめます。</li>
           <li>サーバーまでの往復時間</li>
         </ul>
         <p>デスクトップのアプリも、同じことを送ります。ちがうのは、次の点です。</p>
         <ul>
           <li>アプリであることを伝えます。</li>
+          <li>デバイスがコンピューターであることを伝えます。</li>
           <li>描くのに、Metal、Vulkan、DirectX 12、OpenGLのどれを使っているかを伝えます。</li>
           <li>タッチスクリーンについては、何も伝えません。</li>
-          <li>ウィンドウが隠れていた時間を数えます。</li>
+          <li>ページがバックグラウンドにあった時間の代わりに、ウィンドウが隠れていた時間を数えます。</li>
+          <li>接続を保つためのメッセージに答えがあったかの代わりに、アプリが自分で接続を保っていることを伝えます。</li>
         </ul>
         <p>どれも、決まった一覧の中の値か、範囲です。名前、アカウント、アドレス、ルーム、曲は入っていません。サーバーは、これらを合計に加えます。それ以外は何も保存しません。</p>
         <p>止めるには、「オプション → データ → 利用統計を送る」をオフにしてください。ゲームは、これらを何も送らなくなります。上で説明したサーバー自身の集計は、続きます。</p>
@@ -455,24 +498,30 @@
         <h2 id="ja-sessions">ルームのセッションログ</h2>
         <p>各ルームは、セッションの短いログを保存します。ルームで起きた問題を、あとから理解できるようにするためです。たとえば、なぜ接続が切れたのかがわかります。ログに入るのは、次のことです。</p>
         <ul>
-          <li>各接続がいつ開き、いつ閉じたか。閉じたときのコード。</li>
-          <li>だれかが席を離れていたときと、戻ってきたかどうか</li>
+          <li>各席がいつ参加し、いつ出て、いつ戻ったか</li>
           <li>各席の役割と、その席が遊んだか観戦したか</li>
+          <li>各接続がいつ求められ、いつ開き、いつ閉じたか。閉じたときのコードと、接続が続いた時間。</li>
+          <li>だれかが席を離れていたときと、戻ってきたかどうか</li>
           <li>各席のデバイスとブラウザーの種類。上の合計と同じ分け方です。</li>
+          <li>各席のゲームが、上の合計のためにサーバーに伝えたこと</li>
           <li>曲のアップロードと読み込みにかかった時間</li>
-          <li>曲がルームの曲リストに追加されたときと、どの席が追加したか</li>
+          <li>アップロードの大きさ。範囲で記録します。</li>
+          <li>席が曲を読み込めなかったときと、その理由</li>
+          <li>曲がルームの曲リストに追加されたときと、どの席が追加したか。どの曲かは入りません。</li>
           <li>曲がリストから外れたときと、その理由。どの曲かは入りません。</li>
           <li>ある席が自分で曲を選んで、次の曲の抽選のカウントダウンを始めたとき</li>
           <li>各抽選での選択の数。どの曲かは入りません。</li>
           <li>抽選をしないでカウントダウンが終わった理由</li>
           <li>だれが準備OKにしたか</li>
           <li>だれがステージに参加しなかったかと、その理由</li>
+          <li>だれがステージに遅れて入ったか</li>
           <li>プレイがどう終わったか</li>
+          <li>ルーム自体の動き。たとえば、対戦やステージがいつ始まり、いつ終わったかと、ルームがどう閉じたかです。</li>
           <li>だれかが断られたとき。たとえば、ルームが満員だったときです。</li>
         </ul>
         <p>ログには、だれの名前も入りません。ログでは、各人を席の番号だけで表します。席の番号は、そのルームの中でだけ意味があります。ログには、名前、アカウント、アドレス、ルームの名前、ルームのID、曲名は入りません。</p>
         <p>ログでは、ボットとゲームのコンピュータープレイヤーに、そのことがわかる印を付けます。「利用統計を送る」をオフにしている場合、ログには、サーバーが自分で見たことだけが入ります。</p>
-        <p>ルームが開いている間は、ルームがログを保存します。ルームが終わると、サーバーは、管理者が読めるように、ログを14日間保存します。そのあと、サーバーはログを削除します。</p>
+        <p>ルームが開いている間は、ルームがログを保存します。ログが長くなりすぎると、ルームは古いできごとから捨てます。ルームが終わると、サーバーは、管理者が読めるように、ログを14日間保存します。そのあと、サーバーはログを削除します。保存しているログが20,000件か512 MBを超えると、サーバーは古いログから早めに削除します。</p>
 
         <h2>エラーレポート</h2>
         <p>ブラウザーで、ゲーム自体に問題が起きると、ゲームはサーバーに短いレポートを送ります。問題とは、次のことです。</p>
@@ -504,8 +553,8 @@
         </ul>
         <p>また、ゲームはメッセージを300文字までに短くします。それでも、ふつうの英単語がメッセージに残ることがあります。たとえば、曲名の中の一語で、ゲーム自身のメッセージが引用符で囲まなかったものです。</p>
         <p>サーバーは、利用統計のときと同じように、ブラウザーのUser-Agentから、ブラウザーとデバイスの種類を読み取ります。そのあと、User-Agentは捨てます。サーバーも、メッセージから同じものをもう一度取り除きます。それでもどれかが残っているレポートは、捨てます。</p>
-        <p>サーバーは、レポートを、種類、バージョン、画面、ブラウザー、デバイス、グラフィックスごとに数えて、1日ごとの合計に入れます。また、ちがうエラーごとに、メッセージの例を一つ保存します。この例は、そのエラーが最後に届いてから30日間保存します。</p>
-        <p>レポートが大量に送られるのを防ぐため、サーバーは、ひとつのネットワークからのレポートを1分間数えます。数えるときは、上の「<a href="#ja-audience">観客席での観戦</a>」で説明した、毎日変わる目印を使います。数えるのは、メモリーの中だけです。</p>
+        <p>サーバーは、レポートを、種類、バージョン、画面、ブラウザー、デバイス、グラフィックスごとに数えて、1日ごとの合計に入れます。また、ちがうエラーごとに、メッセージの例を一つ保存します。この例は、そのエラーが最後に届いてから30日間保存します。例は、多くても500件まで保存します。それより多くなると、エラーが最後に届いてからいちばん長くたった例から削除します。</p>
+        <p>レポートが大量に送られるのを防ぐため、サーバーは、ひとつのネットワークからのレポートを1分間数えます。数えるときは、上の「<a href="#ja-audience">観客席での観戦</a>」で説明した、毎日変わる目印を使います。数えるのは、メモリーの中だけです。ひとつのネットワークからは、1分間に20件までしか受け取りません。それより多いレポートは捨てます。</p>
         <p>ゲームが送るレポートは、1回の訪問で5件までです。同じ訪問の中で、同じエラーを2回送ることはありません。</p>
         <p>止めるには、「オプション → データ → エラーレポートを送る」をオフにしてください。ブラウザーが、Global Privacy Control（グローバル・プライバシー・コントロール）の信号を送っていることがあります。そのときは、ゲームはエラーレポートを送りません。この設定がどうなっていても、送りません。</p>
         <p>コンピューターのアプリは、エラーレポートを送りません。</p>
@@ -513,7 +562,8 @@
         <h2>サーバーのログ</h2>
         <p>サーバーは、Cloudflareの上で動いています。Cloudflareは、サーバーへの接続を受け持ちます。そして、受け取ったリクエストのログを、長くても7日間保存します。リクエストは、サーバーへの問い合わせのことです。</p>
         <p>このログには、問い合わせたアドレスが入ることがあります。たとえば、招待リンクです。接続の技術的な情報が入ることもあります。</p>
-        <p>このログの中で私たち自身が書く行は、ルームをIDで示します。プレイヤーの名前は書きません。名前を書くのは、サーバーの設定を変えた管理者だけです。</p>
+        <p>このログの中で私たち自身が書く行は、ルームをIDで示します。プレイヤーの名前は書きません。名前を書くのは、管理者だけです。管理者の表示名を書きます。書くのは、管理者がサーバーの設定を変えたとき、ルームを閉じたとき、ルームの観客席を開いたり閉じたりしたときです。</p>
+        <p>また、サーバーは、設定の変更と、管理者が閉じたルームの一覧を、新しいものから1,000件まで保存します。一覧には、管理者の名前が入ります。サーバーの管理者が読むための一覧です。</p>
 
         <h2>お問い合わせ</h2>
         <p>このお知らせでわかりにくいところがあれば、<a href="https://github.com/sugoijan/ditoditoinfinito">ゲームのリポジトリ</a>でIssueを開いてください。または、<a href="mailto:me@sugoijan.dev">me@sugoijan.dev</a> に連絡してください。</p>

@@ -460,6 +460,8 @@ pages-privacy-sign-in = { $platform ->
 
         A session lasts one week. It is renewed while you use it. It never lasts more than 30 days after you signed in.
 
+        When you sign in from the app, our server keeps the sign-in attempt for 11 minutes at most. The attempt holds your Twitch user ID, your login name and your display name. It also holds the session until the app takes it.
+
         Our server keeps no list of the people who signed in. Signing out removes the session from your device. We never ask Twitch for your email address.
    *[desktop]
         To use online rooms, you must sign in with Twitch. You do not have to sign in to watch a room with its audience.
@@ -473,14 +475,17 @@ pages-privacy-sign-in = { $platform ->
 
         A session lasts one week. It is renewed while you use it. It never lasts more than 30 days after you signed in.
 
+        When you sign in from the app, our server keeps the sign-in attempt for 11 minutes at most. The attempt holds your Twitch user ID, your login name and your display name. It also holds the session until the app takes it.
+
         Our server keeps no list of the people who signed in. Signing out removes the session from your device. We never ask Twitch for your email address.
 }
 
 # A heading inside the note.
 pages-privacy-rooms-heading = Rooms
 
-# "A room's session log" names the note's heading of that part
-# (pages-privacy-sessions-heading).
+# "A room's session log" and "Watching with an audience" name the note's
+# headings of those parts (pages-privacy-sessions-heading,
+# pages-privacy-audience-heading).
 pages-privacy-rooms =
     A room keeps what its members see:
     • the room's name
@@ -494,15 +499,20 @@ pages-privacy-rooms =
 
     A room is deleted when it ends. A room ends:
     • two minutes after the connection of its last member closed
-    • after one week without activity
+    • two minutes after it was made, if no member connected to it
     • when its host leaves and the room does not pass to another member
+    • when its host loses the connection for too long, in a room set to close when its host leaves
     • when the server's administrators close it
 
     After a room ends, our server keeps only a note that the room ended. This note holds the room's ID, when the room ended and why. Our server keeps this note for one week, so that the room's links can say that the room is closed.
 
+    These times are the usual ones. The server's administrators can change them. They can also turn off the two-minute limit. Then a room with no member connected ends after one week without activity.
+
     The room's session log is kept apart and names nobody. The part "A room's session log" below tells you about it.
 
-    While a room is open, the server's administrators can see it in a list. The list shows the room's name, its members' display names and how many people are in the room.
+    While a room is open, the server's administrators can see it in a list. The list shows the room's name and the display name of its host. It also shows what the room is doing, for example which stage it plays. It also shows counts, for example how many people are in the room.
+
+    An administrator can also open the details of a room. The details show each member's display name, role and connection, and whether the member plays or watches. They also show the seats of the audience by short codes. The part "Watching with an audience" below tells you about these codes.
 
 # A heading inside the note.
 pages-privacy-songs-heading = Songs
@@ -510,7 +520,7 @@ pages-privacy-songs-heading = Songs
 pages-privacy-songs =
     The host and the co-hosts of a room can add songs to the room's song list. If the host lets everyone add songs, anyone in the room can add songs.
 
-    When someone adds a song, the game uploads the song from their device to our server. This lets everyone in the room play it. The room keeps who added the song.
+    When someone adds a song, the game uploads the song from their device to our server. This lets everyone in the room play it. The room keeps who added the song. With the copy, our server keeps the room's ID. It also keeps the Twitch user ID of the person who added the song.
 
     While the room is open, anyone with the link to this copy can read it. Our server keeps the copy as long as the room exists. It deletes the copy:
     • when the song is removed from the list: by the person who added it, by a host, or to make space in a full list
@@ -518,7 +528,9 @@ pages-privacy-songs =
 
     If a room ever stops without ending, our server deletes its songs. It does this one day at the latest after the room last showed that it was still open.
 
-    We give a key to a few people. These people can also share songs by link. Such a song is kept until the expiry that was chosen when it was shared, or until it is deleted. The expiry can be from one hour to no expiry.
+    We give a key to a few people. These people can also share songs by link. Such a song is kept until the expiry that was chosen when it was shared, or until it is deleted. The expiry can be from one hour to no expiry. With such a song, our server keeps a short code made from the key that shared it.
+
+    If the upload of a song never finishes, our server deletes the song after one day.
 
 # A heading inside the note: the room's songs the game downloads ahead.
 pages-privacy-songs-ahead-heading = Room songs on your device
@@ -532,28 +544,46 @@ pages-privacy-songs-ahead = { $platform ->
         While you are in a room, the game also downloads the room's songs onto your device before they are picked. This lets a stage start at once. The game never downloads the songs' movies.
 
         Options → Data → Room songs ahead decides which songs the game downloads:
-        • every song of the list, which is the default
+        • every song of the list
         • only the songs that will likely come next
         • none
 
+        The songs that will likely come next are:
+        • the song picked for the next stage
+        • the song that the person who picks the songs is looking at
+        • up to 8 of the newest other songs, 128 MB at most in all
+
+        Unless you choose none, the game first downloads a banner and a list of files. It does this for each song that your device does not have.
+
+        Every song of the list is the default. A browser on a small screen, such as a phone, has another default: only the songs that will likely come next. The default is the same in a browser that is set to save data. If the browser's storage becomes full, the game downloads only the songs that will likely come next.
+
         The game keeps these songs apart from your own songs and your play history. In a browser, it keeps them in the browser's storage. In the app, it keeps them in the app's cache folder.
 
-        The game deletes these songs when you leave the room. If the game stopped while you were in a room, it deletes them the next time it starts.
+        The game deletes these songs when you leave the room. If the game stopped while you were in a room, it deletes them the next time it starts. In a browser, it does this only when no page of the game has used them for 30 minutes.
 
-        Your device tells our server which of the room's songs it has. This lets everyone see how many people have each song. Our server keeps this only while your connection to the room is open. It stores none of it.
+        Your device tells our server which of the room's songs it has. Our server passes this on to the devices of the room's members. Then the game can show how many players have each song. Our server keeps this only while your connection to the room is open. It stores none of it.
    *[desktop]
         While you are in a room, the game also downloads the room's songs onto your device before they are picked. This lets a stage start at once. The game never downloads the songs' movies.
 
         Options → Data → Room songs ahead decides which songs the game downloads:
-        • every song of the list, which is the default
+        • every song of the list
         • only the songs that will likely come next
         • none
+
+        The songs that will likely come next are:
+        • the song picked for the next stage
+        • the song that the person who picks the songs is looking at
+        • up to 8 of the newest other songs, 128 MB at most in all
+
+        Unless you choose none, the game first downloads a banner and a list of files. It does this for each song that your device does not have.
+
+        Every song of the list is the default.
 
         The game keeps these songs apart from your own songs and your play history. It keeps them in the app's cache folder.
 
         The game deletes these songs when you leave the room. If the game stopped while you were in a room, it deletes them the next time it starts.
 
-        Your device tells our server which of the room's songs it has. This lets everyone see how many people have each song. Our server keeps this only while your connection to the room is open. It stores none of it.
+        Your device tells our server which of the room's songs it has. Our server passes this on to the devices of the room's members. Then the game can show how many players have each song. Our server keeps this only while your connection to the room is open. It stores none of it.
 }
 
 # A heading inside the note: a person's Twitch access for a room's
@@ -591,6 +621,8 @@ pages-privacy-twitch =
     • when the person joins
     • when the person's connection opens again
     • when a song is picked
+    • when the host turns this on, or changes it to keep out blocked people too
+    • when a new host of the room sets it
 
     Our server keeps the answers only in memory, for five minutes at most. It keeps an answer about a timeout no longer than the timeout lasts. It never stores the answers.
 
@@ -610,7 +642,7 @@ pages-privacy-twitch-chat =
 
     To show emotes, your device asks 7TV, BetterTTV and FrankerFaceZ for emote lists: the channel's lists and their global lists. It also asks these three services and Twitch for the emote pictures. So these services see your device's address.
 
-    If a direct request fails, our server asks in place of your device. Then the services see the server's address instead.
+    If a direct request fails, our server asks in place of your device. Then the services see the server's address instead. Our server keeps each emote picture or list that it gets in this way for one day at most. It does not store who asked for it.
 
     If you set Options → Display → Emotes from to Twitch, your device does not ask the other three services.
 
@@ -624,11 +656,11 @@ pages-privacy-audience-heading = Watching with an audience
 pages-privacy-audience =
     You can watch a room with its audience without signing in.
 
-    Our server then turns your network's address into a mark, so that one network cannot take every seat. The mark is a code made with a secret key. The code is different every day. It cannot be turned back into the address. Our server does not keep the address itself.
+    Our server then turns your network's address into a mark, so that one network cannot take every seat. The mark is a code made with a secret key. The code is different every day. Without the key, nobody can turn the mark back into the address. The key never leaves our server. Our server does not keep the address itself.
 
-    The mark exists only in the server's memory, and only while your seat is open. The server's administrators see only its first eight characters.
+    The mark exists only in the server's memory, and only while your seat is open. The server's administrators see only a short code of eight characters made from the mark.
 
-    If you are signed in, your seats count against your account instead. Then no mark is made.
+    If you are signed in, your seats count against your account instead. Then no mark is made. The server's administrators see a short code of eight characters made from your account.
 
 # A heading inside the note.
 pages-privacy-stats-heading = Usage statistics
@@ -666,7 +698,7 @@ pages-privacy-stats = { $platform ->
 pages-privacy-stats-kept =
     These totals contain no names, accounts, addresses, rooms or song titles.
 
-    Our server counts the people of each day without knowing who they are. For this, it keeps a code made from each account with a secret key. The key changes every day. Our server deletes the code once it has counted the day.
+    Our server counts the people of each day without knowing who they are. For this, it keeps a code made from each account and the day, with a secret key. The code changes every day. Our server deletes the code once it has counted the day.
 
     Our server keeps the totals day by day for 13 months. After that, it keeps them month by month.
 
@@ -698,9 +730,10 @@ pages-privacy-stats-game = { $platform ->
         • the game's version
         • how many times it has connected to the room
         • how many tries this connection took
-        • how its previous connection to the room ended: closed or dropped, and with which code
+        • how its previous connection to the room ended, for example closed or dropped, and with which code
         • how long that connection lasted
         • how long the page was in the background during that connection
+        • whether the page was in the background when that connection ended, and for how long
         • whether that connection's keep-alive messages were answered. Keep-alive messages check that a connection still works.
         • the round trip to our server
 
@@ -713,13 +746,16 @@ pages-privacy-stats-game = { $platform ->
         While you are in an online room, the app also tells our server a few things for these totals. It does this each time its connection to the room opens. It tells:
         • that it is the app
         • your system: Windows, macOS or Linux
+        • that your device is a computer
         • whether it draws with Metal, Vulkan, DirectX 12 or OpenGL
         • the game's version
         • how many times it has connected to the room
         • how many tries this connection took
-        • how its previous connection to the room ended: closed or dropped, and with which code
+        • how its previous connection to the room ended, for example closed or dropped, and with which code
         • how long that connection lasted
         • how long the window was hidden during that connection
+        • whether the window was hidden when that connection ended, and for how long
+        • that the app keeps its connection alive by itself
         • the round trip to our server
 
         Each of these things is one value from a fixed list, or a range. It is never a name, an account, an address, a room or a song. Our server adds these values to the totals and keeps nothing else of them.
@@ -737,26 +773,32 @@ pages-privacy-sessions-heading = A room's session log
 # as it reads there.
 pages-privacy-sessions =
     Each room keeps a short log of its session. It is there so that problems in a room can be understood afterwards. For example, the log can show why people lost their connection. The log holds:
-    • when each connection opened and closed, and with which code
-    • when someone was away, and whether they came back
+    • when each seat joined, left or came back
     • each seat's role, and whether the seat played or watched
+    • when each connection was asked for, opened and closed, with which code, and how long it lasted
+    • when someone was away, and whether they came back
     • the kind of device and browser of each seat, as in the totals above
+    • what the game of each seat told our server for the totals above
     • how long songs took to upload and to load
-    • when a song was added to the room's list, and by which seat
+    • how big each upload was, in ranges
+    • when a seat could not load a song, and why
+    • when a song was added to the room's list, and by which seat, but never which song
     • when a song left the room's list, and why, but never which song
     • when a seat's own choice started the countdown to a draw of the next song
     • each draw: how many choices there were, but never which song
     • why a countdown ended without a draw
     • who was ready
     • who sat a stage out, and why
+    • who entered a stage late
     • how runs ended
+    • the room's own steps, for example when a match or a stage started or ended, and how the room closed
     • when someone was turned away, for example because the room was full
 
     The log names nobody. Each person is only a seat number, and a seat number means something only inside that room. The log holds no names, accounts, addresses, room name, room ID or song titles.
 
     The log marks bots and the game's computer players as such. If you turned Send usage statistics off, the log has only what our server saw by itself.
 
-    The room keeps the log while it is open. When the room ends, our server keeps the log for 14 days for its administrators to read. Then our server deletes the log.
+    The room keeps the log while it is open. If the log becomes too long, the room drops the oldest events. When the room ends, our server keeps the log for 14 days for its administrators to read. Then our server deletes the log. Our server deletes the oldest logs sooner if it holds more than 20,000 logs or 512 MB of logs.
 
 # A heading inside the note (the stats proposal's step 4: the web game's
 # own error reports).
@@ -798,9 +840,9 @@ pages-privacy-errors = { $platform ->
 
         Our server reads the kind of browser and device from your browser's User-Agent, as it does for the totals. Then it drops the User-Agent. Our server takes the same things out of the message again. It drops a report that still holds any of them.
 
-        Our server counts reports in the daily totals by kind, version, screen, browser, device and graphics. For each distinct error, it keeps one example message. It keeps that example for 30 days after the error was last seen.
+        Our server counts reports in the daily totals by kind, version, screen, browser, device and graphics. For each distinct error, it keeps one example message. It keeps that example for 30 days after the error was last seen. It keeps 500 examples at most. When it has more, it first deletes the examples whose errors were last seen longest ago.
 
-        To stop floods of reports, our server counts the reports from one network for one minute. It counts them by the daily mark from "Watching with an audience" above, and only in its memory.
+        To stop floods of reports, our server counts the reports from one network for one minute. It counts them by the daily mark from "Watching with an audience" above, and only in its memory. It takes at most 20 reports in one minute from one network. It drops the rest.
 
         The game sends at most five reports in one visit. It never sends the same error twice in one visit.
 
@@ -818,7 +860,9 @@ pages-privacy-logs =
 
     These logs can include the address that was asked for, for example an invite link. They can also include technical details of the connection.
 
-    Our own lines in these logs name rooms by their IDs and never name a player. The only person that they name is the administrator who changes the server's settings.
+    Our own lines in these logs name rooms by their IDs and never name a player. The only person that they name is an administrator, by display name. They name an administrator who changes the server's settings, closes a room, or opens or closes a room's audience.
+
+    Our server also keeps a list of the last 1,000 changes to its settings and rooms closed by administrators. The list holds the administrator's name. It is there for the server's administrators to read.
 
 # A heading inside the note.
 pages-privacy-questions-heading = Questions
