@@ -19,12 +19,18 @@
 //!   live channel and, with a channel named, shows that channel in this
 //!   device's online stages in the room's channel's place. For a player
 //!   the chat is an online room's stages' alone.
+//! - [`KeptChat`] (round DE): the room's chat as this device keeps it
+//!   connected between the stages, told by an online room's client as it
+//!   ticks ([`keep_room_chat`]) to whoever keeps the connection
+//!   (`ddi_session::chat`, [`set_chat_keeper`]); none outside an online
+//!   room.
 
 use std::cell::Cell;
 
 use ddi_chat::Level;
 
 thread_local! {
+    static KEEPER: std::cell::RefCell<Option<ChatKeeper>> = const { std::cell::RefCell::new(None) };
     static CHAT_TRIP: Cell<Option<Level>> = const { Cell::new(None) };
     static SCRIPTED_CEILING: Cell<Option<Level>> = const { Cell::new(None) };
     static DEV_LIVE: std::cell::RefCell<Option<DevLive>> = const { std::cell::RefCell::new(None) };
@@ -246,6 +252,41 @@ impl RoomChat {
             },
         })
     }
+}
+
+/// Round DE: an online room's chat as this device keeps it connected for
+/// the room, from the moment its member is in a room that shows chat
+/// (the room's ceiling on, this device's "Twitch chat in rooms" on, its
+/// Twitch access allowing chat) until they leave it or any of those
+/// turns off ([`crate::state::room::RoomClient::chat_kept`]): the
+/// channel, the level shown and where the emotes come from, which is
+/// what the connection subscribes and reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeptChat {
+    pub chat: RoomChat,
+    /// The device's choice under the room's ceiling.
+    pub level: Level,
+    pub emotes_from: ddi_chat::EmotesFrom,
+}
+
+/// Who keeps a room's chat connected: told the room's wish and the room
+/// clock's milliseconds at each tick (`None`: nothing to keep).
+pub type ChatKeeper = Box<dyn Fn(Option<&KeptChat>, u64)>;
+
+/// The shell's keeper of a room's chat (`ddi_session::chat` installs its
+/// own with the live chat; `None`: none on this thread).
+pub fn set_chat_keeper(keeper: Option<ChatKeeper>) {
+    KEEPER.with(|k| *k.borrow_mut() = keeper);
+}
+
+/// An online room's client tells the keeper what its room's chat wants
+/// now (each tick, and `None` once it is left).
+pub fn keep_room_chat(want: Option<&KeptChat>, now_ms: u64) {
+    KEEPER.with(|k| {
+        if let Some(keeper) = k.borrow().as_ref() {
+            keeper(want, now_ms);
+        }
+    });
 }
 
 /// The room model's chat choice as the chat's level.

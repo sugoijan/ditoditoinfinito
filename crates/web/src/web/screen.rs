@@ -700,6 +700,11 @@ pub(crate) fn texture_decoded(id: TextureId, result: Result<ImageBitmap, String>
     });
 }
 
+/// A JSON value as JavaScript's (`JSON.parse` of its text).
+fn json_value(v: &serde_json::Value) -> Option<JsValue> {
+    js_sys::JSON::parse(&v.to_string()).ok()
+}
+
 /// The screen's part of `window.__DDI_DEBUG`: `screen` (backend,
 /// generation, losses, surface mode, the pointer), `textures` and `text` (the 2D
 /// pass's caches); and `history` (`crate::history::debug_into`).
@@ -712,6 +717,12 @@ pub(crate) fn debug_into(obj: &js_sys::Object) {
     let set = |o: &js_sys::Object, k: &str, v: JsValue| {
         let _ = js_sys::Reflect::set(o, &JsValue::from_str(k), &v);
     };
+    // Round DE: an online room's chat kept connected between its stages
+    // (its lifetime, stages, buffer and connection), on every page.
+    let kept = ddi_session::chat::kept_report()
+        .and_then(|v| json_value(&v))
+        .unwrap_or(JsValue::NULL);
+    set(obj, "chatKept", kept);
     with(|s| {
         let screen = js_sys::Object::new();
         let (backend, mode) = match &s.state {

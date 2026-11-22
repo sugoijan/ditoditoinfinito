@@ -1165,6 +1165,98 @@ pub(crate) mod room {
         crate::state::settings::Settings::default().save();
     }
 
+    /// Round DE: an online room tells the keeper of its chat, as it
+    /// ticks, what this device keeps connected: the room's channel by
+    /// its route at the device's level under the room's ceiling, while
+    /// the room shows chat, the device's option is on and its access
+    /// allows chat; nothing otherwise (no access, the option or the
+    /// room's chat turned off), and nothing once the room is left. CPU
+    /// practice never tells it anything.
+    #[test]
+    fn a_room_tells_its_keeper_what_chat_to_keep_connected() {
+        use crate::state::twitch::{KeptChat, set_chat_keeper};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        ddi_platform::storage::install(std::rc::Rc::new(ddi_platform::storage::MemoryStore::default()));
+        crate::state::settings::Settings {
+            twitch_chat: ddi_chat::Level::Messages,
+            ..Default::default()
+        }
+        .save();
+        let told: Rc<RefCell<Vec<Option<KeptChat>>>> = Rc::default();
+        let sink = told.clone();
+        set_chat_keeper(Some(Box::new(move |want, _| sink.borrow_mut().push(want.cloned()))));
+        let last = || told.borrow().last().cloned().flatten();
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob"]);
+        server.borrow_mut().grant_twitch(&ddi_room::Identity::new("dev:alice"), &["chat"]);
+        server.borrow_mut().grant_twitch(&ddi_room::Identity::new("dev:bob"), &["bans"]);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        tick(&clock, &mut [&mut alice], 100);
+        assert_eq!(last(), None, "the room shows no chat");
+        let me = alice.me();
+        let shown = |chat| ddi_room::TwitchSetting {
+            by: me,
+            mirror: ddi_room::TwitchMirror::Off,
+            chat,
+            user_id: "1".into(),
+            login: "alice".into(),
+        };
+        server
+            .borrow_mut()
+            .set_twitch(me, Some(shown(ddi_room::TwitchChat::Emotes)))
+            .unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        tick(&clock, &mut [&mut alice], 100);
+        let kept = last().expect("kept for alice");
+        assert_eq!(kept.level, ddi_chat::Level::Emotes, "under the room's ceiling");
+        assert_eq!((&*kept.chat.channel_id, &*kept.chat.login), ("1", "alice"));
+        assert_eq!(kept.chat.room.as_deref(), Some(alice.online_link().unwrap().room_id()));
+        assert_eq!(alice.chat_kept(), Some(kept));
+        tick(&clock, &mut [&mut bob], 100);
+        assert_eq!(last(), None, "bob's access does not allow chat");
+        // The device's option off: nothing kept.
+        crate::state::settings::Settings::default().save();
+        tick(&clock, &mut [&mut alice], 100);
+        assert_eq!(last(), None);
+        crate::state::settings::Settings {
+            twitch_chat: ddi_chat::Level::Messages,
+            ..Default::default()
+        }
+        .save();
+        tick(&clock, &mut [&mut alice], 100);
+        assert!(last().is_some());
+        // The room's chat off: nothing kept.
+        server
+            .borrow_mut()
+            .set_twitch(me, Some(shown(ddi_room::TwitchChat::Off)))
+            .unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        tick(&clock, &mut [&mut alice], 100);
+        assert_eq!(last(), None);
+        server
+            .borrow_mut()
+            .set_twitch(me, Some(shown(ddi_room::TwitchChat::EmotesAndMessages)))
+            .unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        tick(&clock, &mut [&mut alice], 100);
+        assert_eq!(last().map(|k| k.level), Some(ddi_chat::Level::Messages));
+        // Left: the room's client gone says so once more.
+        told.borrow_mut().clear();
+        drop(alice);
+        assert_eq!(*told.borrow(), [None]);
+        // Practice tells it nothing.
+        told.borrow_mut().clear();
+        let practice = crate::state::room::practice_room(1_000);
+        practice.borrow_mut().tick(2_000);
+        drop(practice);
+        assert!(told.borrow().is_empty());
+        set_chat_keeper(None);
+        crate::state::settings::Settings::default().save();
+    }
+
     /// Round FX: where the room's line says the access lacks chat's
     /// permission, the room offers the trip itself: a button beside the
     /// line and More's item, back to this room. Canceled at Twitch,

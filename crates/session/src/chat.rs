@@ -9,9 +9,17 @@
 //! device's own socket to Twitch's EventSub (`ddi_chat::live`, the state
 //! machine, driven here in the session's tick over a shell's [`LiveIo`],
 //! the web's `WebSocket` and `fetch`, desktop's threads) and the
-//! channel's emote sets (`ddi_chat::channel`). The live chat starts with
-//! a play that shows it and ends with it (the session dropped closes its
-//! sockets). For a player (round TW7) it is a multiplayer feature alone:
+//! channel's emote sets (`ddi_chat::channel`). In an online room (round
+//! DE) the connection is the room's, not a stage's: kept open from the
+//! moment the member is in a room that shows chat until they leave it or
+//! the chat is turned off ([`keep_for_room`], told by the room's client as
+//! it ticks), lent to each stage's play and given back at its end, so the
+//! chat is there from a stage's first frame; between stages nothing is
+//! drawn and nothing kept but the last [`BUFFER_SECONDS`] of events (at
+//! most [`BUFFER_MOST`]), which the next stage's first frame shows. Outside
+//! a room a live chat (the development script's alone) starts with a play
+//! and ends with it (the session dropped closes its sockets). For a player
+//! (round TW7) it is a multiplayer feature alone:
 //! an online room's stage, the room's channel under its ceiling (C1),
 //! subscribed through `POST <api>/rooms/<id>/chat/subscribe`; a
 //! singleplayer play shows none and connects to nothing, and CPU practice
@@ -45,6 +53,182 @@ pub use ddi_chat::live::SubscribeAnswer;
 thread_local! {
     static SCRIPTED: RefCell<Option<Script>> = const { RefCell::new(None) };
     static LIVE: RefCell<Option<Rc<LiveSetup>>> = const { RefCell::new(None) };
+    static ROOM_CHAT: RefCell<Keeper> = RefCell::new(Keeper::default());
+}
+
+/// Round DE: the seconds of events a room's kept connection holds for
+/// the next stage's first frame (older ones are dropped as they age: late
+/// chat is worse than missing chat).
+pub const BUFFER_SECONDS: f64 = 2.0;
+/// And how many at most (a second of new messages at the layer's rate).
+pub const BUFFER_MOST: usize = 20;
+
+/// What a room's kept connection is for: whose channel by which route,
+/// whether messages show (the moderation events subscribed too), and the
+/// providers asked for the channel's emote sets.
+#[derive(Clone, Debug, PartialEq)]
+struct Key {
+    want: LiveWant,
+    messages: bool,
+    from: EmotesFrom,
+}
+
+/// Round DE: a room's live chat between its stages.
+#[derive(Default)]
+struct Keeper {
+    /// What the room wants kept now (none: outside a room, or its chat
+    /// off).
+    want: Option<Key>,
+    /// The connection held between stages.
+    held: Option<(Key, LiveChat)>,
+    /// A play holds a connection of this key (lent, or its own).
+    lent: Option<Key>,
+    /// The machine's millisecond the room took the connection at.
+    since: u64,
+    /// Stages that took it.
+    stages: u32,
+    /// The last events, with the machine's millisecond they came at.
+    buffer: VecDeque<(u64, Event)>,
+}
+
+impl Keeper {
+    /// The held connection closed (left, or its chat changed or off),
+    /// its lifetime and totals told.
+    fn close(&mut self, why: &str) {
+        let Some((key, mut l)) = self.held.take() else {
+            return;
+        };
+        let held_s = l.last_ms.saturating_sub(self.since) as f64 / 1000.0;
+        l.io.report(&format!(
+            "closed for the room ({why}): kept {held_s:.1} s, {} stages took it",
+            self.stages
+        ));
+        l.end(key.messages, None);
+        self.buffer.clear();
+        self.stages = 0;
+    }
+}
+
+fn key_of(want: &ddi_ui::state::twitch::KeptChat) -> Key {
+    Key {
+        want: LiveWant {
+            channel_id: want.chat.channel_id.clone(),
+            login: want.chat.login.clone(),
+            room: want.chat.room.clone(),
+            named: want.chat.named,
+        },
+        messages: want.level == Level::Messages,
+        from: want.emotes_from,
+    }
+}
+
+/// Round DE: what an online room's chat wants kept now (`want`, from its
+/// client's tick, `RoomClient::chat_kept`; none once left or turned off)
+/// at the room clock's `now_ms`: a connection opened for it where none is
+/// held and no stage holds one, closed where the room no longer wants it
+/// (or wants another), and driven between the stages: its events dropped
+/// but the last [`BUFFER_SECONDS`], at most [`BUFFER_MOST`]. Nothing
+/// without the shell's live chat ([`set_live`]).
+pub fn keep_for_room(want: Option<&ddi_ui::state::twitch::KeptChat>, now_ms: u64) {
+    let key = want.map(key_of);
+    ROOM_CHAT.with_borrow_mut(|kp| {
+        kp.want = key.clone();
+        if kp.held.as_ref().is_some_and(|(k, _)| Some(k) != key.as_ref()) {
+            let why = if key.is_none() {
+                "left the room, or its chat, this device's or the access's turned off"
+            } else {
+                "the room's chat changed: its channel or what shows"
+            };
+            kp.close(why);
+        }
+        if let Some(key) = key.as_ref()
+            && kp.held.is_none()
+            && kp.lent.as_ref() != Some(key)
+            && let Some(mut l) = LiveChat::new(key.want.clone(), key.from)
+        {
+            l.io.report("kept for the room: open until the room is left or its chat turned off");
+            kp.since = l.ms(Driver::Room, now_ms);
+            kp.stages = 0;
+            kp.held = Some((key.clone(), l));
+        }
+        if let Some((key, l)) = kp.held.as_mut() {
+            let ms = l.ms(Driver::Room, now_ms);
+            let (events, _) = l.drive(ms, key.messages);
+            kp.buffer.extend(events.into_iter().map(|e| (ms, e)));
+            prune(&mut kp.buffer, ms);
+        }
+    });
+}
+
+/// The buffer within [`BUFFER_SECONDS`] of `ms` and [`BUFFER_MOST`].
+fn prune(buffer: &mut VecDeque<(u64, Event)>, ms: u64) {
+    let oldest = ms.saturating_sub((BUFFER_SECONDS * 1000.0) as u64);
+    while buffer.front().is_some_and(|(t, _)| *t < oldest) || buffer.len() > BUFFER_MOST {
+        buffer.pop_front();
+    }
+}
+
+/// The room's kept connection for a play of `key`, where it is held for
+/// it, with the events buffered; either way a play now holds one of it.
+fn take_kept(key: &Key) -> Option<(LiveChat, Vec<Event>)> {
+    ROOM_CHAT.with_borrow_mut(|kp| {
+        kp.lent = Some(key.clone());
+        match kp.held.take() {
+            Some((k, l)) if k == *key => {
+                kp.stages += 1;
+                prune(&mut kp.buffer, l.last_ms);
+                let events = kp.buffer.drain(..).map(|(_, e)| e).collect();
+                Some((l, events))
+            }
+            other => {
+                kp.held = other;
+                None
+            }
+        }
+    })
+}
+
+/// A play's connection of `key` at its end: kept by the room where the
+/// room wants it now and holds none (its own, or a stage's that opened
+/// one before the room could); else handed back to be closed.
+fn give_back(key: Key, l: LiveChat) -> Option<LiveChat> {
+    ROOM_CHAT.with_borrow_mut(|kp| {
+        if kp.lent.as_ref() == Some(&key) {
+            kp.lent = None;
+        }
+        if kp.want.as_ref() == Some(&key) && kp.held.is_none() {
+            if kp.stages == 0 {
+                kp.since = l.last_ms;
+                kp.stages = 1;
+            }
+            kp.buffer.clear();
+            kp.held = Some((key, l));
+            None
+        } else {
+            Some(l)
+        }
+    })
+}
+
+/// Round DE: the room's kept connection between stages, for the debug
+/// state (the web's `__DDI_DEBUG.chatKept`): its lifetime, whether a
+/// stage holds it, the stages that took it, the events buffered, the
+/// connection's report; none where no room wants one.
+pub fn kept_report() -> Option<serde_json::Value> {
+    ROOM_CHAT.with_borrow(|kp| {
+        let want = kp.want.as_ref()?;
+        Some(serde_json::json!({
+            "lifetime": "room",
+            "channel": want.want.login,
+            "messages": want.messages,
+            "held": kp.held.is_some(),
+            "lent": kp.lent.is_some(),
+            "stages": kp.stages,
+            "kept_ms": kp.held.as_ref().map(|(_, l)| l.last_ms.saturating_sub(kp.since)),
+            "buffered": kp.buffer.len(),
+            "connection": kp.held.as_ref().map(|(_, l)| l.machine.report()),
+        }))
+    })
 }
 
 /// What a live chat reads: whose channel, and through which route.
@@ -151,7 +335,16 @@ pub struct LiveSetup {
 /// on this shell). Whether a play shows it is the settings' and the
 /// room's ([`ChatConfig::for_play`], [`ChatConfig::under_room`]).
 pub fn set_live(setup: Option<LiveSetup>) {
+    // The room's kept connection is the old setup's: closed.
+    ROOM_CHAT.with_borrow_mut(|kp| {
+        kp.close("the shell's live chat changed");
+        *kp = Keeper::default();
+    });
+    let keeper = setup.is_some();
     LIVE.with(|l| *l.borrow_mut() = setup.map(Rc::new));
+    ddi_ui::state::twitch::set_chat_keeper(
+        keeper.then(|| Box::new(keep_for_room) as ddi_ui::state::twitch::ChatKeeper),
+    );
 }
 
 fn live_setup() -> Option<Rc<LiveSetup>> {
@@ -287,6 +480,15 @@ pub struct ChatLayer {
     player: Option<Player>,
     /// The live chat's connection (round TW6).
     live: Option<LiveChat>,
+    /// What the connection is for, which a room keeps between stages
+    /// (round DE), and whether it was the room's when the play took it.
+    key: Option<Key>,
+    kept: bool,
+    /// The room's buffered events, given at the first frame (none once
+    /// given).
+    handed: Option<Vec<Event>>,
+    /// The chat messages received when the play took the connection.
+    messages_before: u64,
     /// The host second the source started at.
     start: Option<f64>,
     events: VecDeque<(u64, f64, Event)>,
@@ -313,6 +515,10 @@ pub struct ViewNote {
     pub proxied: Vec<String>,
     /// Animated emotes ready.
     pub animated: usize,
+    /// The rules' new messages a second and emotes a message
+    /// (`chat-overlay-v2`'s), for the lines.
+    pub per_second: usize,
+    pub cut_at: usize,
 }
 
 /// A play's live chat: the connection's state machine, the channel's
@@ -331,7 +537,21 @@ struct LiveChat {
     sets_told: bool,
     io: Box<dyn LiveIo>,
     started: bool,
+    /// The machine's millisecond last driven to.
     last_ms: u64,
+    /// Who drives its clock now and the machine's milliseconds less the
+    /// driver's (round DE: a room's connection is driven by the room's
+    /// clock between stages and by a play's host clock in them).
+    clock: Option<(Driver, i128)>,
+}
+
+/// Who drives a live chat's clock (round DE).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Driver {
+    /// A play's host seconds.
+    Play,
+    /// The room clock's milliseconds.
+    Room,
 }
 
 impl LiveChat {
@@ -352,7 +572,152 @@ impl LiveChat {
             io,
             started: false,
             last_ms: 0,
+            clock: None,
         })
+    }
+
+    /// The machine's millisecond for `driver`'s `raw` (never backwards):
+    /// a new driver goes on from where the last one left it.
+    fn ms(&mut self, driver: Driver, raw: u64) -> u64 {
+        let off = match self.clock {
+            Some((d, off)) if d == driver => off,
+            _ => {
+                let off = if self.started {
+                    i128::from(self.last_ms) - i128::from(raw)
+                } else {
+                    0
+                };
+                self.clock = Some((driver, off));
+                off
+            }
+        };
+        let ms = (i128::from(raw) + off).max(i128::from(self.last_ms)).max(0);
+        self.last_ms = u64::try_from(ms).unwrap_or(u64::MAX);
+        self.last_ms
+    }
+
+    /// Drives the connection to the machine's `ms`: what the shell's side
+    /// brought since, its timers, what it is to do next. The chat's events
+    /// received, and whether the emote sets changed.
+    fn drive(&mut self, ms: u64, messages: bool) -> (Vec<Event>, bool) {
+        if !self.started {
+            self.started = true;
+            self.machine.start(ms);
+            if self.sets_ready {
+                for r in self.sets.start() {
+                    self.io.read_set(r.key, &r.url, r.via);
+                }
+            }
+        }
+        for input in self.io.poll() {
+            match input {
+                LiveInput::Opened(s) => self.machine.opened(s, ms),
+                LiveInput::Text(s, text) => self.machine.text(s, &text, ms),
+                LiveInput::Closed(s, code) => self.machine.closed(s, code, ms),
+                LiveInput::Subscribed(s, answer) => self.machine.subscribed(s, answer, ms),
+                LiveInput::SetRead(key, via, answer) => {
+                    self.sets.answered(key, via, answer);
+                    for r in self.sets.start() {
+                        self.io.read_set(r.key, &r.url, r.via);
+                    }
+                }
+            }
+        }
+        self.machine.tick(ms);
+        // A named channel's id, once our server found it: its sets read
+        // from now on (round TW7).
+        if !self.sets_ready
+            && let Some(c) = self.machine.channel()
+        {
+            self.want.channel_id = c.id.clone();
+            self.sets = ChannelSets::new(&c.id, self.emotes_from, Some(self.api.clone()), self.at.clone());
+            self.sets_ready = true;
+            for r in self.sets.start() {
+                self.io.read_set(r.key, &r.url, r.via);
+            }
+        }
+        self.flush(messages);
+        let events = self.machine.take_events();
+        let changed = self.sets.version() != self.sets_seen;
+        self.sets_seen = self.sets.version();
+        if self.sets_ready && !self.sets_told && self.sets.done() {
+            self.sets_told = true;
+            for line in self.sets.lines() {
+                self.io.report(&line);
+            }
+        }
+        (events, changed)
+    }
+
+    /// Stops it: every socket closed, the last lines told (what was
+    /// received, the shapes not understood, what `view` showed, the emote
+    /// sets).
+    fn end(&mut self, messages: bool, view: Option<&ViewNote>) {
+        let now = self.last_ms;
+        self.machine.stop(now);
+        self.flush(messages);
+        let r = self.machine.received();
+        self.io.report(&format!(
+            "received {} frames: {} chat messages, {} deletes, {} user clears, {} clears, {} other; {} keepalives, {} duplicates, {} not understood",
+            r.frames,
+            r.messages,
+            r.deletes,
+            r.clear_users,
+            r.clears,
+            r.other_events,
+            r.keepalive,
+            r.duplicate,
+            self.machine.report()["not_understood"]["count"],
+        ));
+        for sample in self.machine.report()["not_understood"]["samples"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            self.io.report(&format!("not understood: {sample}"));
+        }
+        if let Some(n) = view {
+            self.report_view(n);
+        }
+        for line in self.sets.lines() {
+            self.io.report(&line);
+        }
+    }
+
+    /// What a play's view showed of the chat, in two lines.
+    fn report_view(&mut self, n: &ViewNote) {
+        let s = n.stats;
+        self.io.report(&format!(
+            "shown: {} items from {} messages; left out {} (commands {}, links {}, cheers {}, shared chat {}, nothing to show {}); dropped: screen full {}, {} a second {}, a chatter's 2 s {}, frames late {}, no room {}, no image {}; taken off by moderation {}; emotes past {} {}",
+            s.shown,
+            s.messages,
+            s.left_out,
+            s.left.command,
+            s.left.link,
+            s.left.cheer,
+            s.left.shared,
+            s.left.empty,
+            s.full,
+            n.per_second,
+            s.rate,
+            s.chatter,
+            s.shed,
+            s.no_room,
+            s.no_image,
+            s.removed,
+            n.cut_at,
+            s.cut,
+        ));
+        let (ready, flying, failed, proxied) = n.images;
+        self.io.report(&format!(
+            "images: {ready} ready ({} animated), {flying} in flight, {failed} failed, {proxied} hosts through our proxy{}",
+            n.animated,
+            if n.proxied.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", n.proxied.join(", "))
+            }
+        ));
     }
 
     /// Hands the machine's wishes and lines to the shell.
@@ -373,69 +738,41 @@ impl LiveChat {
 }
 
 impl Drop for ChatLayer {
-    /// The play ended: the live chat's sockets closed, its last lines
-    /// told.
+    /// The play ended: in a room, the connection given back to the room
+    /// (round DE: kept between stages where it still wants it), the
+    /// stage's lines told; else its sockets closed, its last lines told.
     fn drop(&mut self) {
         let messages = self.config.level == Level::Messages;
-        if let Some(l) = self.live.as_mut() {
-            let now = l.last_ms;
-            l.machine.stop(now);
-            l.flush(messages);
-            let r = l.machine.received();
-            l.io.report(&format!(
-                "received {} frames: {} chat messages, {} deletes, {} user clears, {} clears, {} other; {} keepalives, {} duplicates, {} not understood",
-                r.frames,
-                r.messages,
-                r.deletes,
-                r.clear_users,
-                r.clears,
-                r.other_events,
-                r.keepalive,
-                r.duplicate,
-                l.machine.report()["not_understood"]["count"],
-            ));
-            for sample in l.machine.report()["not_understood"]["samples"]
-                .as_array()
-                .into_iter()
-                .flatten()
-            {
-                l.io.report(&format!("not understood: {sample}"));
-            }
-            if let Some(n) = self.view_note.borrow().as_ref() {
-                let s = n.stats;
-                l.io.report(&format!(
-                    "shown: {} items from {} messages; left out {} (commands {}, links {}, cheers {}, shared chat {}, nothing to show {}); dropped: screen full {}, 20 a second {}, a chatter's 2 s {}, frames late {}, no room {}, no image {}; taken off by moderation {}; emotes past eight {}",
-                    s.shown,
-                    s.messages,
-                    s.left_out,
-                    s.left.command,
-                    s.left.link,
-                    s.left.cheer,
-                    s.left.shared,
-                    s.left.empty,
-                    s.full,
-                    s.rate,
-                    s.chatter,
-                    s.shed,
-                    s.no_room,
-                    s.no_image,
-                    s.removed,
-                    s.cut,
-                ));
-                let (ready, flying, failed, proxied) = n.images;
-                l.io.report(&format!(
-                    "images: {ready} ready ({} animated), {flying} in flight, {failed} failed, {proxied} hosts through our proxy{}",
-                    n.animated,
-                    if n.proxied.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({})", n.proxied.join(", "))
+        let Some(l) = self.live.take() else {
+            return;
+        };
+        let view = self.view_note.borrow().clone();
+        let back = match self.key.take() {
+            Some(key) => {
+                let given = l.machine.received().messages.saturating_sub(self.messages_before);
+                let l2 = give_back(key, l);
+                match l2 {
+                    Some(l2) => Some(l2),
+                    None => {
+                        // Kept: the stage's own lines through the room's.
+                        ROOM_CHAT.with_borrow_mut(|kp| {
+                            if let Some((_, l)) = kp.held.as_mut() {
+                                l.io.report(&format!(
+                                    "the stage ended: {given} chat messages during it; kept for the room"
+                                ));
+                                if let Some(n) = view.as_ref() {
+                                    l.report_view(n);
+                                }
+                            }
+                        });
+                        None
                     }
-                ));
+                }
             }
-            for line in l.sets.lines() {
-                l.io.report(&line);
-            }
+            None => Some(l),
+        };
+        if let Some(mut l) = back {
+            l.end(messages, view.as_ref());
         }
     }
 }
@@ -445,16 +782,35 @@ impl ChatLayer {
         let (player, sets, live) = match &config.source {
             ChatSource::Script(s) => (Some(Player::new(s.clone())), s.sets(), None),
             ChatSource::Live(want) => {
-                let live = LiveChat::new(want.clone(), config.emotes_from);
+                // Round DE: the room's kept connection where it has one
+                // for this chat; else one of the play's own.
+                let k = Key {
+                    want: want.clone(),
+                    messages: config.level == Level::Messages,
+                    from: config.emotes_from,
+                };
+                let (live, handed, kept) = match take_kept(&k) {
+                    Some((l, events)) => (Some(l), events, true),
+                    None => (LiveChat::new(want.clone(), config.emotes_from), Vec::new(), false),
+                };
                 let sets = live.as_ref().map(|l| l.sets.sets()).unwrap_or_default();
-                (None, sets, live)
+                let before = live.as_ref().map_or(0, |l| l.machine.received().messages);
+                (None, sets, live.map(|l| (l, k, kept, handed, before)))
             }
             ChatSource::Room => (None, EmoteSets::default(), None),
+        };
+        let (live, key, kept, handed, messages_before) = match live {
+            Some((l, k, kept, handed, before)) => (Some(l), Some(k), kept, Some(handed), before),
+            None => (None, None, false, None, 0),
         };
         ChatLayer {
             config,
             player,
             live,
+            key,
+            kept,
+            handed,
+            messages_before,
             start: None,
             events: VecDeque::new(),
             next: 1,
@@ -499,6 +855,10 @@ impl ChatLayer {
             "route": if l.want.room.is_some() { "room" } else { "own" },
             "named": l.want.named,
             "level": format!("{:?}", self.config.level),
+            // Round DE: the room's connection (kept between its stages)
+            // or this play's own.
+            "lifetime": if self.key.is_some() && (self.kept || ROOM_CHAT.with_borrow(|kp| kp.want.is_some())) { "room" } else { "play" },
+            "taken_from_room": self.kept,
             "connection": l.machine.report(),
             "emote_sets": l.sets.report(),
             "events_given": self.next - 1,
@@ -545,59 +905,28 @@ impl ChatLayer {
         }
         let messages = self.config.level == Level::Messages;
         if let Some(l) = self.live.as_mut() {
-            let ms = (now.max(0.0) * 1000.0) as u64;
-            l.last_ms = ms;
-            if !l.started {
-                l.started = true;
-                l.machine.start(ms);
-                if l.sets_ready {
-                    for r in l.sets.start() {
-                        l.io.read_set(r.key, &r.url, r.via);
-                    }
-                }
+            let ms = l.ms(Driver::Play, (now.max(0.0) * 1000.0) as u64);
+            // The room's last events, at the play's first frame.
+            let handed = self.handed.take();
+            if self.kept && let Some(h) = handed.as_ref() {
+                l.io.report(&format!(
+                    "a stage took the room's connection ({}, {} events from the last {BUFFER_SECONDS} s)",
+                    l.machine.state(),
+                    h.len()
+                ));
             }
-            for input in l.io.poll() {
-                match input {
-                    LiveInput::Opened(s) => l.machine.opened(s, ms),
-                    LiveInput::Text(s, text) => l.machine.text(s, &text, ms),
-                    LiveInput::Closed(s, code) => l.machine.closed(s, code, ms),
-                    LiveInput::Subscribed(s, answer) => l.machine.subscribed(s, answer, ms),
-                    LiveInput::SetRead(key, via, answer) => {
-                        l.sets.answered(key, via, answer);
-                        for r in l.sets.start() {
-                            l.io.read_set(r.key, &r.url, r.via);
-                        }
-                    }
-                }
-            }
-            l.machine.tick(ms);
-            // A named channel's id, once our server found it: its sets
-            // read from now on (round TW7).
-            if !l.sets_ready
-                && let Some(c) = l.machine.channel()
-            {
-                l.want.channel_id = c.id.clone();
-                l.sets = ChannelSets::new(&c.id, l.emotes_from, Some(l.api.clone()), l.at.clone());
-                l.sets_ready = true;
-                for r in l.sets.start() {
-                    l.io.read_set(r.key, &r.url, r.via);
-                }
-            }
-            l.flush(messages);
-            for e in l.machine.take_events() {
+            for e in handed.into_iter().flatten() {
                 self.events.push_back((self.next, now, e));
                 self.next += 1;
             }
-            if l.sets.version() != l.sets_seen {
-                l.sets_seen = l.sets.version();
+            let (events, changed) = l.drive(ms, messages);
+            for e in events {
+                self.events.push_back((self.next, now, e));
+                self.next += 1;
+            }
+            if changed {
                 self.sets = l.sets.sets();
                 self.sets_version += 1;
-            }
-            if l.sets_ready && !l.sets_told && l.sets.done() {
-                l.sets_told = true;
-                for line in l.sets.lines() {
-                    l.io.report(&line);
-                }
             }
         }
         while self.events.len() > KEPT {
@@ -903,6 +1232,169 @@ pub(crate) mod tests {
         assert_eq!(layer.live_report().unwrap()["named"], true);
         drop(layer);
         ddi_ui::state::twitch::set_dev_live(None);
+        set_live(None);
+    }
+
+    /// Round DE: an online room's chat is the room's connection, not a
+    /// stage's: opened once the room wants it (its client's tick, through
+    /// the hook `set_live` installs), driven between the stages with only
+    /// its last events buffered (at most [`BUFFER_MOST`], none older than
+    /// [`BUFFER_SECONDS`]), lent to each stage's play, whose first frame
+    /// already has the chat, given back at its end; one socket for two
+    /// stages, closed when the room is left. Outside a room a play's live
+    /// chat (the development script's) is still its own, closed with it.
+    #[test]
+    fn a_rooms_chat_stays_connected_across_its_stages() {
+        use ddi_ui::state::twitch::{KeptChat, RoomChat, keep_room_chat};
+        set_scripted(None);
+        ddi_ui::state::twitch::set_dev_live(None);
+        let state = fake_live();
+        let room = RoomChat {
+            ceiling: Level::Messages,
+            channel_id: "77".into(),
+            login: "host".into(),
+            room: Some("Room000001".into()),
+            named: false,
+        };
+        let want = KeptChat {
+            chat: room.clone(),
+            level: Level::Messages,
+            emotes_from: EmotesFrom::TwitchAndOthers,
+        };
+        let mut t = 1_700_000_000_000u64;
+        let room_ticks = |n: usize, t: &mut u64, want: Option<&KeptChat>| {
+            for _ in 0..n {
+                keep_room_chat(want, *t);
+                *t += 100;
+            }
+        };
+        room_ticks(3, &mut t, Some(&want));
+        {
+            let s = state.borrow();
+            assert_eq!(s.opened, [(1, "ws://127.0.0.1:9/eventsub".to_string())]);
+            assert_eq!(s.subscribed.len(), 1);
+            assert!(s.subscribed[0].3, "messages: the moderation events too");
+            assert!(s.lines.iter().any(|l| l.starts_with("kept for the room")), "{:?}", s.lines);
+        }
+        // Five seconds between stages: a message a tick, the last two
+        // seconds' kept at most, never more than the cap.
+        room_ticks(50, &mut t, Some(&want));
+        let r = kept_report().unwrap();
+        assert_eq!((r["held"].as_bool(), r["lent"].as_bool(), r["stages"].as_u64()), (Some(true), Some(false), Some(0)));
+        assert_eq!(r["buffered"].as_u64(), Some(BUFFER_MOST as u64));
+        assert_eq!(r["connection"]["state"], "live");
+        let settings = Settings {
+            twitch_chat: Level::Messages,
+            ..Settings::default()
+        };
+        let stage = StageSetup {
+            chat: Some(room.clone()),
+            ..setup()
+        };
+        for n in 1..=2u64 {
+            let config = ChatConfig::for_play(&settings).unwrap().under_room(Some(&stage)).unwrap();
+            let mut layer = ChatLayer::new(config);
+            // The room's ticks during the play open nothing more.
+            room_ticks(3, &mut t, Some(&want));
+            let first = 500.0 * n as f64;
+            layer.advance(first);
+            assert!(
+                layer.since(0).filter(|(_, at, _)| *at == first).count() > BUFFER_MOST,
+                "the chat at the stage's first frame: the room's last events and what came since"
+            );
+            let r = layer.live_report().unwrap();
+            assert_eq!((r["lifetime"].as_str(), r["taken_from_room"].as_bool()), (Some("room"), Some(true)));
+            assert_eq!(r["connection"]["state"], "live");
+            for k in 1..20 {
+                layer.advance(first + f64::from(k) * 0.1);
+            }
+            drop(layer);
+            let s = state.borrow();
+            assert_eq!(s.opened.len(), 1, "one socket for the room, stage {n}");
+            assert!(s.closed.is_empty());
+            assert!(s.lines.iter().any(|l| l.starts_with("a stage took the room's connection (live, 20 events")));
+            assert!(s.lines.iter().any(|l| l.starts_with("the stage ended:") && l.ends_with("kept for the room")));
+            drop(s);
+            assert_eq!(kept_report().unwrap()["stages"].as_u64(), Some(n));
+            room_ticks(30, &mut t, Some(&want));
+        }
+        // Left: closed, its lifetime told.
+        room_ticks(1, &mut t, None);
+        {
+            let s = state.borrow();
+            assert_eq!(s.closed, [1]);
+            let closed = s.lines.iter().find(|l| l.starts_with("closed for the room")).unwrap();
+            assert!(closed.contains("2 stages took it"), "{closed}");
+            assert!(s.lines.iter().any(|l| l.starts_with("received")));
+        }
+        assert_eq!(kept_report(), None);
+        // Another channel (or what shows) changes it: closed, opened again.
+        room_ticks(2, &mut t, Some(&want));
+        let other = KeptChat {
+            level: Level::Emotes,
+            ..want.clone()
+        };
+        room_ticks(2, &mut t, Some(&other));
+        // (Each connection numbers its own sockets from 1.)
+        assert_eq!((state.borrow().opened.len(), state.borrow().closed.len()), (3, 2));
+        room_ticks(1, &mut t, None);
+        // A play outside a room (the development script's own channel) is
+        // still its own: opened with it, closed with it.
+        ddi_ui::state::twitch::set_dev_live(own());
+        let config = ChatConfig::for_play(&settings).unwrap().under_room(None).unwrap();
+        let mut layer = ChatLayer::new(config);
+        layer.advance(10.0);
+        assert_eq!(layer.live_report().unwrap()["lifetime"], "play");
+        drop(layer);
+        assert_eq!((state.borrow().opened.len(), state.borrow().closed.len()), (4, 4));
+        ddi_ui::state::twitch::set_dev_live(None);
+        set_live(None);
+    }
+
+    /// Round DE: a stage that opened its own connection before the room
+    /// could keep one (the access not known yet) gives it to the room at
+    /// its end when the room wants it by then; the room opens none of its
+    /// own while the stage holds it.
+    #[test]
+    fn a_stages_own_connection_is_given_to_the_room() {
+        use ddi_ui::state::twitch::{KeptChat, RoomChat, keep_room_chat};
+        set_scripted(None);
+        ddi_ui::state::twitch::set_dev_live(None);
+        let state = fake_live();
+        let room = RoomChat {
+            ceiling: Level::Emotes,
+            channel_id: "77".into(),
+            login: "host".into(),
+            room: Some("Room000001".into()),
+            named: false,
+        };
+        let stage = StageSetup {
+            chat: Some(room.clone()),
+            ..setup()
+        };
+        let settings = Settings {
+            twitch_chat: Level::Messages,
+            ..Settings::default()
+        };
+        let config = ChatConfig::for_play(&settings).unwrap().under_room(Some(&stage)).unwrap();
+        let mut layer = ChatLayer::new(config);
+        layer.advance(1.0);
+        layer.advance(1.1);
+        assert_eq!(layer.live_report().unwrap()["taken_from_room"], false);
+        let want = KeptChat {
+            chat: room,
+            level: Level::Emotes,
+            emotes_from: EmotesFrom::TwitchAndOthers,
+        };
+        keep_room_chat(Some(&want), 5_000);
+        keep_room_chat(Some(&want), 5_100);
+        assert_eq!(state.borrow().opened.len(), 1, "none of the room's own while the stage holds one");
+        drop(layer);
+        assert!(state.borrow().closed.is_empty(), "given to the room");
+        assert_eq!(kept_report().unwrap()["held"], true);
+        keep_room_chat(Some(&want), 5_200);
+        keep_room_chat(None, 5_300);
+        assert_eq!(state.borrow().closed, [1]);
         set_live(None);
     }
 

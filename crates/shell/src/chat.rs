@@ -484,6 +484,8 @@ impl ChatView {
                 images: drawn.images,
                 proxied: drawn.proxied.clone(),
                 animated: drawn.animated.0,
+                per_second: rules().per_second,
+                cut_at: rules().cut.emotes,
             });
         }
         self.drawn = drawn;

@@ -1384,6 +1384,16 @@ enum Link {
     Online(Box<OnlineLink>),
 }
 
+/// Round DE: an online room left (its client dropped) keeps no chat
+/// connected for it.
+impl Drop for RoomClient {
+    fn drop(&mut self) {
+        if self.is_online() {
+            crate::state::twitch::keep_room_chat(None, self.now_ms());
+        }
+    }
+}
+
 /// A room's client: the authority (the practice room's own, or an online
 /// room's link), the client's mirror of it and what the device knows
 /// about the content it names.
@@ -2850,6 +2860,51 @@ impl RoomClient {
         crate::state::twitch::mark_used(&used);
     }
 
+    /// Round DE: the room's chat as this device keeps it connected
+    /// between the stages (`ddi_session::chat`'s keeper, told at each
+    /// tick): an online room this member is in (connected, or getting
+    /// back after a drop), that shows its host's chat, this device's
+    /// "Twitch chat in rooms" on and its Twitch access (as `/me` last
+    /// said it) allowing chat; the room's channel as this device shows it
+    /// (`RoomChat::on_this_device`) at the device's level under the
+    /// room's ceiling. None in CPU practice, for a bot, or before the
+    /// access is known: a stage then opens its own connection as before
+    /// (round TW6), and gives it to the room at its end where the room
+    /// wants it by then.
+    pub fn chat_kept(&self) -> Option<crate::state::twitch::KeptChat> {
+        if !self.is_online()
+            || !matches!(self.link_state(), LinkState::Connected | LinkState::Reconnecting { .. })
+            || self.state().member(self.me).is_none_or(|m| m.is_bot())
+        {
+            return None;
+        }
+        // The room's and the access's first (the settings are read from
+        // storage).
+        let chat = crate::state::twitch::RoomChat::of(self.twitch())?;
+        let link = self.online_link()?;
+        let allowed = link
+            .online()
+            .borrow()
+            .twitch()
+            .is_some_and(|a| a.features.iter().any(|f| f == "chat"));
+        if !allowed {
+            return None;
+        }
+        let settings = crate::state::settings::Settings::cached();
+        if settings.twitch_chat == ddi_chat::Level::Off {
+            return None;
+        }
+        let chat = chat
+            .in_room(Some(link.room_id().to_string()))
+            .on_this_device();
+        let level = settings.twitch_chat.under(chat.ceiling);
+        (level != ddi_chat::Level::Off).then_some(crate::state::twitch::KeptChat {
+            chat,
+            level,
+            emotes_from: settings.chat_emotes_from,
+        })
+    }
+
     /// Round FX: the room shows its host's chat, this device's "Twitch
     /// chat in rooms" is on, and the person's Twitch access (as `/me`
     /// last said it) does not allow reading chat: the room offers the
@@ -3285,6 +3340,11 @@ impl RoomClient {
         self.tell_twitch_end();
         self.tell_chat_access();
         self.mark_twitch_used();
+        // Round DE: an online room's chat kept connected between its
+        // stages, while this device shows it (none in practice).
+        if self.is_online() {
+            crate::state::twitch::keep_room_chat(self.chat_kept().as_ref(), now_ms);
+        }
         self.read_live();
         self.tell_spotlight();
         self.sync_preload();
