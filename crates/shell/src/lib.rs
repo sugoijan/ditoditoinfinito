@@ -104,6 +104,7 @@ pub fn render_options(settings: &Settings) -> RenderOptions {
         no_field: false,
         opponents_up_to_eight: settings.opponent_fields
             == ddi_ui::state::settings::OpponentFields::UpToEight,
+        receptor_floor: None,
     }
 }
 

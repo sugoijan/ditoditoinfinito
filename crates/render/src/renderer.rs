@@ -8,7 +8,7 @@ use crate::background::BackgroundPipeline;
 use crate::color::to_target;
 use crate::noteskin::NoteLayer;
 use crate::offscreen::{self, Offscreen};
-use crate::scene::{self, FieldGeometry, RenderOptions, Segment, Skin};
+use crate::scene::{self, RenderOptions, Segment, Skin};
 use crate::sprite::SpritePipeline;
 use crate::text::TextPipeline;
 use crate::textured::TexturedPipeline;
@@ -727,13 +727,7 @@ impl Renderer {
         let names: &JudgeNames = &shown;
         let geo = match opts.preview {
             Some(p) => p.geometry,
-            None => FieldGeometry::placed(
-                width as f32,
-                height as f32,
-                scene::field_span(layout),
-                opts.reverse,
-                opts.place,
-            ),
+            None => opts.field(width as f32, height as f32, scene::field_span(layout)),
         };
         let layers = !self.stage_back.is_empty() || !self.field_underlay.is_empty();
         // A layer over the backdrop (the room host's chat) is behind the

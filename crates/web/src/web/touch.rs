@@ -97,6 +97,8 @@ thread_local! {
     /// canvas); none under the columns.
     static CONTROLS: std::cell::RefCell<Option<ddi_ui::touch_controls::Controls>> =
         const { std::cell::RefCell::new(None) };
+    /// The receptors' row: its middle and its lift (round DE, CSS px).
+    static RECEPTORS: std::cell::Cell<[f32; 2]> = const { std::cell::Cell::new([0.0; 2]) };
 }
 
 /// While a play is on (round TC2: on an iPhone a finger on the touch
@@ -223,6 +225,18 @@ pub(crate) fn controls_spec(css: (f64, f64)) -> Option<ddi_shell::touch_controls
 /// Where the play's view placed the touch controls this frame.
 pub(crate) fn set_controls(controls: Option<ddi_ui::touch_controls::Controls>) {
     CONTROLS.with_borrow_mut(|c| *c = controls);
+}
+
+/// Where the play's view drew the receptors' row this frame: its middle
+/// down the screen and how far it was lifted above the touch controls
+/// (round DE, CSS pixels).
+pub(crate) fn set_receptors(at: [f32; 2]) {
+    RECEPTORS.with(|r| r.set(at));
+}
+
+/// The receptors' row as last drawn (`__DDI_DEBUG.receptors`).
+pub(crate) fn receptors() -> [f32; 2] {
+    RECEPTORS.with(std::cell::Cell::get)
 }
 
 /// Where the touch controls are now (`__DDI_DEBUG.touch`).

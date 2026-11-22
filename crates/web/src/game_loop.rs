@@ -714,6 +714,7 @@ impl GameLoop {
                 crate::web::touch::set_watch_at(drawn.watch_at, drawn.skip_at);
                 // And the touch controls.
                 crate::web::touch::set_controls(drawn.touch);
+                crate::web::touch::set_receptors(drawn.receptors);
                 // The song time of each drawn frame, for tests that read
                 // the screen (the debug state is refreshed every 10 frames).
                 if self.automated
@@ -1040,6 +1041,10 @@ impl GameLoop {
         debug["touchSelection"] = json!(crate::web::touch::selection_counts());
         // The touch controls placed (CSS pixels), and whether they show
         // (`docs/plans/touch-controls.md`).
+        // The receptors' row (round DE: lifted above the touch controls
+        // under Reverse on an upright screen), CSS pixels.
+        let [y, lifted] = crate::web::touch::receptors();
+        debug["receptors"] = json!({ "y": y, "lifted": lifted });
         debug["touch"] = json!(crate::web::touch::controls().map(|c| json!({
                         "style": format!("{:?}", c.style),
                         "shown": crate::ui_host::kept_source().is_touch(),

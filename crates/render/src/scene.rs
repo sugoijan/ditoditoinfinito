@@ -98,6 +98,11 @@ pub fn flash_strength(palette: Palette, j: Judgement) -> f32 {
     }
 }
 
+/// The highest a lifted receptors' row goes ([`FieldGeometry::lifted`]),
+/// as a share of the screen's height from the top: half the screen is
+/// left to read the notes in whatever the controls cover.
+pub const RECEPTOR_LIFT_MOST: f32 = 0.5;
+
 /// Pixel geometry of the note field for a given target size.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FieldGeometry {
@@ -156,6 +161,44 @@ impl FieldGeometry {
             width,
             height,
         }
+    }
+
+    /// This field under Reverse with its receptors' row lifted, where
+    /// `floor` is given, so that the row (half an arrow below its middle)
+    /// stays above it: round DE's receptors above a touch screen's
+    /// controls on an upright screen ([`RenderOptions::receptor_floor`]).
+    /// Never higher than [`RECEPTOR_LIFT_MOST`] of the height from the
+    /// top; nothing changes in normal scroll or without a floor.
+    pub fn lifted(self, floor: Option<f32>) -> FieldGeometry {
+        match floor {
+            Some(floor) if self.direction < 0.0 => {
+                let highest = self.height * RECEPTOR_LIFT_MOST;
+                let y = (floor - self.arrow * 0.5).max(highest);
+                FieldGeometry {
+                    receptor_y: self.receptor_y.min(y),
+                    ..self
+                }
+            }
+            _ => self,
+        }
+    }
+
+    /// How far the receptors' row was lifted ([`FieldGeometry::lifted`]),
+    /// in pixels; 0 where it is where it always was.
+    pub fn lift(&self) -> f32 {
+        if self.direction < 0.0 {
+            (self.height - self.arrow * 1.5 - self.receptor_y).max(0.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// The field's middle down the screen: where the judgment and the
+    /// combo are placed from (the screen's middle; with the receptors'
+    /// row lifted, the middle of the field above where the row stands as
+    /// it always stands from the screen's foot, so the two follow it).
+    pub fn middle(&self) -> f32 {
+        (self.height - self.lift()) / 2.0
     }
 
     pub fn lane_x(&self, column: f32) -> f32 {
@@ -342,9 +385,22 @@ pub struct RenderOptions {
     /// eight at most (`ddi_shell::opponents::arrange_up_to`), not every
     /// one that fits.
     pub opponents_up_to_eight: bool,
+    /// Under Reverse, the height (target pixels) the receptors' row stays
+    /// above ([`FieldGeometry::lifted`]): set by the play's view where a
+    /// touch screen's controls show on an upright screen (round DE), so
+    /// that thumbs never cover where notes are judged; none elsewhere.
+    pub receptor_floor: Option<f32>,
 }
 
 impl RenderOptions {
+    /// The play's field on a `width` by `height` target, `span` lanes
+    /// wide: placed as these options say, its receptors lifted where
+    /// they say ([`RenderOptions::receptor_floor`]).
+    pub fn field(&self, width: f32, height: f32, span: f32) -> FieldGeometry {
+        FieldGeometry::placed(width, height, span, self.reverse, self.place)
+            .lifted(self.receptor_floor)
+    }
+
     /// A calibration test's field: plain (no background, no filter),
     /// each hit's error shown, the notes hidden in the sound-only test.
     pub fn for_calibration(&mut self, hide_notes: bool) {
@@ -490,7 +546,7 @@ fn hold_judgements(
                 }
                 color[3] *= look.alpha;
                 let ry = geo.lane_receptor_y(lane.scroll_sign);
-                let inward = if ry < geo.height / 2.0 { 1.0 } else { -1.0 };
+                let inward = if ry < geo.middle() { 1.0 } else { -1.0 };
                 let y = ry + inward * a * 54.0 / 64.0 + look.dy * a;
                 // About the width of a lane (StepMania's graphic is 64 by
                 // 32), never wider, so neighbours never run together.
@@ -547,7 +603,7 @@ pub fn quit_button(geo: &FieldGeometry, layout: &Layout, ratio: f32, inset: [f32
         layout
             .lanes
             .iter()
-            .any(|l| (geo.lane_receptor_y(l.scroll_sign) < mid) == above)
+            .any(|l| (geo.lane_receptor_y(l.scroll_sign) < geo.middle()) == above)
     };
     let (at_top, at_bottom) = (rows(true), rows(false));
     let y = match (at_top, at_bottom) {
@@ -618,7 +674,7 @@ pub fn miniature_power_and_life(
 pub fn judgement_area(geo: &FieldGeometry, span: f32) -> [f32; 4] {
     let a = geo.arrow;
     let size = (38.0 * crate::hud::scale(geo)).max(16.0);
-    let top = geo.height / 2.0 - a * 1.1;
+    let top = geo.middle() - a * 1.1;
     [geo.left, top, geo.left + a * span, top + size * 1.15 * 1.2]
 }
 
@@ -641,7 +697,7 @@ pub(crate) fn receptor_rows(
     let a = geo.arrow;
     let span = field_span(layout);
     let (x0, x1) = (geo.left - a * 0.2, geo.left + a * span + a * 0.2);
-    let height = geo.height;
+    let middle = geo.middle();
     let mut rows = [None::<f32>; 2];
     for l in &layout.lanes {
         let y = geo.lane_receptor_y(l.scroll_sign);
@@ -652,7 +708,7 @@ pub(crate) fn receptor_rows(
         }
     }
     rows.into_iter().flatten().map(move |y| {
-        if y < height / 2.0 {
+        if y < middle {
             [x0, y - a * 0.6, x1, y + a]
         } else {
             [x0, y - a, x1, y + a * 0.6]
@@ -1199,7 +1255,7 @@ pub fn build_into(
             weight: 600,
         });
     }
-    let mid_y = geo.height / 2.0;
+    let mid_y = geo.middle();
     // The tap judgement's middle and resting size.
     let judgement_size = (38.0 * crate::hud::scale(geo)).max(16.0);
     let judgement_at = (
@@ -1264,7 +1320,7 @@ pub fn build_into(
         let bottom_receptors = layout
             .lanes
             .iter()
-            .any(|l| geo.lane_receptor_y(l.scroll_sign) > geo.height / 2.0);
+            .any(|l| geo.lane_receptor_y(l.scroll_sign) > geo.middle());
         let y = if bottom_receptors {
             mid_y + a * 2.4
         } else {

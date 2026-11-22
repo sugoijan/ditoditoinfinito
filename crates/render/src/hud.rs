@@ -132,7 +132,7 @@ pub(crate) fn spots(combo: u32, layout: &Layout, geo: &FieldGeometry) -> HudSpot
     let cs = s * if tier == 10 { 1.2 } else { 1.0 };
     let cs = cs.min((geo.width - 16.0 * s).max(1.0) / (count * 32.0 + 32.0));
     let half = (count * 32.0 + 32.0) * cs / 2.0;
-    let top = geo.height / 2.0 - 16.0 * cs;
+    let top = geo.middle() - 16.0 * cs;
     let place = [center - half, top, center + half, top + 96.0 * cs];
     let receptors = crate::scene::receptor_rows(geo, layout)
         .reduce(ddi_actor::rect::union)
@@ -740,7 +740,7 @@ fn own_globals(
         bar,
         combo_rect: [
             geo.center_x(field_span(layout)) - width / 2.0,
-            geo.height / 2.0 - 16.0 * cs,
+            geo.middle() - 16.0 * cs,
             width,
             96.0 * cs,
         ],

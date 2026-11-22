@@ -311,6 +311,9 @@ pub struct Drawn {
     /// not: the shell's presses land on them
     /// (`ddi_ui::touch_controls::Controls::lane_at`).
     pub touch: Option<ddi_ui::touch_controls::Controls>,
+    /// The receptors' row (logical pixels): its middle down the screen,
+    /// and how far it was lifted above the touch controls (round DE).
+    pub receptors: [f32; 2],
 }
 
 /// The status line's quiet words while a stage is watched (`w`): who is
@@ -532,6 +535,10 @@ pub struct PlayView<H: PlayHost> {
     /// The touch controls' lights, and what this frame draws of them.
     touch: crate::touch_controls::TouchView,
     touch_frame: Option<crate::touch_controls::TouchFrame>,
+    /// The receptors' row this frame (logical pixels): its middle down
+    /// the screen, and how far it was lifted above the touch controls
+    /// (round DE; 0 where it stands where it always does).
+    receptors: [f32; 2],
     fields_cue: bool,
     /// "Last standing" or "Stage won" as the last frame's status line
     /// said it.
@@ -644,6 +651,7 @@ impl<H: PlayHost> PlayView<H> {
             volume: Default::default(),
             touch: Default::default(),
             touch_frame: None,
+            receptors: [0.0; 2],
             fields_cue: false,
             standing_drawn: None,
             fields_score: Default::default(),
@@ -1365,6 +1373,16 @@ impl<H: PlayHost> PlayView<H> {
                 ddi_ui::touch_controls::plan(&session.layout, place, spec.choice)
                     .map(|c| (c, spec))
             });
+        // Round DE: under Reverse on an upright screen, while the touch
+        // controls show, the receptors' row stands just above them, so
+        // thumbs never cover where notes are judged; everything placed
+        // from the row follows (the renderer's field is this one).
+        render.receptor_floor = touch
+            .as_ref()
+            .filter(|(_, s)| s.shown)
+            .and_then(|(c, _)| receptor_floor(c, &session.layout, render.reverse, [w, h], screen.ratio));
+        let geo = geo.lifted(render.receptor_floor);
+        self.receptors = [geo.receptor_y / screen.ratio, geo.lift() / screen.ratio];
         // The quit button, clear of the field's receptors and the insets
         // (and above the touch controls of the screen's left half while
         // they show: the quit button is at the left).
@@ -2367,6 +2385,7 @@ impl<H: PlayHost> PlayView<H> {
             watch_at,
             skip_at,
             touch: touch.map(|(c, _)| c),
+            receptors: self.receptors,
         }
     }
 
@@ -2710,6 +2729,24 @@ struct Overlay {
     fields: crate::opponents::Fields,
 }
 
+/// Round DE: where a play's receptors' row stays above (target pixels:
+/// [`ddi_render::RenderOptions::receptor_floor`]) under the touch
+/// controls `c` on a `size` target (`ratio` of its pixels a logical
+/// one): under Reverse on an upright screen, a gap above the controls'
+/// top; none sideways, in normal scroll, or for a layout whose lanes
+/// scroll both ways (its receptors at both ends).
+pub fn receptor_floor(
+    c: &ddi_ui::touch_controls::Controls,
+    layout: &ddi_chart::layout::Layout,
+    reverse: bool,
+    [w, h]: [f32; 2],
+    ratio: f32,
+) -> Option<f32> {
+    let one_way = layout.lanes.iter().all(|l| l.scroll_sign >= 0);
+    (reverse && h > w && one_way && !c.groups.is_empty())
+        .then(|| (c.top() - ddi_ui::touch_controls::GAP) * ratio)
+}
+
 /// Where the dancing hand goes behind the field `geo` (`span` lanes wide)
 /// in a stage, `[x, y, width, height]` in the target's pixels (`ratio` a
 /// logical pixel): the field's band, from past the receptors' row to the
@@ -2854,6 +2891,129 @@ fn cue_words(
         }
         .into(),
     )
+}
+
+#[cfg(test)]
+mod receptor_lift_tests {
+    use super::*;
+    use ddi_render::FieldGeometry;
+    use ddi_ui::touch_controls::{Choice, Controls, GAP, Screen, Style, plan};
+
+    const UPRIGHT: [[f32; 2]; 3] = [[390.0, 844.0], [360.0, 640.0], [820.0, 1180.0]];
+
+    fn single() -> ddi_chart::Layout {
+        ddi_chart::Layout::builtin("dance-single").unwrap()
+    }
+
+    fn controls(g: &FieldGeometry, size: [f32; 2], style: Style) -> Controls {
+        let field = [g.left, g.left + 4.0 * g.arrow];
+        let place = Screen::new(size, [0.0; 4]).with_field(field);
+        plan(&single(), place, Choice { style, ..Choice::default() }).unwrap()
+    }
+
+    /// The combo's foot at its resting size (`ddi_render::hud`'s spots:
+    /// from the field's middle, 80 of its units below).
+    fn combo_bottom(g: &FieldGeometry) -> f32 {
+        g.middle() + 80.0 * g.arrow / 72.0
+    }
+
+    /// Round DE: under Reverse on an upright screen with the touch
+    /// controls showing, the receptors' row stands just above them (the
+    /// Buttons and the Pad, phones and a tablet): its foot a gap above
+    /// their top, the judgment and the combo above it (they follow the
+    /// field's middle), the dancing hand's band clear of all of them;
+    /// nothing moves in normal scroll, sideways, or for a layout whose
+    /// lanes scroll both ways.
+    #[test]
+    fn reverse_upright_lifts_the_receptors_above_the_touch_controls() {
+        let layout = single();
+        for size @ [w, h] in UPRIGHT {
+            let g = FieldGeometry::placed(w, h, 4.0, true, Default::default());
+            for style in [Style::Buttons, Style::Pad] {
+                let c = controls(&g, size, style);
+                let floor = receptor_floor(&c, &layout, true, size, 1.0).unwrap();
+                assert_eq!(floor, c.top() - GAP);
+                let lifted = g.lifted(Some(floor));
+                let row = lifted.arrow * 0.5;
+                assert!(lifted.receptor_y + row <= c.top() - GAP + 1e-3, "{size:?} {style:?}");
+                assert!(lifted.receptor_y < g.receptor_y, "{size:?} {style:?}: it moved up");
+                assert!(lifted.receptor_y >= h * ddi_render::scene::RECEPTOR_LIFT_MOST);
+                assert!((lifted.lift() - (g.receptor_y - lifted.receptor_y)).abs() < 1e-3);
+                // The judgment and the combo above the row, the life
+                // gauge where it was.
+                let judged = ddi_render::scene::judgement_area(&lifted, 4.0);
+                assert!(judged[1] > lifted.arrow, "{size:?} {style:?}: {judged:?}");
+                let top_of_row = lifted.receptor_y - lifted.arrow * 0.6;
+                assert!(judged[3] < top_of_row, "{size:?} {style:?}");
+                assert!(combo_bottom(&lifted) < top_of_row, "{size:?} {style:?}");
+                // The hand's band (round TC2) against the new rows.
+                let [top, tall] =
+                    upright_band(&lifted, 4.0, 1.0, combo_bottom(&lifted), Some(c.top())).unwrap();
+                let (from, to) = (top, top + tall);
+                assert!(to <= c.top() - 8.0 + 1e-3, "{size:?} {style:?}");
+                let clear = |a: f32, b: f32| to <= a + 1e-3 || from >= b - 1e-3;
+                assert!(clear(top_of_row - 8.0, lifted.receptor_y + lifted.arrow * 0.6 + 8.0));
+                assert!(clear(judged[1] - 8.0, combo_bottom(&lifted) + 8.0));
+                // A stage's band behind the field ends above the row.
+                let [_, y, _, rh] = behind_field(&lifted, 4.0, true, 1.0, Some(c.top()));
+                assert!(y + rh <= top_of_row - 8.0 + 1e-3);
+                // Normal scroll: no floor, and a floor would change nothing.
+                assert_eq!(receptor_floor(&c, &layout, false, size, 1.0), None);
+                let normal = FieldGeometry::placed(w, h, 4.0, false, Default::default());
+                assert_eq!(normal.lifted(Some(floor)), normal);
+                assert_eq!(normal.middle(), h / 2.0);
+            }
+            // No floor: where it always was.
+            assert_eq!(g.lifted(None), g);
+            assert_eq!((g.lift(), g.middle()), (0.0, h / 2.0));
+        }
+        // Sideways: the controls sit beside the field, nothing moves.
+        let side = [844.0, 390.0];
+        let g = FieldGeometry::placed(side[0], side[1], 4.0, true, Default::default());
+        for style in [Style::Buttons, Style::Pad] {
+            assert_eq!(receptor_floor(&controls(&g, side, style), &layout, true, side, 1.0), None);
+        }
+        // A layout whose lanes scroll both ways keeps its rows.
+        let mut both = single();
+        both.lanes[0].scroll_sign = -1;
+        let g = FieldGeometry::placed(390.0, 844.0, 4.0, true, Default::default());
+        let c = controls(&g, [390.0, 844.0], Style::Pad);
+        assert_eq!(receptor_floor(&c, &both, true, [390.0, 844.0], 1.0), None);
+        // In target pixels at a device's ratio.
+        let r = 3.0;
+        assert_eq!(
+            receptor_floor(&c, &layout, true, [390.0 * r, 844.0 * r], r),
+            Some((c.top() - GAP) * r)
+        );
+    }
+
+    /// The numbers for the plan (`docs/plans/touch-controls.md`, "Round
+    /// DE"): the receptors' row before and after, the arrows of the field
+    /// lost, and the reading time at ×2.5 at 150 BPM (2.5 beats a second:
+    /// 6.25 arrows a second), from the screen's top to the row.
+    #[test]
+    #[ignore]
+    fn receptor_lift_table() {
+        println!("| screen | controls | row before | row after | arrows lost | arrows read before | after | at ×2.5, 150 BPM before | after |");
+        println!("|---|---|---|---|---|---|---|---|---|");
+        for size @ [w, h] in UPRIGHT {
+            let g = FieldGeometry::placed(w, h, 4.0, true, Default::default());
+            for style in [Style::Buttons, Style::Pad] {
+                let c = controls(&g, size, style);
+                let lifted = g.lifted(receptor_floor(&c, &single(), true, size, 1.0));
+                let per_second = 2.5 * 2.5;
+                let (before, after) = (g.receptor_y / g.arrow, lifted.receptor_y / g.arrow);
+                println!(
+                    "| {w}×{h} | {style:?} | {:.0} | {:.0} | {:.1} | {before:.1} | {after:.1} | {:.2} s | {:.2} s |",
+                    g.receptor_y,
+                    lifted.receptor_y,
+                    lifted.lift() / g.arrow,
+                    before / per_second,
+                    after / per_second,
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]
