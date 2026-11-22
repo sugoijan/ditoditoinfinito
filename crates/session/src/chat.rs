@@ -63,6 +63,14 @@ pub const BUFFER_SECONDS: f64 = 2.0;
 /// And how many at most (a second of new messages at the layer's rate).
 pub const BUFFER_MOST: usize = 20;
 
+/// A room's kept connection that gave up (a refusal of our server's, or
+/// Twitch unreachable time after time: `ddi_chat::live`'s give-up) is
+/// opened again this long after, milliseconds on the room's clock (review
+/// 2026-11-22, chat-touch 1; the live machine's own longest wait between
+/// two tries). Where the room itself ended it (its chat off for this
+/// player, no member) it waits for the room's chat to change instead.
+pub const ROOM_RETRY_MS: u64 = 60_000;
+
 /// What a room's kept connection is for: whose channel by which route,
 /// whether messages show (the moderation events subscribed too), and the
 /// providers asked for the channel's emote sets.
@@ -89,9 +97,40 @@ struct Keeper {
     stages: u32,
     /// The last events, with the machine's millisecond they came at.
     buffer: VecDeque<(u64, Event)>,
+    /// A held connection of this key gave up at this room clock's
+    /// millisecond (none again until [`ROOM_RETRY_MS`] after), or for
+    /// good (`None`: the room itself ended it).
+    gave_up: Option<(Key, Option<u64>)>,
+    /// The room clock's millisecond the room last told.
+    room_ms: u64,
 }
 
 impl Keeper {
+    /// The held connection, where it gave up, closed: the time kept, so
+    /// that it is opened again only after [`ROOM_RETRY_MS`] (never where
+    /// the room ended it). Whether one was.
+    fn close_given_up(&mut self, now_ms: u64) -> bool {
+        let Some((key, l)) = self.held.as_ref() else {
+            return false;
+        };
+        let ddi_chat::live::Phase::GaveUp(why) = l.machine.phase() else {
+            return false;
+        };
+        let (key, why) = (key.clone(), why.clone());
+        let again = l.machine.trouble().map(|_| now_ms);
+        self.close(&format!("it gave up: {why}"));
+        self.gave_up = Some((key, again));
+        true
+    }
+
+    /// Whether a connection of `key` may be opened at `now_ms`.
+    fn may_open(&self, key: &Key, now_ms: u64) -> bool {
+        match &self.gave_up {
+            Some((k, at)) if k == key => at.is_some_and(|at| now_ms >= at.saturating_add(ROOM_RETRY_MS)),
+            _ => true,
+        }
+    }
+
     /// The held connection closed (left, or its chat changed or off),
     /// its lifetime and totals told.
     fn close(&mut self, why: &str) {
@@ -133,6 +172,11 @@ pub fn keep_for_room(want: Option<&ddi_ui::state::twitch::KeptChat>, now_ms: u64
     let key = want.map(key_of);
     ROOM_CHAT.with_borrow_mut(|kp| {
         kp.want = key.clone();
+        kp.room_ms = now_ms;
+        // A give-up counts for its own chat alone.
+        if kp.gave_up.as_ref().is_some_and(|(k, _)| Some(k) != key.as_ref()) {
+            kp.gave_up = None;
+        }
         if kp.held.as_ref().is_some_and(|(k, _)| Some(k) != key.as_ref()) {
             let why = if key.is_none() {
                 "left the room, or its chat, this device's or the access's turned off"
@@ -141,9 +185,11 @@ pub fn keep_for_room(want: Option<&ddi_ui::state::twitch::KeptChat>, now_ms: u64
             };
             kp.close(why);
         }
+        kp.close_given_up(now_ms);
         if let Some(key) = key.as_ref()
             && kp.held.is_none()
             && kp.lent.as_ref() != Some(key)
+            && kp.may_open(key, now_ms)
             && let Some(mut l) = LiveChat::new(key.want.clone(), key.from)
         {
             l.io.report("kept for the room: open until the room is left or its chat turned off");
@@ -157,6 +203,7 @@ pub fn keep_for_room(want: Option<&ddi_ui::state::twitch::KeptChat>, now_ms: u64
             kp.buffer.extend(events.into_iter().map(|e| (ms, e)));
             prune(&mut kp.buffer, ms);
         }
+        kp.close_given_up(now_ms);
     });
 }
 
@@ -170,9 +217,13 @@ fn prune(buffer: &mut VecDeque<(u64, Event)>, ms: u64) {
 
 /// The room's kept connection for a play of `key`, where it is held for
 /// it, with the events buffered; either way a play now holds one of it.
+/// One that gave up is never lent (the play opens its own, as before the
+/// room kept one): closed, opened again after [`ROOM_RETRY_MS`].
 fn take_kept(key: &Key) -> Option<(LiveChat, Vec<Event>)> {
     ROOM_CHAT.with_borrow_mut(|kp| {
         kp.lent = Some(key.clone());
+        let now = kp.room_ms;
+        kp.close_given_up(now);
         match kp.held.take() {
             Some((k, l)) if k == *key => {
                 kp.stages += 1;
@@ -1037,6 +1088,9 @@ pub(crate) mod tests {
         pub subscribed: Vec<(u32, String, LiveWant, bool)>,
         pub reads: Vec<String>,
         pub lines: Vec<String>,
+        /// Our server's refusals to answer the next subscribes with, in
+        /// order (none left: each subscribed).
+        pub refuse: VecDeque<String>,
         queue: Vec<LiveInput>,
         live: Option<u32>,
         n: u64,
@@ -1060,6 +1114,10 @@ pub(crate) mod tests {
         fn subscribe(&mut self, socket: u32, session_id: &str, want: &LiveWant, messages: bool) {
             let mut s = self.0.borrow_mut();
             s.subscribed.push((socket, session_id.to_string(), want.clone(), messages));
+            if let Some(word) = s.refuse.pop_front() {
+                s.queue.push(LiveInput::Subscribed(socket, SubscribeAnswer::Refused(word)));
+                return;
+            }
             let subs = r#"[{"type":"channel.chat.message","outcome":"enabled","http":202,"cost":0,"total":1,"total_cost":0,"max_total_cost":10}]"#;
             // A named channel's found as our server finds it (round TW7).
             let body = if want.named {
@@ -1395,6 +1453,79 @@ pub(crate) mod tests {
         keep_room_chat(Some(&want), 5_200);
         keep_room_chat(None, 5_300);
         assert_eq!(state.borrow().closed, [1]);
+        set_live(None);
+    }
+
+    /// Review 2026-11-22, chat-touch 1: a room's kept connection that gave
+    /// up (our server refused its subscribe: the person's session expired
+    /// meanwhile, say) is closed and opened again after
+    /// [`ROOM_RETRY_MS`] (a stage meanwhile opens its own, as before the
+    /// room kept one), never lent dead to every later stage; one the room
+    /// itself ended (its chat turned off, the player no member) waits for
+    /// the room's chat to change.
+    #[test]
+    fn a_rooms_kept_chat_that_gave_up_is_opened_again() {
+        use ddi_ui::state::twitch::{KeptChat, RoomChat, keep_room_chat};
+        set_scripted(None);
+        ddi_ui::state::twitch::set_dev_live(None);
+        let state = fake_live();
+        state.borrow_mut().refuse.push_back("HTTP 401".into());
+        let room = RoomChat {
+            ceiling: Level::Messages,
+            channel_id: "77".into(),
+            login: "host".into(),
+            room: Some("Room000001".into()),
+            named: false,
+        };
+        let want = KeptChat {
+            chat: room.clone(),
+            level: Level::Messages,
+            emotes_from: EmotesFrom::TwitchAndOthers,
+        };
+        let mut t = 1_700_000_000_000u64;
+        let room_ticks = |n: usize, t: &mut u64, want: Option<&KeptChat>| {
+            for _ in 0..n {
+                keep_room_chat(want, *t);
+                *t += 100;
+            }
+        };
+        room_ticks(5, &mut t, Some(&want));
+        assert_eq!(state.borrow().opened.len(), 1);
+        // A stage meanwhile is not lent the dead connection: its own.
+        let settings = Settings {
+            twitch_chat: Level::Messages,
+            ..Settings::default()
+        };
+        let stage = StageSetup {
+            chat: Some(room.clone()),
+            ..setup()
+        };
+        let config = ChatConfig::for_play(&settings).unwrap().under_room(Some(&stage)).unwrap();
+        let mut layer = ChatLayer::new(config);
+        for k in 0..4 {
+            layer.advance(1.0 + f64::from(k) * 0.1);
+        }
+        assert_eq!(layer.live_report().unwrap()["taken_from_room"], false);
+        assert_eq!(layer.live_report().unwrap()["connection"]["state"], "live");
+        drop(layer);
+        room_ticks(1, &mut t, None);
+        // Kept again for the room, and refused once more: given up, then
+        // opened again after the wait.
+        state.borrow_mut().refuse.push_back("HTTP 401".into());
+        room_ticks(5, &mut t, Some(&want));
+        let opened = state.borrow().opened.len();
+        room_ticks((ROOM_RETRY_MS / 100) as usize + 5, &mut t, Some(&want));
+        assert_eq!(state.borrow().opened.len(), opened + 1, "opened again after the wait");
+        room_ticks(3, &mut t, Some(&want));
+        assert_eq!(kept_report().unwrap()["connection"]["state"], "live");
+        // The room's own end (its chat off for this player): kept closed.
+        state.borrow_mut().refuse.push_back("chat_off".into());
+        room_ticks(1, &mut t, None);
+        room_ticks(5, &mut t, Some(&want));
+        let opened = state.borrow().opened.len();
+        room_ticks((ROOM_RETRY_MS / 100) as usize * 2, &mut t, Some(&want));
+        assert_eq!(state.borrow().opened.len(), opened, "not opened again");
+        room_ticks(1, &mut t, None);
         set_live(None);
     }
 
