@@ -552,6 +552,31 @@ impl OnlineLink {
     }
 }
 
+impl Drop for OnlineLink {
+    /// The link let go with requests in flight: their answers are no
+    /// longer wanted, dropped as they come rather than kept unread in the
+    /// online state for the session (review 2026-11-22, room-client note).
+    fn drop(&mut self) {
+        let Ok(mut online) = self.online.try_borrow_mut() else {
+            return;
+        };
+        let ids = [
+            self.ticket_req,
+            self.summary_req,
+            self.invite_req,
+            self.rotate_req,
+            self.twitch_req,
+        ]
+        .into_iter()
+        .flatten()
+        .chain(self.grant_reqs.iter().map(|(id, _, _)| *id))
+        .chain(self.song_grant_reqs.iter().map(|(id, _)| *id));
+        for id in ids {
+            online.forget_answer(id);
+        }
+    }
+}
+
 /// A ticket's answer as the authority takes it.
 fn ticket_of(r: &ApiResponse) -> Result<String, TicketProblem> {
     match api::read::<TicketDoc>(r) {

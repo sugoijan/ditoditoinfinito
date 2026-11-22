@@ -364,3 +364,21 @@ fn a_draw_revealed_before_a_page_was_loaded_is_not_revealed_again() {
     }
     assert_eq!(carol.link_state(), LinkState::Connected);
 }
+
+/// room-client, note: a room's link let go with its requests in flight
+/// (the room's summary asked as it was made, a ticket) leaves none of
+/// their answers kept unread in the online state for the session.
+#[test]
+fn a_link_let_go_leaves_no_answers_unread() {
+    let clock = ManualClock::new(1_000);
+    let server = room_of(&clock, &["bob"]);
+    let online = person(&server, "bob");
+    let mut bob = client(&server, online.clone(), "bob", 1_000);
+    // Its invite asked (an operator's screen asks while there is none).
+    bob.fetch_invite();
+    drop(bob);
+    for n in 0..4 {
+        online.borrow_mut().poll(1_100 + n * 100);
+    }
+    assert_eq!(online.borrow().unread_answers(), 0);
+}
