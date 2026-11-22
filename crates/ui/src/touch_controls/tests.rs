@@ -25,6 +25,7 @@ fn single(size: [f32; 2], style: Style) -> Controls {
         Choice {
             style,
             hand: Hand::Right,
+            size: Size::Standard,
         },
     )
     .expect("controls")
@@ -75,6 +76,7 @@ fn the_safe_area_is_kept_clear() {
                     Choice {
                         style,
                         hand: Hand::Right,
+                        size: Size::Standard,
                     },
                 )
                 .expect("controls");
@@ -100,6 +102,7 @@ fn an_odd_layout_has_its_extra_button_on_the_chosen_side() {
             Choice {
                 style: Style::Buttons,
                 hand,
+                size: Size::Standard,
             },
         )
         .unwrap();
@@ -148,7 +151,8 @@ fn many_lanes_play_the_pad_and_columns_have_no_plan() {
             Screen::new(PHONE, [0.0; 4]),
             Choice {
                 style: Style::Columns,
-                hand: Hand::Right
+                hand: Hand::Right,
+                size: Size::Standard,
             }
         ),
         None
@@ -181,7 +185,7 @@ fn every_played_layout_has_every_lane_on_every_screen() {
         for size in SCREENS {
             for style in [Style::Buttons, Style::Pad] {
                 for hand in [Hand::Right, Hand::Left] {
-                    let c = plan(&l, Screen::new(size, [0.0; 4]), Choice { style, hand })
+                    let c = plan(&l, Screen::new(size, [0.0; 4]), Choice { style, hand, size: Size::Standard })
                         .unwrap_or_else(|| panic!("{} {size:?}", l.id));
                     for lane in 0..l.lanes.len() {
                         assert!(
@@ -235,6 +239,7 @@ fn a_lone_pad_sits_beside_the_field_on_a_wide_screen() {
             Choice {
                 style: Style::Pad,
                 hand,
+                size: Size::Standard,
             },
         )
         .unwrap()
@@ -397,7 +402,7 @@ fn sizes_on_the_screens() {
     // The smallest target of each layout and screen, in millimeters on
     // a phone: Buttons' thumbs want 11 mm and more.
     let mm = |id: &str, size: [f32; 2], style| {
-        plan(&layout(id), Screen::new(size, [0.0; 4]), Choice { style, hand: Hand::Right })
+        plan(&layout(id), Screen::new(size, [0.0; 4]), Choice { style, hand: Hand::Right, size: Size::Standard })
             .unwrap()
             .smallest()
             * MM_PER_PX_PHONE
@@ -431,7 +436,7 @@ fn sizes_table() {
                 continue;
             }
             for (name, size, mm) in screens {
-                let c = plan(&l, Screen::new(size, [0.0; 4]), Choice { style, hand: Hand::Right })
+                let c = plan(&l, Screen::new(size, [0.0; 4]), Choice { style, hand: Hand::Right, size: Size::Standard })
                     .unwrap();
                 let span = field_span(&l);
                 let arrow = (size[1] / 10.0).min(size[0] / (span + 2.0)).clamp(24.0, 160.0);
@@ -457,6 +462,134 @@ fn sizes_table() {
                     c.top(),
                     rows,
                     all,
+                );
+            }
+        }
+    }
+}
+
+const SIZES: [Size; 3] = [Size::Smaller, Size::Standard, Size::Larger];
+
+fn sized(id: &str, size: [f32; 2], style: Style, s: Size) -> Controls {
+    plan(
+        &layout(id),
+        Screen::new(size, NOTCH_OF(size)),
+        Choice {
+            style,
+            hand: Hand::Right,
+            size: s,
+        },
+    )
+    .unwrap()
+}
+
+#[allow(non_snake_case)]
+fn NOTCH_OF(size: [f32; 2]) -> [f32; 4] {
+    if size[1] > size[0] { NOTCH } else { NOTCH_SIDE }
+}
+
+/// Round DE's size: each group grows or shrinks from its corner at the
+/// screen's foot (a pad under the field from its foot's middle), within
+/// the safe area and its side's room; Smaller is smaller and Larger
+/// larger where there is room (never smaller); the style played never
+/// changes with the size, and no target is drawn under the least where
+/// the standard one is not.
+#[test]
+fn a_size_scales_the_controls_from_their_corners_within_the_safe_area() {
+    for l in played() {
+        for style in [Style::Buttons, Style::Pad] {
+            for size in SCREENS {
+                let insets = NOTCH_OF(size);
+                let safe = Screen::new(size, insets).safe();
+                let [standard, smaller, larger] =
+                    [Size::Standard, Size::Smaller, Size::Larger].map(|s| sized(&l.id, size, style, s));
+                for c in [&smaller, &larger] {
+                    assert_eq!(c.style, standard.style, "{} {size:?}: the style never changes", l.id);
+                    assert_eq!(c.groups.len(), standard.groups.len());
+                    for t in &c.targets {
+                        let [a, b, r, d] = t.rect;
+                        assert!(
+                            a >= safe[0] - 0.01 && b >= safe[1] - 0.01 && r <= safe[2] + 0.01 && d <= safe[3] + 0.01,
+                            "{} {style:?} {size:?}: {t:?} outside {safe:?}",
+                            l.id
+                        );
+                    }
+                    // No two groups overlap.
+                    for (i, g) in c.groups.iter().enumerate() {
+                        for h in &c.groups[i + 1..] {
+                            assert!(g[2] <= h[0] || h[2] <= g[0], "{} {size:?}: {g:?} {h:?}", l.id);
+                        }
+                    }
+                    // Each group keeps its foot and its anchor: the left
+                    // group's corner, the right one's, a middle pad's middle.
+                    for (g, s) in c.groups.iter().zip(&standard.groups) {
+                        assert!((g[3] - s[3]).abs() < 0.01, "{} {size:?}: the foot", l.id);
+                        let kept = (g[0] - s[0]).abs() < 0.01
+                            || (g[2] - s[2]).abs() < 0.01
+                            || ((g[0] + g[2]) - (s[0] + s[2])).abs() < 0.02;
+                        assert!(kept, "{} {style:?} {size:?}: {g:?} from {s:?}", l.id);
+                    }
+                }
+                let least = |c: &Controls| c.smallest();
+                assert!(least(&smaller) <= least(&standard) + 0.01, "{} {size:?}", l.id);
+                assert!(least(&larger) >= least(&standard) - 0.01, "{} {size:?}", l.id);
+                let area = |c: &Controls| c.targets.iter().map(|t| t.size()[0] * t.size()[1]).sum::<f32>();
+                assert!(area(&smaller) < area(&standard) + 0.01, "{} {style:?} {size:?}", l.id);
+                assert!(area(&larger) >= area(&standard) - 0.01, "{} {style:?} {size:?}", l.id);
+                if least(&standard) >= BUTTON_LEAST {
+                    assert!(least(&smaller) >= BUTTON_LEAST - 0.01, "{} {style:?} {size:?}", l.id);
+                }
+            }
+        }
+    }
+    // Single, Buttons, a phone upright: as wide as the room allows at
+    // every size, Smaller narrower, Larger taller.
+    let at = |s| sized("dance-single", PHONE, Style::Buttons, s).targets[0].size();
+    let [w0, h0] = at(Size::Standard);
+    let [w1, h1] = at(Size::Smaller);
+    let [w2, h2] = at(Size::Larger);
+    assert!((w1 - w0 * 0.8).abs() < 0.01 && (h1 - h0 * 0.8).abs() < 0.01);
+    assert!((w2 - w0).abs() < 0.01 && (h2 - h0 * 1.25).abs() < 0.01, "{w2} {h2}");
+    // On its side there is room across: a quarter wider, and taller up
+    // to two fifths of the safe area's height.
+    let at = |s| sized("dance-single", PHONE_SIDE, Style::Buttons, s).targets[0].size();
+    let ([w0, h0], [w2, h2]) = (at(Size::Standard), at(Size::Larger));
+    let tall = 0.4 * (PHONE_SIDE[1] - NOTCH_SIDE[2] - 2.0 * MARGIN);
+    assert!((w2 - w0 * 1.25).abs() < 0.01, "{w0} {w2}");
+    assert!((h2 - (h0 * 1.25).min(tall)).abs() < 0.01 && h2 > h0, "{h0} {h2}");
+}
+
+/// The sizes for the plan (`docs/plans/touch-controls.md`, "Round DE"):
+/// each style's smallest target and what the controls cover, at the
+/// three sizes, Single, without insets.
+#[test]
+#[ignore]
+fn sizes_by_choice_table() {
+    println!("| screen | style | size | target w×h px | mm | covers from y (of h) |");
+    println!("|---|---|---|---|---|---|");
+    for (name, size, mm) in [
+        ("phone 390×844", PHONE, MM_PER_PX_PHONE),
+        ("phone 844×390", PHONE_SIDE, MM_PER_PX_PHONE),
+        ("small 360×640", SMALL, MM_PER_PX_PHONE),
+        ("tablet 820×1180", TABLET, MM_PER_PX_TABLET),
+    ] {
+        for style in [Style::Buttons, Style::Pad] {
+            for s in SIZES {
+                let c = plan(
+                    &layout("dance-single"),
+                    Screen::new(size, [0.0; 4]),
+                    Choice { style, hand: Hand::Right, size: s },
+                )
+                .unwrap();
+                let t = c.targets.iter().find(|t| t.lane.is_some()).unwrap().size();
+                println!(
+                    "| {name} | {style:?} | {s:?} | {:.0}×{:.0} | {:.1}×{:.1} | {:.0} of {:.0} |",
+                    t[0],
+                    t[1],
+                    t[0] * mm,
+                    t[1] * mm,
+                    c.top(),
+                    size[1]
                 );
             }
         }

@@ -83,11 +83,44 @@ pub const MM_PER_PX_PHONE: f32 = 25.4 / 153.0;
 pub const MM_PER_PX_TABLET: f32 = 25.4 / 132.0;
 pub const MM_PER_PX_DESKTOP: f32 = 25.4 / 96.0;
 
+/// How large the buttons or the pad's tiles are drawn (Options →
+/// Controls, "Touch controls size"; round DE): each group grows or
+/// shrinks around its corner at the screen's foot (a pad under the field
+/// around its foot's middle), within the safe area and the room its side
+/// has. Whether Buttons give way to the pad ([`BUTTON_LEAST`]) is decided
+/// at [`Size::Standard`], so a size never changes the style played, and
+/// a smaller size never draws a target under [`BUTTON_LEAST`] where the
+/// standard one is not.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Size {
+    /// Four fifths of the standard size.
+    Smaller,
+    #[default]
+    Standard,
+    /// A quarter larger than the standard size, where there is room.
+    Larger,
+}
+
+impl Size {
+    /// Each target's sides against [`Size::Standard`]'s (where the room
+    /// allows: a phone held upright is as wide as two buttons a side
+    /// already, so Larger buttons there grow in height alone).
+    pub fn factor(self) -> f32 {
+        match self {
+            Size::Smaller => 0.8,
+            Size::Standard => 1.0,
+            Size::Larger => 1.25,
+        }
+    }
+}
+
 /// The player's choices.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Choice {
     pub style: Style,
     pub hand: Hand,
+    #[serde(default)]
+    pub size: Size,
 }
 
 /// The screen the controls are placed on.
@@ -192,15 +225,16 @@ pub fn effective(style: Style, layout: &Layout) -> Style {
 pub fn plan(layout: &Layout, screen: Screen, choice: Choice) -> Option<Controls> {
     match effective(choice.style, layout) {
         Style::Buttons => {
-            let b = buttons(layout, screen, choice.hand);
+            // The pad in their place is decided at the standard size.
+            let b = buttons(layout, screen, choice.hand, Size::Standard);
             if b.smallest() < BUTTON_LEAST
-                && let Some(p) = pad(layout, screen, choice.hand)
+                && let Some(p) = pad(layout, screen, choice.hand, choice.size)
             {
                 return Some(p);
             }
-            Some(b)
+            Some(buttons(layout, screen, choice.hand, choice.size))
         }
-        Style::Pad => pad(layout, screen, choice.hand),
+        Style::Pad => pad(layout, screen, choice.hand, choice.size),
         Style::Columns => None,
     }
 }
@@ -220,25 +254,38 @@ pub fn left_count(n: usize, hand: Hand) -> usize {
     }
 }
 
-/// A button's width and height for `k` buttons a side.
-fn button_size(screen: &Screen, k: usize) -> [f32; 2] {
-    let [l, _, r, _] = screen.safe();
+/// The most of the safe area's height a button takes, whatever its size.
+const BUTTON_TALL: f32 = 0.4;
+
+/// A button's width and height for `k` buttons a side, at `size`.
+fn button_size(screen: &Screen, k: usize, size: Size) -> [f32; 2] {
+    let [l, t, r, b] = screen.safe();
     let side = ((r - l) - MIDDLE) / 2.0;
     let k = k.max(1) as f32;
     let short = screen.size[0].min(screen.size[1]);
     // Wide enough for a thumb, no wider than a thumb wants.
     let most = (short * 0.29).clamp(72.0, 120.0);
-    let w = ((side - (k - 1.0) * GAP) / k).min(most).max(1.0);
+    let room = ((side - (k - 1.0) * GAP) / k).max(1.0);
+    let w = room.min(most);
     let h = (short * 0.26).clamp(64.0, 120.0).max(w.min(120.0));
+    if size == Size::Standard {
+        return [w, h];
+    }
+    // Scaled within the side's room and the screen's height, never under
+    // the least target where the standard one is not.
+    let f = size.factor();
+    let tall = ((b - t) * BUTTON_TALL).max(1.0);
+    let w = (w * f).min(room).max(BUTTON_LEAST.min(w));
+    let h = (h * f).min(tall.max(h)).max(BUTTON_LEAST.min(h));
     [w, h]
 }
 
-fn buttons(layout: &Layout, screen: Screen, hand: Hand) -> Controls {
+fn buttons(layout: &Layout, screen: Screen, hand: Hand, size: Size) -> Controls {
     let order = receptor_order(layout);
     let n = order.len();
     let left = left_count(n, hand);
     let k = left.max(n - left);
-    let [w, h] = button_size(&screen, k);
+    let [w, h] = button_size(&screen, k, size);
     let [sl, _, sr, sb] = screen.safe();
     let top = sb - h;
     let mut targets = Vec::with_capacity(n);
@@ -282,10 +329,41 @@ const PAD_BESIDE_LEAST: f32 = 3.0 * BUTTON_LEAST + 2.0 * GAP;
 pub const QUIT_ROOM: f32 = 2.0 * 44.0 + 3.0 * GAP;
 /// The most of the screen's height a pad under the field takes.
 const PAD_TALL: f32 = 0.42;
+/// The most it takes at a larger size ([`Size::Larger`]).
+const PAD_TALL_MOST: f32 = 0.5;
 /// A pad's largest side (tiles of about 20 mm on a phone).
 const PAD_MOST: f32 = 3.0 * 120.0 + 2.0 * GAP;
 
-fn pad(layout: &Layout, screen: Screen, hand: Hand) -> Option<Controls> {
+/// Where a pad's square grows from at another size: its foot's left
+/// corner, its middle, or its right corner.
+#[derive(Clone, Copy)]
+enum Anchor {
+    Left,
+    Middle,
+    Right,
+}
+
+/// `square` (a pad's at the standard size, `[left, top, right, bottom]`)
+/// at `size`, grown or shrunk from `anchor` on its foot, at most `most`
+/// wide (its place's room), its tiles never under the least target where
+/// the standard ones are not.
+fn sized(square: Rect, anchor: Anchor, most: f32, size: Size) -> Rect {
+    let side = square[2] - square[0];
+    if size == Size::Standard {
+        return square;
+    }
+    let least = (3.0 * BUTTON_LEAST + 2.0 * GAP).min(side);
+    let s = (side * size.factor()).min(most.max(side)).max(least);
+    let [l, _, r, b] = square;
+    let x = match anchor {
+        Anchor::Left => l,
+        Anchor::Middle => (l + r - s) / 2.0,
+        Anchor::Right => r - s,
+    };
+    [x, b - s, x + s, b]
+}
+
+fn pad(layout: &Layout, screen: Screen, hand: Hand, size: Size) -> Option<Controls> {
     let mat = MatLayout::from_id(&layout.id)?;
     let pads = mat.pads();
     let [sl, st, sr, sb] = screen.safe();
@@ -296,6 +374,7 @@ fn pad(layout: &Layout, screen: Screen, hand: Hand) -> Option<Controls> {
         [(w - fw) / 2.0, (w + fw) / 2.0]
     });
     let tall = (sb - st).max(0.0);
+    let larger = PAD_MOST * size.factor().max(1.0);
     // Each pad's square and its place.
     let mut squares: Vec<Rect> = Vec::new();
     let beside_left = field[0] - MARGIN - sl;
@@ -317,14 +396,20 @@ fn pad(layout: &Layout, screen: Screen, hand: Hand) -> Option<Controls> {
                 Hand::Right => sr - side,
                 Hand::Left => sl,
             };
-            squares.push([x, sb - side, x + side, sb]);
+            let anchor = match hand {
+                Hand::Right => Anchor::Right,
+                Hand::Left => Anchor::Left,
+            };
+            let most = room.min(high).min(larger);
+            squares.push(sized([x, sb - side, x + side, sb], anchor, most, size));
         } else {
             // Under the field, centered: as wide as the screen lets it,
             // its top under the screen's middle (the judgment and the
             // combo stay clear).
             let side = (sr - sl).min(tall * PAD_TALL).clamp(1.0, PAD_MOST);
             let x = (sl + sr - side) / 2.0;
-            squares.push([x, sb - side, x + side, sb]);
+            let most = (sr - sl).min(tall * PAD_TALL_MOST).min(larger);
+            squares.push(sized([x, sb - side, x + side, sb], Anchor::Middle, most, size));
         }
     } else {
         let side = beside_left
@@ -332,15 +417,19 @@ fn pad(layout: &Layout, screen: Screen, hand: Hand) -> Option<Controls> {
             .min(tall - QUIT_ROOM)
             .min(PAD_MOST);
         if w > h && side >= PAD_BESIDE_LEAST {
-            squares.push([sl, sb - side, sl + side, sb]);
-            squares.push([sr - side, sb - side, sr, sb]);
+            let most = beside_left
+                .min(beside_right)
+                .min(tall - QUIT_ROOM)
+                .min(larger);
+            squares.push(sized([sl, sb - side, sl + side, sb], Anchor::Left, most, size));
+            squares.push(sized([sr - side, sb - side, sr, sb], Anchor::Right, most, size));
         } else {
             // Side by side at the bottom, each in its half.
-            let side = (((sr - sl) - MIDDLE) / 2.0)
-                .min(tall * PAD_TALL)
-                .clamp(1.0, PAD_MOST);
-            squares.push([sl, sb - side, sl + side, sb]);
-            squares.push([sr - side, sb - side, sr, sb]);
+            let half = ((sr - sl) - MIDDLE) / 2.0;
+            let side = half.min(tall * PAD_TALL).clamp(1.0, PAD_MOST);
+            let most = half.min(tall * PAD_TALL_MOST).min(larger);
+            squares.push(sized([sl, sb - side, sl + side, sb], Anchor::Left, most, size));
+            squares.push(sized([sr - side, sb - side, sr, sb], Anchor::Right, most, size));
         }
     }
     let mut targets = Vec::new();

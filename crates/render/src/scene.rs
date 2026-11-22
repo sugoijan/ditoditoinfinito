@@ -99,9 +99,11 @@ pub fn flash_strength(palette: Palette, j: Judgement) -> f32 {
 }
 
 /// The highest a lifted receptors' row goes ([`FieldGeometry::lifted`]),
-/// as a share of the screen's height from the top: half the screen is
-/// left to read the notes in whatever the controls cover.
-pub const RECEPTOR_LIFT_MOST: f32 = 0.5;
+/// as a share of the screen's height from the top: two fifths of the
+/// screen are left to read the notes in whatever the controls cover (a
+/// pad under the field takes half the screen's height at most, so it is
+/// never reached by today's controls).
+pub const RECEPTOR_LIFT_MOST: f32 = 0.4;
 
 /// Pixel geometry of the note field for a given target size.
 #[derive(Clone, Copy, Debug, PartialEq)]

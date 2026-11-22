@@ -1426,3 +1426,12 @@ options-touch-hand = Extra button
 options-touch-hand-right = Right side
 options-touch-hand-left = Left side
 options-touch-hand-description = Which side gets the extra button when a layout has an odd number of lanes, and where a single pad sits on a wide screen.
+# How large the touch buttons or the pad's tiles are drawn (round DE):
+# each group grows or shrinks from its corner at the screen's bottom.
+# Shown in Options → Controls under "Touch screens" and in the start
+# prompt's play options on a touch screen.
+options-touch-size = Touch controls size
+options-touch-size-smaller = Smaller
+options-touch-size-standard = Standard
+options-touch-size-larger = Larger
+options-touch-size-description = How large the buttons or the pad are drawn, from their corners at the bottom of the screen. Larger grows them only where the screen has room. Saved on this device.

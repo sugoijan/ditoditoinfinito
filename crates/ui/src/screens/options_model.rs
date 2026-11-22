@@ -530,8 +530,8 @@ impl OptionsModel {
     }
 
     /// Controls' rows for touch screens (`docs/plans/touch-controls.md`):
-    /// the style, then the extra button's side.
-    fn touch_rows(&self) -> [OptionDef; 2] {
+    /// the style, the extra button's side, then the size (round DE).
+    fn touch_rows(&self) -> [OptionDef; 3] {
         let s = &self.settings;
         let mut style = choice(
             "touch_controls",
@@ -549,6 +549,13 @@ impl OptionsModel {
                 labels(&TOUCH_HANDS),
                 pos(&TOUCH_HANDS, s.touch_hand),
                 m::touch_hand_description(),
+            ),
+            choice(
+                "touch_size",
+                m::touch_size(),
+                labels(&TOUCH_SIZES),
+                pos(&TOUCH_SIZES, s.touch_size),
+                m::touch_size_description(),
             ),
         ]
     }
@@ -2395,6 +2402,7 @@ impl OptionsModel {
             "opponent_fields" => s.opponent_fields = at(&OPPONENT_FIELDS, i),
             "touch_controls" => s.touch_controls = at(&TOUCH_STYLES, i),
             "touch_hand" => s.touch_hand = at(&TOUCH_HANDS, i),
+            "touch_size" => s.touch_size = at(&TOUCH_SIZES, i),
             "twitch_chat" => {
                 let level = at(&TWITCH_CHAT, i);
                 // Turned on where this device is signed in and its Twitch
@@ -3499,6 +3507,11 @@ const TOUCH_STYLES: [Labeled<crate::touch_controls::Style>; 3] = [
 const TOUCH_HANDS: [Labeled<crate::touch_controls::Hand>; 2] = [
     (crate::touch_controls::Hand::Right, m::touch_hand_right),
     (crate::touch_controls::Hand::Left, m::touch_hand_left),
+];
+const TOUCH_SIZES: [Labeled<crate::touch_controls::Size>; 3] = [
+    (crate::touch_controls::Size::Smaller, m::touch_size_smaller),
+    (crate::touch_controls::Size::Standard, m::touch_size_standard),
+    (crate::touch_controls::Size::Larger, m::touch_size_larger),
 ];
 const OPPONENT_FIELDS: [Labeled<OpponentFields>; 2] = [
     (OpponentFields::AsManyAsFit, m::opponent_fields_all),

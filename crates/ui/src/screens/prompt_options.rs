@@ -16,7 +16,7 @@ use crate::state::settings::Settings;
 
 /// The rows, in their order; `noteskin` is `pump_noteskin` on a pump
 /// layout when pump skins can be chosen.
-const ROWS: [&str; 7] = [
+const ROWS: [&str; 8] = [
     "speed",
     "reverse",
     "turn",
@@ -24,7 +24,11 @@ const ROWS: [&str; 7] = [
     "lane_cover",
     "noteskin",
     "touch_controls",
+    "touch_size",
 ];
+
+/// The rows shown on a touch screen alone.
+const TOUCH_ROWS: [&str; 2] = ["touch_controls", "touch_size"];
 
 /// What a play runs with beyond the stored settings: the prompt's rows
 /// the player changed, field by field.
@@ -38,6 +42,7 @@ pub struct PlayOverrides {
     pub noteskin: Option<Option<String>>,
     pub pump_noteskin: Option<Option<String>>,
     pub touch_controls: Option<crate::touch_controls::Style>,
+    pub touch_size: Option<crate::touch_controls::Size>,
 }
 
 impl PlayOverrides {
@@ -55,6 +60,7 @@ impl PlayOverrides {
             noteskin: differs(&stored.noteskin, &played.noteskin),
             pump_noteskin: differs(&stored.pump_noteskin, &played.pump_noteskin),
             touch_controls: differs(&stored.touch_controls, &played.touch_controls),
+            touch_size: differs(&stored.touch_size, &played.touch_size),
         }
     }
 
@@ -94,6 +100,9 @@ impl PlayOverrides {
         if let Some(v) = self.touch_controls {
             s.touch_controls = v;
         }
+        if let Some(v) = self.touch_size {
+            s.touch_size = v;
+        }
     }
 
     /// The same over a settings snapshot as stored (a play record's,
@@ -123,6 +132,9 @@ impl PlayOverrides {
         }
         if let Some(x) = self.touch_controls {
             o.insert("touch_controls".into(), json(&x));
+        }
+        if let Some(x) = self.touch_size {
+            o.insert("touch_size".into(), json(&x));
         }
         let mut within = |outer: &str, inner: &str, x: serde_json::Value| {
             let e = o
@@ -214,7 +226,7 @@ impl PlayOptions {
         ROWS.iter()
             .map(|id| if *id == "noteskin" { skin } else { id })
             .filter(|id| self.listed || !id.ends_with("noteskin"))
-            .filter(|id| self.touch || *id != "touch_controls")
+            .filter(|id| self.touch || !TOUCH_ROWS.contains(id))
             .filter_map(|id| all.iter().find(|o| o.id == id).cloned())
             .map(|mut o| {
                 o.heading = None;
@@ -376,5 +388,32 @@ mod tests {
         let s = Settings::load();
         assert_eq!((s.speed, s.reverse, s.lyrics), (3.0, true, false));
         assert!(o.saved() && !o.differs());
+    }
+
+    /// On a touch screen the prompt offers the touch controls and, since
+    /// round DE, their size, Options' own rows; a size changed is this
+    /// play's, in its record's snapshot, and saved when asked.
+    #[test]
+    fn a_touch_screen_offers_the_controls_and_their_size() {
+        ddi_platform::storage::install(std::rc::Rc::new(
+            ddi_platform::storage::MemoryStore::default(),
+        ));
+        let mut o = options();
+        assert!(o.rows().iter().all(|r| !r.id.starts_with("touch")));
+        o.set_touch(true);
+        let ids: Vec<String> = o.rows().into_iter().map(|r| r.id).collect();
+        assert_eq!(ids[6..], ["touch_controls", "touch_size"]);
+        let size = o.rows().into_iter().find(|r| r.id == "touch_size").unwrap();
+        assert_eq!(size.index, 1, "Standard");
+        let changed = o.change("touch_size", 2).unwrap();
+        assert_eq!(changed.touch_size, Some(crate::touch_controls::Size::Larger));
+        let mut s = Settings::load();
+        o.over(&mut s);
+        assert_eq!(s.touch_choice().size, crate::touch_controls::Size::Larger);
+        let mut v = serde_json::json!({});
+        o.overrides().apply_json(&mut v);
+        assert_eq!(v["touch_size"], "Larger");
+        o.save();
+        assert_eq!(Settings::load().touch_size, crate::touch_controls::Size::Larger);
     }
 }

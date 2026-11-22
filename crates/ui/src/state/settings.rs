@@ -358,6 +358,10 @@ pub struct Settings {
     /// pad beside the field (right by default).
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub touch_hand: crate::touch_controls::Hand,
+    /// "Touch controls size" (round DE): the buttons or the pad's tiles
+    /// smaller or larger than standard, on this device.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub touch_size: crate::touch_controls::Size,
     /// Options → Display, "Twitch chat in rooms" (`docs/plans/multiplayer-twitch.md`,
     /// C1): how much of a room host's Twitch chat this device shows behind
     /// the play, never above the room's ceiling. Off by default (it needs
@@ -888,6 +892,7 @@ impl Default for Settings {
             opponent_fields: OpponentFields::default(),
             touch_controls: Default::default(),
             touch_hand: Default::default(),
+            touch_size: Default::default(),
             twitch_chat: ddi_chat::Level::Off,
             twitch_used: BTreeMap::new(),
             chat_style: ddi_chat::Style::Across,
@@ -962,6 +967,7 @@ impl Settings {
         crate::touch_controls::Choice {
             style: self.touch_controls,
             hand: self.touch_hand,
+            size: self.touch_size,
         }
     }
 

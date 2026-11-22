@@ -207,7 +207,10 @@ pub(super) fn draw(
         for (i, cap) in caps.iter().enumerate().skip(start).take(count) {
             let x = left + (i - start) as f32 * cell + cell / 2.0;
             if let Some(plan) = &touch {
-                let size = (cell - 10.0).min(48.0);
+                // The cut follows the controls' size (round DE): larger
+                // or smaller than the standard one's, within its cell.
+                let factor = controls.settings.touch_size.factor();
+                let size = ((cell - 10.0).min(48.0) * factor).min(cell - 4.0).min(54.0);
                 // The glyphs' atlas (`touch_controls::glyphs`), large
                 // enough for a cut's tiles at the screen's scale.
                 let glyphs = cx.texture(crate::touch_controls::glyphs::SOURCE, 256.0);

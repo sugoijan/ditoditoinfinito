@@ -91,6 +91,7 @@ thread_local! {
             std::cell::Cell::new(ddi_ui::touch_controls::Choice {
                 style: ddi_ui::touch_controls::Style::Columns,
                 hand: ddi_ui::touch_controls::Hand::Right,
+                size: ddi_ui::touch_controls::Size::Standard,
             })
         };
     /// Where the play's view placed them this frame (CSS pixels of the
