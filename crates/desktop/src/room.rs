@@ -416,11 +416,13 @@ pub fn preload_with(tx: &NewsTx, job: PreloadJob) {
                 let result =
                     crate::share::load_with(Some(&store), &share, &|| {}, &bytes, &|| stop.stopped());
                 let result = match result {
+                    // Stopped as it ended (the room left: its store goes):
+                    // nothing of it added to the library.
+                    _ if stop.stopped() => Err(PreloadProblem::Stopped),
                     Ok(loaded) => {
                         crate::library::register_room_songs(&loaded.songs);
                         Ok(())
                     }
-                    Err(_) if stop.stopped() => Err(PreloadProblem::Stopped),
                     Err(e) => {
                         eprintln!("room: downloading the room's song {song} ({share}): {e}");
                         Err(PreloadProblem::Download)

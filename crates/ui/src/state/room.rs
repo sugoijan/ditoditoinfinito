@@ -1401,6 +1401,7 @@ impl Drop for RoomClient {
         if self.is_online() {
             crate::state::twitch::keep_room_chat(None, self.now_ms());
         }
+        self.stop_downloads();
     }
 }
 
@@ -3279,6 +3280,7 @@ impl RoomClient {
         }
         let now = self.now_ms();
         crate::state::twitch::keep_room_chat(None, now);
+        self.stop_downloads();
         if self.left_at.is_some() {
             return;
         }

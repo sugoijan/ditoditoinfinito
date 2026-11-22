@@ -553,6 +553,17 @@ impl RoomClient {
         }
     }
 
+    /// Every download under way stopped: the room left, or its client let
+    /// go (review 2026-11-22, room-client 6: none goes on writing into the
+    /// store the shell deletes with the room).
+    pub(super) fn stop_downloads(&mut self) {
+        for g in self.ahead.got.values_mut() {
+            if let Some(stop) = g.stop.take() {
+                stop.stop();
+            }
+        }
+    }
+
     /// Songs whose download failed for good are tried again (the link back).
     pub(super) fn preload_again(&mut self) {
         for g in self.ahead.got.values_mut() {

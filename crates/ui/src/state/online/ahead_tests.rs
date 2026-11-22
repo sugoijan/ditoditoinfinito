@@ -431,3 +431,52 @@ fn a_song_picked_while_downloaded_ahead_is_fetched_once() {
         "not asked again while the stage's load reads it"
     );
 }
+
+/// Review 2026-11-22, room-client 6: the room left (or its client let go)
+/// while songs download ahead: each download stops, so that none writes
+/// into the room's store after the shell deleted it, nor adds the left
+/// room's songs to the library.
+#[test]
+fn leaving_the_room_stops_its_downloads_ahead() {
+    for drop_only in [false, true] {
+        let clock = ManualClock::new(1_000);
+        let server = room_with(&clock, &["bob"], RoomPolicy::default().with_live());
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        bob.set_ahead(Some(RoomAhead::Everything));
+        for _ in 0..20 {
+            tick(&clock, &mut [&mut alice, &mut bob], 100);
+        }
+        let all: Vec<SongEntry> = (0..3)
+            .map(|i| packed(&format!("u{i}"), &format!("U{i}"), 90 + i))
+            .collect();
+        alice.set_library(&all);
+        for s in &all {
+            alice.add_song(s).unwrap();
+            tick(&clock, &mut [&mut alice, &mut bob], 100);
+        }
+        uploaded(&server, &alice);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        let mut running = Vec::new();
+        for _ in 0..3 {
+            for j in bob.take_preload_jobs() {
+                match j {
+                    PreloadJob::Listing { song, share, .. } => {
+                        bob.preload_listed(song, Ok(listing(&share, 6_000_000)));
+                    }
+                    PreloadJob::Song { stop, .. } => running.push(stop),
+                    _ => {}
+                }
+            }
+            tick(&clock, &mut [&mut alice, &mut bob], 100);
+        }
+        assert_eq!(running.len(), 2);
+        assert!(running.iter().all(|s| !s.stopped()));
+        if drop_only {
+            drop(bob);
+        } else {
+            bob.leave();
+        }
+        assert!(running.iter().all(|s| s.stopped()), "dropped only: {drop_only}");
+    }
+}
