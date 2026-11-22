@@ -265,3 +265,66 @@ fn a_stage_that_cannot_be_confirmed_interrupts_the_match() {
     );
     assert_eq!(r.s.next_deadline(), None, "nothing left to wake for");
 }
+
+/// Finding 4: one who pressed Ready while still loading, counted out of
+/// the start as still loading and so free to enter late, chooses their
+/// own start once loaded (`start_refusal` read their readiness as having
+/// entered); once entered, it is locked.
+#[test]
+fn a_late_entrant_who_readied_while_loading_chooses_their_start() {
+    let mut rules = MatchRules::hosted();
+    rules.stages = 2;
+    rules.charts = Charts::Adaptive;
+    let mut policy = RoomPolicy::default().with_live().with_audience();
+    policy.readiness.window_ms = 15_000;
+    let mut r = Room::open("host", "Host", policy, rules, ContentSource::Shared);
+    let host = r.host;
+    let ana = join(&mut r, "ana");
+    let bob = join(&mut r, "bob");
+    let line = |k: u32, d: &str| ChartLine {
+        chart: ChartKey::new(format!("d1-{k}")),
+        style: "dance-single".into(),
+        difficulty: d.into(),
+        meter: 3 + k,
+    };
+    let song = NewSong {
+        key: SongKey::new("s000000000000001"),
+        card: SongCard { title: "S".into(), artist: String::new(), pack: String::new() },
+        charts: vec![line(0, "Easy"), line(1, "Medium"), line(2, "Hard")],
+    };
+    r.by(host, Command::AddSong { song: Box::new(song.clone()) }).unwrap();
+    let id = r.s.songs.by_key(&song.key).unwrap().id;
+    r.sys(Command::SetSongContent { song: id, status: ContentStatus::Available, share: Some("share001".into()), charts: None }).unwrap();
+    r.by(host, Command::PickListed { song: id, chart: ChartKey::new("d1-2") }).unwrap();
+    let stage = r.s.upcoming_stage().unwrap();
+    for p in [host, bob] {
+        r.load_for(p, stage, Loading::Loaded).unwrap();
+        r.ready_for(p, stage, true).unwrap();
+    }
+    r.load_for(ana, stage, Loading::Loading { permille: 300 }).unwrap();
+    r.ready_for(ana, stage, true).unwrap();
+    for _ in 0..1000 {
+        if matches!(r.s.phase, Phase::Countdown { .. }) {
+            break;
+        }
+        let next = r.now + 100;
+        r.wait_to(next);
+    }
+    assert!(matches!(r.s.phase, Phase::Countdown { .. }));
+    let play = r.s.stage(stage).unwrap().play.clone().unwrap();
+    assert_eq!(play.sat_out.get(&ana), Some(&SitOutReason::StillLoading));
+    r.load_for(ana, stage, Loading::Loaded).unwrap();
+    assert!(r.s.late_entry_open(ana, stage, Millis(r.now)).is_ok());
+    let rev = r.rev(stage);
+    r.by(ana, Command::SetStart { stage, readiness_rev: rev, chart: Some(ChartKey::new("d1-0")) })
+        .unwrap();
+    assert_eq!(r.s.start_of(stage, ana), Some(&ChartKey::new("d1-0")));
+    // Entered, the start is locked.
+    r.ready_for(ana, stage, true).unwrap();
+    assert!(r.s.stage(stage).unwrap().play.as_ref().unwrap().lineup.contains(&ana));
+    let rev = r.rev(stage);
+    assert_eq!(
+        r.by(ana, Command::SetStart { stage, readiness_rev: rev, chart: Some(ChartKey::new("d1-1")) }),
+        Err(Rejection::StartCommitted)
+    );
+}

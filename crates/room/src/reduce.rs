@@ -1782,9 +1782,11 @@ impl RoomState {
         }
         let s = self.stage(stage).ok_or(Rejection::UnknownStage)?;
         // Locked from the start; one counted out of it who may still
-        // enter late chooses until they do.
+        // enter late chooses until they do (in its lineup from then: a
+        // Ready pressed while still loading, before the start, is not an
+        // entry, round RFa).
         if let Some(play) = &s.play {
-            if play.lineup.contains(&id) || s.prep_ref(id).ready {
+            if play.lineup.contains(&id) {
                 return Err(Rejection::StartCommitted);
             }
             self.late_entry_open(id, stage, now)?;
