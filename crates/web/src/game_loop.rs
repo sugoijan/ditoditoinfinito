@@ -980,6 +980,7 @@ impl GameLoop {
                 })).collect::<Vec<_>>(),
                 "proxied": c.proxied,
                 "look": c.look,
+                "rules": c.rules,
                 "global": crate::chat::global_report(),
                 // Round TW6: the live chat's connection, its emote sets
                 // and its channel (null for another source).

@@ -20,6 +20,8 @@
 //! 6.0 emotes 20 2               # 20 emote-only messages a second for 2 s
 //! 7.0 animated 20 2             # the same, of the animated emotes alone
 //! 7.5 hype 25 2 PogU            # 25 chatters a second for 2 s, PogU alone
+//! 7.8 wall 30 2 30              # 30 messages a second of 30 emotes each
+//! 7.9 animated-wall 30 2 30     # the same, of the animated emotes alone
 //! 8.0 delete @gone
 //! 9.0 clear-user alice
 //! 10.0 clear
@@ -56,6 +58,9 @@ enum Step {
         /// Its emotes this word alone (a hype: many chatters sending one
         /// emote, round TW5).
         word: Option<String>,
+        /// Each message this many emotes (a wall, round DE: the layer's
+        /// limits tested; 0: one to five).
+        wall: usize,
     },
     Delete(String),
     ClearUser(String),
@@ -201,6 +206,22 @@ loop 20
 16.0 say gus what a run LilZ
 ";
 
+/// Round DE: the layer at its limits (`chat-overlay-v2`'s 24 emotes a
+/// message, 480 on screen, 60 messages a second): 60 messages a second of
+/// 30 emotes each, mixed.
+const WALL: &str = "\
+ceiling emotes
+loop 10
+0.0 wall 60 8 30
+";
+
+/// The same of the animated emotes alone.
+const ANIMATED_WALL: &str = "\
+ceiling emotes
+loop 10
+0.0 animated-wall 60 8 30
+";
+
 /// A flood, then its moderation.
 const FLOOD: &str = "\
 ceiling messages
@@ -213,7 +234,7 @@ loop 12
 
 impl Script {
     /// A built-in script by name (`demo`, `emotes`, `animated`, `burst`,
-    /// `flood`),
+    /// `flood`, `wall`, `animated-wall`),
     /// or a rate:
     /// a number of messages a second, mixed.
     pub fn builtin(name: &str) -> Option<Script> {
@@ -223,6 +244,8 @@ impl Script {
             "animated" => ANIMATED.to_string(),
             "burst" => BURST.to_string(),
             "flood" => FLOOD.to_string(),
+            "wall" => WALL.to_string(),
+            "animated-wall" => ANIMATED_WALL.to_string(),
             rate => {
                 let r: f64 = rate.parse().ok().filter(|r: &f64| r.is_finite() && *r > 0.0)?;
                 format!("ceiling messages\nloop 10\n0.0 flood {} 10\n", r.min(200.0))
@@ -321,9 +344,17 @@ impl Script {
                                 text: text.join(" "),
                             }
                         }
-                        "flood" | "emotes" | "animated" | "hype" => {
+                        "flood" | "emotes" | "animated" | "hype" | "wall" | "animated-wall" => {
                             let nums: Vec<f64> =
                                 rest.iter().take(2).filter_map(|w| w.parse().ok()).collect();
+                            let wall = if what.ends_with("wall") {
+                                rest.get(2)
+                                    .and_then(|w| w.parse::<usize>().ok())
+                                    .ok_or_else(|| err("wall <a second> <seconds> <emotes>"))?
+                                    .clamp(1, 100)
+                            } else {
+                                0
+                            };
                             let [rate, seconds] = nums[..] else {
                                 return Err(err("flood <a second> <seconds>"));
                             };
@@ -340,8 +371,9 @@ impl Script {
                                 rate: rate.clamp(0.0, 1000.0),
                                 seconds: seconds.max(0.0),
                                 emotes: what != "flood",
-                                animated: what == "animated",
+                                animated: what == "animated" || what == "animated-wall",
                                 word,
+                                wall,
                             }
                         }
                         "delete" => Step::Delete(
@@ -497,6 +529,7 @@ impl Script {
             emotes,
             animated,
             word: word.map(str::to_string),
+            wall: 0,
         };
         s.steps.push((6.0, flood(12.0, 3.0, true, false, None)));
         if let Some(w) = animated.first() {
@@ -547,7 +580,7 @@ pub struct Player {
 
 /// A flood running: from, until, its rate, (emote-only, animated alone,
 /// one word alone), messages sent.
-type Flood = (f64, f64, f64, (bool, bool, Option<String>), u64);
+type Flood = (f64, f64, f64, (bool, bool, Option<String>, usize), u64);
 
 const BROADCASTER: &str = "1971641";
 
@@ -620,8 +653,11 @@ impl Player {
         x.wrapping_mul(0x2545_f491_4f6c_dd1d)
     }
 
-    fn flood_message(&mut self, (emotes, animated, word): &(bool, bool, Option<String>)) -> String {
-        let (emotes, animated) = (*emotes, *animated);
+    fn flood_message(
+        &mut self,
+        (emotes, animated, word, wall): &(bool, bool, Option<String>, usize),
+    ) -> String {
+        let (emotes, animated, wall) = (*emotes, *animated, *wall);
         let who = format!("viewer{}", self.rand() % 400);
         let words: Vec<String> = match word {
             Some(w) => vec![w.clone()],
@@ -633,7 +669,12 @@ impl Player {
                 .map(|e| e.word.clone())
                 .collect(),
         };
-        let text = if emotes && !words.is_empty() {
+        let text = if wall > 0 && !words.is_empty() {
+            (0..wall)
+                .map(|_| words[(self.rand() % words.len() as u64) as usize].clone())
+                .collect::<Vec<_>>()
+                .join(" ")
+        } else if emotes && !words.is_empty() {
             let n = 1 + (self.rand() % 4) as usize;
             let w = words[(self.rand() % words.len() as u64) as usize].clone();
             let mut v = vec![w; n];
@@ -669,7 +710,8 @@ impl Player {
                 emotes,
                 animated,
                 word,
-            } => self.floods.push((at, at + seconds, rate, (emotes, animated, word), 0)),
+                wall,
+            } => self.floods.push((at, at + seconds, rate, (emotes, animated, word, wall), 0)),
             Step::Delete(label) => {
                 if let Some((_, id)) = self.labels.iter().find(|(l, _)| *l == label) {
                     out.push(notification(

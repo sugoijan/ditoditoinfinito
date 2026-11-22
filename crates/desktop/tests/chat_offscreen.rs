@@ -45,8 +45,10 @@ struct Scenario {
     shots: Vec<f64>,
     /// Measures frames from this song second.
     measure: Option<f64>,
-    /// The look drawn in (round TW5's candidates; none: v1's own).
+    /// The look drawn in (round TW5's candidates; none: the rules' own).
     look: Option<ddi_chat::overlay::Look>,
+    /// The rules laid by (round DE's comparison; none: v2's).
+    rules: Option<ddi_chat::overlay::Rules>,
 }
 
 impl Scenario {
@@ -64,6 +66,7 @@ impl Scenario {
             shots: Vec::new(),
             measure: None,
             look: None,
+            rules: None,
         }
     }
 }
@@ -73,6 +76,10 @@ struct Played {
     /// The most items, runs and emotes one frame drew.
     items: usize,
     emotes: usize,
+    /// The last frame's images (ready, in flight, failed, proxied) and
+    /// animated emotes ready with their atlas units (round DE).
+    images: (usize, usize, usize, usize),
+    animated: (usize, usize),
     /// Every frame's chat as drawn (none where nothing was built).
     built: bool,
     layer: bool,
@@ -148,6 +155,7 @@ fn play(s: &Scenario) -> Option<Played> {
     };
     ddi_session::chat::set_scripted(script);
     ddi_shell::chat::set_look(s.look);
+    ddi_shell::chat::set_rules(s.rules);
     let screen = if s.cpus.is_some() { "start" } else { "select" };
     let (mut ui, env) = common::ui::theme(screen, common::ui::lowercase(), size, s.reduced);
     ui.update(0.5);
@@ -244,6 +252,8 @@ fn play(s: &Scenario) -> Option<Played> {
         if let Some(c) = &chat {
             played.items = played.items.max(c.items);
             played.emotes = played.emotes.max(c.emotes);
+            played.images = c.images;
+            played.animated = c.animated;
             played.stats = c.stats;
             played.providers = c.providers.clone();
             played.proxied = c.proxied.clone();
@@ -315,6 +325,7 @@ fn play(s: &Scenario) -> Option<Played> {
     }
     ddi_session::chat::set_scripted(None);
     ddi_shell::chat::set_look(None);
+    ddi_shell::chat::set_rules(None);
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
     Some(played)
 }
@@ -500,32 +511,47 @@ fn study() {
         .into_iter()
         .flat_map(|(size, at)| [None, Some(8)].map(|cpus| (size, at, cpus)))
     {
-        for (what, level, script) in [
+        // Round DE: each under v1 and v2 (`chat-overlay-v2`'s limits
+        // tripled), and the walls at v2's limits (60 messages a second of
+        // 30 emotes each; all animated).
+        let cases = [
             ("off", Level::Off, "demo"),
             ("on", Level::Messages, "demo"),
             ("flood", Level::Messages, "50"),
             ("animated", Level::Emotes, "animated"),
-        ] {
+            ("wall", Level::Emotes, "wall"),
+            ("animated-wall", Level::Emotes, "animated-wall"),
+        ];
+        let rules = [("v1", ddi_chat::overlay::CHAT_OVERLAY_V1), ("v2", ddi_chat::overlay::CHAT_OVERLAY_V2)];
+        for ((what, level, script), (rname, r)) in cases
+            .into_iter()
+            .flat_map(|c| rules.map(|r| (c, r)))
+            .filter(|((what, ..), (rname, _))| *what != "off" || *rname == "v2")
+        {
             let s = Scenario {
                 cpus,
                 level,
                 script,
                 size,
                 measure: Some(6.0),
-                ..Scenario::new(&format!("cost-{at}-{}-{what}", cpus.unwrap_or(0)))
+                rules: Some(r),
+                ..Scenario::new(&format!("cost-{at}-{}-{what}-{rname}", cpus.unwrap_or(0)))
             };
             if !s.name.contains(&pick) {
                 continue;
             }
             let p = play(&s).unwrap();
             eprintln!(
-                "{}: {} frames: record {}; chat {}; batches {}; most items {}; stats {:?}",
+                "{}: {} frames: record {}; chat {}; batches {}; most items {} emotes {}; images {:?} animated {:?}; stats {:?}",
                 s.name,
                 p.record.len(),
                 stat(&p.record),
                 stat(&p.chat_ms),
                 stat(&p.batches),
                 p.items,
+                p.emotes,
+                p.images,
+                p.animated,
                 p.stats
             );
         }

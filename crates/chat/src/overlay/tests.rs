@@ -16,8 +16,30 @@ fn options(style: Style, reduced: bool) -> Options {
 fn rules(look: Look) -> Rules {
     Rules {
         look,
-        ..CHAT_OVERLAY_V1
+        ..CHAT_OVERLAY_V2
     }
+}
+
+/// `chat-overlay-v2` is v1 with its limits tripled (round DE), the rest
+/// as it was.
+#[test]
+fn v2_is_v1_with_its_limits_tripled() {
+    let (v1, v2) = (CHAT_OVERLAY_V1, CHAT_OVERLAY_V2);
+    assert_eq!(v2.name, crate::RULES_NAME);
+    assert_eq!((v1.cut.emotes, v1.on_screen, v1.emotes_on_screen, v1.per_second), (8, 80, 160, 20));
+    assert_eq!(
+        (v2.cut.emotes, v2.on_screen, v2.emotes_on_screen, v2.per_second),
+        (3 * 8, 3 * 80, 3 * 160, 3 * 20)
+    );
+    let same = Rules {
+        name: v1.name,
+        cut: v1.cut,
+        on_screen: v1.on_screen,
+        emotes_on_screen: v1.emotes_on_screen,
+        per_second: v1.per_second,
+        ..v2
+    };
+    assert_eq!(same, v1, "nothing else changed");
 }
 
 /// In the look that keeps a message's emotes in one item (most tests
@@ -93,16 +115,18 @@ fn emotes_in(d: &Drawn) -> usize {
 }
 
 #[test]
-fn at_most_twenty_new_messages_a_second() {
-    let mut o = overlay(Style::Across, false);
-    for i in 0..50 {
-        o.receive(&say(i, i, "hi"), 0.01 * f64::from(i), true);
+fn at_most_sixty_new_messages_a_second() {
+    for r in [CHAT_OVERLAY_V2, CHAT_OVERLAY_V1] {
+        let mut o = Overlay::new(Rules { look: LOOK_LARGER, ..r }, options(Style::Across, false), EmoteSets::default());
+        for i in 0..100 {
+            o.receive(&say(i, i, "hi"), 0.005 * f64::from(i), true);
+        }
+        assert_eq!(o.len(), r.per_second, "{}", r.name);
+        assert_eq!(o.stats().rate, 100 - r.per_second as u64);
+        // A second later there is room again.
+        o.receive(&say(1000, 1000, "hi"), 1.05, true);
+        assert_eq!(o.len(), r.per_second + 1);
     }
-    assert_eq!(o.len(), 20);
-    assert_eq!(o.stats().rate, 30);
-    // A second later there is room again.
-    o.receive(&say(100, 100, "hi"), 1.05, true);
-    assert_eq!(o.len(), 21);
 }
 
 #[test]
@@ -115,49 +139,75 @@ fn one_message_a_chatter_every_two_seconds() {
     assert_eq!(o.stats().chatter, 1);
 }
 
-/// The screen holds 80 messages and 160 emotes at most; past them a
-/// message is dropped whole (never queued, never summarized).
+/// The screen holds 240 messages and 480 emotes at most (v1: 80 and
+/// 160); past them a message is dropped whole (never queued, never
+/// summarized).
 #[test]
 fn the_messages_and_the_emotes_on_screen_are_capped() {
-    for style in [Style::Across, Style::Falling] {
-        let mut o = overlay(style, false);
-        let mut t = 0.0;
-        let mut n = 0;
-        while t < 20.0 {
-            for _ in 0..20 {
-                o.receive(&say(n, n, "x"), t, true);
-                n += 1;
+    for r in [CHAT_OVERLAY_V2, CHAT_OVERLAY_V1] {
+        for style in [Style::Across, Style::Falling] {
+            let mut o = Overlay::new(Rules { look: LOOK_LARGER, ..r }, options(style, false), EmoteSets::default());
+            let mut t = 0.0;
+            let mut n = 0;
+            let mut most = 0;
+            while t < 20.0 {
+                for _ in 0..r.per_second {
+                    o.receive(&say(n, n, "x"), t, true);
+                    n += 1;
+                }
+                advance(&mut o, t);
+                assert!(o.messages() <= r.on_screen, "{} at {t}", o.messages());
+                most = most.max(o.messages());
+                t += 1.0;
             }
-            advance(&mut o, t);
-            assert!(o.messages() <= 80, "{} at {t}", o.messages());
-            t += 1.0;
+            assert!(o.stats().full + o.stats().no_room > 0);
+            assert!(most > r.on_screen / 2, "{} {style:?}: {most}", r.name);
         }
-        assert!(o.stats().full + o.stats().no_room > 0);
+        // Emotes: a message's own at most, the screen's at most.
+        let mut o = Overlay::new(Rules { look: LOOK_LARGER, ..r }, options(Style::Across, false), EmoteSets::default());
+        let ids: Vec<String> = (0..r.cut.emotes).map(|i| (i % 9).to_string()).collect();
+        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let each = r.emotes_on_screen / r.cut.emotes;
+        for i in 0..(each as u32 + 2) {
+            o.receive(&emotes(i, i, &ids), 0.0, true);
+        }
+        assert_eq!(o.emotes(), r.emotes_on_screen, "{}", r.name);
+        assert!(o.stats().full >= 2, "{:?}", o.stats());
     }
-    // Emotes: eight a message, 160 on screen at most.
-    let mut o = overlay(Style::Across, false);
-    let eight = ["1", "2", "3", "4", "5", "6", "7", "8"];
-    for i in 0..19 {
-        o.receive(&emotes(i, i, &eight), 0.0, true);
-        o.receive(&emotes(100 + i, 100 + i, &eight), 1.0, true);
-    }
-    assert_eq!(o.emotes(), 160);
-    assert!(o.stats().full >= 18, "{:?}", o.stats());
 }
 
-/// A message of fifty emotes brings eight: the rest left out, said in
-/// the statistics, never a count on screen.
+/// A message of fifty emotes brings 24 (v1: eight): the rest left out,
+/// said in the statistics, never a count on screen. Scattered (v2's own
+/// look) each of the 24 is an item of its own; in a look that keeps a
+/// message's emotes in one row the row is also cut at the screen's width
+/// (21 of them at 1280 pixels with lines of 30); scattered, an emote
+/// that finds no free place on its way in is left out as any item is.
 #[test]
-fn a_message_of_fifty_emotes_shows_eight() {
-    let mut o = overlay(Style::Across, false);
+fn a_message_of_fifty_emotes_shows_twenty_four() {
     let ids: Vec<String> = (0..50).map(|i| (i % 3).to_string()).collect();
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    o.receive(&emotes(1, 1, &ids), 0.0, true);
-    advance(&mut o, 0.0);
-    let d = o.drawn(0.0).next().unwrap();
-    assert_eq!(emotes_in(&d), 8);
-    assert_eq!(d.laid.len(), 8, "eight emotes and nothing else");
-    assert_eq!(o.stats().cut, 42);
+    for r in [CHAT_OVERLAY_V2, CHAT_OVERLAY_V1] {
+        let mut o = Overlay::new(Rules { look: LOOK_LARGER, ..r }, options(Style::Across, false), EmoteSets::default());
+        o.receive(&emotes(1, 1, &ids), 0.0, true);
+        advance(&mut o, 0.0);
+        let d = o.drawn(0.0).next().unwrap();
+        // (This item's size, which varies by up to 15% from item to item,
+        // fits 21 across.)
+        assert_eq!(emotes_in(&d), r.cut.emotes.min(21), "{}", r.name);
+        assert_eq!(d.laid.len(), emotes_in(&d), "the emotes and nothing else");
+        assert_eq!(o.stats().cut, 50 - r.cut.emotes as u64);
+        // Scattered: each emote an item.
+        let mut o = Overlay::new(r, options(Style::Across, false), EmoteSets::default());
+        o.receive(&emotes(1, 1, &ids), 0.0, true);
+        let mut items = std::collections::HashSet::new();
+        for f in 0..300 {
+            let now = f64::from(f) / 60.0;
+            advance(&mut o, now);
+            items.extend(o.drawn(now).map(|d| d.id));
+        }
+        // (One that finds no free place on its way in is left out.)
+        assert!(items.len() <= r.cut.emotes && items.len() > r.cut.emotes * 3 / 4, "{}: {}", r.name, items.len());
+    }
 }
 
 #[test]
@@ -338,7 +388,7 @@ fn reduced_motion_stands_still_and_fades() {
         let at: Vec<(f32, f32)> = o.drawn(1.0).map(|d| (d.x, d.y)).collect();
         let later: Vec<(f32, f32)> = o.drawn(3.0).map(|d| (d.x, d.y)).collect();
         assert_eq!(at, later);
-        assert_eq!(at.len(), 20);
+        assert_eq!(at.len(), 30.min(CHAT_OVERLAY_V2.per_second));
     }
 }
 
@@ -410,7 +460,7 @@ fn no_count_is_ever_drawn() {
                     let ids: Vec<String> = (0..n).map(|_| (rand() % 4).to_string()).collect();
                     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
                     id += 1;
-                    expected.insert(format!("m{id}"), n.min(8));
+                    expected.insert(format!("m{id}"), n.min(CHAT_OVERLAY_V2.cut.emotes));
                     o.receive(&emotes(id, id, &ids), now, true);
                 }
                 advance(&mut o, now);
@@ -427,7 +477,7 @@ fn no_count_is_ever_drawn() {
 }
 
 /// The same property scattered: every drawn item one emote, and no
-/// message more items than its emotes (eight at most).
+/// message more items than its emotes (24 at most).
 #[test]
 fn scattered_items_are_one_emote_each() {
     for style in [Style::Across, Style::Falling] {
@@ -436,7 +486,7 @@ fn scattered_items_are_one_emote_each() {
         for f in 0..900u32 {
             let now = f64::from(f) / 60.0;
             if f % 3 == 0 {
-                let n = 1 + (f as usize * 7) % 20;
+                let n = 1 + (f as usize * 7) % 40;
                 let ids: Vec<&str> = (0..n).map(|k| ["1", "2", "3"][k % 3]).collect();
                 o.receive(&emotes(f, f, &ids), now, true);
             }
@@ -447,7 +497,7 @@ fn scattered_items_are_one_emote_each() {
                 items.entry(m).or_default().insert(d.id);
             }
         }
-        assert!(items.values().all(|i| i.len() <= 8));
+        assert!(items.values().all(|i| i.len() <= CHAT_OVERLAY_V2.cut.emotes));
         assert!(items.values().any(|i| i.len() >= 4), "{style:?}: a message as several items");
     }
 }

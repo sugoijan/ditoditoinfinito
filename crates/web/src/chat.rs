@@ -537,13 +537,24 @@ async fn frames(
 
 /// TESTING ONLY (round TW5): `mpfakechatlook=<name>`, the chat drawn in
 /// one of the looks shown to the maintainer
-/// ([`ddi_chat::overlay::look_named`]); none, `chat-overlay-v1`'s own.
+/// ([`ddi_chat::overlay::look_named`]); none, `chat-overlay-v2`'s own.
 pub(crate) fn look(name: Option<&str>) {
     let look = name.and_then(ddi_chat::overlay::look_named);
     if let (Some(name), None) = (name, look) {
         web_sys::console::warn_1(&format!("mpfakechatlook={name}: as-built, larger or scattered").into());
     }
     ddi_shell::chat::set_look(look);
+}
+
+/// TESTING ONLY (round DE): `mpfakechatrules=v1`, the chat laid by the
+/// retired `chat-overlay-v1` for the frame-cost comparison
+/// ([`ddi_shell::chat::rules_named`]); none or `v2`, `chat-overlay-v2`.
+pub(crate) fn rules(name: Option<&str>) {
+    let rules = name.and_then(ddi_shell::chat::rules_named);
+    if let (Some(name), None) = (name, rules) {
+        web_sys::console::warn_1(&format!("mpfakechatrules={name}: v1 or v2").into());
+    }
+    ddi_shell::chat::set_rules(rules);
 }
 
 /// TESTING ONLY: `mpfakechat=<name or rate>` (`0` stops it; `global` the

@@ -23,7 +23,7 @@
 use ddi_actor::text::{TextMeasure, TextStyle};
 use ddi_chat::cache::{ATLAS, Answer, EmoteCache, Fetch, Got, Via, fit};
 use ddi_chat::emotes::Emote;
-use ddi_chat::overlay::{Area, CHAT_OVERLAY_V1, Glyphs, Look, Options, Overlay, Rules};
+use ddi_chat::overlay::{Area, CHAT_OVERLAY_V1, CHAT_OVERLAY_V2, Glyphs, Look, Options, Overlay, Rules};
 use ddi_render::texture_cache::TextureKey;
 use ddi_render::{DrawList, Painter, Quad, Renderer};
 use ddi_session::chat::ChatLayer;
@@ -43,22 +43,41 @@ const SHADOW: [f32; 3] = [0.02, 0.0, 0.05];
 
 thread_local! {
     static LOOK: std::cell::Cell<Option<Look>> = const { std::cell::Cell::new(None) };
+    static RULES: std::cell::Cell<Option<Rules>> = const { std::cell::Cell::new(None) };
+}
+
+/// TESTING ONLY (round DE): the rules plays from now on are laid by in
+/// place of `chat-overlay-v2`'s, for the studies' comparison (the web's
+/// `mpfakechatrules=v1`, desktop's `chat_offscreen` study): `None`, v2's.
+pub fn set_rules(rules: Option<Rules>) {
+    RULES.with(|r| r.set(rules));
+}
+
+/// The rules by their name, for [`set_rules`] (`v1`, `v2` or the names).
+pub fn rules_named(name: &str) -> Option<Rules> {
+    match name {
+        "v1" | "chat-overlay-v1" => Some(CHAT_OVERLAY_V1),
+        "v2" | "chat-overlay-v2" => Some(CHAT_OVERLAY_V2),
+        _ => None,
+    }
 }
 
 /// TESTING ONLY: the look plays from now on are drawn in (round TW5's
 /// candidates, [`ddi_chat::overlay::LOOKS`], for the pictures shown to
 /// the maintainer; the web's `mpfakechatlook`, desktop's
-/// `--mp-dev-chat-look`); `None`, `chat-overlay-v1`'s own.
+/// `--mp-dev-chat-look`); `None`, `chat-overlay-v2`'s own.
 pub fn set_look(look: Option<Look>) {
     LOOK.with(|l| l.set(look));
 }
 
-/// The rules a play's chat is laid by: `chat-overlay-v1`, in the look
-/// [`set_look`] set where one is.
+/// The rules a play's chat is laid by: `chat-overlay-v2` (or, TESTING
+/// ONLY, those [`set_rules`] set), in the look [`set_look`] set where one
+/// is.
 pub fn rules() -> Rules {
+    let base = RULES.with(std::cell::Cell::get).unwrap_or(CHAT_OVERLAY_V2);
     Rules {
-        look: LOOK.with(std::cell::Cell::get).unwrap_or(CHAT_OVERLAY_V1.look),
-        ..CHAT_OVERLAY_V1
+        look: LOOK.with(std::cell::Cell::get).unwrap_or(base.look),
+        ..base
     }
 }
 
@@ -127,8 +146,10 @@ pub struct ChatDrawn {
     /// The level and the style shown (the device's, under the room's
     /// ceiling: the same everywhere since round TW5).
     pub shown: Option<(ddi_chat::Level, ddi_chat::Style)>,
-    /// The look's name (`chat-overlay-v1`'s, or a candidate's).
+    /// The look's name (`chat-overlay-v2`'s, or a candidate's).
     pub look: &'static str,
+    /// The rules' name (`chat-overlay-v2`, or for a study v1).
+    pub rules: &'static str,
     /// The texts drawn, for tests (each item's text pieces joined).
     pub texts: Vec<String>,
     /// Where each item was, `[x, y, width, height]` target pixels.
@@ -367,6 +388,7 @@ impl ChatView {
             anim_ms,
             shown: Some((self.overlay.options().level, self.overlay.options().style)),
             look: self.overlay.rules().look.name,
+            rules: self.overlay.rules().name,
             opacity: 0.0,
             ..ChatDrawn::default()
         };
@@ -484,8 +506,8 @@ impl ChatView {
                 images: drawn.images,
                 proxied: drawn.proxied.clone(),
                 animated: drawn.animated.0,
-                per_second: rules().per_second,
-                cut_at: rules().cut.emotes,
+                per_second: self.overlay.rules().per_second,
+                cut_at: self.overlay.rules().cut.emotes,
             });
         }
         self.drawn = drawn;
@@ -646,15 +668,25 @@ mod tests {
         }
     }
 
-    /// The look set for tests, else `chat-overlay-v1`'s.
+    /// The look and the rules set for tests, else `chat-overlay-v2`'s
+    /// (round DE: v1's limits tripled).
     #[test]
-    fn the_look_is_v1s_unless_a_test_sets_one() {
-        assert_eq!(rules(), CHAT_OVERLAY_V1);
-        set_look(Some(ddi_chat::overlay::LOOK_SCATTERED));
-        assert_eq!(rules().look.name, "scattered");
-        assert_eq!(rules().on_screen, CHAT_OVERLAY_V1.on_screen);
+    fn the_rules_are_v2s_unless_a_test_sets_others() {
+        assert_eq!(rules(), CHAT_OVERLAY_V2);
+        assert_eq!(rules().name, ddi_chat::RULES_NAME);
+        assert_eq!(
+            (rules().cut.emotes, rules().on_screen, rules().emotes_on_screen, rules().per_second),
+            (24, 240, 480, 60)
+        );
+        set_look(Some(ddi_chat::overlay::LOOK_AS_BUILT));
+        assert_eq!(rules().look.name, "as-built");
+        assert_eq!(rules().on_screen, CHAT_OVERLAY_V2.on_screen);
+        set_rules(rules_named("v1"));
+        assert_eq!((rules().on_screen, rules().look.name), (80, "as-built"));
         set_look(None);
         assert_eq!(rules(), CHAT_OVERLAY_V1);
+        set_rules(None);
+        assert_eq!(rules(), CHAT_OVERLAY_V2);
     }
 
     #[test]

@@ -11,7 +11,7 @@
 //!   directly and through our server's proxy (C4, C5).
 //! - [`item`]: a message made into an item, a row of emotes or a line of
 //!   text with emotes inline, after C11's filters.
-//! - [`overlay`]: C9's budgets (`chat-overlay-v1`: every emote drawn by
+//! - [`overlay`]: C9's budgets (`chat-overlay-v2`: every emote drawn by
 //!   itself, never summarized), the moderation events and the two motions
 //!   over the whole screen behind the play (C6: Across and Falling; C10:
 //!   reduced motion's fixed places), on the host's clock. Deterministic
@@ -53,11 +53,14 @@ pub mod script;
 use serde::{Deserialize, Serialize};
 
 /// The flood rules' name and version (C9; every number PROVISIONAL).
-/// `chat-overlay-v1` since round TW5: no emote summarized as a count, the
-/// budgets in emotes, the layer over the whole screen; `chat-overlay-v0`
-/// (runs of an emote drawn once with "×N", five runs a message, 40 items,
-/// rows and columns routed around the fields) retired.
-pub const RULES_NAME: &str = "chat-overlay-v1";
+/// `chat-overlay-v2` since round DE: `chat-overlay-v1`'s limits tripled
+/// (24 emotes a message, 240 messages and 480 emotes on screen, 60 new
+/// messages a second). `chat-overlay-v1` (round TW5: no emote summarized
+/// as a count, the budgets in emotes, the layer over the whole screen)
+/// retired, kept for the studies' comparison; `chat-overlay-v0` (runs of
+/// an emote drawn once with "×N", five runs a message, 40 items, rows and
+/// columns routed around the fields) retired.
+pub const RULES_NAME: &str = "chat-overlay-v2";
 
 /// How much of the chat a device shows (Options → Display, "Twitch chat
 /// in rooms"), and the room's ceiling over it (C1).

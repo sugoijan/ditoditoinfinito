@@ -293,6 +293,9 @@ fn multiplayer_params(hash: &str, at_load: bool) {
         let socket = param("mpfakechaturl");
         crate::chat::script(&what, images.as_deref(), socket.as_deref());
         crate::chat::look(look.as_deref());
+        // Round DE: `mpfakechatrules=v1`, the retired limits, for the
+        // frame-cost comparison (not kept for the session).
+        crate::chat::rules(param("mpfakechatrules").as_deref());
         if what == "0" {
             storage::remove(Area::Session, CHAT_KEPT);
         } else {

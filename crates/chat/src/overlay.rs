@@ -1,5 +1,5 @@
 //! The chat layer's items over time (C6, C8, C9, C10, C11): what comes in
-//! within `chat-overlay-v1`'s budgets, what the moderation events take
+//! within `chat-overlay-v2`'s budgets, what the moderation events take
 //! off, where each item goes and how it moves, all on the host's clock
 //! (seconds), never the song's. Deterministic from the events, the
 //! clock, the [`Options`] and the [`Area`]: the shells measure the text
@@ -95,7 +95,8 @@ pub fn look_named(name: &str) -> Option<Look> {
     LOOKS.into_iter().find(|l| l.name == name)
 }
 
-/// `chat-overlay-v1`'s numbers (C9, round TW5). Every one PROVISIONAL.
+/// The layer's numbers (C9; `chat-overlay-v1` of round TW5,
+/// `chat-overlay-v2` of round DE). Every one PROVISIONAL.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rules {
     pub name: &'static str,
@@ -121,13 +122,15 @@ pub struct Rules {
     pub look: Look,
 }
 
-/// `chat-overlay-v1` (`crate::RULES_NAME`): no summarizing, budgets for
-/// emotes as individual things. A message brings eight emotes at most;
-/// the screen holds 80 messages and 160 emotes at most, 20 new messages a
-/// second, one a chatter every 2 s; the rest is dropped (and the space on
-/// screen drops more: an item that finds no free place is left out).
+/// `chat-overlay-v1` (round TW5, retired by round DE; kept for the
+/// studies' comparison, `ddi_shell::chat::set_rules`): no summarizing,
+/// budgets for emotes as individual things. A message brings eight emotes
+/// at most; the screen holds 80 messages and 160 emotes at most, 20 new
+/// messages a second, one a chatter every 2 s; the rest is dropped (and
+/// the space on screen drops more: an item that finds no free place is
+/// left out).
 pub const CHAT_OVERLAY_V1: Rules = Rules {
-    name: crate::RULES_NAME,
+    name: "chat-overlay-v1",
     on_screen: 80,
     emotes_on_screen: 160,
     per_second: 20,
@@ -143,6 +146,27 @@ pub const CHAT_OVERLAY_V1: Rules = Rules {
     fade: 0.4,
     // Round TW5's recommendation, for the maintainer to confirm.
     look: LOOK_SCATTERED,
+};
+
+/// `chat-overlay-v2` (`crate::RULES_NAME`, round DE, 2026-11-22: the
+/// maintainer, "Increase both limits, maybe triple of what they are"):
+/// `chat-overlay-v1` with its limits tripled. A message brings 24 emotes
+/// at most; the screen holds 240 messages and 480 emotes at most. New
+/// messages a second tripled too, to 60: at v1's 20 an item stays 7 to 8
+/// s on screen (±25%), so the screen never holds more than about 175
+/// messages and the rate, not the screen's 240, would be what limits a
+/// busy chat. One message a chatter every 2 s as before: it limits one
+/// chatter, never a busy chat of many. The rest is dropped as before.
+pub const CHAT_OVERLAY_V2: Rules = Rules {
+    name: crate::RULES_NAME,
+    on_screen: 240,
+    emotes_on_screen: 480,
+    per_second: 60,
+    cut: Cut {
+        emotes: 24,
+        ..CHAT_OVERLAY_V1.cut
+    },
+    ..CHAT_OVERLAY_V1
 };
 
 /// A device's choices for the layer.
