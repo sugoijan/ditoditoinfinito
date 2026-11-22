@@ -57,7 +57,7 @@ pub struct Estimate {
 pub struct MatchedSpokes {
     pub numeric: u8,
     pub inactive: u8,
-    /// Corrected signed cost for a qualified 1,201–3,200-note Jumpstream spoke.
+    /// Signed display cost for a qualified 1,201–3,200-note Jumpstream spoke.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jumpstream_cost_pp: Option<f64>,
 }
@@ -77,7 +77,7 @@ impl MatchedSpokes {
                     && stream::pattern_qualifies(chart)
                     && radar::stream_display_stable(decimal, means);
                 if opportunity[1] {
-                    jumpstream_cost_pp = jumpstream::corrected_cost(chart, decimal, means);
+                    jumpstream_cost_pp = jumpstream::display_cost(chart, decimal, means);
                 }
                 0b0000_0100 | (u8::from(jumpstream_cost_pp.is_some()) << 1) | u8::from(stream)
             }
@@ -341,7 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn lower_band_jumpstream_uses_the_corrected_cost_in_song_select() {
+    fn lower_band_jumpstream_uses_the_qualified_cost_in_song_select() {
         use ddi_library::manifest::{ChartEstimate, ProfileSpoke};
 
         // Single heads around one two-head row every 40 sixteenths.
@@ -380,6 +380,15 @@ mod tests {
         let above = MatchedSpokes::for_chart(&chart, opportunity, 9.5, &means);
         assert_eq!(above.numeric & 2, 0);
         assert!(above.jumpstream_cost_pp.is_none());
+
+        means[8][2] = 1.00001;
+        means[9][2] = 1.00001;
+        let near_ceiling = MatchedSpokes::for_chart(&chart, opportunity, 18.999, &means);
+        assert_eq!(near_ceiling.numeric & 2, 0);
+        assert!(near_ceiling.jumpstream_cost_pp.is_none());
+        let ceiling = MatchedSpokes::for_chart(&chart, opportunity, 19.0, &means);
+        assert_ne!(ceiling.numeric & 2, 0);
+        assert_eq!(ceiling.jumpstream_cost_pp, Some(means[9][2]));
     }
 
     #[test]
@@ -387,8 +396,8 @@ mod tests {
         use ddi_library::manifest::{ChartEstimate, ProfileSpoke};
         for (notes, numeric) in [
             (1200, 255),
-            (1201, 4),
-            (3200, 4),
+            (1201, 6),
+            (3200, 6),
             (3201, 13),
             (4800, 13),
             (4801, 31),
@@ -418,6 +427,15 @@ mod tests {
                 .unwrap()
                 .profile
                 .unwrap();
+            if matches!(notes, 1201 | 3200) {
+                assert_eq!(e.decimal, 19.0);
+                let raw = e.means[9][2];
+                assert!(raw > 1.0);
+                assert_eq!(
+                    profile[1],
+                    ProfileSpoke::Numeric(((raw * 100.).round() / 100.) as f32)
+                );
+            }
             for (k, state) in profile.iter().enumerate() {
                 match (k, numeric & (1 << k) != 0) {
                     (7, _) => assert_eq!(*state, ProfileSpoke::Inactive),

@@ -1170,7 +1170,7 @@ mod tests {
         assert!(!wants_msd());
         // A previous qualification rule also requires recomputation.
         let mut stored: StoredEstimates = storage::load(Area::Local, ESTIMATE_KEY).unwrap();
-        stored.rule = "stream-sensitivity-profile-v4".into();
+        stored.rule = "jumpstream-correction-profile-v5".into();
         storage::save(Area::Local, ESTIMATE_KEY, &stored).unwrap();
         reset();
         storage::install(store);

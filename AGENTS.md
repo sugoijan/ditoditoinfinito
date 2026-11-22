@@ -1350,8 +1350,8 @@ Rust and the browser are implementation details, not advertised features.
   scalar-qualified charts use the validated skill bands through 8,000. At
   1,201–3,200 notes Stream also checks chart patterns and the sensitivity of
   the shared numeric display in `ddi_rating::radar`. In that band Jumpstream
-  uses the corrected matched cost on charts with a two-head row and raw cost
-  at most 1 Accuracy pp (`ddi_rating`’s `jumpstream` module). See the crate's
+  requires a two-head row. It corrects the matched cost through 1 Accuracy pp
+  and shows higher raw costs only at an exact scalar of 19 (`ddi_rating`’s `jumpstream` module). See the crate's
   README for the JSON command, model identity and qualification limits.
 - `crates/msd/` MSD (`ddi-msd`, `docs/plans/msd-ratings.md`): Etterna's
   chart difficulty calculator, MinaCalc version 527 (etternagame/etterna

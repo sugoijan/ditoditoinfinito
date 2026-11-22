@@ -2,11 +2,11 @@
 use super::{features::Chart, radar::matched_levels};
 use ddi_engine::cpu::{CPU_LEVELS_V2, Skills, row_response};
 
-pub(super) fn corrected_cost(chart: &Chart, decimal: f64, means: &[[f64; 9]; 10]) -> Option<f64> {
+pub(super) fn display_cost(chart: &Chart, decimal: f64, means: &[[f64; 9]; 10]) -> Option<f64> {
     let (i, j, f) = matched_levels(decimal);
     let cost = (1.0 - f) * means[i][2] + f * means[j][2];
     if cost > 1.0 {
-        return None;
+        return (decimal == 19.0).then_some(cost);
     }
 
     let balanced = Skills::default();
