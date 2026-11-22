@@ -365,13 +365,27 @@ async fn decode(url: &str) -> Result<Decoded, String> {
     still(&blob, size).await
 }
 
+/// How long an emote's image or a provider's set may take, answer and
+/// body, milliseconds (review 2026-11-22, chat-touch 4: a request that
+/// hangs on a network that drops a provider's traffic held one of the
+/// cache's four places for the browser's own timeout, minutes; desktop's
+/// reads have their own bounds). An emote of 64 pixels or a set's list
+/// takes well under a second on a working link.
+const READ_WAIT_MS: u32 = 8_000;
+
 /// The bytes at `url`, at most
 /// [`anim::MOST_BYTES`]: refused from the answer's length where it says
 /// more, else read piece by piece and stopped once past it, so an answer
-/// larger than an emote is never held whole.
+/// larger than an emote is never held whole; given up after
+/// [`READ_WAIT_MS`] (a failure: tried through the proxy where it may be).
 async fn read(url: &str) -> Result<Vec<u8>, String> {
     let too_large = || anim::Refusal::TooLarge.to_string();
+    let abort = web_sys::AbortController::new().map_err(|e| format!("{e:?}"))?;
+    let signal = abort.signal();
+    // (Dropped with this read: canceled once it ends.)
+    let _deadline = gloo::timers::callback::Timeout::new(READ_WAIT_MS, move || abort.abort());
     let resp = gloo::net::http::Request::get(url)
+        .abort_signal(Some(&signal))
         .send()
         .await
         .map_err(|e| format!("GET: {e}"))?;
