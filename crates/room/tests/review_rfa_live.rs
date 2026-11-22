@@ -527,3 +527,34 @@ fn a_stream_is_taken_no_further_than_the_rooms_song_time() {
     let power = l.server.stage().unwrap().ledger().unwrap().power(ana);
     assert_eq!(power, 0);
 }
+
+/// The review's third suspicion, confirmed: the room took a plan of any
+/// seed whose digest was its own, though the seed is the stage's
+/// (`seed_for`, which every device works out): a picker's plan of
+/// another seed made every other device's digest differ, each sitting
+/// the stage out. Refused; the stage's seed's is taken.
+#[test]
+fn a_plan_of_another_seed_is_refused() {
+    use ddi_room::live::PlanProblem;
+    let mut policy = RoomPolicy::default().with_live();
+    policy.readiness.window_ms = 15_000;
+    let mut rules = MatchRules::hosted();
+    rules.set_attacks(true);
+    let mut r = Room::open("host", "Host", policy, rules, ContentSource::Shared);
+    let host = r.host;
+    r.join_as("ana", Intent::Play, false).unwrap();
+    r.by(host, Command::Pick { content: song(1), card: None }).unwrap();
+    let stage = r.s.upcoming_stage().unwrap();
+    let mut server = LiveServer::new(LIVE_V2);
+    let good = Live::plan(&r, stage);
+    let other = plan_under(ATTACKS.id, 60, good.seed ^ 1, |j| j % 2 == 1)
+        .with_at_once(Some(3))
+        .with_ladder(LADDER.iter().map(|d| d.to_string()).collect());
+    assert_eq!(other.check(), Ok(()), "its digest its own");
+    let out = server.receive(&r.s, host, ClientLive::OfferPlan { stage, plan: Box::new(other) }, Millis(0));
+    assert_eq!(refused(&out), Some(LiveRefusal::BadPlan { stage, problem: PlanProblem::Digest }));
+    assert!(out.commands.is_empty());
+    let out = server.receive(&r.s, host, ClientLive::OfferPlan { stage, plan: Box::new(good) }, Millis(0));
+    assert_eq!(refused(&out), None);
+    assert_eq!(out.commands.len(), 1);
+}

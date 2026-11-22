@@ -42,9 +42,15 @@ fn content() -> ContentId {
 
 /// A plan of `n` slots of 2 s, each with eight shocks a quarter second
 /// apart where `room(j)`; checkpoints every 2 s from 2 s.
-fn plan(n: usize, seed: u64, room: impl Fn(usize) -> bool) -> BattlePlan {
-    // The match's Attacks at once at its default, three.
-    plan_under(ATTACKS.id, n, seed, room).with_at_once(Some(3))
+fn plan(n: usize, _seed: u64, room: impl Fn(usize) -> bool) -> BattlePlan {
+    // The match's Attacks at once at its default, three; the stage's seed,
+    // as every device works it out (the room refuses another).
+    plan_under(ATTACKS.id, n, stage_seed(), room).with_at_once(Some(3))
+}
+
+/// The stage's seed (`seed_for`): the room's, the stage's and its chart's.
+fn stage_seed() -> u64 {
+    ddi_room::live::plan::seed_for(&RoomId::new(ROOM), STAGE, &content().chart)
 }
 
 /// A play with holds' ends ([`common::script`]).
@@ -803,8 +809,8 @@ fn top_score_through_the_room_attacks_the_highest_score_as_practice_does() {
 /// unknown, the stage keeping no plan; the rules stages play are taken.
 #[test]
 fn a_plan_naming_rules_this_build_does_not_play_is_refused() {
-    let v1 = plan_under("attacks-v1", 30, 99, |j| j % 4 != 1);
-    let v2 = plan_under("attacks-v2", 30, 99, |j| j % 4 != 1);
+    let v1 = plan_under("attacks-v1", 30, stage_seed(), |j| j % 4 != 1);
+    let v2 = plan_under("attacks-v2", 30, stage_seed(), |j| j % 4 != 1);
     let v3 = plan(30, 99, |j| j % 4 != 1);
     assert_ne!(v1.digest, v2.digest, "the rules are in the plan's digest");
     assert_ne!(v2.digest, v3.digest);
@@ -855,7 +861,7 @@ fn a_plan_naming_rules_this_build_does_not_play_is_refused() {
 #[test]
 fn a_plans_shock_count_is_the_stages_rules_and_in_its_digest() {
     use ddi_room::ShocksPerAttack;
-    let of = |n: u32| common::plan_of(ATTACKS.id, 30, 99, n, |j| j % 4 != 1).with_at_once(Some(3));
+    let of = |n: u32| common::plan_of(ATTACKS.id, 30, stage_seed(), n, |j| j % 4 != 1).with_at_once(Some(3));
     let digests: Vec<_> = [2, 4, 6, 8].into_iter().map(|n| of(n).digest).collect();
     for (i, d) in digests.iter().enumerate() {
         assert!(digests[i + 1..].iter().all(|o| o != d));
@@ -1057,7 +1063,7 @@ fn a_plan_is_checked_by_its_digest_and_a_device_that_computed_another_sits_out()
     });
     r.run(500);
     // Another plan after it is refused; the room keeps the first.
-    let other = plan(20, 6, |j| j % 2 == 0);
+    let other = plan(20, 6, |j| j % 3 == 0);
     r.players[0].link.live_mut().send(ClientLive::OfferPlan {
         stage: STAGE,
         plan: Box::new(other.clone()),

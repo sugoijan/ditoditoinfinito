@@ -410,6 +410,16 @@ impl LiveServer {
             out.refuse(LiveRefusal::BadPlan { stage, problem });
             return;
         }
+        // The stage's seed, as every device works it out (round RFa: a
+        // plan of another seed is not the stage's; every other device's
+        // digest would differ, and they would sit it out).
+        if plan.seed != crate::live::plan::seed_for(&room.room, stage, &content.id.chart) {
+            out.refuse(LiveRefusal::BadPlan {
+                stage,
+                problem: crate::live::PlanProblem::Digest,
+            });
+            return;
+        }
         if plan.rules().is_none() || power_classes(&plan.classes).is_none() {
             out.refuse(LiveRefusal::BadPlan {
                 stage,
