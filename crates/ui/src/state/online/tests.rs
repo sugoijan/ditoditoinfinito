@@ -436,6 +436,77 @@ fn the_devices_chat_trip_makes_its_setting_on_return_or_changes_nothing() {
     );
 }
 
+/// Round LO: a desktop trip through Twitch that fails (the server refuses
+/// the attempt, the attempt expires, its poll is refused, the network
+/// goes before `/me`), not a cancel, ends as a canceled one: the room's
+/// setting asked comes back as not connected (so the room says "nothing
+/// changed") and the device's chat wish as not granted, both forgotten;
+/// an attempt the server still holds is ended there.
+#[test]
+fn a_failed_desktop_twitch_trip_ends_as_a_canceled_one() {
+    use ddi_platform::storage::{self, Area};
+    #[derive(Clone, Copy, Debug)]
+    enum Fail {
+        Refused,
+        Expired,
+        PollRefused,
+        Unreachable,
+    }
+    for fail in [Fail::Refused, Fail::Expired, Fail::PollRefused, Fail::Unreachable] {
+        storage::install(Rc::new(storage::MemoryStore::default()));
+        let r = rig(
+            Platform::Desktop,
+            Box::new(move |req| match (req.method, req.path.as_str(), fail) {
+                (Method::Get, "/me", Fail::Unreachable) => Some(ApiResponse::unreachable()),
+                (Method::Get, "/me", _) => ok(ME),
+                (Method::Post, "/auth/attempts", Fail::Refused) => err(403, "forbidden"),
+                (Method::Post, "/auth/attempts", _) => {
+                    ok(r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"u","expires_at_ms":9}"#)
+                }
+                (Method::Get, "/auth/attempts/a1", Fail::Expired) => ok(r#"{"status":"expired"}"#),
+                (Method::Get, "/auth/attempts/a1", Fail::PollRefused) => err(404, "no_such_attempt"),
+                (Method::Get, "/auth/attempts/a1", _) => {
+                    ok(r#"{"status":"done","session_token":"tok","return":"/mp","expires_at_ms":9}"#)
+                }
+                (Method::Delete, "/auth/attempts/a1", _) => Some(ApiResponse {
+                    status: 204,
+                    body: String::new(),
+                    session: None,
+                }),
+                _ => panic!("unexpected {req:?}"),
+            }),
+        );
+        let room = "Room000001";
+        let mut o = r.online.borrow_mut();
+        o.check();
+        o.poll(0);
+        // The room's setting asked, then this device's chat: each its trip.
+        let wanted = TwitchWanted {
+            room: room.into(),
+            mirror: ddi_room::TwitchMirror::Bans,
+            chat: ddi_room::TwitchChat::Off,
+        };
+        o.connect_twitch_for(Dest::Room(room.into()), "bans", Some(wanted.clone()));
+        for t in 1..=4 {
+            o.poll(t);
+        }
+        assert!(matches!(o.sign_in_state(), SignIn::Failed { .. }), "{fail:?}: {:?}", o.sign_in_state());
+        assert_eq!(o.take_twitch_wanted(room), Some((wanted, true)), "{fail:?}: as a cancel's");
+        assert_eq!(o.take_twitch_wanted(room), None, "{fail:?}: once");
+        assert_eq!(storage::get(Area::Session, TWITCH_WANTED), None, "{fail:?}");
+        o.connect_twitch_chat(Dest::Room(room.into()), ddi_chat::Level::Messages);
+        for t in 5..=8 {
+            o.poll(t);
+        }
+        assert_eq!(o.take_chat_outcome(), Some(false), "{fail:?}: nothing changed, said");
+        assert_eq!(storage::get(Area::Session, CHAT_WANTED), None, "{fail:?}");
+        drop(o);
+        let ended = paths(&r.log).iter().filter(|p| *p == "DELETE /auth/attempts/a1").count();
+        let expected = if matches!(fail, Fail::PollRefused) { 2 } else { 0 };
+        assert_eq!(ended, expected, "{fail:?}: {:?}", paths(&r.log));
+    }
+}
+
 #[test]
 fn an_invites_preview_says_each_state_and_a_refused_join_says_why() {
     use crate::screens::online::{admission_text, invite_problem};

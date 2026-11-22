@@ -602,20 +602,21 @@ impl Online {
     /// The room's Twitch setting a trip through Twitch was for, where it
     /// is room `room`'s and the trip is over: the setting itself where
     /// the access now grants what it needs (to be sent), or none and
-    /// `canceled` where the trip ended without it. Forgotten either way.
+    /// `canceled` where the trip ended without it (canceled, or failed:
+    /// expired, refused, the network gone, round LO). Forgotten either
+    /// way.
     pub fn take_twitch_wanted(&mut self, room: &str) -> Option<(TwitchWanted, bool)> {
         use ddi_platform::storage::{self, Area};
         let w: TwitchWanted = storage::load(Area::Session, TWITCH_WANTED)?;
         if w.room != room || self.sign_in.busy() || matches!(self.account, Account::Checking) {
             return None;
         }
-        let me = match &self.account {
-            Account::SignedIn(me) => me,
-            _ => return None,
-        };
         let needs = api::twitch_needs(w.mirror, w.chat);
-        let granted = needs.iter().all(|n| me.twitch.features.iter().any(|f| f == n));
-        let canceled = matches!(self.sign_in, SignIn::Canceled { .. });
+        let granted = match &self.account {
+            Account::SignedIn(me) => needs.iter().all(|n| me.twitch.features.iter().any(|f| f == n)),
+            _ => false,
+        };
+        let canceled = matches!(self.sign_in, SignIn::Canceled { .. } | SignIn::Failed { .. });
         if !granted && !canceled {
             // The `/me` before the trip: wait for the next.
             return None;
@@ -807,6 +808,7 @@ impl Online {
     /// Answers in, time passes (`now_ms`).
     pub fn poll(&mut self, now_ms: u64) {
         self.now = now_ms;
+        let busy = self.sign_in.busy();
         for (id, response) in self.http.poll() {
             if let Some(token) = response.session.clone().filter(|t| !t.is_empty())
                 && self.token.is_some()
@@ -821,6 +823,13 @@ impl Online {
                 continue;
             };
             self.answered(id, want, response);
+        }
+        // A trip through Twitch that ended now without the access
+        // (canceled at the server's page, the attempt expired or refused,
+        // the network gone; round LO): its chat wish settled as a
+        // cancel's.
+        if busy && !self.sign_in.busy() {
+            self.settle_chat_wish();
         }
         if let SignIn::Waiting {
             attempt, secret, ..
@@ -951,7 +960,16 @@ impl Online {
                         self.poll_at = self.now + POLL_AGAIN_MS;
                         return;
                     }
-                    Err(p) => self.sign_in = SignIn::Failed { dest, code: p.code },
+                    Err(p) => {
+                        // Refused: the attempt left to nobody is ended on
+                        // the server as a cancel ends it (round LO), so
+                        // nothing the browser does later signs in.
+                        if let SignIn::Waiting { attempt, secret, .. } = &self.sign_in {
+                            let cancel = api::cancel_attempt(attempt, secret);
+                            self.start(cancel, Want::Cancel);
+                        }
+                        self.sign_in = SignIn::Failed { dest, code: p.code };
+                    }
                 }
             }
             Want::Create => {
