@@ -456,9 +456,9 @@ impl LiveServer {
         room: &RoomState,
         from: ParticipantId,
         bytes: &[u8],
-        // Nothing a batch does depends on the time it came (kept for the
-        // hosts' calls).
-        _now: Millis,
+        // A batch's judged time is taken no further than the room's song
+        // time at `now` allows (`LiveRules::ahead_us`).
+        now: Millis,
     ) -> LiveOut {
         let mut out = LiveOut::default();
         let stage = self.stage.as_ref().map_or(StageId(0), |s| s.id);
@@ -466,7 +466,7 @@ impl LiveServer {
             Ok(wire::Binary::Batch(b)) => match self.stage.as_mut() {
                 Some(s) if s.id == b.stage => {
                     let ends = b.end.is_some();
-                    match s.accept(from, b) {
+                    match s.accept(from, b, now) {
                         // A stream's end may decide the stage: at once, so
                         // the decision comes before the run the same
                         // device reports next.
@@ -1113,10 +1113,18 @@ impl LiveStage {
         &mut self,
         from: ParticipantId,
         b: Batch,
+        now: Millis,
     ) -> Result<(), LiveRefusal> {
+        // Taken no further than the room's song time allows (round RFa).
+        let ahead = crate::live::song_us_at(self.song_zero_at, now).saturating_add(self.rules.ahead_us);
         let stage = self.id;
         let rules = self.rules;
         let checkpoints = self.ledger.as_ref().map_or(0, |l| l.checkpoints_us().len());
+        // The checkpoints its play could have been judged past by now: a
+        // report of a later one is passed over (round RFa).
+        let reached = self.ledger.as_ref().map_or(0, |l| {
+            l.checkpoints_us().partition_point(|&at| at <= ahead)
+        });
         let Some(c) = self.comps.get_mut(&from) else {
             return Err(LiveRefusal::NotInLineup { stage });
         };
@@ -1153,7 +1161,7 @@ impl LiveStage {
         }
         c.seq = b.seq;
         c.streamed = true;
-        c.through_us = c.through_us.max(b.through_us);
+        c.through_us = c.through_us.max(b.through_us.min(ahead));
         if let Some(m) = b.moments.last() {
             c.last = Some(*m);
         }
@@ -1163,7 +1171,7 @@ impl LiveStage {
             c.failed_us = earliest(c.failed_us, Some(i64::from(m.at_ms) * 1_000));
         }
         for r in b.reports {
-            if (r.k as usize) < checkpoints {
+            if (r.k as usize) < checkpoints.min(reached) {
                 c.reported = Some(c.reported.map_or(r.k, |k| k.max(r.k)));
                 c.reports.insert(r.k, r);
             }

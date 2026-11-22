@@ -113,6 +113,12 @@ pub struct LiveRules {
     /// are passed over, and its reader asks again.
     pub resumes_each: usize,
     pub resume_window_ms: u64,
+    /// How far past the room's own song time a stream's judged time and
+    /// its reports' checkpoints are taken (round RFa): a judged time
+    /// further on is taken as that far, a report of a checkpoint further
+    /// on passed over. A device is judged to its song time, on a clock
+    /// the room's within a fraction of a second.
+    pub ahead_us: i64,
 }
 
 /// `live-v1` (PROVISIONAL): a frame every 250 ms, batches every 250 ms,
@@ -148,6 +154,7 @@ pub const LIVE_V1: LiveRules = LiveRules {
     // (`FrameReader::RESUME_AGAIN_MS`) on each of a person's devices.
     resumes_each: 4,
     resume_window_ms: 2_000,
+    ahead_us: 5_000_000,
 };
 
 /// `live-v2` (PROVISIONAL, 2026-11-13): `live-v1`'s contract with a frame

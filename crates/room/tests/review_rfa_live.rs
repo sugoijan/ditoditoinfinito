@@ -473,3 +473,57 @@ fn a_relays_fold_steps_from_where_each_started() {
         serde_json::from_str(&json.replace(",\"start\":1", "")).unwrap();
     assert_eq!(old.competitors.len(), room.competitors.len());
 }
+
+/// The review's cheap bounds on what is self-reported: a stream's judged
+/// time is taken no further than `LiveRules::ahead_us` past the room's
+/// own song time (a recipient's judged time clears attacks against them),
+/// and a report of a checkpoint that far ahead is passed over (it was
+/// kept until its checkpoint, crediting power for whatever it said). An
+/// honest device is judged to its song time, its clock the room's within
+/// a fraction of a second.
+#[test]
+fn a_stream_is_taken_no_further_than_the_rooms_song_time() {
+    use ddi_room::attacks::Judged;
+    use ddi_room::live::stream::LiveReport;
+    let mut l = Live::new(true, 0);
+    l.wait(100);
+    let ana = l.ana;
+    let song_us = i64::from(l.song_ms()) * 1_000;
+    let ahead = LIVE_V2.ahead_us;
+    assert!(ahead >= 5_000_000);
+    let far = LiveReport {
+        k: 20,
+        judged: (0..300).map(|i| Judged { at_us: 40_000_000 + i * 1_000, tier: 0 }).collect(),
+        life_ppm: 1_000_000,
+        out_at_us: None,
+        targeting: None,
+        score: 1,
+    };
+    let b = Batch {
+        stage: l.stage,
+        seq: 1,
+        through_us: song_us + 60_000_000,
+        moments: Vec::new(),
+        reports: vec![far],
+        end: None,
+    };
+    assert_eq!(refused(&l.send(ana, &b)), None);
+    let through = |l: &Live| {
+        l.server
+            .stage()
+            .unwrap()
+            .snapshot(1, Millis(l.r.now))
+            .competitors
+            .iter()
+            .find(|c| c.participant == ana)
+            .unwrap()
+            .through_us
+    };
+    assert!(through(&l) <= song_us + ahead, "{} {}", through(&l), song_us);
+    // To past checkpoint 20's deadline: nothing of the report credited.
+    for _ in 0..500 {
+        l.wait(100);
+    }
+    let power = l.server.stage().unwrap().ledger().unwrap().power(ana);
+    assert_eq!(power, 0);
+}
