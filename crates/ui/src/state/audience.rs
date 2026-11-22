@@ -33,6 +33,7 @@ use ddi_room::{
 };
 
 use super::online::SharedOnline;
+use crate::screens::data::ChartEntry;
 use super::online::api::{self, AudienceTicketDoc, Problem};
 use super::room::{
     CpuSeat, LiveAsk, LiveOrder, LivePrep, LiveRoom, LoadJob, LoadProblem, Picked, SeatEnd, StageOrder,
@@ -710,6 +711,30 @@ impl AudienceClient {
             .unwrap_or_default()
     }
 
+    /// The chart player `p` starts stage `stage` on, as the members'
+    /// Players pop-up shows it (round LO; `RoomClient::start_shown`):
+    /// their own the view says (chosen, or locked once the start is
+    /// committed), else the stage's; a CPU's by its level
+    /// (`ddi_engine::ladder::cpu_start_in`, `cpu-start-v0`). None where
+    /// the stage is played as picked or its song is not read here yet.
+    pub fn start_shown(&self, stage: StageId, p: ParticipantId) -> Option<ChartEntry> {
+        let v = self.view()?;
+        if crate::state::room::public_rules_of(v, Some(stage)).0.charts != ddi_room::Charts::Adaptive {
+            return None;
+        }
+        let picked = &self.prepared.get(&stage)?.picked;
+        let charts = crate::state::room::start_line(&picked.song, &picked.chart);
+        let key = |c: &ChartEntry| c.digest.map(|d| d.to_string());
+        if let Some(PublicKind::Cpu { level, .. }) = v.players.iter().find(|x| x.id == p).map(|x| &x.kind) {
+            let line: Vec<(ddi_chart::Difficulty, u32)> = charts.iter().map(|c| (c.difficulty, c.meter)).collect();
+            return ddi_engine::ladder::cpu_start_in(&line, usize::from(*level)).map(|i| charts[i].clone());
+        }
+        let want = LiveRoom::start_of(self, stage, p)
+            .map(|k| k.as_str().to_string())
+            .or_else(|| key(&picked.chart))?;
+        charts.into_iter().find(|c| key(c).as_ref() == Some(&want)).cloned()
+    }
+
     /// The watched stage's song, prepared from the room's share.
     fn sync_loading(&mut self) {
         let Some(stage) = self.current_stage() else {
@@ -1135,8 +1160,10 @@ impl LiveRoom for AudienceClient {
     /// model revision 23, `PublicPlay::starts`).
     fn start_of(&self, stage: StageId, p: ParticipantId) -> Option<ddi_room::ChartKey> {
         let v = self.view()?;
-        let play = v.stages.iter().find(|s| s.id == stage)?.play.as_ref()?;
-        play.starts.iter().find(|(who, _)| *who == p).map(|(_, c)| c.clone())
+        let st = v.stages.iter().find(|s| s.id == stage)?;
+        // Locked once the start is committed; as chosen before (round LO).
+        let starts = st.play.as_ref().map_or(&st.starts, |play| &play.starts);
+        starts.iter().find(|(who, _)| *who == p).map(|(_, c)| c.clone())
     }
 
     fn tick(&mut self, now_ms: u64) {

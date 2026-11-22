@@ -1066,6 +1066,12 @@ impl Player {
         Ok(())
     }
 
+    /// The stage's chart (its place in the song): rung 0 of its ladder,
+    /// whatever chart the play started on ([`Player::start_on`]).
+    pub fn stage_chart(&self) -> usize {
+        self.chart_index
+    }
+
     /// The chart it plays from the last step's boundary on (its place in
     /// the song): its starting chart's ([`Player::start_on`]) before any
     /// step.

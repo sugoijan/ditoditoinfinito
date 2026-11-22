@@ -672,6 +672,11 @@ struct Wheel<'a> {
     /// is ([`would_play`]).
     preferred: Difficulty,
     picked: Option<(usize, usize)>,
+    /// A room's under Charts: Adaptive: the chart this player chose for
+    /// each song this session, what its row shows where nothing is picked
+    /// on it (round LO; the song's side shows the same,
+    /// [`room_mode::remembered_pick`]).
+    room: Option<&'a crate::state::room::SharedRoom>,
 }
 
 impl ListModel for Wheel<'_> {
@@ -747,7 +752,11 @@ impl ListModel for Wheel<'_> {
                 // song's row"). All of it from the data: nothing is read
                 // here, and rows are filled only as they come into view or
                 // when the difficulty kept changes.
-                let pick = self.picked.filter(|&(at, _)| at == s).map(|(_, p)| p);
+                let pick = self
+                    .picked
+                    .filter(|&(at, _)| at == s)
+                    .map(|(_, p)| p)
+                    .or_else(|| room_mode::remembered_pick(self.room?, song, &charts));
                 let chart = would_play(&charts, pick, self.preferred).map(|p| charts[p]);
                 if let Some(c) = chart {
                     set_text(item, "Level", &c.meter_text_fine());
@@ -946,7 +955,7 @@ pub struct SelectScreen {
     room: Option<room_mode::RoomMode>,
     /// What the list's rows were filled for: the difficulty kept and the
     /// chart picked on the song shown (the wheel's `picked`).
-    rows_for: (Difficulty, Option<(usize, usize)>),
+    rows_for: (Difficulty, Option<(usize, usize)>, u64),
 }
 
 /// The wheel's model over a screen's fields, each borrowed on its own
@@ -968,6 +977,7 @@ macro_rules! wheel_model {
                 (Some(Item::Song(s)), Some(p)) => Some((s, p)),
                 _ => None,
             },
+            $s.room.as_ref().map(|rm| &rm.room),
         )
     };
 }
@@ -1066,7 +1076,7 @@ impl SelectScreen {
             wheel_motion: None,
             open: 1.0,
             room: None,
-            rows_for: (preferred, None),
+            rows_for: (preferred, None, 0),
         };
         let resume = data.resume.clone();
         let resume_pack = data.resume_pack.clone();
@@ -4032,6 +4042,7 @@ fn wheel<'a>(
     compact: bool,
     preferred: Difficulty,
     picked: Option<(usize, usize)>,
+    room: Option<&'a crate::state::room::SharedRoom>,
 ) -> Wheel<'a> {
     let st = data.styles.get(style);
     Wheel {
@@ -4046,6 +4057,7 @@ fn wheel<'a>(
         banner_side: if compact { 96.0 } else { 224.0 },
         preferred,
         picked,
+        room,
     }
 }
 
@@ -4391,7 +4403,8 @@ impl Screen for SelectScreen {
             let model = wheel_model!(self);
             // Another difficulty kept, or a chart picked: each row's chart
             // may be another, so the rows shown are filled again in place.
-            let rows_for = (model.preferred, model.picked);
+            // A room's: a chart chosen for a song this session too.
+            let rows_for = (model.preferred, model.picked, room_mode::remembered_version(model.room));
             if rows_for != self.rows_for {
                 self.rows_for = rows_for;
                 self.list.refill();

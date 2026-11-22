@@ -1409,6 +1409,89 @@ fn the_audience_page_shows_the_picked_song_s_banner_once_the_share_is_read() {
     assert_eq!(view(&env).banner.as_deref(), Some("plate"));
 }
 
+/// Round LO: under Charts: Adaptive the audience's page shows each
+/// player's chart beside their name, as the members' Players pop-up
+/// does: the one they chose to start on (from the public view, before
+/// the start), else the stage's; once the stage's song is read here.
+#[test]
+fn the_audience_page_shows_each_players_own_chart() {
+    use ddi_chart::Difficulty;
+    use ddi_room::{Command, ContentStatus};
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 5_000);
+    let carol = Rc::new(RefCell::new(arrive(&server, "carol", AUDIENCE_LINK, 5_000).unwrap()));
+    let (_env, mut h, asked) = page_asking(&carol, [1280.0, 720.0]);
+    let step = |h: &mut crate::testing::Harness, alice: &mut RoomClient, bob: &mut RoomClient, ms| {
+        run(&clock, &server, &mut [alice, bob], &mut [&mut carol.borrow_mut()], ms);
+        h.run(0.3);
+    };
+    step(&mut h, &mut alice, &mut bob, 1_000);
+    let mut rules = alice.rules().clone();
+    rules.charts = ddi_room::Charts::Adaptive;
+    alice.save_rules(rules).unwrap();
+    step(&mut h, &mut alice, &mut bob, 1_000);
+    let chart = |d: Difficulty, meter: u32, k: usize| crate::screens::data::ChartEntry {
+        style: "dance-single".into(),
+        difficulty: d,
+        meter,
+        index: k,
+        digest: Some(ddi_chart::ChartDigest(20 + k as u128)),
+        ..Default::default()
+    };
+    let s = crate::screens::data::SongEntry {
+        id: "bundled:own".into(),
+        title: "Own Charts".into(),
+        charts: vec![
+            chart(Difficulty::Easy, 3, 0),
+            chart(Difficulty::Medium, 6, 1),
+            chart(Difficulty::Hard, 9, 2),
+        ],
+        ..Default::default()
+    };
+    alice.pick(&s, &s.charts[2]).unwrap();
+    step(&mut h, &mut alice, &mut bob, 2_000);
+    let stage = alice.stages()[0].id;
+    server
+        .borrow_mut()
+        .authority(Command::SetContentStatus {
+            stage,
+            status: ContentStatus::Available,
+            share: Some("sharex01".into()),
+        })
+        .unwrap();
+    // Bob chose Easy to start on.
+    let bob_id = bob.me();
+    server.borrow_mut().rewrite(|st| {
+        let m = st.current.as_mut().unwrap();
+        let stage = m.stages.iter_mut().find(|x| x.id == stage).unwrap();
+        stage.prep.entry(bob_id).or_default().start =
+            Some(ddi_room::ChartKey::new(ddi_chart::ChartDigest(20).to_string()));
+    });
+    step(&mut h, &mut alice, &mut bob, 2_000);
+    let charts = |carol: &AudienceClient| -> Vec<(String, Option<(u32, Difficulty)>)> {
+        crate::screens::audience::player_rows_of(carol)
+            .into_iter()
+            .map(|r| (r.name, r.chart))
+            .collect()
+    };
+    // Not read yet: no charts.
+    assert!(charts(&carol.borrow()).iter().all(|(_, c)| c.is_none()), "{:?}", charts(&carol.borrow()));
+    let jobs = asked.borrow().clone();
+    assert_eq!(jobs.len(), 1);
+    let mut found = s.clone();
+    found.id = jobs[0].song.clone();
+    carol
+        .borrow_mut()
+        .finish_load(&jobs[0], Ok((Picked { chart: found.charts[2].clone(), song: found }, None)));
+    step(&mut h, &mut alice, &mut bob, 200);
+    let shown = charts(&carol.borrow());
+    let of = |name: &str| shown.iter().find(|(n, _)| n == name).and_then(|(_, c)| *c);
+    assert_eq!(of("bob"), Some((3, Difficulty::Easy)), "{shown:?}");
+    assert_eq!(of("alice"), Some((9, Difficulty::Hard)), "the stage's: {shown:?}");
+}
+
 /// Round D3, item 3: a seat that joins between stages shows the last
 /// played stage's picture behind its card. No stage played yet: the
 /// rain, nothing asked. A stage played before the seat came: its song

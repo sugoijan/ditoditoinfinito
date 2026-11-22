@@ -193,11 +193,28 @@ fn a_start_is_locked_once_the_stage_starts() {
     let stage = s.pick(1);
     s.start(ana, stage, Some(chart(1, 0))).unwrap();
     s.start(bob, stage, Some(chart(1, 1))).unwrap();
+    // Round LO: before the start the audience is told them as chosen (its
+    // page shows each player's chart, as the members' Players pop-up
+    // does); Bob's taken back and chosen again changes it there too.
+    let stage_view = |s: &Starts| {
+        audience::PublicView::of(&s.r.s, "Room")
+            .stages
+            .into_iter()
+            .find(|p| p.id == stage)
+            .unwrap()
+    };
+    assert_eq!(stage_view(&s).starts, vec![(ana, chart(1, 0)), (bob, chart(1, 1))]);
+    assert!(stage_view(&s).play.is_none());
+    s.start(bob, stage, None).unwrap();
+    assert_eq!(stage_view(&s).starts, vec![(ana, chart(1, 0))]);
+    s.start(bob, stage, Some(chart(1, 1))).unwrap();
     for who in [host, ana, bob] {
         s.r.load_for(who, stage, Loading::Loaded).unwrap();
         s.r.ready_for(who, stage, true).unwrap();
     }
     assert!(matches!(s.r.s.phase, Phase::Countdown { .. }), "{:?}", s.r.s.phase);
+    // Committed: the play's, locked; the stage's own list empty.
+    assert!(stage_view(&s).starts.is_empty());
     assert_eq!(s.start(ana, stage, Some(chart(1, 1))), Err(Rejection::StartCommitted));
     assert_eq!(s.start(ana, stage, None), Err(Rejection::StartCommitted));
     assert_eq!(s.start_of(stage, ana), Some(chart(1, 0)));

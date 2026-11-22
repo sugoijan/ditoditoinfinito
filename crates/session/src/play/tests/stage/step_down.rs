@@ -753,6 +753,18 @@ fn everyone_starts_on_their_own_chart_from_the_first_note() {
     // numbers.
     let own: Vec<u8> = battle.own_feed().steps().map(|s| s.2).collect();
     assert_eq!(own, steps.iter().map(|s| s.rung).collect::<Vec<_>>());
+    // Round LO: the results' title line names the chart the player
+    // started on and the one they finished on, never the stage's Hard.
+    let end = a.player.chart_now();
+    assert_eq!(a.charts_played(), Some((easy, end)));
+    assert_ne!(end, easy, "climbed");
+    let line = ddi_ui::screens::prompt::chart_line_played(&song, (easy, end), "Single");
+    let named = |i: usize| {
+        let number = ddi_ui::state::ratings::shown_number(&song, i).unwrap_or_else(|| song.charts[i].meter.to_string());
+        format!("{} {number}", song.charts[i].difficulty.name())
+    };
+    assert_eq!(line, format!("{} → {} · Single", named(easy), named(end)));
+    assert!(!line.contains(&named(HARD)) || end == HARD, "{line}");
     // The details say where each started.
     for (p, d) in &oa.details {
         if *p == order.me {

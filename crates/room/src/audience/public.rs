@@ -287,6 +287,15 @@ pub struct PublicStage {
     /// `Stage::last`; additive, left out while false).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub last: bool,
+    /// Under Charts: Adaptive, before its start is committed, the
+    /// players who chose a chart of their own to start on and which, as
+    /// they choose it (room model revision 23, `RoomState::start_of`;
+    /// every member's Players pop-up shows them): what the audience's
+    /// page shows beside each name (round LO). Once the start is
+    /// committed, [`PublicPlay::starts`] says them, locked. Additive:
+    /// left out while empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub starts: Vec<(ParticipantId, ChartKey)>,
 }
 
 /// A committed stage as the audience sees it.
@@ -315,6 +324,12 @@ pub struct PublicPlay {
 
 fn public_stage(m: Option<&crate::state::Match>, s: &Stage) -> PublicStage {
     let content = s.content.as_ref();
+    let adaptive = m.is_some_and(|m| m.rules_for(s.id).charts == crate::rules::Charts::Adaptive);
+    // A chart of their own, not the stage's.
+    let own = |id: &ParticipantId| {
+        let own = s.prep.get(id)?.start.clone()?;
+        (content.is_none_or(|c| c.id.chart != own)).then_some((*id, own))
+    };
     let status = match content.map(|c| &c.status) {
         None => PublicContent::None,
         Some(ContentStatus::Pending) => PublicContent::Pending,
@@ -334,6 +349,11 @@ fn public_stage(m: Option<&crate::state::Match>, s: &Stage) -> PublicStage {
             .filter(|m| m.stage_rules_changed(s.id))
             .map(|m| PublicRules::of(&m.rules_for(s.id))),
         last: s.last,
+        starts: if adaptive && s.play.is_none() {
+            s.prep.keys().filter_map(own).collect()
+        } else {
+            Vec::new()
+        },
         play: s.play.as_ref().map(|p| PublicPlay {
             lineup: p.lineup.iter().copied().collect(),
             start_at: p.start_at,
@@ -342,14 +362,8 @@ fn public_stage(m: Option<&crate::state::Match>, s: &Stage) -> PublicStage {
             interrupted: p.interrupted,
             result: p.result.clone(),
             details: p.details.iter().map(|(k, d)| (*k, d.clone())).collect(),
-            starts: if m.is_some_and(|m| m.rules_for(s.id).charts == crate::rules::Charts::Adaptive) {
-                p.lineup
-                    .iter()
-                    .filter_map(|id| {
-                        let own = s.prep.get(id)?.start.clone()?;
-                        (content.is_none_or(|c| c.id.chart != own)).then_some((*id, own))
-                    })
-                    .collect()
+            starts: if adaptive {
+                p.lineup.iter().filter_map(own).collect()
             } else {
                 Vec::new()
             },

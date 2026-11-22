@@ -2337,7 +2337,16 @@ impl Host {
             ruleset: &session.rules,
             layout: &session.layout,
             song,
-            chart: r.prompt.borrow().info.chart.clone(),
+            // A stage whose charts step: the chart the player started on,
+            // and where they finished (round LO), not the stage's.
+            chart: match session.charts_played() {
+                Some(charts) => ddi_ui::screens::prompt::chart_line_played(
+                    &loaded.song,
+                    charts,
+                    &ddi_ui::screens::data::style_name(&session.layout.id, &session.layout.name),
+                ),
+                None => r.prompt.borrow().info.chart.clone(),
+            },
             song_id: id.clone(),
             song_offset: (play.played_offset, settings.song_offset(&id)),
             device_changed,

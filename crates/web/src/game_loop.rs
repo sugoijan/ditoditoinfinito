@@ -252,6 +252,12 @@ impl GameLoop {
 
     /// The stage just played was drawn by a final attack's knockout
     /// (`ddi_room::attacks::SETTLEMENT_V1`): its results say so.
+    /// The charts the player played a stage on where they step: started
+    /// on, finished on (`PlaySession::charts_played`, round LO).
+    pub(crate) fn charts_played(&self) -> Option<(usize, usize)> {
+        self.session.as_ref().and_then(|s| s.charts_played())
+    }
+
     pub(crate) fn drawn_by_final_attack(&self) -> bool {
         self.session
             .as_ref()

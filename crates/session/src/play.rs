@@ -1763,6 +1763,24 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         self.battle.as_ref()
     }
 
+    /// The charts the local player played a stage on where its charts
+    /// step (a match's "Charts: Adaptive"), each its place in the song:
+    /// the one they started on (their own, room model revision 23, else
+    /// the stage's) and the one they finished on. `None` outside such a
+    /// stage, and for one who only watched it. What the results' title
+    /// line names (round LO).
+    pub fn charts_played(&self) -> Option<(usize, usize)> {
+        let b = self.battle.as_ref()?;
+        if b.rungs().is_empty() || !b.competes() {
+            return None;
+        }
+        let start = match usize::from(b.my_start()).checked_sub(1) {
+            Some(i) => b.rungs().get(i)?.chart,
+            None => self.player.stage_chart(),
+        };
+        Some((start, self.player.chart_now()))
+    }
+
     /// TESTING ONLY ([`Battle::delay_fields_for_tests`]).
     pub fn delay_fields_for_tests(&mut self, seconds: f64) {
         if let Some(b) = self.battle.as_mut() {

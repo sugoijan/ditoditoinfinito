@@ -3421,14 +3421,21 @@ impl GameCanvas {
         };
         let settings = Settings::load();
         let played = song.song.charts.get(chart);
-        let chart_line = match played {
-            Some(c) => ddi_ui::screens::prompt::chart_line_rated(
+        let style = ddi_ui::screens::data::style_name(&layout.id, &layout.name);
+        // A stage whose charts step: the chart the player started on, and
+        // where they finished (round LO), not the stage's.
+        let charts_played = self.game.borrow().as_ref().and_then(|g| g.charts_played());
+        let chart_line = match (charts_played, played) {
+            (Some(charts), _) => {
+                ddi_ui::screens::prompt::chart_line_played(&song.song, charts, &style)
+            }
+            (None, Some(c)) => ddi_ui::screens::prompt::chart_line_rated(
                 c.difficulty,
                 c.meter,
                 ddi_ui::state::ratings::shown_number(&song.song, chart),
-                &ddi_ui::screens::data::style_name(&layout.id, &layout.name),
+                &style,
             ),
-            None => layout.name.clone(),
+            (None, None) => layout.name.clone(),
         };
         let song_entry = SongEntry {
             title: song.title.clone(),

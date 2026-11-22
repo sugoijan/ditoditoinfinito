@@ -48,6 +48,9 @@ pub struct Starts {
     /// the room's session: on the song list's song side or on a stage's
     /// Ready card.
     pub(super) by_song: BTreeMap<String, ChartKey>,
+    /// Counts the changes to `by_song` (the room's song rows are filled
+    /// again for one, round LO).
+    pub(super) changes: u64,
     /// The difficulty this player usually plays (song select's, kept as
     /// StepMania keeps it: the last one picked; Hard where none).
     pub(super) preferred: Difficulty,
@@ -61,6 +64,7 @@ impl Default for Starts {
         Starts {
             rule: StartRule::Preferred,
             by_song: BTreeMap::new(),
+            changes: 0,
             preferred: Difficulty::Hard,
             sent: None,
         }
@@ -115,12 +119,20 @@ impl RoomClient {
         };
         // This device's own memory: nothing of the room changes (no
         // version: the screens are not built again for it).
-        self.starts.by_song.insert(song, chart);
+        if self.starts.by_song.insert(song, chart.clone()) != Some(chart) {
+            self.starts.changes += 1;
+        }
     }
 
     /// The chart remembered for `song`, if one was chosen this session.
     pub fn remembered_start(&self, song: &SongEntry) -> Option<&ChartKey> {
         self.starts.by_song.get(&song_key(song)?)
+    }
+
+    /// Counts the changes to the charts remembered for songs: the room's
+    /// song rows show them (round LO).
+    pub fn remembered_version(&self) -> u64 {
+        self.starts.changes
     }
 
     /// The stage's charts are each player's own (its Charts rule is

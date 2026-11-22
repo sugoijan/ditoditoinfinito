@@ -495,6 +495,36 @@ fn players_count(v: &PublicView) -> String {
 /// room's order (by place once placed). Only what the public view
 /// carries: no readiness, no connection, no policy.
 pub fn player_rows(v: &PublicView) -> Vec<super::room::PlayerRow> {
+    rows_charted(v, &|_| None)
+}
+
+/// [`player_rows`] with each player's chart for the stage the room is on
+/// under Charts: Adaptive, as the members' Players pop-up shows it (round
+/// LO, `AudienceClient::start_shown`): its level number in its
+/// difficulty's color beside the name; none for one out of the match, or
+/// not in the lineup once the start is committed.
+pub(crate) fn player_rows_of(a: &AudienceClient) -> Vec<super::room::PlayerRow> {
+    let Some(v) = a.view() else {
+        return Vec::new();
+    };
+    let stage = a.current_stage();
+    let lineup = stage
+        .and_then(|id| v.stages.iter().find(|s| s.id == id))
+        .and_then(|s| s.play.as_ref())
+        .map(|p| p.lineup.clone());
+    rows_charted(v, &|p| {
+        if lineup.as_ref().is_some_and(|l| !l.contains(&p)) {
+            return None;
+        }
+        let c = a.start_shown(stage?, p)?;
+        Some((c.meter, c.difficulty))
+    })
+}
+
+fn rows_charted(
+    v: &PublicView,
+    chart_of: &dyn Fn(ddi_room::ParticipantId) -> Option<(u32, ddi_chart::Difficulty)>,
+) -> Vec<super::room::PlayerRow> {
     use super::room::{PlayerRow, Tone as RowTone};
     let placed = v.standings.iter().any(|st| {
         st.stages
@@ -549,7 +579,7 @@ pub fn player_rows(v: &PublicView) -> Vec<super::room::PlayerRow> {
                     RowTone::Plain
                 },
                 policy: String::new(),
-                chart: None,
+                chart: if p.out_for_match { None } else { chart_of(p.id) },
                 id: None,
                 manage: false,
                 kick: false,
@@ -862,7 +892,7 @@ impl AudienceScreen {
         }
         buttons.push((LEAVE_BUTTON, m::audience_leave().into(), "Button"));
         let bh = if self.zoom > 1.0 { 48.0 } else { 40.0 };
-        let rows = a.view().map(player_rows).unwrap_or_default();
+        let rows = player_rows_of(&a);
         let words = (
             String::from(m::players()),
             a.view().map(players_count).unwrap_or_default(),

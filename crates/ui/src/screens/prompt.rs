@@ -711,6 +711,27 @@ pub fn chart_line_rated(
     format!("{difficulty} · {style}")
 }
 
+/// A stage's chart line where its charts step (a match's "Charts:
+/// Adaptive", round LO): chart `start` of `song`, the one the player
+/// started on (their own), and where they finished on another, that one
+/// after it ("Easy 3 → Medium 7 · Single"), each as [`chart_line_rated`]
+/// names it.
+pub fn chart_line_played(song: &ddi_chart::Song, (start, end): (usize, usize), style: &str) -> String {
+    let named = |i: usize| {
+        song.charts.get(i).map(|c| {
+            let number = crate::state::ratings::shown_number(song, i).unwrap_or_else(|| c.meter.to_string());
+            UiText::data(format!("{} {number}", c.difficulty.name()))
+        })
+    };
+    let charts: String = match (named(start), named(end)) {
+        (Some(s), Some(e)) if start != end => ddi_l10n::msg::room::table_started_moved(s, e).into(),
+        (Some(s), _) => s.into(),
+        (None, Some(e)) => e.into(),
+        (None, None) => return style.to_string(),
+    };
+    format!("{charts} · {style}")
+}
+
 /// The quiet line on a shared song's files coming down, `done` of `total`
 /// bytes (0: not known yet), on the prompt and in song select's notices.
 pub fn download_line(done: f64, total: f64) -> String {

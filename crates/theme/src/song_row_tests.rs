@@ -396,3 +396,48 @@ fn a_best_that_comes_later_shows_on_its_row_in_place() {
     );
     assert_eq!(at(&h), before);
 }
+
+/// Round LO: under Charts: Adaptive a room's row shows the chart this
+/// player chose for its song this session (on its side or on a stage's
+/// Ready card), as its side does; a song with none shows the chart song
+/// select would give (the difficulty kept). Before, every row showed the
+/// latter.
+#[test]
+fn a_rooms_row_shows_the_chart_chosen_for_its_song() {
+    assert!(ddi_l10n::force("en"));
+    ddi_ui::state::ratings::set_mode(ddi_ui::state::ratings::Source::Song, false);
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let mut data = five();
+    for (s, song) in data.songs.iter_mut().enumerate() {
+        for c in &mut song.charts {
+            c.digest = Some(ddi_chart::ChartDigest((s * 10 + c.index) as u128 + 1));
+        }
+    }
+    let mine = data.songs[2].clone();
+    let easy = mine.charts.iter().find(|c| c.difficulty == Difficulty::Easy).unwrap().clone();
+    let room = ddi_ui::state::room::RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    assert!(room.borrow().songs_without_charts(), "practice plays Adaptive");
+    room.borrow_mut().remember_start(&mine, &easy);
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(
+        SelectScreen::new(
+            env.clone(),
+            data,
+            Some("never"),
+            Rc::new(|_, _, _: &Env, _| {}),
+            Rc::new(|_, _| {}),
+        )
+        .with_room(room.clone(), Rc::new(|_, _| {})),
+    );
+    h.run(1.0);
+    let rows = rows(&h);
+    assert_eq!(rows["mine"].level, easy.meter.to_string(), "its own Easy");
+    assert_eq!(rows["other"].level, "8", "the Hard kept");
+    // Another chart chosen for it later: its row follows.
+    let medium = mine.charts.iter().find(|c| c.difficulty == Difficulty::Medium).unwrap().clone();
+    room.borrow_mut().remember_start(&mine, &medium);
+    h.run(0.2);
+    assert_eq!(super::song_row_tests::rows(&h)["mine"].level, medium.meter.to_string());
+}

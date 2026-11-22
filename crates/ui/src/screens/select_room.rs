@@ -891,15 +891,7 @@ impl SelectScreen {
     /// this session (chosen on its side or on a stage's Ready card): what
     /// its side shows where nothing was picked on it since it was shown.
     pub(super) fn room_remembered_pick(&self, song: &SongEntry, charts: &[&ChartEntry]) -> Option<usize> {
-        let rm = self.room.as_ref()?;
-        let r = rm.room.try_borrow().ok()?;
-        if !r.songs_without_charts() {
-            return None;
-        }
-        let key = r.remembered_start(song)?;
-        charts
-            .iter()
-            .position(|c| c.digest.is_some_and(|d| d.to_string() == key.as_str()))
+        remembered_pick(&self.room.as_ref()?.room, song, charts)
     }
 
     /// The chart picked on the song's side under Charts: Adaptive (round
@@ -1953,6 +1945,31 @@ impl SelectScreen {
 
 /// Plays `command` on the parts named `names` among `parts`.
 /// The tab a target is on, if one.
+/// Under Charts: Adaptive (round OC) the chart of `charts` (`song`'s, in
+/// the style shown) remembered for `song` this session, chosen on its
+/// side or on a stage's Ready card: what its side and its row show where
+/// nothing was picked on it since it was shown (round LO, the row).
+pub(super) fn remembered_pick(
+    room: &crate::state::room::SharedRoom,
+    song: &SongEntry,
+    charts: &[&ChartEntry],
+) -> Option<usize> {
+    let r = room.try_borrow().ok()?;
+    if !r.songs_without_charts() {
+        return None;
+    }
+    let key = r.remembered_start(song)?;
+    charts
+        .iter()
+        .position(|c| c.digest.is_some_and(|d| d.to_string() == key.as_str()))
+}
+
+/// Counts the changes to the charts remembered for songs: the rows are
+/// filled again for one ([`remembered_pick`]).
+pub(super) fn remembered_version(room: Option<&crate::state::room::SharedRoom>) -> u64 {
+    room.and_then(|r| r.try_borrow().ok()).map_or(0, |r| r.remembered_version())
+}
+
 /// Who chose listed song `song` (revision 22), as its row says it: this
 /// player as "you" first, then the others in the draw's order; two names
 /// at most, else the first and how many more. None: nobody.
