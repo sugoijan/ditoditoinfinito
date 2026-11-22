@@ -381,3 +381,37 @@ fn a_stalls_backlog_is_cut_within_the_rooms_bounds() {
     assert_eq!(l.seq(ana), 3);
     assert_eq!(l.server.stage().unwrap().end(ana), Some(StreamEnd::Finished));
 }
+
+/// Finding 5: the audience's frames carried the players' changes of
+/// attack policy during a play (`AttackEvent::Retargeted` in the
+/// checkpoints' records), which the public view promises never to show
+/// (targeting); the coalesced frame leaves them out, the rest of each
+/// record as it was.
+#[test]
+fn the_audiences_frames_never_say_a_players_attack_policy() {
+    use ddi_room::attacks::{AttackEvent, CheckpointRecord, Targeting};
+    use ddi_room::audience::frames::coalesce;
+    use ddi_room::live::stream::{CheckpointNews, Frame};
+    let record = CheckpointRecord {
+        at_us: 2_000_000,
+        power: vec![(ParticipantId(1), 40), (ParticipantId(2), 60)],
+        events: vec![
+            AttackEvent::Retargeted { participant: ParticipantId(2), targeting: Targeting::Leader },
+            AttackEvent::Cleared { attack: 3 },
+        ],
+    };
+    let frame = Frame {
+        stage: StageId(1),
+        n: 7,
+        at: Millis(10),
+        entries: Vec::new(),
+        commitments: Vec::new(),
+        checkpoints: vec![CheckpointNews { k: 0, record }],
+        settling: None,
+    };
+    let f = coalesce(StageId(1), 1, Millis(20), &[frame]);
+    assert_eq!(f.checkpoints.len(), 1);
+    let events = &f.checkpoints[0].record.events;
+    assert_eq!(events, &vec![AttackEvent::Cleared { attack: 3 }]);
+    assert_eq!(f.checkpoints[0].record.power.len(), 2);
+}

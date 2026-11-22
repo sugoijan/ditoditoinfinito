@@ -73,7 +73,15 @@ pub fn coalesce(stage: StageId, n: u32, at: Millis, frames: &[Frame]) -> Frame {
             }
         }
         commitments.extend(f.commitments.iter().copied());
-        checkpoints.extend(f.checkpoints.iter().cloned());
+        // A player's change of attack policy is theirs and the room's
+        // (`crate::audience::public`: never targeting): left out (round
+        // RFa).
+        checkpoints.extend(f.checkpoints.iter().cloned().map(|mut c| {
+            c.record
+                .events
+                .retain(|e| !matches!(e, crate::attacks::AttackEvent::Retargeted { .. }));
+            c
+        }));
         if f.settling.is_some() {
             settling = f.settling;
         }
