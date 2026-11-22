@@ -453,9 +453,21 @@ impl RoomClient {
         // Stopped: what a stage plays over, what gathering readiness for
         // another song wants the link for, what the plan no longer wants.
         let planned = self.planned(&wanted, rule);
+        // A stage's own load reads into the same store: what it reads is
+        // not downloaded ahead a second time at once (review 2026-11-22,
+        // room-client 5).
+        let read_for_stage: std::collections::BTreeSet<RoomSongId> = self
+            .room_songs()
+            .iter()
+            .filter(|e| self.stage_reads(e))
+            .map(|e| e.id)
+            .collect();
         let mut stopped = false;
         for (id, g) in &mut self.ahead.got {
-            let keep = !paused && planned.contains(id) && (!gathering || ranked_first(&wanted, *id));
+            let keep = !paused
+                && planned.contains(id)
+                && (!gathering || ranked_first(&wanted, *id))
+                && !read_for_stage.contains(id);
             if g.song.asked() && !keep {
                 if let Some(stop) = g.stop.take() {
                     stop.stop();
@@ -512,6 +524,9 @@ impl RoomClient {
                 continue;
             }
             // A stage's own load reads it already.
+            if read_for_stage.contains(id) {
+                continue;
+            }
             let e = self.room_songs().iter().find(|e| e.id == *id).cloned();
             if e.as_ref()
                 .is_none_or(|e| self.entry_state(e) == EntryState::Loading)
@@ -584,6 +599,21 @@ impl RoomClient {
                 out
             }
         }
+    }
+
+    /// Whether a stage not yet played reads `entry`'s song here now: its
+    /// load handed to the shell for this readiness and not done (it may
+    /// not show in the room yet, its Loading still on the way).
+    fn stage_reads(&self, entry: &RoomSong) -> bool {
+        let me = self.me;
+        self.stages().iter().any(|st| {
+            st.play.is_none()
+                && st.content.as_ref().is_some_and(|c| {
+                    c.id.song == entry.key && !self.picks.contains_key(&c.id)
+                })
+                && self.asked.contains(&(st.id, st.readiness_rev))
+                && !matches!(st.prep(me).loading, ddi_room::Loading::Failed { .. })
+        })
     }
 
     /// Where `entry` comes in the plan: 0 a stage's song not yet played, 1

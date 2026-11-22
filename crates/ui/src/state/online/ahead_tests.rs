@@ -371,3 +371,63 @@ fn a_pack_is_added_up_to_the_list_s_room_and_its_uploads_are_counted() {
     assert_eq!(alice.pack_progress(), None);
     assert!(alice.pack_addable(&pack).is_empty());
 }
+
+/// Review 2026-11-22, room-client 5: the song being downloaded ahead is
+/// picked: the stage's own load reads it (into the same store), so the
+/// download ahead of it stops rather than fetch the same files a second
+/// time at once, on the link the stage's loading wait counts on; nothing
+/// ahead is asked for it again while the stage's load reads it.
+#[test]
+fn a_song_picked_while_downloaded_ahead_is_fetched_once() {
+    let clock = ManualClock::new(1_000);
+    let server = room_with(&clock, &["bob"], RoomPolicy::default().with_live());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+    bob.set_ahead(Some(RoomAhead::Everything));
+    for _ in 0..20 {
+        tick(&clock, &mut [&mut alice, &mut bob], 100);
+    }
+    let all: Vec<SongEntry> = (0..3)
+        .map(|i| packed(&format!("t{i}"), &format!("T{i}"), 80 + i))
+        .collect();
+    alice.set_library(&all);
+    for s in &all {
+        alice.add_song(s).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 100);
+    }
+    uploaded(&server, &alice);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let mut running: Vec<(RoomSongId, crate::state::room::Stop)> = Vec::new();
+    for _ in 0..3 {
+        for j in bob.take_preload_jobs() {
+            match j {
+                PreloadJob::Listing { song, share, .. } => {
+                    bob.preload_listed(song, Ok(listing(&share, 6_000_000)));
+                }
+                PreloadJob::Song { song, stop, .. } => running.push((song, stop)),
+                _ => {}
+            }
+        }
+        tick(&clock, &mut [&mut alice, &mut bob], 100);
+    }
+    assert_eq!(running.len(), 2);
+    // The host picks the newest, downloading here.
+    let (newest, stop) = running[0].clone();
+    let entry = alice.room_songs().iter().find(|e| e.id == newest).unwrap().clone();
+    alice.pick_listed(entry.id, &entry.charts[0].chart).unwrap();
+    for _ in 0..3 {
+        tick(&clock, &mut [&mut alice, &mut bob], 100);
+    }
+    let loads = bob.take_load_jobs();
+    assert_eq!(loads.len(), 1, "the stage's own load");
+    assert_eq!(loads[0].store.as_deref(), Some("Room000001"));
+    assert!(stop.stopped(), "the download ahead of the same song stopped");
+    bob.preload_done(newest, Err(PreloadProblem::Stopped));
+    for _ in 0..3 {
+        tick(&clock, &mut [&mut alice, &mut bob], 100);
+    }
+    assert!(
+        !songs(&bob.take_preload_jobs()).contains(&newest),
+        "not asked again while the stage's load reads it"
+    );
+}
