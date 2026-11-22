@@ -452,7 +452,7 @@ pub(crate) fn room(id: &str) -> SharedRoom {
         forget_store_of(&old);
     }
     let room = KEPT.with(|k| {
-        let room = k.room_or(id, || {
+        k.room_or(id, || {
             // TESTING ONLY: the fake room in the page (`crate::fake_room`).
             if crate::fake_room::on() && id == crate::fake_seat::ROOM {
                 return crate::fake_room::member();
@@ -464,8 +464,7 @@ pub(crate) fn room(id: &str) -> SharedRoom {
                 client_id(),
                 now_ms(),
             )))
-        });
-        room
+        })
     });
     // Another room left on the way is told (its socket may be down).
     drive_leaving();
