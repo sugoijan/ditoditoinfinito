@@ -457,11 +457,11 @@
   steps: rung 2@31.48, rung 3@45.25, rung 4@57.05
   left at its prompt: P2 > P4 > P3 > P1f · mine Forfeit · policy Spread
 == adaptive, watched
-  digest: 0xb817659d98abe713 (4167 lines)
+  digest: 0x74d83086031926a7 (4167 lines)
   outcome: P4 > P2 > P3 > P5 · watched · mine Forfeit · policy Spread
-    P2: score Some(1695961) percent Some(7207) grade "B" life 1000000 out None combo 101 tiers [42, 34, 80, 36, 3, 5, 4] sent Some(2) taken Some(1) shocks Some(0) chart None
-    P3: score Some(1516475) percent Some(6847) grade "B" life 970000 out None combo 56 tiers [21, 31, 70, 36, 7, 4, 3] sent Some(1) taken Some(1) shocks Some(2) chart None
-    P4: score Some(1740222) percent Some(8174) grade "A" life 1000000 out None combo 78 tiers [34, 35, 55, 30, 1, 1, 0] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P2: score Some(1695961) percent Some(7207) grade "B" life 1000000 out None combo 101 tiers [42, 34, 80, 36, 3, 5, 4] sent Some(2) taken Some(1) shocks Some(0) chart Some("Hard")
+    P3: score Some(1516475) percent Some(6847) grade "B" life 970000 out None combo 56 tiers [21, 31, 70, 36, 7, 4, 3] sent Some(1) taken Some(1) shocks Some(2) chart Some("Hard")
+    P4: score Some(1740222) percent Some(8174) grade "A" life 1000000 out None combo 78 tiers [34, 35, 55, 30, 1, 1, 0] sent Some(1) taken Some(1) shocks Some(1) chart Some("Hard")
     P5: score Some(1383511) percent Some(7217) grade "B" life 1000000 out None combo 35 tiers [13, 22, 29, 41, 6, 1, 0] sent Some(0) taken Some(1) shocks Some(1) chart Some("Medium")
   told: MatchBegin@0.02
   left at its prompt: P4 > P2 > P3 > P5 · watched · mine Forfeit · policy Spread
