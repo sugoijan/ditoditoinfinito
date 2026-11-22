@@ -301,6 +301,13 @@ pub fn discard() {
     }
 }
 
+/// The rooms left whose Leave their room has not read yet (their socket
+/// was down: review 2026-11-22, room-client 4) driven (`Kept::drive_leaving`);
+/// the shell's loop runs it while any is. Whether any still is.
+pub fn drive_leaving() -> bool {
+    KEPT.with(Kept::leaving) && KEPT.with(|k| k.drive_leaving(crate::clock::now_ms()))
+}
+
 /// The songs room `room` downloaded on this device deleted (its store).
 fn forget_store_of(room: &SharedRoom) {
     let store = match room.try_borrow() {

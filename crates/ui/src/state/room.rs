@@ -94,6 +94,16 @@ pub const STARTING_CPUS: usize = 3;
 /// sends nothing.
 pub const SPOTLIGHT_REST_MS: u64 = 3_000;
 
+/// How long an online room left while its socket was down is still
+/// driven to tell the room (its Leave sent once the socket has the room
+/// again: [`RoomClient::leaving`], `online::kept::Kept::drive_leaving`),
+/// milliseconds; past it the link is shut and the room counts the member
+/// away until its own patience ends, as before (review 2026-11-22,
+/// room-client 4). A socket on a working network has the room again
+/// within a second or two (the reconnect tried at once, a ticket and the
+/// socket's first snapshot).
+pub const LEAVE_WAIT_MS: u64 = 10_000;
+
 /// The stage id the spotlight's upload and download go under (stages are
 /// numbered from 1): the server's grant for "no stage" (M7b).
 pub const SPOTLIGHT: StageId = StageId(0);
@@ -1430,6 +1440,10 @@ pub struct RoomClient {
     /// sent between two ticks may be the first to read the new socket's
     /// room; review 2026-11-22, room-client 1).
     link_seen: LinkState,
+    /// When this player left the online room ([`Self::leave`]): its link
+    /// is driven until the room has read their Leave, [`LEAVE_WAIT_MS`]
+    /// at most.
+    left_at: Option<u64>,
     mirror: Mirror,
     me: ParticipantId,
     picks: BTreeMap<ContentId, Picked>,
@@ -2224,6 +2238,7 @@ impl RoomClient {
             unanswered: None,
             ready_asked: None,
             link_seen: LinkState::Joining,
+            left_at: None,
             mirror: Mirror::new(),
             me,
             picks: BTreeMap::new(),
@@ -2879,6 +2894,7 @@ impl RoomClient {
     /// wants it by then.
     pub fn chat_kept(&self) -> Option<crate::state::twitch::KeptChat> {
         if !self.is_online()
+            || self.left_at.is_some()
             || !matches!(self.link_state(), LinkState::Connected | LinkState::Reconnecting { .. })
             || self.state().member(self.me).is_none_or(|m| m.is_bot())
         {
@@ -3250,13 +3266,73 @@ impl RoomClient {
     }
 
     /// Leave an online room: the room told (the member's row kept with
-    /// its results, marked left), the socket closed when it answers.
+    /// its results, marked left), the socket closed when it answers. A
+    /// socket down meanwhile (Reconnecting) is tried again at once and the
+    /// Leave sent once it has the room (kept unanswered until then), so
+    /// that the room is told rather than left to count the member away
+    /// (review 2026-11-22, room-client 4): the shells keep driving the
+    /// left client's link ([`Self::drive_leave`]) until then,
+    /// [`LEAVE_WAIT_MS`] at most. The room's chat closes at once.
     pub fn leave(&mut self) {
-        if self.is_online() && self.link_state() == LinkState::Connected {
-            let _ = self.send(Command::Leave);
-        } else if let Some(l) = self.online_link_mut() {
-            l.authority.shut();
+        if !self.is_online() {
+            return;
         }
+        let now = self.now_ms();
+        crate::state::twitch::keep_room_chat(None, now);
+        if self.left_at.is_some() {
+            return;
+        }
+        if self.link_state().ended() {
+            if let Some(l) = self.online_link_mut() {
+                l.authority.shut();
+            }
+            return;
+        }
+        self.left_at = Some(now);
+        if let Some(l) = self.online_link_mut() {
+            l.hurry();
+        }
+        let _ = self.send(Command::Leave);
+    }
+
+    /// Whether this player left the online room and the room has not
+    /// read it yet (nor was it given up: [`LEAVE_WAIT_MS`]): its link is
+    /// still to be driven ([`Self::drive_leave`]).
+    pub fn leaving(&self) -> bool {
+        self.left_at.is_some() && !self.link_state().ended()
+    }
+
+    /// A left room's link driven alone (no screen shows the room any
+    /// more): its answers and tickets read, its socket opened again and
+    /// the Leave sent once it has the room; nothing else of the room is
+    /// done. Whether it is still [`Self::leaving`].
+    pub fn drive_leave(&mut self, now_ms: u64) -> bool {
+        if now_ms > self.now_ms() {
+            self.clock.set(now_ms);
+        }
+        if let Link::Online(l) = &mut self.link {
+            l.tick(now_ms);
+            let _ = ddi_room::RoomAuthority::poll(&mut l.authority);
+        }
+        self.leave_due()
+    }
+
+    /// A Leave the room has not read within [`LEAVE_WAIT_MS`] given up:
+    /// the link shut. Whether it is still [`Self::leaving`].
+    fn leave_due(&mut self) -> bool {
+        let Some(at) = self.left_at else {
+            return false;
+        };
+        if self.link_state().ended() {
+            return false;
+        }
+        if self.now_ms() >= at.saturating_add(LEAVE_WAIT_MS) {
+            if let Some(l) = self.online_link_mut() {
+                l.authority.shut();
+            }
+            return false;
+        }
+        true
     }
 
     /// The local player.
@@ -3334,6 +3410,9 @@ impl RoomClient {
             && l.tick(now_ms)
         {
             self.version += 1;
+        }
+        if self.left_at.is_some() {
+            self.leave_due();
         }
         self.settle_twitch_pending();
         self.take_grants();

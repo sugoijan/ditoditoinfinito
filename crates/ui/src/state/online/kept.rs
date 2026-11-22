@@ -17,6 +17,10 @@ pub struct Kept {
     online: RefCell<Option<SharedOnline>>,
     room: RefCell<Option<(String, SharedRoom)>>,
     audience: RefCell<Option<(String, SharedAudience)>>,
+    /// Online rooms left whose Leave the room has not read yet (their
+    /// socket was down): their links driven until it has
+    /// ([`Self::drive_leaving`]).
+    leaving: RefCell<Vec<SharedRoom>>,
 }
 
 impl Kept {
@@ -25,6 +29,7 @@ impl Kept {
             online: RefCell::new(None),
             room: RefCell::new(None),
             audience: RefCell::new(None),
+            leaving: RefCell::new(Vec::new()),
         }
     }
 
@@ -116,10 +121,11 @@ impl Kept {
             return r;
         }
         let other = self.room.borrow_mut().take();
-        if let Some((_, old)) = other
-            && let Ok(mut old) = old.try_borrow_mut()
-        {
-            old.leave();
+        if let Some((_, old)) = other {
+            if let Ok(mut r) = old.try_borrow_mut() {
+                r.leave();
+            }
+            self.keep_leaving(old);
         }
         let room = make();
         *self.room.borrow_mut() = Some((id.into(), room.clone()));
@@ -140,7 +146,38 @@ impl Kept {
     /// room answered), handed back for the shell to forget wherever else
     /// it holds it.
     pub fn discard_room(&self) -> Option<SharedRoom> {
-        self.room.borrow_mut().take().map(|(_, r)| r)
+        let room = self.room.borrow_mut().take().map(|(_, r)| r)?;
+        self.keep_leaving(room.clone());
+        Some(room)
+    }
+
+    /// A room left whose Leave the room has not read yet kept to be
+    /// driven ([`crate::state::room::RoomClient::leaving`], review 2026-11-22, room-client 4).
+    fn keep_leaving(&self, room: SharedRoom) {
+        if room.try_borrow().is_ok_and(|r| r.leaving()) {
+            self.leaving.borrow_mut().push(room);
+        }
+    }
+
+    /// The rooms left drive their links (`RoomClient::drive_leave`): the
+    /// socket opened again and the Leave told, each let go once the room
+    /// read it or it was given up (`room::LEAVE_WAIT_MS`). Whether any is
+    /// still to be driven (the shell's timer runs while one is).
+    pub fn drive_leaving(&self, now_ms: u64) -> bool {
+        let rooms = std::mem::take(&mut *self.leaving.borrow_mut());
+        let mut still: Vec<SharedRoom> = rooms
+            .into_iter()
+            .filter(|r| r.try_borrow_mut().map_or(true, |mut c| c.drive_leave(now_ms)))
+            .collect();
+        let mut leaving = self.leaving.borrow_mut();
+        still.append(&mut leaving);
+        *leaving = still;
+        !leaving.is_empty()
+    }
+
+    /// Whether a room left is still to be driven ([`Self::drive_leaving`]).
+    pub fn leaving(&self) -> bool {
+        !self.leaving.borrow().is_empty()
     }
 
     /// The room watched by `link`'s seat: the one kept where it is that

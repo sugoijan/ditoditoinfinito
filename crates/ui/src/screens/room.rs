@@ -2764,11 +2764,10 @@ pub const QUIT_WAIT: f64 = 0.6;
 /// quits on the UI's clock (`now`): at once, or for an online room once
 /// it has answered, [`QUIT_WAIT`] at most ([`quit_due`]).
 pub fn quit_leaving(room: &SharedRoom, now: f64) -> f64 {
-    let told = {
-        let r = room.borrow();
-        r.is_online() && r.link_state() == ddi_room::LinkState::Connected
-    };
     room.borrow_mut().leave();
+    // Told, or to be told once its socket is back (review 2026-11-22,
+    // room-client 4: one down at the quit is tried again at once).
+    let told = room.borrow().leaving();
     now + if told { QUIT_WAIT } else { 0.0 }
 }
 

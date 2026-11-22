@@ -77,6 +77,27 @@ thread_local! {
     static WATCHING: RefCell<Option<Watching>> = const { RefCell::new(None) };
     /// The audience's audio context between its stages ([`audience_gesture`]).
     static AUDIO: RefCell<Option<WebAudio>> = const { RefCell::new(None) };
+    /// A run of the rooms left ([`drive_leaving`]) is due.
+    static LEAVING_DUE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// How often rooms left with their socket down are driven, milliseconds.
+const LEAVING_EVERY_MS: u32 = 200;
+
+/// The rooms left whose Leave their room has not read yet (their socket
+/// was down: review 2026-11-22, room-client 4) driven on a timer while
+/// any is (`Kept::drive_leaving`), whatever page shows.
+fn drive_leaving() {
+    if !KEPT.with(Kept::leaving) || LEAVING_DUE.replace(true) {
+        return;
+    }
+    gloo::timers::callback::Timeout::new(LEAVING_EVERY_MS, || {
+        LEAVING_DUE.set(false);
+        if KEPT.with(|k| k.drive_leaving(now_ms())) {
+            drive_leaving();
+        }
+    })
+    .forget();
 }
 
 /// A stage handed over to watch with the room's audience.
@@ -431,7 +452,7 @@ pub(crate) fn room(id: &str) -> SharedRoom {
         forget_store_of(&old);
     }
     let room = KEPT.with(|k| {
-        k.room_or(id, || {
+        let room = k.room_or(id, || {
             // TESTING ONLY: the fake room in the page (`crate::fake_room`).
             if crate::fake_room::on() && id == crate::fake_seat::ROOM {
                 return crate::fake_room::member();
@@ -443,8 +464,11 @@ pub(crate) fn room(id: &str) -> SharedRoom {
                 client_id(),
                 now_ms(),
             )))
-        })
+        });
+        room
     });
+    // Another room left on the way is told (its socket may be down).
+    drive_leaving();
     // Its songs downloaded ahead are kept in the room's area
     // (`crate::room_store`), one a room.
     if let Ok(r) = room.try_borrow()
@@ -483,6 +507,7 @@ pub(crate) fn discard() {
         forget_store_of(&room);
         crate::room::forget_playing(&room);
     }
+    drive_leaving();
 }
 
 /// The server over `fetch` (its cookie sent as the page's own origin's).

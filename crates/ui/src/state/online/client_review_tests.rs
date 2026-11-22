@@ -242,3 +242,51 @@ fn a_members_own_start_is_told_again_after_being_away() {
         "his Ready card says the same"
     );
 }
+
+/// room-client 4: a member who leaves while their socket is down (a blip,
+/// Reconnecting) is still told the room: the shell lets the room's client
+/// go, the kept clients drive its link until the socket is back and its
+/// Leave is read, and the room has them left at once rather than away
+/// until its patience ran out (a host's succession waiting for it).
+#[test]
+fn a_member_who_leaves_while_reconnecting_is_told_the_room() {
+    use super::kept::Kept;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let clock = ManualClock::new(1_000);
+    let server = room_of(&clock, &["bob"]);
+    server.borrow_mut().set_grace(Some(60_000));
+    let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+    let tab = Tab::new(&server);
+    let kept = Kept::new();
+    let bob = kept.room_or("Room000001", || {
+        Rc::new(RefCell::new(RoomClient::online(
+            person(&server, "bob"),
+            "Room000001",
+            Box::new(tab.clone()),
+            ClientId::new("bob-web"),
+            1_000,
+        )))
+    });
+    for _ in 0..3 {
+        tick(&clock, &mut [&mut alice, &mut bob.borrow_mut()], 400);
+    }
+    assert_eq!(bob.borrow().link_state(), LinkState::Connected);
+    server.borrow_mut().drop_socket(BOB);
+    tick(&clock, &mut [&mut bob.borrow_mut()], 40);
+    assert!(matches!(bob.borrow().link_state(), LinkState::Reconnecting { .. }));
+    // Leave room, as the screens do: told, then let go by the shell.
+    bob.borrow_mut().leave();
+    let left = kept.discard_room().expect("kept");
+    assert!(Rc::ptr_eq(&left, &bob));
+    drop((left, bob));
+    for _ in 0..40 {
+        clock.advance(100);
+        let now = ddi_room::Clock::now(&clock).0;
+        alice.tick(now);
+        kept.drive_leaving(now);
+    }
+    let gone = server.borrow().state().member(BOB).is_some_and(|m| m.left);
+    assert!(gone, "the room has Bob left");
+    assert!(!kept.drive_leaving(ddi_room::Clock::now(&clock).0), "and lets the link go");
+}

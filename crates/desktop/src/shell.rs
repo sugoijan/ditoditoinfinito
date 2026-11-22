@@ -2029,11 +2029,16 @@ impl ApplicationHandler for Shell {
             .wants_poll()
             .then(|| Instant::now() + std::time::Duration::from_millis(15));
         let rework_at = self.songs.as_ref().and_then(|s| s.rework_due());
+        // A room left with its socket down is told once it is back
+        // (review 2026-11-22, room-client 4), looked at again soon.
+        let leaving_at = crate::online::drive_leaving()
+            .then(|| Instant::now() + std::time::Duration::from_millis(100));
         if let Some(at) = wake
             .into_iter()
             .chain(watch_at)
             .chain(sound_at)
             .chain(rework_at)
+            .chain(leaving_at)
             .min()
         {
             match event_loop.control_flow() {
