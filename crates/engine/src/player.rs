@@ -1016,6 +1016,66 @@ impl Player {
         crate::ladder::rung_of(self.ladder.len(), self.level)
     }
 
+    /// Starts the play on rung `rung` of its ladder (numbered as
+    /// [`Step::rung`]; 0 the stage's chart) instead of the stage's chart:
+    /// a match's "Charts: Adaptive" since room model revision 23 (round
+    /// OC), where each competitor starts on their own chart of the song.
+    /// That chart's notes are the play's from its first, its meter and
+    /// reading horizon its own; the rungs keep their numbers, so its steps
+    /// go on from there as from any rung, and no step is kept for it.
+    /// Before the start, once the ladder is set; refused for a rung it
+    /// does not have.
+    pub fn start_on(&mut self, rung: u8) -> Result<(), &'static str> {
+        if self.started {
+            return Err("a play's starting chart is set before the start");
+        }
+        if rung == 0 {
+            return Ok(());
+        }
+        let level = crate::ladder::level_of(self.ladder.len(), rung);
+        let next = self.rung_at(level).cloned().ok_or("no such rung")?;
+        let mut judge = Judge::new(&next.notes, &self.timing, self.ruleset.judge.clone());
+        if matches!(
+            self.ruleset.judge.empty_press,
+            EmptyPress::Boo | EmptyPress::BooFromFirstNote | EmptyPress::Guarded { .. }
+        ) {
+            judge = judge.with_lanes(usize::from(self.lanes));
+        }
+        self.judge = judge;
+        self.meter = next.meter;
+        self.level = level;
+        self.row_notes = vec![Vec::new(); self.judge.rows().len()];
+        for (index, n) in self.judge.notes().iter().enumerate() {
+            if let Some(r) = n.row {
+                self.row_notes[r].push((n.note.lane, index));
+            }
+        }
+        let timing = &self.timing;
+        self.displayed = self
+            .judge
+            .notes()
+            .iter()
+            .map(|n| {
+                let at = |t: ddi_chart::Tick| timing.displayed_beat(t.beat());
+                (at(n.note.tick), at(n.note.end_tick()))
+            })
+            .collect();
+        self.reach = note_reach(self.judge.notes(), &self.displayed);
+        self.reset_counts();
+        self.horizon = self.reading_horizon();
+        Ok(())
+    }
+
+    /// The chart it plays from the last step's boundary on (its place in
+    /// the song): its starting chart's ([`Player::start_on`]) before any
+    /// step.
+    pub fn chart_now(&self) -> usize {
+        match self.steps.last() {
+            Some(s) => s.chart,
+            None => self.rung_at(self.level).map_or(self.chart_index, |r| r.chart),
+        }
+    }
+
     /// From when to when it is in a step down's breather (judged
     /// seconds): the old chart taken away, the new one's notes from the
     /// second.

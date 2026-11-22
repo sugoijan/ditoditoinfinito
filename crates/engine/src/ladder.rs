@@ -228,7 +228,99 @@ impl Ladder {
     pub fn level(&self, rung: u8) -> i8 {
         level_of(self.below.len(), rung)
     }
+
+    /// The rung number chart `chart` is on this ladder (0 the stage's),
+    /// none where it is none of its charts.
+    pub fn rung_of_chart(&self, chart: usize) -> Option<u8> {
+        if chart == self.stage {
+            return Some(0);
+        }
+        self.below
+            .iter()
+            .chain(&self.above)
+            .position(|&c| c == chart)
+            .and_then(|i| u8::try_from(i + 1).ok())
+    }
+
+    /// Its charts from the easiest to the hardest: the easier rungs turned
+    /// over, the stage's, then the harder ones.
+    pub fn line(&self) -> Vec<usize> {
+        self.below
+            .iter()
+            .rev()
+            .copied()
+            .chain(std::iter::once(self.stage))
+            .chain(self.above.iter().copied())
+            .collect()
+    }
+
+    /// The same charts as the ladder of a play started on rung `rung`
+    /// (room model revision 23: under Adaptive each competitor starts on
+    /// their own chart): that chart its own, those easier than it below
+    /// (the next first), those harder above. What a CPU's play is planned
+    /// on (its steps numbered from its own chart, put back on the stage's
+    /// numbers by [`Ladder::rung_of_chart`]); none for a rung it has not.
+    pub fn around(&self, rung: u8) -> Option<Ladder> {
+        let chart = self.chart(rung)?;
+        let line = self.line();
+        let at = line.iter().position(|&c| c == chart)?;
+        Some(Ladder {
+            stage: chart,
+            below: line[..at].iter().rev().copied().collect(),
+            above: line[at + 1..].to_vec(),
+        })
+    }
 }
+
+/// `cpu-start-v0` (round OC, PROVISIONAL): the rung of `ladder` (a stage
+/// on `song`) a CPU of level `level` (an index of the ten, 0 the weakest)
+/// starts on under Adaptive, as every device works it out from the charts
+/// the battle plan's ladder names: the difficulty each pair of levels is
+/// at home on (levels 1 and 2 Beginner, 3 and 4 Easy, 5 and 6 Medium, 7
+/// and 8 Hard, 9 and 10 Challenge), else the nearest the ladder has, the
+/// easier of two as near; of several charts of that difficulty the
+/// lowest meter for the first of the pair and the highest for the
+/// second. An Edit (only ever the stage's chart, never a rung of a
+/// slotted one) only where the ladder has nothing else. A song of one
+/// chart: that one.
+pub fn cpu_start(song: &Song, ladder: &Ladder, level: usize) -> u8 {
+    let level = level.min(9);
+    let want = (level / 2) as i32;
+    let line = ladder.line();
+    let slotted: Vec<(usize, u8, u32)> = line
+        .iter()
+        .filter_map(|&c| {
+            let chart = song.charts.get(c)?;
+            Some((c, slot(chart.difficulty)?, chart.meter))
+        })
+        .collect();
+    let Some(best) = slotted
+        .iter()
+        .map(|&(_, s, _)| (i32::from(s) - want).abs())
+        .min()
+    else {
+        return 0;
+    };
+    // The easier of two slots as near: the lower one.
+    let target = slotted
+        .iter()
+        .filter(|&&(_, s, _)| (i32::from(s) - want).abs() == best)
+        .map(|&(_, s, _)| s)
+        .min()
+        .unwrap_or(0);
+    let mut of: Vec<(usize, u32)> = slotted
+        .iter()
+        .filter(|&&(_, s, _)| s == target)
+        .map(|&(c, _, m)| (c, m))
+        .collect();
+    // By meter from the lowest, then by place on the line (stable).
+    of.sort_by_key(|&(_, m)| m);
+    let pick = if level.is_multiple_of(2) { of.first() } else { of.last() };
+    pick.and_then(|&(c, _)| ladder.rung_of_chart(c)).unwrap_or(0)
+}
+
+/// [`cpu_start`]'s rule's name.
+pub const CPU_START: &str = "cpu-start-v0";
 
 /// A rung number's place from the stage's chart with `below` rungs
 /// below it: negative easier, 0 the stage's, positive harder.

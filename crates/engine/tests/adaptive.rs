@@ -230,6 +230,9 @@ thread_local! {
     /// Which of [`play_on`]'s presses are late by `LATE`: every one (0),
     /// or every `EVERY`th of the chart's presses, the rest on time.
     static EVERY: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The rung [`play_on`] and [`replayed_on`] start their plays on
+    /// (`Player::start_on`; 0, the stage's chart).
+    static START: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
 }
 
 /// A sloppy play: every sixth press 60 ms late (DDI's W3, which keeps
@@ -268,6 +271,7 @@ fn play_on(
     if let Some(rule) = RULE.get() {
         p.set_ladder_rule(rule);
     }
+    p.start_on(START.get()).unwrap();
     p.start(0.0, 0.0);
     let mut fed = f64::NEG_INFINITY;
     let mut pending: Vec<(f64, u8, bool)> = Vec::new();
@@ -320,6 +324,7 @@ fn replayed_on(song: &Song, chart: usize, below: &[usize], above: &[usize], log:
     if let Some(rule) = RULE.get() {
         p.set_ladder_rule(rule);
     }
+    p.start_on(START.get()).unwrap();
     p.start(0.0, log.start);
     for i in &log.inputs {
         p.input_at(i.lane, i.pressed, i.time);
@@ -891,4 +896,122 @@ fn a_press_just_after_life_runs_out_is_judged_the_same_at_any_frame_rate() {
         }
     }
     assert!(differ.is_empty(), "{} differ: {:?}", differ.len(), differ.first());
+}
+
+/// Round OC (room model revision 23): a play started on a rung of its own
+/// (`Player::start_on`): that chart's notes, meter and reading horizon
+/// from the first, the rungs numbered against the stage's chart as ever,
+/// and its steps going on from there, the same at any frame rate and from
+/// its log.
+#[test]
+fn a_play_started_on_its_own_rung_steps_on_from_there() {
+    use ddi_chart::Difficulty::*;
+    let song = song();
+    let medium = single(&song, Medium);
+    let hard = single(&song, Hard);
+    let easy = single(&song, Easy);
+    // Its notes from the first: Easy's, as a play of Easy has them.
+    let mut p = player(&song, medium, &[easy]);
+    p.add_rung_up(&song, hard).unwrap();
+    p.start_on(1).unwrap();
+    let alone = Player::new(&song, easy, rules(), PlayOptions::default());
+    let notes = |p: &Player| p.judge().notes().iter().map(|n| (n.note.tick, n.note.lane)).collect::<Vec<_>>();
+    assert_eq!(notes(&p), notes(&alone));
+    assert_eq!(p.rung(), 1);
+    assert_eq!(p.chart_now(), easy);
+    assert_eq!(p.reading_horizon(), alone.reading_horizon());
+    assert_eq!(p.start_on(7), Err("no such rung"));
+    // Perfect from Easy: up to Medium (rung 0), then on to Hard (rung 2).
+    START.set(1);
+    let p = alike(&song, medium, &[easy], &[hard], &[]);
+    START.set(0);
+    let steps = p.results().steps.clone();
+    assert!(steps.len() >= 2, "{steps:?}");
+    assert!(steps[0].up && steps[1].up);
+    assert_eq!((steps[0].from, steps[0].rung, steps[0].chart), (1, 0, medium));
+    assert_eq!((steps[1].from, steps[1].rung, steps[1].chart), (0, 2, hard));
+    // Started on Hard, nothing pressed for a while: down to Medium, from 2.
+    START.set(2);
+    let p = alike(&song, medium, &[easy], &[hard], &[(0.0, 14.0)]);
+    START.set(0);
+    let first = p.results().steps[0];
+    assert!(!first.up, "{first:?}");
+    assert_eq!((first.from, first.rung, first.chart), (2, 0, medium));
+    // Set once started: refused.
+    let mut started = player(&song, medium, &[easy]);
+    started.start(0.0, 0.0);
+    assert!(started.start_on(1).is_err());
+}
+
+/// The ladder seen from another of its rungs (`Ladder::around`): the same
+/// charts, that one its own, the easier below the next first, the harder
+/// above; a chart's rung number by `rung_of_chart`.
+#[test]
+fn a_ladder_seen_from_another_rung_has_the_same_charts() {
+    use ddi_chart::Difficulty::*;
+    let song = song();
+    let medium = single(&song, Medium);
+    let l = ladder::Ladder::of(&song, medium);
+    let line = l.line();
+    assert!(line.windows(2).all(|w| {
+        let (a, b) = (&song.charts[w[0]], &song.charts[w[1]]);
+        (a.difficulty as u8, a.meter) <= (b.difficulty as u8, b.meter)
+    }), "easiest to hardest");
+    for (i, &c) in line.iter().enumerate() {
+        let r = l.rung_of_chart(c).unwrap();
+        assert_eq!(l.chart(r), Some(c));
+        let a = l.around(r).unwrap();
+        assert_eq!(a.stage, c);
+        assert_eq!(a.line(), line, "the same charts in the same order");
+        assert_eq!(a.below.len(), i);
+        assert_eq!(a.below.first().copied(), i.checked_sub(1).map(|k| line[k]));
+        assert_eq!(a.above.first().copied(), line.get(i + 1).copied());
+    }
+    assert_eq!(l.rung_of_chart(usize::MAX), None);
+    assert!(l.around(99).is_none());
+}
+
+/// `cpu-start-v0` over every bundled song, from every original single
+/// chart picked: each level a rung of the ladder, never an easier chart
+/// for a stronger level, levels 1 and 2 on the easiest slot there is,
+/// 9 and 10 on the hardest, the same pair on one slot. The table (with
+/// `--nocapture`) is the round's report's.
+#[test]
+fn a_cpu_starts_on_the_chart_its_level_is_at_home_on() {
+    for id in ["beatucada", "into-my-dream", "some-things-must", "sweeteners"] {
+        let song = common::bundled(id);
+        let singles: Vec<usize> = (0..song.charts.len())
+            .filter(|&c| {
+                let ch = &song.charts[c];
+                ch.layout == "dance-single" && ch.derivation.is_none() && !ch.notes.is_empty()
+            })
+            .collect();
+        for &stage in &singles {
+            let l = ladder::Ladder::of(&song, stage);
+            let line = l.line();
+            let place = |rung: u8| line.iter().position(|&c| Some(c) == l.chart(rung)).unwrap();
+            let starts: Vec<u8> = (0..10).map(|level| ladder::cpu_start(&song, &l, level)).collect();
+            let places: Vec<usize> = starts.iter().map(|&r| place(r)).collect();
+            assert!(places.windows(2).all(|w| w[0] <= w[1]), "{id} {stage}: {places:?}");
+            let slot = |p: usize| song.charts[line[p]].difficulty as u8;
+            let slots: Vec<u8> = line.iter().map(|&c| song.charts[c].difficulty as u8).filter(|&s| s < 5).collect();
+            if let (Some(&lo), Some(&hi)) = (slots.iter().min(), slots.iter().max()) {
+                assert_eq!(slot(places[0]), lo, "{id} {stage}");
+                assert_eq!(slot(places[9]), hi, "{id} {stage}");
+            }
+            for pair in places.chunks(2) {
+                assert_eq!(slot(pair[0]), slot(pair[1]), "{id} {stage}: {places:?}");
+            }
+            if song.charts[stage].difficulty == ddi_chart::Difficulty::Hard {
+                let named: Vec<String> = starts
+                    .iter()
+                    .map(|&r| {
+                        let c = &song.charts[l.chart(r).unwrap()];
+                        format!("{} {}", c.difficulty.name(), c.meter)
+                    })
+                    .collect();
+                println!("{id}: {}", named.join(" | "));
+            }
+        }
+    }
 }
