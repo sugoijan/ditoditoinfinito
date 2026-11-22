@@ -349,3 +349,48 @@ fn an_administrator_losing_the_flag_lets_the_pick_go() {
     assert_eq!(r.join_as("cy", Intent::Play, false), Ok(cy));
     assert_eq!(r.s.picker(), Some(cy));
 }
+
+/// Finding 6: after the owner lowers the list's size, an addition by
+/// someone held to their half of the list (under Who can add songs:
+/// Everyone) pushes out one song, the oldest not in use, never many at
+/// once (it removed every song down to the new size: 91 of 100). A
+/// host's addition still makes room down to the size, as before
+/// (`room_songs.rs`'s full list).
+#[test]
+fn an_addition_held_to_a_half_pushes_out_one_song() {
+    let mut r = hosted();
+    let host = r.host;
+    let ana = join(&mut r, "ana");
+    let song = |n: u32| NewSong {
+        key: SongKey::new(format!("s{n:015x}")),
+        card: SongCard { title: format!("Song {n}"), artist: String::new(), pack: String::new() },
+        charts: vec![ChartLine {
+            chart: ChartKey::new(format!("d{n}")),
+            style: "dance-single".into(),
+            difficulty: "Easy".into(),
+            meter: 3,
+        }],
+    };
+    for n in 1..=12 {
+        r.by(host, Command::AddSong { song: Box::new(song(n)) }).unwrap();
+    }
+    r.by(host, Command::SetWhoAdds { who: WhoAdds::Everyone }).unwrap();
+    let small = ListRules { size: 4, when_full: WhenFull::RemoveOldest };
+    r.by(host, Command::SetSongList { rules: small }).unwrap();
+    assert_eq!(r.s.songs.len(), 12, "a smaller size removes nothing by itself");
+    assert_eq!(r.s.song_quota(ana), Some(2));
+    assert_eq!(r.s.add_refusal(ana, Some(&song(20))), None);
+    let events = r.by(ana, Command::AddSong { song: Box::new(song(20)) }).unwrap();
+    let removed = events.iter().filter(|e| matches!(e, Event::SongRemoved { .. })).count();
+    assert_eq!(removed, 1, "one song out for one in");
+    assert_eq!(r.s.songs.len(), 12);
+    // Their half reached, refused as before.
+    r.by(ana, Command::AddSong { song: Box::new(song(21)) }).unwrap();
+    assert!(matches!(
+        r.by(ana, Command::AddSong { song: Box::new(song(22)) }),
+        Err(Rejection::TooManySongs { .. })
+    ));
+    // The host's addition makes room down to the size.
+    r.by(host, Command::AddSong { song: Box::new(song(30)) }).unwrap();
+    assert_eq!(r.s.songs.len(), 4);
+}

@@ -1691,9 +1691,11 @@ impl RoomState {
         let size = usize::from(rules.size);
         if self.songs.len() >= size {
             let free = self.songs.entries.iter().filter(|e| !self.song_in_use(e)).count();
-            if rules.when_full == crate::songs::WhenFull::Refuse
-                || free < self.songs.len() + 1 - size
-            {
+            // One song out for one in where the adder is held to a half
+            // (round RFa), else down to the size.
+            let over = self.songs.len() + 1 - size;
+            let over = if self.song_quota(id).is_some() { over.min(1) } else { over };
+            if rules.when_full == crate::songs::WhenFull::Refuse || free < over {
                 return Some(Rejection::ListFull);
             }
         }

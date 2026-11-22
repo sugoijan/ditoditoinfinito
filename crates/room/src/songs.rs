@@ -164,7 +164,8 @@ pub enum WhenFull {
     /// played names (the song picked, being readied or played). Whoever
     /// added them (round RL3: the oldest of all, not the adder's own; one
     /// who is not a host is refused at their half before anything goes,
-    /// so they push out at most half the list).
+    /// and pushes out one song an addition, round RFa, so they push out
+    /// at most half the list).
     #[default]
     RemoveOldest,
     /// The song is refused until one is removed.

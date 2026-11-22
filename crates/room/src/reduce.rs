@@ -673,7 +673,8 @@ impl RoomState {
                     return Err(why);
                 }
                 let rules = self.songs.rules;
-                self.make_room(usize::from(rules.size), rules.when_full, out)?;
+                let most = self.song_quota(id).map(|_| 1);
+                self.make_room(usize::from(rules.size), rules.when_full, most, out)?;
                 let entry = crate::songs::RoomSong {
                     id: crate::ids::RoomSongId(self.songs.next.max(1)),
                     key: song.key.clone(),
@@ -2011,12 +2012,16 @@ impl RoomState {
     }
 
     /// Room for one more song in a list of `size`: none needed, or the
-    /// oldest songs no stage not yet over names removed (`RemoveOldest`);
-    /// refused where it refuses, or where nothing can go.
+    /// oldest songs no stage not yet over names removed (`RemoveOldest`),
+    /// at most `most` of them (one for an addition held to a person's
+    /// half, round RFa: a list made smaller is made room in one song for
+    /// one, never all at once by them; a host's makes room down to the
+    /// size); refused where it refuses, or where nothing can go.
     fn make_room(
         &mut self,
         size: usize,
         when_full: crate::songs::WhenFull,
+        most: Option<usize>,
         out: &mut Vec<Event>,
     ) -> Decided {
         if self.songs.len() < size {
@@ -2026,6 +2031,7 @@ impl RoomState {
             return Err(Rejection::ListFull);
         }
         let over = self.songs.len() + 1 - size;
+        let over = most.map_or(over, |most| over.min(most));
         let gone: Vec<(crate::ids::RoomSongId, Option<String>)> = self
             .songs
             .entries
