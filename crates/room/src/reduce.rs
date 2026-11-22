@@ -1037,6 +1037,12 @@ impl RoomState {
                     // join (revision 12).
                     if let Some(admin) = flag {
                         self.emit(out, Event::AdminChanged { participant, admin });
+                        // The pick is not kept without the power to take
+                        // it, as when a co-host loses the role (round RFa).
+                        let role = self.members[&participant].role;
+                        if !can(role, admin, Capability::TakePick, self.phase.kind()) {
+                            self.release_pick(participant, out);
+                        }
                     }
                     let m = &self.members[&participant];
                     if m.left || m.connection != Connection::Connected {

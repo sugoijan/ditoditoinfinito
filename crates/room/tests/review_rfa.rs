@@ -328,3 +328,24 @@ fn a_late_entrant_who_readied_while_loading_chooses_their_start() {
         Err(Rejection::StartCommitted)
     );
 }
+
+/// Finding 5: an administrator who holds the pick and comes back without
+/// the flag lets the pick go, as a co-host losing the role does (they
+/// stayed the picker, every pick of theirs refused).
+#[test]
+fn an_administrator_losing_the_flag_lets_the_pick_go() {
+    let mut r = hosted();
+    let pat = r.join_as("pat", Intent::Play, true).unwrap();
+    r.by(pat, Command::TakePick).unwrap();
+    assert_eq!(r.s.picker(), Some(pat));
+    assert_eq!(r.join_as("pat", Intent::Play, false), Ok(pat));
+    assert!(!r.s.member(pat).unwrap().admin);
+    assert_eq!(r.s.picker(), Some(r.host), "back to the owner");
+    // A co-host losing the flag keeps the pick: their role takes it.
+    let cy = r.join_as("cy", Intent::Play, true).unwrap();
+    let host = r.host;
+    r.by(host, Command::SetCoHost { participant: cy, on: true }).unwrap();
+    r.by(cy, Command::TakePick).unwrap();
+    assert_eq!(r.join_as("cy", Intent::Play, false), Ok(cy));
+    assert_eq!(r.s.picker(), Some(cy));
+}
