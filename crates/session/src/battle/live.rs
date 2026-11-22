@@ -178,8 +178,6 @@ pub(crate) struct RemoteSeat {
     /// The rung its stream last said it stepped to (a match's "Charts:
     /// Adaptive"; 0 the stage's chart).
     pub steps: u8,
-    /// The rung it stepped from at its last step.
-    steps_from: u8,
     /// The notes its play counts its most and its full combo's part over
     /// as it steps on the ladder (where the charts adapt): what its
     /// percent is worked out against ([`Shown`]).
@@ -368,7 +366,7 @@ impl RemoteSeat {
             None => Some((Rc::clone(track), false)),
             Some(i) => rungs.get(i).cloned(),
         };
-        let Some((r, up)) = r else {
+        let Some((r, _)) = r else {
             return;
         };
         // The same step said again (a snapshot's, then its moment in the
@@ -380,22 +378,19 @@ impl RemoteSeat {
         let before = self.steps;
         self.steps = rung;
         let boundary = track.seconds_at(tick);
-        // Back to the stage's chart: up where it came from a rung below
-        // it.
-        let up = up
-            || (rung == 0
-                && usize::from(self.steps_from)
-                    .checked_sub(1)
-                    .and_then(|i| rungs.get(i))
-                    .is_some_and(|f| !f.1));
-        self.steps_from = rung;
+        // Up or down by the ladder's places, whatever the rungs' side of
+        // the stage (round LO: from a start of its own below the stage's
+        // chart, a step up to a rung still below it was drawn as a step
+        // down, its old chart gone from the decision to the boundary while
+        // its play went on playing it; the stage's chart again from below
+        // is up too).
+        let below = rungs.iter().filter(|r| !r.1).count();
+        let level = |r: u8| ddi_engine::ladder::level_of(below, r);
+        let up = level(rung) > level(before);
         self.feed.step(r, (at, boundary, tick), rung, up);
-        // What its play counts from here (round Y3): up or down by the
-        // ladder's places, whatever the rungs' side of the stage.
+        // What its play counts from here (round Y3): the same.
         if let (Some(shown), Some(next)) = (self.shown.as_mut(), counted.get(usize::from(rung))) {
-            let below = rungs.iter().filter(|r| !r.1).count();
-            let level = |r: u8| ddi_engine::ladder::level_of(below, r);
-            if level(rung) > level(before) {
+            if up {
                 shown.step_up(next, tick);
             } else {
                 shown.step_down(next, tick);
@@ -413,7 +408,6 @@ impl RemoteSeat {
         };
         self.feed.start_on(rung, Rc::clone(track));
         self.steps = rung;
-        self.steps_from = rung;
         if let (Some(shown), Some(c)) = (self.shown.as_mut(), counted.get(usize::from(rung))) {
             *shown = Shown::new(c);
         }
@@ -484,7 +478,7 @@ impl RemoteSeat {
                 step.from,
                 false,
             );
-            self.steps_from = step.from;
+            self.steps = step.from;
         }
         let at = (i64::from(step.at_ms) * 1_000 - self.shift_us) as f64 / 1e6;
         self.step(track, (rungs, counted), step.rung, at, Tick(step.tick));
@@ -930,7 +924,6 @@ fn remote_seat(
         shift_us: 0,
         shifts: VecDeque::new(),
         steps: 0,
-        steps_from: 0,
         shown: None,
     }
 }
@@ -2098,5 +2091,96 @@ mod tests {
         let own = DdiScoreView::of(400, 5_000, 30).with_combo(1_000);
         let seen = ddi_of_sum(own.score, 0, 1_000, Some(5_000), 0).unwrap();
         assert_eq!((seen.points, seen.score), (400, own.score));
+    }
+
+    /// Round LO, item 2: Alice starts on Easy (her own chart under
+    /// Adaptive, below the stage's Hard) and steps up to Medium, also
+    /// below it. Her play goes on playing Easy until the step's boundary,
+    /// and a field of her, followed from her first moment (her stream's
+    /// step) or from part-way (a snapshot whose step says it came from the
+    /// stage's chart, as a room without a battle plan, Attacks Off, has
+    /// to: it cannot tell rungs), draws Easy until the boundary, then
+    /// Medium; never the stage's Hard and never an empty breather, which
+    /// is a step down's. Back to the stage's chart from below is a step up
+    /// too.
+    #[test]
+    fn a_step_up_below_the_stages_chart_is_drawn_as_a_step_up() {
+        use ddi_chart::Difficulty;
+        const HARD: usize = 5;
+        // Each step's notes are numbered from this many times its rung
+        // (`feed`'s `STEP_INDEX`): the stage's chart's from 0.
+        const STEP_BAND: usize = 1 << 24;
+        let song = crate::test_songs::bundled("beatucada");
+        let single = |d: Difficulty| {
+            song.charts
+                .iter()
+                .position(|c| c.layout == "dance-single" && c.difficulty == d && c.derivation.is_none())
+                .unwrap()
+        };
+        let ladder = ddi_engine::cpu::planned_ladder(&song, HARD);
+        let charts = ddi_engine::cpu::planned_charts(HARD, &ladder);
+        let rungs = crate::battle::ladder_rungs(&song, &ladder).unwrap();
+        let tracks: Vec<(Rc<feed::TapTrack>, bool)> = rungs.iter().map(|r| (Rc::clone(&r.track), r.up)).collect();
+        let (easy, medium) = (
+            charts.rung_of_chart(single(Difficulty::Easy)).unwrap(),
+            charts.rung_of_chart(single(Difficulty::Medium)).unwrap(),
+        );
+        assert!(!tracks[usize::from(easy) - 1].1 && !tracks[usize::from(medium) - 1].1, "both below Hard");
+        let stage = Rc::new(feed::TapTrack::full(&song, HARD).unwrap());
+        // Decided at 30 s, Medium's from a note of it past 35 s.
+        let tick = song.charts[single(Difficulty::Medium)]
+            .notes
+            .iter()
+            .map(|n| n.tick)
+            .find(|&t| stage.seconds_at(t) > 35.0)
+            .unwrap();
+        let boundary = stage.seconds_at(tick);
+        let scroll = ddi_engine::scroll::ScrollOptions::default();
+        let band = |rung: u8| {
+            let lo = STEP_BAND * usize::from(rung);
+            lo..lo + STEP_BAND
+        };
+        let check = |seat: &RemoteSeat, how: &str| {
+            for t in [30.5, (30.0 + boundary) / 2.0, boundary - 0.3] {
+                assert_eq!(seat.feed.rung_at(t), easy, "{how}: on Easy at {t}");
+                let notes = seat.feed.frame(&stage, scroll, t, 8.0).notes;
+                assert!(!notes.is_empty(), "{how}: Easy's notes drawn at {t}, no breather");
+                assert!(
+                    notes.iter().all(|n| band(easy).contains(&n.note_index) || band(medium).contains(&n.note_index)),
+                    "{how}: Easy's then Medium's notes at {t}, never the stage's"
+                );
+            }
+            assert_eq!(seat.feed.rung_at(boundary + 0.5), medium, "{how}");
+        };
+        // Followed from the start: her stream's step.
+        let mut seat = remote_seat(ParticipantId(2), "Alice", &stage, 0.0, None);
+        seat.start_on((&tracks, &[]), easy);
+        seat.step(&stage, (&tracks, &[]), medium, 30.0, tick);
+        check(&seat, "her stream");
+        // Followed from part-way: a snapshot from a room without a plan.
+        let mut seat = remote_seat(ParticipantId(2), "Alice", &stage, 0.0, None);
+        seat.start_on((&tracks, &[]), easy);
+        seat.step_status(
+            &stage,
+            (&tracks, &[]),
+            ddi_room::live::StepStatus {
+                rung: medium,
+                from: 0,
+                at_ms: 30_000,
+                tick: tick.0,
+            },
+        );
+        check(&seat, "a snapshot without a plan");
+        // Back to the stage's chart from below: up, Medium to the
+        // boundary.
+        let back = song.charts[HARD]
+            .notes
+            .iter()
+            .map(|n| n.tick)
+            .find(|&t| stage.seconds_at(t) > 50.0)
+            .unwrap();
+        seat.step(&stage, (&tracks, &[]), 0, 45.0, back);
+        assert_eq!(seat.feed.rung_at(46.0), medium);
+        assert_eq!(seat.feed.rung_at(stage.seconds_at(back) + 0.5), 0);
     }
 }
