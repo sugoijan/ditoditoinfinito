@@ -424,7 +424,17 @@ impl LiveLink {
             ServerLive::Pong(p) => {
                 self.clock.pong(&p, now);
             }
-            ServerLive::Refused { refusal } => self.news.push(LiveNews::Refused(refusal)),
+            ServerLive::Refused { refusal } => {
+                // A batch of its stream refused: never taken, every later
+                // one waiting on it; the stream stops (round RFa).
+                if let LiveRefusal::BadBatch { stage } = &refusal
+                    && let Some(o) = self.outboxes.get_mut(stage)
+                    && (o.unacked() > 0 || o.acked() > 0)
+                {
+                    o.abandon();
+                }
+                self.news.push(LiveNews::Refused(refusal));
+            }
             ServerLive::Audience { count, open } => self.audience = Some((count, open)),
             ServerLive::Have { sets } => {
                 for (who, set) in sets {
@@ -583,7 +593,7 @@ impl LiveLink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::live::LIVE_V1;
+    use crate::live::{LIVE_V1, LIVE_V2};
     use crate::live::stream::{Moment, MomentKind};
 
     fn moment(at_ms: i32) -> Moment {
@@ -664,6 +674,40 @@ mod tests {
         let biggest = o.due(0).pop().unwrap();
         let bytes = wire::encode_batch(&biggest);
         assert!(bytes.len() < 32 * 1_024, "{} bytes", bytes.len());
+    }
+
+    /// Round RFa, finding 4: a batch the room refuses (`bad_batch`) is
+    /// never taken, and every batch after it waits on it: the stream was
+    /// sent again with backoff for the rest of the stage. Refused, the
+    /// stream stops: nothing of it is sent again, nothing more is cut.
+    #[test]
+    fn a_refused_stream_is_not_sent_again() {
+        let mut link = LiveLink::new(LIVE_V2);
+        let stage = StageId(1);
+        link.opened(0, LIVE_V2);
+        let _ = link.due(0);
+        let o = link.stream(stage);
+        o.moment(moment(10));
+        o.judged_to(10_000);
+        let binaries = |out: Vec<Message>| out.into_iter().filter(|m| matches!(m, Message::Binary(_))).count();
+        assert_eq!(binaries(link.due(100)), 1);
+        link.text(
+            ServerLive::Refused {
+                refusal: LiveRefusal::BadBatch { stage },
+            },
+            150,
+        );
+        let o = link.stream(stage);
+        o.moment(moment(200));
+        o.judged_to(200_000);
+        let mut sent = 0;
+        for ms in (200..60_000).step_by(100) {
+            sent += binaries(link.due(ms));
+        }
+        assert_eq!(sent, 0, "nothing sent again");
+        // A new socket sends nothing of it either.
+        link.opened(60_000, LIVE_V2);
+        assert_eq!(binaries(link.due(60_000)), 0);
     }
 
     /// The clock's pings a link sends, by the device's ms, over `ms` in

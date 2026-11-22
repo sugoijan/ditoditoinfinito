@@ -1575,6 +1575,17 @@ impl Live {
                         got.log.push("live: the room lost the stage's live part; streaming stops".into());
                     }
                 }
+                LiveNews::Refused(LiveRefusal::BadBatch { stage })
+                    if stage == self.stage && self.streams && !self.ended =>
+                {
+                    // A batch of its stream refused: the link stops the
+                    // stream (round RFa); the play goes on, its run
+                    // reported at its end, as above.
+                    if !self.lost {
+                        self.lost = true;
+                        got.log.push("live: the room refused this play's stream; streaming stops".into());
+                    }
+                }
                 _ => {}
             }
         }

@@ -189,6 +189,9 @@ pub struct Outbox {
     /// again (2026-11-13: under `live-v2`'s ten batches a second, resending
     /// every unacknowledged batch each second grew without bound).
     backoff: u32,
+    /// The room refused the stream (round RFa, [`Outbox::abandon`]):
+    /// nothing more is cut or sent.
+    abandoned: bool,
 }
 
 impl Outbox {
@@ -207,7 +210,26 @@ impl Outbox {
             last_flush: None,
             unacked: VecDeque::new(),
             backoff: 0,
+            abandoned: false,
         }
+    }
+
+    /// The room refused a batch (`LiveRefusal::BadBatch`): it never takes
+    /// it, and every batch after it waits on it, so the stream stops here
+    /// (round RFa: it was sent again for the rest of the stage). The play
+    /// goes on unstreamed; its run is reported at its end, as one whose
+    /// room lost the stage's live part.
+    pub fn abandon(&mut self) {
+        self.abandoned = true;
+        self.unacked.clear();
+        self.moments.clear();
+        self.reports.clear();
+        self.end_sent = true;
+    }
+
+    /// Whether the room refused the stream ([`Outbox::abandon`]).
+    pub fn abandoned(&self) -> bool {
+        self.abandoned
     }
 
     /// The most a resend's wait doubles: 8 times `resend_after_ms`.
@@ -225,14 +247,14 @@ impl Outbox {
 
     /// A judged moment (in the order judged).
     pub fn moment(&mut self, m: Moment) {
-        if self.end.is_none() {
+        if self.end.is_none() && !self.abandoned {
             self.moments.push(m);
         }
     }
 
     /// The report of a checkpoint the play was judged past.
     pub fn report(&mut self, r: LiveReport) {
-        if self.end.is_none() {
+        if self.end.is_none() && !self.abandoned {
             self.reports.push(r);
         }
     }
@@ -287,6 +309,9 @@ impl Outbox {
     /// end), and the unacknowledged ones again once they are overdue.
     pub fn due(&mut self, now: u64) -> Vec<Batch> {
         let mut out = Vec::new();
+        if self.abandoned {
+            return out;
+        }
         let wait = self.rules.resend_after_ms << self.backoff;
         let overdue = self.unacked.front().is_some_and(|(_, at)| now >= at + wait);
         if overdue {
@@ -304,10 +329,18 @@ impl Outbox {
             || self.sent_through_us.is_none_or(|t| self.through_us > t);
         let ending = self.end.is_some() && !self.end_sent;
         if (interval && news && self.through_us != i64::MIN) || ending {
-            let b = self.cut();
             self.last_flush = Some(now);
-            self.unacked.push_back((b.clone(), now));
-            out.push(b);
+            // Cut within the room's bounds, the rest at once in the
+            // batches after it (round RFa: a stall's backlog in one batch
+            // was refused, and the stream with it).
+            loop {
+                let b = self.cut();
+                self.unacked.push_back((b.clone(), now));
+                out.push(b);
+                if self.moments.is_empty() && self.reports.is_empty() {
+                    break;
+                }
+            }
         }
         out
     }
@@ -325,16 +358,29 @@ impl Outbox {
             .collect()
     }
 
+    /// The next batch: at most the room's [`LiveRules::max_batch_moments`]
+    /// moments and [`LiveRules::max_batch_reports`] reports, the oldest;
+    /// where moments are left for the next, judged to just before the
+    /// first of them, and the end only with the last.
     fn cut(&mut self) -> Batch {
         let seq = self.next_seq;
         self.next_seq += 1;
-        let through = if self.through_us == i64::MIN {
+        let n = self.moments.len().min(self.rules.max_batch_moments.max(1));
+        let moments: Vec<Moment> = self.moments.drain(..n).collect();
+        let r = self.reports.len().min(self.rules.max_batch_reports.max(1));
+        let reports: Vec<LiveReport> = self.reports.drain(..r).collect();
+        let mut through = if self.through_us == i64::MIN {
             0
         } else {
             self.through_us
         };
+        if let Some(next) = self.moments.first() {
+            through = through.min(i64::from(next.at_ms) * 1_000 - 1);
+        }
+        let through = self.sent_through_us.map_or(through, |t| t.max(through));
         self.sent_through_us = Some(through);
-        let end = if self.end_sent { None } else { self.end };
+        let last = self.moments.is_empty() && self.reports.is_empty();
+        let end = if self.end_sent || !last { None } else { self.end };
         if end.is_some() {
             self.end_sent = true;
         }
@@ -342,8 +388,8 @@ impl Outbox {
             stage: self.stage,
             seq,
             through_us: through,
-            moments: std::mem::take(&mut self.moments),
-            reports: std::mem::take(&mut self.reports),
+            moments,
+            reports,
             end,
         }
     }

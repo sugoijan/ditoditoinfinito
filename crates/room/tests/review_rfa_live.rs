@@ -333,3 +333,51 @@ fn the_cpus_news_is_taken_from_those_who_send_it() {
     let out = l.server.receive_binary(&l.r.s, wes, &wire::encode_cpus(&news), Millis(l.r.now));
     assert_eq!(refused(&out), None);
 }
+
+/// Finding 4: after a long stall (a laptop asleep inside the reconnect
+/// grace) one tick judged the whole gap and the stream cut it all into
+/// one batch, past the room's bounds: refused, and every later batch out
+/// of order, the stream frozen for good. Batches are cut within the
+/// bounds, the rest in the batches after it at once, each taken in order;
+/// the stream's end goes with the last.
+#[test]
+fn a_stalls_backlog_is_cut_within_the_rooms_bounds() {
+    use ddi_room::live::stream::{LiveReport, Outbox, StreamEnd};
+    let mut l = Live::new(true, 0);
+    l.wait(100);
+    let (ana, stage) = (l.ana, l.stage);
+    let at = l.song_ms();
+    let mut o = Outbox::new(stage, LIVE_V2);
+    for m in taps(at, 1_300) {
+        o.moment(m);
+    }
+    for k in 0..40 {
+        o.report(LiveReport {
+            k,
+            judged: Vec::new(),
+            life_ppm: 900_000,
+            out_at_us: None,
+            targeting: None,
+            score: 100,
+        });
+    }
+    o.judged_to(i64::from(at + 1_300) * 1_000);
+    o.end(StreamEnd::Finished);
+    let batches = o.due(0);
+    assert_eq!(batches.len(), 3, "1,300 moments and 40 reports in three batches");
+    for (i, b) in batches.iter().enumerate() {
+        assert!(b.moments.len() <= LIVE_V2.max_batch_moments);
+        assert!(b.reports.len() <= LIVE_V2.max_batch_reports);
+        assert_eq!(b.seq, i as u32 + 1);
+        assert_eq!(b.end.is_some(), i == 2, "the end with the last");
+    }
+    assert_eq!(batches.iter().map(|b| b.moments.len()).sum::<usize>(), 1_300);
+    assert_eq!(batches.iter().map(|b| b.reports.len()).sum::<usize>(), 40);
+    // Each batch says it was judged no further than its moments.
+    assert!(batches[0].through_us < i64::from(batches[1].moments[0].at_ms) * 1_000);
+    for b in &batches {
+        assert_eq!(refused(&l.send(ana, b)), None);
+    }
+    assert_eq!(l.seq(ana), 3);
+    assert_eq!(l.server.stage().unwrap().end(ana), Some(StreamEnd::Finished));
+}
