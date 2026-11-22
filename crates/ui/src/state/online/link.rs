@@ -280,11 +280,14 @@ impl OnlineLink {
     /// /rooms/<id>/twitch`): the room says the change when it is made.
     pub fn set_twitch(&mut self, mirror: ddi_room::TwitchMirror, chat: ddi_room::TwitchChat) {
         self.twitch_asked = Some((mirror, chat));
-        self.twitch_req = Some(
-            self.online
-                .borrow_mut()
-                .request(api::room_twitch(&self.room_id, mirror, chat)),
-        );
+        let mut online = self.online.borrow_mut();
+        // The setting asked before, its answer not read yet: this one
+        // replaces it, so its answer is dropped, never held unread
+        // (round LO).
+        if let Some(old) = self.twitch_req.take() {
+            online.forget_answer(old);
+        }
+        self.twitch_req = Some(online.request(api::room_twitch(&self.room_id, mirror, chat)));
     }
 
     /// The features to connect before the setting asked (once).

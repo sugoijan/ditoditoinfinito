@@ -1020,6 +1020,36 @@ pub(crate) mod room {
         assert_eq!(bob.link_notice(), Some(LinkNotice::TwitchSetterLeft { who: me }));
     }
 
+    /// Round LO: a Twitch setting asked again before the first's answer
+    /// was read (Host options' two rows in one round trip) replaces it:
+    /// the first answer is dropped, not held unread for the session, and
+    /// the second is the one read.
+    #[test]
+    fn a_replaced_twitch_setting_leaves_no_answer_unread() {
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob"]);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        server.borrow_mut().grant_twitch(&ddi_room::Identity::new("dev:alice"), &["bans", "chat"]);
+        let online = alice.online_link().unwrap().online().clone();
+        assert_eq!(online.borrow().unread_answers(), 0);
+        alice.set_twitch(ddi_room::TwitchMirror::Bans, ddi_room::TwitchChat::Off);
+        alice.set_twitch(ddi_room::TwitchMirror::Bans, ddi_room::TwitchChat::Emotes);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(online.borrow().unread_answers(), 0, "the first answer dropped");
+        let t = alice.twitch().cloned().expect("the setting made");
+        assert_eq!((t.mirror, t.chat), (ddi_room::TwitchMirror::Bans, ddi_room::TwitchChat::Emotes));
+        // Its first answer already come and not read: dropped all the same.
+        alice.set_twitch(ddi_room::TwitchMirror::Off, ddi_room::TwitchChat::Off);
+        online.borrow_mut().poll(ddi_room::Clock::now(&clock).0);
+        alice.set_twitch(ddi_room::TwitchMirror::Off, ddi_room::TwitchChat::Emotes);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(online.borrow().unread_answers(), 0);
+        let t = alice.twitch().cloned().expect("the setting made");
+        assert_eq!((t.mirror, t.chat), (ddi_room::TwitchMirror::Off, ddi_room::TwitchChat::Emotes));
+    }
+
     /// Round TW7: a player whose device has "Twitch chat in rooms" on, in
     /// a room that shows its host's chat, whose Twitch access does not
     /// allow reading chat, is told once what to do; with the access, or

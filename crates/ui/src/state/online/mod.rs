@@ -225,6 +225,9 @@ enum Want {
     Audience(String),
     /// Someone else's (the room's link): kept for them.
     External,
+    /// Someone else's that they no longer want (replaced by another,
+    /// [`Online::forget_answer`]): dropped when it comes.
+    Forgotten,
 }
 
 /// A failed poll of the attempt is tried again after this long.
@@ -407,6 +410,22 @@ impl Online {
 
     pub fn take_answer(&mut self, id: u64) -> Option<ApiResponse> {
         self.answers.remove(&id)
+    }
+
+    /// Request `id`'s answer is no longer wanted (another asked in its
+    /// place, round LO): dropped now if it came, else when it comes,
+    /// never kept unread for the rest of the session.
+    pub fn forget_answer(&mut self, id: u64) {
+        self.answers.remove(&id);
+        if let Some(want) = self.pending.get_mut(&id) {
+            *want = Want::Forgotten;
+        }
+    }
+
+    /// The answers come and not taken yet (for tests).
+    #[cfg(test)]
+    pub(crate) fn unread_answers(&self) -> usize {
+        self.answers.len()
     }
 
     fn start(&mut self, mut request: ApiRequest, want: Want) -> u64 {
@@ -862,7 +881,7 @@ impl Online {
                     }
                 }
             }
-            Want::Logout | Want::Cancel => return,
+            Want::Logout | Want::Cancel | Want::Forgotten => return,
             Want::NewAttempt => {
                 let SignIn::Starting { dest } = &self.sign_in else {
                     return;
