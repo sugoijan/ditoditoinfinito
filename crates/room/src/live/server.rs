@@ -646,6 +646,9 @@ pub struct LiveStage {
     comps: BTreeMap<ParticipantId, Comp>,
     ledger: Option<StageBattle>,
     plan: Option<PlanDigest>,
+    /// The rungs of the plan's ladder, where the stage has a plan (a
+    /// stream's steps are to one of them, or back to its chart).
+    ladder: Option<usize>,
     /// Every competitor plays live: the room may decide the stage early.
     early: bool,
     decided: bool,
@@ -674,6 +677,40 @@ pub struct LiveStage {
     /// CPU messages taken, and the reports in them (duplicates included).
     cpu_messages: u32,
     cpu_reports_seen: u32,
+}
+
+/// The most steps a batch may say for each chart of the stage's ladder
+/// (round RFa): more than a whole play makes (under `adaptive-v5` at most
+/// five a chart: down from it twice before it closes, up from it once
+/// more than it is come back to). A stage without a plan cannot tell its
+/// ladder: [`STEPS_WITHOUT_A_PLAN`].
+pub const STEPS_PER_RUNG: usize = 8;
+
+/// The most steps a batch may say where the room has no plan to read the
+/// ladder from (round RFa): a step takes seconds (an early step up four
+/// bars, a step down life lost after the breather before it), and a
+/// batch is a tenth of a second (512 moments at most after a stall).
+pub const STEPS_WITHOUT_A_PLAN: usize = 64;
+
+/// Whether a batch's moments are ones a play could send (round RFa: the
+/// room relayed them verbatim to every device and the audience): life
+/// within a full gauge, steps to a rung of the plan's ladder (`ladder`,
+/// where the room has a plan) and no more of them than a play makes.
+fn sane_moments(moments: &[Moment], ladder: Option<usize>) -> bool {
+    let most = ladder.map_or(STEPS_WITHOUT_A_PLAN, |n| STEPS_PER_RUNG * (n + 1));
+    let mut steps = 0usize;
+    for m in moments {
+        if m.life_ppm > 1_000_000 {
+            return false;
+        }
+        if let MomentKind::Step { rung } = m.kind {
+            steps += 1;
+            if steps > most || ladder.is_some_and(|n| usize::from(rung) > n) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// The rung of stage `stage`'s ladder `p` starts on (room model revision
@@ -781,6 +818,7 @@ impl LiveStage {
             comps,
             ledger,
             plan: plan.map(|p| p.digest.clone()),
+            ladder: plan.map(|p| p.ladder.len()),
             decided: false,
             song_end_sent: false,
             settling: None,
@@ -1066,6 +1104,7 @@ impl LiveStage {
             || b.reports
                 .iter()
                 .any(|r| r.judged.len() > rules.max_report_judged)
+            || !sane_moments(&b.moments, self.ladder)
         {
             return Err(LiveRefusal::BadBatch { stage });
         }

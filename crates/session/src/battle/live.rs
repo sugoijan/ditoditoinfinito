@@ -369,6 +369,11 @@ impl RemoteSeat {
         let Some((r, _)) = r else {
             return;
         };
+        // A step to the chart it is on is nothing, and a field takes a
+        // bounded number of steps (round RFa: `STEPS_PER_RUNG`).
+        if rung == self.steps || self.feed.steps().count() >= STEPS_PER_RUNG * (rungs.len() + 1) {
+            return;
+        }
         // The same step said again (a snapshot's, then its moment in the
         // frames after it, the seat's song clock shifted a little
         // between): taken once.
@@ -509,6 +514,14 @@ impl RemoteSeat {
 
 /// The taps a remote competitor's clock's shift is the median of.
 const SHIFT_SAMPLES: usize = 9;
+
+/// The most steps a remote field takes for each chart of the stage's
+/// ladder (round RFa: a stream's steps were taken whatever their number,
+/// and each frame went over them all for each one shown). An honest
+/// play's are at most five a chart under `adaptive-v5`: down from it
+/// twice before it closes (`AdaptiveRule::closed_after`), up from it at
+/// most once more than it is come back to from above.
+const STEPS_PER_RUNG: usize = 8;
 
 /// What the room's ledger said, as the views read it: every competitor's
 /// power after the last checkpoint run, the waiting bars, the attacks
@@ -925,6 +938,22 @@ fn remote_seat(
         shifts: VecDeque::new(),
         steps: 0,
         shown: None,
+    }
+}
+
+impl RemoteSeat {
+    /// Its combo is `combo` now: its combo part, as its play counts it
+    /// (`ddi::DdiScore`), grown by each step the combo grew by: the
+    /// difference of two full combos' points, in closed form (round RFa:
+    /// summed note by note, a forged combo of billions froze the device),
+    /// never past the largest sum there is.
+    fn combo_to(&mut self, combo: u32) {
+        use ddi_engine::rules::ddi::full_combo_points;
+        if combo > self.counted {
+            let grown = full_combo_points(combo) - full_combo_points(self.counted);
+            self.combo_part = self.combo_part.saturating_add(grown);
+        }
+        self.counted = combo;
     }
 }
 
@@ -1625,14 +1654,7 @@ impl Live {
                 if let MomentKind::Tap { w0: true, .. } = m.kind {
                     seat.w0s += 1;
                 }
-                // Its combo part, as its play counts it
-                // (`ddi::DdiScore`): each step the combo grew by.
-                if m.combo > seat.counted {
-                    seat.combo_part += (seat.counted + 1..=m.combo)
-                        .map(ddi_engine::rules::ddi::combo_points)
-                        .sum::<i64>();
-                }
-                seat.counted = m.combo;
+                seat.combo_to(m.combo);
                 if let MomentKind::Tap { tier, offset_ms, .. } = m.kind
                     && !Judgement::from_index(tier.into()).is_none_or(Judgement::is_miss)
                 {
@@ -2091,6 +2113,65 @@ mod tests {
         let own = DdiScoreView::of(400, 5_000, 30).with_combo(1_000);
         let seen = ddi_of_sum(own.score, 0, 1_000, Some(5_000), 0).unwrap();
         assert_eq!((seen.points, seen.score), (400, own.score));
+    }
+
+    /// Round RFa, finding 1: a remote competitor's moments say its
+    /// combo, and the combo part was summed note by note from the last one
+    /// said: moments alternating 0 and a forged combo of billions froze
+    /// every device and audience seat. Its growth costs the same whatever
+    /// the combo (shown here with combos of thirty million: summed note by
+    /// note, seconds), the sum exactly as before.
+    #[test]
+    fn a_remote_combo_costs_the_same_whatever_it_says() {
+        let song = crate::test_songs::bundled("beatucada");
+        let track = feed::TapTrack::full(&song, 5).unwrap();
+        let mut seat = remote_seat(ParticipantId(2), "x", &track, 0.5, None);
+        for combo in [5, 3, 120] {
+            seat.combo_to(combo);
+        }
+        // Exactly the play's own sum: 1..=5, then 4..=120.
+        let sum = |a: u32, b: u32| (a..=b).map(ddi_engine::rules::ddi::combo_points).sum::<i64>();
+        assert_eq!(seat.combo_part, sum(1, 5) + sum(4, 120));
+        let started = std::time::Instant::now();
+        for _ in 0..2 {
+            seat.combo_to(0);
+            seat.combo_to(30_000_000);
+        }
+        let took = started.elapsed();
+        assert!(took < std::time::Duration::from_millis(100), "{took:?}");
+        // Saturating, never wrapping, past any sum a play could reach.
+        for _ in 0..4_000 {
+            seat.combo_to(0);
+            seat.combo_to(u32::MAX);
+        }
+        assert!(seat.combo_part > 0);
+    }
+
+    /// Round RFa, finding 1: each step of a remote stream adds a step to
+    /// its field, and drawing a frame goes over every step for each one
+    /// shown: a stream saying thousands of steps made every frame
+    /// unaffordable. A step to the rung it is on is nothing, and a field
+    /// takes at most `STEPS_PER_RUNG` steps for each chart of the ladder
+    /// (an honest play's at most five: down from a rung twice before it
+    /// closes, up from it three times).
+    #[test]
+    fn a_remote_fields_steps_are_bounded() {
+        let song = crate::test_songs::bundled("beatucada");
+        let ladder = ddi_engine::cpu::planned_ladder(&song, 5);
+        let rungs = crate::battle::ladder_rungs(&song, &ladder).unwrap();
+        let tracks: Vec<(Rc<feed::TapTrack>, bool)> = rungs.iter().map(|r| (Rc::clone(&r.track), r.up)).collect();
+        assert!(tracks.len() >= 2);
+        let stage = Rc::new(feed::TapTrack::full(&song, 5).unwrap());
+        let mut seat = remote_seat(ParticipantId(2), "x", &stage, 0.0, None);
+        // A step to the chart it is on is nothing.
+        seat.step(&stage, (&tracks, &[]), 0, 1.0, Tick(48));
+        assert_eq!(seat.feed.steps().count(), 0);
+        for i in 0..1_000u32 {
+            let rung = 1 + (i % 2) as u8;
+            seat.step(&stage, (&tracks, &[]), rung, 2.0 + f64::from(i), Tick(48 * i64::from(i + 2)));
+        }
+        let most = STEPS_PER_RUNG * (tracks.len() + 1);
+        assert_eq!(seat.feed.steps().count(), most);
     }
 
     /// Round LO, item 2: Alice starts on Easy (her own chart under

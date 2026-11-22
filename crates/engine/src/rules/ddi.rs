@@ -106,9 +106,28 @@ pub fn combo_points(combo: u32) -> i64 {
 }
 
 /// The combo part of a full combo of `notes` notes (one run, every note
-/// in combo): the sum of [`combo_points`] of 1 to `notes`.
+/// in combo): the sum of [`combo_points`] of 1 to `notes`, in closed form
+/// (round RFa, 2026-11-22: a remote competitor's stream says its combo,
+/// and a combo of billions summed note by note froze a device), exactly
+/// that sum for every `notes`.
 pub fn full_combo_points(notes: u32) -> i64 {
-    (1..=notes).map(combo_points).sum()
+    let n = i128::from(notes);
+    let ramp = i128::from(COMBO_RAMP);
+    // 6 × min(k, 100) summed.
+    let ramped = if n <= ramp {
+        n * (n + 1) / 2
+    } else {
+        ramp * (ramp + 1) / 2 + ramp * (n - ramp)
+    };
+    // isqrt(j) summed for j = 1..=m, m = n − 100: each t below r = isqrt(m)
+    // for 2t + 1 values of j, r for the m − r² + 1 values from r².
+    let m = (n - ramp).max(0);
+    let r = m.isqrt();
+    let below = 2 * (r - 1) * r * (2 * r - 1) / 6 + (r - 1) * r / 2;
+    let roots = if r == 0 { 0 } else { below + r * (m - r * r + 1) };
+    let total =
+        i128::from(COMBO_RAMP_POINTS) * ramped + i128::from(COMBO_GROWTH_POINTS) * roots;
+    i64::try_from(total).unwrap_or(i64::MAX)
 }
 
 /// The percent's rule (`docs/plans/ddi-ruleset.md`, "Score" and
@@ -1016,6 +1035,32 @@ mod tests {
         let halves = full_combo_points(150) + full_combo_points(149);
         let lost = 100 * (full_combo_points(300) - halves) / full_combo_points(300);
         assert_eq!(lost, 34);
+    }
+
+    /// The closed form is the sum note by note, for every combo up to a
+    /// quarter of a million and around each square past it; the largest
+    /// combo there is fits, at once.
+    #[test]
+    fn a_full_combos_points_are_their_sum() {
+        let mut sum = 0i64;
+        for n in 0..=250_000u32 {
+            if n > 0 {
+                sum += combo_points(n);
+            }
+            assert_eq!(full_combo_points(n), sum, "{n}");
+        }
+        for r in [600u32, 1_000, 4_096, 65_535] {
+            let m = r * r + COMBO_RAMP;
+            let near = (m - 3..=m + 3).map(|n| (n, full_combo_points(n)));
+            let mut before = full_combo_points(m - 4);
+            for (n, f) in near {
+                assert_eq!(f - before, combo_points(n), "{n}");
+                before = f;
+            }
+        }
+        let most = full_combo_points(u32::MAX);
+        assert!(most > 0 && most < i64::MAX / 1_000);
+        assert_eq!(most - full_combo_points(u32::MAX - 1), combo_points(u32::MAX));
     }
 
     /// The part follows the combo the player keeps: each step it grows
