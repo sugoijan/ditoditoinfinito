@@ -247,6 +247,12 @@ impl ChannelSets {
         ChannelSets { reads, version: 0 }
     }
 
+    /// The sets of another channel's (Twitch user `channel_id`) under
+    /// `from`, read the same way as these (their proxy and base).
+    pub fn for_channel(&self, channel_id: &str, from: EmotesFrom) -> ChannelSets {
+        ChannelSets::new(channel_id, from, self.reads.api.clone(), self.reads.at.clone())
+    }
+
     /// The proxy's base images are asked through after a failure.
     pub fn api(&self) -> Option<&str> {
         self.reads.api.as_deref()

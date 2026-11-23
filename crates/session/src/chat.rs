@@ -150,12 +150,7 @@ impl Keeper {
 
 fn key_of(want: &ddi_ui::state::twitch::KeptChat) -> Key {
     Key {
-        want: LiveWant {
-            channel_id: want.chat.channel_id.clone(),
-            login: want.chat.login.clone(),
-            room: want.chat.room.clone(),
-            named: want.chat.named,
-        },
+        want: LiveWant::from(&want.chat),
         messages: want.level == Level::Messages,
         from: want.emotes_from,
     }
@@ -282,6 +277,18 @@ pub fn kept_report() -> Option<serde_json::Value> {
             "connection": kp.held.as_ref().map(|(_, l)| l.machine.report()),
         }))
     })
+}
+
+impl From<&ddi_ui::state::twitch::RoomChat> for LiveWant {
+    /// The chat a room's route (or the development script's) reads.
+    fn from(chat: &ddi_ui::state::twitch::RoomChat) -> LiveWant {
+        LiveWant {
+            channel_id: chat.channel_id.clone(),
+            login: chat.login.clone(),
+            room: chat.room.clone(),
+            named: chat.named,
+        }
+    }
 }
 
 /// What a live chat reads: whose channel, and through which route.
@@ -511,12 +518,7 @@ impl ChatConfig {
                     .filter(|c| c.channel_id != "scripted")
                     .filter(|c| c.named || !c.channel_id.is_empty())?;
                 self.level = self.level.under(chat.ceiling);
-                self.source = ChatSource::Live(LiveWant {
-                    channel_id: chat.channel_id,
-                    login: chat.login,
-                    room: chat.room,
-                    named: chat.named,
-                });
+                self.source = ChatSource::Live(LiveWant::from(&chat));
             }
         }
         (self.level != Level::Off).then_some(self)
@@ -532,16 +534,7 @@ pub struct ChatLayer {
     config: ChatConfig,
     player: Option<Player>,
     /// The live chat's connection (round TW6).
-    live: Option<LiveChat>,
-    /// What the connection is for, which a room keeps between stages
-    /// (round DE), and whether it was the room's when the play took it.
-    key: Option<Key>,
-    kept: bool,
-    /// The room's buffered events, given at the first frame (none once
-    /// given).
-    handed: Option<Vec<Event>>,
-    /// The chat messages received when the play took the connection.
-    messages_before: u64,
+    live: Option<Leased>,
     /// The host second the source started at.
     start: Option<f64>,
     events: VecDeque<(u64, f64, Event)>,
@@ -553,6 +546,20 @@ pub struct ChatLayer {
     unread: u64,
     /// What the view last showed of it, for the live chat's last lines.
     view_note: RefCell<Option<ViewNote>>,
+}
+
+/// A play's live chat connection and what it holds it under.
+struct Leased {
+    chat: LiveChat,
+    /// What the connection is for, which a room keeps between stages
+    /// (round DE), and whether it was the room's when the play took it.
+    key: Key,
+    kept: bool,
+    /// The room's buffered events, given at the first frame (none once
+    /// given).
+    handed: Option<Vec<Event>>,
+    /// The chat messages received when the play took the connection.
+    messages_before: u64,
 }
 
 /// What a play's view showed of its chat (`ddi_shell::chat`), told back
@@ -584,8 +591,6 @@ struct LiveChat {
     /// channel's, round TW7: from our server's answer).
     sets_ready: bool,
     emotes_from: EmotesFrom,
-    api: String,
-    at: Option<String>,
     sets_seen: u64,
     sets_told: bool,
     io: Box<dyn LiveIo>,
@@ -617,8 +622,6 @@ impl LiveChat {
             sets: ChannelSets::new(&want.channel_id, from, Some(setup.api.clone()), setup.at.clone()),
             sets_ready: !want.channel_id.is_empty(),
             emotes_from: from,
-            api: setup.api.clone(),
-            at: setup.at.clone(),
             want,
             sets_seen: 0,
             sets_told: false,
@@ -657,9 +660,7 @@ impl LiveChat {
             self.started = true;
             self.machine.start(ms);
             if self.sets_ready {
-                for r in self.sets.start() {
-                    self.io.read_set(r.key, &r.url, r.via);
-                }
+                self.read_sets();
             }
         }
         for input in self.io.poll() {
@@ -670,9 +671,7 @@ impl LiveChat {
                 LiveInput::Subscribed(s, answer) => self.machine.subscribed(s, answer, ms),
                 LiveInput::SetRead(key, via, answer) => {
                     self.sets.answered(key, via, answer);
-                    for r in self.sets.start() {
-                        self.io.read_set(r.key, &r.url, r.via);
-                    }
+                    self.read_sets();
                 }
             }
         }
@@ -683,11 +682,9 @@ impl LiveChat {
             && let Some(c) = self.machine.channel()
         {
             self.want.channel_id = c.id.clone();
-            self.sets = ChannelSets::new(&c.id, self.emotes_from, Some(self.api.clone()), self.at.clone());
+            self.sets = self.sets.for_channel(&c.id, self.emotes_from);
             self.sets_ready = true;
-            for r in self.sets.start() {
-                self.io.read_set(r.key, &r.url, r.via);
-            }
+            self.read_sets();
         }
         self.flush(messages);
         let events = self.machine.take_events();
@@ -700,6 +697,13 @@ impl LiveChat {
             }
         }
         (events, changed)
+    }
+
+    /// The emote sets' reads to make now handed to the shell.
+    fn read_sets(&mut self) {
+        for r in self.sets.start() {
+            self.io.read_set(r.key, &r.url, r.via);
+        }
     }
 
     /// Stops it: every socket closed, the last lines told (what was
@@ -796,36 +800,32 @@ impl Drop for ChatLayer {
     /// stage's lines told; else its sockets closed, its last lines told.
     fn drop(&mut self) {
         let messages = self.config.level == Level::Messages;
-        let Some(l) = self.live.take() else {
+        let Some(Leased {
+            chat: l,
+            key,
+            messages_before,
+            ..
+        }) = self.live.take()
+        else {
             return;
         };
         let view = self.view_note.borrow().clone();
-        let back = match self.key.take() {
-            Some(key) => {
-                let given = l.machine.received().messages.saturating_sub(self.messages_before);
-                let l2 = give_back(key, l);
-                match l2 {
-                    Some(l2) => Some(l2),
-                    None => {
-                        // Kept: the stage's own lines through the room's.
-                        ROOM_CHAT.with_borrow_mut(|kp| {
-                            if let Some((_, l)) = kp.held.as_mut() {
-                                l.io.report(&format!(
-                                    "the stage ended: {given} chat messages during it; kept for the room"
-                                ));
-                                if let Some(n) = view.as_ref() {
-                                    l.report_view(n);
-                                }
-                            }
-                        });
-                        None
+        let given = l.machine.received().messages.saturating_sub(messages_before);
+        match give_back(key, l) {
+            Some(mut l) => l.end(messages, view.as_ref()),
+            None => {
+                // Kept: the stage's own lines through the room's.
+                ROOM_CHAT.with_borrow_mut(|kp| {
+                    if let Some((_, l)) = kp.held.as_mut() {
+                        l.io.report(&format!(
+                            "the stage ended: {given} chat messages during it; kept for the room"
+                        ));
+                        if let Some(n) = view.as_ref() {
+                            l.report_view(n);
+                        }
                     }
-                }
+                });
             }
-            None => Some(l),
-        };
-        if let Some(mut l) = back {
-            l.end(messages, view.as_ref());
         }
     }
 }
@@ -847,23 +847,21 @@ impl ChatLayer {
                     None => (LiveChat::new(want.clone(), config.emotes_from), Vec::new(), false),
                 };
                 let sets = live.as_ref().map(|l| l.sets.sets()).unwrap_or_default();
-                let before = live.as_ref().map_or(0, |l| l.machine.received().messages);
-                (None, sets, live.map(|l| (l, k, kept, handed, before)))
+                let live = live.map(|chat| Leased {
+                    messages_before: chat.machine.received().messages,
+                    chat,
+                    key: k,
+                    kept,
+                    handed: Some(handed),
+                });
+                (None, sets, live)
             }
             ChatSource::Room => (None, EmoteSets::default(), None),
-        };
-        let (live, key, kept, handed, messages_before) = match live {
-            Some((l, k, kept, handed, before)) => (Some(l), Some(k), kept, Some(handed), before),
-            None => (None, None, false, None, 0),
         };
         ChatLayer {
             config,
             player,
             live,
-            key,
-            kept,
-            handed,
-            messages_before,
             start: None,
             events: VecDeque::new(),
             next: 1,
@@ -894,7 +892,7 @@ impl ChatLayer {
     /// `ddi_chat::live::Live::trouble`), for one quiet line after the
     /// stage; none for any other source.
     pub fn trouble(&self) -> Option<ddi_chat::live::Trouble> {
-        self.live.as_ref().and_then(|l| l.machine.trouble())
+        self.live.as_ref().and_then(|l| l.chat.machine.trouble())
     }
 
     /// The live chat's report for the debug state (`__DDI_DEBUG.chat.live`):
@@ -902,7 +900,7 @@ impl ChatLayer {
     /// by provider, whose channel and which route; none for another
     /// source. Never a token, a session or a person's chat.
     pub fn live_report(&self) -> Option<serde_json::Value> {
-        let l = self.live.as_ref()?;
+        let Leased { chat: l, kept, .. } = self.live.as_ref()?;
         Some(serde_json::json!({
             "channel": l.want.login,
             "route": if l.want.room.is_some() { "room" } else { "own" },
@@ -910,8 +908,8 @@ impl ChatLayer {
             "level": format!("{:?}", self.config.level),
             // Round DE: the room's connection (kept between its stages)
             // or this play's own.
-            "lifetime": if self.key.is_some() && (self.kept || ROOM_CHAT.with_borrow(|kp| kp.want.is_some())) { "room" } else { "play" },
-            "taken_from_room": self.kept,
+            "lifetime": if *kept || ROOM_CHAT.with_borrow(|kp| kp.want.is_some()) { "room" } else { "play" },
+            "taken_from_room": kept,
             "connection": l.machine.report(),
             "emote_sets": l.sets.report(),
             "events_given": self.next - 1,
@@ -934,7 +932,7 @@ impl ChatLayer {
         match &self.config.source {
             ChatSource::Script(s) => s.api(),
             ChatSource::Live(_) | ChatSource::Room => {
-                self.live.as_ref().and_then(|l| l.sets.api().map(str::to_string))
+                self.live.as_ref().and_then(|l| l.chat.sets.api().map(str::to_string))
             }
         }
     }
@@ -957,11 +955,14 @@ impl ChatLayer {
             }
         }
         let messages = self.config.level == Level::Messages;
-        if let Some(l) = self.live.as_mut() {
+        if let Some(Leased {
+            chat: l, kept, handed, ..
+        }) = self.live.as_mut()
+        {
             let ms = l.ms(Driver::Play, (now.max(0.0) * 1000.0) as u64);
             // The room's last events, at the play's first frame.
-            let handed = self.handed.take();
-            if self.kept && let Some(h) = handed.as_ref() {
+            let handed = handed.take();
+            if *kept && let Some(h) = handed.as_ref() {
                 l.io.report(&format!(
                     "a stage took the room's connection ({}, {} events from the last {BUFFER_SECONDS} s)",
                     l.machine.state(),
