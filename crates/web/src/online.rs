@@ -69,7 +69,7 @@ pub(crate) fn connect_twitch_chat(level: ddi_chat::Level) {
 thread_local! {
     /// The session's online state, the online room shown last and the
     /// room watched with its audience.
-    static KEPT: Kept = const { Kept::new() };
+    static KEPT: Kept = const { Kept::with_on_left(forget_store_of) };
     /// The first ticket a seat was given on the invite's page, for the
     /// audience's page to open its socket with (by link).
     static TICKET: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
@@ -445,12 +445,8 @@ fn client_id() -> ClientId {
 
 /// Online room `id`'s client, made (and joined) at first.
 pub(crate) fn room(id: &str) -> SharedRoom {
-    // Another room kept is left: its songs on this device deleted.
-    if let Some(old) = KEPT.with(Kept::room)
-        && KEPT.with(Kept::room_id).as_deref() != Some(id)
-    {
-        forget_store_of(&old);
-    }
+    // (Another room kept is left: its songs on this device deleted,
+    // `Kept::with_on_left`.)
     let room = KEPT.with(|k| {
         k.room_or(id, || {
             // TESTING ONLY: the fake room in the page (`crate::fake_room`).
@@ -503,7 +499,6 @@ pub(crate) fn kept_room_id() -> Option<String> {
 /// so that nothing keeps its client alive.
 pub(crate) fn discard() {
     if let Some(room) = KEPT.with(Kept::discard_room) {
-        forget_store_of(&room);
         crate::room::forget_playing(&room);
     }
     drive_leaving();

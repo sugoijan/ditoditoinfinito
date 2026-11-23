@@ -21,6 +21,10 @@ pub struct Kept {
     /// socket was down): their links driven until it has
     /// ([`Self::drive_leaving`]).
     leaving: RefCell<Vec<SharedRoom>>,
+    /// What the shell does with an online room this device leaves for
+    /// another, or by Leave room ([`Self::room_or`],
+    /// [`Self::discard_room`]): its songs downloaded here deleted.
+    on_left: Option<fn(&SharedRoom)>,
 }
 
 impl Kept {
@@ -30,6 +34,19 @@ impl Kept {
             room: RefCell::new(None),
             audience: RefCell::new(None),
             leaving: RefCell::new(Vec::new()),
+            on_left: None,
+        }
+    }
+
+    /// [`Kept::new`], `on_left` run for each online room this device
+    /// leaves (the shell's store of its songs forgotten).
+    pub const fn with_on_left(on_left: fn(&SharedRoom)) -> Kept {
+        Kept {
+            online: RefCell::new(None),
+            room: RefCell::new(None),
+            audience: RefCell::new(None),
+            leaving: RefCell::new(Vec::new()),
+            on_left: Some(on_left),
         }
     }
 
@@ -121,7 +138,13 @@ impl Kept {
             return r;
         }
         let other = self.room.borrow_mut().take();
-        if let Some((_, old)) = other {
+        if let Some((old_id, old)) = other {
+            // (Another room's: the same room made anew keeps its store.)
+            if old_id != id
+                && let Some(f) = self.on_left
+            {
+                f(&old);
+            }
             if let Ok(mut r) = old.try_borrow_mut() {
                 r.leave();
             }
@@ -148,6 +171,9 @@ impl Kept {
     pub fn discard_room(&self) -> Option<SharedRoom> {
         let room = self.room.borrow_mut().take().map(|(_, r)| r)?;
         self.keep_leaving(room.clone());
+        if let Some(f) = self.on_left {
+            f(&room);
+        }
         Some(room)
     }
 
@@ -272,6 +298,28 @@ mod tests {
             .member(ddi_room::ParticipantId(2))
             .is_some_and(|m| m.left);
         assert!(left, "bob left the room he no longer shows");
+    }
+
+    /// The shell's hook runs for each room this device leaves: one
+    /// replaced by another room, and Leave room; never for a room kept,
+    /// nor one made anew in its own place.
+    #[test]
+    fn the_shells_hook_runs_for_each_room_left() {
+        thread_local! {
+            static LEFT: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+        }
+        fn note(room: &SharedRoom) {
+            let at = room.borrow().now_ms();
+            LEFT.with_borrow_mut(|l| l.push(at));
+        }
+        let kept = Kept::with_on_left(note);
+        let _first = kept.room_or("Room000001", || RoomClient::shared(1, 1));
+        let _same = kept.room_or("Room000001", || unreachable!("kept"));
+        assert!(LEFT.with_borrow(Vec::is_empty));
+        let _other = kept.room_or("Room000002", || RoomClient::shared(2, 2));
+        assert_eq!(LEFT.with_borrow(Clone::clone), [1]);
+        kept.discard_room();
+        assert_eq!(LEFT.with_borrow(Clone::clone), [1, 2]);
     }
 
     /// The online state is made once, and a maker may ask the holder for

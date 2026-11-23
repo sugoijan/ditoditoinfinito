@@ -69,7 +69,7 @@ pub fn connect_twitch_chat(
 thread_local! {
     /// The run's online state, the online room shown last and the room
     /// watched with its audience.
-    static KEPT: Kept = const { Kept::new() };
+    static KEPT: Kept = const { Kept::with_on_left(forget_store_of) };
     /// `--join`'s invite, for the first screens.
     static JOIN: RefCell<Option<String>> = const { RefCell::new(None) };
 }
@@ -274,9 +274,6 @@ fn client_id() -> ClientId {
 /// Online room `id`'s client, made (and joined) at first (another room
 /// kept is left, its songs on this device deleted).
 pub fn room(id: &str) -> SharedRoom {
-    if let Some(old) = KEPT.with(Kept::room).filter(|_| KEPT.with(Kept::room_id).as_deref() != Some(id)) {
-        forget_store_of(&old);
-    }
     KEPT.with(|k| {
         k.room_or(id, || {
             let room = Rc::new(RefCell::new(RoomClient::online(
@@ -296,9 +293,7 @@ pub fn room(id: &str) -> SharedRoom {
 /// Leave room: forgotten, its songs downloaded on this device deleted
 /// (stage 2 of the room's song list).
 pub fn discard() {
-    if let Some(room) = KEPT.with(Kept::discard_room) {
-        forget_store_of(&room);
-    }
+    KEPT.with(Kept::discard_room);
 }
 
 /// The rooms left whose Leave their room has not read yet (their socket
