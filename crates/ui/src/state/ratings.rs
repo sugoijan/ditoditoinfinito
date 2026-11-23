@@ -251,19 +251,15 @@ struct State {
     /// MSD has been shown this session: numbers drawn fainter may need
     /// drawing plainly again.
     ever: bool,
-    /// The kept ratings, read (once wanted) from this store generation.
-    loaded: Option<u64>,
-    kept: HashMap<u128, Values>,
+    /// The kept ratings.
+    kept: KeptRatings<Values>,
     /// The bundled songs' (from their manifest): never stored.
     bundled: HashMap<u128, Values>,
-    dirty: bool,
     unsaved: usize,
     /// The DDI estimates: as MSD's, read from their own store
     /// ([`ESTIMATE_KEY`]); `None` where the chart has none.
-    est_loaded: Option<u64>,
-    est_kept: HashMap<u128, Option<ChartEstimate>>,
+    est_kept: KeptRatings<Option<ChartEstimate>>,
     est_bundled: HashMap<u128, ChartEstimate>,
-    est_dirty: bool,
     /// Bumped at each new rating, so screens show it.
     generation: u64,
     pending: VecDeque<Job>,
@@ -271,6 +267,65 @@ struct State {
     rating: Option<String>,
     playing: bool,
     rated: usize,
+}
+
+/// Ratings kept in storage by chart digest: read (once wanted) from the
+/// store's generation, written (all of them, digests in order) where
+/// changed.
+struct KeptRatings<V> {
+    /// The store generation they were read from.
+    loaded: Option<u64>,
+    by_digest: HashMap<u128, V>,
+    dirty: bool,
+}
+
+impl<V> Default for KeptRatings<V> {
+    fn default() -> Self {
+        KeptRatings {
+            loaded: None,
+            by_digest: HashMap::new(),
+            dirty: false,
+        }
+    }
+}
+
+impl<V> KeptRatings<V> {
+    /// Read again where the store changed since: emptied, then `fill`ed
+    /// (with nothing where they were kept under another calculator).
+    fn reload(&mut self, fill: impl FnOnce(&mut HashMap<u128, V>)) {
+        let generation = storage::generation();
+        if self.loaded == Some(generation) {
+            return;
+        }
+        self.loaded = Some(generation);
+        self.by_digest.clear();
+        self.dirty = false;
+        fill(&mut self.by_digest);
+    }
+
+    fn insert(&mut self, digest: u128, value: V) {
+        self.by_digest.insert(digest, value);
+        self.dirty = true;
+    }
+
+    fn get(&self, digest: u128) -> Option<&V> {
+        self.by_digest.get(&digest)
+    }
+
+    fn len(&self) -> usize {
+        self.by_digest.len()
+    }
+
+    /// Written where changed: `write` given every digest, in order.
+    fn save(&mut self, write: impl FnOnce(&[u128], &HashMap<u128, V>)) {
+        if !self.dirty {
+            return;
+        }
+        let mut digests: Vec<_> = self.by_digest.keys().copied().collect();
+        digests.sort_unstable();
+        write(&digests, &self.by_digest);
+        self.dirty = false;
+    }
 }
 
 thread_local! {
@@ -298,42 +353,33 @@ impl State {
 
     /// The kept estimates, read where they were not.
     fn load_estimates(&mut self) {
-        let generation = storage::generation();
-        if self.est_loaded == Some(generation) {
-            return;
-        }
-        self.est_loaded = Some(generation);
-        self.est_kept.clear();
-        self.est_dirty = false;
-        let stored: StoredEstimates = storage::load(Area::Local, ESTIMATE_KEY).unwrap_or_default();
-        let (estimator, scale, rule) = estimate_names();
-        if (stored.estimator.as_str(), stored.scale.as_str(), stored.rule.as_str())
-            != (estimator, scale, rule)
-        {
-            return;
-        }
-        self.est_kept.extend(decode_estimates(&stored.charts));
+        self.est_kept.reload(|kept| {
+            let stored: StoredEstimates = storage::load(Area::Local, ESTIMATE_KEY).unwrap_or_default();
+            let (estimator, scale, rule) = estimate_names();
+            if (stored.estimator.as_str(), stored.scale.as_str(), stored.rule.as_str())
+                != (estimator, scale, rule)
+            {
+                return;
+            }
+            kept.extend(decode_estimates(&stored.charts));
+        });
     }
 
     fn save_estimates(&mut self) {
-        if !self.est_dirty {
-            return;
-        }
-        let mut digests: Vec<_> = self.est_kept.keys().copied().collect();
-        digests.sort_unstable();
-        let charts: String = digests
-            .iter()
-            .map(|d| encode_estimate(*d, self.est_kept[d].as_ref()))
-            .collect();
-        let (estimator, scale, rule) = estimate_names();
-        let stored = StoredEstimates {
-            estimator: estimator.into(),
-            scale: scale.into(),
-            rule: rule.into(),
-            charts,
-        };
-        let _ = storage::save(Area::Local, ESTIMATE_KEY, &stored);
-        self.est_dirty = false;
+        self.est_kept.save(|digests, kept| {
+            let charts: String = digests
+                .iter()
+                .map(|d| encode_estimate(*d, kept[d].as_ref()))
+                .collect();
+            let (estimator, scale, rule) = estimate_names();
+            let stored = StoredEstimates {
+                estimator: estimator.into(),
+                scale: scale.into(),
+                rule: rule.into(),
+                charts,
+            };
+            let _ = storage::save(Area::Local, ESTIMATE_KEY, &stored);
+        });
     }
 
     /// A chart's estimate: `Some(None)` estimated and none made, `None`
@@ -343,46 +389,40 @@ impl State {
             return Some(Some(e.clone()));
         }
         self.load_estimates();
-        self.est_kept.get(&digest.0).cloned()
+        self.est_kept.get(digest.0).cloned()
     }
 
     /// The kept ratings, read where they were not.
     fn load(&mut self) {
-        let generation = storage::generation();
-        if self.loaded == Some(generation) {
-            return;
-        }
-        self.loaded = Some(generation);
-        self.kept.clear();
-        self.dirty = false;
-        let stored: Stored = storage::load(Area::Local, KEY).unwrap_or_default();
-        if stored.version != ddi_msd::CALC_VERSION {
-            return;
-        }
-        let bytes = stored.charts.as_bytes();
-        for chunk in bytes.chunks(RECORD) {
-            if let Some((d, v)) = std::str::from_utf8(chunk).ok().and_then(decode) {
-                self.kept.insert(d, v);
+        self.kept.reload(|kept| {
+            let stored: Stored = storage::load(Area::Local, KEY).unwrap_or_default();
+            if stored.version != ddi_msd::CALC_VERSION {
+                return;
             }
-        }
+            let bytes = stored.charts.as_bytes();
+            for chunk in bytes.chunks(RECORD) {
+                if let Some((d, v)) = std::str::from_utf8(chunk).ok().and_then(decode) {
+                    kept.insert(d, v);
+                }
+            }
+        });
     }
 
     fn save(&mut self) {
-        if !self.dirty {
+        if !self.kept.dirty {
             return;
         }
-        let mut digests: Vec<_> = self.kept.keys().copied().collect();
-        digests.sort_unstable();
-        let mut charts = String::with_capacity(digests.len() * RECORD);
-        for d in digests {
-            charts.push_str(&encode(d, &self.kept[&d]));
-        }
-        let stored = Stored {
-            version: ddi_msd::CALC_VERSION,
-            charts,
-        };
-        let _ = storage::save(Area::Local, KEY, &stored);
-        self.dirty = false;
+        self.kept.save(|digests, kept| {
+            let mut charts = String::with_capacity(digests.len() * RECORD);
+            for d in digests {
+                charts.push_str(&encode(*d, &kept[d]));
+            }
+            let stored = Stored {
+                version: ddi_msd::CALC_VERSION,
+                charts,
+            };
+            let _ = storage::save(Area::Local, KEY, &stored);
+        });
         self.unsaved = 0;
     }
 
@@ -391,7 +431,7 @@ impl State {
             return Some(*v);
         }
         self.load();
-        self.kept.get(&digest.0).copied()
+        self.kept.get(digest.0).copied()
     }
 }
 
@@ -663,7 +703,6 @@ pub fn done(song: &str, rated: Vec<Rated>) {
         for r in rated {
             if let Some(v) = r.values {
                 s.kept.insert(r.digest.0, v.map(|x| (x * 100.0).round() / 100.0));
-                s.dirty = true;
                 s.unsaved += 1;
                 s.rated += 1;
                 any = true;
@@ -672,7 +711,6 @@ pub fn done(song: &str, rated: Vec<Rated>) {
                 // Kept whether one was made or not: a chart is estimated
                 // once (until a new estimator).
                 s.est_kept.insert(r.digest.0, r.estimate);
-                s.est_dirty = true;
                 s.unsaved += 1;
                 s.rated += 1;
                 any = true;
@@ -807,7 +845,6 @@ pub fn rate_now(song: &ddi_chart::Song, index: usize) -> Option<Values> {
         s.load();
         let v = values.map(|x| (x * 100.0).round() / 100.0);
         s.kept.insert(digest.0, v);
-        s.dirty = true;
         s.rated += 1;
         s.generation += 1;
         s.save();
