@@ -1358,7 +1358,7 @@ pub fn eligible(chart: &ChartEntry) -> Result<(), Unsupported> {
 }
 
 /// Whether the CPUs play charts of style `style`: one player, four lanes.
-fn cpu_style(style: &str) -> bool {
+pub fn cpu_style(style: &str) -> bool {
     matches!(
         ddi_chart::Layout::builtin(style),
         Some(l) if l.players == 1 && l.lanes.len() == 4

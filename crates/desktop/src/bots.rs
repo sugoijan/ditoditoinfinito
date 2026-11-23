@@ -760,6 +760,17 @@ pub fn profiles(o: &Options, count: usize, seed: u64) -> Vec<Profile> {
         .collect()
 }
 
+/// A listed song's chart a bot chooses or picks: one the CPU plays (one
+/// player, four lanes), closest to meter 7, as [`choose_chart`] chooses
+/// of the library's.
+fn listed_chart(entry: &ddi_room::RoomSong) -> Option<&ddi_room::ChartLine> {
+    entry
+        .charts
+        .iter()
+        .filter(|c| ddi_ui::state::room::cpu_style(&c.style))
+        .min_by_key(|c| (i64::from(c.meter) - 7).abs())
+}
+
 /// A song the host may pick: one original chart one player plays on four
 /// lanes with its digest (the CPU plays it; everyone checks it by its
 /// digest), closest to meter 7 unless `chart` names one.
@@ -1372,17 +1383,7 @@ impl Bot {
                 .iter()
                 .filter(|e| e.available() && r.repeat_refused(e.id).is_none())
                 .filter_map(|e| {
-                    let c = e
-                        .charts
-                        .iter()
-                        .filter(|c| {
-                            ddi_ui::state::room::eligible(&ChartEntry {
-                                style: c.style.clone(),
-                                ..ChartEntry::default()
-                            })
-                            .is_ok()
-                        })
-                        .min_by_key(|c| (i64::from(c.meter) - 7).abs())?;
+                    let c = listed_chart(e)?;
                     Some((e.id, c.chart.clone(), e.card.title.clone()))
                 })
                 .collect();
@@ -2154,15 +2155,7 @@ impl Bot {
         }
         let number = room.borrow().next_pick_number();
         // An open match's last song (revision 15, `--last-after`).
-        let last = host.last_after == Some(number)
-            && !host.last_at_ready
-            && matches!(
-                room.borrow().last_song_choice(),
-                Some(ddi_ui::state::room::LastSongChoice::NextPick { last: false })
-            );
-        if last {
-            room.borrow_mut().toggle_last_song();
-        }
+        let last = Self::mark_last(host, room, number);
         let picked = room.borrow_mut().pick(&song, &chart);
         match picked {
             Ok(()) => {
@@ -2174,16 +2167,42 @@ impl Bot {
                 // holds it back until after the standings).
                 host.not_before = now + PAUSE_MS;
             }
-            Err(why) => {
-                say(format!("the pick was refused: {why:?}"));
-                room.borrow_mut().clear_refusal();
-                host.not_before = now + RETRY_MS;
-            }
+            Err(why) => Self::pick_refused(host, room, now, why, say),
         }
     }
 }
 
 impl Bot {
+    /// An open match's last song (revision 15, `--last-after`): marked
+    /// before stage `number`'s pick where this host says so. Whether it
+    /// was.
+    fn mark_last(host: &Host, room: &SharedRoom, number: u16) -> bool {
+        let last = host.last_after == Some(number)
+            && !host.last_at_ready
+            && matches!(
+                room.borrow().last_song_choice(),
+                Some(ddi_ui::state::room::LastSongChoice::NextPick { last: false })
+            );
+        if last {
+            room.borrow_mut().toggle_last_song();
+        }
+        last
+    }
+
+    /// A pick the room refused: said, its refusal cleared, tried again
+    /// after a while.
+    fn pick_refused(
+        host: &mut Host,
+        room: &SharedRoom,
+        now: u64,
+        why: impl std::fmt::Debug,
+        say: &mut dyn FnMut(String),
+    ) {
+        say(format!("the pick was refused: {why:?}"));
+        room.borrow_mut().clear_refusal();
+        host.not_before = now + RETRY_MS;
+    }
+
     /// An online room's pick (revision 17): from the room's song list.
     /// With `--add` the list's songs in its order; else the host's songs,
     /// each added to the list first where it is not there. A song is
@@ -2268,18 +2287,7 @@ impl Bot {
             return;
         }
         // Its chart one player plays on four lanes, nearest level 7.
-        let chart = entry
-            .charts
-            .iter()
-            .filter(|c| {
-                ddi_ui::state::room::eligible(&ChartEntry {
-                    style: c.style.clone(),
-                    ..ChartEntry::default()
-                })
-                .is_ok()
-            })
-            .min_by_key(|c| (i64::from(c.meter) - 7).abs())
-            .cloned();
+        let chart = listed_chart(&entry).cloned();
         let Some(chart) = chart else {
             say(format!("{}: no chart the CPU plays; passed over", entry.card.title));
             host.next += 1;
@@ -2298,15 +2306,7 @@ impl Bot {
             return;
         }
         let number = room.borrow().next_pick_number();
-        let last = host.last_after == Some(number)
-            && !host.last_at_ready
-            && matches!(
-                room.borrow().last_song_choice(),
-                Some(ddi_ui::state::room::LastSongChoice::NextPick { last: false })
-            );
-        if last {
-            room.borrow_mut().toggle_last_song();
-        }
+        let last = Self::mark_last(host, room, number);
         // Song choice: Group (revision 22): the host's own choice, which
         // starts the draw; a choice that stands waits for it.
         if room.borrow().group_choice() {
@@ -2358,11 +2358,7 @@ impl Bot {
                 host.resting = None;
                 host.not_before = now + PAUSE_MS;
             }
-            Err(why) => {
-                say(format!("the pick was refused: {why:?}"));
-                room.borrow_mut().clear_refusal();
-                host.not_before = now + RETRY_MS;
-            }
+            Err(why) => Self::pick_refused(host, room, now, why, say),
         }
     }
 }
