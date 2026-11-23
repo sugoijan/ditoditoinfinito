@@ -82,6 +82,9 @@ pub(super) const LAST_SONG_ID: &str = "room.last";
 /// charts stepped through by Left and Right, ◀ ▶ or a tap until they are
 /// ready.
 pub(super) const CHART: &str = "Opt.room.chart";
+
+/// Where the stepper rows' labels start in the card.
+const STEPPER_X: f32 = 24.0;
 pub(super) const CHART_ID: &str = "room.chart";
 
 pub(super) struct PromptRoom {
@@ -506,7 +509,7 @@ impl PromptScreen {
         };
         let env = &self.env;
         let name = TARGETING;
-        let x0 = 24.0;
+        let x0 = STEPPER_X;
         let mid = OPTION_ROW / 2.0;
         let label_text = msg::room::targeting();
         let label_w = look::mono_width(&label_text, 14.0).min(inner * 0.4);
@@ -517,46 +520,10 @@ impl PromptScreen {
             .fold(60.0, f32::max)
             .min(inner - label_w - 70.0)
             + 8.0;
-        let vx = x0 + label_w + 14.0;
-        let row_w = label_w + 14.0 + 44.0 + vw;
-        let mut light = quad(
-            &format!("{name}.Light"),
-            [row_w + 12.0, OPTION_ROW - 2.0],
-            [1.0, 1.0, 1.0, 0.004],
-        );
-        call(&mut light, "cornerradius", &[6.0]);
-        call(&mut light, "xy", &[x0 + row_w / 2.0, mid]);
-        let mut label = env.text(&format!("{name}.Label"), &label_text, 14.0, 400, "Muted");
-        call(&mut label, "maxwidth", &[label_w]);
-        let mut value = env.text(
-            &format!("{name}.Value"),
-            &room::policy_word(policy),
-            14.0,
-            600,
-            "Text",
-        );
-        call(&mut value, "maxwidth", &[vw]);
-        call(&mut value, "xy", &[vx + 22.0 + vw / 2.0, mid]);
-        // An arrow and the box a press on it lands in (drawn all but
-        // clear: a clear box takes no press).
-        let arrow = |part: &str, glyph: &str, x: f32| {
-            let mut hit = quad(
-                &format!("{name}.{part}"),
-                [26.0, OPTION_ROW],
-                [1.0, 1.0, 1.0, 0.004],
-            );
-            call(&mut hit, "xy", &[x, mid]);
-            let mut g = env.text("", glyph, 12.0, 400, "Accent");
-            call(&mut g, "xy", &[x, mid]);
-            frame(&format!("{name}.{part}"), vec![hit, g])
-        };
-        let mut parts = vec![
-            light,
-            left(label, x0, mid),
-            arrow("Down", "◀", vx + 9.0),
-            value,
-            arrow("Up", "▶", vx + 22.0 + vw + 13.0),
-        ];
+        let ([light, label, value], row_w) =
+            self.stepper(name, &label_text, label_w, vw, (&room::policy_word(policy), 600, "Text"));
+        let [down, up] = self.stepper_arrows(name, label_w, vw);
+        let mut parts = vec![light, label, down, value, up];
         // What it does: beside the row where the card is wide, else
         // under it.
         let about = room::policy_about(policy);
@@ -591,6 +558,59 @@ impl PromptScreen {
         Some((row, name.into(), height))
     }
 
+    /// A stepper row's look (the targeting row's; the Last song and chart
+    /// rows alike), `label_w` and `vw` its label's and its value's widths:
+    /// its light, its label at the left and its value (`text`, weight,
+    /// color), and the row's width.
+    fn stepper(
+        &self,
+        name: &str,
+        label_text: &str,
+        label_w: f32,
+        vw: f32,
+        (text, weight, color): (&str, u16, &str),
+    ) -> ([Actor; 3], f32) {
+        let env = &self.env;
+        let x0 = STEPPER_X;
+        let mid = OPTION_ROW / 2.0;
+        let vx = x0 + label_w + 14.0;
+        let row_w = label_w + 14.0 + 44.0 + vw;
+        let mut light = quad(
+            &format!("{name}.Light"),
+            [row_w + 12.0, OPTION_ROW - 2.0],
+            [1.0, 1.0, 1.0, 0.004],
+        );
+        call(&mut light, "cornerradius", &[6.0]);
+        call(&mut light, "xy", &[x0 + row_w / 2.0, mid]);
+        let mut label = env.text(&format!("{name}.Label"), label_text, 14.0, 400, "Muted");
+        call(&mut label, "maxwidth", &[label_w]);
+        let mut value = env.text(&format!("{name}.Value"), text, 14.0, weight, color);
+        call(&mut value, "maxwidth", &[vw]);
+        call(&mut value, "xy", &[vx + 22.0 + vw / 2.0, mid]);
+        ([light, left(label, x0, mid), value], row_w)
+    }
+
+    /// A stepper row's ◀ and ▶ ([`Self::stepper`]), each with the box a
+    /// press on it lands in (drawn all but clear: a clear box takes no
+    /// press).
+    fn stepper_arrows(&self, name: &str, label_w: f32, vw: f32) -> [Actor; 2] {
+        let env = &self.env;
+        let mid = OPTION_ROW / 2.0;
+        let vx = STEPPER_X + label_w + 14.0;
+        let arrow = |part: &str, glyph: &str, x: f32| {
+            let mut hit = quad(
+                &format!("{name}.{part}"),
+                [26.0, OPTION_ROW],
+                [1.0, 1.0, 1.0, 0.004],
+            );
+            call(&mut hit, "xy", &[x, mid]);
+            let mut g = env.text("", glyph, 12.0, 400, "Accent");
+            call(&mut g, "xy", &[x, mid]);
+            frame(&format!("{name}.{part}"), vec![hit, g])
+        };
+        [arrow("Down", "◀", vx + 9.0), arrow("Up", "▶", vx + 22.0 + vw + 13.0)]
+    }
+
     /// The Last song row (round AC), where this player may mark an
     /// open-ended match's stage the last song: its label and Yes or No,
     /// changed by Left and Right, ◀ ▶, a tap or Enter until the stage's
@@ -602,10 +622,7 @@ impl PromptScreen {
             return None;
         }
         let (last, changeable) = rm.room.borrow().last_song_mark(rm.stage)?;
-        let env = &self.env;
         let name = LAST_SONG;
-        let x0 = 24.0;
-        let mid = OPTION_ROW / 2.0;
         let label_text = msg::room::ready_last_song();
         let label_w = look::mono_width(&label_text, 14.0).min(inner * 0.4);
         let words = [msg::common::off(), msg::common::on()];
@@ -614,41 +631,11 @@ impl PromptScreen {
             .map(|w| look::mono_width(w, 14.0))
             .fold(40.0, f32::max)
             + 8.0;
-        let vx = x0 + label_w + 14.0;
-        let row_w = label_w + 14.0 + 44.0 + vw;
-        let mut light = quad(
-            &format!("{name}.Light"),
-            [row_w + 12.0, OPTION_ROW - 2.0],
-            [1.0, 1.0, 1.0, 0.004],
-        );
-        call(&mut light, "cornerradius", &[6.0]);
-        call(&mut light, "xy", &[x0 + row_w / 2.0, mid]);
-        let mut label = env.text(&format!("{name}.Label"), &label_text, 14.0, 400, "Muted");
-        call(&mut label, "maxwidth", &[label_w]);
-        let mut value = env.text(
-            &format!("{name}.Value"),
-            &words[usize::from(last)],
-            14.0,
-            600,
-            if last { "Accent" } else { "Text" },
-        );
-        call(&mut value, "maxwidth", &[vw]);
-        call(&mut value, "xy", &[vx + 22.0 + vw / 2.0, mid]);
-        let mut parts = vec![light, left(label, x0, mid), value];
+        let value = (&*words[usize::from(last)], 600, if last { "Accent" } else { "Text" });
+        let (shown, _) = self.stepper(name, &label_text, label_w, vw, value);
+        let mut parts = Vec::from(shown);
         if changeable {
-            let arrow = |part: &str, glyph: &str, x: f32| {
-                let mut hit = quad(
-                    &format!("{name}.{part}"),
-                    [26.0, OPTION_ROW],
-                    [1.0, 1.0, 1.0, 0.004],
-                );
-                call(&mut hit, "xy", &[x, mid]);
-                let mut g = env.text("", glyph, 12.0, 400, "Accent");
-                call(&mut g, "xy", &[x, mid]);
-                frame(&format!("{name}.{part}"), vec![hit, g])
-            };
-            parts.push(arrow("Down", "◀", vx + 9.0));
-            parts.push(arrow("Up", "▶", vx + 22.0 + vw + 13.0));
+            parts.extend(self.stepper_arrows(name, label_w, vw));
         }
         let mut row = frame(name, parts);
         call(&mut row, "y", &[y]);
@@ -675,10 +662,7 @@ impl PromptScreen {
             let changeable = charts.len() > 1 && !r.ready_as_asked() && !r.stage_started(rm.stage);
             (chart, charts, changeable)
         };
-        let env = &self.env;
         let name = CHART;
-        let x0 = 24.0;
-        let mid = OPTION_ROW / 2.0;
         let label_text = msg::room::ready_chart();
         let label_w = look::mono_width(&label_text, 14.0).min(inner * 0.4);
         let vw = charts
@@ -687,41 +671,12 @@ impl PromptScreen {
             .fold(60.0, f32::max)
             .min(inner - label_w - 70.0)
             + 8.0;
-        let vx = x0 + label_w + 14.0;
-        let row_w = label_w + 14.0 + 44.0 + vw;
-        let mut light = quad(
-            &format!("{name}.Light"),
-            [row_w + 12.0, OPTION_ROW - 2.0],
-            [1.0, 1.0, 1.0, 0.004],
-        );
-        call(&mut light, "cornerradius", &[6.0]);
-        call(&mut light, "xy", &[x0 + row_w / 2.0, mid]);
-        let mut label = env.text(&format!("{name}.Label"), &label_text, 14.0, 400, "Muted");
-        call(&mut label, "maxwidth", &[label_w]);
-        let mut value = env.text(
-            &format!("{name}.Value"),
-            &crate::screens::select::chart_shown(&chart),
-            14.0,
-            700,
-            &format!("Difficulty.{}", chart.difficulty.name()),
-        );
-        call(&mut value, "maxwidth", &[vw]);
-        call(&mut value, "xy", &[vx + 22.0 + vw / 2.0, mid]);
-        let mut parts = vec![light, left(label, x0, mid), value];
+        let color = format!("Difficulty.{}", chart.difficulty.name());
+        let value = (&*crate::screens::select::chart_shown(&chart), 700, &*color);
+        let (shown, _) = self.stepper(name, &label_text, label_w, vw, value);
+        let mut parts = Vec::from(shown);
         if changeable {
-            let arrow = |part: &str, glyph: &str, x: f32| {
-                let mut hit = quad(
-                    &format!("{name}.{part}"),
-                    [26.0, OPTION_ROW],
-                    [1.0, 1.0, 1.0, 0.004],
-                );
-                call(&mut hit, "xy", &[x, mid]);
-                let mut g = env.text("", glyph, 12.0, 400, "Accent");
-                call(&mut g, "xy", &[x, mid]);
-                frame(&format!("{name}.{part}"), vec![hit, g])
-            };
-            parts.push(arrow("Down", "◀", vx + 9.0));
-            parts.push(arrow("Up", "▶", vx + 22.0 + vw + 13.0));
+            parts.extend(self.stepper_arrows(name, label_w, vw));
         }
         let mut row = frame(name, parts);
         call(&mut row, "y", &[y]);
