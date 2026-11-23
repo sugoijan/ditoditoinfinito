@@ -404,30 +404,21 @@ async fn read(url: &str) -> Result<Vec<u8>, String> {
     let Some(body) = raw.body() else {
         return Ok(Vec::new());
     };
-    let reader: web_sys::ReadableStreamDefaultReader =
-        body.get_reader().dyn_into().map_err(|_| "no reader")?;
+    let reader = crate::web::files::body_reader(&body)?;
     let mut out = Vec::new();
-    loop {
-        let chunk = JsFuture::from(reader.read())
-            .await
-            .map_err(|e| format!("{e:?}"))?;
-        if Reflect::get(&chunk, &"done".into())
-            .ok()
-            .and_then(|d| d.as_bool())
-            .unwrap_or(true)
-        {
-            return Ok(out);
+    let read = crate::web::files::each_chunk(&reader, |piece| {
+        if out.len() + piece.length() as usize > anim::MOST_BYTES {
+            return std::ops::ControlFlow::Break(());
         }
-        if let Ok(value) = Reflect::get(&chunk, &"value".into())
-            && let Ok(piece) = value.dyn_into::<Uint8Array>()
-        {
-            if out.len() + piece.length() as usize > anim::MOST_BYTES {
-                let _ = reader.cancel();
-                return Err(too_large());
-            }
-            out.extend(piece.to_vec());
-        }
+        out.extend(piece.to_vec());
+        std::ops::ControlFlow::Continue(())
+    })
+    .await?;
+    if read.is_break() {
+        let _ = reader.cancel();
+        return Err(too_large());
     }
+    Ok(out)
 }
 
 /// The first frame (a still image's only one), scaled to `size`.

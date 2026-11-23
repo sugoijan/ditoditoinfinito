@@ -21,6 +21,40 @@ pub(crate) struct PickedFile {
     pub(crate) file: File,
 }
 
+/// A fetch's body's reader (`no reader` where it has none of the
+/// default kind).
+pub(crate) fn body_reader(
+    body: &web_sys::ReadableStream,
+) -> Result<web_sys::ReadableStreamDefaultReader, String> {
+    body.get_reader().dyn_into().map_err(|_| "no reader".to_string())
+}
+
+/// `reader`'s pieces of bytes in turn, each handed to `each`, until the
+/// stream ends (`Continue`) or `each` says to stop (`Break`: the caller
+/// ends the read its own way); a read's failure as the browser said it.
+/// A piece that is not bytes is passed over.
+pub(crate) async fn each_chunk(
+    reader: &web_sys::ReadableStreamDefaultReader,
+    mut each: impl FnMut(Uint8Array) -> std::ops::ControlFlow<()>,
+) -> Result<std::ops::ControlFlow<()>, String> {
+    loop {
+        let chunk = JsFuture::from(reader.read()).await.map_err(|e| format!("{e:?}"))?;
+        if Reflect::get(&chunk, &"done".into())
+            .ok()
+            .and_then(|d| d.as_bool())
+            .unwrap_or(true)
+        {
+            return Ok(std::ops::ControlFlow::Continue(()));
+        }
+        if let Ok(value) = Reflect::get(&chunk, &"value".into())
+            && let Ok(piece) = value.dyn_into::<Uint8Array>()
+            && each(piece).is_break()
+        {
+            return Ok(std::ops::ControlFlow::Break(()));
+        }
+    }
+}
+
 pub(crate) async fn blob_bytes(blob: &Blob) -> Result<Vec<u8>, String> {
     let buffer = JsFuture::from(blob.array_buffer())
         .await

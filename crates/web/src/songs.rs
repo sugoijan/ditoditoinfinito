@@ -150,30 +150,18 @@ pub(crate) async fn prefetch(url: &str, progress: &dyn Fn(f64, f64)) -> Result<(
     let Some(body) = resp.body() else {
         return Ok(());
     };
-    let reader: web_sys::ReadableStreamDefaultReader = body
-        .get_reader()
-        .dyn_into()
-        .map_err(|_| format!("GET {url}: no reader"))?;
+    let reader = crate::web::files::body_reader(&body).map_err(|e| format!("GET {url}: {e}"))?;
     let mut so_far = 0.0;
     progress(so_far, total);
-    loop {
-        let chunk = wasm_bindgen_futures::JsFuture::from(reader.read())
-            .await
-            .map_err(|e| format!("GET {url}: {e:?}"))?;
-        let done = js_sys::Reflect::get(&chunk, &"done".into())
-            .ok()
-            .and_then(|d| d.as_bool())
-            .unwrap_or(true);
-        if done {
-            return Ok(());
-        }
-        if let Ok(value) = js_sys::Reflect::get(&chunk, &"value".into())
-            && let Ok(bytes) = value.dyn_into::<js_sys::Uint8Array>()
-        {
-            so_far += f64::from(bytes.length());
-            progress(so_far, total);
-        }
-    }
+    // (Never stopped: read to the end.)
+    let _ = crate::web::files::each_chunk(&reader, |bytes| {
+        so_far += f64::from(bytes.length());
+        progress(so_far, total);
+        std::ops::ControlFlow::Continue(())
+    })
+    .await
+    .map_err(|e| format!("GET {url}: {e}"))?;
+    Ok(())
 }
 
 /// [`fetch_bytes`] of a shared song's file, its progress told to
@@ -198,30 +186,17 @@ async fn fetch_bytes_counted(url: &str, name: &str) -> Result<Vec<u8>, String> {
     let Some(body) = resp.body() else {
         return Ok(Vec::new());
     };
-    let reader: web_sys::ReadableStreamDefaultReader = body
-        .get_reader()
-        .dyn_into()
-        .map_err(|_| format!("GET {url}: no reader"))?;
+    let reader = crate::web::files::body_reader(&body).map_err(|e| format!("GET {url}: {e}"))?;
     let mut out = Vec::new();
     crate::share::note_download(name, 0.0, total);
-    loop {
-        let chunk = wasm_bindgen_futures::JsFuture::from(reader.read())
-            .await
-            .map_err(|e| format!("GET {url}: {e:?}"))?;
-        let done = js_sys::Reflect::get(&chunk, &"done".into())
-            .ok()
-            .and_then(|d| d.as_bool())
-            .unwrap_or(true);
-        if done {
-            break;
-        }
-        if let Ok(value) = js_sys::Reflect::get(&chunk, &"value".into())
-            && let Ok(bytes) = value.dyn_into::<js_sys::Uint8Array>()
-        {
-            out.extend(bytes.to_vec());
-            crate::share::note_download(name, out.len() as f64, total);
-        }
-    }
+    // (Never stopped: read to the end.)
+    let _ = crate::web::files::each_chunk(&reader, |bytes| {
+        out.extend(bytes.to_vec());
+        crate::share::note_download(name, out.len() as f64, total);
+        std::ops::ControlFlow::Continue(())
+    })
+    .await
+    .map_err(|e| format!("GET {url}: {e}"))?;
     crate::share::download_done(name);
     Ok(out)
 }

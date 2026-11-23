@@ -466,32 +466,29 @@ async fn fetch_blob_stopping(
     let Some(body) = resp.body() else {
         return crate::web::files::bytes_blob(&[], "").map_err(fail);
     };
-    let reader: web_sys::ReadableStreamDefaultReader =
-        body.get_reader().dyn_into().map_err(|_| fail("no reader".into()))?;
+    let reader = crate::web::files::body_reader(&body).map_err(fail)?;
     let parts = js_sys::Array::new();
     let mut so_far = 0.0;
-    loop {
-        if stop.stopped() {
-            abort.abort();
-            return Err(PreloadProblem::Stopped);
-        }
-        let chunk = wasm_bindgen_futures::JsFuture::from(reader.read())
-            .await
-            .map_err(|e| fail(format!("{e:?}")))?;
-        let done = js_sys::Reflect::get(&chunk, &"done".into())
-            .ok()
-            .and_then(|d| d.as_bool())
-            .unwrap_or(true);
-        if done {
-            break;
-        }
-        if let Ok(value) = js_sys::Reflect::get(&chunk, &"value".into())
-            && let Ok(bytes) = value.dyn_into::<js_sys::Uint8Array>()
-        {
+    // Stopped before each read: the request aborted.
+    let read = if stop.stopped() {
+        std::ops::ControlFlow::Break(())
+    } else {
+        crate::web::files::each_chunk(&reader, |bytes| {
             so_far += f64::from(bytes.length());
             parts.push(&bytes);
             progress(so_far);
-        }
+            if stop.stopped() {
+                std::ops::ControlFlow::Break(())
+            } else {
+                std::ops::ControlFlow::Continue(())
+            }
+        })
+        .await
+        .map_err(fail)?
+    };
+    if read.is_break() {
+        abort.abort();
+        return Err(PreloadProblem::Stopped);
     }
     Blob::new_with_u8_array_sequence(&parts).map_err(|e| fail(format!("{e:?}")))
 }
