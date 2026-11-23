@@ -399,6 +399,22 @@ impl Http for ThreadHttp {
 }
 
 fn send(url: &str, request: &ApiRequest, answer: std::time::Duration) -> ApiResponse {
+    match try_send(url, request, answer) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("online: {} {}: {e}", request.method.as_str(), request.path);
+            ApiResponse::unreachable()
+        }
+    }
+}
+
+/// [`send`], with what kept the answer from coming (the live chat's
+/// subscription says it in its report).
+pub(crate) fn try_send(
+    url: &str,
+    request: &ApiRequest,
+    answer: std::time::Duration,
+) -> Result<ApiResponse, ureq::Error> {
     let agent = crate::share::agent();
     let auth = request
         .poll
@@ -440,26 +456,19 @@ fn send(url: &str, request: &ApiRequest, answer: std::time::Duration) -> ApiResp
                 .send(body.clone().unwrap_or_default())
         }
     };
-    match result {
-        Ok(mut r) => {
-            let session = r
-                .headers()
-                .get("x-ddi-session")
-                .and_then(|v| v.to_str().ok())
-                .map(str::to_string);
-            let status = r.status().as_u16();
-            let body = r.body_mut().read_to_string().unwrap_or_default();
-            ApiResponse {
-                status,
-                body,
-                session,
-            }
-        }
-        Err(e) => {
-            eprintln!("online: {} {}: {e}", request.method.as_str(), request.path);
-            ApiResponse::unreachable()
-        }
-    }
+    let mut r = result?;
+    let session = r
+        .headers()
+        .get("x-ddi-session")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let status = r.status().as_u16();
+    let body = r.body_mut().read_to_string().unwrap_or_default();
+    Ok(ApiResponse {
+        status,
+        body,
+        session,
+    })
 }
 
 /// A room's socket on a thread of its own: tungstenite over the system's

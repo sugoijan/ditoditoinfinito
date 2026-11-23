@@ -296,32 +296,24 @@ impl LiveIo for DesktopLive {
     }
 
     fn subscribe(&mut self, socket: u32, session_id: &str, want: &LiveWant, messages: bool) {
-        let url = format!("{}{}", self.api, want.route());
+        let path = want.route();
+        let url = format!("{}{}", self.api, path);
         let body = want.body(session_id, messages);
         let tx = self.tx.clone();
         let token = self.token;
         std::thread::Builder::new()
             .name("ddi-chat-subscribe".into())
             .spawn(move || {
-                let mut r = crate::share::agent()
-                    .post(&url)
-                    .header("content-type", "application/json");
-                if let Some(token) = token() {
-                    r = r.header("authorization", format!("Bearer {token}"));
-                }
-                let wait = Some(Duration::from_secs(8));
-                let answer = match r
-                    .config()
-                    .timeout_recv_response(wait)
-                    .timeout_recv_body(wait)
-                    .build()
-                    .send(body)
-                {
-                    Ok(mut a) => {
-                        let status = a.status().as_u16();
-                        let text = a.body_mut().read_to_string().unwrap_or_default();
-                        ddi_chat::live::read_subscribe_answer(status, &text)
-                    }
+                // The room's other requests' way (`crate::online`).
+                let request = ddi_ui::state::online::api::ApiRequest {
+                    method: ddi_ui::state::online::api::Method::Post,
+                    path,
+                    body: Some(body),
+                    bearer: token(),
+                    poll: None,
+                };
+                let answer = match crate::online::try_send(&url, &request, Duration::from_secs(8)) {
+                    Ok(a) => ddi_chat::live::read_subscribe_answer(a.status, &a.body),
                     Err(e) => ddi_chat::live::SubscribeAnswer::Failed(format!("no answer: {e}")),
                 };
                 let _ = tx.send(LiveInput::Subscribed(socket, answer));
