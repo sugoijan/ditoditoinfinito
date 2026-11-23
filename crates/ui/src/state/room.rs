@@ -3490,6 +3490,13 @@ impl RoomClient {
             });
             (id, card_of(song, chart))
         });
+        self.rest_on(next, now);
+    }
+
+    /// The picker's song select rests on `next` (none: no song) from
+    /// `now`: [`RoomClient::hover`]'s and [`RoomClient::hover_listed`]'s
+    /// rest, its clock kept while it stays on the same content.
+    fn rest_on(&mut self, next: Option<(ContentId, ContentCard)>, now: u64) {
         if next.is_none() {
             self.resting_on_none.get_or_insert(now);
         } else {
@@ -4209,14 +4216,7 @@ impl RoomClient {
             };
             Some((id, e.card_for(line)))
         });
-        if next.is_none() {
-            self.resting_on_none.get_or_insert(now);
-        } else {
-            self.resting_on_none = None;
-        }
-        if self.resting.as_ref().map(|(id, _, _)| id) != next.as_ref().map(|(id, _)| id) {
-            self.resting = next.map(|(id, card)| (id, card, now));
-        }
+        self.rest_on(next, now);
     }
 
     /// The entry the room's picker rests on (the spotlight's mark), if one.
