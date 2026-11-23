@@ -136,12 +136,7 @@ impl Volume {
 
     /// The icon's level: 0 muted, then 1 to 3.
     pub fn level(&self) -> usize {
-        match self.position {
-            p if p <= 0.0 => 0,
-            p if p < 0.34 => 1,
-            p if p < 0.67 => 2,
-            _ => 3,
-        }
+        icon_level(self.position)
     }
 
     /// A frame still wanted (the slider waits to close).
@@ -295,12 +290,7 @@ impl Volume {
     /// Mutes, or brings back the level the mute kept (the default level
     /// when there is none: muted since the game started; [`kept_level`]).
     pub fn toggle_mute(&mut self, root: &mut Actor) -> Option<VolumeChange> {
-        if self.position > 0.0 {
-            keep_level(self.position);
-            self.set(0.0, true, root)
-        } else {
-            self.set(kept_level(), true, root)
-        }
+        self.set(toggled(self.position), true, root)
     }
 
     /// Whether the slider shows.
@@ -434,6 +424,30 @@ impl Volume {
 }
 
 /// In hundredths, as Options' rows step it.
-fn quantized(p: f32) -> f32 {
+pub fn quantized(p: f32) -> f32 {
     (p.clamp(0.0, 1.0) * 100.0).round() / 100.0
+}
+
+/// The speaker icon's level at slider `position`: 0 muted, then 1 to 3
+/// (song select's quick volume and the play's alike).
+pub fn icon_level(position: f32) -> usize {
+    match position {
+        p if p <= 0.0 => 0,
+        p if p < 0.34 => 1,
+        p if p < 0.67 => 2,
+        _ => 3,
+    }
+}
+
+/// The slider's position a mute's toggle goes to from `position`: muted,
+/// the level kept for its return ([`keep_level`]), or that level back
+/// (the default level when there is none: muted since the game started;
+/// [`kept_level`]).
+pub fn toggled(position: f32) -> f32 {
+    if position > 0.0 {
+        keep_level(position);
+        0.0
+    } else {
+        kept_level()
+    }
 }

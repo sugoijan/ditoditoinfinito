@@ -26,7 +26,7 @@ use ddi_platform::AudioBackend;
 use ddi_render::draw2d::{Affine, DrawList, Quad, Shape};
 use ddi_session::play::{Inputs, PlaySession};
 use ddi_ui::state::settings::{Settings, slider_to_volume, volume_to_slider};
-use ddi_ui::widgets::volume::{VolumeChange, keep_level, kept_level};
+use ddi_ui::widgets::volume::{VolumeChange, icon_level, quantized, toggled};
 
 /// Seconds the slider stays open untouched (a touch screen's buttons
 /// never hide).
@@ -182,10 +182,6 @@ impl Default for PlayVolume {
     }
 }
 
-fn quantized(p: f32) -> f32 {
-    (p.clamp(0.0, 1.0) * 100.0).round() / 100.0
-}
-
 impl PlayVolume {
     /// The level shown, in percent of the slider.
     pub fn percent(&self) -> u32 {
@@ -307,12 +303,7 @@ impl PlayVolume {
                         self.open = true;
                         return (true, None);
                     }
-                    let change = if self.position > 0.0 {
-                        keep_level(self.position);
-                        self.set(0.0, true)
-                    } else {
-                        self.set(kept_level(), true)
-                    };
+                    let change = self.set(toggled(self.position), true);
                     (true, change)
                 }
                 None => (false, None),
@@ -399,12 +390,7 @@ impl PlayVolume {
 
     /// The icon's level: 0 muted, then 1 to 3.
     fn level(&self) -> usize {
-        match self.position {
-            p if p <= 0.0 => 0,
-            p if p < 0.34 => 1,
-            p if p < 0.67 => 2,
-            _ => 3,
-        }
+        icon_level(self.position)
     }
 }
 
