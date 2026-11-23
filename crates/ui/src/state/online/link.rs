@@ -11,7 +11,7 @@ use ddi_room::{
     Transport,
 };
 
-use super::SharedOnline;
+use super::{Asked, SharedOnline};
 use super::api::{self, ApiResponse, InviteDoc, Summary, TicketDoc};
 
 /// What the link last did that the room's status line says.
@@ -117,17 +117,17 @@ pub struct OnlineLink {
     /// The audience link's invite, where the room has an audience.
     audience_invite: Option<String>,
     epoch: u64,
-    ticket_req: Option<u64>,
-    summary_req: Option<u64>,
-    invite_req: Option<u64>,
+    ticket_req: Option<Asked>,
+    summary_req: Option<Asked>,
+    invite_req: Option<Asked>,
     invite_asked: bool,
     /// Not asked for again before then (a read failed).
     invite_retry_at: u64,
     /// The wall clock of the last tick.
     now_ms: u64,
-    rotate_req: Option<u64>,
+    rotate_req: Option<Asked>,
     /// The room's Twitch setting asked for (round TW1), answered later.
-    twitch_req: Option<u64>,
+    twitch_req: Option<Asked>,
     /// The features the person's Twitch access must connect first for
     /// the setting asked (`409 scope_missing`), for the screen to start
     /// the trip through Twitch.
@@ -137,9 +137,9 @@ pub struct OnlineLink {
     /// How the server answered the setting last asked (its status), once
     /// (round TB, [`Self::take_twitch_answer`]).
     twitch_answer: Option<u16>,
-    grant_reqs: Vec<(u64, StageId, Revision)>,
+    grant_reqs: Vec<(Asked, StageId, Revision)>,
     grants: Vec<GrantNews>,
-    song_grant_reqs: Vec<(u64, ddi_room::RoomSongId)>,
+    song_grant_reqs: Vec<(Asked, ddi_room::RoomSongId)>,
     song_grants: Vec<SongGrantNews>,
     notice: Option<LinkNotice>,
     /// When the notice ends (set at the first tick after it was raised;
@@ -164,7 +164,7 @@ impl OnlineLink {
         // A page loaded on the room's own address (a reload) knows nobody
         // yet: who is signed in is asked for, and taken in `tick`.
         online.borrow_mut().check();
-        let summary_req = Some(online.borrow_mut().request(api::summary(room_id)));
+        let summary_req = Some(Asked::ask(&online, api::summary(room_id)));
         let seated = online.borrow_mut().take_seated_to_watch(room_id);
         OnlineLink {
             authority: OnlineAuthority::new(RoomId::new(room_id), transport, clock),
@@ -264,7 +264,7 @@ impl OnlineLink {
     pub fn fetch_invite(&mut self) {
         if !self.invite_asked && self.now_ms >= self.invite_retry_at {
             self.invite_asked = true;
-            self.invite_req = Some(self.online.borrow_mut().request(api::invite(&self.room_id)));
+            self.invite_req = Some(Asked::ask(&self.online, api::invite(&self.room_id)));
         }
     }
 
@@ -272,7 +272,7 @@ impl OnlineLink {
     /// replaced it since (nothing in the room says so).
     pub fn refresh_invite(&mut self) {
         if self.invite.is_some() && self.invite_req.is_none() && self.rotate_req.is_none() {
-            self.invite_req = Some(self.online.borrow_mut().request(api::invite(&self.room_id)));
+            self.invite_req = Some(Asked::ask(&self.online, api::invite(&self.room_id)));
         }
     }
 
@@ -280,14 +280,10 @@ impl OnlineLink {
     /// /rooms/<id>/twitch`): the room says the change when it is made.
     pub fn set_twitch(&mut self, mirror: ddi_room::TwitchMirror, chat: ddi_room::TwitchChat) {
         self.twitch_asked = Some((mirror, chat));
-        let mut online = self.online.borrow_mut();
         // The setting asked before, its answer not read yet: this one
         // replaces it, so its answer is dropped, never held unread
         // (round LO).
-        if let Some(old) = self.twitch_req.take() {
-            online.forget_answer(old);
-        }
-        self.twitch_req = Some(online.request(api::room_twitch(&self.room_id, mirror, chat)));
+        self.twitch_req = Some(Asked::ask(&self.online, api::room_twitch(&self.room_id, mirror, chat)));
     }
 
     /// The features to connect before the setting asked (once).
@@ -311,22 +307,15 @@ impl OnlineLink {
     /// The owner replaces the invite: old links stop working.
     pub fn rotate_invite(&mut self) {
         if self.rotate_req.is_none() {
-            self.rotate_req = Some(
-                self.online
-                    .borrow_mut()
-                    .request(api::rotate_invite(&self.room_id)),
-            );
+            self.rotate_req = Some(Asked::ask(&self.online, api::rotate_invite(&self.room_id)));
         }
     }
 
     /// Ask the room for stage `stage`'s upload grant (its content chosen
     /// at `chosen`); the answer comes in [`Self::take_grants`].
     pub fn request_grant(&mut self, stage: StageId, chosen: Revision) {
-        let id = self
-            .online
-            .borrow_mut()
-            .request(api::grant(&self.room_id, stage.0));
-        self.grant_reqs.push((id, stage, chosen));
+        let asked = Asked::ask(&self.online, api::grant(&self.room_id, stage.0));
+        self.grant_reqs.push((asked, stage, chosen));
     }
 
     /// The grants answered since the last call.
@@ -337,11 +326,8 @@ impl OnlineLink {
     /// Ask the room for the upload grant of entry `song` of its song list
     /// (revision 17); the answer comes in [`Self::take_song_grants`].
     pub fn request_song_grant(&mut self, song: ddi_room::RoomSongId) {
-        let id = self
-            .online
-            .borrow_mut()
-            .request(api::song_grant(&self.room_id, song.0));
-        self.song_grant_reqs.push((id, song));
+        let asked = Asked::ask(&self.online, api::song_grant(&self.room_id, song.0));
+        self.song_grant_reqs.push((asked, song));
     }
 
     /// The song grants answered since the last call.
@@ -425,22 +411,22 @@ impl OnlineLink {
         self.usage_report();
         if self.authority.wants_ticket() {
             self.authority.ticket_asked();
-            self.ticket_req = Some(self.online.borrow_mut().request(api::ticket(&self.room_id)));
+            self.ticket_req = Some(Asked::ask(&self.online, api::ticket(&self.room_id)));
             changed = true;
         }
-        if let Some(r) = self.take(self.ticket_req) {
+        if let Some(r) = self.ticket_req.as_ref().and_then(Asked::take) {
             self.ticket_req = None;
             self.authority.ticket(ticket_of(&r));
             changed = true;
         }
-        if let Some(r) = self.take(self.summary_req) {
+        if let Some(r) = self.summary_req.as_ref().and_then(Asked::take) {
             self.summary_req = None;
             if let Ok(s) = api::read::<Summary>(&r) {
                 self.name = Some(s.name);
             }
             changed = true;
         }
-        if let Some(r) = self.take(self.invite_req) {
+        if let Some(r) = self.invite_req.as_ref().and_then(Asked::take) {
             self.invite_req = None;
             match api::read::<InviteDoc>(&r) {
                 Ok(i) => self.take_invites(i),
@@ -453,7 +439,7 @@ impl OnlineLink {
             }
             changed = true;
         }
-        if let Some(r) = self.take(self.twitch_req) {
+        if let Some(r) = self.twitch_req.as_ref().and_then(Asked::take) {
             self.twitch_req = None;
             self.twitch_answer = Some(r.status);
             if r.status == 409
@@ -468,7 +454,7 @@ impl OnlineLink {
             }
             changed = true;
         }
-        if let Some(r) = self.take(self.rotate_req) {
+        if let Some(r) = self.rotate_req.as_ref().and_then(Asked::take) {
             self.rotate_req = None;
             match api::read::<InviteDoc>(&r) {
                 Ok(i) => {
@@ -480,8 +466,8 @@ impl OnlineLink {
             changed = true;
         }
         let asked = std::mem::take(&mut self.grant_reqs);
-        for (id, stage, chosen) in asked {
-            let r = self.online.borrow_mut().take_answer(id);
+        for (asked, stage, chosen) in asked {
+            let r = asked.take();
             match r {
                 Some(r) => {
                     self.grants.push(GrantNews {
@@ -491,12 +477,12 @@ impl OnlineLink {
                     });
                     changed = true;
                 }
-                None => self.grant_reqs.push((id, stage, chosen)),
+                None => self.grant_reqs.push((asked, stage, chosen)),
             }
         }
         let asked = std::mem::take(&mut self.song_grant_reqs);
-        for (id, song) in asked {
-            match self.online.borrow_mut().take_answer(id) {
+        for (asked, song) in asked {
+            match asked.take() {
                 Some(r) => {
                     self.song_grants.push(SongGrantNews {
                         song,
@@ -504,7 +490,7 @@ impl OnlineLink {
                     });
                     changed = true;
                 }
-                None => self.song_grant_reqs.push((id, song)),
+                None => self.song_grant_reqs.push((asked, song)),
             }
         }
         changed
@@ -545,35 +531,6 @@ impl OnlineLink {
             None
         };
         self.authority.send_stats(kind.as_ref());
-    }
-
-    fn take(&self, req: Option<u64>) -> Option<ApiResponse> {
-        self.online.borrow_mut().take_answer(req?)
-    }
-}
-
-impl Drop for OnlineLink {
-    /// The link let go with requests in flight: their answers are no
-    /// longer wanted, dropped as they come rather than kept unread in the
-    /// online state for the session (review 2026-11-22, room-client note).
-    fn drop(&mut self) {
-        let Ok(mut online) = self.online.try_borrow_mut() else {
-            return;
-        };
-        let ids = [
-            self.ticket_req,
-            self.summary_req,
-            self.invite_req,
-            self.rotate_req,
-            self.twitch_req,
-        ]
-        .into_iter()
-        .flatten()
-        .chain(self.grant_reqs.iter().map(|(id, _, _)| *id))
-        .chain(self.song_grant_reqs.iter().map(|(id, _)| *id));
-        for id in ids {
-            online.forget_answer(id);
-        }
     }
 }
 

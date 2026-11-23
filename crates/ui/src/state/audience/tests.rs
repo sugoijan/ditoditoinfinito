@@ -1935,3 +1935,27 @@ fn the_audience_sees_the_draw_s_reveal() {
     assert_ne!(ha.ui.layers().last().map(|l| l.name.clone()).unwrap_or_default(), "room-draw");
     assert!(carol.borrow().reveal().is_none());
 }
+
+/// A seat let go with its ticket asked and not answered yet leaves no
+/// answer unread in the online state (as a member's link does,
+/// `a_link_let_go_leaves_no_answers_unread`; review 2026-11-23).
+#[test]
+fn a_seat_let_go_leaves_no_answers_unread() {
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let online = watcher(&server, "carol");
+    let carol = AudienceClient::new(
+        online.clone(),
+        AUDIENCE_LINK,
+        Box::new(FakeAudienceSocket::new(server.clone())),
+        None,
+        5_000,
+    );
+    // (Its first tick, in `new`, asked for its ticket.)
+    assert!(carol.ticket_req.is_some(), "its ticket asked");
+    drop(carol);
+    for n in 0..4 {
+        online.borrow_mut().poll(5_100 + n * 100);
+    }
+    assert_eq!(online.borrow().unread_answers(), 0);
+}

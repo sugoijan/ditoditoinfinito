@@ -238,7 +238,7 @@ pub struct AudienceClient {
     link: String,
     seat: Audience<Box<dyn Transport>, ManualClock>,
     clock: ManualClock,
-    ticket_req: Option<u64>,
+    ticket_req: Option<super::online::Asked>,
     attempt: u32,
     retry_at: u64,
     refused: Option<Refused>,
@@ -484,9 +484,7 @@ impl AudienceClient {
         }
         self.clock.set(now_ms.max(self.clock.now().0));
         self.online.borrow_mut().poll(now_ms);
-        let answer = self
-            .ticket_req
-            .and_then(|id| self.online.borrow_mut().take_answer(id));
+        let answer = self.ticket_req.as_ref().and_then(super::online::Asked::take);
         if let Some(r) = answer {
             self.ticket_req = None;
             match api::read_current::<AudienceTicketDoc>(&r) {
@@ -517,11 +515,10 @@ impl AudienceClient {
             && self.refused.is_none()
             && now_ms >= self.retry_at
         {
-            self.ticket_req = Some(
-                self.online
-                    .borrow_mut()
-                    .request(api::audience_join(&self.room, &self.link)),
-            );
+            self.ticket_req = Some(super::online::Asked::ask(
+                &self.online,
+                api::audience_join(&self.room, &self.link),
+            ));
         }
         let was_on = self.seat.link().is_on();
         let wanted = self.seat.wants_ticket();

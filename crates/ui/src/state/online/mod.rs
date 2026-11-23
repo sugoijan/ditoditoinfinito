@@ -284,6 +284,41 @@ pub type ClientKindFn = Rc<dyn Fn() -> ddi_room::client_stats::ClientKind>;
 
 pub type SharedOnline = Rc<RefCell<Online>>;
 
+/// A request asked through the online state for its answer
+/// ([`Asked::ask`]): the answer is the holder's, and is forgotten
+/// ([`Online::forget_answer`]) when the holder lets it go unread, so no
+/// client keeps a list of what to forget (review 2026-11-23).
+pub struct Asked {
+    id: u64,
+    online: std::rc::Weak<RefCell<Online>>,
+}
+
+impl Asked {
+    /// Starts `request` on `online` ([`Online::request`]).
+    pub fn ask(online: &SharedOnline, request: ApiRequest) -> Asked {
+        let id = online.borrow_mut().request(request);
+        Asked {
+            id,
+            online: Rc::downgrade(online),
+        }
+    }
+
+    /// Its answer, once it came ([`Online::take_answer`]).
+    pub fn take(&self) -> Option<ApiResponse> {
+        self.online.upgrade()?.borrow_mut().take_answer(self.id)
+    }
+}
+
+impl Drop for Asked {
+    fn drop(&mut self) {
+        if let Some(online) = self.online.upgrade()
+            && let Ok(mut online) = online.try_borrow_mut()
+        {
+            online.forget_answer(self.id);
+        }
+    }
+}
+
 /// Where desktop keeps its session (`None`: forgotten).
 pub type SaveToken = Rc<dyn Fn(Option<&str>)>;
 
