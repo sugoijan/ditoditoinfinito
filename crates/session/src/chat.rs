@@ -171,7 +171,9 @@ fn key_of(want: &ddi_ui::state::twitch::KeptChat) -> Key {
 pub fn keep_for_room(want: Option<&ddi_ui::state::twitch::KeptChat>, now_ms: u64) {
     let key = want.map(key_of);
     ROOM_CHAT.with_borrow_mut(|kp| {
-        kp.want = key.clone();
+        if kp.want != key {
+            kp.want = key.clone();
+        }
         kp.room_ms = now_ms;
         // A give-up counts for its own chat alone.
         if kp.gave_up.as_ref().is_some_and(|(k, _)| Some(k) != key.as_ref()) {

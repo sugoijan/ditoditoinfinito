@@ -46,6 +46,7 @@ use std::rc::Rc;
 
 use std::collections::BTreeSet;
 
+use crate::state::settings::TickSettings;
 use ddi_library::share::ShareError;
 use ddi_room::audience::public::{PublicRules, PublicView};
 use ddi_room::attacks::Targeting;
@@ -2797,6 +2798,10 @@ impl RoomClient {
         if !self.is_online() || self.link_state() != LinkState::Connected {
             return;
         }
+        // (Unchanged: nothing to say, nothing copied.)
+        if self.seen_twitch.as_ref() == self.state().twitch.as_ref() {
+            return;
+        }
         let now = self.state().twitch.clone();
         let Some(was) = std::mem::replace(&mut self.seen_twitch, now.clone()) else {
             return;
@@ -2820,7 +2825,7 @@ impl RoomClient {
     /// `/me` last said it, read for the room anyway) does not allow
     /// reading chat, the status line says what to do, once for each
     /// channel the room shows.
-    fn tell_chat_access(&mut self) {
+    fn tell_chat_access(&mut self, settings: &TickSettings) {
         if !self.is_online() || self.link_state() != LinkState::Connected {
             return;
         }
@@ -2840,7 +2845,7 @@ impl RoomClient {
                 None => return,
             }
         };
-        if crate::state::settings::Settings::cached().twitch_chat == ddi_chat::Level::Off {
+        if settings.get().twitch_chat == ddi_chat::Level::Off {
             return;
         }
         self.chat_access_told = Some(chat.channel_id);
@@ -2857,7 +2862,7 @@ impl RoomClient {
     /// needs where this player set it (they host with it on), and the
     /// chat where the room shows its host's chat and this device shows it
     /// (its "Twitch chat in rooms" on, its access allowing chat).
-    fn mark_twitch_used(&self) {
+    fn mark_twitch_used(&self, settings: &TickSettings) {
         if !self.is_online() || self.link_state() != LinkState::Connected {
             return;
         }
@@ -2876,11 +2881,11 @@ impl RoomClient {
                     .twitch()
                     .is_some_and(|a| a.features.iter().any(|f| f == "chat"))
             })
-            && crate::state::settings::Settings::cached().twitch_chat != ddi_chat::Level::Off;
+            && settings.get().twitch_chat != ddi_chat::Level::Off;
         if shows_chat {
             used.push("chat");
         }
-        crate::state::twitch::mark_used(&used);
+        crate::state::twitch::mark_used_in(&used, settings);
     }
 
     /// Round DE: the room's chat as this device keeps it connected
@@ -2895,6 +2900,11 @@ impl RoomClient {
     /// (round TW6), and gives it to the room at its end where the room
     /// wants it by then.
     pub fn chat_kept(&self) -> Option<crate::state::twitch::KeptChat> {
+        self.chat_kept_in(&TickSettings::new())
+    }
+
+    /// [`RoomClient::chat_kept`] with the settings as the tick read them.
+    fn chat_kept_in(&self, settings: &TickSettings) -> Option<crate::state::twitch::KeptChat> {
         if !self.is_online()
             || self.left_at.is_some()
             || !matches!(self.link_state(), LinkState::Connected | LinkState::Reconnecting { .. })
@@ -2914,7 +2924,7 @@ impl RoomClient {
         if !allowed {
             return None;
         }
-        let settings = crate::state::settings::Settings::cached();
+        let settings = settings.get();
         if settings.twitch_chat == ddi_chat::Level::Off {
             return None;
         }
@@ -3428,16 +3438,19 @@ impl RoomClient {
             self.connected_again();
         }
         self.tell_twitch_end();
-        self.tell_chat_access();
-        self.mark_twitch_used();
+        // The settings, read from storage at most once for the rest of
+        // the tick (nothing it does changes what it reads of them).
+        let settings = TickSettings::new();
+        self.tell_chat_access(&settings);
+        self.mark_twitch_used(&settings);
         // Round DE: an online room's chat kept connected between its
         // stages, while this device shows it (none in practice).
         if self.is_online() {
-            crate::state::twitch::keep_room_chat(self.chat_kept().as_ref(), now_ms);
+            crate::state::twitch::keep_room_chat(self.chat_kept_in(&settings).as_ref(), now_ms);
         }
         self.read_live();
         self.tell_spotlight();
-        self.sync_preload();
+        self.sync_preload(&settings);
         self.sync_choosing();
         self.sync_start();
         // A stage's prompt opens with no notice from before it (nor a

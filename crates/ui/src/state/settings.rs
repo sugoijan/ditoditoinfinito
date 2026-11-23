@@ -1665,6 +1665,22 @@ fn audio_parts(id: &str) -> Option<(&str, i64)> {
     Some((path, out.parse().ok()?))
 }
 
+/// The settings read from storage at most once, where first wanted
+/// ([`Settings::cached`]): shared by a run of calls that change nothing
+/// they read of them (the room client's tick).
+#[derive(Default)]
+pub(crate) struct TickSettings(std::cell::OnceCell<Settings>);
+
+impl TickSettings {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn get(&self) -> &Settings {
+        self.0.get_or_init(Settings::cached)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

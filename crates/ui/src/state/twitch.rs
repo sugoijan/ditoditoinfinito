@@ -105,11 +105,17 @@ const MARK_EVERY_MS: u64 = 60 * 60 * 1_000;
 /// (`RoomClient`'s tick). Written to the settings at most once an hour a
 /// feature; nothing without the epoch's clock.
 pub fn mark_used(features: &[&str]) {
+    mark_used_in(features, &crate::state::settings::TickSettings::new());
+}
+
+/// [`mark_used`] with the settings as a caller read them (the room
+/// client's tick).
+pub(crate) fn mark_used_in(features: &[&str], settings: &crate::state::settings::TickSettings) {
     let now = ddi_platform::storage::now_ms() as u64;
     if now == 0 || features.is_empty() {
         return;
     }
-    let cached = crate::state::settings::Settings::cached();
+    let cached = settings.get();
     let due = features.iter().any(|f| {
         cached
             .twitch_used

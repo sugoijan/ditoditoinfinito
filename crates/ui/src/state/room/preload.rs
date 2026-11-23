@@ -43,7 +43,7 @@ use ddi_room::{ContentStatus, LinkState, Phase, RoomSong, RoomSongId};
 
 use super::{EntryState, LOAD_RETRY_V0_MS, RoomClient, Sharing};
 use crate::screens::data::SongEntry;
-use crate::state::settings::RoomAhead;
+use crate::state::settings::{RoomAhead, TickSettings};
 
 /// The numbers of the plan (PROVISIONAL, `room-preload-v1`; `-v0`, four
 /// songs within 64 MB for Likely next, retired in round DB).
@@ -214,10 +214,12 @@ impl RoomClient {
 
     /// How much of the list this device downloads ahead now.
     pub fn ahead_rule(&self) -> RoomAhead {
-        let rule = self
-            .ahead
-            .rule
-            .unwrap_or_else(|| crate::state::settings::Settings::cached().room_ahead());
+        self.ahead_rule_in(&TickSettings::new())
+    }
+
+    /// [`RoomClient::ahead_rule`] with the settings as the tick read them.
+    fn ahead_rule_in(&self, settings: &TickSettings) -> RoomAhead {
+        let rule = self.ahead.rule.unwrap_or_else(|| settings.get().room_ahead());
         match rule {
             RoomAhead::Everything if self.ahead.quota => RoomAhead::LikelyNext,
             r => r,
@@ -419,7 +421,7 @@ impl RoomClient {
     /// The plan, run with each tick of an online room: what left the list
     /// forgotten, what this device has said to the room, the downloads
     /// stopped where a stage plays, else the next ones asked for.
-    pub(super) fn sync_preload(&mut self) {
+    pub(super) fn sync_preload(&mut self, settings: &TickSettings) {
         if !self.is_online() || self.mirror.state().is_none() {
             return;
         }
@@ -438,7 +440,7 @@ impl RoomClient {
             Phase::Countdown { .. } | Phase::Stage { .. } | Phase::SongCompletion { .. }
         ) || self.uploading_here();
         let gathering = matches!(self.state().phase, Phase::Preparing { .. });
-        let rule = self.ahead_rule();
+        let rule = self.ahead_rule_in(settings);
         // Every song that could be downloaded, best first.
         let mut wanted: Vec<(u8, RoomSongId, String)> = self
             .room_songs()
