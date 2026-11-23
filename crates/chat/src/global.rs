@@ -93,7 +93,7 @@ pub(crate) fn local(url: &str, at: Option<&str>) -> String {
 }
 
 /// A number from an id, the same every run (FNV-1a).
-fn stable(id: &str) -> u64 {
+pub(crate) fn stable(id: &str) -> u64 {
     id.bytes()
         .fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
 }

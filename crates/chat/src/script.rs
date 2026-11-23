@@ -806,10 +806,7 @@ impl Player {
 
 /// A chatter's id from their name (the script's chatters have none).
 fn user_id(name: &str) -> String {
-    let h = name
-        .bytes()
-        .fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3));
-    (h % 1_000_000_000).to_string()
+    (crate::global::stable(name) % 1_000_000_000).to_string()
 }
 
 fn welcome() -> String {
