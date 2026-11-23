@@ -136,6 +136,11 @@ pub enum ReportedRun {
     Forfeit,
 }
 
+/// A full gauge in parts per million ([`ReportedRun::SCALE`]): the most
+/// life any run, report or moment says, the one bound the room keeps
+/// them to (round RFa).
+pub const FULL_LIFE_PPM: u32 = ReportedRun::SCALE as u32;
+
 impl ReportedRun {
     pub const SCALE: f64 = 1_000_000.0;
 
@@ -148,7 +153,7 @@ impl ReportedRun {
                 score,
                 steps,
             } => ReportedRun::Live {
-                life_ppm: life_ppm.min(Self::SCALE as u32),
+                life_ppm: life_ppm.min(FULL_LIFE_PPM),
                 score,
                 steps,
             },
@@ -317,7 +322,7 @@ impl RunDetail {
             }
         }
         self.tiers.truncate(Self::MAX_TIERS);
-        self.life_ppm = self.life_ppm.min(ReportedRun::SCALE as u32);
+        self.life_ppm = self.life_ppm.min(FULL_LIFE_PPM);
         self
     }
 }

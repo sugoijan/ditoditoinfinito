@@ -517,11 +517,9 @@ const SHIFT_SAMPLES: usize = 9;
 
 /// The most steps a remote field takes for each chart of the stage's
 /// ladder (round RFa: a stream's steps were taken whatever their number,
-/// and each frame went over them all for each one shown). An honest
-/// play's are at most five a chart under `adaptive-v5`: down from it
-/// twice before it closes (`AdaptiveRule::closed_after`), up from it at
-/// most once more than it is come back to from above.
-const STEPS_PER_RUNG: usize = 8;
+/// and each frame went over them all for each one shown): the room's own
+/// bound on a batch's steps.
+use ddi_room::live::server::STEPS_PER_RUNG;
 
 /// What the room's ledger said, as the views read it: every competitor's
 /// power after the last checkpoint run, the waiting bars, the attacks

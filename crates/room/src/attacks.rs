@@ -714,7 +714,7 @@ impl StageBattle {
             if seat.out_at_us.is_some() {
                 continue;
             }
-            seat.life_ppm = r.life_ppm.min(1_000_000);
+            seat.life_ppm = r.life_ppm.min(crate::battle::FULL_LIFE_PPM);
             seat.score = r.score;
             // Its policy, where it changed it since the last checkpoint:
             // this checkpoint's launches go by it.

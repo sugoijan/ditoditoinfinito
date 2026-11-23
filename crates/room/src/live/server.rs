@@ -742,7 +742,7 @@ fn sane_moments(moments: &[Moment], ladder: Option<usize>) -> bool {
     let most = ladder.map_or(STEPS_WITHOUT_A_PLAN, |n| STEPS_PER_RUNG * (n + 1));
     let mut steps = 0usize;
     for m in moments {
-        if m.life_ppm > 1_000_000 {
+        if m.life_ppm > crate::battle::FULL_LIFE_PPM {
             return false;
         }
         if let MomentKind::Step { rung } = m.kind {
