@@ -67,6 +67,7 @@ mod choosing;
 mod preload;
 mod starts;
 pub use choosing::Reveal;
+pub(crate) use choosing::within_reveal;
 pub use starts::{StartRule, start_line};
 pub use preload::{Listing, PRELOAD_V1, PreloadJob, PreloadProblem, PreloadRules, Stop};
 

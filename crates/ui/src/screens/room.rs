@@ -3592,7 +3592,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         draw: r.draw_countdown().map(|(_, sec)| sec),
         draw_by: s.draw.as_ref().map(|d| d.by.0),
         reveal: r.reveal().and_then(|v| {
-            let won = v.record.won()?;
+            let won = v.what.won()?;
             let who = r.member_of(won.participant).map(person_name).unwrap_or_default();
             let title = s.songs.get(won.song).map(|e| e.card.title.clone()).unwrap_or_default();
             Some([who, title])

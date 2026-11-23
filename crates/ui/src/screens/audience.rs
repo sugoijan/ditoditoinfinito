@@ -132,7 +132,7 @@ pub fn debug_view(a: &AudienceClient) -> AudienceView {
         table: None,
         reveal: a.reveal().and_then(|r| {
             let v = v?;
-            let won = r.drawn.entries.get(usize::from(r.drawn.winner))?;
+            let won = r.what.entries.get(usize::from(r.what.winner))?;
             Some([player_name(v, won.participant), won.card.title.clone()])
         }),
     }
@@ -258,7 +258,7 @@ fn doing(a: &AudienceClient, v: &PublicView) -> UiText {
     if let Some(r) = a.reveal()
         && !v.closed
     {
-        return m::draw_heading(number(v, r.drawn.stage));
+        return m::draw_heading(number(v, r.what.stage));
     }
     let song = |stage: ddi_room::StageId| {
         v.stages

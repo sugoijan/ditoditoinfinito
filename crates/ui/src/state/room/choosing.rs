@@ -12,15 +12,24 @@ use ddi_room::{
     SongChoice, StageId,
 };
 
-/// A draw being revealed on this device: the record and when (this
-/// device's clock) it began.
+/// A draw being revealed on this device: what is revealed (a member's
+/// device the room's record, an audience seat the public view's draw,
+/// `crate::state::audience::AudienceReveal`) and when (this device's
+/// clock) it began.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Reveal {
-    pub record: DrawRecord,
+pub struct Reveal<T = DrawRecord> {
+    pub what: T,
     pub from_ms: u64,
 }
 
-impl Reveal {
+/// Whether a draw made at `at` (the room's clock) is still within its
+/// reveal at `room_now`, the room's clock now where this device knows it
+/// (none: taken as within).
+pub(crate) fn within_reveal(at: ddi_room::Millis, room_now: Option<ddi_room::Millis>) -> bool {
+    room_now.is_none_or(|n| n.0 < at.0.saturating_add(ddi_room::DRAW_V0.reveal_ms))
+}
+
+impl<T> Reveal<T> {
     /// How far into it `now_ms` is, 0 to 1.
     pub fn progress(&self, now_ms: u64) -> f64 {
         let ms = ddi_room::DRAW_V0.reveal_ms.max(1);
@@ -204,7 +213,7 @@ impl RoomClient {
 
     /// Whether stage `stage`'s prompt waits for its draw's reveal here.
     pub(super) fn revealing(&self, stage: StageId) -> bool {
-        self.reveal().is_some_and(|r| r.record.stage == stage)
+        self.reveal().is_some_and(|r| r.what.stage == stage)
     }
 
     /// Run with the client's tick: a countdown first seen noted; a draw
@@ -215,12 +224,17 @@ impl RoomClient {
         let now = self.now_ms();
         let (opened, drawn) = {
             let s = self.state();
-            let drawn = s.drawn.as_ref().map(|r| {
-                let fresh = s
-                    .stage(r.stage)
-                    .is_some_and(|st| st.play.is_none() && st.content.as_ref().is_some_and(|c| c.song == r.won().map(|w| w.song)));
-                (r.clone(), fresh)
-            });
+            // (One revealed already is passed over before it is copied.)
+            let drawn = s
+                .drawn
+                .as_ref()
+                .filter(|r| !self.choosing.revealed.contains(&(r.stage, r.roll)))
+                .map(|r| {
+                    let fresh = s
+                        .stage(r.stage)
+                        .is_some_and(|st| st.play.is_none() && st.content.as_ref().is_some_and(|c| c.song == r.won().map(|w| w.song)));
+                    (r.clone(), fresh)
+                });
             (s.draw.as_ref().map(|d| d.opened_at), drawn)
         };
         match opened {
@@ -241,11 +255,10 @@ impl RoomClient {
         let room_now = self.room_now();
         let clock_known = room_now.is_some() || !self.plays_live();
         if let Some((record, fresh)) = drawn.filter(|_| clock_known) {
-            let fresh = fresh
-                && room_now.is_none_or(|n| n.0 < record.at.0.saturating_add(ddi_room::DRAW_V0.reveal_ms));
+            let fresh = fresh && within_reveal(record.at, room_now);
             let key = (record.stage, record.roll);
             if self.choosing.revealed.insert(key) && fresh {
-                self.choosing.reveal = Some(Reveal { record, from_ms: now });
+                self.choosing.reveal = Some(Reveal { what: record, from_ms: now });
                 self.version += 1;
             }
         }

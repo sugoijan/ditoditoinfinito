@@ -314,7 +314,7 @@ pub fn open_reveal(
     shown: &mut Option<(ddi_room::StageId, u64)>,
     cx: &mut Cx,
 ) -> bool {
-    let record = room.borrow().reveal().map(|v| v.record.clone());
+    let record = room.borrow().reveal().map(|v| v.what.clone());
     let Some(record) = record else {
         return false;
     };
@@ -341,12 +341,12 @@ pub fn open_audience_reveal(
         let Some(v) = a.reveal() else {
             return false;
         };
-        let key = (v.drawn.stage, v.drawn.at);
+        let key = (v.what.stage, v.what.at);
         if *shown == Some(key) {
             return false;
         }
         *shown = Some(key);
-        a.view().map(|view| Reel::of_public(view, &v.drawn))
+        a.view().map(|view| Reel::of_public(view, &v.what))
     };
     let Some(reel) = reel else {
         return false;
