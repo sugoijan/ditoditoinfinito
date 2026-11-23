@@ -56,6 +56,18 @@ pub struct Demo {
     reads: Reads,
 }
 
+/// The line a shell says of a read's answer (its log): the provider, the
+/// way, the address, and the answer's bytes or why it failed.
+pub fn answer_line(r: &SetRead, answer: &Result<String, String>) -> String {
+    format!(
+        "chat global emotes: {} {:?} {}: {}",
+        provider_name(r.provider),
+        r.via,
+        r.url,
+        answer.as_ref().map_or_else(|e| e.clone(), |t| format!("{} bytes", t.len()))
+    )
+}
+
 /// A provider's name in the report.
 pub fn provider_name(p: Provider) -> &'static str {
     match p {

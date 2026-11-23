@@ -213,6 +213,30 @@ pub struct TwitchAccess {
     pub ended: bool,
 }
 
+impl Me {
+    /// The person's own Twitch channel, as the live chat reads it: its
+    /// user id (from the player's: `twitch:<id>`, or a development
+    /// sign-in's `dev:<n>` as `dev-<n>`) and its login (their Twitch
+    /// account's, else theirs); none for one signed in without a Twitch
+    /// account (a bot).
+    pub fn own_channel(&self) -> Option<(String, String)> {
+        let id = self
+            .player_id
+            .strip_prefix("twitch:")
+            .map(str::to_string)
+            .or_else(|| self.player_id.strip_prefix("dev:").map(|n| format!("dev-{n}")))?;
+        let login = self.twitch.login.clone().unwrap_or_else(|| self.login.clone());
+        Some((id, login))
+    }
+}
+
+impl TwitchAccess {
+    /// Whether the access grants `feature` (`bans`, `blocks`, `chat`).
+    pub fn has(&self, feature: &str) -> bool {
+        self.features.iter().any(|f| f == feature)
+    }
+}
+
 fn null_as_default<'de, D, T>(d: D) -> Result<T, D::Error>
 where
     D: serde::Deserializer<'de>,

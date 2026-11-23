@@ -393,14 +393,8 @@ pub fn own_channel(api: &str) -> Result<(String, String, bool), String> {
     let me: ddi_ui::state::online::api::Me =
         serde_json::from_str(&answer.body_mut().read_to_string().unwrap_or_default())
             .map_err(|e| format!("GET /me: {e}"))?;
-    let id = me
-        .player_id
-        .strip_prefix("twitch:")
-        .map(str::to_string)
-        .or_else(|| me.player_id.strip_prefix("dev:").map(|n| format!("dev-{n}")))
-        .ok_or("signed in without a Twitch account (a bot?)")?;
-    let login = me.twitch.login.clone().unwrap_or(me.login);
-    Ok((id, login, me.twitch.features.iter().any(|f| f == "chat")))
+    let (id, login) = me.own_channel().ok_or("signed in without a Twitch account (a bot?)")?;
+    Ok((id, login, me.twitch.has("chat")))
 }
 
 /// TESTING ONLY (round TW5): the global-emotes demo's chat
@@ -429,13 +423,7 @@ pub fn global_script(from: ddi_chat::EmotesFrom, api: String, at: Option<String>
             .collect();
         for t in threads {
             let Ok((r, answer)) = t.join() else { continue };
-            eprintln!(
-                "chat global emotes: {} {:?} {}: {}",
-                ddi_chat::global::provider_name(r.provider),
-                r.via,
-                r.url,
-                answer.as_ref().map_or_else(|e| e.clone(), |t| format!("{} bytes", t.len()))
-            );
+            eprintln!("{}", ddi_chat::global::answer_line(&r, &answer));
             demo.answered(r.provider, r.via, answer);
         }
     }

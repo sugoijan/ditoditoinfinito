@@ -667,7 +667,7 @@ impl SignInDialog {
         };
         c.scopes
             .split(',')
-            .all(|s| t.features.iter().any(|f| f == s.trim()))
+            .all(|s| t.has(s.trim()))
     }
 
     /// A connecting dialog's trip ended: told once.

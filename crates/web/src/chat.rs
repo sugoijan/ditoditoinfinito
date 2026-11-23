@@ -91,13 +91,7 @@ fn global(at: Option<&str>) {
                 let answer = read(&r.url)
                     .await
                     .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
-                let line = format!(
-                    "chat global emotes: {} {:?} {}: {}",
-                    ddi_chat::global::provider_name(r.provider),
-                    r.via,
-                    r.url,
-                    answer.as_ref().map_or_else(|e| e.clone(), |t| format!("{} bytes", t.len()))
-                );
+                let line = ddi_chat::global::answer_line(&r, &answer);
                 web_sys::console::info_1(&line.into());
                 GLOBAL.with(|g| {
                     if let Some(d) = g.borrow_mut().as_mut() {
@@ -121,9 +115,9 @@ pub(crate) fn install_live(socket: Option<&str>, at: Option<&str>) {
     let api = crate::share::base();
     ddi_session::chat::set_live(Some(LiveSetup {
         url: socket.map_or_else(|| ddi_chat::live::EVENTSUB_URL.to_string(), str::to_string),
-        api: api.clone(),
+        api,
         at: at.map(str::to_string),
-        make: Box::new(move || Box::new(WebLive::new(api.clone()))),
+        make: Box::new(|| Box::new(WebLive::default())),
     }));
 }
 
@@ -136,28 +130,15 @@ fn live(at: Option<&str>, socket: Option<&str>) {
     install_live(socket, at);
     wasm_bindgen_futures::spawn_local(async {
         let p = ddi_chat::live::LOG_PREFIX;
-        let me = crate::online::send(&ddi_ui::state::online::api::ApiRequest {
-            method: ddi_ui::state::online::api::Method::Get,
-            path: "/me".into(),
-            body: None,
-            bearer: None,
-            poll: None,
-        })
-        .await;
+        let me = crate::online::send(&ddi_ui::state::online::api::me()).await;
         let parsed = (me.status == 200)
             .then(|| serde_json::from_str::<ddi_ui::state::online::api::Me>(&me.body).ok())
             .flatten();
         let line = match parsed {
             Some(m) => {
-                let id = m
-                    .player_id
-                    .strip_prefix("twitch:")
-                    .map(str::to_string)
-                    .or_else(|| m.player_id.strip_prefix("dev:").map(|n| format!("dev-{n}")));
-                match id {
-                    Some(id) => {
-                        let login = m.twitch.login.clone().unwrap_or(m.login.clone());
-                        let scope = m.twitch.features.iter().any(|f| f == "chat");
+                match m.own_channel() {
+                    Some((id, login)) => {
+                        let scope = m.twitch.has("chat");
                         ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Own {
                             channel_id: id,
                             login: login.clone(),
@@ -223,21 +204,12 @@ impl Drop for LiveSocket {
     }
 }
 
-/// The live chat's side on the web (see the module's notes).
+/// The live chat's side on the web (see the module's notes): it sends
+/// through the page's own requests (`crate::online::send`, the cookie).
+#[derive(Default)]
 pub(crate) struct WebLive {
     queue: Rc<RefCell<Vec<LiveInput>>>,
     sockets: HashMap<u32, LiveSocket>,
-    api: String,
-}
-
-impl WebLive {
-    fn new(api: String) -> WebLive {
-        WebLive {
-            queue: Rc::default(),
-            sockets: HashMap::new(),
-            api,
-        }
-    }
 }
 
 impl LiveIo for WebLive {
@@ -290,7 +262,6 @@ impl LiveIo for WebLive {
             bearer: None,
             poll: None,
         };
-        let _ = &self.api;
         wasm_bindgen_futures::spawn_local(async move {
             let r = crate::online::send(&request).await;
             let answer = ddi_chat::live::read_subscribe_answer(r.status, &r.body);

@@ -2840,7 +2840,7 @@ impl RoomClient {
             let Some(link) = self.online_link() else { return };
             let o = link.online().borrow();
             match o.twitch() {
-                Some(t) => !t.features.iter().any(|f| f == "chat"),
+                Some(t) => !t.has("chat"),
                 // Not read yet: nothing to say.
                 None => return,
             }
@@ -2879,7 +2879,7 @@ impl RoomClient {
                 l.online()
                     .borrow()
                     .twitch()
-                    .is_some_and(|a| a.features.iter().any(|f| f == "chat"))
+                    .is_some_and(|a| a.has("chat"))
             })
             && settings.get().twitch_chat != ddi_chat::Level::Off;
         if shows_chat {
@@ -2920,7 +2920,7 @@ impl RoomClient {
             .online()
             .borrow()
             .twitch()
-            .is_some_and(|a| a.features.iter().any(|f| f == "chat"));
+            .is_some_and(|a| a.has("chat"));
         if !allowed {
             return None;
         }
@@ -2959,7 +2959,7 @@ impl RoomClient {
             link.online()
                 .borrow()
                 .twitch()
-                .is_some_and(|t| !t.features.iter().any(|f| f == "chat"))
+                .is_some_and(|t| !t.has("chat"))
         })
     }
 

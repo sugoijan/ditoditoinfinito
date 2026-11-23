@@ -598,7 +598,7 @@ impl Online {
         }
         let granted = self
             .twitch()
-            .is_some_and(|t| t.features.iter().any(|f| f == "chat"));
+            .is_some_and(|t| t.has("chat"));
         let ended = matches!(self.sign_in, SignIn::Canceled { .. } | SignIn::Failed { .. });
         if !granted && !ended {
             // The `/me` before the trip: wait for the next.
@@ -648,7 +648,7 @@ impl Online {
         }
         let needs = api::twitch_needs(w.mirror, w.chat);
         let granted = match &self.account {
-            Account::SignedIn(me) => needs.iter().all(|n| me.twitch.features.iter().any(|f| f == n)),
+            Account::SignedIn(me) => needs.iter().all(|n| me.twitch.has(n)),
             _ => false,
         };
         let canceled = matches!(self.sign_in, SignIn::Canceled { .. } | SignIn::Failed { .. });
