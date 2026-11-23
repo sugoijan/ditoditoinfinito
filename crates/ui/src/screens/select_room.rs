@@ -928,12 +928,12 @@ impl SelectScreen {
             return;
         }
         let (charts, pick) = self.charts();
-        let chart = pick.and_then(|p| charts.get(p).copied()).cloned();
+        // (The chart's index and digest alone, nothing copied.)
+        let chart = pick.and_then(|p| charts.get(p).copied()).map(|c| (c.index, c.digest));
         let entry = self.shown_entry();
         let key = entry
-            .zip(chart.as_ref())
-            .map(|(e, c)| (format!("{ROOM_SONG_ID}{}", e.0), c.index));
-        let digest = chart.as_ref().and_then(|c| c.digest).map(|d| ddi_room::ChartKey::new(d.to_string()));
+            .zip(chart)
+            .map(|(e, (index, _))| (format!("{ROOM_SONG_ID}{}", e.0), index));
         let Some(rm) = &mut self.room else {
             return;
         };
@@ -941,6 +941,7 @@ impl SelectScreen {
             return;
         }
         rm.hovered = key;
+        let digest = chart.and_then(|(_, d)| d).map(|d| ddi_room::ChartKey::new(d.to_string()));
         rm.room
             .borrow_mut()
             .hover_listed(entry.zip(digest.as_ref()));
