@@ -1687,19 +1687,45 @@ impl RoomState {
                 limit: u16::try_from(quota).unwrap_or(u16::MAX),
             });
         }
+        self.songs_pushed_out(id).err()
+    }
+
+    /// Room for one more song by `id` in a full list: none needed (an
+    /// empty list), or the oldest songs no stage not yet over names, with
+    /// their shares, that it pushes out (`RemoveOldest`): one for one
+    /// where the adder is held to a half (round RFa: a list made smaller
+    /// is made room in one song for one, never all at once by them), else
+    /// down to the size; [`Rejection::ListFull`] where the list refuses,
+    /// or where nothing can go. The one decision for
+    /// [`RoomState::add_refusal`] and the reducer's addition.
+    ///
+    /// [`Rejection::ListFull`]: crate::Rejection::ListFull
+    pub(crate) fn songs_pushed_out(
+        &self,
+        id: ParticipantId,
+    ) -> Result<Vec<(crate::ids::RoomSongId, Option<String>)>, crate::Rejection> {
         let rules = self.songs.rules;
         let size = usize::from(rules.size);
-        if self.songs.len() >= size {
-            let free = self.songs.entries.iter().filter(|e| !self.song_in_use(e)).count();
-            // One song out for one in where the adder is held to a half
-            // (round RFa), else down to the size.
-            let over = self.songs.len() + 1 - size;
-            let over = if self.song_quota(id).is_some() { over.min(1) } else { over };
-            if rules.when_full == crate::songs::WhenFull::Refuse || free < over {
-                return Some(Rejection::ListFull);
-            }
+        if self.songs.len() < size {
+            return Ok(Vec::new());
         }
-        None
+        if rules.when_full == crate::songs::WhenFull::Refuse {
+            return Err(crate::Rejection::ListFull);
+        }
+        let over = self.songs.len() + 1 - size;
+        let over = if self.song_quota(id).is_some() { over.min(1) } else { over };
+        let gone: Vec<(crate::ids::RoomSongId, Option<String>)> = self
+            .songs
+            .entries
+            .iter()
+            .filter(|e| !self.song_in_use(e))
+            .take(over)
+            .map(|e| (e.id, e.share.clone()))
+            .collect();
+        if gone.len() < over {
+            return Err(crate::Rejection::ListFull);
+        }
+        Ok(gone)
     }
 
     /// The most songs `id` may have added to the list, if any: none for a

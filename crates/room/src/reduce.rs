@@ -133,6 +133,19 @@ impl RoomState {
     /// in the room and not disconnected (the new owner's, where the one
     /// gone was the owner: call this after [`Self::settle_host`]), else
     /// nobody's until the owner is back or an operator takes it.
+    /// The pick released where `id` can no longer take it as the room
+    /// has them now (their role or admin flag just changed: run right
+    /// after that event, so the events keep their order).
+    fn release_pick_unless_able(&mut self, id: ParticipantId, out: &mut Vec<Event>) {
+        let able = self
+            .members
+            .get(&id)
+            .is_some_and(|m| can(m.role, m.admin, Capability::TakePick, self.phase.kind()));
+        if !able {
+            self.release_pick(id, out);
+        }
+    }
+
     fn release_pick(&mut self, from: ParticipantId, out: &mut Vec<Event>) {
         if self.closed.is_some() || self.picking.picker != Some(from) {
             return;
@@ -674,9 +687,18 @@ impl RoomState {
                 if let Some(why) = self.add_refusal(id, Some(song)) {
                     return Err(why);
                 }
-                let rules = self.songs.rules;
-                let most = self.song_quota(id).map(|_| 1);
-                self.make_room(usize::from(rules.size), rules.when_full, most, out)?;
+                // Room made: the oldest songs not in use that it pushes
+                // out of a full list removed first.
+                for (song, share) in self.songs_pushed_out(id)? {
+                    self.emit(
+                        out,
+                        Event::SongRemoved {
+                            song,
+                            why: crate::songs::Removal::ListFull,
+                            share,
+                        },
+                    );
+                }
                 let entry = crate::songs::RoomSong {
                     id: crate::ids::RoomSongId(self.songs.next.max(1)),
                     key: song.key.clone(),
@@ -909,7 +931,6 @@ impl RoomState {
                     return Err(Rejection::NotAHuman);
                 }
                 let role = if *on { Role::CoHost } else { Role::Member };
-                let operates = can(role, m.admin, Capability::TakePick, self.phase.kind());
                 if m.role != role {
                     self.emit(
                         out,
@@ -919,9 +940,7 @@ impl RoomState {
                         },
                     );
                     // The pick is not kept without the role to take it.
-                    if !operates {
-                        self.release_pick(*participant, out);
-                    }
+                    self.release_pick_unless_able(*participant, out);
                 }
                 Ok(())
             }
@@ -1042,10 +1061,7 @@ impl RoomState {
                         self.emit(out, Event::AdminChanged { participant, admin });
                         // The pick is not kept without the power to take
                         // it, as when a co-host loses the role (round RFa).
-                        let role = self.members[&participant].role;
-                        if !can(role, admin, Capability::TakePick, self.phase.kind()) {
-                            self.release_pick(participant, out);
-                        }
+                        self.release_pick_unless_able(participant, out);
                     }
                     let m = &self.members[&participant];
                     if m.left || m.connection != Connection::Connected {
@@ -2010,51 +2026,6 @@ impl RoomState {
                 phase: Phase::MatchResults,
             },
         );
-        Ok(())
-    }
-
-    /// Room for one more song in a list of `size`: none needed, or the
-    /// oldest songs no stage not yet over names removed (`RemoveOldest`),
-    /// at most `most` of them (one for an addition held to a person's
-    /// half, round RFa: a list made smaller is made room in one song for
-    /// one, never all at once by them; a host's makes room down to the
-    /// size); refused where it refuses, or where nothing can go.
-    fn make_room(
-        &mut self,
-        size: usize,
-        when_full: crate::songs::WhenFull,
-        most: Option<usize>,
-        out: &mut Vec<Event>,
-    ) -> Decided {
-        if self.songs.len() < size {
-            return Ok(());
-        }
-        if when_full == crate::songs::WhenFull::Refuse {
-            return Err(Rejection::ListFull);
-        }
-        let over = self.songs.len() + 1 - size;
-        let over = most.map_or(over, |most| over.min(most));
-        let gone: Vec<(crate::ids::RoomSongId, Option<String>)> = self
-            .songs
-            .entries
-            .iter()
-            .filter(|e| !self.song_in_use(e))
-            .take(over)
-            .map(|e| (e.id, e.share.clone()))
-            .collect();
-        if gone.len() < over {
-            return Err(Rejection::ListFull);
-        }
-        for (song, share) in gone {
-            self.emit(
-                out,
-                Event::SongRemoved {
-                    song,
-                    why: crate::songs::Removal::ListFull,
-                    share,
-                },
-            );
-        }
         Ok(())
     }
 
