@@ -471,9 +471,10 @@ impl Overlay {
     /// cache fetches.
     pub fn wanted(&self) -> Vec<&Emote> {
         let mut out: Vec<&Emote> = Vec::new();
+        let mut seen: std::collections::HashSet<&Emote> = std::collections::HashSet::new();
         for w in &self.waiting {
             for e in w.content.emotes() {
-                if !out.contains(&e) {
+                if seen.insert(e) {
                     out.push(e);
                 }
             }
@@ -602,9 +603,8 @@ impl Overlay {
                 later.push(w);
                 continue;
             }
-            let states: Vec<Readiness> = w.content.emotes().map(ready).collect();
             let due = w.part || now - w.since >= self.rules.wait;
-            if !due && states.contains(&Readiness::Waiting) {
+            if !due && w.content.emotes().any(|e| ready(e) == Readiness::Waiting) {
                 later.push(w);
                 continue;
             }

@@ -22,7 +22,6 @@
 
 use ddi_actor::text::{TextMeasure, TextStyle};
 use ddi_chat::cache::{ATLAS, Answer, EmoteCache, Fetch, Got, Via, fit};
-use ddi_chat::emotes::Emote;
 use ddi_chat::overlay::{Area, CHAT_OVERLAY_V1, CHAT_OVERLAY_V2, Glyphs, Look, Options, Overlay, Rules};
 use ddi_render::texture_cache::TextureKey;
 use ddi_render::{DrawList, Painter, Quad, Renderer};
@@ -290,15 +289,9 @@ impl ChatView {
         // The images: kept recent while wanted or drawn, new ones asked
         // for, those back placed in the atlas.
         self.cache.next_frame();
-        let wanted: Vec<Emote> = self
-            .overlay
-            .wanted()
-            .into_iter()
-            .chain(self.overlay.drawn_emotes())
-            .cloned()
-            .collect();
-        for e in &wanted {
-            self.cache.want(e, self.overlay.sets());
+        let sets = self.overlay.sets();
+        for e in self.overlay.wanted().into_iter().chain(self.overlay.drawn_emotes()) {
+            self.cache.want(e, sets);
         }
         let mut back = fetched;
         for f in self.cache.start() {
