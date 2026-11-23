@@ -369,12 +369,7 @@ pub(crate) async fn listing(store: &str, share: &str) -> Result<Listing, Preload
             banner = source(share, &path);
         }
     }
-    let bytes = song
-        .files
-        .iter()
-        .filter(|f| ddi_library::share::is_small(&f.path))
-        .map(|f| f.bytes.max(0.0) as u64)
-        .sum();
+    let bytes = ddi_library::share::small_bytes(&song.files);
     Ok(Listing {
         entry,
         pack: song.record.pack.clone(),
@@ -426,11 +421,7 @@ async fn fetch_into(
         return Ok(());
     }
     let base = crate::share::base();
-    let url = if f.url.is_empty() {
-        ddi_library::share::file_url(&base, share, 0, &f.path)
-    } else {
-        ddi_library::share::resolve_url(&base, &f.url)
-    };
+    let url = ddi_library::share::listed_url(&base, share, 0, f);
     let blob = fetch_blob_stopping(&url, progress, stop).await?;
     let size = blob.size() as u64;
     let db = Db::open().await.map_err(|_| PreloadProblem::Download)?;

@@ -343,13 +343,7 @@ pub fn load_with(
 ) -> Result<LoadedShare, ShareError> {
     let doc = fetch(id)?;
     let root = share_root(store, id)?;
-    let all_bytes: u64 = doc
-        .songs
-        .iter()
-        .flat_map(|s| &s.files)
-        .filter(|f| contract::is_small(&f.path))
-        .map(|f| f.bytes.max(0.0) as u64)
-        .sum();
+    let all_bytes = contract::small_bytes(doc.songs.iter().flat_map(|s| &s.files));
     let done = std::cell::Cell::new(0u64);
     let mut songs = Vec::new();
     let total = doc.songs.len();
@@ -485,9 +479,10 @@ fn ensure_file(
     {
         return Ok(meta.len());
     }
+    // (A file listed is listed at `stored`.)
     let url = match listed {
-        Some(f) if !f.url.is_empty() => contract::resolve_url(&base(), &f.url),
-        _ => contract::file_url(&base(), id, n, stored),
+        Some(f) => contract::listed_url(&base(), id, n, f),
+        None => contract::file_url(&base(), id, n, stored),
     };
     let bytes = listed.map_or(0, |f| f.bytes.max(0.0) as u64);
     let mut resp = agent()
@@ -616,12 +611,7 @@ pub fn listing_in(store: &str, id: &str) -> Result<ddi_ui::state::room::Listing,
         }
         None => None,
     };
-    let bytes = song
-        .files
-        .iter()
-        .filter(|f| contract::is_small(&f.path))
-        .map(|f| f.bytes.max(0.0) as u64)
-        .sum();
+    let bytes = contract::small_bytes(&song.files);
     Ok(ddi_ui::state::room::Listing {
         entry,
         pack: lib.pack,
