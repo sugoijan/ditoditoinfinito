@@ -1,0 +1,144 @@
+{
+  "plans": [
+    [
+      3,
+      {
+        "version": 1,
+        "attack_rules": "attacks-v4",
+        "placement": "placement-v2",
+        "classes": "power-classes-v0",
+        "ruleset": "ddi",
+        "seed": 12660910975878113609,
+        "checkpoints_us": [
+          2000000,
+          4000000,
+          6000000,
+          8000000,
+          10000000,
+          12000000
+        ],
+        "schedule": {
+          "slots": [
+            {
+              "start_us": 0,
+              "section": null
+            },
+            {
+              "start_us": 2000000,
+              "section": {
+                "cells": [
+                  {
+                    "tick": 192,
+                    "lane": 0,
+                    "at_us": 2000000
+                  },
+                  {
+                    "tick": 240,
+                    "lane": 2,
+                    "at_us": 2500000
+                  },
+                  {
+                    "tick": 312,
+                    "lane": 1,
+                    "at_us": 3250000
+                  },
+                  {
+                    "tick": 360,
+                    "lane": 3,
+                    "at_us": 3750000
+                  }
+                ],
+                "clear_us": 3850000
+              }
+            },
+            {
+              "start_us": 4000000,
+              "section": null
+            },
+            {
+              "start_us": 6000000,
+              "section": {
+                "cells": [
+                  {
+                    "tick": 576,
+                    "lane": 0,
+                    "at_us": 6000000
+                  },
+                  {
+                    "tick": 624,
+                    "lane": 2,
+                    "at_us": 6500000
+                  },
+                  {
+                    "tick": 696,
+                    "lane": 1,
+                    "at_us": 7250000
+                  },
+                  {
+                    "tick": 744,
+                    "lane": 3,
+                    "at_us": 7750000
+                  }
+                ],
+                "clear_us": 7850000
+              }
+            },
+            {
+              "start_us": 8000000,
+              "section": null
+            },
+            {
+              "start_us": 10000000,
+              "section": {
+                "cells": [
+                  {
+                    "tick": 960,
+                    "lane": 0,
+                    "at_us": 10000000
+                  },
+                  {
+                    "tick": 1008,
+                    "lane": 2,
+                    "at_us": 10500000
+                  },
+                  {
+                    "tick": 1080,
+                    "lane": 1,
+                    "at_us": 11250000
+                  },
+                  {
+                    "tick": 1128,
+                    "lane": 3,
+                    "at_us": 11750000
+                  }
+                ],
+                "clear_us": 11850000
+              }
+            }
+          ]
+        },
+        "ladder": [
+          "chart-1-1",
+          "chart-1-0"
+        ],
+        "at_once": 3,
+        "shocks": 4,
+        "digest": "fnv1a64:8eb33e4c2c977833"
+      }
+    ]
+  ],
+  "prepared": [
+    [
+      3,
+      [
+        [
+          1,
+          {
+            "horizon_us": 1500000,
+            "plan": "fnv1a64:8eb33e4c2c977833"
+          }
+        ]
+      ]
+    ]
+  ]
+}
