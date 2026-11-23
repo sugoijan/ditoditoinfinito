@@ -393,6 +393,9 @@ pub struct Overlay {
     next: u64,
     waiting: Vec<Waiting>,
     shown: Vec<Shown>,
+    /// [`Overlay::messages`] and [`Overlay::emotes`] as last counted for
+    /// a message received; none once the items changed since.
+    counted: Option<(usize, usize)>,
     admitted: VecDeque<f64>,
     chatters: HashMap<String, f64>,
     stats: Stats,
@@ -407,6 +410,7 @@ impl Overlay {
             next: 1,
             waiting: Vec::new(),
             shown: Vec::new(),
+            counted: None,
             admitted: VecDeque::new(),
             chatters: HashMap::new(),
             stats: Stats::default(),
@@ -526,8 +530,12 @@ impl Overlay {
                         return;
                     }
                 };
-                if self.messages() >= self.rules.on_screen
-                    || self.emotes() + content.emotes().count() > self.rules.emotes_on_screen
+                let (messages, emotes) = match self.counted {
+                    Some(c) => c,
+                    None => *self.counted.insert((self.messages(), self.emotes())),
+                };
+                if messages >= self.rules.on_screen
+                    || emotes + content.emotes().count() > self.rules.emotes_on_screen
                 {
                     self.stats.full += 1;
                     return;
@@ -555,6 +563,7 @@ impl Overlay {
                 self.admitted.push_back(now);
                 self.stats.cut += content.left_out as u64;
                 let id = self.take_id();
+                self.counted = None;
                 self.waiting.push(Waiting {
                     id,
                     since: now,
@@ -578,6 +587,7 @@ impl Overlay {
 
     fn remove(&mut self, which: impl Fn(&Content) -> bool) {
         let before = self.len();
+        self.counted = None;
         self.waiting.retain(|w| !which(&w.content));
         self.shown.retain(|s| !which(&s.content));
         self.stats.removed += (before - self.len()) as u64;
@@ -594,6 +604,7 @@ impl Overlay {
         ready: &dyn Fn(&Emote) -> Readiness,
         measure: &mut dyn FnMut(&str) -> f32,
     ) {
+        self.counted = None;
         self.shown.retain(|s| s.ends > now);
         let look = self.rules.look;
         let waiting = std::mem::take(&mut self.waiting);
