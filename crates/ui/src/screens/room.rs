@@ -3512,6 +3512,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
     let leave_cost = r.leave_cost();
     let my_role = r.my_role();
     let invite = r.invite_link();
+    let haves = r.have_counter();
     let view = RoomView {
         view: view.into(),
         phase: format!("{:?}", s.phase.kind()).to_lowercase(),
@@ -3572,7 +3573,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
                     crate::state::room::EntryState::NotLoaded => "not_loaded",
                 }
                 .into(),
-                have: r.have_count(e),
+                have: haves.as_ref().and_then(|h| h.count(e)),
                 banner: r.ahead_banner(e).is_some() || r.library_song(e).is_some_and(|s| s.banner.is_some()),
                 by: r.member_of(e.by).map(person_name).unwrap_or_default(),
                 share: e.share.clone(),

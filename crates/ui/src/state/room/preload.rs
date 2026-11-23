@@ -383,33 +383,31 @@ impl RoomClient {
     /// connected who play; this device's own as it has it): none in a
     /// room that says nothing of it (practice).
     pub fn have_count(&self, entry: &RoomSong) -> Option<(u32, u32)> {
+        self.have_counter()?.count(entry)
+    }
+
+    /// [`RoomClient::have_count`] for many entries: the players counted
+    /// found once.
+    pub fn have_counter(&self) -> Option<HaveCounter<'_>> {
         if !self.plays_live() {
             return None;
         }
         let link = self.live_link()?;
         let haves = link.haves();
         let me = self.me;
-        let mut of = 0;
-        let mut have = 0;
-        for m in self.state().members.values() {
-            if m.left
-                || m.is_cpu()
-                || m.connection != ddi_room::Connection::Connected
-                || m.intent != ddi_room::Intent::Play
-            {
-                continue;
-            }
-            of += 1;
-            let has = if m.id == me {
-                self.entry_state(entry) == EntryState::Ready
-            } else {
-                haves.get(&m.id).is_some_and(|s| s.has(entry.id))
-            };
-            if has {
-                have += 1;
-            }
-        }
-        (of > 0).then_some((have, of))
+        let players = self
+            .state()
+            .members
+            .values()
+            .filter(|m| {
+                !m.left
+                    && !m.is_cpu()
+                    && m.connection == ddi_room::Connection::Connected
+                    && m.intent == ddi_room::Intent::Play
+            })
+            .map(|m| if m.id == me { None } else { Some(haves.get(&m.id)) })
+            .collect();
+        Some(HaveCounter { client: self, players })
     }
 
     /// How many players do not have `entry` yet (the picker is told before
@@ -748,5 +746,31 @@ fn percent(done: f64, total: f64) -> u32 {
         ((done / total).clamp(0.0, 1.0) * 100.0).floor() as u32
     } else {
         0
+    }
+}
+
+/// The players [`RoomClient::have_count`] counts, found once
+/// ([`RoomClient::have_counter`]): this device's player (`None`) or
+/// another's set as the room said it.
+pub struct HaveCounter<'a> {
+    client: &'a RoomClient,
+    players: Vec<Option<Option<&'a HaveSet>>>,
+}
+
+impl HaveCounter<'_> {
+    /// How many of the players have `entry`, of how many.
+    pub fn count(&self, entry: &RoomSong) -> Option<(u32, u32)> {
+        let mut have = 0;
+        for p in &self.players {
+            let has = match p {
+                None => self.client.entry_state(entry) == EntryState::Ready,
+                Some(set) => set.is_some_and(|s| s.has(entry.id)),
+            };
+            if has {
+                have += 1;
+            }
+        }
+        let of = self.players.len() as u32;
+        (of > 0).then_some((have, of))
     }
 }

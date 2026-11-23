@@ -972,6 +972,10 @@ impl SelectScreen {
             .as_ref()
             .and_then(|s| r.member_of(s.by))
             .map(room::person_name);
+        // (Asked once for every row.)
+        let group = r.group_choice();
+        let excluded = (group && r.reveal().is_none()).then(|| r.state().excluded_songs());
+        let haves = r.have_counter();
         for e in r.room_songs() {
             // The player's own copy, else the one downloaded ahead.
             let mine = r.library_song(e).cloned().or_else(|| {
@@ -980,9 +984,8 @@ impl SelectScreen {
                     s
                 })
             });
-            let mut song = match &mine {
-                Some(s) => {
-                    let mut s = s.clone();
+            let mut song = match mine {
+                Some(mut s) => {
                     s.charts.retain(|c| {
                         c.version.is_none()
                             && c.digest
@@ -1028,7 +1031,7 @@ impl SelectScreen {
                 EntryState::NotLoaded => ddi_l10n::msg::room::song_not_loaded(),
             };
             // Who has it, while not everyone does (stage 2).
-            let state = match r.have_count(e) {
+            let state = match haves.as_ref().and_then(|h| h.count(e)) {
                 Some((have, of)) if have < of => {
                     ddi_l10n::msg::room::song_state_have(state, have, of)
                 }
@@ -1042,7 +1045,7 @@ impl SelectScreen {
             };
             // The picker's resting song is no news under Song choice:
             // Group (revision 22): the players choose.
-            let spot = spot.filter(|_| !r.group_choice());
+            let spot = spot.filter(|_| !group);
             let line = match (&picker, spot == Some(e.id)) {
                 (Some(who), true) => ddi_l10n::msg::room::song_line_spotlight(
                     e.card.artist.clone(),
@@ -1055,8 +1058,11 @@ impl SelectScreen {
             };
             // Song choice: Group (revision 22): who chose it, first; a song
             // the Repeats rule excludes said so.
-            let line = if r.group_choice() {
-                let line = match r.repeat_refused(e.id) {
+            let line = if group {
+                let refused = excluded
+                    .as_ref()
+                    .and_then(|(rule, songs)| songs.contains(&e.id).then_some(*rule));
+                let line = match refused {
                     Some(rule) => {
                         ddi_l10n::msg::room::song_line_repeat(room::repeats_id(rule), line)
                     }
