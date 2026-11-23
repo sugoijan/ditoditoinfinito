@@ -9,33 +9,8 @@
 
 mod common;
 
-use common::Room;
+use common::{Room, chart, chart_line, new_song};
 use ddi_room::*;
-
-fn new_song(n: u32) -> NewSong {
-    NewSong {
-        key: SongKey::new(format!("s{n:015x}")),
-        card: SongCard {
-            title: format!("Song {n}"),
-            artist: "Artist".into(),
-            pack: "Pack".into(),
-        },
-        charts: vec![chart_line(n, 0), chart_line(n, 1)],
-    }
-}
-
-fn chart_line(n: u32, k: u32) -> ChartLine {
-    ChartLine {
-        chart: chart(n, k),
-        style: "dance-single".into(),
-        difficulty: if k == 0 { "Easy" } else { "Hard" }.into(),
-        meter: 3 + 6 * k,
-    }
-}
-
-fn chart(n: u32, k: u32) -> ChartKey {
-    ChartKey::new(format!("d{n}-{k}"))
-}
 
 /// A room under Song choice: Group with `repeats`, songs 1 to `songs` there
 /// to load (the host's), Ana and Bob who play, Wes who watches.

@@ -12,7 +12,7 @@
 
 mod common;
 
-use common::Room;
+use common::{Room, chart};
 use ddi_room::*;
 
 fn line(n: u32, k: u32, style: &str, difficulty: &str, meter: u32) -> ChartLine {
@@ -24,27 +24,18 @@ fn line(n: u32, k: u32, style: &str, difficulty: &str, meter: u32) -> ChartLine 
     }
 }
 
-fn chart(n: u32, k: u32) -> ChartKey {
-    ChartKey::new(format!("d{n}-{k}"))
-}
-
 /// Song `n` with an Easy, a Medium and a Hard single chart and a Hard
 /// double one.
 fn new_song(n: u32) -> NewSong {
-    NewSong {
-        key: SongKey::new(format!("s{n:015x}")),
-        card: SongCard {
-            title: format!("Song {n}"),
-            artist: "Artist".into(),
-            pack: "Pack".into(),
-        },
-        charts: vec![
+    common::new_song_with(
+        n,
+        vec![
             line(n, 0, "dance-single", "Easy", 3),
             line(n, 1, "dance-single", "Medium", 6),
             line(n, 2, "dance-single", "Hard", 9),
             line(n, 3, "dance-double", "Hard", 10),
         ],
-    }
+    )
 }
 
 /// A room playing live under `charts`, two songs listed (the host's,

@@ -361,16 +361,7 @@ fn an_addition_held_to_a_half_pushes_out_one_song() {
     let mut r = hosted();
     let host = r.host;
     let ana = join(&mut r, "ana");
-    let song = |n: u32| NewSong {
-        key: SongKey::new(format!("s{n:015x}")),
-        card: SongCard { title: format!("Song {n}"), artist: String::new(), pack: String::new() },
-        charts: vec![ChartLine {
-            chart: ChartKey::new(format!("d{n}")),
-            style: "dance-single".into(),
-            difficulty: "Easy".into(),
-            meter: 3,
-        }],
-    };
+    let song = |n: u32| common::one_chart_song(n, "Easy", 3);
     for n in 1..=12 {
         r.by(host, Command::AddSong { song: Box::new(song(n)) }).unwrap();
     }

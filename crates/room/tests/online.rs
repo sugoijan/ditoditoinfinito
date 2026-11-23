@@ -5,6 +5,8 @@
 //! commands sent again across a reconnect, and the socket's ends (4401,
 //! 4410, 4000).
 
+mod common;
+
 use ddi_room::fake::{FakeServer, FakeSocket, Fault, SharedFake};
 use ddi_room::{
     ChartKey, ClientEnvelope, ClientId, Clock, Command, Connection, ContentId, ContentSource,
@@ -670,19 +672,7 @@ fn a_members_watching_is_kept_alike_by_both_authorities_and_every_mirror() {
 /// the same answers, every mirror equal.
 #[test]
 fn the_song_list_is_kept_alike_by_both_authorities_and_every_mirror() {
-    let song = |n: u8| ddi_room::NewSong {
-        key: SongKey::new(format!("s{n:015x}")),
-        card: ddi_room::SongCard {
-            title: format!("Song {n}"),
-            ..ddi_room::SongCard::default()
-        },
-        charts: vec![ddi_room::ChartLine {
-            chart: ChartKey::new(format!("d{n}")),
-            style: "dance-single".into(),
-            difficulty: "Hard".into(),
-            meter: 9,
-        }],
-    };
+    let song = |n: u8| common::one_chart_song(n.into(), "Hard", 9);
     let add = |n| Command::AddSong {
         song: Box::new(song(n)),
     };
@@ -760,19 +750,7 @@ fn the_song_list_is_kept_alike_by_both_authorities_and_every_mirror() {
 /// every mirror holds the same record.
 #[test]
 fn choosing_by_the_group_is_kept_alike_by_both_authorities() {
-    let song = |n: u8| ddi_room::NewSong {
-        key: SongKey::new(format!("s{n:015x}")),
-        card: ddi_room::SongCard {
-            title: format!("Song {n}"),
-            ..ddi_room::SongCard::default()
-        },
-        charts: vec![ddi_room::ChartLine {
-            chart: ChartKey::new(format!("d{n}")),
-            style: "dance-single".into(),
-            difficulty: "Hard".into(),
-            meter: 9,
-        }],
-    };
+    let song = |n: u8| common::one_chart_song(n.into(), "Hard", 9);
     let up = |id| {
         Step::Authority(Command::SetSongContent {
             song: ddi_room::RoomSongId(id),
@@ -830,19 +808,7 @@ fn choosing_by_the_group_is_kept_alike_by_both_authorities() {
 #[test]
 fn a_hosts_choice_made_during_a_stage_waits_through_both_authorities() {
     use ddi_room::{ReportedRun, StageId};
-    let song = |n: u8| ddi_room::NewSong {
-        key: SongKey::new(format!("s{n:015x}")),
-        card: ddi_room::SongCard {
-            title: format!("Song {n}"),
-            ..ddi_room::SongCard::default()
-        },
-        charts: vec![ddi_room::ChartLine {
-            chart: ChartKey::new(format!("d{n}")),
-            style: "dance-single".into(),
-            difficulty: "Hard".into(),
-            meter: 9,
-        }],
-    };
+    let song = |n: u8| common::one_chart_song(n.into(), "Hard", 9);
     let up = |id| {
         Step::Authority(Command::SetSongContent {
             song: ddi_room::RoomSongId(id),
@@ -942,19 +908,7 @@ fn a_hosts_choice_made_during_a_stage_waits_through_both_authorities() {
 /// added: the third makes room).
 #[test]
 fn a_host_fills_the_whole_song_list_through_both_authorities() {
-    let song = |n: u8| ddi_room::NewSong {
-        key: SongKey::new(format!("s{n:015x}")),
-        card: ddi_room::SongCard {
-            title: format!("Song {n}"),
-            ..ddi_room::SongCard::default()
-        },
-        charts: vec![ddi_room::ChartLine {
-            chart: ChartKey::new(format!("d{n}")),
-            style: "dance-single".into(),
-            difficulty: "Hard".into(),
-            meter: 9,
-        }],
-    };
+    let song = |n: u8| common::one_chart_song(n.into(), "Hard", 9);
     let add = |n| Command::AddSong {
         song: Box::new(song(n)),
     };
@@ -995,19 +949,7 @@ fn a_host_fills_the_whole_song_list_through_both_authorities() {
 #[test]
 fn who_can_add_songs_is_kept_alike_by_both_authorities() {
     use ddi_room::{RoomSongId, WhoAdds};
-    let song = |n: u8| ddi_room::NewSong {
-        key: SongKey::new(format!("s{n:015x}")),
-        card: ddi_room::SongCard {
-            title: format!("Song {n}"),
-            ..ddi_room::SongCard::default()
-        },
-        charts: vec![ddi_room::ChartLine {
-            chart: ChartKey::new(format!("d{n}")),
-            style: "dance-single".into(),
-            difficulty: "Hard".into(),
-            meter: 9,
-        }],
-    };
+    let song = |n: u8| common::one_chart_song(n.into(), "Hard", 9);
     let add = |n| Command::AddSong {
         song: Box::new(song(n)),
     };

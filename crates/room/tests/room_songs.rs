@@ -9,7 +9,7 @@
 
 mod common;
 
-use common::Room;
+use common::{Room, chart_line, new_song};
 use ddi_room::*;
 
 /// A new online room's: the songs' shares, live play.
@@ -25,27 +25,6 @@ fn online() -> Room {
     )
 }
 
-/// Song `n`, as its adder's device describes it: two charts.
-fn new_song(n: u32) -> NewSong {
-    NewSong {
-        key: SongKey::new(format!("s{n:015x}")),
-        card: SongCard {
-            title: format!("Song {n}"),
-            artist: "Artist".into(),
-            pack: "Pack".into(),
-        },
-        charts: vec![chart_line(n, 0), chart_line(n, 1)],
-    }
-}
-
-fn chart_line(n: u32, k: u32) -> ChartLine {
-    ChartLine {
-        chart: ChartKey::new(format!("d{n}-{k}")),
-        style: "dance-single".into(),
-        difficulty: if k == 0 { "Easy" } else { "Hard" }.into(),
-        meter: 3 + 6 * k,
-    }
-}
 
 impl Room {
     fn add(&mut self, who: ParticipantId, n: u32) -> Result<RoomSongId, Rejection> {

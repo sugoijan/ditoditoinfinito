@@ -7,7 +7,59 @@
 use ddi_room::attacks::{Judged, POWER_CLASSES_V0};
 use ddi_room::live::plan::BattlePlan;
 use ddi_room::live::stream::{Moment, MomentKind};
-use ddi_room::{ChartKey, ContentId, SongKey};
+use ddi_room::{ChartKey, ChartLine, ContentId, NewSong, SongCard, SongKey};
+
+/// Chart `k` of listed song `n` (`d<n>-<k>`).
+pub fn chart(n: u32, k: u32) -> ChartKey {
+    ChartKey::new(format!("d{n}-{k}"))
+}
+
+/// Listed song `n` as its adder's device describes it: its key, "Song
+/// <n>" by "Artist" in "Pack", and `charts`.
+pub fn new_song_with(n: u32, charts: Vec<ChartLine>) -> NewSong {
+    NewSong {
+        key: SongKey::new(format!("s{n:015x}")),
+        card: SongCard {
+            title: format!("Song {n}"),
+            artist: "Artist".into(),
+            pack: "Pack".into(),
+        },
+        charts,
+    }
+}
+
+/// Listed song `n` with two single charts, [`chart_line`] 0 and 1.
+pub fn new_song(n: u32) -> NewSong {
+    new_song_with(n, vec![chart_line(n, 0), chart_line(n, 1)])
+}
+
+/// Single chart `k` of listed song `n`: Easy 3 (0), else Hard 9.
+pub fn chart_line(n: u32, k: u32) -> ChartLine {
+    ChartLine {
+        chart: chart(n, k),
+        style: "dance-single".into(),
+        difficulty: if k == 0 { "Easy" } else { "Hard" }.into(),
+        meter: 3 + 6 * k,
+    }
+}
+
+/// Listed song `n` with one single chart (`d<n>`) of `difficulty` and
+/// `meter`, its card its title alone.
+pub fn one_chart_song(n: u32, difficulty: &str, meter: u32) -> NewSong {
+    NewSong {
+        key: SongKey::new(format!("s{n:015x}")),
+        card: SongCard {
+            title: format!("Song {n}"),
+            ..SongCard::default()
+        },
+        charts: vec![ChartLine {
+            chart: ChartKey::new(format!("d{n}")),
+            style: "dance-single".into(),
+            difficulty: difficulty.into(),
+            meter,
+        }],
+    }
+}
 
 /// Song `n`'s content.
 pub fn song(n: u32) -> ContentId {
