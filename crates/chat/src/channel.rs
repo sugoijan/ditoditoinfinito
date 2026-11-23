@@ -41,8 +41,9 @@ pub struct SetRead {
     pub via: Via,
 }
 
+/// A set's read: to ask (this way), asked, read, or not.
 #[derive(Clone, Debug, PartialEq)]
-enum State {
+pub(crate) enum State {
     Waiting(Via),
     Asked(Via),
     Read(Via),
@@ -53,77 +54,75 @@ enum State {
     NotAsked,
 }
 
-struct Set {
-    provider: Provider,
-    channel: bool,
-    at: Image,
-    state: State,
-    why: Vec<String>,
-    list: List,
+impl State {
+    /// The state's and the way's words in a report.
+    pub(crate) fn words(&self) -> (&'static str, Option<&'static str>) {
+        let (state, via) = match self {
+            State::Waiting(v) => ("waiting", Some(*v)),
+            State::Asked(v) => ("asked", Some(*v)),
+            State::Read(v) => ("read", Some(*v)),
+            State::NoSet => ("no set", None),
+            State::Failed => ("failed", None),
+            State::NotAsked => ("not asked", None),
+        };
+        (state, via.map(|v| if v == Via::Direct { "direct" } else { "proxy" }))
+    }
 }
 
-/// A live chat's third-party emote sets.
-pub struct ChannelSets {
-    sets: Vec<Set>,
-    api: Option<String>,
-    at: Option<String>,
-    version: u64,
+pub(crate) struct Set {
+    pub(crate) provider: Provider,
+    /// The channel's (else a global one).
+    pub(crate) channel: bool,
+    pub(crate) at: Image,
+    pub(crate) state: State,
+    /// Why each way failed, in turn.
+    pub(crate) why: Vec<String>,
+    pub(crate) list: List,
 }
 
-impl ChannelSets {
-    /// The sets of the channel of Twitch user `channel_id` and the globals,
-    /// under the device's "Emotes from", our server's API at `api` (none:
-    /// no proxy); TESTING ONLY, every provider's address served from `at`
-    /// instead (its proxy at `<at>api`).
-    pub fn new(
-        channel_id: &str,
-        from: EmotesFrom,
-        api: Option<String>,
-        at: Option<String>,
-    ) -> ChannelSets {
+impl Set {
+    pub(crate) fn new(provider: Provider, channel: bool, at: Image, state: State) -> Set {
+        Set {
+            provider,
+            channel,
+            at,
+            state,
+            why: Vec::new(),
+            list: Vec::new(),
+        }
+    }
+}
+
+/// Emote sets read directly first and through our server's proxy after a
+/// failure (C4): the live chat's ([`ChannelSets`]) and the global-emotes
+/// demo's ([`crate::global::Demo`]).
+pub(crate) struct Reads {
+    pub(crate) sets: Vec<Set>,
+    /// Our server's API, the proxy's base (none: no proxy).
+    pub(crate) api: Option<String>,
+    /// TESTING ONLY: every provider's address served from here instead
+    /// (`<at><host>/<path>`; the proxy at `<at>api`).
+    pub(crate) at: Option<String>,
+}
+
+impl Reads {
+    /// No sets yet, our server's API at `api` (none: no proxy), or every
+    /// address served from `at`.
+    pub(crate) fn new(api: Option<String>, at: Option<String>) -> Reads {
         let api = match &at {
             Some(at) => Some(format!("{at}api")),
             None => api.map(|a| a.trim_end_matches('/').to_string()),
         };
-        let mut sets = Vec::new();
-        for p in [Provider::SevenTv, Provider::Bttv, Provider::Ffz] {
-            // `set_addresses`: the channel's, then the global one.
-            for (k, at) in emotes::set_addresses(p, channel_id).into_iter().enumerate() {
-                sets.push(Set {
-                    provider: p,
-                    channel: k == 0,
-                    at,
-                    state: if from == EmotesFrom::TwitchOnly {
-                        State::NotAsked
-                    } else {
-                        State::Waiting(Via::Direct)
-                    },
-                    why: Vec::new(),
-                    list: Vec::new(),
-                });
-            }
-        }
-        ChannelSets {
-            sets,
+        Reads {
+            sets: Vec::new(),
             api,
             at,
-            version: 0,
         }
     }
 
-    /// The proxy's base images are asked through after a failure.
-    pub fn api(&self) -> Option<&str> {
-        self.api.as_deref()
-    }
-
-    /// Bumped whenever a set was read: the overlay takes [`ChannelSets::sets`]
-    /// again.
-    pub fn version(&self) -> u64 {
-        self.version
-    }
-
-    /// The reads to make now.
-    pub fn start(&mut self) -> Vec<SetRead> {
+    /// The reads to make now, by set (its key), way and address: each set
+    /// once, a proxy's after a direct failure.
+    pub(crate) fn start(&mut self) -> Vec<(usize, Via, String)> {
         let mut out = Vec::new();
         for (key, set) in self.sets.iter_mut().enumerate() {
             let State::Waiting(via) = set.state else {
@@ -136,13 +135,7 @@ impl ChannelSets {
             match url {
                 Some(url) => {
                     set.state = State::Asked(via);
-                    out.push(SetRead {
-                        key,
-                        provider: set.provider,
-                        channel: set.channel,
-                        url,
-                        via,
-                    });
+                    out.push((key, via, url));
                 }
                 None => {
                     set.why.push("no proxy to ask through".into());
@@ -154,18 +147,22 @@ impl ChannelSets {
     }
 
     /// Read `key` ended: the answer's text, or why it failed (`HTTP 404`,
-    /// a refused or failed request).
-    pub fn answered(&mut self, key: usize, via: Via, answer: Result<String, String>) {
+    /// a refused or failed request). An answer its parser reads no emote
+    /// from fails too (a channel's set may be empty, a global one never
+    /// is); a direct failure is asked again through the proxy. Whether
+    /// the set was read.
+    pub(crate) fn answered(&mut self, key: usize, via: Via, answer: Result<String, String>) -> bool {
         let has_proxy = self.api.is_some();
         let at = self.at.clone();
         let Some(set) = self.sets.get_mut(key) else {
-            return;
+            return false;
         };
         if set.state != State::Asked(via) {
-            return;
+            return false;
         }
         let list = answer.and_then(|text| {
             let list = match (set.provider, set.channel) {
+                (Provider::Twitch, false) => emotes::twitch_global(&text),
                 (Provider::SevenTv, true) => emotes::seven_tv_user(&text),
                 (Provider::SevenTv, false) => emotes::seven_tv_global(&text),
                 (Provider::Bttv, true) => emotes::bttv_user(&text),
@@ -174,7 +171,6 @@ impl ChannelSets {
                 (Provider::Ffz, false) => emotes::ffz_global(&text),
                 _ => Vec::new(),
             };
-            // A channel's set may be empty; a global one never is.
             if list.is_empty() && (!set.channel || serde_json::from_str::<Value>(&text).is_err()) {
                 Err(format!("no emote read from {} bytes", text.len()))
             } else {
@@ -191,11 +187,12 @@ impl ChannelSets {
                     })
                     .collect();
                 set.state = State::Read(via);
-                self.version += 1;
+                true
             }
             Err(why) if set.channel && why.starts_with("HTTP 404") => {
                 set.why.push(format!("the channel has no set ({why})"));
                 set.state = State::NoSet;
+                false
             }
             Err(why) => {
                 let way = if via == Via::Direct { "directly" } else { "through the proxy" };
@@ -205,23 +202,96 @@ impl ChannelSets {
                 } else {
                     State::Failed
                 };
+                false
             }
         }
     }
 
     /// Whether every read has ended.
-    pub fn done(&self) -> bool {
+    pub(crate) fn done(&self) -> bool {
         self.sets
             .iter()
             .all(|s| !matches!(s.state, State::Waiting(_) | State::Asked(_)))
+    }
+}
+
+/// A live chat's third-party emote sets.
+pub struct ChannelSets {
+    reads: Reads,
+    version: u64,
+}
+
+impl ChannelSets {
+    /// The sets of the channel of Twitch user `channel_id` and the globals,
+    /// under the device's "Emotes from", our server's API at `api` (none:
+    /// no proxy); TESTING ONLY, every provider's address served from `at`
+    /// instead (its proxy at `<at>api`).
+    pub fn new(
+        channel_id: &str,
+        from: EmotesFrom,
+        api: Option<String>,
+        at: Option<String>,
+    ) -> ChannelSets {
+        let mut reads = Reads::new(api, at);
+        for p in [Provider::SevenTv, Provider::Bttv, Provider::Ffz] {
+            // `set_addresses`: the channel's, then the global one.
+            for (k, at) in emotes::set_addresses(p, channel_id).into_iter().enumerate() {
+                let state = if from == EmotesFrom::TwitchOnly {
+                    State::NotAsked
+                } else {
+                    State::Waiting(Via::Direct)
+                };
+                reads.sets.push(Set::new(p, k == 0, at, state));
+            }
+        }
+        ChannelSets { reads, version: 0 }
+    }
+
+    /// The proxy's base images are asked through after a failure.
+    pub fn api(&self) -> Option<&str> {
+        self.reads.api.as_deref()
+    }
+
+    /// Bumped whenever a set was read: the overlay takes [`ChannelSets::sets`]
+    /// again.
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+
+    /// The reads to make now.
+    pub fn start(&mut self) -> Vec<SetRead> {
+        let asked = self.reads.start();
+        asked
+            .into_iter()
+            .map(|(key, via, url)| SetRead {
+                key,
+                provider: self.reads.sets[key].provider,
+                channel: self.reads.sets[key].channel,
+                url,
+                via,
+            })
+            .collect()
+    }
+
+    /// Read `key` ended: the answer's text, or why it failed (`HTTP 404`,
+    /// a refused or failed request).
+    pub fn answered(&mut self, key: usize, via: Via, answer: Result<String, String>) {
+        if self.reads.answered(key, via, answer) {
+            self.version += 1;
+        }
+    }
+
+    /// Whether every read has ended.
+    pub fn done(&self) -> bool {
+        self.reads.done()
     }
 
     /// The words to match: every set read so far (online: Twitch's own
     /// images from the fragments too, served from `at` where a test says).
     pub fn sets(&self) -> EmoteSets {
         let mut out = EmoteSets::default();
-        out.serve_from(self.at.clone());
-        for s in &self.sets {
+        out.serve_from(self.reads.at.clone());
+        for s in &self.reads.sets {
             if matches!(s.state, State::Read(_)) {
                 let source = if s.channel {
                     Source::Channel(s.provider)
@@ -239,22 +309,16 @@ impl ChannelSets {
     /// its emotes, how many animated.
     pub fn report(&self) -> Value {
         Value::Array(
-            self.sets
+            self.reads
+                .sets
                 .iter()
                 .map(|s| {
-                    let (state, via) = match &s.state {
-                        State::Waiting(v) => ("waiting", Some(*v)),
-                        State::Asked(v) => ("asked", Some(*v)),
-                        State::Read(v) => ("read", Some(*v)),
-                        State::NoSet => ("no set", None),
-                        State::Failed => ("failed", None),
-                        State::NotAsked => ("not asked", None),
-                    };
+                    let (state, via) = s.state.words();
                     json!({
                         "provider": provider_name(s.provider),
                         "set": if s.channel { "channel" } else { "global" },
                         "state": state,
-                        "via": via.map(|v| if v == Via::Direct { "direct" } else { "proxy" }),
+                        "via": via,
                         "why": s.why,
                         "emotes": s.list.len(),
                         "animated": s.list.iter().filter(|(_, e, _)| e.animated).count(),

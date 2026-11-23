@@ -31,6 +31,7 @@ use serde_json::{Value, json};
 
 use crate::EmotesFrom;
 use crate::cache::Via;
+use crate::channel::{Reads, Set, State};
 use crate::emotes::{self, Emote, Image, List, Provider};
 use crate::script::Script;
 
@@ -50,33 +51,9 @@ pub struct SetRead {
     pub via: Via,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-enum State {
-    /// To ask (this way).
-    Waiting(Via),
-    Asked(Via),
-    Read(Via),
-    Failed,
-    /// "Emotes from: Twitch": never asked.
-    NotAsked,
-}
-
-struct Set {
-    provider: Provider,
-    at: Image,
-    state: State,
-    /// Why each way failed, in turn.
-    why: Vec<String>,
-    list: List,
-}
-
 /// The demo's reads and what they gave.
 pub struct Demo {
-    sets: Vec<Set>,
-    api: Option<String>,
-    /// TESTING ONLY: every provider's address served from here instead
-    /// (`<at><host>/<path>`; the proxy at `<at>api`).
-    at: Option<String>,
+    reads: Reads,
 }
 
 /// A provider's name in the report.
@@ -114,11 +91,8 @@ impl Demo {
     /// API at `api` (none: no proxy); TESTING ONLY, every provider's
     /// address served from `at` instead (its proxy at `<at>api`).
     pub fn new(from: EmotesFrom, api: Option<String>, at: Option<String>) -> Demo {
-        let api = match &at {
-            Some(at) => Some(format!("{at}api")),
-            None => api.map(|a| a.trim_end_matches('/').to_string()),
-        };
-        let sets = ORDER
+        let mut reads = Reads::new(api, at);
+        reads.sets = ORDER
             .into_iter()
             .filter_map(|p| {
                 let at = emotes::global_address(p)?;
@@ -129,54 +103,29 @@ impl Demo {
                 } else {
                     State::Waiting(Via::Direct)
                 };
-                Some(Set {
-                    provider: p,
-                    at,
-                    state,
-                    why: Vec::new(),
-                    list: Vec::new(),
-                })
+                Some(Set::new(p, false, at, state))
             })
             .collect();
-        Demo { sets, api, at }
+        Demo { reads }
     }
 
     /// The proxy's base the demo's images are asked through.
     pub fn api(&self) -> Option<&str> {
-        self.api.as_deref()
-    }
-
-    fn address(&self, set: &Set, via: Via) -> Option<String> {
-        match via {
-            Via::Direct => Some(local(&set.at.url, self.at.as_deref())),
-            Via::Proxy => set.at.proxied(self.api.as_deref()?),
-        }
+        self.reads.api.as_deref()
     }
 
     /// The reads to make now (each set once, a proxy's after a direct
     /// failure).
     pub fn start(&mut self) -> Vec<SetRead> {
-        let mut out = Vec::new();
-        for k in 0..self.sets.len() {
-            let State::Waiting(via) = self.sets[k].state else {
-                continue;
-            };
-            match self.address(&self.sets[k], via) {
-                Some(url) => {
-                    self.sets[k].state = State::Asked(via);
-                    out.push(SetRead {
-                        provider: self.sets[k].provider,
-                        url,
-                        via,
-                    });
-                }
-                None => {
-                    self.sets[k].why.push("no proxy to ask through".into());
-                    self.sets[k].state = State::Failed;
-                }
-            }
-        }
-        out
+        let asked = self.reads.start();
+        asked
+            .into_iter()
+            .map(|(key, via, url)| SetRead {
+                provider: self.reads.sets[key].provider,
+                url,
+                via,
+            })
+            .collect()
     }
 
     /// A read ended: the answer's text, or why it failed (a refused or
@@ -184,63 +133,21 @@ impl Demo {
     /// emote from fails too; a direct failure is asked again through the
     /// proxy.
     pub fn answered(&mut self, provider: Provider, via: Via, answer: Result<String, String>) {
-        let has_proxy = self.api.is_some();
-        let at = self.at.clone();
-        let Some(set) = self.sets.iter_mut().find(|s| s.provider == provider) else {
-            return;
-        };
-        if set.state != State::Asked(via) {
-            return;
-        }
-        let list = answer.and_then(|text| {
-            let list = match provider {
-                Provider::Twitch => emotes::twitch_global(&text),
-                Provider::SevenTv => emotes::seven_tv_global(&text),
-                Provider::Bttv => emotes::bttv_global(&text),
-                Provider::Ffz => emotes::ffz_global(&text),
-                Provider::Test => Vec::new(),
-            };
-            if list.is_empty() {
-                Err(format!("no emote read from {} bytes", text.len()))
-            } else {
-                Ok(list)
-            }
-        });
-        match list {
-            Ok(list) => {
-                set.list = list
-                    .into_iter()
-                    .map(|(w, e, image)| {
-                        let url = local(&image.url, at.as_deref());
-                        (w, e, Image { url, ..image })
-                    })
-                    .collect();
-                set.state = State::Read(via);
-            }
-            Err(why) => {
-                let way = if via == Via::Direct { "directly" } else { "through the proxy" };
-                set.why.push(format!("{way}: {why}"));
-                set.state = if via == Via::Direct && has_proxy && set.at.proxy.is_some() {
-                    State::Waiting(Via::Proxy)
-                } else {
-                    State::Failed
-                };
-            }
+        if let Some(key) = self.reads.sets.iter().position(|s| s.provider == provider) {
+            self.reads.answered(key, via, answer);
         }
     }
 
     /// Whether every read has ended.
     pub fn done(&self) -> bool {
-        self.sets
-            .iter()
-            .all(|s| matches!(s.state, State::Read(_) | State::Failed | State::NotAsked))
+        self.reads.done()
     }
 
     /// The emotes chosen: from each set read, [`ANIMATED`] animated and
     /// [`STILL`] still ones by a hash of their ids, a word taken once.
     pub fn chosen(&self) -> List {
         let mut out: List = Vec::new();
-        for set in &self.sets {
+        for set in &self.reads.sets {
             let mut list: Vec<&(String, Emote, Image)> = set
                 .list
                 .iter()
@@ -280,7 +187,7 @@ impl Demo {
     /// The chat to play now: the emotes chosen from the sets read so far
     /// ([`Script::global`]).
     pub fn script(&self) -> Script {
-        Script::global(&self.chosen(), self.api.clone())
+        Script::global(&self.chosen(), self.reads.api.clone())
     }
 
     /// What each provider answered, for the debug state: whether its set
@@ -290,22 +197,17 @@ impl Demo {
     pub fn report(&self) -> Value {
         let chosen = self.chosen();
         Value::Array(
-            self.sets
+            self.reads
+                .sets
                 .iter()
                 .map(|s| {
-                    let (state, via) = match &s.state {
-                        State::Waiting(v) => ("waiting", Some(*v)),
-                        State::Asked(v) => ("asked", Some(*v)),
-                        State::Read(v) => ("read", Some(*v)),
-                        State::Failed => ("failed", None),
-                        State::NotAsked => ("not asked", None),
-                    };
+                    let (state, via) = s.state.words();
                     let mine: Vec<&(String, Emote, Image)> =
                         chosen.iter().filter(|(_, e, _)| e.provider == s.provider).collect();
                     json!({
                         "provider": provider_name(s.provider),
                         "set": state,
-                        "via": via.map(|v| if v == Via::Direct { "direct" } else { "proxy" }),
+                        "via": via,
                         "why": s.why,
                         "emotes": s.list.len(),
                         "animated": s.list.iter().filter(|(_, e, _)| e.animated).count(),
