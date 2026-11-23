@@ -1048,7 +1048,7 @@ impl GameLoop {
         debug["receptors"] = json!({ "y": y, "lifted": lifted });
         debug["touch"] = json!(crate::web::touch::controls().map(|c| json!({
                         "style": format!("{:?}", c.style),
-                        "shown": crate::ui_host::kept_source().is_touch(),
+                        "shown": crate::ui_host::kept_source_is_touch(),
                         "look": crate::perf::touch_look().name(),
                         "groups": c.groups,
                         "targets": c.targets.iter().map(|t| json!({

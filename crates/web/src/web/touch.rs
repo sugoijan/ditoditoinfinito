@@ -218,7 +218,7 @@ pub(crate) fn controls_spec(css: (f64, f64)) -> Option<ddi_shell::touch_controls
     Some(ddi_shell::touch_controls::TouchSpec {
         choice,
         insets: safe_insets(css),
-        shown: crate::ui_host::kept_source().is_touch(),
+        shown: crate::ui_host::kept_source_is_touch(),
         look: crate::perf::touch_look(),
     })
 }

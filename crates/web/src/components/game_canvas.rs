@@ -894,7 +894,7 @@ impl Component for GameCanvas {
                     ddi_ui::screens::data::Platform::Web,
                 );
                 // On a touch screen, this play's touch controls too.
-                o.set_touch(crate::ui_host::kept_source().is_touch() || coarse_pointer());
+                o.set_touch(crate::ui_host::kept_source_is_touch() || coarse_pointer());
                 // The chart's layout, where song select showed it: its
                 // skin row from the first frame (else once the song is read).
                 if let Some(layout) = crate::songs::shown_chart_layout(id, *chart) {

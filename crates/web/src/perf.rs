@@ -255,6 +255,7 @@ pub(crate) fn note_address(query: &str) {
                     Some(look) => s.set_item(TOUCH_LOOK_KEY, look.name()),
                     None => s.remove_item(TOUCH_LOOK_KEY),
                 };
+                TOUCH_LOOK.set(None);
             }
             Some(("load", value)) => {
                 let _ = match value.parse::<f64>() {
@@ -270,14 +271,27 @@ pub(crate) fn note_address(query: &str) {
 /// The tab's look of the touch controls ([`touch_look`]).
 const TOUCH_LOOK_KEY: &str = "ddi.touchlook";
 
+thread_local! {
+    /// The tab's look as last read from [`TOUCH_LOOK_KEY`] (read each
+    /// frame of a play: the storage asked once, again after an address
+    /// set it).
+    static TOUCH_LOOK: std::cell::Cell<Option<ddi_shell::touch_controls::Look>> =
+        const { std::cell::Cell::new(None) };
+}
+
 /// A TESTING AID: the touch controls' look while it is chosen
 /// (`touchlook=glass|mat|glyphs`, `docs/plans/touch-controls.md`), kept
 /// for the tab; the default without it.
 pub(crate) fn touch_look() -> ddi_shell::touch_controls::Look {
-    storage()
+    if let Some(look) = TOUCH_LOOK.get() {
+        return look;
+    }
+    let look = storage()
         .and_then(|s| s.get_item(TOUCH_LOOK_KEY).ok().flatten())
         .and_then(|v| ddi_shell::touch_controls::Look::from_name(&v))
-        .unwrap_or_default()
+        .unwrap_or_default();
+    TOUCH_LOOK.set(Some(look));
+    look
 }
 
 /// The tab's spacing of chart ratings ([`msd_slow_ms`]).

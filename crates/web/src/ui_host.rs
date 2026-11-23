@@ -962,10 +962,10 @@ pub(crate) fn keep_source(source: ddi_ui::controller_hints::Source) {
     LAST_SOURCE.with_borrow_mut(|s| *s = source);
 }
 
-/// The input the hints follow now, as last kept: touch shows a play's
-/// touch controls (`docs/plans/touch-controls.md`).
-pub(crate) fn kept_source() -> ddi_ui::controller_hints::Source {
-    LAST_SOURCE.with_borrow(Clone::clone)
+/// Whether the input the hints follow now, as last kept, is touch: touch
+/// shows a play's touch controls (`docs/plans/touch-controls.md`).
+pub(crate) fn kept_source_is_touch() -> bool {
+    LAST_SOURCE.with_borrow(ddi_ui::controller_hints::Source::is_touch)
 }
 
 /// A new host's UI: the pads connected (`pads`, its hub's) and the input
