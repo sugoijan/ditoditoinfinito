@@ -529,17 +529,24 @@ impl RoomClient {
             if read_for_stage.contains(id) {
                 continue;
             }
-            let e = self.room_songs().iter().find(|e| e.id == *id).cloned();
-            if e.as_ref()
-                .is_none_or(|e| self.entry_state(e) == EntryState::Loading)
-            {
-                continue;
-            }
-            let g = self.ahead.got.entry(*id).or_default();
-            let due = g.song == Step::Not && g.retry_at.is_none_or(|t| now >= t);
+            // (Not due first: none here is as one never asked.)
+            let due = self
+                .ahead
+                .got
+                .get(id)
+                .is_none_or(|g| g.song == Step::Not && g.retry_at.is_none_or(|t| now >= t));
             if !due {
                 continue;
             }
+            let loading = self
+                .room_songs()
+                .iter()
+                .find(|e| e.id == *id)
+                .is_none_or(|e| self.entry_state(e) == EntryState::Loading);
+            if loading {
+                continue;
+            }
+            let g = self.ahead.got.entry(*id).or_default();
             room -= 1;
             let stop = Stop::default();
             g.song = Step::Asked;
@@ -655,18 +662,19 @@ impl RoomClient {
     /// What left the list (or the whole room, `all`) is forgotten: a
     /// download stopped, its files deleted from the store.
     fn forget_unlisted(&mut self, all: bool) {
-        let listed: BTreeMap<RoomSongId, Option<String>> = self
-            .room_songs()
-            .iter()
-            .map(|e| (e.id, e.share.clone()))
-            .collect();
-        let gone: Vec<RoomSongId> = self
-            .ahead
-            .got
-            .iter()
-            .filter(|(id, g)| all || listed.get(id).is_none_or(|s| s.as_deref() != Some(&g.share)))
-            .map(|(id, _)| *id)
-            .collect();
+        let gone: Vec<RoomSongId> = {
+            let listed: BTreeMap<RoomSongId, Option<&str>> = self
+                .room_songs()
+                .iter()
+                .map(|e| (e.id, e.share.as_deref()))
+                .collect();
+            self.ahead
+                .got
+                .iter()
+                .filter(|(id, g)| all || listed.get(id).is_none_or(|s| *s != Some(g.share.as_str())))
+                .map(|(id, _)| *id)
+                .collect()
+        };
         if gone.is_empty() {
             return;
         }
