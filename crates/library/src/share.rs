@@ -200,19 +200,6 @@ pub fn record_entry(record: &Value) -> Option<(ManifestEntry, String)> {
     Some((entry, pack))
 }
 
-/// The song's content as a room's song list names it (room model revision
-/// 17, [`song_key`]): its original charts' digests; none where one of
-/// them has no digest yet.
-pub fn song_key_of(entry: &ManifestEntry) -> Option<String> {
-    let originals: Vec<String> = entry
-        .charts
-        .iter()
-        .filter(|c| c.derivation.is_none())
-        .map(|c| c.digest.map(|d| d.to_string()))
-        .collect::<Option<_>>()?;
-    (!originals.is_empty()).then(|| song_key(originals.iter().map(String::as_str)))
-}
-
 /// A song's record for a share, as the web stores a song (its
 /// `ImportedSong`: the entry, the pack, when and how much).
 pub fn record_of(entry: &ManifestEntry, pack: &str, now_ms: f64, bytes: f64) -> Value {
@@ -321,6 +308,26 @@ pub fn is_small(stored: &str) -> bool {
     !(stored.starts_with("bg/") || stored.starts_with("bga/") || stored.starts_with("layer/"))
 }
 
+/// The bytes [`is_small`]'s files of `files` take, as their list says
+/// (a size the list gives below zero counted as none).
+pub fn small_bytes<'a>(files: impl IntoIterator<Item = &'a ShareFileDoc>) -> u64 {
+    files
+        .into_iter()
+        .filter(|f| is_small(&f.path))
+        .map(|f| f.bytes.max(0.0) as u64)
+        .sum()
+}
+
+/// Where song `n` of share `share` (served at `base`) has listed file
+/// `f`: the address its list gives, else the share's own file route.
+pub fn listed_url(base: &str, share: &str, n: usize, f: &ShareFileDoc) -> String {
+    if f.url.is_empty() {
+        file_url(base, share, n, &f.path)
+    } else {
+        resolve_url(base, &f.url)
+    }
+}
+
 /// The share id a `--shared` argument names: a link (`…#/s/<id>`), or
 /// the id itself.
 pub fn parse_link(arg: &str) -> Option<String> {
@@ -394,7 +401,8 @@ mod tests {
             );
         }
         // The room's song list (revision 17): the server's reading of the
-        // record's original charts makes the key the game made.
+        // record's original charts makes the key the game makes of them
+        // (`ddi_ui::state::room::song_key`: its original charts' digests).
         let originals = ddi_share_protocol::record_song_charts(&sent);
         assert_eq!(
             originals.len(),
@@ -402,7 +410,13 @@ mod tests {
         );
         assert!(originals.iter().all(|c| !c.style.is_empty() && !c.difficulty.is_empty()));
         let key = song_key(originals.iter().map(|c| c.digest.as_str()));
-        assert_eq!(Some(key), song_key_of(&entry));
+        let digests: Vec<String> = entry
+            .charts
+            .iter()
+            .filter(|c| c.derivation.is_none())
+            .map(|c| c.digest.expect("a digest").to_string())
+            .collect();
+        assert_eq!(key, song_key(digests.iter().map(String::as_str)));
         // And the reader's own way back gives the entry again.
         let (back, pack) = record_entry(&sent).expect("the entry");
         assert_eq!((back, pack.as_str()), (entry, "Pack"));
