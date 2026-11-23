@@ -556,7 +556,7 @@ impl View {
     }
 
     /// The room host's chat as the last frame drew it.
-    pub fn chat_drawn(&self) -> Option<&ddi_shell::chat::ChatDrawn> {
+    pub fn chat_drawn(&self) -> Option<ddi_shell::chat::ChatDrawn> {
         self.view.chat_drawn()
     }
 

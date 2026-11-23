@@ -192,7 +192,24 @@ pub struct ChatView {
     since: Option<f64>,
     /// Animated emotes' clock.
     clock: ddi_chat::anim::Clock,
-    drawn: ChatDrawn,
+    /// What the last frame did, of which [`ChatView::drawn`] makes the
+    /// record when asked (not each frame); none before the first.
+    last: Option<Last>,
+    /// Milliseconds the last frame's chat took ([`ChatView::set_ms`]).
+    ms: f64,
+}
+
+/// What a frame did that is not read again from the overlay and the
+/// cache (which stay as they were until the next frame).
+#[derive(Clone, Copy, Debug)]
+struct Last {
+    now: f64,
+    anim_ms: u64,
+    shed: bool,
+    items: usize,
+    runs: usize,
+    emotes: usize,
+    opacity: f32,
 }
 
 impl ChatView {
@@ -221,7 +238,8 @@ impl ChatView {
             shed: false,
             since: None,
             clock: ddi_chat::anim::Clock::default(),
-            drawn: ChatDrawn::default(),
+            last: None,
+            ms: 0.0,
         }
     }
 
@@ -234,8 +252,68 @@ impl ChatView {
         self.clock.ms()
     }
 
-    pub fn drawn(&self) -> &ChatDrawn {
-        &self.drawn
+    /// What the last frame did, made now from what it left (the overlay
+    /// and the cache as it left them).
+    pub fn drawn(&self) -> ChatDrawn {
+        let Some(last) = self.last else {
+            return ChatDrawn {
+                ms: self.ms,
+                ..ChatDrawn::default()
+            };
+        };
+        let mut drawn = ChatDrawn {
+            items: last.items,
+            runs: last.runs,
+            emotes: last.emotes,
+            shed: last.shed,
+            stats: self.overlay.stats(),
+            images: self.cache.counts(),
+            animated: self.cache.animated(),
+            providers: [
+                ddi_chat::emotes::Provider::Twitch,
+                ddi_chat::emotes::Provider::SevenTv,
+                ddi_chat::emotes::Provider::Bttv,
+                ddi_chat::emotes::Provider::Ffz,
+            ]
+            .into_iter()
+            .map(|p| (ddi_chat::global::provider_name(p), self.cache.counts_by(p)))
+            .collect(),
+            proxied: self.cache.proxied_hosts(),
+            anim_ms: last.anim_ms,
+            shown: Some((self.overlay.options().level, self.overlay.options().style)),
+            look: self.overlay.rules().look.name,
+            rules: self.overlay.rules().name,
+            opacity: last.opacity,
+            ms: self.ms,
+            ..ChatDrawn::default()
+        };
+        for d in self.overlay.drawn(last.now) {
+            let h = d.height * d.scale;
+            let mut words = String::new();
+            for l in d.laid {
+                match &l.what {
+                    Glyphs::Name(_) => {}
+                    Glyphs::Text(t) => words.push_str(t),
+                    Glyphs::Emote(e) => {
+                        let Some(cell) = self.cache.cell_at(e, last.anim_ms) else {
+                            continue;
+                        };
+                        let first = self.cache.cell(e).unwrap_or(cell);
+                        drawn.emotes_drawn.push(EmoteDrawn {
+                            item: d.id,
+                            rect: emote_rect(&d, l),
+                            cell: [cell[0], cell[1]],
+                            first: [first[0], first[1]],
+                            animated: e.animated,
+                        });
+                        words.push('◆');
+                    }
+                }
+            }
+            drawn.texts.push(words);
+            drawn.boxes.push([d.x, d.y, d.width * d.scale, h]);
+        }
+        drawn
     }
 
     /// Whether new items are held back now (the frames run late).
@@ -363,27 +441,14 @@ impl ChatView {
             max_side: 0,
             blurred: false,
         });
-        let mut drawn = ChatDrawn {
-            shed: self.shed,
-            stats: self.overlay.stats(),
-            images: self.cache.counts(),
-            animated: self.cache.animated(),
-            providers: [
-                ddi_chat::emotes::Provider::Twitch,
-                ddi_chat::emotes::Provider::SevenTv,
-                ddi_chat::emotes::Provider::Bttv,
-                ddi_chat::emotes::Provider::Ffz,
-            ]
-            .into_iter()
-            .map(|p| (ddi_chat::global::provider_name(p), self.cache.counts_by(p)))
-            .collect(),
-            proxied: self.cache.proxied_hosts(),
+        let mut drawn = Last {
+            now,
             anim_ms,
-            shown: Some((self.overlay.options().level, self.overlay.options().style)),
-            look: self.overlay.rules().look.name,
-            rules: self.overlay.rules().name,
+            shed: self.shed,
+            items: 0,
+            runs: 0,
+            emotes: 0,
             opacity: 0.0,
-            ..ChatDrawn::default()
         };
         // The text first (its shadow, then it), the emotes after, all from
         // the atlas: one batch.
@@ -395,7 +460,6 @@ impl ChatView {
             let h = d.height * s;
             let text_style = TextStyle::new(FONT, line * TEXT_SIZE * s);
             let ty = d.y + (h - text_style.line_height()) / 2.0;
-            let mut words = String::new();
             for l in d.laid {
                 let x = d.x + l.x * s;
                 match &l.what {
@@ -410,27 +474,12 @@ impl ChatView {
                         let [r, g, b] = color;
                         self.list.text(t.as_str(), &text_style, x, ty, [r, g, b, d.alpha]);
                         drawn.runs += 1;
-                        if !matches!(l.what, Glyphs::Name(_)) {
-                            words.push_str(t);
-                        }
                     }
                     Glyphs::Emote(e) => {
                         let Some(cell) = self.cache.cell_at(e, anim_ms) else {
                             continue;
                         };
-                        // Its own height, centered in the item's.
-                        let eh = l.height * s;
-                        let pad = eh * 0.04;
-                        let top = d.y + (h - eh) / 2.0;
-                        let rect = [x, top + pad, x + l.width * s, top + eh - pad];
-                        let first = self.cache.cell(e).unwrap_or(cell);
-                        drawn.emotes_drawn.push(EmoteDrawn {
-                            item: d.id,
-                            rect,
-                            cell: [cell[0], cell[1]],
-                            first: [first[0], first[1]],
-                            animated: e.animated,
-                        });
+                        let rect = emote_rect(&d, l);
                         let [cx, cy, cw, ch] = cell.map(|v| v as f32);
                         let [aw, ah] = ATLAS.map(|v| v as f32);
                         emotes.push(Quad {
@@ -439,12 +488,9 @@ impl ChatView {
                             ..Quad::plain(rect, [1.0, 1.0, 1.0, d.alpha])
                         });
                         drawn.emotes += 1;
-                        words.push('◆');
                     }
                 }
             }
-            drawn.texts.push(words);
-            drawn.boxes.push([d.x, d.y, d.width * s, h]);
         }
         for q in emotes {
             self.list.quad(q);
@@ -495,21 +541,33 @@ impl ChatView {
         }
         if chat.is_live() {
             chat.note_view(ddi_session::chat::ViewNote {
-                stats: drawn.stats,
-                images: drawn.images,
-                proxied: drawn.proxied.clone(),
-                animated: drawn.animated.0,
+                stats: self.overlay.stats(),
+                images: self.cache.counts(),
+                proxied: self.cache.proxied_hosts(),
+                animated: self.cache.animated().0,
                 per_second: self.overlay.rules().per_second,
                 cut_at: self.overlay.rules().cut.emotes,
             });
         }
-        self.drawn = drawn;
+        self.last = Some(drawn);
     }
 
     /// The milliseconds the last frame's chat took (the shell's clock).
     pub fn set_ms(&mut self, ms: f64) {
-        self.drawn.ms = ms;
+        self.ms = ms;
     }
+}
+
+/// Where an emote laid in item `d` is drawn, `[left, top, right,
+/// bottom]` target pixels: its own height, centered in the item's.
+fn emote_rect(d: &ddi_chat::overlay::Drawn<'_>, l: &ddi_chat::overlay::Laid) -> [f32; 4] {
+    let s = d.scale;
+    let h = d.height * s;
+    let x = d.x + l.x * s;
+    let eh = l.height * s;
+    let pad = eh * 0.04;
+    let top = d.y + (h - eh) / 2.0;
+    [x, top + pad, x + l.width * s, top + eh - pad]
 }
 
 /// Writes a frame of `size` pixels (`rgba`) into `cell` of the atlas

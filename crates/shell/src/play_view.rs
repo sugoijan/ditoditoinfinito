@@ -1007,7 +1007,7 @@ impl<H: PlayHost> PlayView<H> {
 
     /// What the 2D pass over the play holds and drew last (its text's
     /// runs drawn and uploaded so far, its draws), once it has drawn.
-    pub fn chat_drawn(&self) -> Option<&crate::chat::ChatDrawn> {
+    pub fn chat_drawn(&self) -> Option<crate::chat::ChatDrawn> {
         self.chat.as_ref().map(crate::chat::ChatView::drawn)
     }
 

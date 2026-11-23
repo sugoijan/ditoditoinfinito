@@ -584,7 +584,7 @@ impl Host {
         let Stage::Playing(r, ..) = &self.stage else {
             return None;
         };
-        r.view.as_ref()?.chat_drawn().cloned()
+        r.view.as_ref()?.chat_drawn()
     }
 
     /// Whether the play's last frame composited a chat layer under the
