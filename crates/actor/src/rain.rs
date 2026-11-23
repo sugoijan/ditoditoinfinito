@@ -12,6 +12,19 @@ pub const HEIGHT: f64 = 540.0;
 /// Rows of depth, a line weight each.
 pub const ROWS: usize = 8;
 
+/// The rain's outlines (`assets/ui/menu-rain.svg`), in its 64-unit
+/// square: Infinito's arrow, pointing up (`#arrow`), and its onigiri
+/// (`#onigiri`). The generated rain background strokes them, the touch
+/// controls' glyphs draw them.
+pub const ARROW: &str = "M32 4L53.813 25.813A8.75 8.75 0 0 1 41.438 38.187L40.75 37.499V47.626A8.75 8.75 0 0 1 23.25 47.626V37.499L22.562 38.187A8.75 8.75 0 0 1 10.187 25.813Z";
+pub const ONIGIRI: &str = "M24.924 20.762A8.17 8.17 0 0 1 39.076 20.762L52.052 43.238A8.17 8.17 0 0 1 44.976 55.493L43.246 55.493A1.377 1.377 0 0 1 41.869 54.116L41.869 41.448A1.377 1.377 0 0 0 40.492 40.07L23.508 40.07A1.377 1.377 0 0 0 22.131 41.448L22.131 54.116A1.377 1.377 0 0 1 20.754 55.493L19.024 55.493A8.17 8.17 0 0 1 11.948 43.238Z";
+
+/// The rain's line weights, in the square's units, a row of depth each
+/// (the menu's), the nearest first.
+pub const LINE_WEIGHTS: [f32; ROWS] = [
+    4.0657, 3.2953, 2.7704, 2.3897, 2.101, 1.8746, 1.6922, 1.5421,
+];
+
 /// The study's deterministic seed.
 pub fn seed(i: f64, salt: f64) -> f64 {
     ((i * 127.1 + salt * 311.7).sin() * 43758.5453).rem_euclid(1.0)

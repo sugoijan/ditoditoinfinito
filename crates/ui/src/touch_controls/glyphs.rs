@@ -25,12 +25,9 @@ pub const SOURCE: &str = "ddi:touch-glyphs";
 /// A cell's side in the atlas, pixels (64 units of the rain's cells).
 pub const CELL: u32 = 192;
 
-/// The rain's arrow contour, pointing up, in a cell of 64 units
-/// (`assets/ui/menu-rain.svg`, `#arrow`).
-pub const ARROW: &str = "M32 4L53.813 25.813A8.75 8.75 0 0 1 41.438 38.187L40.75 37.499V47.626A8.75 8.75 0 0 1 23.25 47.626V37.499L22.562 38.187A8.75 8.75 0 0 1 10.187 25.813Z";
-
-/// The rain's onigiri contour (`#onigiri`).
-pub const ONIGIRI: &str = "M24.924 20.762A8.17 8.17 0 0 1 39.076 20.762L52.052 43.238A8.17 8.17 0 0 1 44.976 55.493L43.246 55.493A1.377 1.377 0 0 1 41.869 54.116L41.869 41.448A1.377 1.377 0 0 0 40.492 40.07L23.508 40.07A1.377 1.377 0 0 0 22.131 41.448L22.131 54.116A1.377 1.377 0 0 1 20.754 55.493L19.024 55.493A8.17 8.17 0 0 1 11.948 43.238Z";
+/// The rain's arrow contour, pointing up, in a cell of 64 units, and its
+/// onigiri contour (`assets/ui/menu-rain.svg`).
+pub use ddi_actor::rain::{ARROW, ONIGIRI};
 
 /// The arrow's round ends' radius (its arcs'), which the center's square
 /// takes for its corners.
@@ -80,7 +77,7 @@ impl Weight {
     /// The stroke's width in the cell's 64 units.
     pub fn units(self) -> f32 {
         match self {
-            Weight::Regular => 4.0657,
+            Weight::Regular => ddi_actor::rain::LINE_WEIGHTS[0],
             Weight::Bold => 7.0,
         }
     }
