@@ -49,6 +49,17 @@ impl Provider {
         }
     }
 
+    /// `barbed-emotes`' name for it; none for [`Provider::Test`].
+    fn barbed(self) -> Option<barbed::EmoteProvider> {
+        match self {
+            Provider::Twitch => Some(barbed::EmoteProvider::Twitch),
+            Provider::SevenTv => Some(barbed::EmoteProvider::SevenTv),
+            Provider::Bttv => Some(barbed::EmoteProvider::BetterTtv),
+            Provider::Ffz => Some(barbed::EmoteProvider::FrankerFaceZ),
+            Provider::Test => None,
+        }
+    }
+
     /// The host its images are on.
     pub fn image_host(self) -> &'static str {
         match self {
@@ -102,17 +113,18 @@ pub struct Image {
 impl Image {
     /// An image of `provider`'s at `url`, an address `barbed-emotes` built
     /// (its parsers', [`twitch_image`]'s), with its path under our proxy:
-    /// `emotes/` and barbed-emotes' route for it ([`barbed::proxy::route`]:
-    /// the closed list of shapes the parsers build and the proxy carries,
-    /// every id plain, no path that leaves the provider's image files);
-    /// none where that route is not one of `provider`'s images. So an id
-    /// or a path from a provider's answer (or a message's fragment) never
-    /// becomes an address on another host or another route of our API,
-    /// asked with the person's cookie (review 2026-11-22, chat-touch 5).
+    /// `emotes/` and barbed-emotes' route for it as one of `provider`'s
+    /// images ([`barbed::proxy::image_route`]: the closed list of shapes
+    /// the parsers build and the proxy carries, narrowed to the provider's
+    /// image route, every id plain, no path that leaves the provider's
+    /// image files); none where it is not one of `provider`'s images (a
+    /// set's route, another provider's). So an id or a path from a
+    /// provider's answer (or a message's fragment) never becomes an
+    /// address on another host or another route of our API, asked with
+    /// the person's cookie (review 2026-11-22, chat-touch 5).
     fn carried(provider: Provider, url: &str) -> Option<Image> {
-        let route = barbed::proxy::route(url)?;
-        let name = provider.route()?;
-        route.strip_prefix(name)?.starts_with('/').then(|| Image {
+        let route = barbed::proxy::image_route(&provider.barbed()?, url)?;
+        Some(Image {
             url: url.to_string(),
             proxy: Some(format!("emotes/{route}")),
         })
@@ -525,6 +537,36 @@ mod tests {
         // game asked 2×, which its list did not offer).
         let t = twitch_global(r#"{"data":[{"id":"88","name":"Small","format":["static"],"scale":["1.0"],"theme_mode":["dark"]}]}"#);
         assert!(t[0].2.url.ends_with("/static/dark/1.0"), "{}", t[0].2.url);
+
+        // Round B8, barbed-emotes 0.0.8 (asked for in round BE; 0.0.7
+        // differed in both, the game's own parsers agreed): BetterTTV's
+        // own `animated: false` on a GIF is believed (a GIF of one frame:
+        // still, its file as uploaded; 0.0.7 read it as animated).
+        let l = bttv_global(r#"[{"id":"5f1b0186cf6d2144653d2972","code":"StillGif","imageType":"gif","animated":false}]"#);
+        assert_eq!(words(&l), ["StillGif"]);
+        assert!(!l[0].1.animated);
+        assert_eq!(l[0].2.proxy.as_deref(), Some("emotes/bttv/emote/5f1b0186cf6d2144653d2972/2x"));
+        // A `null` in an optional field reads as the field left out, the
+        // emote kept (0.0.7 left each of these emotes out). A BetterTTV
+        // GIF whose `animated` is `null` moves, as one without the field
+        // does (barbed-emotes' rule where the answer does not say; the
+        // game's own parser called it still).
+        let l = bttv_global(r#"[{"id":"5f1b0186cf6d2144653d2973","code":"NullGif","imageType":"gif","animated":null,"modifier":null},{"id":"5f1b0186cf6d2144653d2974","code":"NullPng","imageType":"png","animated":null}]"#);
+        assert_eq!(words(&l), ["NullGif", "NullPng"]);
+        assert!(l[0].1.animated && !l[1].1.animated);
+        assert_eq!(l[1].2.proxy.as_deref(), Some("emotes/bttv/emote/5f1b0186cf6d2144653d2974/2x"));
+        let l = room(r#"{"id":1,"name":"Nulls","hidden":null,"modifier":null,"modifier_flags":null,"animated":null,"urls":{"2":"https://cdn.frankerfacez.com/emote/1/2"}}"#);
+        assert_eq!(words(&l), ["Nulls"]);
+        assert!(!l[0].1.animated);
+        assert_eq!(l[0].2.proxy.as_deref(), Some("emotes/ffz/emote/1/2"));
+        let l = seven(r#"{"id":"b1","name":"Nulls","flags":null,"data":{"flags":null,"animated":null,"host":{"url":"//cdn.7tv.app/emote/b1","files":[{"name":"2x.webp","static_name":"2x.webp"}]}}}"#);
+        assert_eq!(words(&l), ["Nulls"]);
+        assert!(!l[0].1.animated);
+        assert_eq!(l[0].2.proxy.as_deref(), Some("emotes/7tv/emote/b1/2x.webp"));
+        let t = twitch_global(r#"{"data":[{"id":"25","name":"Kappa","format":null,"scale":null,"theme_mode":null}]}"#);
+        assert_eq!(words(&t), ["Kappa"]);
+        assert!(!t[0].1.animated);
+        assert_eq!(t[0].2.url, "https://static-cdn.jtvnw.net/emoticons/v2/25/static/dark/2.0");
     }
 
     #[test]

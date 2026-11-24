@@ -354,9 +354,9 @@ dependencies = [
 
 [[package]]
 name = "barbed-emotes"
-version = "0.0.7"
+version = "0.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f0b3b033f0543f69ebe12109ee96bc87590098bf0e7fcb1f1cc9a1708c73fe9"
+checksum = "3619ac6ea10f2802360cb9dc38cdd13094ce28f8ec6083216cc1643b5e5b8e36"
 dependencies = [
  "bitflags 2.13.2",
  "serde",

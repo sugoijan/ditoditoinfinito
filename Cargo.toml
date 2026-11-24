@@ -87,7 +87,7 @@ unicode-linebreak = "0.1.5"
 unicode-normalization = "0.1.25"
 # The emote providers' sets read, their images' addresses and our proxy's
 # routes for them (`crates/chat`'s `emotes`): the maintainer's own library.
-barbed-emotes = "0.0.7"
+barbed-emotes = "0.0.8"
 # The UI's languages (`crates/l10n`, `docs/plans/localization.md`): Fluent's
 # runtime in the game, its parser at build time and in xtask's check.
 fluent-bundle = "0.16.0"

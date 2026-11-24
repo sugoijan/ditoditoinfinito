@@ -1907,3 +1907,36 @@ web build).
   over a local image base (all four sets read, BetterTTV's through the
   proxy as the fixtures arrange; the assortment as round TW5's: Twitch two
   animated, 7TV six, BetterTTV one, FrankerFaceZ none; no image failed).
+
+## Round B8 (2026-11-24): `barbed-emotes` 0.0.8
+
+The maintainer released `barbed-emotes` 0.0.8 with round BE's requests;
+the game moves to it. What it changed that the game sees:
+
+- **A provider's `null` in an optional field reads as the field left
+  out** (BetterTTV's `imageType`, `animated`, `modifier`; 7TV's `flags`,
+  `data.animated`, `host.files`; FrankerFaceZ's `hidden`, `modifier`,
+  `modifier_flags`, `urls`; Twitch's `format`, `scale`, `theme_mode`; and
+  the lists of a channel's or global answer): such an emote is kept, as
+  the game's own parsers kept it, where 0.0.7 left it out.
+- **BetterTTV's own `animated` is believed**: a GIF its answer calls
+  `animated: false` is still (0.0.7 called it animated); a GIF whose
+  answer does not say (or says `null`) still moves, barbed-emotes' rule,
+  the one deliberate difference from the game's old parser.
+- **`proxy::image_route`**: `Image::carried` asks it for the provider's
+  own image route instead of matching the route's name. The same answer
+  for every address (each provider has one image route on a host of its
+  own, so the first route `proxy::route` finds for an address is the
+  only one); `ids_and_paths_that_leave_the_images_make_none` passes
+  unchanged.
+- **The package's licence texts**: the credits now ship barbed-emotes' own
+  MIT notice with its copyright line instead of the game's generic
+  Apache-2.0 text (one notice more, 178).
+
+`unusual_answers_are_read_as_barbed_emotes_reads_them` asserts both fixes
+on round BE's minimal inputs. The recorded global sets read the same,
+entry for entry (7TV 42 / 18 animated, BetterTTV 56 / 1, FrankerFaceZ 9 /
+0), and on round BE's comparison against the game's old parsers every
+answer agrees as it did under round BE's patch. The web app's wasm:
+15,517,403 bytes (6,472,347 gzipped), 1,749 (2,615) more than with 0.0.7;
+`check-boot` 12,417 of 12,552 gzipped.

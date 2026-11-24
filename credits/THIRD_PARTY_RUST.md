@@ -15,7 +15,7 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 | anyhow | 1.0.105 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | arrayref | 0.3.9 | BSD-2-Clause | BSD-2-Clause | [3](#notice-3) |
 | arrayvec | 0.7.8 | MIT OR Apache-2.0 | MIT | [4](#notice-4) |
-| barbed-emotes | 0.0.7 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
+| barbed-emotes | 0.0.8 | MIT OR Apache-2.0 | MIT | [5](#notice-5) |
 | bit-set | 0.10.0 | Apache-2.0 OR MIT | MIT | [6](#notice-6) |
 | bit-vec | 0.9.1 | Apache-2.0 OR MIT | MIT | [7](#notice-7) |
 | bitflags | 2.13.2 | MIT OR Apache-2.0 | MIT | [8](#notice-8) |
@@ -24,161 +24,161 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 | bzip2-rs | 0.1.2 | MIT/Apache-2.0 | MIT | [11](#notice-11) |
 | cfg-if | 1.0.5 | MIT OR Apache-2.0 | MIT | [12](#notice-12) |
 | cobs | 0.3.0 | MIT OR Apache-2.0 | MIT | [13](#notice-13) |
-| codespan-reporting | 0.13.1 | Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| console_error_panic_hook | 0.1.7 | Apache-2.0/MIT | MIT | [14](#notice-14) |
-| core_maths | 0.1.1 | MIT | MIT | [15](#notice-15) |
-| cosmic-text | 0.19.0 | MIT OR Apache-2.0 | MIT | [16](#notice-16) |
-| crc32fast | 1.5.5 | MIT OR Apache-2.0 | MIT | [17](#notice-17) |
-| data-url | 0.3.2 | MIT OR Apache-2.0 | MIT | [18](#notice-18) |
-| deflate64 | 0.1.12 | MIT | MIT | [19](#notice-19) |
-| equivalent | 1.0.3 | Apache-2.0 OR MIT | MIT | [20](#notice-20) |
-| etagere | 0.3.0 | MIT OR Apache-2.0 | MIT | [21](#notice-21) |
-| euclid | 0.22.14 | MIT OR Apache-2.0 | MIT | [22](#notice-22) |
-| fdeflate | 0.3.7 | MIT OR Apache-2.0 | MIT | [23](#notice-23) |
-| flate2 | 1.1.11 | MIT OR Apache-2.0 | MIT | [24](#notice-24) |
-| float-cmp | 0.9.0 | MIT | MIT | [25](#notice-25) |
-| fluent-bundle | 0.16.0 | Apache-2.0 OR MIT | MIT | [26](#notice-26) |
-| fluent-langneg | 0.13.1 | Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| fluent-syntax | 0.12.0 | Apache-2.0 OR MIT | MIT | [26](#notice-26) |
-| foldhash | 0.2.0 | Zlib | Zlib | [27](#notice-27) |
-| font-types | 0.11.3 | MIT OR Apache-2.0 | MIT | [28](#notice-28) |
-| font-types | 0.12.7 | MIT OR Apache-2.0 | MIT | [29](#notice-29) |
-| fontdb | 0.23.0 | MIT | MIT | [30](#notice-30) |
-| form_urlencoded | 1.2.3 | MIT OR Apache-2.0 | MIT | [31](#notice-31) |
-| futures | 0.3.34 | MIT OR Apache-2.0 | MIT | [32](#notice-32) |
-| futures-channel | 0.3.34 | MIT OR Apache-2.0 | MIT | [32](#notice-32) |
-| futures-core | 0.3.34 | MIT OR Apache-2.0 | MIT | [32](#notice-32) |
-| futures-io | 0.3.34 | MIT OR Apache-2.0 | MIT | [32](#notice-32) |
-| futures-sink | 0.3.34 | MIT OR Apache-2.0 | MIT | [32](#notice-32) |
-| futures-task | 0.3.34 | MIT OR Apache-2.0 | MIT | [32](#notice-32) |
-| futures-util | 0.3.34 | MIT OR Apache-2.0 | MIT | [32](#notice-32) |
+| codespan-reporting | 0.13.1 | Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| console_error_panic_hook | 0.1.7 | Apache-2.0/MIT | MIT | [15](#notice-15) |
+| core_maths | 0.1.1 | MIT | MIT | [16](#notice-16) |
+| cosmic-text | 0.19.0 | MIT OR Apache-2.0 | MIT | [17](#notice-17) |
+| crc32fast | 1.5.5 | MIT OR Apache-2.0 | MIT | [18](#notice-18) |
+| data-url | 0.3.2 | MIT OR Apache-2.0 | MIT | [19](#notice-19) |
+| deflate64 | 0.1.12 | MIT | MIT | [20](#notice-20) |
+| equivalent | 1.0.3 | Apache-2.0 OR MIT | MIT | [21](#notice-21) |
+| etagere | 0.3.0 | MIT OR Apache-2.0 | MIT | [22](#notice-22) |
+| euclid | 0.22.14 | MIT OR Apache-2.0 | MIT | [23](#notice-23) |
+| fdeflate | 0.3.7 | MIT OR Apache-2.0 | MIT | [24](#notice-24) |
+| flate2 | 1.1.11 | MIT OR Apache-2.0 | MIT | [25](#notice-25) |
+| float-cmp | 0.9.0 | MIT | MIT | [26](#notice-26) |
+| fluent-bundle | 0.16.0 | Apache-2.0 OR MIT | MIT | [27](#notice-27) |
+| fluent-langneg | 0.13.1 | Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| fluent-syntax | 0.12.0 | Apache-2.0 OR MIT | MIT | [27](#notice-27) |
+| foldhash | 0.2.0 | Zlib | Zlib | [28](#notice-28) |
+| font-types | 0.11.3 | MIT OR Apache-2.0 | MIT | [29](#notice-29) |
+| font-types | 0.12.7 | MIT OR Apache-2.0 | MIT | [30](#notice-30) |
+| fontdb | 0.23.0 | MIT | MIT | [31](#notice-31) |
+| form_urlencoded | 1.2.3 | MIT OR Apache-2.0 | MIT | [32](#notice-32) |
+| futures | 0.3.34 | MIT OR Apache-2.0 | MIT | [33](#notice-33) |
+| futures-channel | 0.3.34 | MIT OR Apache-2.0 | MIT | [33](#notice-33) |
+| futures-core | 0.3.34 | MIT OR Apache-2.0 | MIT | [33](#notice-33) |
+| futures-io | 0.3.34 | MIT OR Apache-2.0 | MIT | [33](#notice-33) |
+| futures-sink | 0.3.34 | MIT OR Apache-2.0 | MIT | [33](#notice-33) |
+| futures-task | 0.3.34 | MIT OR Apache-2.0 | MIT | [33](#notice-33) |
+| futures-util | 0.3.34 | MIT OR Apache-2.0 | MIT | [33](#notice-33) |
 | gc-arena | 0.7.0 | MIT | MIT | [1](#notice-1) |
-| getrandom | 0.4.3 | MIT OR Apache-2.0 | MIT | [33](#notice-33) |
-| gloo | 0.13.0 | MIT OR Apache-2.0 | MIT | [34](#notice-34) |
-| gloo-console | 0.4.1 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| gloo-dialogs | 0.3.1 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| gloo-events | 0.3.1 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| gloo-file | 0.4.1 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| gloo-history | 0.4.0 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| gloo-net | 0.8.0 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| gloo-render | 0.3.1 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| gloo-storage | 0.4.1 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| gloo-timers | 0.4.1 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| gloo-utils | 0.3.1 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| gloo-worker | 0.7.0 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
+| getrandom | 0.4.3 | MIT OR Apache-2.0 | MIT | [34](#notice-34) |
+| gloo | 0.13.0 | MIT OR Apache-2.0 | MIT | [35](#notice-35) |
+| gloo-console | 0.4.1 | MIT OR Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| gloo-dialogs | 0.3.1 | MIT OR Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| gloo-events | 0.3.1 | MIT OR Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| gloo-file | 0.4.1 | MIT OR Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| gloo-history | 0.4.0 | MIT OR Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| gloo-net | 0.8.0 | MIT OR Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| gloo-render | 0.3.1 | MIT OR Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| gloo-storage | 0.4.1 | MIT OR Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| gloo-timers | 0.4.1 | MIT OR Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| gloo-utils | 0.3.1 | MIT OR Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| gloo-worker | 0.7.0 | MIT OR Apache-2.0 | Apache-2.0 | [14](#notice-14) |
 | glow | 0.17.0 | MIT OR Apache-2.0 OR Zlib | MIT | [1](#notice-1) |
 | glyphon | 0.12.0 | MIT OR Apache-2.0 OR Zlib | MIT | [1](#notice-1) |
-| half | 2.7.1 | MIT OR Apache-2.0 | MIT | [23](#notice-23) |
-| harfrust | 0.5.2 | MIT | MIT | [35](#notice-35) |
-| hashbrown | 0.17.2 | MIT OR Apache-2.0 | MIT | [36](#notice-36) |
-| http | 1.5.0 | MIT OR Apache-2.0 | MIT | [37](#notice-37) |
-| imagesize | 0.15.0 | MIT | MIT | [38](#notice-38) |
-| indexmap | 2.14.2 | Apache-2.0 OR MIT | MIT | [39](#notice-39) |
-| intl-memoizer | 0.5.3 | Apache-2.0 OR MIT | MIT | [26](#notice-26) |
-| intl_pluralrules | 7.0.2 | Apache-2.0/MIT | Apache-2.0 | [5](#notice-5) |
+| half | 2.7.1 | MIT OR Apache-2.0 | MIT | [24](#notice-24) |
+| harfrust | 0.5.2 | MIT | MIT | [36](#notice-36) |
+| hashbrown | 0.17.2 | MIT OR Apache-2.0 | MIT | [37](#notice-37) |
+| http | 1.5.0 | MIT OR Apache-2.0 | MIT | [38](#notice-38) |
+| imagesize | 0.15.0 | MIT | MIT | [39](#notice-39) |
+| indexmap | 2.14.2 | Apache-2.0 OR MIT | MIT | [40](#notice-40) |
+| intl-memoizer | 0.5.3 | Apache-2.0 OR MIT | MIT | [27](#notice-27) |
+| intl_pluralrules | 7.0.2 | Apache-2.0/MIT | Apache-2.0 | [14](#notice-14) |
 | itoa | 1.0.19 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | js-sys | 0.3.107 | MIT OR Apache-2.0 | MIT | [12](#notice-12) |
-| kurbo | 0.13.1 | Apache-2.0 OR MIT | MIT | [40](#notice-40) |
+| kurbo | 0.13.1 | Apache-2.0 OR MIT | MIT | [41](#notice-41) |
 | lazy_static | 1.5.1 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| libm | 0.2.16 | MIT | MIT | [41](#notice-41) |
-| linebender_resource_handle | 0.1.1 | Apache-2.0 OR MIT | MIT | [23](#notice-23) |
-| lock_api | 0.4.14 | MIT OR Apache-2.0 | MIT | [42](#notice-42) |
+| libm | 0.2.16 | MIT | MIT | [42](#notice-42) |
+| linebender_resource_handle | 0.1.1 | Apache-2.0 OR MIT | MIT | [24](#notice-24) |
+| lock_api | 0.4.14 | MIT OR Apache-2.0 | MIT | [43](#notice-43) |
 | log | 0.4.35 | MIT OR Apache-2.0 | MIT | [8](#notice-8) |
-| lru | 0.16.4 | MIT | MIT | [43](#notice-43) |
+| lru | 0.16.4 | MIT | MIT | [44](#notice-44) |
 | lunita | 0.1.2 | MIT | MIT | [1](#notice-1) |
-| lzma-rust2 | 0.25.0 | Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| memchr | 2.8.3 | Unlicense OR MIT | MIT | [44](#notice-44) |
-| memmap2 | 0.9.12 | MIT OR Apache-2.0 | MIT | [45](#notice-45) |
-| miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | MIT | [46](#notice-46) |
-| miniz_oxide | 0.9.1 | MIT OR Zlib OR Apache-2.0 | MIT | [46](#notice-46) |
-| naga | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| naga-types | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
+| lzma-rust2 | 0.25.0 | Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| memchr | 2.8.3 | Unlicense OR MIT | MIT | [45](#notice-45) |
+| memmap2 | 0.9.12 | MIT OR Apache-2.0 | MIT | [46](#notice-46) |
+| miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | MIT | [47](#notice-47) |
+| miniz_oxide | 0.9.1 | MIT OR Zlib OR Apache-2.0 | MIT | [47](#notice-47) |
+| naga | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| naga-types | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
 | num-complex | 0.4.6 | MIT OR Apache-2.0 | MIT | [8](#notice-8) |
 | num-traits | 0.2.19 | MIT OR Apache-2.0 | MIT | [8](#notice-8) |
 | once_cell | 1.21.4 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| parking_lot | 0.12.5 | MIT OR Apache-2.0 | MIT | [42](#notice-42) |
-| parking_lot_core | 0.9.12 | MIT OR Apache-2.0 | MIT | [42](#notice-42) |
-| percent-encoding | 2.3.2 | MIT OR Apache-2.0 | MIT | [18](#notice-18) |
-| pico-args | 0.5.0 | MIT | MIT | [48](#notice-48) |
+| parking_lot | 0.12.5 | MIT OR Apache-2.0 | MIT | [43](#notice-43) |
+| parking_lot_core | 0.9.12 | MIT OR Apache-2.0 | MIT | [43](#notice-43) |
+| percent-encoding | 2.3.2 | MIT OR Apache-2.0 | MIT | [19](#notice-19) |
+| pico-args | 0.5.0 | MIT | MIT | [49](#notice-49) |
 | pin-project | 1.2.0 | Apache-2.0 OR MIT | MIT | [1](#notice-1) |
 | pin-project-lite | 0.2.18 | Apache-2.0 OR MIT | MIT | [1](#notice-1) |
 | pinned | 0.1.0 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| png | 0.18.1 | MIT OR Apache-2.0 | MIT | [49](#notice-49) |
-| polycool | 0.4.0 | MIT OR Apache-2.0 | MIT | [40](#notice-40) |
-| postcard | 1.2.0 | MIT OR Apache-2.0 | MIT | [50](#notice-50) |
-| profiling | 1.0.18 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| rangemap | 1.8.0 | MIT/Apache-2.0 | MIT | [51](#notice-51) |
-| raw-window-handle | 0.6.2 | MIT OR Apache-2.0 OR Zlib | MIT | [52](#notice-52) |
-| read-fonts | 0.37.0 | MIT OR Apache-2.0 | MIT | [28](#notice-28) |
-| read-fonts | 0.41.0 | MIT OR Apache-2.0 | MIT | [29](#notice-29) |
+| png | 0.18.1 | MIT OR Apache-2.0 | MIT | [50](#notice-50) |
+| polycool | 0.4.0 | MIT OR Apache-2.0 | MIT | [41](#notice-41) |
+| postcard | 1.2.0 | MIT OR Apache-2.0 | MIT | [51](#notice-51) |
+| profiling | 1.0.18 | MIT OR Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| rangemap | 1.8.0 | MIT/Apache-2.0 | MIT | [52](#notice-52) |
+| raw-window-handle | 0.6.2 | MIT OR Apache-2.0 OR Zlib | MIT | [53](#notice-53) |
+| read-fonts | 0.37.0 | MIT OR Apache-2.0 | MIT | [29](#notice-29) |
+| read-fonts | 0.41.0 | MIT OR Apache-2.0 | MIT | [30](#notice-30) |
 | regex-lite | 0.1.9 | MIT OR Apache-2.0 | MIT | [8](#notice-8) |
-| resvg | 0.50.0 | Apache-2.0 OR MIT | MIT | [53](#notice-53) |
-| rgb | 0.8.53 | MIT | MIT | [54](#notice-54) |
-| roxmltree | 0.21.2 | MIT OR Apache-2.0 | MIT | [55](#notice-55) |
+| resvg | 0.50.0 | Apache-2.0 OR MIT | MIT | [54](#notice-54) |
+| rgb | 0.8.53 | MIT | MIT | [55](#notice-55) |
+| roxmltree | 0.21.2 | MIT OR Apache-2.0 | MIT | [56](#notice-56) |
 | rustc-hash | 1.1.0 | Apache-2.0/MIT | MIT | [1](#notice-1) |
 | rustc-hash | 2.1.3 | Apache-2.0 OR MIT | MIT | [1](#notice-1) |
-| rusty-opus | 1.2.1 | BSD-3-Clause | BSD-3-Clause | [56](#notice-56) |
-| ruzstd | 0.9.1 | MIT | MIT | [57](#notice-57) |
-| ryu | 1.0.23 | Apache-2.0 OR BSL-1.0 | Apache-2.0 | [58](#notice-58) |
-| scopeguard | 1.2.0 | MIT OR Apache-2.0 | MIT | [59](#notice-59) |
-| self_cell | 1.3.0 | Apache-2.0 OR GPL-2.0-only | Apache-2.0 | [5](#notice-5) |
+| rusty-opus | 1.2.1 | BSD-3-Clause | BSD-3-Clause | [57](#notice-57) |
+| ruzstd | 0.9.1 | MIT | MIT | [58](#notice-58) |
+| ryu | 1.0.23 | Apache-2.0 OR BSL-1.0 | Apache-2.0 | [59](#notice-59) |
+| scopeguard | 1.2.0 | MIT OR Apache-2.0 | MIT | [60](#notice-60) |
+| self_cell | 1.3.0 | Apache-2.0 OR GPL-2.0-only | Apache-2.0 | [14](#notice-14) |
 | serde | 1.0.229 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| serde-wasm-bindgen | 0.6.5 | MIT | MIT | [60](#notice-60) |
+| serde-wasm-bindgen | 0.6.5 | MIT | MIT | [61](#notice-61) |
 | serde_core | 1.0.229 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | serde_json | 1.0.154 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| serde_urlencoded | 0.7.1 | MIT/Apache-2.0 | MIT | [61](#notice-61) |
-| simd-adler32 | 0.3.10 | MIT | MIT | [62](#notice-62) |
-| simplecss | 0.2.2 | Apache-2.0 OR MIT | MIT | [63](#notice-63) |
+| serde_urlencoded | 0.7.1 | MIT/Apache-2.0 | MIT | [62](#notice-62) |
+| simd-adler32 | 0.3.10 | MIT | MIT | [63](#notice-63) |
+| simplecss | 0.2.2 | Apache-2.0 OR MIT | MIT | [64](#notice-64) |
 | siphasher | 1.0.4 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| skrifa | 0.40.0 | MIT OR Apache-2.0 | MIT | [28](#notice-28) |
-| skrifa | 0.44.0 | MIT OR Apache-2.0 | MIT | [29](#notice-29) |
-| slab | 0.4.12 | MIT | MIT | [64](#notice-64) |
-| slotmap | 1.1.1 | Zlib | Zlib | [65](#notice-65) |
-| smallvec | 1.16.6 | MIT OR Apache-2.0 | MIT | [66](#notice-66) |
+| skrifa | 0.40.0 | MIT OR Apache-2.0 | MIT | [29](#notice-29) |
+| skrifa | 0.44.0 | MIT OR Apache-2.0 | MIT | [30](#notice-30) |
+| slab | 0.4.12 | MIT | MIT | [65](#notice-65) |
+| slotmap | 1.1.1 | Zlib | Zlib | [66](#notice-66) |
+| smallvec | 1.16.6 | MIT OR Apache-2.0 | MIT | [67](#notice-67) |
 | smol_str | 0.3.7 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| static_assertions | 1.1.0 | MIT OR Apache-2.0 | MIT | [67](#notice-67) |
-| strict-num | 0.1.1 | MIT | MIT | [68](#notice-68) |
-| svgtypes | 0.16.2 | Apache-2.0 OR MIT | MIT | [69](#notice-69) |
-| swash | 0.2.10 | Apache-2.0 OR MIT | MIT | [70](#notice-70) |
-| symphonia | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-bundle-mp3 | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-codec-vorbis | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-common | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-core | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-format-ogg | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-metadata | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| sys-locale | 0.3.2 | MIT OR Apache-2.0 | MIT | [72](#notice-72) |
+| static_assertions | 1.1.0 | MIT OR Apache-2.0 | MIT | [68](#notice-68) |
+| strict-num | 0.1.1 | MIT | MIT | [69](#notice-69) |
+| svgtypes | 0.16.2 | Apache-2.0 OR MIT | MIT | [70](#notice-70) |
+| swash | 0.2.10 | Apache-2.0 OR MIT | MIT | [71](#notice-71) |
+| symphonia | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-bundle-mp3 | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-codec-vorbis | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-common | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-core | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-format-ogg | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-metadata | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| sys-locale | 0.3.2 | MIT OR Apache-2.0 | MIT | [73](#notice-73) |
 | thiserror | 1.0.69 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | thiserror | 2.0.21 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| tiny-skia | 0.12.0 | BSD-3-Clause | BSD-3-Clause | [73](#notice-73) |
-| tiny-skia-path | 0.12.0 | BSD-3-Clause | BSD-3-Clause | [73](#notice-73) |
-| tinystr | 0.8.5 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
+| tiny-skia | 0.12.0 | BSD-3-Clause | BSD-3-Clause | [74](#notice-74) |
+| tiny-skia-path | 0.12.0 | BSD-3-Clause | BSD-3-Clause | [74](#notice-74) |
+| tinystr | 0.8.5 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
 | tinyvec | 1.13.3 | Zlib OR Apache-2.0 OR MIT | MIT | [1](#notice-1) |
-| ttf-parser | 0.25.1 | MIT OR Apache-2.0 | MIT | [69](#notice-69) |
-| type-map | 0.5.1 | MIT/Apache-2.0 | MIT | [75](#notice-75) |
+| ttf-parser | 0.25.1 | MIT OR Apache-2.0 | MIT | [70](#notice-70) |
+| type-map | 0.5.1 | MIT/Apache-2.0 | MIT | [76](#notice-76) |
 | unic-langid | 0.9.6 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | unic-langid-impl | 0.9.6 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| unicode-bidi | 0.3.18 | MIT OR Apache-2.0 | MIT | [76](#notice-76) |
-| unicode-ident | 1.0.27 | (MIT OR Apache-2.0) AND Unicode-3.0 | MIT AND Unicode-3.0 | [1](#notice-1), [77](#notice-77) |
-| unicode-linebreak | 0.1.5 | Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| unicode-normalization | 0.1.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | MIT AND Unicode-3.0 | [76](#notice-76), [77](#notice-77) |
-| unicode-script | 0.5.9 | MIT OR Apache-2.0 | MIT | [78](#notice-78) |
-| unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | MIT | [76](#notice-76) |
-| unicode-width | 0.2.3 | MIT OR Apache-2.0 | MIT | [76](#notice-76) |
-| usvg | 0.50.0 | Apache-2.0 OR MIT | MIT | [53](#notice-53) |
+| unicode-bidi | 0.3.18 | MIT OR Apache-2.0 | MIT | [77](#notice-77) |
+| unicode-ident | 1.0.27 | (MIT OR Apache-2.0) AND Unicode-3.0 | MIT AND Unicode-3.0 | [1](#notice-1), [78](#notice-78) |
+| unicode-linebreak | 0.1.5 | Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| unicode-normalization | 0.1.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | MIT AND Unicode-3.0 | [77](#notice-77), [78](#notice-78) |
+| unicode-script | 0.5.9 | MIT OR Apache-2.0 | MIT | [79](#notice-79) |
+| unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | MIT | [77](#notice-77) |
+| unicode-width | 0.2.3 | MIT OR Apache-2.0 | MIT | [77](#notice-77) |
+| usvg | 0.50.0 | Apache-2.0 OR MIT | MIT | [54](#notice-54) |
 | wasm-bindgen | 0.2.130 | MIT OR Apache-2.0 | MIT | [12](#notice-12) |
 | wasm-bindgen-futures | 0.4.80 | MIT OR Apache-2.0 | MIT | [12](#notice-12) |
 | wasm-bindgen-shared | 0.2.130 | MIT OR Apache-2.0 | MIT | [12](#notice-12) |
 | web-sys | 0.3.107 | MIT OR Apache-2.0 | MIT | [12](#notice-12) |
-| wgpu | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| wgpu-core | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| wgpu-core-deps-wasm | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| wgpu-hal | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| wgpu-naga-bridge | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| wgpu-types | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| yazi | 0.2.2 | Apache-2.0 OR MIT | MIT | [70](#notice-70) |
-| zeno | 0.3.3 | Apache-2.0 OR MIT | MIT | [70](#notice-70) |
-| zerocopy | 0.8.64 | BSD-2-Clause OR Apache-2.0 OR MIT | MIT | [79](#notice-79) |
+| wgpu | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| wgpu-core | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| wgpu-core-deps-wasm | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| wgpu-hal | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| wgpu-naga-bridge | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| wgpu-types | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| yazi | 0.2.2 | Apache-2.0 OR MIT | MIT | [71](#notice-71) |
+| zeno | 0.3.3 | Apache-2.0 OR MIT | MIT | [71](#notice-71) |
+| zerocopy | 0.8.64 | BSD-2-Clause OR Apache-2.0 OR MIT | MIT | [80](#notice-80) |
 | zmij | 1.0.23 | MIT | MIT | [1](#notice-1) |
 
 ## Desktop app (Linux, macOS and Windows)
@@ -187,368 +187,368 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 
 | Crate | Version | Licence | Used under | Notices |
 |---|---|---|---|---|
-| ab_glyph | 0.2.32 | Apache-2.0 | Apache-2.0 | [58](#notice-58) |
-| ab_glyph_rasterizer | 0.1.10 | Apache-2.0 | Apache-2.0 | [58](#notice-58) |
+| ab_glyph | 0.2.32 | Apache-2.0 | Apache-2.0 | [59](#notice-59) |
+| ab_glyph_rasterizer | 0.1.10 | Apache-2.0 | Apache-2.0 | [59](#notice-59) |
 | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | ahash | 0.8.13 | MIT OR Apache-2.0 | MIT | [2](#notice-2) |
 | allocator-api2 | 0.2.21 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| alsa | 0.11.0 | Apache-2.0/MIT | MIT | [80](#notice-80) |
-| alsa-sys | 0.4.0 | MIT | MIT | [81](#notice-81) |
+| alsa | 0.11.0 | Apache-2.0/MIT | MIT | [81](#notice-81) |
+| alsa-sys | 0.4.0 | MIT | MIT | [82](#notice-82) |
 | anyhow | 1.0.105 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| arboard | 3.7.0 | MIT OR Apache-2.0 | MIT | [82](#notice-82) |
+| arboard | 3.7.0 | MIT OR Apache-2.0 | MIT | [83](#notice-83) |
 | arrayref | 0.3.9 | BSD-2-Clause | BSD-2-Clause | [3](#notice-3) |
 | arrayvec | 0.7.8 | MIT OR Apache-2.0 | MIT | [4](#notice-4) |
-| as-raw-xcb-connection | 1.0.1 | MIT OR Apache-2.0 | MIT | [83](#notice-83) |
-| ash | 0.38.0+1.3.281 | MIT OR Apache-2.0 | MIT | [84](#notice-84) |
-| audio-codec-algorithms | 0.8.1 | 0BSD OR Apache-2.0 | Apache-2.0 | [58](#notice-58) |
-| audioadapter | 5.0.0 | MIT OR Apache-2.0 | MIT | [85](#notice-85) |
-| audioadapter-buffers | 5.2.0 | MIT OR Apache-2.0 | MIT | [85](#notice-85) |
-| audioadapter-sample | 5.2.0 | MIT OR Apache-2.0 | MIT | [85](#notice-85) |
-| barbed-emotes | 0.0.7 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| base64 | 0.23.1 | MIT OR Apache-2.0 | MIT | [86](#notice-86) |
-| base64ct | 1.8.3 | Apache-2.0 OR MIT | MIT | [87](#notice-87) |
+| as-raw-xcb-connection | 1.0.1 | MIT OR Apache-2.0 | MIT | [84](#notice-84) |
+| ash | 0.38.0+1.3.281 | MIT OR Apache-2.0 | MIT | [85](#notice-85) |
+| audio-codec-algorithms | 0.8.1 | 0BSD OR Apache-2.0 | Apache-2.0 | [59](#notice-59) |
+| audioadapter | 5.0.0 | MIT OR Apache-2.0 | MIT | [86](#notice-86) |
+| audioadapter-buffers | 5.2.0 | MIT OR Apache-2.0 | MIT | [86](#notice-86) |
+| audioadapter-sample | 5.2.0 | MIT OR Apache-2.0 | MIT | [86](#notice-86) |
+| barbed-emotes | 0.0.8 | MIT OR Apache-2.0 | MIT | [5](#notice-5) |
+| base64 | 0.23.1 | MIT OR Apache-2.0 | MIT | [87](#notice-87) |
+| base64ct | 1.8.3 | Apache-2.0 OR MIT | MIT | [88](#notice-88) |
 | bit-set | 0.10.0 | Apache-2.0 OR MIT | MIT | [6](#notice-6) |
 | bit-vec | 0.9.1 | Apache-2.0 OR MIT | MIT | [7](#notice-7) |
 | bitflags | 1.3.2 | MIT/Apache-2.0 | MIT | [8](#notice-8) |
 | bitflags | 2.13.2 | MIT OR Apache-2.0 | MIT | [8](#notice-8) |
-| block-buffer | 0.12.1 | MIT OR Apache-2.0 | MIT | [88](#notice-88) |
-| block2 | 0.5.1 | MIT | MIT | [89](#notice-89) |
-| block2 | 0.6.2 | MIT | MIT | [90](#notice-90) |
+| block-buffer | 0.12.1 | MIT OR Apache-2.0 | MIT | [89](#notice-89) |
+| block2 | 0.5.1 | MIT | MIT | [90](#notice-90) |
+| block2 | 0.6.2 | MIT | MIT | [91](#notice-91) |
 | bytemuck | 1.25.2 | Zlib OR Apache-2.0 OR MIT | MIT | [9](#notice-9) |
-| byteorder-lite | 0.1.0 | Unlicense OR MIT | MIT | [44](#notice-44) |
+| byteorder-lite | 0.1.0 | Unlicense OR MIT | MIT | [45](#notice-45) |
 | bytes | 1.12.2 | MIT | MIT | [10](#notice-10) |
 | bzip2-rs | 0.1.2 | MIT/Apache-2.0 | MIT | [11](#notice-11) |
-| calloop | 0.13.0 | MIT | MIT | [91](#notice-91) |
-| calloop-wayland-source | 0.3.0 | MIT | MIT | [92](#notice-92) |
+| calloop | 0.13.0 | MIT | MIT | [92](#notice-92) |
+| calloop-wayland-source | 0.3.0 | MIT | MIT | [93](#notice-93) |
 | cfg-if | 1.0.5 | MIT OR Apache-2.0 | MIT | [12](#notice-12) |
-| chacha20 | 0.10.2 | MIT OR Apache-2.0 | MIT | [93](#notice-93) |
-| clipboard-win | 5.4.3 | BSL-1.0 | BSL-1.0 | [94](#notice-94) |
-| codespan-reporting | 0.13.1 | Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| color_quant | 1.1.0 | MIT | MIT | [95](#notice-95) |
-| const-oid | 0.10.3 | Apache-2.0 OR MIT | MIT | [96](#notice-96) |
-| core-foundation | 0.10.1 | MIT OR Apache-2.0 | MIT | [22](#notice-22) |
-| core-foundation | 0.9.4 | MIT OR Apache-2.0 | MIT | [22](#notice-22) |
-| core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 | MIT | [22](#notice-22) |
-| core-graphics | 0.23.2 | MIT OR Apache-2.0 | MIT | [22](#notice-22) |
-| core-graphics-types | 0.1.3 | MIT OR Apache-2.0 | MIT | [22](#notice-22) |
-| core_detect | 1.0.0 | MIT/Apache-2.0 | MIT | [97](#notice-97) |
-| core_maths | 0.1.1 | MIT | MIT | [15](#notice-15) |
-| coreaudio-rs | 0.14.2 | MIT/Apache-2.0 | MIT | [98](#notice-98) |
-| cosmic-text | 0.19.0 | MIT OR Apache-2.0 | MIT | [16](#notice-16) |
-| cpal | 0.18.2 | Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| cpufeatures | 0.3.1 | MIT OR Apache-2.0 | MIT | [96](#notice-96) |
-| crc32fast | 1.5.5 | MIT OR Apache-2.0 | MIT | [17](#notice-17) |
-| crypto-common | 0.2.2 | MIT OR Apache-2.0 | MIT | [99](#notice-99) |
-| csscolorparser | 0.9.2 | MIT OR Apache-2.0 | MIT | [100](#notice-100) |
-| cursor-icon | 1.2.0 | MIT OR Apache-2.0 OR Zlib | MIT | [92](#notice-92) |
-| dasp_sample | 0.11.0 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| data-encoding | 2.11.1 | MIT | MIT | [101](#notice-101) |
-| data-url | 0.3.2 | MIT OR Apache-2.0 | MIT | [18](#notice-18) |
-| deflate64 | 0.1.12 | MIT | MIT | [19](#notice-19) |
-| der | 0.8.3 | Apache-2.0 OR MIT | MIT | [96](#notice-96) |
-| digest | 0.11.3 | MIT OR Apache-2.0 | MIT | [102](#notice-102) |
-| dirs | 7.0.0 | MIT OR Apache-2.0 | MIT | [103](#notice-103) |
-| dirs-sys | 0.5.0 | MIT OR Apache-2.0 | MIT | [103](#notice-103) |
-| dispatch | 0.2.0 | MIT | MIT | [104](#notice-104) |
-| dispatch2 | 0.3.1 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| dlib | 0.5.3 | MIT | MIT | [105](#notice-105) |
-| downcast-rs | 1.2.1 | MIT/Apache-2.0 | MIT | [106](#notice-106) |
-| dpi | 0.1.2 | Apache-2.0 AND MIT | Apache-2.0 AND MIT | [107](#notice-107), [108](#notice-108) |
-| encoding_rs | 0.8.44 | (Apache-2.0 OR MIT) AND BSD-3-Clause | MIT AND BSD-3-Clause | [109](#notice-109), [110](#notice-110) |
-| enumflags2 | 0.7.12 | MIT OR Apache-2.0 | MIT | [111](#notice-111) |
-| equivalent | 1.0.3 | Apache-2.0 OR MIT | MIT | [20](#notice-20) |
-| errno | 0.3.15 | MIT OR Apache-2.0 | MIT | [112](#notice-112) |
-| error-code | 3.4.0 | BSL-1.0 | BSL-1.0 | [94](#notice-94) |
-| etagere | 0.3.0 | MIT OR Apache-2.0 | MIT | [21](#notice-21) |
-| euclid | 0.22.14 | MIT OR Apache-2.0 | MIT | [22](#notice-22) |
-| extended | 0.1.0 | MIT | MIT | [113](#notice-113) |
+| chacha20 | 0.10.2 | MIT OR Apache-2.0 | MIT | [94](#notice-94) |
+| clipboard-win | 5.4.3 | BSL-1.0 | BSL-1.0 | [95](#notice-95) |
+| codespan-reporting | 0.13.1 | Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| color_quant | 1.1.0 | MIT | MIT | [96](#notice-96) |
+| const-oid | 0.10.3 | Apache-2.0 OR MIT | MIT | [97](#notice-97) |
+| core-foundation | 0.10.1 | MIT OR Apache-2.0 | MIT | [23](#notice-23) |
+| core-foundation | 0.9.4 | MIT OR Apache-2.0 | MIT | [23](#notice-23) |
+| core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 | MIT | [23](#notice-23) |
+| core-graphics | 0.23.2 | MIT OR Apache-2.0 | MIT | [23](#notice-23) |
+| core-graphics-types | 0.1.3 | MIT OR Apache-2.0 | MIT | [23](#notice-23) |
+| core_detect | 1.0.0 | MIT/Apache-2.0 | MIT | [98](#notice-98) |
+| core_maths | 0.1.1 | MIT | MIT | [16](#notice-16) |
+| coreaudio-rs | 0.14.2 | MIT/Apache-2.0 | MIT | [99](#notice-99) |
+| cosmic-text | 0.19.0 | MIT OR Apache-2.0 | MIT | [17](#notice-17) |
+| cpal | 0.18.2 | Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| cpufeatures | 0.3.1 | MIT OR Apache-2.0 | MIT | [97](#notice-97) |
+| crc32fast | 1.5.5 | MIT OR Apache-2.0 | MIT | [18](#notice-18) |
+| crypto-common | 0.2.2 | MIT OR Apache-2.0 | MIT | [100](#notice-100) |
+| csscolorparser | 0.9.2 | MIT OR Apache-2.0 | MIT | [101](#notice-101) |
+| cursor-icon | 1.2.0 | MIT OR Apache-2.0 OR Zlib | MIT | [93](#notice-93) |
+| dasp_sample | 0.11.0 | MIT OR Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| data-encoding | 2.11.1 | MIT | MIT | [102](#notice-102) |
+| data-url | 0.3.2 | MIT OR Apache-2.0 | MIT | [19](#notice-19) |
+| deflate64 | 0.1.12 | MIT | MIT | [20](#notice-20) |
+| der | 0.8.3 | Apache-2.0 OR MIT | MIT | [97](#notice-97) |
+| digest | 0.11.3 | MIT OR Apache-2.0 | MIT | [103](#notice-103) |
+| dirs | 7.0.0 | MIT OR Apache-2.0 | MIT | [104](#notice-104) |
+| dirs-sys | 0.5.0 | MIT OR Apache-2.0 | MIT | [104](#notice-104) |
+| dispatch | 0.2.0 | MIT | MIT | [105](#notice-105) |
+| dispatch2 | 0.3.1 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| dlib | 0.5.3 | MIT | MIT | [106](#notice-106) |
+| downcast-rs | 1.2.1 | MIT/Apache-2.0 | MIT | [107](#notice-107) |
+| dpi | 0.1.2 | Apache-2.0 AND MIT | Apache-2.0 AND MIT | [108](#notice-108), [109](#notice-109) |
+| encoding_rs | 0.8.44 | (Apache-2.0 OR MIT) AND BSD-3-Clause | MIT AND BSD-3-Clause | [110](#notice-110), [111](#notice-111) |
+| enumflags2 | 0.7.12 | MIT OR Apache-2.0 | MIT | [112](#notice-112) |
+| equivalent | 1.0.3 | Apache-2.0 OR MIT | MIT | [21](#notice-21) |
+| errno | 0.3.15 | MIT OR Apache-2.0 | MIT | [113](#notice-113) |
+| error-code | 3.4.0 | BSL-1.0 | BSL-1.0 | [95](#notice-95) |
+| etagere | 0.3.0 | MIT OR Apache-2.0 | MIT | [22](#notice-22) |
+| euclid | 0.22.14 | MIT OR Apache-2.0 | MIT | [23](#notice-23) |
+| extended | 0.1.0 | MIT | MIT | [114](#notice-114) |
 | fastrand | 2.5.0 | Apache-2.0 OR MIT | MIT | [1](#notice-1) |
-| fdeflate | 0.3.7 | MIT OR Apache-2.0 | MIT | [23](#notice-23) |
-| fixedbitset | 0.5.9 | MIT OR Apache-2.0 | MIT | [114](#notice-114) |
-| flate2 | 1.1.11 | MIT OR Apache-2.0 | MIT | [24](#notice-24) |
-| float-cmp | 0.9.0 | MIT | MIT | [25](#notice-25) |
-| fluent-bundle | 0.16.0 | Apache-2.0 OR MIT | MIT | [26](#notice-26) |
-| fluent-langneg | 0.13.1 | Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| fluent-syntax | 0.12.0 | Apache-2.0 OR MIT | MIT | [26](#notice-26) |
-| fnv | 1.0.7 | Apache-2.0 / MIT | MIT | [115](#notice-115) |
-| foldhash | 0.1.5 | Zlib | Zlib | [27](#notice-27) |
-| foldhash | 0.2.0 | Zlib | Zlib | [27](#notice-27) |
-| font-types | 0.11.3 | MIT OR Apache-2.0 | MIT | [28](#notice-28) |
-| font-types | 0.12.7 | MIT OR Apache-2.0 | MIT | [29](#notice-29) |
-| fontconfig-parser | 0.5.8 | MIT | MIT | [116](#notice-116) |
-| fontdb | 0.23.0 | MIT | MIT | [30](#notice-30) |
-| foreign-types | 0.3.2 | MIT/Apache-2.0 | MIT | [117](#notice-117) |
-| foreign-types | 0.5.0 | MIT/Apache-2.0 | MIT | [117](#notice-117) |
-| foreign-types-shared | 0.1.1 | MIT/Apache-2.0 | MIT | [117](#notice-117) |
-| foreign-types-shared | 0.3.1 | MIT/Apache-2.0 | MIT | [117](#notice-117) |
-| form_urlencoded | 1.2.3 | MIT OR Apache-2.0 | MIT | [31](#notice-31) |
+| fdeflate | 0.3.7 | MIT OR Apache-2.0 | MIT | [24](#notice-24) |
+| fixedbitset | 0.5.9 | MIT OR Apache-2.0 | MIT | [115](#notice-115) |
+| flate2 | 1.1.11 | MIT OR Apache-2.0 | MIT | [25](#notice-25) |
+| float-cmp | 0.9.0 | MIT | MIT | [26](#notice-26) |
+| fluent-bundle | 0.16.0 | Apache-2.0 OR MIT | MIT | [27](#notice-27) |
+| fluent-langneg | 0.13.1 | Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| fluent-syntax | 0.12.0 | Apache-2.0 OR MIT | MIT | [27](#notice-27) |
+| fnv | 1.0.7 | Apache-2.0 / MIT | MIT | [116](#notice-116) |
+| foldhash | 0.1.5 | Zlib | Zlib | [28](#notice-28) |
+| foldhash | 0.2.0 | Zlib | Zlib | [28](#notice-28) |
+| font-types | 0.11.3 | MIT OR Apache-2.0 | MIT | [29](#notice-29) |
+| font-types | 0.12.7 | MIT OR Apache-2.0 | MIT | [30](#notice-30) |
+| fontconfig-parser | 0.5.8 | MIT | MIT | [117](#notice-117) |
+| fontdb | 0.23.0 | MIT | MIT | [31](#notice-31) |
+| foreign-types | 0.3.2 | MIT/Apache-2.0 | MIT | [118](#notice-118) |
+| foreign-types | 0.5.0 | MIT/Apache-2.0 | MIT | [118](#notice-118) |
+| foreign-types-shared | 0.1.1 | MIT/Apache-2.0 | MIT | [118](#notice-118) |
+| foreign-types-shared | 0.3.1 | MIT/Apache-2.0 | MIT | [118](#notice-118) |
+| form_urlencoded | 1.2.3 | MIT OR Apache-2.0 | MIT | [32](#notice-32) |
 | gc-arena | 0.7.0 | MIT | MIT | [1](#notice-1) |
-| gethostname | 1.1.0 | Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| getrandom | 0.4.3 | MIT OR Apache-2.0 | MIT | [33](#notice-33) |
-| gif | 0.14.2 | MIT OR Apache-2.0 | MIT | [118](#notice-118) |
-| gilrs | 0.11.2 | Apache-2.0/MIT | Apache-2.0 | [5](#notice-5) |
-| gilrs-core | 0.6.8 | Apache-2.0/MIT | Apache-2.0 | [5](#notice-5) |
+| gethostname | 1.1.0 | Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| getrandom | 0.4.3 | MIT OR Apache-2.0 | MIT | [34](#notice-34) |
+| gif | 0.14.2 | MIT OR Apache-2.0 | MIT | [119](#notice-119) |
+| gilrs | 0.11.2 | Apache-2.0/MIT | Apache-2.0 | [14](#notice-14) |
+| gilrs-core | 0.6.8 | Apache-2.0/MIT | Apache-2.0 | [14](#notice-14) |
 | glyphon | 0.12.0 | MIT OR Apache-2.0 OR Zlib | MIT | [1](#notice-1) |
-| gpu-allocator | 0.28.0 | MIT OR Apache-2.0 | MIT | [119](#notice-119) |
-| half | 2.7.1 | MIT OR Apache-2.0 | MIT | [23](#notice-23) |
-| harfrust | 0.5.2 | MIT | MIT | [35](#notice-35) |
-| hashbrown | 0.15.5 | MIT OR Apache-2.0 | MIT | [36](#notice-36) |
-| hashbrown | 0.16.1 | MIT OR Apache-2.0 | MIT | [36](#notice-36) |
-| hashbrown | 0.17.2 | MIT OR Apache-2.0 | MIT | [36](#notice-36) |
-| http | 1.5.0 | MIT OR Apache-2.0 | MIT | [37](#notice-37) |
-| httparse | 1.10.1 | MIT OR Apache-2.0 | MIT | [120](#notice-120) |
-| hybrid-array | 0.4.15 | MIT OR Apache-2.0 | MIT | [121](#notice-121) |
-| icu_collections | 2.4.0 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
-| icu_locale_core | 2.4.0 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
-| icu_normalizer | 2.4.0 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
-| icu_normalizer_data | 2.4.0 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
-| icu_properties | 2.4.0 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
-| icu_properties_data | 2.4.0 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
-| icu_provider | 2.4.0 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
-| idna | 1.1.0 | MIT OR Apache-2.0 | MIT | [18](#notice-18) |
-| idna_adapter | 1.2.2 | Apache-2.0 OR MIT | MIT | [122](#notice-122) |
-| image | 0.25.10 | MIT OR Apache-2.0 | MIT | [23](#notice-23) |
-| image-webp | 0.2.4 | MIT OR Apache-2.0 | MIT | [23](#notice-23) |
-| imagesize | 0.15.0 | MIT | MIT | [38](#notice-38) |
-| indexmap | 2.14.2 | Apache-2.0 OR MIT | MIT | [39](#notice-39) |
-| inotify | 0.11.5 | ISC | ISC | [123](#notice-123) |
-| inotify-sys | 0.1.8 | ISC | ISC | [123](#notice-123) |
-| intl-memoizer | 0.5.3 | Apache-2.0 OR MIT | MIT | [26](#notice-26) |
-| intl_pluralrules | 7.0.2 | Apache-2.0/MIT | Apache-2.0 | [5](#notice-5) |
+| gpu-allocator | 0.28.0 | MIT OR Apache-2.0 | MIT | [120](#notice-120) |
+| half | 2.7.1 | MIT OR Apache-2.0 | MIT | [24](#notice-24) |
+| harfrust | 0.5.2 | MIT | MIT | [36](#notice-36) |
+| hashbrown | 0.15.5 | MIT OR Apache-2.0 | MIT | [37](#notice-37) |
+| hashbrown | 0.16.1 | MIT OR Apache-2.0 | MIT | [37](#notice-37) |
+| hashbrown | 0.17.2 | MIT OR Apache-2.0 | MIT | [37](#notice-37) |
+| http | 1.5.0 | MIT OR Apache-2.0 | MIT | [38](#notice-38) |
+| httparse | 1.10.1 | MIT OR Apache-2.0 | MIT | [121](#notice-121) |
+| hybrid-array | 0.4.15 | MIT OR Apache-2.0 | MIT | [122](#notice-122) |
+| icu_collections | 2.4.0 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
+| icu_locale_core | 2.4.0 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
+| icu_normalizer | 2.4.0 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
+| icu_normalizer_data | 2.4.0 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
+| icu_properties | 2.4.0 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
+| icu_properties_data | 2.4.0 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
+| icu_provider | 2.4.0 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
+| idna | 1.1.0 | MIT OR Apache-2.0 | MIT | [19](#notice-19) |
+| idna_adapter | 1.2.2 | Apache-2.0 OR MIT | MIT | [123](#notice-123) |
+| image | 0.25.10 | MIT OR Apache-2.0 | MIT | [24](#notice-24) |
+| image-webp | 0.2.4 | MIT OR Apache-2.0 | MIT | [24](#notice-24) |
+| imagesize | 0.15.0 | MIT | MIT | [39](#notice-39) |
+| indexmap | 2.14.2 | Apache-2.0 OR MIT | MIT | [40](#notice-40) |
+| inotify | 0.11.5 | ISC | ISC | [124](#notice-124) |
+| inotify-sys | 0.1.8 | ISC | ISC | [124](#notice-124) |
+| intl-memoizer | 0.5.3 | Apache-2.0 OR MIT | MIT | [27](#notice-27) |
+| intl_pluralrules | 7.0.2 | Apache-2.0/MIT | Apache-2.0 | [14](#notice-14) |
 | itoa | 1.0.19 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| kurbo | 0.13.1 | Apache-2.0 OR MIT | MIT | [40](#notice-40) |
-| landlock | 0.4.8 | MIT OR Apache-2.0 | MIT | [124](#notice-124) |
+| kurbo | 0.13.1 | Apache-2.0 OR MIT | MIT | [41](#notice-41) |
+| landlock | 0.4.8 | MIT OR Apache-2.0 | MIT | [125](#notice-125) |
 | lazy_static | 1.5.1 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| libc | 0.2.191 | MIT OR Apache-2.0 | MIT | [125](#notice-125) |
-| libloading | 0.8.9 | ISC | ISC | [126](#notice-126) |
-| libm | 0.2.16 | MIT | MIT | [41](#notice-41) |
-| libudev-sys | 0.1.4 | MIT | MIT | [127](#notice-127) |
-| linebender_resource_handle | 0.1.1 | Apache-2.0 OR MIT | MIT | [23](#notice-23) |
+| libc | 0.2.191 | MIT OR Apache-2.0 | MIT | [126](#notice-126) |
+| libloading | 0.8.9 | ISC | ISC | [127](#notice-127) |
+| libm | 0.2.16 | MIT | MIT | [42](#notice-42) |
+| libudev-sys | 0.1.4 | MIT | MIT | [128](#notice-128) |
+| linebender_resource_handle | 0.1.1 | Apache-2.0 OR MIT | MIT | [24](#notice-24) |
 | linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | MIT | [1](#notice-1) |
 | linux-raw-sys | 0.4.15 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | MIT | [1](#notice-1) |
-| litemap | 0.8.3 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
-| lock_api | 0.4.14 | MIT OR Apache-2.0 | MIT | [42](#notice-42) |
+| litemap | 0.8.3 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
+| lock_api | 0.4.14 | MIT OR Apache-2.0 | MIT | [43](#notice-43) |
 | log | 0.4.35 | MIT OR Apache-2.0 | MIT | [8](#notice-8) |
-| lru | 0.16.4 | MIT | MIT | [43](#notice-43) |
+| lru | 0.16.4 | MIT | MIT | [44](#notice-44) |
 | lunita | 0.1.2 | MIT | MIT | [1](#notice-1) |
-| lzma-rust2 | 0.25.0 | Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| mach2 | 0.6.0 | BSD-2-Clause OR MIT OR Apache-2.0 | MIT | [128](#notice-128) |
-| memchr | 2.8.3 | Unlicense OR MIT | MIT | [44](#notice-44) |
-| memmap2 | 0.9.12 | MIT OR Apache-2.0 | MIT | [45](#notice-45) |
-| miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | MIT | [46](#notice-46) |
-| miniz_oxide | 0.9.1 | MIT OR Zlib OR Apache-2.0 | MIT | [46](#notice-46) |
-| moxcms | 0.8.1 | BSD-3-Clause OR Apache-2.0 | Apache-2.0 | [129](#notice-129) |
-| naga | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| naga-types | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| native-tls | 0.2.18 | MIT OR Apache-2.0 | MIT | [130](#notice-130) |
-| nix | 0.31.4 | MIT | MIT | [131](#notice-131) |
-| nom | 8.0.0 | MIT | MIT | [132](#notice-132) |
+| lzma-rust2 | 0.25.0 | Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| mach2 | 0.6.0 | BSD-2-Clause OR MIT OR Apache-2.0 | MIT | [129](#notice-129) |
+| memchr | 2.8.3 | Unlicense OR MIT | MIT | [45](#notice-45) |
+| memmap2 | 0.9.12 | MIT OR Apache-2.0 | MIT | [46](#notice-46) |
+| miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | MIT | [47](#notice-47) |
+| miniz_oxide | 0.9.1 | MIT OR Zlib OR Apache-2.0 | MIT | [47](#notice-47) |
+| moxcms | 0.8.1 | BSD-3-Clause OR Apache-2.0 | Apache-2.0 | [130](#notice-130) |
+| naga | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| naga-types | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| native-tls | 0.2.18 | MIT OR Apache-2.0 | MIT | [131](#notice-131) |
+| nix | 0.31.4 | MIT | MIT | [132](#notice-132) |
+| nom | 8.0.0 | MIT | MIT | [133](#notice-133) |
 | num-complex | 0.4.6 | MIT OR Apache-2.0 | MIT | [8](#notice-8) |
 | num-integer | 0.1.47 | MIT OR Apache-2.0 | MIT | [8](#notice-8) |
 | num-traits | 0.2.19 | MIT OR Apache-2.0 | MIT | [8](#notice-8) |
-| objc-sys | 0.3.5 | MIT | MIT | [90](#notice-90) |
-| objc2 | 0.5.3 | MIT | MIT | [89](#notice-89) |
-| objc2 | 0.6.5 | MIT | MIT | [90](#notice-90) |
-| objc2-app-kit | 0.2.2 | MIT | MIT | [133](#notice-133) |
-| objc2-app-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| objc2-audio-toolbox | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| objc2-core-audio | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| objc2-core-audio-types | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| objc2-core-foundation | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| objc2-core-graphics | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| objc2-core-media | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| objc2-core-video | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| objc2-encode | 4.1.0 | MIT | MIT | [90](#notice-90) |
-| objc2-foundation | 0.2.2 | MIT | MIT | [134](#notice-134) |
-| objc2-foundation | 0.3.2 | MIT | MIT | [134](#notice-134) |
-| objc2-io-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| objc2-metal | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| objc2-quartz-core | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| objc2-uniform-type-identifiers | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
-| objc2-video-toolbox | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [5](#notice-5) |
+| objc-sys | 0.3.5 | MIT | MIT | [91](#notice-91) |
+| objc2 | 0.5.3 | MIT | MIT | [90](#notice-90) |
+| objc2 | 0.6.5 | MIT | MIT | [91](#notice-91) |
+| objc2-app-kit | 0.2.2 | MIT | MIT | [134](#notice-134) |
+| objc2-app-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| objc2-audio-toolbox | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| objc2-core-audio | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| objc2-core-audio-types | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| objc2-core-foundation | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| objc2-core-graphics | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| objc2-core-media | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| objc2-core-video | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| objc2-encode | 4.1.0 | MIT | MIT | [91](#notice-91) |
+| objc2-foundation | 0.2.2 | MIT | MIT | [135](#notice-135) |
+| objc2-foundation | 0.3.2 | MIT | MIT | [135](#notice-135) |
+| objc2-io-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| objc2-metal | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| objc2-quartz-core | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| objc2-uniform-type-identifiers | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
+| objc2-video-toolbox | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [14](#notice-14) |
 | once_cell | 1.21.4 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| openssl | 0.10.82 | Apache-2.0 | Apache-2.0 | [107](#notice-107) |
+| openssl | 0.10.82 | Apache-2.0 | Apache-2.0 | [108](#notice-108) |
 | openssl-probe | 0.2.2 | MIT OR Apache-2.0 | MIT | [12](#notice-12) |
 | openssl-sys | 0.9.118 | MIT | MIT | [12](#notice-12) |
-| option-ext | 0.2.0 | MPL-2.0 | MPL-2.0 | [135](#notice-135) |
-| ordered-float | 5.5.1 | MIT | MIT | [136](#notice-136) |
-| os_pipe | 1.2.3 | MIT | MIT | [137](#notice-137) |
-| owned_ttf_parser | 0.25.1 | Apache-2.0 | Apache-2.0 | [58](#notice-58) |
-| parking_lot | 0.12.5 | MIT OR Apache-2.0 | MIT | [42](#notice-42) |
-| parking_lot_core | 0.9.12 | MIT OR Apache-2.0 | MIT | [42](#notice-42) |
-| pem-rfc7468 | 1.0.0 | Apache-2.0 OR MIT | MIT | [138](#notice-138) |
-| percent-encoding | 2.3.2 | MIT OR Apache-2.0 | MIT | [18](#notice-18) |
-| petgraph | 0.8.3 | MIT OR Apache-2.0 | MIT | [98](#notice-98) |
-| phf | 0.14.0 | MIT | MIT | [139](#notice-139) |
-| phf_shared | 0.14.0 | MIT | MIT | [139](#notice-139) |
-| pico-args | 0.5.0 | MIT | MIT | [48](#notice-48) |
+| option-ext | 0.2.0 | MPL-2.0 | MPL-2.0 | [136](#notice-136) |
+| ordered-float | 5.5.1 | MIT | MIT | [137](#notice-137) |
+| os_pipe | 1.2.3 | MIT | MIT | [138](#notice-138) |
+| owned_ttf_parser | 0.25.1 | Apache-2.0 | Apache-2.0 | [59](#notice-59) |
+| parking_lot | 0.12.5 | MIT OR Apache-2.0 | MIT | [43](#notice-43) |
+| parking_lot_core | 0.9.12 | MIT OR Apache-2.0 | MIT | [43](#notice-43) |
+| pem-rfc7468 | 1.0.0 | Apache-2.0 OR MIT | MIT | [139](#notice-139) |
+| percent-encoding | 2.3.2 | MIT OR Apache-2.0 | MIT | [19](#notice-19) |
+| petgraph | 0.8.3 | MIT OR Apache-2.0 | MIT | [99](#notice-99) |
+| phf | 0.14.0 | MIT | MIT | [140](#notice-140) |
+| phf_shared | 0.14.0 | MIT | MIT | [140](#notice-140) |
+| pico-args | 0.5.0 | MIT | MIT | [49](#notice-49) |
 | pin-project-lite | 0.2.18 | Apache-2.0 OR MIT | MIT | [1](#notice-1) |
-| png | 0.18.1 | MIT OR Apache-2.0 | MIT | [49](#notice-49) |
+| png | 0.18.1 | MIT OR Apache-2.0 | MIT | [50](#notice-50) |
 | polling | 3.11.0 | Apache-2.0 OR MIT | MIT | [1](#notice-1) |
-| pollster | 1.0.3 | MIT OR Apache-2.0 | MIT | [140](#notice-140) |
-| polycool | 0.4.0 | MIT OR Apache-2.0 | MIT | [40](#notice-40) |
-| potential_utf | 0.1.6 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
-| presser | 0.3.1 | MIT OR Apache-2.0 | MIT | [141](#notice-141) |
-| primal-check | 0.3.4 | MIT OR Apache-2.0 | MIT | [142](#notice-142) |
-| profiling | 1.0.18 | MIT OR Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| pxfm | 0.1.30 | BSD-3-Clause OR Apache-2.0 | Apache-2.0 | [129](#notice-129) |
-| quick-error | 2.0.1 | MIT/Apache-2.0 | MIT | [143](#notice-143) |
-| rand | 0.10.4 | MIT OR Apache-2.0 | MIT | [144](#notice-144) |
-| rand_core | 0.10.1 | MIT OR Apache-2.0 | MIT | [145](#notice-145) |
-| range-alloc | 0.1.5 | MIT OR Apache-2.0 | MIT | [146](#notice-146) |
-| rangemap | 1.8.0 | MIT/Apache-2.0 | MIT | [51](#notice-51) |
-| raw-window-handle | 0.6.2 | MIT OR Apache-2.0 OR Zlib | MIT | [52](#notice-52) |
+| pollster | 1.0.3 | MIT OR Apache-2.0 | MIT | [141](#notice-141) |
+| polycool | 0.4.0 | MIT OR Apache-2.0 | MIT | [41](#notice-41) |
+| potential_utf | 0.1.6 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
+| presser | 0.3.1 | MIT OR Apache-2.0 | MIT | [142](#notice-142) |
+| primal-check | 0.3.4 | MIT OR Apache-2.0 | MIT | [143](#notice-143) |
+| profiling | 1.0.18 | MIT OR Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| pxfm | 0.1.30 | BSD-3-Clause OR Apache-2.0 | Apache-2.0 | [130](#notice-130) |
+| quick-error | 2.0.1 | MIT/Apache-2.0 | MIT | [144](#notice-144) |
+| rand | 0.10.4 | MIT OR Apache-2.0 | MIT | [145](#notice-145) |
+| rand_core | 0.10.1 | MIT OR Apache-2.0 | MIT | [146](#notice-146) |
+| range-alloc | 0.1.5 | MIT OR Apache-2.0 | MIT | [147](#notice-147) |
+| rangemap | 1.8.0 | MIT/Apache-2.0 | MIT | [52](#notice-52) |
+| raw-window-handle | 0.6.2 | MIT OR Apache-2.0 OR Zlib | MIT | [53](#notice-53) |
 | raw-window-metal | 1.1.0 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| read-fonts | 0.37.0 | MIT OR Apache-2.0 | MIT | [28](#notice-28) |
-| read-fonts | 0.41.0 | MIT OR Apache-2.0 | MIT | [29](#notice-29) |
-| realfft | 3.5.1 | MIT | MIT | [147](#notice-147) |
+| read-fonts | 0.37.0 | MIT OR Apache-2.0 | MIT | [29](#notice-29) |
+| read-fonts | 0.41.0 | MIT OR Apache-2.0 | MIT | [30](#notice-30) |
+| realfft | 3.5.1 | MIT | MIT | [148](#notice-148) |
 | regex-lite | 0.1.9 | MIT OR Apache-2.0 | MIT | [8](#notice-8) |
-| renderdoc-sys | 1.1.0 | MIT OR Apache-2.0 | MIT | [148](#notice-148) |
-| resvg | 0.50.0 | Apache-2.0 OR MIT | MIT | [53](#notice-53) |
-| rfd | 0.18.0 | MIT | MIT | [149](#notice-149) |
-| rgb | 0.8.53 | MIT | MIT | [54](#notice-54) |
-| roxmltree | 0.20.0 | MIT OR Apache-2.0 | MIT | [55](#notice-55) |
-| roxmltree | 0.21.2 | MIT OR Apache-2.0 | MIT | [55](#notice-55) |
+| renderdoc-sys | 1.1.0 | MIT OR Apache-2.0 | MIT | [149](#notice-149) |
+| resvg | 0.50.0 | Apache-2.0 OR MIT | MIT | [54](#notice-54) |
+| rfd | 0.18.0 | MIT | MIT | [150](#notice-150) |
+| rgb | 0.8.53 | MIT | MIT | [55](#notice-55) |
+| roxmltree | 0.20.0 | MIT OR Apache-2.0 | MIT | [56](#notice-56) |
+| roxmltree | 0.21.2 | MIT OR Apache-2.0 | MIT | [56](#notice-56) |
 | rtrb | 0.4.1 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| rubato | 5.1.0 | MIT OR Apache-2.0 | MIT | [150](#notice-150) |
+| rubato | 5.1.0 | MIT OR Apache-2.0 | MIT | [151](#notice-151) |
 | rustc-hash | 1.1.0 | Apache-2.0/MIT | MIT | [1](#notice-1) |
 | rustc-hash | 2.1.3 | Apache-2.0 OR MIT | MIT | [1](#notice-1) |
-| rustfft | 6.4.1 | MIT OR Apache-2.0 | MIT | [151](#notice-151) |
+| rustfft | 6.4.1 | MIT OR Apache-2.0 | MIT | [152](#notice-152) |
 | rustix | 0.38.44 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | MIT | [1](#notice-1) |
 | rustix | 1.1.6 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | MIT | [1](#notice-1) |
-| rustls-pki-types | 1.16.0 | MIT OR Apache-2.0 | MIT | [152](#notice-152) |
-| rusty-opus | 1.2.1 | BSD-3-Clause | BSD-3-Clause | [56](#notice-56) |
-| ruzstd | 0.9.1 | MIT | MIT | [57](#notice-57) |
-| schannel | 0.1.30 | MIT | MIT | [153](#notice-153) |
+| rustls-pki-types | 1.16.0 | MIT OR Apache-2.0 | MIT | [153](#notice-153) |
+| rusty-opus | 1.2.1 | BSD-3-Clause | BSD-3-Clause | [57](#notice-57) |
+| ruzstd | 0.9.1 | MIT | MIT | [58](#notice-58) |
+| schannel | 0.1.30 | MIT | MIT | [154](#notice-154) |
 | scoped-tls | 1.0.1 | MIT/Apache-2.0 | MIT | [12](#notice-12) |
-| scopeguard | 1.2.0 | MIT OR Apache-2.0 | MIT | [59](#notice-59) |
-| sctk-adwaita | 0.10.1 | MIT | MIT | [149](#notice-149) |
-| seccompiler | 0.5.0 | Apache-2.0 OR BSD-3-Clause | Apache-2.0 | [5](#notice-5) |
-| security-framework | 3.7.0 | MIT OR Apache-2.0 | MIT | [154](#notice-154) |
-| security-framework-sys | 2.17.0 | MIT OR Apache-2.0 | MIT | [154](#notice-154) |
-| self_cell | 1.3.0 | Apache-2.0 OR GPL-2.0-only | Apache-2.0 | [5](#notice-5) |
+| scopeguard | 1.2.0 | MIT OR Apache-2.0 | MIT | [60](#notice-60) |
+| sctk-adwaita | 0.10.1 | MIT | MIT | [150](#notice-150) |
+| seccompiler | 0.5.0 | Apache-2.0 OR BSD-3-Clause | Apache-2.0 | [14](#notice-14) |
+| security-framework | 3.7.0 | MIT OR Apache-2.0 | MIT | [155](#notice-155) |
+| security-framework-sys | 2.17.0 | MIT OR Apache-2.0 | MIT | [155](#notice-155) |
+| self_cell | 1.3.0 | Apache-2.0 OR GPL-2.0-only | Apache-2.0 | [14](#notice-14) |
 | serde | 1.0.229 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | serde_core | 1.0.229 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | serde_json | 1.0.154 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| sha1 | 0.11.0 | MIT OR Apache-2.0 | MIT | [155](#notice-155) |
-| sha2 | 0.11.1 | MIT OR Apache-2.0 | MIT | [155](#notice-155) |
-| simd-adler32 | 0.3.10 | MIT | MIT | [62](#notice-62) |
-| simdutf8 | 0.1.5 | MIT OR Apache-2.0 | MIT | [23](#notice-23) |
-| simplecss | 0.2.2 | Apache-2.0 OR MIT | MIT | [63](#notice-63) |
+| sha1 | 0.11.0 | MIT OR Apache-2.0 | MIT | [156](#notice-156) |
+| sha2 | 0.11.1 | MIT OR Apache-2.0 | MIT | [156](#notice-156) |
+| simd-adler32 | 0.3.10 | MIT | MIT | [63](#notice-63) |
+| simdutf8 | 0.1.5 | MIT OR Apache-2.0 | MIT | [24](#notice-24) |
+| simplecss | 0.2.2 | Apache-2.0 OR MIT | MIT | [64](#notice-64) |
 | siphasher | 1.0.4 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| skrifa | 0.40.0 | MIT OR Apache-2.0 | MIT | [28](#notice-28) |
-| skrifa | 0.44.0 | MIT OR Apache-2.0 | MIT | [29](#notice-29) |
-| slab | 0.4.12 | MIT | MIT | [64](#notice-64) |
-| slotmap | 1.1.1 | Zlib | Zlib | [65](#notice-65) |
-| smallvec | 1.16.6 | MIT OR Apache-2.0 | MIT | [66](#notice-66) |
-| smithay-client-toolkit | 0.19.2 | MIT | MIT | [91](#notice-91) |
+| skrifa | 0.40.0 | MIT OR Apache-2.0 | MIT | [29](#notice-29) |
+| skrifa | 0.44.0 | MIT OR Apache-2.0 | MIT | [30](#notice-30) |
+| slab | 0.4.12 | MIT | MIT | [65](#notice-65) |
+| slotmap | 1.1.1 | Zlib | Zlib | [66](#notice-66) |
+| smallvec | 1.16.6 | MIT OR Apache-2.0 | MIT | [67](#notice-67) |
+| smithay-client-toolkit | 0.19.2 | MIT | MIT | [92](#notice-92) |
 | smol_str | 0.2.2 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | smol_str | 0.3.7 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| spirv | 0.4.0+sdk-1.4.341.0 | Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 | MIT | [156](#notice-156) |
-| static_assertions | 1.1.0 | MIT OR Apache-2.0 | MIT | [67](#notice-67) |
-| strength_reduce | 0.2.4 | MIT OR Apache-2.0 | MIT | [151](#notice-151) |
-| strict-num | 0.1.1 | MIT | MIT | [68](#notice-68) |
-| svgtypes | 0.16.2 | Apache-2.0 OR MIT | MIT | [69](#notice-69) |
-| swash | 0.2.10 | Apache-2.0 OR MIT | MIT | [70](#notice-70) |
-| symphonia | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-bundle-flac | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-bundle-mp3 | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-codec-pcm | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-codec-vorbis | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-common | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-core | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-format-ogg | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-format-riff | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| symphonia-metadata | 0.6.1 | MPL-2.0 | MPL-2.0 | [71](#notice-71) |
-| sys-locale | 0.3.2 | MIT OR Apache-2.0 | MIT | [72](#notice-72) |
-| tempfile | 3.27.0 | MIT OR Apache-2.0 | MIT | [157](#notice-157) |
+| spirv | 0.4.0+sdk-1.4.341.0 | Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 | MIT | [157](#notice-157) |
+| static_assertions | 1.1.0 | MIT OR Apache-2.0 | MIT | [68](#notice-68) |
+| strength_reduce | 0.2.4 | MIT OR Apache-2.0 | MIT | [152](#notice-152) |
+| strict-num | 0.1.1 | MIT | MIT | [69](#notice-69) |
+| svgtypes | 0.16.2 | Apache-2.0 OR MIT | MIT | [70](#notice-70) |
+| swash | 0.2.10 | Apache-2.0 OR MIT | MIT | [71](#notice-71) |
+| symphonia | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-bundle-flac | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-bundle-mp3 | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-codec-pcm | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-codec-vorbis | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-common | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-core | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-format-ogg | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-format-riff | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| symphonia-metadata | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
+| sys-locale | 0.3.2 | MIT OR Apache-2.0 | MIT | [73](#notice-73) |
+| tempfile | 3.27.0 | MIT OR Apache-2.0 | MIT | [158](#notice-158) |
 | thiserror | 1.0.69 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | thiserror | 2.0.21 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| tiny-skia | 0.11.4 | BSD-3-Clause | BSD-3-Clause | [73](#notice-73) |
-| tiny-skia | 0.12.0 | BSD-3-Clause | BSD-3-Clause | [73](#notice-73) |
-| tiny-skia-path | 0.11.4 | BSD-3-Clause | BSD-3-Clause | [73](#notice-73) |
-| tiny-skia-path | 0.12.0 | BSD-3-Clause | BSD-3-Clause | [73](#notice-73) |
-| tinystr | 0.8.5 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
+| tiny-skia | 0.11.4 | BSD-3-Clause | BSD-3-Clause | [74](#notice-74) |
+| tiny-skia | 0.12.0 | BSD-3-Clause | BSD-3-Clause | [74](#notice-74) |
+| tiny-skia-path | 0.11.4 | BSD-3-Clause | BSD-3-Clause | [74](#notice-74) |
+| tiny-skia-path | 0.12.0 | BSD-3-Clause | BSD-3-Clause | [74](#notice-74) |
+| tinystr | 0.8.5 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
 | tinyvec | 1.13.3 | Zlib OR Apache-2.0 OR MIT | MIT | [1](#notice-1) |
-| tracing | 0.1.44 | MIT | MIT | [158](#notice-158) |
-| tracing-core | 0.1.36 | MIT | MIT | [158](#notice-158) |
-| transpose | 0.2.3 | MIT OR Apache-2.0 | MIT | [159](#notice-159) |
-| tree_magic_mini | 3.2.2 | MIT | MIT | [160](#notice-160) |
-| ttf-parser | 0.25.1 | MIT OR Apache-2.0 | MIT | [69](#notice-69) |
-| tungstenite | 0.30.0 | MIT OR Apache-2.0 | MIT | [161](#notice-161) |
-| type-map | 0.5.1 | MIT/Apache-2.0 | MIT | [75](#notice-75) |
-| typenum | 1.20.1 | MIT OR Apache-2.0 | MIT | [162](#notice-162) |
-| uncased | 0.9.10 | MIT OR Apache-2.0 | MIT | [163](#notice-163) |
+| tracing | 0.1.44 | MIT | MIT | [159](#notice-159) |
+| tracing-core | 0.1.36 | MIT | MIT | [159](#notice-159) |
+| transpose | 0.2.3 | MIT OR Apache-2.0 | MIT | [160](#notice-160) |
+| tree_magic_mini | 3.2.2 | MIT | MIT | [161](#notice-161) |
+| ttf-parser | 0.25.1 | MIT OR Apache-2.0 | MIT | [70](#notice-70) |
+| tungstenite | 0.30.0 | MIT OR Apache-2.0 | MIT | [162](#notice-162) |
+| type-map | 0.5.1 | MIT/Apache-2.0 | MIT | [76](#notice-76) |
+| typenum | 1.20.1 | MIT OR Apache-2.0 | MIT | [163](#notice-163) |
+| uncased | 0.9.10 | MIT OR Apache-2.0 | MIT | [164](#notice-164) |
 | unic-langid | 0.9.6 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | unic-langid-impl | 0.9.6 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| unicode-bidi | 0.3.18 | MIT OR Apache-2.0 | MIT | [76](#notice-76) |
-| unicode-ident | 1.0.27 | (MIT OR Apache-2.0) AND Unicode-3.0 | MIT AND Unicode-3.0 | [1](#notice-1), [77](#notice-77) |
-| unicode-linebreak | 0.1.5 | Apache-2.0 | Apache-2.0 | [5](#notice-5) |
-| unicode-normalization | 0.1.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | MIT AND Unicode-3.0 | [76](#notice-76), [77](#notice-77) |
-| unicode-script | 0.5.9 | MIT OR Apache-2.0 | MIT | [78](#notice-78) |
-| unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | MIT | [76](#notice-76) |
-| unicode-width | 0.2.3 | MIT OR Apache-2.0 | MIT | [76](#notice-76) |
-| ureq | 3.5.2 | MIT OR Apache-2.0 | MIT | [164](#notice-164) |
-| ureq-proto | 0.7.1 | MIT OR Apache-2.0 | MIT | [165](#notice-165) |
-| url | 2.5.9 | MIT OR Apache-2.0 | MIT | [18](#notice-18) |
-| usvg | 0.50.0 | Apache-2.0 OR MIT | MIT | [53](#notice-53) |
+| unicode-bidi | 0.3.18 | MIT OR Apache-2.0 | MIT | [77](#notice-77) |
+| unicode-ident | 1.0.27 | (MIT OR Apache-2.0) AND Unicode-3.0 | MIT AND Unicode-3.0 | [1](#notice-1), [78](#notice-78) |
+| unicode-linebreak | 0.1.5 | Apache-2.0 | Apache-2.0 | [14](#notice-14) |
+| unicode-normalization | 0.1.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | MIT AND Unicode-3.0 | [77](#notice-77), [78](#notice-78) |
+| unicode-script | 0.5.9 | MIT OR Apache-2.0 | MIT | [79](#notice-79) |
+| unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | MIT | [77](#notice-77) |
+| unicode-width | 0.2.3 | MIT OR Apache-2.0 | MIT | [77](#notice-77) |
+| ureq | 3.5.2 | MIT OR Apache-2.0 | MIT | [165](#notice-165) |
+| ureq-proto | 0.7.1 | MIT OR Apache-2.0 | MIT | [166](#notice-166) |
+| url | 2.5.9 | MIT OR Apache-2.0 | MIT | [19](#notice-19) |
+| usvg | 0.50.0 | Apache-2.0 OR MIT | MIT | [54](#notice-54) |
 | utf8-zero | 0.8.1 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| utf8_iter | 1.1.0 | Apache-2.0 OR MIT | MIT | [109](#notice-109) |
-| utf_types | 1.0.0 | Apache-2.0 OR MIT | MIT | [109](#notice-109) |
-| uuid | 1.29.3 | Apache-2.0 OR MIT | MIT | [166](#notice-166) |
-| vec_map | 0.8.2 | MIT/Apache-2.0 | MIT | [76](#notice-76) |
-| wayland-backend | 0.3.17 | MIT | MIT | [167](#notice-167) |
-| wayland-client | 0.31.15 | MIT | MIT | [167](#notice-167) |
-| wayland-csd-frame | 0.3.0 | MIT | MIT | [92](#notice-92) |
-| wayland-cursor | 0.31.14 | MIT | MIT | [167](#notice-167) |
-| wayland-protocols | 0.32.13 | MIT | MIT | [167](#notice-167) |
-| wayland-protocols-plasma | 0.3.12 | MIT | MIT | [167](#notice-167) |
-| wayland-protocols-wlr | 0.3.12 | MIT | MIT | [167](#notice-167) |
-| wayland-sys | 0.31.11 | MIT | MIT | [167](#notice-167) |
-| weezl | 0.1.12 | MIT OR Apache-2.0 | MIT | [168](#notice-168) |
-| wgpu | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| wgpu-core | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| wgpu-core-deps-apple | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| wgpu-core-deps-windows-linux-android | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| wgpu-hal | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| wgpu-naga-bridge | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| wgpu-types | 30.0.2 | MIT OR Apache-2.0 | MIT | [47](#notice-47) |
-| windowfunctions | 0.1.1 | MIT | MIT | [169](#notice-169) |
-| windows | 0.62.2 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
-| windows-collections | 0.3.2 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
-| windows-core | 0.62.2 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
-| windows-future | 0.3.2 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
-| windows-link | 0.2.1 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
-| windows-numerics | 0.3.1 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
-| windows-result | 0.4.1 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
-| windows-strings | 0.5.1 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
-| windows-sys | 0.52.0 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
-| windows-sys | 0.61.2 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
-| windows-targets | 0.52.6 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
-| windows-threading | 0.2.1 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
-| windows_aarch64_msvc | 0.52.6 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
-| windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
-| winit | 0.30.13 | Apache-2.0 | Apache-2.0 | [107](#notice-107) |
-| wl-clipboard-rs | 0.9.5 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
-| writeable | 0.6.4 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
+| utf8_iter | 1.1.0 | Apache-2.0 OR MIT | MIT | [110](#notice-110) |
+| utf_types | 1.0.0 | Apache-2.0 OR MIT | MIT | [110](#notice-110) |
+| uuid | 1.29.3 | Apache-2.0 OR MIT | MIT | [167](#notice-167) |
+| vec_map | 0.8.2 | MIT/Apache-2.0 | MIT | [77](#notice-77) |
+| wayland-backend | 0.3.17 | MIT | MIT | [168](#notice-168) |
+| wayland-client | 0.31.15 | MIT | MIT | [168](#notice-168) |
+| wayland-csd-frame | 0.3.0 | MIT | MIT | [93](#notice-93) |
+| wayland-cursor | 0.31.14 | MIT | MIT | [168](#notice-168) |
+| wayland-protocols | 0.32.13 | MIT | MIT | [168](#notice-168) |
+| wayland-protocols-plasma | 0.3.12 | MIT | MIT | [168](#notice-168) |
+| wayland-protocols-wlr | 0.3.12 | MIT | MIT | [168](#notice-168) |
+| wayland-sys | 0.31.11 | MIT | MIT | [168](#notice-168) |
+| weezl | 0.1.12 | MIT OR Apache-2.0 | MIT | [169](#notice-169) |
+| wgpu | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| wgpu-core | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| wgpu-core-deps-apple | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| wgpu-core-deps-windows-linux-android | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| wgpu-hal | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| wgpu-naga-bridge | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| wgpu-types | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
+| windowfunctions | 0.1.1 | MIT | MIT | [170](#notice-170) |
+| windows | 0.62.2 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| windows-collections | 0.3.2 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| windows-core | 0.62.2 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| windows-future | 0.3.2 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| windows-link | 0.2.1 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| windows-numerics | 0.3.1 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| windows-result | 0.4.1 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| windows-strings | 0.5.1 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| windows-sys | 0.52.0 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| windows-sys | 0.61.2 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| windows-targets | 0.52.6 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| windows-threading | 0.2.1 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| windows_aarch64_msvc | 0.52.6 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| winit | 0.30.13 | Apache-2.0 | Apache-2.0 | [108](#notice-108) |
+| wl-clipboard-rs | 0.9.5 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| writeable | 0.6.4 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
 | x11-dl | 2.21.0 | MIT | MIT | [1](#notice-1) |
-| x11rb | 0.13.2 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
-| x11rb-protocol | 0.13.2 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
-| xcursor | 0.3.11 | MIT | MIT | [173](#notice-173) |
-| xkbcommon-dl | 0.4.2 | MIT | MIT | [174](#notice-174) |
-| xkeysym | 0.2.1 | MIT OR Apache-2.0 OR Zlib | MIT | [175](#notice-175) |
-| yazi | 0.2.2 | Apache-2.0 OR MIT | MIT | [70](#notice-70) |
-| yoke | 0.8.4 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
-| zeno | 0.3.3 | Apache-2.0 OR MIT | MIT | [70](#notice-70) |
-| zerocopy | 0.8.64 | BSD-2-Clause OR Apache-2.0 OR MIT | MIT | [79](#notice-79) |
-| zerofrom | 0.1.8 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
-| zeroize | 1.9.2 | Apache-2.0 OR MIT | MIT | [176](#notice-176) |
-| zerotrie | 0.2.5 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
-| zerovec | 0.11.9 | Unicode-3.0 | Unicode-3.0 | [74](#notice-74) |
+| x11rb | 0.13.2 | MIT OR Apache-2.0 | MIT | [173](#notice-173) |
+| x11rb-protocol | 0.13.2 | MIT OR Apache-2.0 | MIT | [173](#notice-173) |
+| xcursor | 0.3.11 | MIT | MIT | [174](#notice-174) |
+| xkbcommon-dl | 0.4.2 | MIT | MIT | [175](#notice-175) |
+| xkeysym | 0.2.1 | MIT OR Apache-2.0 OR Zlib | MIT | [176](#notice-176) |
+| yazi | 0.2.2 | Apache-2.0 OR MIT | MIT | [71](#notice-71) |
+| yoke | 0.8.4 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
+| zeno | 0.3.3 | Apache-2.0 OR MIT | MIT | [71](#notice-71) |
+| zerocopy | 0.8.64 | BSD-2-Clause OR Apache-2.0 OR MIT | MIT | [80](#notice-80) |
+| zerofrom | 0.1.8 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
+| zeroize | 1.9.2 | Apache-2.0 OR MIT | MIT | [177](#notice-177) |
+| zerotrie | 0.2.5 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
+| zerovec | 0.11.9 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
 | zmij | 1.0.23 | MIT | MIT | [1](#notice-1) |
-| zune-core | 0.5.3 | MIT OR Apache-2.0 OR Zlib | MIT | [177](#notice-177) |
-| zune-jpeg | 0.5.15 | MIT OR Apache-2.0 OR Zlib | MIT | [177](#notice-177) |
+| zune-core | 0.5.3 | MIT OR Apache-2.0 OR Zlib | MIT | [178](#notice-178) |
+| zune-jpeg | 0.5.15 | MIT OR Apache-2.0 OR Zlib | MIT | [178](#notice-178) |
 
 ## Notices
 
@@ -681,82 +681,27 @@ DEALINGS IN THE SOFTWARE.
 
 <a id="notice-5"></a>
 
-### 5. Apache-2.0 — barbed-emotes 0.0.7, codespan-reporting 0.13.1, cpal 0.18.2, dasp_sample 0.11.0, dispatch2 0.3.1, fluent-langneg 0.13.1, gethostname 1.1.0, gilrs 0.11.2, gilrs-core 0.6.8, gloo-console 0.4.1, gloo-dialogs 0.3.1, gloo-events 0.3.1, gloo-file 0.4.1, gloo-history 0.4.0, gloo-net 0.8.0, gloo-render 0.3.1, gloo-storage 0.4.1, gloo-timers 0.4.1, gloo-utils 0.3.1, gloo-worker 0.7.0, intl_pluralrules 7.0.2, lzma-rust2 0.25.0, objc2-app-kit 0.3.2, objc2-audio-toolbox 0.3.2, objc2-core-audio 0.3.2, objc2-core-audio-types 0.3.2, objc2-core-foundation 0.3.2, objc2-core-graphics 0.3.2, objc2-core-media 0.3.2, objc2-core-video 0.3.2, objc2-io-kit 0.3.2, objc2-metal 0.3.2, objc2-quartz-core 0.3.2, objc2-uniform-type-identifiers 0.3.2, objc2-video-toolbox 0.3.2, profiling 1.0.18, seccompiler 0.5.0, self_cell 1.3.0, spirv 0.4.0+sdk-1.4.341.0, unicode-linebreak 0.1.5
+### 5. MIT — barbed-emotes 0.0.8
 
 ```text
-Apache License
-Version 2.0, January 2004
-http://www.apache.org/licenses/
+MIT License
 
-TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+Copyright (c) 2026 すごいジャン
 
-1. Definitions.
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
 
-"License" shall mean the terms and conditions for use, reproduction, and distribution as defined by Sections 1 through 9 of this document.
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
 
-"Licensor" shall mean the copyright owner or entity authorized by the copyright owner that is granting the License.
-
-"Legal Entity" shall mean the union of the acting entity and all other entities that control, are controlled by, or are under common control with that entity. For the purposes of this definition, "control" means (i) the power, direct or indirect, to cause the direction or management of such entity, whether by contract or otherwise, or (ii) ownership of fifty percent (50%) or more of the outstanding shares, or (iii) beneficial ownership of such entity.
-
-"You" (or "Your") shall mean an individual or Legal Entity exercising permissions granted by this License.
-
-"Source" form shall mean the preferred form for making modifications, including but not limited to software source code, documentation source, and configuration files.
-
-"Object" form shall mean any form resulting from mechanical transformation or translation of a Source form, including but not limited to compiled object code, generated documentation, and conversions to other media types.
-
-"Work" shall mean the work of authorship, whether in Source or Object form, made available under the License, as indicated by a copyright notice that is included in or attached to the work (an example is provided in the Appendix below).
-
-"Derivative Works" shall mean any work, whether in Source or Object form, that is based on (or derived from) the Work and for which the editorial revisions, annotations, elaborations, or other modifications represent, as a whole, an original work of authorship. For the purposes of this License, Derivative Works shall not include works that remain separable from, or merely link (or bind by name) to the interfaces of, the Work and Derivative Works thereof.
-
-"Contribution" shall mean any work of authorship, including the original version of the Work and any modifications or additions to that Work or Derivative Works thereof, that is intentionally submitted to Licensor for inclusion in the Work by the copyright owner or by an individual or Legal Entity authorized to submit on behalf of the copyright owner. For the purposes of this definition, "submitted" means any form of electronic, verbal, or written communication sent to the Licensor or its representatives, including but not limited to communication on electronic mailing lists, source code control systems, and issue tracking systems that are managed by, or on behalf of, the Licensor for the purpose of discussing and improving the Work, but excluding communication that is conspicuously marked or otherwise designated in writing by the copyright owner as "Not a Contribution."
-
-"Contributor" shall mean Licensor and any individual or Legal Entity on behalf of whom a Contribution has been received by Licensor and subsequently incorporated within the Work.
-
-2. Grant of Copyright License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare Derivative Works of, publicly display, publicly perform, sublicense, and distribute the Work and such Derivative Works in Source or Object form.
-
-3. Grant of Patent License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable (except as stated in this section) patent license to make, have made, use, offer to sell, sell, import, and otherwise transfer the Work, where such license applies only to those patent claims licensable by such Contributor that are necessarily infringed by their Contribution(s) alone or by combination of their Contribution(s) with the Work to which such Contribution(s) was submitted. If You institute patent litigation against any entity (including a cross-claim or counterclaim in a lawsuit) alleging that the Work or a Contribution incorporated within the Work constitutes direct or contributory patent infringement, then any patent licenses granted to You under this License for that Work shall terminate as of the date such litigation is filed.
-
-4. Redistribution. You may reproduce and distribute copies of the Work or Derivative Works thereof in any medium, with or without modifications, and in Source or Object form, provided that You meet the following conditions:
-
-     (a) You must give any other recipients of the Work or Derivative Works a copy of this License; and
-
-     (b) You must cause any modified files to carry prominent notices stating that You changed the files; and
-
-     (c) You must retain, in the Source form of any Derivative Works that You distribute, all copyright, patent, trademark, and attribution notices from the Source form of the Work, excluding those notices that do not pertain to any part of the Derivative Works; and
-
-     (d) If the Work includes a "NOTICE" text file as part of its distribution, then any Derivative Works that You distribute must include a readable copy of the attribution notices contained within such NOTICE file, excluding those notices that do not pertain to any part of the Derivative Works, in at least one of the following places: within a NOTICE text file distributed as part of the Derivative Works; within the Source form or documentation, if provided along with the Derivative Works; or, within a display generated by the Derivative Works, if and wherever such third-party notices normally appear. The contents of the NOTICE file are for informational purposes only and do not modify the License. You may add Your own attribution notices within Derivative Works that You distribute, alongside or as an addendum to the NOTICE text from the Work, provided that such additional attribution notices cannot be construed as modifying the License.
-
-     You may add Your own copyright statement to Your modifications and may provide additional or different license terms and conditions for use, reproduction, or distribution of Your modifications, or for any such Derivative Works as a whole, provided Your use, reproduction, and distribution of the Work otherwise complies with the conditions stated in this License.
-
-5. Submission of Contributions. Unless You explicitly state otherwise, any Contribution intentionally submitted for inclusion in the Work by You to the Licensor shall be under the terms and conditions of this License, without any additional terms or conditions. Notwithstanding the above, nothing herein shall supersede or modify the terms of any separate license agreement you may have executed with Licensor regarding such Contributions.
-
-6. Trademarks. This License does not grant permission to use the trade names, trademarks, service marks, or product names of the Licensor, except as required for reasonable and customary use in describing the origin of the Work and reproducing the content of the NOTICE file.
-
-7. Disclaimer of Warranty. Unless required by applicable law or agreed to in writing, Licensor provides the Work (and each Contributor provides its Contributions) on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied, including, without limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE. You are solely responsible for determining the appropriateness of using or redistributing the Work and assume any risks associated with Your exercise of permissions under this License.
-
-8. Limitation of Liability. In no event and under no legal theory, whether in tort (including negligence), contract, or otherwise, unless required by applicable law (such as deliberate and grossly negligent acts) or agreed to in writing, shall any Contributor be liable to You for damages, including any direct, indirect, special, incidental, or consequential damages of any character arising as a result of this License or out of the use or inability to use the Work (including but not limited to damages for loss of goodwill, work stoppage, computer failure or malfunction, or any and all other commercial damages or losses), even if such Contributor has been advised of the possibility of such damages.
-
-9. Accepting Warranty or Additional Liability. While redistributing the Work or Derivative Works thereof, You may choose to offer, and charge a fee for, acceptance of support, warranty, indemnity, or other liability obligations and/or rights consistent with this License. However, in accepting such obligations, You may act only on Your own behalf and on Your sole responsibility, not on behalf of any other Contributor, and only if You agree to indemnify, defend, and hold each Contributor harmless for any liability incurred by, or claims asserted against, such Contributor by reason of your accepting any such warranty or additional liability.
-
-END OF TERMS AND CONDITIONS
-
-APPENDIX: How to apply the Apache License to your work.
-
-To apply the Apache License to your work, attach the following boilerplate notice, with the fields enclosed by brackets "[]" replaced with your own identifying information. (Don't include the brackets!)  The text should be enclosed in the appropriate comment syntax for the file format. We also recommend that a file or class name and description of purpose be included on the same "printed page" as the copyright notice for easier identification within third-party archives.
-
-Copyright [yyyy] [name of copyright owner]
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 <a id="notice-6"></a>
@@ -991,7 +936,215 @@ SOFTWARE.
 
 <a id="notice-14"></a>
 
-### 14. MIT — console_error_panic_hook 0.1.7
+### 14. Apache-2.0 — codespan-reporting 0.13.1, cpal 0.18.2, dasp_sample 0.11.0, dispatch2 0.3.1, fluent-langneg 0.13.1, gethostname 1.1.0, gilrs 0.11.2, gilrs-core 0.6.8, gloo-console 0.4.1, gloo-dialogs 0.3.1, gloo-events 0.3.1, gloo-file 0.4.1, gloo-history 0.4.0, gloo-net 0.8.0, gloo-render 0.3.1, gloo-storage 0.4.1, gloo-timers 0.4.1, gloo-utils 0.3.1, gloo-worker 0.7.0, intl_pluralrules 7.0.2, lzma-rust2 0.25.0, objc2-app-kit 0.3.2, objc2-audio-toolbox 0.3.2, objc2-core-audio 0.3.2, objc2-core-audio-types 0.3.2, objc2-core-foundation 0.3.2, objc2-core-graphics 0.3.2, objc2-core-media 0.3.2, objc2-core-video 0.3.2, objc2-io-kit 0.3.2, objc2-metal 0.3.2, objc2-quartz-core 0.3.2, objc2-uniform-type-identifiers 0.3.2, objc2-video-toolbox 0.3.2, profiling 1.0.18, seccompiler 0.5.0, self_cell 1.3.0, spirv 0.4.0+sdk-1.4.341.0, unicode-linebreak 0.1.5
+
+```text
+Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+```
+
+<a id="notice-15"></a>
+
+### 15. MIT — console_error_panic_hook 0.1.7
 
 ```text
 Copyright (c) 2018 Nick Fitzgerald
@@ -1021,9 +1174,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-15"></a>
+<a id="notice-16"></a>
 
-### 15. MIT — core_maths 0.1.1
+### 16. MIT — core_maths 0.1.1
 
 ```text
 MIT License
@@ -1049,9 +1202,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-16"></a>
+<a id="notice-17"></a>
 
-### 16. MIT — cosmic-text 0.19.0
+### 17. MIT — cosmic-text 0.19.0
 
 ```text
 The MIT License (MIT)
@@ -1077,9 +1230,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-17"></a>
+<a id="notice-18"></a>
 
-### 17. MIT — crc32fast 1.5.5
+### 18. MIT — crc32fast 1.5.5
 
 ```text
 MIT License
@@ -1105,9 +1258,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-18"></a>
+<a id="notice-19"></a>
 
-### 18. MIT — data-url 0.3.2, idna 1.1.0, percent-encoding 2.3.2, url 2.5.9
+### 19. MIT — data-url 0.3.2, idna 1.1.0, percent-encoding 2.3.2, url 2.5.9
 
 ```text
 Copyright (c) 2013-2025 The rust-url developers
@@ -1137,9 +1290,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-19"></a>
+<a id="notice-20"></a>
 
-### 19. MIT — deflate64 0.1.12
+### 20. MIT — deflate64 0.1.12
 
 ```text
 The MIT License (MIT)
@@ -1168,9 +1321,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-20"></a>
+<a id="notice-21"></a>
 
-### 20. MIT — equivalent 1.0.3
+### 21. MIT — equivalent 1.0.3
 
 ```text
 Copyright (c) 2016--2023
@@ -1200,9 +1353,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-21"></a>
+<a id="notice-22"></a>
 
-### 21. MIT — etagere 0.3.0
+### 22. MIT — etagere 0.3.0
 
 ```text
 The MIT License (MIT)
@@ -1227,9 +1380,9 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-22"></a>
+<a id="notice-23"></a>
 
-### 22. MIT — core-foundation 0.10.1, core-foundation 0.9.4, core-foundation-sys 0.8.7, core-graphics 0.23.2, core-graphics-types 0.1.3, euclid 0.22.14
+### 23. MIT — core-foundation 0.10.1, core-foundation 0.9.4, core-foundation-sys 0.8.7, core-graphics 0.23.2, core-graphics-types 0.1.3, euclid 0.22.14
 
 ```text
 Copyright (c) 2012-2013 Mozilla Foundation
@@ -1259,9 +1412,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-23"></a>
+<a id="notice-24"></a>
 
-### 23. MIT — fdeflate 0.3.7, half 2.7.1, image 0.25.10, image-webp 0.2.4, linebender_resource_handle 0.1.1, simdutf8 0.1.5
+### 24. MIT — fdeflate 0.3.7, half 2.7.1, image 0.25.10, image-webp 0.2.4, linebender_resource_handle 0.1.1, simdutf8 0.1.5
 
 ```text
 MIT License
@@ -1291,9 +1444,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-24"></a>
+<a id="notice-25"></a>
 
-### 24. MIT — flate2 1.1.11
+### 25. MIT — flate2 1.1.11
 
 ```text
 Copyright (c) 2014-2026 Alex Crichton
@@ -1323,9 +1476,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-25"></a>
+<a id="notice-26"></a>
 
-### 25. MIT — float-cmp 0.9.0
+### 26. MIT — float-cmp 0.9.0
 
 ```text
 Copyright (c) 2014-2020 Optimal Computing (NZ) Ltd
@@ -1349,9 +1502,9 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 ```
 
-<a id="notice-26"></a>
+<a id="notice-27"></a>
 
-### 26. MIT — fluent-bundle 0.16.0, fluent-syntax 0.12.0, intl-memoizer 0.5.3
+### 27. MIT — fluent-bundle 0.16.0, fluent-syntax 0.12.0, intl-memoizer 0.5.3
 
 ```text
 Copyright 2017 Mozilla
@@ -1375,9 +1528,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-27"></a>
+<a id="notice-28"></a>
 
-### 27. Zlib — foldhash 0.1.5, foldhash 0.2.0
+### 28. Zlib — foldhash 0.1.5, foldhash 0.2.0
 
 ```text
 Copyright (c) 2024 Orson Peters
@@ -1401,9 +1554,9 @@ the following restrictions:
 3. This notice may not be removed or altered from any source distribution.
 ```
 
-<a id="notice-28"></a>
+<a id="notice-29"></a>
 
-### 28. MIT — font-types 0.11.3, read-fonts 0.37.0, skrifa 0.40.0
+### 29. MIT — font-types 0.11.3, read-fonts 0.37.0, skrifa 0.40.0
 
 ```text
 Copyright (c) 2019 Colin Rothfels
@@ -1433,9 +1586,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-29"></a>
+<a id="notice-30"></a>
 
-### 29. MIT — font-types 0.12.7, read-fonts 0.41.0, skrifa 0.44.0
+### 30. MIT — font-types 0.12.7, read-fonts 0.41.0, skrifa 0.44.0
 
 ```text
 Copyright (c) 2019 Fontations Developers
@@ -1465,9 +1618,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-30"></a>
+<a id="notice-31"></a>
 
-### 30. MIT — fontdb 0.23.0
+### 31. MIT — fontdb 0.23.0
 
 ```text
 The MIT License (MIT)
@@ -1493,9 +1646,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-31"></a>
+<a id="notice-32"></a>
 
-### 31. MIT — form_urlencoded 1.2.3
+### 32. MIT — form_urlencoded 1.2.3
 
 ```text
 Copyright (c) 2013-2016 The rust-url developers
@@ -1525,9 +1678,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-32"></a>
+<a id="notice-33"></a>
 
-### 32. MIT — futures 0.3.34, futures-channel 0.3.34, futures-core 0.3.34, futures-io 0.3.34, futures-sink 0.3.34, futures-task 0.3.34, futures-util 0.3.34
+### 33. MIT — futures 0.3.34, futures-channel 0.3.34, futures-core 0.3.34, futures-io 0.3.34, futures-sink 0.3.34, futures-task 0.3.34, futures-util 0.3.34
 
 ```text
 Copyright (c) 2016 Alex Crichton
@@ -1558,9 +1711,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-33"></a>
+<a id="notice-34"></a>
 
-### 33. MIT — getrandom 0.4.3
+### 34. MIT — getrandom 0.4.3
 
 ```text
 Copyright (c) 2018-2026 The rust-random Project Developers
@@ -1591,9 +1744,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-34"></a>
+<a id="notice-35"></a>
 
-### 34. MIT — gloo 0.13.0
+### 35. MIT — gloo 0.13.0
 
 ```text
 Copyright (c) 2019 Rust and WebAssembly Working Group
@@ -1623,9 +1776,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-35"></a>
+<a id="notice-36"></a>
 
-### 35. MIT — harfrust 0.5.2
+### 36. MIT — harfrust 0.5.2
 
 ```text
 MIT License
@@ -1648,9 +1801,9 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTI
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-36"></a>
+<a id="notice-37"></a>
 
-### 36. MIT — hashbrown 0.15.5, hashbrown 0.16.1, hashbrown 0.17.2
+### 37. MIT — hashbrown 0.15.5, hashbrown 0.16.1, hashbrown 0.17.2
 
 ```text
 Copyright (c) 2016 Amanieu d'Antras
@@ -1680,9 +1833,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-37"></a>
+<a id="notice-38"></a>
 
-### 37. MIT — http 1.5.0
+### 38. MIT — http 1.5.0
 
 ```text
 Copyright (c) 2017 http-rs authors
@@ -1712,9 +1865,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-38"></a>
+<a id="notice-39"></a>
 
-### 38. MIT — imagesize 0.15.0
+### 39. MIT — imagesize 0.15.0
 
 ```text
 MIT License
@@ -1740,9 +1893,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-39"></a>
+<a id="notice-40"></a>
 
-### 39. MIT — indexmap 2.14.2
+### 40. MIT — indexmap 2.14.2
 
 ```text
 Copyright (c) 2016--2017
@@ -1772,9 +1925,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-40"></a>
+<a id="notice-41"></a>
 
-### 40. MIT — kurbo 0.13.1, polycool 0.4.0
+### 41. MIT — kurbo 0.13.1, polycool 0.4.0
 
 ```text
 Copyright (c) 2018 Raph Levien
@@ -1804,9 +1957,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-41"></a>
+<a id="notice-42"></a>
 
-### 41. MIT — libm 0.2.16
+### 42. MIT — libm 0.2.16
 
 ```text
 rust-lang/libm as a whole is available for use under the MIT license:
@@ -2069,9 +2222,9 @@ have been licensed under extremely permissive terms.
 Copyright notices are retained in src/* files where relevant.
 ```
 
-<a id="notice-42"></a>
+<a id="notice-43"></a>
 
-### 42. MIT — lock_api 0.4.14, parking_lot 0.12.5, parking_lot_core 0.9.12
+### 43. MIT — lock_api 0.4.14, parking_lot 0.12.5, parking_lot_core 0.9.12
 
 ```text
 Copyright (c) 2016 The Rust Project Developers
@@ -2101,9 +2254,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-43"></a>
+<a id="notice-44"></a>
 
-### 43. MIT — lru 0.16.4
+### 44. MIT — lru 0.16.4
 
 ```text
 MIT License
@@ -2129,9 +2282,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-44"></a>
+<a id="notice-45"></a>
 
-### 44. MIT — byteorder-lite 0.1.0, memchr 2.8.3
+### 45. MIT — byteorder-lite 0.1.0, memchr 2.8.3
 
 ```text
 The MIT License (MIT)
@@ -2157,9 +2310,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-45"></a>
+<a id="notice-46"></a>
 
-### 45. MIT — memmap2 0.9.12
+### 46. MIT — memmap2 0.9.12
 
 ```text
 Copyright (c) 2020 Yevhenii Reizner
@@ -2190,9 +2343,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-46"></a>
+<a id="notice-47"></a>
 
-### 46. MIT — miniz_oxide 0.8.9, miniz_oxide 0.9.1
+### 47. MIT — miniz_oxide 0.8.9, miniz_oxide 0.9.1
 
 ```text
 MIT License
@@ -2221,9 +2374,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-47"></a>
+<a id="notice-48"></a>
 
-### 47. MIT — naga 30.0.2, naga-types 30.0.2, wgpu 30.0.2, wgpu-core 30.0.2, wgpu-core-deps-apple 30.0.2, wgpu-core-deps-wasm 30.0.2, wgpu-core-deps-windows-linux-android 30.0.2, wgpu-hal 30.0.2, wgpu-naga-bridge 30.0.2, wgpu-types 30.0.2
+### 48. MIT — naga 30.0.2, naga-types 30.0.2, wgpu 30.0.2, wgpu-core 30.0.2, wgpu-core-deps-apple 30.0.2, wgpu-core-deps-wasm 30.0.2, wgpu-core-deps-windows-linux-android 30.0.2, wgpu-hal 30.0.2, wgpu-naga-bridge 30.0.2, wgpu-types 30.0.2
 
 ```text
 MIT License
@@ -2249,9 +2402,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-48"></a>
+<a id="notice-49"></a>
 
-### 48. MIT — pico-args 0.5.0
+### 49. MIT — pico-args 0.5.0
 
 ```text
 Copyright (c) 2019 Yevhenii Reizner
@@ -2275,9 +2428,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-49"></a>
+<a id="notice-50"></a>
 
-### 49. MIT — png 0.18.1
+### 50. MIT — png 0.18.1
 
 ```text
 Copyright (c) 2015 nwin
@@ -2307,9 +2460,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-50"></a>
+<a id="notice-51"></a>
 
-### 50. MIT — postcard 1.2.0
+### 51. MIT — postcard 1.2.0
 
 ```text
 Copyright (c) 2019 Anthony James Munns
@@ -2339,9 +2492,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-51"></a>
+<a id="notice-52"></a>
 
-### 51. MIT — rangemap 1.8.0
+### 52. MIT — rangemap 1.8.0
 
 ```text
 Copyright 2019 Jeffrey Parsons
@@ -2353,9 +2506,9 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-52"></a>
+<a id="notice-53"></a>
 
-### 52. MIT — raw-window-handle 0.6.2
+### 53. MIT — raw-window-handle 0.6.2
 
 ```text
 MIT License
@@ -2381,9 +2534,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-53"></a>
+<a id="notice-54"></a>
 
-### 53. MIT — resvg 0.50.0, usvg 0.50.0
+### 54. MIT — resvg 0.50.0, usvg 0.50.0
 
 ```text
 Copyright 2017 the Resvg Authors
@@ -2413,9 +2566,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-54"></a>
+<a id="notice-55"></a>
 
-### 54. MIT — rgb 0.8.53
+### 55. MIT — rgb 0.8.53
 
 ```text
 MIT License
@@ -2441,9 +2594,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-55"></a>
+<a id="notice-56"></a>
 
-### 55. MIT — roxmltree 0.20.0, roxmltree 0.21.2
+### 56. MIT — roxmltree 0.20.0, roxmltree 0.21.2
 
 ```text
 The MIT License (MIT)
@@ -2469,9 +2622,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-56"></a>
+<a id="notice-57"></a>
 
-### 56. BSD-3-Clause — rusty-opus 1.2.1
+### 57. BSD-3-Clause — rusty-opus 1.2.1
 
 ```text
 BSD 3-Clause License
@@ -2504,9 +2657,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-<a id="notice-57"></a>
+<a id="notice-58"></a>
 
-### 57. MIT — ruzstd 0.9.1
+### 58. MIT — ruzstd 0.9.1
 
 ```text
 MIT License
@@ -2532,9 +2685,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-58"></a>
+<a id="notice-59"></a>
 
-### 58. Apache-2.0 — ab_glyph 0.2.32, ab_glyph_rasterizer 0.1.10, audio-codec-algorithms 0.8.1, owned_ttf_parser 0.25.1, ryu 1.0.23
+### 59. Apache-2.0 — ab_glyph 0.2.32, ab_glyph_rasterizer 0.1.10, audio-codec-algorithms 0.8.1, owned_ttf_parser 0.25.1, ryu 1.0.23
 
 ```text
 Apache License
@@ -2715,9 +2868,9 @@ TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
 END OF TERMS AND CONDITIONS
 ```
 
-<a id="notice-59"></a>
+<a id="notice-60"></a>
 
-### 59. MIT — scopeguard 1.2.0
+### 60. MIT — scopeguard 1.2.0
 
 ```text
 Copyright (c) 2016-2019 Ulrik Sverdrup "bluss" and scopeguard developers
@@ -2747,9 +2900,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-60"></a>
+<a id="notice-61"></a>
 
-### 60. MIT — serde-wasm-bindgen 0.6.5
+### 61. MIT — serde-wasm-bindgen 0.6.5
 
 ```text
 MIT License
@@ -2775,9 +2928,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-61"></a>
+<a id="notice-62"></a>
 
-### 61. MIT — serde_urlencoded 0.7.1
+### 62. MIT — serde_urlencoded 0.7.1
 
 ```text
 Copyright (c) 2016 Anthony Ramine
@@ -2807,9 +2960,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-62"></a>
+<a id="notice-63"></a>
 
-### 62. MIT — simd-adler32 0.3.10
+### 63. MIT — simd-adler32 0.3.10
 
 ```text
 MIT License
@@ -2835,9 +2988,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-63"></a>
+<a id="notice-64"></a>
 
-### 63. MIT — simplecss 0.2.2
+### 64. MIT — simplecss 0.2.2
 
 ```text
 The MIT License (MIT)
@@ -2863,9 +3016,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-64"></a>
+<a id="notice-65"></a>
 
-### 64. MIT — slab 0.4.12
+### 65. MIT — slab 0.4.12
 
 ```text
 Copyright (c) 2019 Carl Lerche
@@ -2895,9 +3048,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-65"></a>
+<a id="notice-66"></a>
 
-### 65. Zlib — slotmap 1.1.1
+### 66. Zlib — slotmap 1.1.1
 
 ```text
 Copyright (c) 2021 Orson Peters <orsonpeters@gmail.com>
@@ -2921,9 +3074,9 @@ the following restrictions:
  3. This notice may not be removed or altered from any source distribution.
 ```
 
-<a id="notice-66"></a>
+<a id="notice-67"></a>
 
-### 66. MIT — smallvec 1.16.6
+### 67. MIT — smallvec 1.16.6
 
 ```text
 Copyright (c) 2018 The Servo Project Developers
@@ -2953,9 +3106,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-67"></a>
+<a id="notice-68"></a>
 
-### 67. MIT — static_assertions 1.1.0
+### 68. MIT — static_assertions 1.1.0
 
 ```text
 MIT License
@@ -2981,9 +3134,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-68"></a>
+<a id="notice-69"></a>
 
-### 68. MIT — strict-num 0.1.1
+### 69. MIT — strict-num 0.1.1
 
 ```text
 Copyright (c) 2022 Yevhenii Reizner
@@ -3007,9 +3160,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-69"></a>
+<a id="notice-70"></a>
 
-### 69. MIT — svgtypes 0.16.2, ttf-parser 0.25.1
+### 70. MIT — svgtypes 0.16.2, ttf-parser 0.25.1
 
 ```text
 Copyright (c) 2018 Yevhenii Reizner
@@ -3033,9 +3186,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-70"></a>
+<a id="notice-71"></a>
 
-### 70. MIT — swash 0.2.10, yazi 0.2.2, zeno 0.3.3
+### 71. MIT — swash 0.2.10, yazi 0.2.2, zeno 0.3.3
 
 ```text
 Copyright (c) 2020 Chad Brokaw
@@ -3065,9 +3218,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-71"></a>
+<a id="notice-72"></a>
 
-### 71. MPL-2.0 — symphonia 0.6.1, symphonia-bundle-flac 0.6.1, symphonia-bundle-mp3 0.6.1, symphonia-codec-pcm 0.6.1, symphonia-codec-vorbis 0.6.1, symphonia-common 0.6.1, symphonia-core 0.6.1, symphonia-format-ogg 0.6.1, symphonia-format-riff 0.6.1, symphonia-metadata 0.6.1
+### 72. MPL-2.0 — symphonia 0.6.1, symphonia-bundle-flac 0.6.1, symphonia-bundle-mp3 0.6.1, symphonia-codec-pcm 0.6.1, symphonia-codec-vorbis 0.6.1, symphonia-common 0.6.1, symphonia-core 0.6.1, symphonia-format-ogg 0.6.1, symphonia-format-riff 0.6.1, symphonia-metadata 0.6.1
 
 ```text
 Mozilla Public License Version 2.0
@@ -3445,9 +3598,9 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
   defined by the Mozilla Public License, v. 2.0.
 ```
 
-<a id="notice-72"></a>
+<a id="notice-73"></a>
 
-### 72. MIT — sys-locale 0.3.2
+### 73. MIT — sys-locale 0.3.2
 
 ```text
 MIT License
@@ -3473,9 +3626,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-73"></a>
+<a id="notice-74"></a>
 
-### 73. BSD-3-Clause — tiny-skia 0.11.4, tiny-skia 0.12.0, tiny-skia-path 0.11.4, tiny-skia-path 0.12.0
+### 74. BSD-3-Clause — tiny-skia 0.11.4, tiny-skia 0.12.0, tiny-skia-path 0.11.4, tiny-skia-path 0.12.0
 
 ```text
 Copyright (c) 2011 Google Inc. All rights reserved.
@@ -3510,9 +3663,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-<a id="notice-74"></a>
+<a id="notice-75"></a>
 
-### 74. Unicode-3.0 — icu_collections 2.4.0, icu_locale_core 2.4.0, icu_normalizer 2.4.0, icu_normalizer_data 2.4.0, icu_properties 2.4.0, icu_properties_data 2.4.0, icu_provider 2.4.0, litemap 0.8.3, potential_utf 0.1.6, tinystr 0.8.5, writeable 0.6.4, yoke 0.8.4, zerofrom 0.1.8, zerotrie 0.2.5, zerovec 0.11.9
+### 75. Unicode-3.0 — icu_collections 2.4.0, icu_locale_core 2.4.0, icu_normalizer 2.4.0, icu_normalizer_data 2.4.0, icu_properties 2.4.0, icu_properties_data 2.4.0, icu_provider 2.4.0, litemap 0.8.3, potential_utf 0.1.6, tinystr 0.8.5, writeable 0.6.4, yoke 0.8.4, zerofrom 0.1.8, zerotrie 0.2.5, zerovec 0.11.9
 
 ```text
 UNICODE LICENSE V3
@@ -3563,9 +3716,9 @@ Portions of ICU4X may have been adapted from ICU4C and/or ICU4J.
 ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation and others.
 ```
 
-<a id="notice-75"></a>
+<a id="notice-76"></a>
 
-### 75. MIT — type-map 0.5.1
+### 76. MIT — type-map 0.5.1
 
 ```text
 Copyright (c) 2022 Jacob Brown
@@ -3649,9 +3802,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-76"></a>
+<a id="notice-77"></a>
 
-### 76. MIT — unicode-bidi 0.3.18, unicode-normalization 0.1.26, unicode-segmentation 1.13.3, unicode-width 0.2.3, vec_map 0.8.2
+### 77. MIT — unicode-bidi 0.3.18, unicode-normalization 0.1.26, unicode-segmentation 1.13.3, unicode-width 0.2.3, vec_map 0.8.2
 
 ```text
 Copyright (c) 2015 The Rust Project Developers
@@ -3681,9 +3834,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-77"></a>
+<a id="notice-78"></a>
 
-### 77. Unicode-3.0 — unicode-ident 1.0.27, unicode-normalization 0.1.26
+### 78. Unicode-3.0 — unicode-ident 1.0.27, unicode-normalization 0.1.26
 
 ```text
 UNICODE LICENSE V3
@@ -3727,9 +3880,9 @@ dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 ```
 
-<a id="notice-78"></a>
+<a id="notice-79"></a>
 
-### 78. MIT — unicode-script 0.5.9
+### 79. MIT — unicode-script 0.5.9
 
 ```text
 MIT License
@@ -3761,9 +3914,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-79"></a>
+<a id="notice-80"></a>
 
-### 79. MIT — zerocopy 0.8.64
+### 80. MIT — zerocopy 0.8.64
 
 ```text
 Copyright 2023 The Fuchsia Authors
@@ -3793,9 +3946,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-80"></a>
+<a id="notice-81"></a>
 
-### 80. MIT — alsa 0.11.0
+### 81. MIT — alsa 0.11.0
 
 ```text
 MIT License
@@ -3821,9 +3974,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-81"></a>
+<a id="notice-82"></a>
 
-### 81. MIT — alsa-sys 0.4.0
+### 82. MIT — alsa-sys 0.4.0
 
 ```text
 MIT License
@@ -3849,9 +4002,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-82"></a>
+<a id="notice-83"></a>
 
-### 82. MIT — arboard 3.7.0
+### 83. MIT — arboard 3.7.0
 
 ```text
 MIT License
@@ -3877,9 +4030,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-83"></a>
+<a id="notice-84"></a>
 
-### 83. MIT — as-raw-xcb-connection 1.0.1
+### 84. MIT — as-raw-xcb-connection 1.0.1
 
 ```text
 Copyright 2019 as-raw-xcb-connection Contributers
@@ -3909,9 +4062,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-84"></a>
+<a id="notice-85"></a>
 
-### 84. MIT — ash 0.38.0+1.3.281
+### 85. MIT — ash 0.38.0+1.3.281
 
 ```text
 Copyright (c) 2016 ASH
@@ -3941,9 +4094,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-85"></a>
+<a id="notice-86"></a>
 
-### 85. MIT — audioadapter 5.0.0, audioadapter-buffers 5.2.0, audioadapter-sample 5.2.0
+### 86. MIT — audioadapter 5.0.0, audioadapter-buffers 5.2.0, audioadapter-sample 5.2.0
 
 ```text
 Copyright (c) 2026 Henrik Enquist
@@ -3967,9 +4120,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-86"></a>
+<a id="notice-87"></a>
 
-### 86. MIT — base64 0.23.1
+### 87. MIT — base64 0.23.1
 
 ```text
 The MIT License (MIT)
@@ -3995,9 +4148,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-87"></a>
+<a id="notice-88"></a>
 
-### 87. MIT — base64ct 1.8.3
+### 88. MIT — base64ct 1.8.3
 
 ```text
 Copyright (c) 2014 Steve "Sc00bz" Thomas (steve at tobtu dot com)
@@ -4028,9 +4181,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-88"></a>
+<a id="notice-89"></a>
 
-### 88. MIT — block-buffer 0.12.1
+### 89. MIT — block-buffer 0.12.1
 
 ```text
 Copyright (c) 2018-2025 The RustCrypto Project Developers
@@ -4060,9 +4213,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-89"></a>
+<a id="notice-90"></a>
 
-### 89. MIT — block2 0.5.1, objc2 0.5.3
+### 90. MIT — block2 0.5.1, objc2 0.5.3
 
 ```text
 MIT License
@@ -4085,9 +4238,9 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTI
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-90"></a>
+<a id="notice-91"></a>
 
-### 90. MIT — block2 0.6.2, objc-sys 0.3.5, objc2 0.6.5, objc2-encode 4.1.0
+### 91. MIT — block2 0.6.2, objc-sys 0.3.5, objc2 0.6.5, objc2-encode 4.1.0
 
 ```text
 MIT License
@@ -4110,9 +4263,9 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTI
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-91"></a>
+<a id="notice-92"></a>
 
-### 91. MIT — calloop 0.13.0, smithay-client-toolkit 0.19.2
+### 92. MIT — calloop 0.13.0, smithay-client-toolkit 0.19.2
 
 ```text
 Copyright (c) 2018 Victor Berger
@@ -4136,9 +4289,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-92"></a>
+<a id="notice-93"></a>
 
-### 92. MIT — calloop-wayland-source 0.3.0, cursor-icon 1.2.0, wayland-csd-frame 0.3.0
+### 93. MIT — calloop-wayland-source 0.3.0, cursor-icon 1.2.0, wayland-csd-frame 0.3.0
 
 ```text
 Copyright (c) 2023 Kirill Chibisov
@@ -4162,9 +4315,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-93"></a>
+<a id="notice-94"></a>
 
-### 93. MIT — chacha20 0.10.2
+### 94. MIT — chacha20 0.10.2
 
 ```text
 Copyright (c) 2019-2026 The RustCrypto Project Developers
@@ -4194,9 +4347,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-94"></a>
+<a id="notice-95"></a>
 
-### 94. BSL-1.0 — clipboard-win 5.4.3, error-code 3.4.0
+### 95. BSL-1.0 — clipboard-win 5.4.3, error-code 3.4.0
 
 ```text
 Boost Software License - Version 1.0 - August 17th, 2003
@@ -4224,9 +4377,9 @@ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-95"></a>
+<a id="notice-96"></a>
 
-### 95. MIT — color_quant 1.1.0
+### 96. MIT — color_quant 1.1.0
 
 ```text
 The MIT License (MIT)
@@ -4252,9 +4405,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-96"></a>
+<a id="notice-97"></a>
 
-### 96. MIT — const-oid 0.10.3, cpufeatures 0.3.1, der 0.8.3
+### 97. MIT — const-oid 0.10.3, cpufeatures 0.3.1, der 0.8.3
 
 ```text
 Copyright (c) 2020-2026 The RustCrypto Project Developers
@@ -4284,9 +4437,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-97"></a>
+<a id="notice-98"></a>
 
-### 97. MIT — core_detect 1.0.0
+### 98. MIT — core_detect 1.0.0
 
 ```text
 Copyright (c) 2017-2020 The Rust Project Developers
@@ -4316,9 +4469,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-98"></a>
+<a id="notice-99"></a>
 
-### 98. MIT — coreaudio-rs 0.14.2, petgraph 0.8.3
+### 99. MIT — coreaudio-rs 0.14.2, petgraph 0.8.3
 
 ```text
 Copyright (c) 2015
@@ -4348,9 +4501,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-99"></a>
+<a id="notice-100"></a>
 
-### 99. MIT — crypto-common 0.2.2
+### 100. MIT — crypto-common 0.2.2
 
 ```text
 Copyright (c) 2021-2026 RustCrypto Developers
@@ -4380,9 +4533,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-100"></a>
+<a id="notice-101"></a>
 
-### 100. MIT — csscolorparser 0.9.2
+### 101. MIT — csscolorparser 0.9.2
 
 ```text
 MIT License
@@ -4408,9 +4561,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-101"></a>
+<a id="notice-102"></a>
 
-### 101. MIT — data-encoding 2.11.1
+### 102. MIT — data-encoding 2.11.1
 
 ```text
 The MIT License (MIT)
@@ -4437,9 +4590,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-102"></a>
+<a id="notice-103"></a>
 
-### 102. MIT — digest 0.11.3
+### 103. MIT — digest 0.11.3
 
 ```text
 Copyright (c) 2017-2025 RustCrypto Developers
@@ -4470,9 +4623,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-103"></a>
+<a id="notice-104"></a>
 
-### 103. MIT — dirs 7.0.0, dirs-sys 0.5.0
+### 104. MIT — dirs 7.0.0, dirs-sys 0.5.0
 
 ```text
 Copyright (c) 2018-2019 dirs-rs contributors
@@ -4496,9 +4649,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-104"></a>
+<a id="notice-105"></a>
 
-### 104. MIT — dispatch 0.2.0
+### 105. MIT — dispatch 0.2.0
 
 ```text
 MIT License
@@ -4521,9 +4674,9 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTI
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-105"></a>
+<a id="notice-106"></a>
 
-### 105. MIT — dlib 0.5.3
+### 106. MIT — dlib 0.5.3
 
 ```text
 Copyright (c) 2015 Victor Berger
@@ -4547,9 +4700,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-106"></a>
+<a id="notice-107"></a>
 
-### 106. MIT — downcast-rs 1.2.1
+### 107. MIT — downcast-rs 1.2.1
 
 ```text
 Copyright (c) 2020 Ashish Myles and contributors
@@ -4579,9 +4732,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-107"></a>
+<a id="notice-108"></a>
 
-### 107. Apache-2.0 — dpi 0.1.2, openssl 0.10.82, winit 0.30.13
+### 108. Apache-2.0 — dpi 0.1.2, openssl 0.10.82, winit 0.30.13
 
 ```text
 Apache License
@@ -4787,9 +4940,9 @@ Apache License
    limitations under the License.
 ```
 
-<a id="notice-108"></a>
+<a id="notice-109"></a>
 
-### 108. MIT — dpi 0.1.2
+### 109. MIT — dpi 0.1.2
 
 ```text
 rust-lang/libm as a whole is available for use under the MIT license:
@@ -4845,9 +4998,9 @@ have been licensed under extremely permissive terms.
 ------------------------------------------------------------------------------
 ```
 
-<a id="notice-109"></a>
+<a id="notice-110"></a>
 
-### 109. MIT — encoding_rs 0.8.44, utf8_iter 1.1.0, utf_types 1.0.0
+### 110. MIT — encoding_rs 0.8.44, utf8_iter 1.1.0, utf_types 1.0.0
 
 ```text
 Copyright Mozilla Foundation
@@ -4877,9 +5030,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-110"></a>
+<a id="notice-111"></a>
 
-### 110. BSD-3-Clause — encoding_rs 0.8.44
+### 111. BSD-3-Clause — encoding_rs 0.8.44
 
 ```text
 Copyright © WHATWG (Apple, Google, Mozilla, Microsoft).
@@ -4910,9 +5063,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-<a id="notice-111"></a>
+<a id="notice-112"></a>
 
-### 111. MIT — enumflags2 0.7.12
+### 112. MIT — enumflags2 0.7.12
 
 ```text
 Copyright (c) 2017-2023 Maik Klein, Maja Kądziołka
@@ -4942,9 +5095,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-112"></a>
+<a id="notice-113"></a>
 
-### 112. MIT — errno 0.3.15
+### 113. MIT — errno 0.3.15
 
 ```text
 Copyright (c) 2014 Chris Wong
@@ -4974,9 +5127,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-113"></a>
+<a id="notice-114"></a>
 
-### 113. MIT — extended 0.1.0
+### 114. MIT — extended 0.1.0
 
 ```text
 Copyright 2022 Dietrich Epp
@@ -5000,9 +5153,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-114"></a>
+<a id="notice-115"></a>
 
-### 114. MIT — fixedbitset 0.5.9
+### 115. MIT — fixedbitset 0.5.9
 
 ```text
 Copyright (c) 2015-2017
@@ -5032,9 +5185,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-115"></a>
+<a id="notice-116"></a>
 
-### 115. MIT — fnv 1.0.7
+### 116. MIT — fnv 1.0.7
 
 ```text
 Copyright (c) 2017 Contributors
@@ -5064,9 +5217,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-116"></a>
+<a id="notice-117"></a>
 
-### 116. MIT — fontconfig-parser 0.5.8
+### 117. MIT — fontconfig-parser 0.5.8
 
 ```text
 MIT License
@@ -5092,9 +5245,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-117"></a>
+<a id="notice-118"></a>
 
-### 117. MIT — foreign-types 0.3.2, foreign-types 0.5.0, foreign-types-shared 0.1.1, foreign-types-shared 0.3.1
+### 118. MIT — foreign-types 0.3.2, foreign-types 0.5.0, foreign-types-shared 0.1.1, foreign-types-shared 0.3.1
 
 ```text
 Copyright (c) 2017 The foreign-types Developers
@@ -5118,9 +5271,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-118"></a>
+<a id="notice-119"></a>
 
-### 118. MIT — gif 0.14.2
+### 119. MIT — gif 0.14.2
 
 ```text
 The MIT License (MIT)
@@ -5146,9 +5299,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-119"></a>
+<a id="notice-120"></a>
 
-### 119. MIT — gpu-allocator 0.28.0
+### 120. MIT — gpu-allocator 0.28.0
 
 ```text
 Copyright (c) 2021 Traverse Research B.V.
@@ -5160,9 +5313,9 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-120"></a>
+<a id="notice-121"></a>
 
-### 120. MIT — httparse 1.10.1
+### 121. MIT — httparse 1.10.1
 
 ```text
 Copyright (c) 2015-2025 Sean McArthur
@@ -5186,9 +5339,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-121"></a>
+<a id="notice-122"></a>
 
-### 121. MIT — hybrid-array 0.4.15
+### 122. MIT — hybrid-array 0.4.15
 
 ```text
 Copyright (c) 2022-2026 The RustCrypto Project Developers
@@ -5218,9 +5371,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-122"></a>
+<a id="notice-123"></a>
 
-### 122. MIT — idna_adapter 1.2.2
+### 123. MIT — idna_adapter 1.2.2
 
 ```text
 Copyright (c) The rust-url developers
@@ -5250,9 +5403,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-123"></a>
+<a id="notice-124"></a>
 
-### 123. ISC — inotify 0.11.5, inotify-sys 0.1.8
+### 124. ISC — inotify 0.11.5, inotify-sys 0.1.8
 
 ```text
 Copyright (c) Hanno Braun and contributors
@@ -5270,9 +5423,9 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-<a id="notice-124"></a>
+<a id="notice-125"></a>
 
-### 124. MIT — landlock 0.4.8
+### 125. MIT — landlock 0.4.8
 
 ```text
 MIT License
@@ -5304,9 +5457,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-125"></a>
+<a id="notice-126"></a>
 
-### 125. MIT — libc 0.2.191
+### 126. MIT — libc 0.2.191
 
 ```text
 Copyright (c) The Rust Project Developers
@@ -5336,9 +5489,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-126"></a>
+<a id="notice-127"></a>
 
-### 126. ISC — libloading 0.8.9
+### 127. ISC — libloading 0.8.9
 
 ```text
 Copyright © 2015, Simonas Kazlauskas
@@ -5355,9 +5508,9 @@ NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE US
 THIS SOFTWARE.
 ```
 
-<a id="notice-127"></a>
+<a id="notice-128"></a>
 
-### 127. MIT — libudev-sys 0.1.4
+### 128. MIT — libudev-sys 0.1.4
 
 ```text
 Copyright (c) 2015 David Cuddeback
@@ -5382,9 +5535,9 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-128"></a>
+<a id="notice-129"></a>
 
-### 128. MIT — mach2 0.6.0
+### 129. MIT — mach2 0.6.0
 
 ```text
 Copyright (c) 2019 Nick Fitzgerald, 2021 Yuki Okushi
@@ -5414,9 +5567,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-129"></a>
+<a id="notice-130"></a>
 
-### 129. Apache-2.0 — moxcms 0.8.1, pxfm 0.1.30
+### 130. Apache-2.0 — moxcms 0.8.1, pxfm 0.1.30
 
 ```text
 Apache License
@@ -5622,9 +5775,9 @@ Apache License
    limitations under the License.
 ```
 
-<a id="notice-130"></a>
+<a id="notice-131"></a>
 
-### 130. MIT — native-tls 0.2.18
+### 131. MIT — native-tls 0.2.18
 
 ```text
 Copyright (c) 2016 The rust-native-tls Developers
@@ -5648,9 +5801,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-131"></a>
+<a id="notice-132"></a>
 
-### 131. MIT — nix 0.31.4
+### 132. MIT — nix 0.31.4
 
 ```text
 The MIT License (MIT)
@@ -5676,9 +5829,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-132"></a>
+<a id="notice-133"></a>
 
-### 132. MIT — nom 8.0.0
+### 133. MIT — nom 8.0.0
 
 ```text
 Copyright (c) 2014-2019 Geoffroy Couprie
@@ -5703,9 +5856,9 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-133"></a>
+<a id="notice-134"></a>
 
-### 133. MIT — objc2-app-kit 0.2.2
+### 134. MIT — objc2-app-kit 0.2.2
 
 ```text
 MIT License
@@ -5728,9 +5881,9 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTI
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-134"></a>
+<a id="notice-135"></a>
 
-### 134. MIT — objc2-foundation 0.2.2, objc2-foundation 0.3.2
+### 135. MIT — objc2-foundation 0.2.2, objc2-foundation 0.3.2
 
 ```text
 MIT License
@@ -5753,9 +5906,9 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTI
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-135"></a>
+<a id="notice-136"></a>
 
-### 135. MPL-2.0 — option-ext 0.2.0
+### 136. MPL-2.0 — option-ext 0.2.0
 
 ```text
 Mozilla Public License Version 2.0
@@ -6133,9 +6286,9 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
   defined by the Mozilla Public License, v. 2.0.
 ```
 
-<a id="notice-136"></a>
+<a id="notice-137"></a>
 
-### 136. MIT — ordered-float 5.5.1
+### 137. MIT — ordered-float 5.5.1
 
 ```text
 Copyright (c) 2015 Jonathan Reem
@@ -6165,9 +6318,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-137"></a>
+<a id="notice-138"></a>
 
-### 137. MIT — os_pipe 1.2.3
+### 138. MIT — os_pipe 1.2.3
 
 ```text
 The MIT License (MIT)
@@ -6191,9 +6344,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-138"></a>
+<a id="notice-139"></a>
 
-### 138. MIT — pem-rfc7468 1.0.0
+### 139. MIT — pem-rfc7468 1.0.0
 
 ```text
 Copyright (c) 2021-2025 The RustCrypto Project Developers
@@ -6223,9 +6376,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-139"></a>
+<a id="notice-140"></a>
 
-### 139. MIT — phf 0.14.0, phf_shared 0.14.0
+### 140. MIT — phf 0.14.0, phf_shared 0.14.0
 
 ```text
 The MIT License (MIT)
@@ -6250,9 +6403,9 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-140"></a>
+<a id="notice-141"></a>
 
-### 140. MIT — pollster 1.0.3
+### 141. MIT — pollster 1.0.3
 
 ```text
 Copyright (c) 2020-2021 Joshua Barretto
@@ -6282,9 +6435,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-141"></a>
+<a id="notice-142"></a>
 
-### 141. MIT — presser 0.3.1
+### 142. MIT — presser 0.3.1
 
 ```text
 Copyright (c) 2019 Embark Studios
@@ -6314,9 +6467,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-142"></a>
+<a id="notice-143"></a>
 
-### 142. MIT — primal-check 0.3.4
+### 143. MIT — primal-check 0.3.4
 
 ```text
 Copyright (c) 2014 Huon Wilson
@@ -6346,9 +6499,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-143"></a>
+<a id="notice-144"></a>
 
-### 143. MIT — quick-error 2.0.1
+### 144. MIT — quick-error 2.0.1
 
 ```text
 Copyright (c) 2015 The quick-error Developers
@@ -6372,9 +6525,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-144"></a>
+<a id="notice-145"></a>
 
-### 144. MIT — rand 0.10.4
+### 145. MIT — rand 0.10.4
 
 ```text
 Copyright 2018 Developers of the Rand project
@@ -6405,9 +6558,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-145"></a>
+<a id="notice-146"></a>
 
-### 145. MIT — rand_core 0.10.1
+### 146. MIT — rand_core 0.10.1
 
 ```text
 Copyright (c) 2018-2026 The Rand Project Developers
@@ -6437,9 +6590,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-146"></a>
+<a id="notice-147"></a>
 
-### 146. MIT — range-alloc 0.1.5
+### 147. MIT — range-alloc 0.1.5
 
 ```text
 MIT License
@@ -6465,9 +6618,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-147"></a>
+<a id="notice-148"></a>
 
-### 147. MIT — realfft 3.5.1
+### 148. MIT — realfft 3.5.1
 
 ```text
 MIT License
@@ -6493,9 +6646,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-148"></a>
+<a id="notice-149"></a>
 
-### 148. MIT — renderdoc-sys 1.1.0
+### 149. MIT — renderdoc-sys 1.1.0
 
 ```text
 Copyright (c) 2022 Eyal Kalderon
@@ -6525,9 +6678,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-149"></a>
+<a id="notice-150"></a>
 
-### 149. MIT — rfd 0.18.0, sctk-adwaita 0.10.1
+### 150. MIT — rfd 0.18.0, sctk-adwaita 0.10.1
 
 ```text
 MIT License
@@ -6553,9 +6706,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-150"></a>
+<a id="notice-151"></a>
 
-### 150. MIT — rubato 5.1.0
+### 151. MIT — rubato 5.1.0
 
 ```text
 Copyright (c) 2020 Henrik Enquist
@@ -6579,9 +6732,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-151"></a>
+<a id="notice-152"></a>
 
-### 151. MIT — rustfft 6.4.1, strength_reduce 0.2.4
+### 152. MIT — rustfft 6.4.1, strength_reduce 0.2.4
 
 ```text
 Copyright (c) 2015 The RustFFT Developers
@@ -6605,9 +6758,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-152"></a>
+<a id="notice-153"></a>
 
-### 152. MIT — rustls-pki-types 1.16.0
+### 153. MIT — rustls-pki-types 1.16.0
 
 ```text
 Copyright (c) 2023 Dirkjan Ochtman <dirkjan@ochtman.nl>
@@ -6637,9 +6790,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-153"></a>
+<a id="notice-154"></a>
 
-### 153. MIT — schannel 0.1.30
+### 154. MIT — schannel 0.1.30
 
 ```text
 Copyright (c) 2015 steffengy
@@ -6651,9 +6804,9 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-154"></a>
+<a id="notice-155"></a>
 
-### 154. MIT — security-framework 3.7.0, security-framework-sys 2.17.0
+### 155. MIT — security-framework 3.7.0, security-framework-sys 2.17.0
 
 ```text
 The MIT License (MIT)
@@ -6678,9 +6831,9 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-155"></a>
+<a id="notice-156"></a>
 
-### 155. MIT — sha1 0.11.0, sha2 0.11.1
+### 156. MIT — sha1 0.11.0, sha2 0.11.1
 
 ```text
 Copyright (c) 2016-2026 The RustCrypto Project Developers
@@ -6713,9 +6866,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-156"></a>
+<a id="notice-157"></a>
 
-### 156. MIT — stable_deref_trait 1.2.1
+### 157. MIT — stable_deref_trait 1.2.1
 
 ```text
 Copyright (c) 2017 Robert Grosse
@@ -6745,9 +6898,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-157"></a>
+<a id="notice-158"></a>
 
-### 157. MIT — tempfile 3.27.0
+### 158. MIT — tempfile 3.27.0
 
 ```text
 Copyright (c) 2015 Steven Allen
@@ -6777,9 +6930,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-158"></a>
+<a id="notice-159"></a>
 
-### 158. MIT — tracing 0.1.44, tracing-core 0.1.36
+### 159. MIT — tracing 0.1.44, tracing-core 0.1.36
 
 ```text
 Copyright (c) 2019 Tokio Contributors
@@ -6809,9 +6962,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-159"></a>
+<a id="notice-160"></a>
 
-### 159. MIT — transpose 0.2.3
+### 160. MIT — transpose 0.2.3
 
 ```text
 Copyright (c) 2022 The transpose Developers
@@ -6841,9 +6994,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-160"></a>
+<a id="notice-161"></a>
 
-### 160. MIT — tree_magic_mini 3.2.2
+### 161. MIT — tree_magic_mini 3.2.2
 
 ```text
 MIT License
@@ -6869,9 +7022,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-161"></a>
+<a id="notice-162"></a>
 
-### 161. MIT — tungstenite 0.30.0
+### 162. MIT — tungstenite 0.30.0
 
 ```text
 Copyright (c) 2017 Alexey Galakhov
@@ -6896,9 +7049,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-162"></a>
+<a id="notice-163"></a>
 
-### 162. MIT — typenum 1.20.1
+### 163. MIT — typenum 1.20.1
 
 ```text
 The MIT License (MIT)
@@ -6924,9 +7077,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-163"></a>
+<a id="notice-164"></a>
 
-### 163. MIT — uncased 0.9.10
+### 164. MIT — uncased 0.9.10
 
 ```text
 The MIT License (MIT)
@@ -6950,9 +7103,9 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-164"></a>
+<a id="notice-165"></a>
 
-### 164. MIT — ureq 3.5.2
+### 165. MIT — ureq 3.5.2
 
 ```text
 MIT License
@@ -6978,9 +7131,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-165"></a>
+<a id="notice-166"></a>
 
-### 165. MIT — ureq-proto 0.7.1
+### 166. MIT — ureq-proto 0.7.1
 
 ```text
 Copyright 2022 Martin Algesten
@@ -6992,9 +7145,9 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-166"></a>
+<a id="notice-167"></a>
 
-### 166. MIT — uuid 1.29.3
+### 167. MIT — uuid 1.29.3
 
 ```text
 Copyright (c) 2014 The Rust Project Developers
@@ -7025,9 +7178,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-167"></a>
+<a id="notice-168"></a>
 
-### 167. MIT — wayland-backend 0.3.17, wayland-client 0.31.15, wayland-cursor 0.31.14, wayland-protocols 0.32.13, wayland-protocols-plasma 0.3.12, wayland-protocols-wlr 0.3.12, wayland-sys 0.31.11
+### 168. MIT — wayland-backend 0.3.17, wayland-client 0.31.15, wayland-cursor 0.31.14, wayland-protocols 0.32.13, wayland-protocols-plasma 0.3.12, wayland-protocols-wlr 0.3.12, wayland-sys 0.31.11
 
 ```text
 Copyright (c) 2015 Elinor Berger
@@ -7051,9 +7204,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-168"></a>
+<a id="notice-169"></a>
 
-### 168. MIT — weezl 0.1.12
+### 169. MIT — weezl 0.1.12
 
 ```text
 The MIT License (MIT)
@@ -7079,9 +7232,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-169"></a>
+<a id="notice-170"></a>
 
-### 169. MIT — windowfunctions 0.1.1
+### 170. MIT — windowfunctions 0.1.1
 
 ```text
 Copyright (c) 2025 Henrik Enquist
@@ -7105,9 +7258,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-170"></a>
+<a id="notice-171"></a>
 
-### 170. MIT — windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-link 0.2.1, windows-numerics 0.3.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.52.0, windows-sys 0.61.2, windows-targets 0.52.6, windows-threading 0.2.1, windows_aarch64_msvc 0.52.6, windows_x86_64_msvc 0.52.6
+### 171. MIT — windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-link 0.2.1, windows-numerics 0.3.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.52.0, windows-sys 0.61.2, windows-targets 0.52.6, windows-threading 0.2.1, windows_aarch64_msvc 0.52.6, windows_x86_64_msvc 0.52.6
 
 ```text
 MIT License
@@ -7133,9 +7286,9 @@ MIT License
     SOFTWARE
 ```
 
-<a id="notice-171"></a>
+<a id="notice-172"></a>
 
-### 171. MIT — wl-clipboard-rs 0.9.5
+### 172. MIT — wl-clipboard-rs 0.9.5
 
 ```text
 Copyright (c) 2019 Ivan Molodetskikh
@@ -7165,9 +7318,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-172"></a>
+<a id="notice-173"></a>
 
-### 172. MIT — x11rb 0.13.2, x11rb-protocol 0.13.2
+### 173. MIT — x11rb 0.13.2, x11rb-protocol 0.13.2
 
 ```text
 Copyright 2019 x11rb Contributers
@@ -7197,9 +7350,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-173"></a>
+<a id="notice-174"></a>
 
-### 173. MIT — xcursor 0.3.11
+### 174. MIT — xcursor 0.3.11
 
 ```text
 MIT License
@@ -7225,9 +7378,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-174"></a>
+<a id="notice-175"></a>
 
-### 174. MIT — xkbcommon-dl 0.4.2
+### 175. MIT — xkbcommon-dl 0.4.2
 
 ```text
 The MIT License (MIT)
@@ -7253,9 +7406,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-175"></a>
+<a id="notice-176"></a>
 
-### 175. MIT — xkeysym 0.2.1
+### 176. MIT — xkeysym 0.2.1
 
 ```text
 Copyright (c) 2022-2023 John Nunley
@@ -7279,9 +7432,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-176"></a>
+<a id="notice-177"></a>
 
-### 176. MIT — zeroize 1.9.2
+### 177. MIT — zeroize 1.9.2
 
 ```text
 Copyright (c) 2018-2026 The RustCrypto Project Developers
@@ -7311,9 +7464,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-177"></a>
+<a id="notice-178"></a>
 
-### 177. MIT — zune-core 0.5.3, zune-jpeg 0.5.15
+### 178. MIT — zune-core 0.5.3, zune-jpeg 0.5.15
 
 ```text
 MIT License
