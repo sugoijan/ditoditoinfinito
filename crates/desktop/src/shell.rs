@@ -1285,17 +1285,40 @@ impl Shell {
         }
     }
 
-    /// The time a pointer's edge on a play is stamped with: the host
-    /// clock as the event is handled, the clock the play's sound runs on
-    /// ([`crate::clock::now`]). A test that runs the play on a clock of
-    /// its own (`Host::test_clock`, frames stepped faster than real time)
-    /// gets that clock's time, so a press is never measured across two
-    /// clocks (the quit button's hold and double tap, a lane's judgment).
-    fn pointer_time(&self) -> ddi_platform::HostTime {
+    /// The time the shell stamps a play's edge with where it makes one
+    /// itself (a pointer's, and the keys and touches released when the
+    /// window loses the focus): the host clock as the event is handled,
+    /// the clock the play's sound runs on ([`crate::clock::now`]). A test
+    /// that runs the play on a clock of its own (`Host::test_clock`,
+    /// frames stepped faster than real time) gets that clock's time, so a
+    /// press is never measured across two clocks (the quit button's hold
+    /// and double tap, a lane's judgment, a hold let go).
+    fn play_input_time(&self) -> ddi_platform::HostTime {
         match &self.play.test_clock {
             Some(clock) => ddi_platform::HostTime(clock() as f64 / 1e9),
             None => crate::clock::now(),
         }
+    }
+
+    /// The window gained or lost the focus. Lost: what is held is let go
+    /// (its releases would go elsewhere), keys and touches alike, stamped
+    /// as the shell stamps a play's edges ([`Shell::play_input_time`]),
+    /// and typing ends, as the web's textarea blurs with its page.
+    pub fn focused(&mut self, f: bool) {
+        if !f {
+            let at = self.play_input_time();
+            self.input.keyboard.release_all(at);
+            self.release_touches();
+        }
+        if !f && self.typing {
+            self.typing = false;
+            self.preedit = false;
+            if let Some(s) = self.window() {
+                s.window.set_ime_allowed(false);
+            }
+            self.send(UiEvent::Text(TextEvent::Blurred));
+        }
+        self.send(UiEvent::Focus(f));
     }
 
     /// The pointer moved over a play: its quit button shows a moment.
@@ -1333,7 +1356,7 @@ impl Shell {
     /// pointer and released by its last, a lane's finger sliding past the
     /// controls' dead band. A finger on the play makes touch the input
     /// source (the controls show). The edges are stamped with the clock
-    /// as the event is handled ([`Shell::pointer_time`]). Whether the play took it (else it is the
+    /// as the event is handled ([`Shell::play_input_time`]). Whether the play took it (else it is the
     /// UI's: a finger on a play with touch controls is always the
     /// play's).
     fn play_edge(&mut self, id: u64, finger: bool, phase: PointerPhase, pos: [f32; 2]) -> bool {
@@ -1341,7 +1364,7 @@ impl Shell {
         if !self.play.playing() {
             return false;
         }
-        let at = self.pointer_time();
+        let at = self.play_input_time();
         let (taken, touch) = {
             let mut feed = self.play.feed.borrow_mut();
             let crate::play::Feed {
@@ -1407,7 +1430,7 @@ impl Shell {
     /// the web's page does on `blur` and when hidden (no touch's end may
     /// come to a window without the focus).
     pub fn release_touches(&mut self) {
-        let at = self.pointer_time();
+        let at = self.play_input_time();
         let mut feed = self.play.feed.borrow_mut();
         let crate::play::Feed {
             pointers,
@@ -1661,23 +1684,7 @@ impl ApplicationHandler for Shell {
                 self.scale = scale_factor;
                 self.resized();
             }
-            WindowEvent::Focused(f) => {
-                if !f {
-                    self.input.keyboard.release_all(crate::clock::now());
-                    self.release_touches();
-                }
-                // Typing ends with the window's focus, as the web's
-                // textarea blurs with its page.
-                if !f && self.typing {
-                    self.typing = false;
-                    self.preedit = false;
-                    if let Some(s) = self.window() {
-                        s.window.set_ime_allowed(false);
-                    }
-                    self.send(UiEvent::Text(TextEvent::Blurred));
-                }
-                self.send(UiEvent::Focus(f));
-            }
+            WindowEvent::Focused(f) => self.focused(f),
             WindowEvent::Occluded(o) => {
                 // A play stops when its window stays hidden, as the web's
                 // does with its page (its frames stop); a moment hidden

@@ -410,7 +410,7 @@ fn two_fingers_on_the_quit_button_are_one_press() {
     assert_eq!(w.watching(), None, "two fingers are no double tap");
     // (The play's clock past the double tap's half second since that
     // press: the frames step it, and the shell stamps a finger's edges
-    // on it, `Shell::pointer_time`.)
+    // on it, `Shell::play_input_time`.)
     w.frames(30);
     assert_eq!(w.watching(), None, "nor a hold");
     // One finger twice: the quit (a forfeit, watched on).

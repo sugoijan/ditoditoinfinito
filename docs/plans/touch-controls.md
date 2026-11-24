@@ -318,7 +318,8 @@ pixels of the canvas, logical pixels of the window), the lane under a
 finger (the controls' plan; the web's legacy columns), its time stamps
 (the web's event time, desktop's clock as the event is handled, as
 before; under a test's own play clock, `Host::test_clock`, that clock,
-`Shell::pointer_time`, so an offscreen test never measures a press
+`Shell::play_input_time`, as the keys and touches the window lets go
+when it loses the focus are, so an offscreen test never measures a press
 across two clocks) and what it does around a press (the web's pointer capture and
 `preventDefault`, desktop's screens under a framed play).
 
