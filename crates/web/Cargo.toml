@@ -152,9 +152,5 @@ web-sys = { workspace = true, features = [
     "console",
 ] }
 
-[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-# Force getrandom 0.2 "js" feature for transitive wasm32-unknown-unknown deps.
-getrandom_02 = { workspace = true, features = ["js"] }
-
 [dev-dependencies]
 wasm-bindgen-test.workspace = true

@@ -43,7 +43,7 @@ wgpu = { workspace = true, features = ["std", "wgsl", "metal", "vulkan", "dx12"]
 winit = "0.30.13"
 # File dialogs: on Linux through the XDG desktop portal (the default),
 # not GTK.
-rfd = "0.17.2"
+rfd = "0.18.0"
 # The clipboard, text only (no `image`); Wayland's data-control too.
 arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
 # Banners and backgrounds: what StepMania reads (PNG, JPEG, GIF, BMP)

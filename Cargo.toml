@@ -50,12 +50,11 @@ lunita = "0.1"
 # app / web
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-gloo = { version = "0.12", features = ["futures"] }
+gloo = { version = "0.13", features = ["futures"] }
 js-sys = "0.3"
 web-sys = "0.3"
 console_error_panic_hook = "0.1"
 wasm-bindgen-test = "0.3"
-getrandom_02 = { package = "getrandom", version = "0.2" }
 
 # rendering
 wgpu = { version = "30", default-features = false }
@@ -79,7 +78,7 @@ miniz_oxide = "0.9"
 # for the wasm build.
 deflate64 = "0.1.12"
 bzip2-rs = "0.1.2"
-lzma-rust2 = { version = "0.23", default-features = false, features = ["std"] }
+lzma-rust2 = { version = "0.25", default-features = false, features = ["std"] }
 ruzstd = { version = "0.9.1", default-features = false, features = ["std"] }
 encoding_rs = "0.8.42"
 unicode-segmentation = "1.13.3"
