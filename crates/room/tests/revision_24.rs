@@ -9,7 +9,7 @@
 
 mod common;
 
-
+use common::Room;
 use ddi_room::attacks::{
     ATTACKS, AttackEvent, Judged, POWER_CLASSES_V0, Report, RosterSeat, StageBattle, StageRoster,
     Targeting,
@@ -110,4 +110,135 @@ fn an_honest_play_is_credited_every_judgment() {
     // Eleven, then thirteen (one carried over), as a late judgment would.
     let ana = |k: usize| if k.is_multiple_of(2) { 11 } else { 13 };
     assert_eq!(run(&mut bounded, N, ana), run(&mut free, N, ana));
+}
+
+// ---- 2. Rows of people long gone are forgotten ----
+
+/// A hosted live room with two songs listed by the host, a two-stage
+/// match's rules.
+fn hosted() -> Room {
+    let mut policy = RoomPolicy::default().with_live().with_audience();
+    policy.readiness.window_ms = 15_000;
+    let mut rules = MatchRules::hosted();
+    rules.stages = 2;
+    Room::open("host", "Host", policy, rules, ContentSource::Shared)
+}
+
+/// `n` people who came to watch and left, `name0`, `name1`…: their ids.
+fn passers(r: &mut Room, name: &str, n: usize) -> Vec<ParticipantId> {
+    (0..n)
+        .map(|i| {
+            let id = r.join_as(&format!("{name}{i}"), Intent::Watch, false).unwrap();
+            r.by(id, Command::Leave).unwrap();
+            id
+        })
+        .collect()
+}
+
+fn rows(r: &Room) -> usize {
+    r.s.members.values().filter(|m| !m.is_cpu()).count()
+}
+
+/// Item 2: a room many came and went through keeps the rows of at most
+/// `left_rows_kept` (its member bound, 384) people who left and whom
+/// nothing names: a newcomer's join forgets the earliest arrivals beyond
+/// them (`Event::MembersForgotten`), every mirror alike. Before revision
+/// 24 every row was kept, and a newcomer was refused as a full room
+/// after 1,552 different people.
+#[test]
+fn a_newcomers_join_forgets_the_rows_of_people_long_gone() {
+    let mut r = hosted();
+    let kept = r.s.policy.left_rows_kept();
+    assert_eq!(kept, 384);
+    let gone = passers(&mut r, "p", kept + 20);
+    // Each newcomer's join forgot the earliest beyond the 384: the host
+    // and 385 who left (the last one left after their own join).
+    assert_eq!(rows(&r), 1 + kept + 1);
+    assert!(r.s.member(gone[18]).is_none());
+    assert!(r.s.member(gone[19]).is_some());
+    let events = r.sys(Command::Join {
+        identity: Identity::new("twitch:new"),
+        name: "new".into(),
+        admin: false,
+        intent: Intent::Watch,
+    })
+    .unwrap();
+    assert_eq!(
+        events[0],
+        Event::MembersForgotten { participants: vec![gone[19]] },
+        "the earliest arrival forgotten first"
+    );
+    assert_eq!(rows(&r), 1 + kept + 1);
+    // Past the old stopgap: 2,000 people came and went, a newcomer is
+    // still let in.
+    passers(&mut r, "q", 1_700);
+    let late = r.join_as("late", Intent::Watch, false).unwrap();
+    assert!(r.s.member(late).is_some());
+    assert!(rows(&r) <= kept + 3, "{}", rows(&r));
+    // One forgotten who comes back is a newcomer, a new id.
+    let again = r.join_as("p0", Intent::Watch, false).unwrap();
+    assert_ne!(again, gone[0]);
+    assert!(again.0 > late.0);
+}
+
+/// What a forgotten person could lose is never forgotten: a player of a
+/// kept match (its standings name them), one whose song is listed, a
+/// co-host (their role), the room's picker; the authority's Forget (at
+/// a quiet moment) forgets the rest at once, and a member may not send
+/// it.
+#[test]
+fn rows_something_names_are_never_forgotten() {
+    let mut policy = RoomPolicy::default().with_live().with_audience();
+    policy.max_members = 4;
+    let mut rules = MatchRules::hosted();
+    rules.stages = 2;
+    let mut r = Room::open("host", "Host", policy, rules, ContentSource::Shared);
+    let host = r.host;
+    assert_eq!(r.s.policy.left_rows_kept(), 4);
+    let ana = r.join_as("ana", Intent::Play, false).unwrap();
+    let cy = r.join_as("cy", Intent::Watch, false).unwrap();
+    r.by(host, Command::SetCoHost { participant: cy, on: true }).unwrap();
+    r.by(host, Command::SetWhoAdds { who: songs::WhoAdds::Everyone }).unwrap();
+    let dee = r.join_as("dee", Intent::Watch, false).unwrap();
+    r.by(dee, Command::AddSong { song: Box::new(common::new_song(1)) }).unwrap();
+    let listed = r.s.songs.entries[0].id;
+    r.sys(Command::SetSongContent {
+        song: listed,
+        status: ContentStatus::Available,
+        share: Some("listed".into()),
+        charts: None,
+    })
+    .unwrap();
+    // Ana plays the first stage, then leaves; so do Cy and Dee.
+    r.by(host, Command::Pick { content: common::song(2), card: None }).unwrap();
+    let stage = r.s.upcoming_stage().unwrap();
+    r.sys(Command::SetContentStatus { stage, status: ContentStatus::Available, share: Some("sh".into()) })
+        .unwrap();
+    for p in [host, ana] {
+        r.load_for(p, stage, Loading::Loaded).unwrap();
+        r.ready_for(p, stage, true).unwrap();
+    }
+    r.wait(r.s.policy.readiness.countdown_ms + 1_000);
+    assert!(matches!(r.s.phase, Phase::Stage { .. }), "{:?}", r.s.phase);
+    for p in [ana, cy, dee] {
+        r.by(p, Command::Leave).unwrap();
+    }
+    let gone = passers(&mut r, "p", 3);
+    for p in [ana, cy, dee] {
+        assert!(!r.s.forgettable(p), "{p:?}");
+    }
+    assert!(r.s.referenced(ana) && r.s.referenced(dee) && !r.s.referenced(cy));
+    assert_eq!(r.s.to_forget(0), gone);
+    assert_eq!(r.by(host, Command::Forget), Err(Rejection::AuthorityOnly));
+    let events = r.sys(Command::Forget).unwrap();
+    assert!(events.is_empty(), "three of four kept");
+    passers(&mut r, "q", 3);
+    // Joins forgot one; the authority's Forget the next beyond four.
+    assert!(r.s.member(gone[0]).is_none());
+    let events = r.sys(Command::Forget).unwrap();
+    assert_eq!(events, vec![Event::MembersForgotten { participants: vec![gone[1]] }]);
+    for p in [ana, cy, dee] {
+        assert!(r.s.member(p).is_some());
+    }
+    assert!(r.s.to_forget(4).is_empty());
 }

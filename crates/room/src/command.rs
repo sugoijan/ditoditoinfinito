@@ -303,6 +303,15 @@ pub enum Command {
         admin: bool,
         intent: Intent,
     },
+    /// Forgets the rows of people long gone (room model revision 24,
+    /// `forget-v0`): of those who left as plain members and whom nothing
+    /// the room keeps names ([`RoomState::forgettable`](crate::RoomState::forgettable)),
+    /// all but the [`RoomPolicy::left_rows_kept`](crate::RoomPolicy::left_rows_kept)
+    /// who arrived last ([`Event::MembersForgotten`]; nothing where there
+    /// are no more). A newcomer's join does the same by itself; an
+    /// authority may send it at a quiet moment too. One forgotten who
+    /// comes back is a newcomer.
+    Forget,
     SetConnection {
         participant: ParticipantId,
         connection: Connection,
@@ -425,6 +434,13 @@ pub enum Event {
     MemberRemoved {
         participant: ParticipantId,
         by: ParticipantId,
+    },
+    /// The rows of people long gone, forgotten ([`Command::Forget`], room
+    /// model revision 24): each removed from the room's members. Nothing
+    /// the room keeps names them; a forgotten person who comes back is a
+    /// newcomer, with a new id (ids are never reused).
+    MembersForgotten {
+        participants: Vec<ParticipantId>,
     },
     /// The room's Twitch setting ([`Command::SetTwitch`]; none also when
     /// the one who set it left the room).

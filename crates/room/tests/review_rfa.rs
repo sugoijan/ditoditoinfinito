@@ -100,7 +100,9 @@ fn the_next_rules_are_bounded() {
 /// `RoomPolicy::member_rows` people's rows, present or not (four times
 /// its member bound and administrators' reserve: 1,552 for a room of
 /// today's bound); someone with a row comes back as before. Proven with
-/// a member bound of 4 (rows: 20).
+/// a member bound of 4 (rows: 20). Since room model revision 24 a far
+/// backstop: rows nothing names are forgotten (`tests/revision_24.rs`),
+/// so here the people who leave are co-hosts, whose role keeps the row.
 #[test]
 fn a_room_keeps_a_bounded_number_of_peoples_rows() {
     let mut policy = RoomPolicy::default().with_live().with_audience();
@@ -109,16 +111,20 @@ fn a_room_keeps_a_bounded_number_of_peoples_rows() {
     assert_eq!(policy.member_rows(), 20);
     assert_eq!(RoomPolicy::default().member_rows(), 1_552);
     let mut r = Room::open("host", "Host", policy, MatchRules::hosted(), ContentSource::Shared);
-    let first = r.join_as("p0", Intent::Watch, false).unwrap();
-    r.by(first, Command::Leave).unwrap();
-    for i in 1..18 {
-        let id = r.join_as(&format!("p{i}"), Intent::Watch, false).unwrap();
+    let host = r.host;
+    let cohost = |r: &mut Room, name: &str| {
+        let id = r.join_as(name, Intent::Watch, false).unwrap();
+        r.by(host, Command::SetCoHost { participant: id, on: true }).unwrap();
         r.by(id, Command::Leave).unwrap();
+        id
+    };
+    let first = cohost(&mut r, "p0");
+    for i in 1..18 {
+        cohost(&mut r, &format!("p{i}"));
     }
     assert_eq!(r.s.members.len(), 19, "the host and 18 who left");
     // The twentieth row is taken; a twenty-first person is refused.
-    let last = r.join_as("p18", Intent::Watch, false).unwrap();
-    r.by(last, Command::Leave).unwrap();
+    cohost(&mut r, "p18");
     assert_eq!(r.join_as("p19", Intent::Watch, false), Err(Rejection::RoomFull));
     // An administrator too: the bound is the room's stored size.
     assert_eq!(r.join_as("pat", Intent::Watch, true), Err(Rejection::RoomFull));

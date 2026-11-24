@@ -1348,6 +1348,86 @@ impl RoomState {
             .filter(|_| self.phase.kind().match_running())
     }
 
+    /// Whether anything the room keeps names `id` (room model revision
+    /// 24): a match kept (the running one or the last, and the finished
+    /// ones of its history: rosters, every stage's preparation, lineup,
+    /// sat out, reports and details), a stage of the next match's
+    /// playlist, the pick or the spotlight, a song of the list, the
+    /// room's Twitch, a choice, the draw or the last draw made.
+    pub fn referenced(&self, id: ParticipantId) -> bool {
+        self.named().contains(&id)
+    }
+
+    /// Everyone [`RoomState::referenced`] names, at once.
+    pub fn named(&self) -> BTreeSet<ParticipantId> {
+        fn stage(s: &Stage, out: &mut BTreeSet<ParticipantId>) {
+            out.extend(s.prep.keys());
+            if let Some(p) = &s.play {
+                out.extend(p.lineup.iter());
+                out.extend(p.sat_out.keys());
+                out.extend(p.reports.keys());
+                out.extend(p.details.keys());
+            }
+        }
+        fn a_match(m: &Match, out: &mut BTreeSet<ParticipantId>) {
+            out.extend(m.roster.keys());
+            for s in &m.stages {
+                stage(s, out);
+            }
+        }
+        let mut out = BTreeSet::new();
+        if let Some(m) = &self.current {
+            a_match(m, &mut out);
+        }
+        for r in &self.history {
+            a_match(&r.played, &mut out);
+        }
+        for s in &self.playlist {
+            stage(s, &mut out);
+        }
+        out.extend(self.picking.picker);
+        out.extend(self.spotlight.as_ref().map(|s| s.by));
+        out.extend(self.songs.entries.iter().map(|e| e.by));
+        out.extend(self.twitch.as_ref().map(|t| t.by));
+        out.extend(self.choices.keys());
+        out.extend(self.draw.as_ref().map(|d| d.by));
+        if let Some(d) = &self.drawn {
+            out.extend(d.entries.iter().map(|e| e.participant));
+        }
+        out
+    }
+
+    /// Whether `id`'s row may be forgotten (room model revision 24,
+    /// [`crate::Command::Forget`]): a person who left the room as a plain
+    /// member (a co-host's role, which they would come back to, is kept;
+    /// the owner never leaves) whom nothing the room keeps names
+    /// ([`RoomState::referenced`]). Such a person loses nothing but their
+    /// row: their attack policy (Spread again), the room's memory of a
+    /// kick (their return is a newcomer's, held to the admission and the
+    /// invite as one who was kicked is) and of the watch-only link they
+    /// came by (back by it they are held to watching again; back by the
+    /// invite they had it). No match points: a match that names them
+    /// keeps the row.
+    pub fn forgettable(&self, id: ParticipantId) -> bool {
+        self.members.get(&id).is_some_and(|m| m.left && !m.is_cpu() && m.role == Role::Member)
+            && !self.referenced(id)
+    }
+
+    /// The rows to forget to keep no more than `keep` forgettable ones
+    /// ([`RoomState::forgettable`]): those of the earliest arrivals first
+    /// (the lowest ids, which are never reused).
+    pub fn to_forget(&self, keep: usize) -> Vec<ParticipantId> {
+        let named = self.named();
+        let all: Vec<ParticipantId> = self
+            .members
+            .values()
+            .filter(|m| m.left && !m.is_cpu() && m.role == Role::Member && !named.contains(&m.id))
+            .map(|m| m.id)
+            .collect();
+        let over = all.len().saturating_sub(keep);
+        all.into_iter().take(over).collect()
+    }
+
     /// People present who want a competitive seat: the human seats the next
     /// match must hold.
     /// The people present (not left), the count a join is limited on.

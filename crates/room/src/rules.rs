@@ -184,15 +184,27 @@ impl RoomPolicy {
 
     /// The most people's rows a room keeps, present or not (round RFa,
     /// 2026-11-22): four times its member bound and administrators'
-    /// reserve (1,552 for a room of today's bound). A person who left
-    /// keeps their row (results and records name them by id, and a
-    /// returning person finds theirs by identity on every device), so a
-    /// new person is refused as a full room once the room keeps this many
+    /// reserve (1,552 for a room of today's bound); a new person is
+    /// refused as a full room once the room keeps this many
     /// ([`crate::Command::Join`]); one who has a row comes back as before.
     /// About 170 bytes a row (up to 430 with the longest names), so the
-    /// rows stay well inside the stored room's bound.
+    /// rows stay well inside the stored room's bound. Since room model
+    /// revision 24 a far backstop: the rows of people long gone are
+    /// forgotten ([`RoomPolicy::left_rows_kept`]), and only rows something
+    /// the room keeps names (a kept match, the list, a co-host's role)
+    /// could ever reach it.
     pub fn member_rows(&self) -> usize {
         4 * (usize::from(self.max_members) + usize::from(self.admin_reserve))
+    }
+
+    /// The rows of people who left a room keeps where nothing the room
+    /// keeps names them (room model revision 24, `forget-v0`,
+    /// [`crate::Command::Forget`]): as many as its member bound (384), the
+    /// earliest arrivals forgotten first beyond them. Such a row is kept
+    /// only so that a person who comes back soon finds their attack
+    /// policy as they left it.
+    pub fn left_rows_kept(&self) -> usize {
+        usize::from(self.max_members)
     }
 
     /// The one place the competitor cap is checked: reservations, CPU seats

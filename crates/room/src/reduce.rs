@@ -1089,8 +1089,12 @@ impl RoomState {
                 if self.present_people() >= limit {
                     return Err(Rejection::RoomFull);
                 }
-                // The rows the room keeps, those who left too (round
-                // RFa): a new person past them is refused as a full room.
+                // The rows of people long gone, forgotten first (revision
+                // 24) ...
+                self.forget(out);
+                // ... then the rows the room keeps, those who left too
+                // (round RFa), a far backstop since: a new person past
+                // them is refused as a full room.
                 let rows = self.members.values().filter(|m| !m.is_cpu()).count();
                 if rows >= self.policy.member_rows() {
                     return Err(Rejection::RoomFull);
@@ -1111,6 +1115,11 @@ impl RoomState {
                         ),
                     },
                 );
+                Ok(())
+            }
+            Command::Forget => {
+                Self::authority_only(actor)?;
+                self.forget(out);
                 Ok(())
             }
             Command::SetConnection {
@@ -1448,6 +1457,15 @@ impl RoomState {
                 },
             },
         );
+    }
+
+    /// The rows of people long gone forgotten ([`Command::Forget`]): all
+    /// but [`crate::RoomPolicy::left_rows_kept`] of those nothing names.
+    fn forget(&mut self, out: &mut Vec<Event>) {
+        let participants = self.to_forget(self.policy.left_rows_kept());
+        if !participants.is_empty() {
+            self.emit(out, Event::MembersForgotten { participants });
+        }
     }
 
     /// `id` is out of the room (`gone`: their leaving, or their removal):
@@ -2628,6 +2646,11 @@ impl RoomState {
                     m.connection = Connection::Disconnected;
                 }
                 self.drop_prep(*participant, true);
+            }
+            Event::MembersForgotten { participants } => {
+                for p in participants {
+                    self.members.remove(p);
+                }
             }
             Event::ConnectionChanged {
                 participant,
