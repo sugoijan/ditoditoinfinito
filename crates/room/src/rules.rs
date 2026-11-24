@@ -399,7 +399,9 @@ impl Default for Access {
 pub enum Admission {
     /// Newcomers with the invite may enter.
     Open,
-    /// No new members; present and returning members are unaffected.
+    /// No new members; present and returning members are unaffected,
+    /// but one who was kicked comes back as a newcomer would and is kept
+    /// out (room model revision 24, `Member::kicked`).
     Closed,
 }
 

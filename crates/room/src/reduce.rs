@@ -1054,6 +1054,11 @@ impl RoomState {
                     if m.left && self.present_people() >= limit {
                         return Err(Rejection::RoomFull);
                     }
+                    // One kicked comes back as a newcomer comes in, as
+                    // far as the admission goes (revision 24).
+                    if m.left && m.kicked && self.access.admission == Admission::Closed && !admin {
+                        return Err(Rejection::AdmissionClosed);
+                    }
                     // An administrator is one wherever they are, and only
                     // while their session says so: the row follows the
                     // join (revision 12).
@@ -2638,12 +2643,15 @@ impl RoomState {
                 if let Some(m) = self.members.get_mut(participant) {
                     m.left = false;
                     m.connection = Connection::Connected;
+                    m.kicked = false;
                 }
             }
             Event::MemberLeft { participant } | Event::MemberRemoved { participant, .. } => {
                 if let Some(m) = self.members.get_mut(participant) {
                     m.left = true;
                     m.connection = Connection::Disconnected;
+                    // A kick is remembered (revision 24).
+                    m.kicked = matches!(event, Event::MemberRemoved { .. });
                 }
                 self.drop_prep(*participant, true);
             }

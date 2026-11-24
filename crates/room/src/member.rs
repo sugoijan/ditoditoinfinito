@@ -40,6 +40,16 @@ pub struct Member {
     /// predates it reads and writes the same room.
     #[serde(default, skip_serializing_if = "is_false")]
     pub watch_only: bool,
+    /// Kicked by a host or a co-host ([`crate::Event::MemberRemoved`], room
+    /// model revision 24) and not let back in since: their return is a
+    /// newcomer's as far as the admission goes (refused while it is
+    /// Closed, `Rejection::AdmissionClosed`), and, as for anyone who left,
+    /// its authority asks for the room's current invite, so replacing the
+    /// invite keeps them out too. Not a ban: back in by the current invite
+    /// while the room is open, the mark goes. Additive: left out of the
+    /// JSON when false; a room stored before reads with none.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub kicked: bool,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -98,6 +108,7 @@ impl Member {
             left: false,
             targeting: Targeting::default(),
             watch_only: false,
+            kicked: false,
         }
     }
 

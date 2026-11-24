@@ -242,3 +242,65 @@ fn rows_something_names_are_never_forgotten() {
     }
     assert!(r.s.to_forget(4).is_empty());
 }
+
+// ---- 3. The room remembers who was kicked ----
+
+/// Item 3: a kicked person comes back as a newcomer comes in as far as
+/// the admission goes: while it is Closed they are refused
+/// (`AdmissionClosed`; before revision 24 a returning member was let in
+/// whatever the admission said, so closing admission did not keep a
+/// kicked person out). Someone who merely left still comes back past a
+/// closed admission. Open again, the kicked person comes back (a kick is
+/// not a ban) and the mark goes; kicked again, it is back. The mark is
+/// every mirror's (`Member::kicked`).
+#[test]
+fn a_kicked_person_is_kept_out_by_a_closed_admission() {
+    let mut r = hosted();
+    let host = r.host;
+    let kim = r.join_as("kim", Intent::Play, false).unwrap();
+    let lea = r.join_as("lea", Intent::Play, false).unwrap();
+    let pat = r.join_as("pat", Intent::Watch, false).unwrap();
+    r.by(host, Command::Remove { participant: kim }).unwrap();
+    r.by(host, Command::Remove { participant: pat }).unwrap();
+    r.by(lea, Command::Leave).unwrap();
+    assert!(r.s.member(kim).unwrap().kicked);
+    assert!(!r.s.member(lea).unwrap().kicked);
+    r.by(host, Command::SetAccess { admission: Admission::Closed, rotate_invite: false }).unwrap();
+    assert_eq!(r.join_as("kim", Intent::Play, false), Err(Rejection::AdmissionClosed));
+    assert_eq!(r.join_as("lea", Intent::Play, false), Ok(lea), "one who left comes back");
+    // An administrator, as a newcomer administrator, comes in.
+    assert_eq!(r.join_as("pat", Intent::Watch, true), Ok(pat));
+    // Replacing the invite keeps the mark (the authority asks anyone who
+    // left for the current invite, which a kicked person no longer has).
+    r.by(host, Command::SetAccess { admission: Admission::Closed, rotate_invite: true }).unwrap();
+    assert!(r.s.member(kim).unwrap().kicked);
+    assert_eq!(r.join_as("kim", Intent::Play, false), Err(Rejection::AdmissionClosed));
+    r.by(host, Command::SetAccess { admission: Admission::Open, rotate_invite: false }).unwrap();
+    assert_eq!(r.join_as("kim", Intent::Play, false), Ok(kim), "not a ban");
+    assert!(!r.s.member(kim).unwrap().kicked);
+    let json = serde_json::to_value(r.s.member(kim).unwrap()).unwrap();
+    assert!(json.get("kicked").is_none(), "left out at false");
+    r.by(host, Command::Remove { participant: kim }).unwrap();
+    assert!(r.s.member(kim).unwrap().kicked);
+    let json = serde_json::to_value(r.s.member(kim).unwrap()).unwrap();
+    assert_eq!(json["kicked"], true);
+}
+
+/// The fake server, as the server: a kicked person's join is refused
+/// while admission is closed, with the server's refusal.
+#[test]
+fn the_fake_server_keeps_a_kicked_person_out_while_admission_is_closed() {
+    use ddi_room::fake::FakeServer;
+    let policy = RoomPolicy::default().with_live().with_audience();
+    let mut f = FakeServer::hosted("Room000001", Identity::new("dev:host"), "Host", policy, ManualClock::new(0));
+    let host = ParticipantId(1);
+    let kim = f.join(Identity::new("dev:kim"), "kim", Intent::Play).unwrap();
+    let by_host = |s: &mut RoomState, c: Command| {
+        s.apply(Actor::Member(host), None, &c, Millis(0)).unwrap();
+    };
+    f.rewrite(|s| by_host(s, Command::Remove { participant: kim }));
+    f.rewrite(|s| by_host(s, Command::SetAccess { admission: Admission::Closed, rotate_invite: false }));
+    assert_eq!(f.join(Identity::new("dev:kim"), "kim", Intent::Play), Err(Rejection::AdmissionClosed));
+    f.rewrite(|s| by_host(s, Command::SetAccess { admission: Admission::Open, rotate_invite: false }));
+    assert_eq!(f.join(Identity::new("dev:kim"), "kim", Intent::Play), Ok(kim));
+}
