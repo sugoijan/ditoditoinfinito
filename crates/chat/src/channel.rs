@@ -16,8 +16,8 @@
 //!   read and how, why each way failed, its emotes and how many of them
 //!   animated.
 //!
-//! The parsers ([`crate::emotes`]) follow the global sets' shapes as they
-//! answered on 2026-11-20; the channels' (`/v3/users/twitch/<id>`,
+//! The parsers ([`crate::emotes`], `barbed-emotes`' since round BE) read
+//! the global sets' shapes as they answered on 2026-11-20; the channels' (`/v3/users/twitch/<id>`,
 //! `/3/cached/users/twitch/<id>`, `/v1/room/id/<id>`) are read as their
 //! documentation and the chat clients have them: UNVERIFIED until the
 //! maintainer's run.

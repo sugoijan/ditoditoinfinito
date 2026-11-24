@@ -353,6 +353,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "barbed-emotes"
+version = "0.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f0b3b033f0543f69ebe12109ee96bc87590098bf0e7fcb1f1cc9a1708c73fe9"
+dependencies = [
+ "bitflags 2.13.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "base64"
 version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -409,6 +421,9 @@ name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "bitvec"
@@ -1084,6 +1099,7 @@ dependencies = [
 name = "ddi-chat"
 version = "0.1.0"
 dependencies = [
+ "barbed-emotes",
  "serde",
  "serde_json",
  "unicode-normalization",

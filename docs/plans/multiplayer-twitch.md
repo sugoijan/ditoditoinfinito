@@ -1832,3 +1832,65 @@ raised and on levels) and three closed, one live at a time. No frame
 around a change was longer than the frames before it (Chrome 16.8 ms
 at most around and before; Firefox 12.7 around against 13.0 before).
 
+
+## Round BE (2026-11-24): the emote sets read by `barbed-emotes`
+
+The maintainer: "Let's finish adopting `barbed-emotes`, if the crate
+itself needs more changes let me know and I could make another
+`barbed-emotes` release with them." `ddi_chat::emotes` now reads the four
+providers' sets with `barbed-emotes` 0.0.7 (the maintainer's own library,
+MIT OR Apache-2.0); the game's seven hand-written parsers, its id and path
+checks and its address building are gone. What stays the game's: its
+`Emote`, `Image` and `List`, the order of sources (`EmoteSets`), the
+images' cache and atlas, `anim`'s probing, the overlay, the items, the
+EventSub reading and the live connection (`barbed` itself is not in the
+web build).
+
+- **One seam**, `emotes::from_barbed`: each emote of a set barbed-emotes
+  read made ours. A modifier (BetterTTV's and FrankerFaceZ's effect words,
+  7TV's zero-width overlays) and an emote FrankerFaceZ hides are left out,
+  as before; the image is barbed-emotes' pick (`Emote::image`: 2×, else
+  the nearest larger, else the largest; an animated emote's animation;
+  Twitch's dark theme; 7TV's WebP files alone, the others' first listed:
+  BetterTTV's file as uploaded, FrankerFaceZ's animated WebP before its
+  PNG); the emote is animated where that image is.
+- **The addresses** (`set_addresses`, `global_address`, Twitch's
+  `twitch_image` and `twitch_animated_image`) are barbed-emotes' own
+  (`seventv::user_url`, `bttv::channel_url`, `ffz::room_url`, the global
+  URLs, `twitch::image_url`), and every proxy path is `emotes/` and
+  barbed-emotes' `proxy::route` for the address.
+- **The security checks** (review 2026-11-22, chat-touch 5): an id is
+  plain (barbed-emotes' `is_plain_id`, in each parser, in
+  `twitch::image_url` for a message's fragment's id, and in the set
+  addresses for the channel id); an image's address is on its provider's
+  image host with a path that cannot climb out (barbed-emotes'
+  `safe::path_on` and each provider's `is_image_path`); and the game's own
+  `Image::carried` takes an image only where `proxy::route` (the closed
+  list of shapes the proxy carries) names it under the provider's own
+  image route, never another provider's nor an `-api` route. The test
+  `ids_and_paths_that_leave_the_images_make_none` is unchanged and passes.
+- **On real data nothing changed**: the recorded global sets of
+  2026-11-20 (`tests/emote_lists.rs`, local) read entry for entry the same
+  before and after (7TV 42, BetterTTV 56, FrankerFaceZ 9: every word, id,
+  animated flag, address and proxy path), and so do the demo's fixtures,
+  the set addresses and Twitch's images.
+- **On unusual answers barbed-emotes' reading is taken** where it is as
+  good or better (`unusual_answers_are_read_as_barbed_emotes_reads_them`):
+  a 7TV still emote's image is the file its answer lists by `name` (the
+  game asked `static_name`: the same file on every real one; the one test
+  whose expectation changed, `seven_tv_sets_are_read_with_their_animated_and_still_files`);
+  no made-up 7TV file where `2x.webp` is not listed (the nearest listed, or
+  no emote for AVIF alone); 7TV's emote-level zero-width flag honored;
+  FrankerFaceZ's 4× where it has no 2×; addresses of another shape, empty
+  words and fields of the wrong type left out; FrankerFaceZ's default sets
+  written as strings read; a Twitch emote's own scale list honored.
+- **Lost on 0.0.7, asked of the next release** (the list, with a patch,
+  `target/scratch/mp/be/barbed-emotes-requests.md`, kept local): a
+  BetterTTV GIF its answer calls `animated: false` reads as animated (the
+  same `/2x` file is drawn and its frames counted when decoded: only the
+  demo's choice of animated emotes and the debug counts see it), and a
+  `null` in an optional field (BetterTTV's `animated`, FrankerFaceZ's
+  `hidden`, 7TV's `flags`, …) leaves the whole emote out where the game
+  read it as the default. Neither is in any recorded answer. With the
+  patch applied (a local `[patch.crates-io]`, never committed) the game
+  reads both as its own parsers did and every chat test passes.

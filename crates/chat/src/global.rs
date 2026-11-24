@@ -23,9 +23,8 @@
 //! - [`Demo::report`] says what each provider answered, for the debug
 //!   state: so a failure names its provider and how.
 //!
-//! The sets' JSON is read by [`crate::emotes`]' parsers, written from the
-//! providers' documentation: the demo is where they first meet the real
-//! answers.
+//! The sets' JSON is read by [`crate::emotes`]' parsers (`barbed-emotes`'
+//! since round BE): the demo is where they meet the real answers.
 
 use serde_json::{Value, json};
 

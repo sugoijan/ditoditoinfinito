@@ -1376,7 +1376,10 @@ Rust and the browser are implementation details, not advertised features.
   messages read (`eventsub.rs`; its fixtures in `tests/fixtures/`,
   written from the documentation, not recorded), the four providers'
   emotes and sets with each image's address and proxy path, an
-  animated emote's animation (`emotes.rs`), an image's container read
+  animated emote's animation (`emotes.rs`: the providers' answers read,
+  the image picked and its proxy route named by `barbed-emotes`, the
+  maintainer's own library, its model made ours at one seam,
+  `emotes::from_barbed`, round BE), an image's container read
   before it is decoded, `anim-limits-v0`'s limits (the hostile and the
   huge refused, or their first frame still), the frames kept and which
   is drawn when (`anim.rs`, round TW4), a message made into an item

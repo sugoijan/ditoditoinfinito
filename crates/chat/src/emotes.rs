@@ -1,22 +1,28 @@
 //! The emotes a chat draws (C4, C5): Twitch's own, named by id in a
 //! message's fragments, and the words of 7TV's, BTTV's and FFZ's sets for
 //! the host's channel and their globals, read from the providers' JSON and
-//! matched in a message's text. Each emote's still image has an address
-//! on its provider's host, asked directly first, and a path under our
-//! server's proxy route (`GET <api>/emotes/<provider>/<path>`), asked once
-//! a direct request failed (the route is the server's, a closed list of
-//! the four providers' hosts).
+//! matched in a message's text. Each emote's image has an address on its
+//! provider's host, asked directly first, and a path under our server's
+//! proxy route (`GET <api>/emotes/<provider>/<path>`), asked once a direct
+//! request failed (the route is the server's, a closed list of the four
+//! providers' hosts).
+//!
+//! The providers' answers are read, the images' addresses built and their
+//! routes through the proxy named by `barbed-emotes` (round BE, the
+//! maintainer's own library: its parsers, its pick of an emote's image,
+//! its `proxy::route`), its model made ours at one seam (`from_barbed`).
 //!
 //! An emote its provider animates is drawn from its animated image (round
 //! TW4, C5): Twitch's `animated` GIF where a message's fragment offers
 //! one, 7TV's `2x.webp` of an animated emote, BTTV's own image of one (a
 //! GIF), FFZ's `animated` WebP; a still emote from its still image
-//! (Twitch's `static`, 7TV's `_static`, FFZ's `urls`). The shells read
-//! each image's container before decoding it ([`crate::anim`]).
+//! (Twitch's `static`, 7TV's own `2x.webp`, BTTV's PNG, FFZ's `urls`).
+//! The shells read each image's container before decoding it
+//! ([`crate::anim`]).
 
 use std::collections::HashMap;
 
-use serde_json::Value;
+use barbed_emotes as barbed;
 
 /// Where an emote comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -93,42 +99,32 @@ pub struct Image {
     pub proxy: Option<String>,
 }
 
-/// Whether `id` (an emote's, a channel's) is of the shape every provider
-/// gives and our server's proxy takes: letters, digits, `_` and `-`, 64
-/// at most (Twitch's `emotesv2_…` ids are about 40; 7TV's and BTTV's 24).
-pub fn plain_id(id: &str) -> bool {
-    (1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-}
-
-/// Whether `path` (from its first `/`) stays among a provider's images:
-/// segments of letters, digits, `_`, `-` and `.`, none `.` or `..`, and
-/// nothing else (no escape, query, fragment or backslash), so that its
-/// address under our proxy (`<api>/emotes/<provider><path>`) can never
-/// become another route of our API, asked with the person's cookie
-/// (review 2026-11-22, chat-touch 5).
-fn plain_path(path: &str) -> bool {
-    let Some(rest) = path.strip_prefix('/') else {
-        return false;
-    };
-    path.len() <= 256
-        && rest.split('/').all(|seg| {
-            !seg.is_empty()
-                && seg != "."
-                && seg != ".."
-                && seg.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-.".contains(&b))
-        })
-}
-
 impl Image {
-    /// An image on `provider`'s host at `path` (from its first `/`); none
-    /// where the path would leave the provider's images ([`plain_path`]).
-    fn on(provider: Provider, path: &str) -> Option<Image> {
-        plain_path(path).then(|| Image {
-            url: format!("https://{}{path}", provider.image_host()),
-            proxy: provider
-                .route()
-                .map(|r| format!("emotes/{r}{path}")),
+    /// An image of `provider`'s at `url`, an address `barbed-emotes` built
+    /// (its parsers', [`twitch_image`]'s), with its path under our proxy:
+    /// `emotes/` and barbed-emotes' route for it ([`barbed::proxy::route`]:
+    /// the closed list of shapes the parsers build and the proxy carries,
+    /// every id plain, no path that leaves the provider's image files);
+    /// none where that route is not one of `provider`'s images. So an id
+    /// or a path from a provider's answer (or a message's fragment) never
+    /// becomes an address on another host or another route of our API,
+    /// asked with the person's cookie (review 2026-11-22, chat-touch 5).
+    fn carried(provider: Provider, url: &str) -> Option<Image> {
+        let route = barbed::proxy::route(url)?;
+        let name = provider.route()?;
+        route.strip_prefix(name)?.starts_with('/').then(|| Image {
+            url: url.to_string(),
+            proxy: Some(format!("emotes/{route}")),
         })
+    }
+
+    /// A set's address: `url` directly, and its route through our proxy
+    /// ([`barbed::proxy::route`]).
+    fn set_at(url: &str) -> Image {
+        Image {
+            url: url.to_string(),
+            proxy: barbed::proxy::route(url).map(|r| format!("emotes/{r}")),
+        }
     }
 
     /// The host of [`Image::url`] (what C4's "a host that needed the
@@ -146,9 +142,28 @@ impl Image {
     }
 }
 
-/// The size an image is asked for: the 2× files, about 56 pixels tall,
-/// drawn into the atlas's 64-pixel cells ([`crate::cache::CELL`]).
-const TWITCH_SCALE: &str = "2.0";
+/// The image asked of each emote (`barbed-emotes`' pick, [`barbed::pick_image`]):
+/// the 2× file, about 56 pixels tall, drawn into the atlas's 64-pixel
+/// cells ([`crate::cache::CELL`]), else the nearest larger, else the
+/// largest there is; an animated emote's animation; Twitch's dark theme;
+/// any format the provider lists, the shells reading each image's
+/// container before decoding it ([`crate::anim`]). Of equal candidates
+/// the first listed is taken: BetterTTV's file as uploaded (`<n>x`, a PNG
+/// or a GIF) before its WebP (`<n>x.webp`, which our proxy does not
+/// carry); FrankerFaceZ's animated WebP before its still PNG.
+const IMAGES: barbed::ImageRequest<'static> = barbed::ImageRequest {
+    scale: 2,
+    animated: true,
+    theme: barbed::Theme::Dark,
+    formats: &[],
+};
+
+/// 7TV's: as [`IMAGES`], its WebP files alone (it lists AVIF and GIF
+/// files beside them, and our proxy carries its WebP ones).
+const SEVEN_TV_IMAGES: barbed::ImageRequest<'static> = barbed::ImageRequest {
+    formats: &[barbed::ImageFormat::WebP],
+    ..IMAGES
+};
 
 /// The emotes known by word (third-party, matched in text), and the
 /// scripted chat's images in place of any provider's.
@@ -268,64 +283,36 @@ impl EmoteSets {
 }
 
 /// Twitch's still image of emote `id`, dark theme, 2× (none for an id
-/// of another shape: [`plain_id`]).
+/// of another shape: `barbed-emotes`' [`barbed::twitch::image_url`]).
 pub fn twitch_image(id: &str) -> Option<Image> {
-    plain_id(id).then_some(())?;
-    Image::on(
-        Provider::Twitch,
-        &format!("/emoticons/v2/{id}/static/dark/{TWITCH_SCALE}"),
-    )
+    twitch_template(id, false)
 }
 
 /// Twitch's animated image of emote `id` (a GIF), dark theme, 2×.
 pub fn twitch_animated_image(id: &str) -> Option<Image> {
-    plain_id(id).then_some(())?;
-    Image::on(
-        Provider::Twitch,
-        &format!("/emoticons/v2/{id}/animated/dark/{TWITCH_SCALE}"),
-    )
+    twitch_template(id, true)
 }
 
-/// A path on `provider`'s host from an address (`//host/path`,
-/// `https://host/path`); `None` for another host.
-fn path_on(provider: Provider, url: &str) -> Option<String> {
-    let rest = url.trim_start_matches("https:").trim_start_matches("http:");
-    let rest = rest.strip_prefix("//")?;
-    let (host, path) = rest.split_at(rest.find('/')?);
-    (host == provider.image_host()).then(|| path.to_string())
+fn twitch_template(id: &str, animated: bool) -> Option<Image> {
+    let url = barbed::twitch::image_url(id, animated, barbed::Theme::Dark, IMAGES.scale)?;
+    Image::carried(Provider::Twitch, &url)
 }
 
 /// Where each provider's sets are read, directly and through the proxy,
-/// for the channel of Twitch user `channel` (C4); Twitch's own need none.
-/// The proxy's routes for the providers' APIs are `<provider>-api` (the
-/// server's `upstream`), apart from their images'.
+/// for the channel of Twitch user `channel` (C4): the channel's, then the
+/// global one, as `barbed-emotes` names them (none for a channel id of
+/// another shape); Twitch's own need none. The proxy's routes for the
+/// providers' APIs are `<provider>-api` (the server's `upstream`), apart
+/// from their images'.
 pub fn set_addresses(provider: Provider, channel: &str) -> Vec<Image> {
-    if !plain_id(channel) {
-        return Vec::new();
-    }
-    let api = |host: &str, route: &str, path: String| Image {
-        url: format!("https://{host}{path}"),
-        proxy: Some(format!("emotes/{route}{path}")),
+    use barbed::{bttv, ffz, seventv};
+    let (own, global) = match provider {
+        Provider::SevenTv => (seventv::user_url(channel), seventv::GLOBAL_SET_URL),
+        Provider::Bttv => (bttv::channel_url(channel), bttv::GLOBAL_URL),
+        Provider::Ffz => (ffz::room_url(channel), ffz::GLOBAL_URL),
+        Provider::Twitch | Provider::Test => return Vec::new(),
     };
-    match provider {
-        Provider::SevenTv => vec![
-            api("7tv.io", "7tv-api", format!("/v3/users/twitch/{channel}")),
-            api("7tv.io", "7tv-api", "/v3/emote-sets/global".into()),
-        ],
-        Provider::Bttv => vec![
-            api(
-                "api.betterttv.net",
-                "bttv-api",
-                format!("/3/cached/users/twitch/{channel}"),
-            ),
-            api("api.betterttv.net", "bttv-api", "/3/cached/emotes/global".into()),
-        ],
-        Provider::Ffz => vec![
-            api("api.frankerfacez.com", "ffz-api", format!("/v1/room/id/{channel}")),
-            api("api.frankerfacez.com", "ffz-api", "/v1/set/global".into()),
-        ],
-        Provider::Twitch | Provider::Test => Vec::new(),
-    }
+    own.map_or_else(Vec::new, |own| vec![Image::set_at(&own), Image::set_at(global)])
 }
 
 /// Where each provider's global set is read (C4's rule: directly first,
@@ -334,251 +321,101 @@ pub fn set_addresses(provider: Provider, channel: &str) -> Vec<Image> {
 /// server asks Helix for it with the app's token, through the proxy alone
 /// (`emotes/twitch-api/chat/emotes/global`, an empty direct address).
 pub fn global_address(provider: Provider) -> Option<Image> {
-    let api = |host: &str, route: &str, path: &str| Image {
-        url: if host.is_empty() {
-            String::new()
-        } else {
-            format!("https://{host}{path}")
+    use barbed::{bttv, ffz, seventv, twitch};
+    Some(match provider {
+        Provider::Twitch => Image {
+            url: String::new(),
+            ..Image::set_at(twitch::GLOBAL_EMOTES_URL)
         },
-        proxy: Some(format!("emotes/{route}{path}")),
-    };
-    match provider {
-        Provider::Twitch => Some(api("", "twitch-api", "/chat/emotes/global")),
-        Provider::SevenTv => Some(api("7tv.io", "7tv-api", "/v3/emote-sets/global")),
-        Provider::Bttv => Some(api("api.betterttv.net", "bttv-api", "/3/cached/emotes/global")),
-        Provider::Ffz => Some(api("api.frankerfacez.com", "ffz-api", "/v1/set/global")),
-        Provider::Test => None,
-    }
+        Provider::SevenTv => Image::set_at(seventv::GLOBAL_SET_URL),
+        Provider::Bttv => Image::set_at(bttv::GLOBAL_URL),
+        Provider::Ffz => Image::set_at(ffz::GLOBAL_URL),
+        Provider::Test => return None,
+    })
 }
 
 /// A list of emotes read from a set: each one's word, the emote and its
 /// image.
 pub type List = Vec<(String, Emote, Image)>;
 
-fn json(text: &str) -> Option<Value> {
-    serde_json::from_str(text).ok()
-}
-
-/// 7TV's emotes of a set (`{"emotes": [...]}`): each one's name in the set
-/// (an alias where it has one: the set's `name`, not `data.name`) and its
-/// 2× WebP file (`2x.webp` exactly: the files list AVIF and GIF beside
-/// it): the animated one of an animated emote, else its still
-/// (`static_name`). A zero-width emote (the set's `flags` bit 1: an
-/// overlay meant to sit on the emote before it) is left out: drawn alone
-/// it would be a picture out of place (round TW5; the shape as 7TV's
-/// global set answered 2026-11-20).
-fn seven_tv_emotes(set: &Value) -> List {
-    let Some(list) = set.get("emotes").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    list.iter()
+/// The one seam between `barbed-emotes`' model and ours: the emotes a
+/// provider's set gave, as the layer draws them. Each emote's word (in a
+/// 7TV set the set's name for it, an alias where it has one), the image
+/// `request` picks ([`barbed::Emote::image`]) with its proxy path
+/// ([`Image::carried`]), animated where that image is its animation. Left
+/// out: a modifier (BetterTTV's and FrankerFaceZ's effect words, 7TV's
+/// zero-width overlays: drawn alone each would be a picture out of place,
+/// round TW5), an emote FrankerFaceZ hides, and one with no image of the
+/// shape our proxy carries. What barbed-emotes itself left out of a set
+/// (an entry of another shape, an id that is not plain, an image off its
+/// provider's host) never reaches here.
+fn from_barbed(
+    provider: Provider,
+    emotes: Vec<barbed::Emote>,
+    request: &barbed::ImageRequest<'_>,
+) -> List {
+    emotes
+        .into_iter()
+        .filter(|e| e.is_standalone() && !e.hidden)
         .filter_map(|e| {
-            if e.get("flags").and_then(Value::as_u64).is_some_and(|f| f & 1 != 0) {
-                return None;
-            }
-            let name = e.get("name")?.as_str()?;
-            let id = e.get("id")?.as_str()?;
-            let data = e.get("data");
-            let host = data.and_then(|d| d.get("host"));
-            let animated = data
-                .and_then(|d| d.get("animated"))
-                .and_then(Value::as_bool)
-                == Some(true);
-            let base = host
-                .and_then(|h| h.get("url"))
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .unwrap_or_else(|| format!("//cdn.7tv.app/emote/{id}"));
-            let file = host
-                .and_then(|h| h.get("files"))
-                .and_then(Value::as_array)
-                .and_then(|files| {
-                    files.iter().find(|f| f.get("name").and_then(Value::as_str) == Some("2x.webp"))
-                })
-                .and_then(|f| {
-                    if animated {
-                        f.get("name")
-                    } else {
-                        f.get("static_name").or_else(|| f.get("name"))
-                    }
-                    .and_then(Value::as_str)
-                })
-                .unwrap_or(if animated { "2x.webp" } else { "2x_static.webp" });
-            let path = path_on(Provider::SevenTv, &format!("{base}/{file}"))?;
-            let image = Image::on(Provider::SevenTv, &path).filter(|_| plain_id(id))?;
-            let emote = Emote::new(Provider::SevenTv, id);
-            Some((
-                name.to_string(),
-                if animated { emote.moving() } else { emote },
-                image,
-            ))
+            let picked = e.image(request)?;
+            let (image, animated) = (Image::carried(provider, &picked.url)?, picked.animated);
+            let emote = Emote {
+                provider,
+                id: e.id.value,
+                animated,
+            };
+            Some((e.code, emote, image))
         })
         .collect()
 }
 
-/// 7TV's channel set from `/v3/users/twitch/<id>`.
+/// 7TV's channel set from `/v3/users/twitch/<id>` (its active set, whole).
 pub fn seven_tv_user(text: &str) -> List {
-    json(text)
-        .and_then(|v| v.get("emote_set").map(seven_tv_emotes))
-        .unwrap_or_default()
+    let emotes = barbed::seventv::parse_user(text).map(|u| u.into_emotes());
+    from_barbed(Provider::SevenTv, emotes.unwrap_or_default(), &SEVEN_TV_IMAGES)
 }
 
 /// 7TV's global set from `/v3/emote-sets/global`.
 pub fn seven_tv_global(text: &str) -> List {
-    json(text).map(|v| seven_tv_emotes(&v)).unwrap_or_default()
-}
-
-fn bttv_emotes(list: Option<&Value>) -> List {
-    let Some(list) = list.and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    list.iter()
-        .filter_map(|e| {
-            // A modifier is an effect word on the emote before it, not a
-            // picture to draw alone (round TW5).
-            if e.get("modifier").and_then(Value::as_bool) == Some(true) {
-                return None;
-            }
-            let code = e.get("code")?.as_str()?;
-            let id = e.get("id")?.as_str().filter(|i| plain_id(i))?;
-            // An animated one's image is its animation (a GIF) at the
-            // same address.
-            let emote = Emote::new(Provider::Bttv, id);
-            let animated = e.get("animated").and_then(Value::as_bool) == Some(true);
-            Some((
-                code.to_string(),
-                if animated { emote.moving() } else { emote },
-                Image::on(Provider::Bttv, &format!("/emote/{id}/2x"))?,
-            ))
-        })
-        .collect()
+    let emotes = barbed::seventv::parse_emote_set(text).map(|s| s.emotes);
+    from_barbed(Provider::SevenTv, emotes.unwrap_or_default(), &SEVEN_TV_IMAGES)
 }
 
 /// BTTV's channel and shared emotes from `/3/cached/users/twitch/<id>`.
 pub fn bttv_user(text: &str) -> List {
-    let Some(v) = json(text) else {
-        return Vec::new();
-    };
-    let mut out = bttv_emotes(v.get("channelEmotes"));
-    out.extend(bttv_emotes(v.get("sharedEmotes")));
-    out
+    let emotes = barbed::bttv::parse_channel(text).map(|c| c.into_emotes());
+    from_barbed(Provider::Bttv, emotes.unwrap_or_default(), &IMAGES)
 }
 
 /// BTTV's globals from `/3/cached/emotes/global`.
 pub fn bttv_global(text: &str) -> List {
-    json(text).map(|v| bttv_emotes(Some(&v))).unwrap_or_default()
-}
-
-fn ffz_set(set: &Value) -> List {
-    let Some(list) = set.get("emoticons").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    list.iter()
-        .filter_map(|e| {
-            // A modifier (an effect on the emote before it) and a hidden
-            // emote are not drawn (round TW5).
-            let flag = |k: &str| e.get(k).and_then(Value::as_bool) == Some(true);
-            if flag("modifier") || flag("hidden") {
-                return None;
-            }
-            let name = e.get("name")?.as_str()?;
-            let id = e.get("id").and_then(|i| {
-                i.as_u64()
-                    .map(|n| n.to_string())
-                    .or_else(|| i.as_str().map(str::to_string))
-            })
-            .filter(|i| plain_id(i))?;
-            // Its animated WebP where it has one (`animated`, as `urls`).
-            let pick = |urls: &Value| {
-                ["2", "1", "4"]
-                    .iter()
-                    .find_map(|k| urls.get(*k).and_then(Value::as_str))
-                    .and_then(|u| path_on(Provider::Ffz, u))
-            };
-            let emote = Emote::new(Provider::Ffz, id);
-            let (emote, path) = match e.get("animated").and_then(pick) {
-                Some(path) => (emote.moving(), path),
-                None => (emote, pick(e.get("urls")?)?),
-            };
-            Some((name.to_string(), emote, Image::on(Provider::Ffz, &path)?))
-        })
-        .collect()
+    let emotes = barbed::bttv::parse_global(text).map(|s| s.emotes);
+    from_barbed(Provider::Bttv, emotes.unwrap_or_default(), &IMAGES)
 }
 
 /// FFZ's channel set from `/v1/room/id/<id>` (the room's `set`).
 pub fn ffz_room(text: &str) -> List {
-    let Some(v) = json(text) else {
-        return Vec::new();
-    };
-    let Some(set) = v.get("room").and_then(|r| r.get("set")) else {
-        return Vec::new();
-    };
-    let key = set
-        .as_u64()
-        .map(|n| n.to_string())
-        .or_else(|| set.as_str().map(str::to_string))
-        .unwrap_or_default();
-    v.get("sets")
-        .and_then(|s| s.get(&key))
-        .map(ffz_set)
-        .unwrap_or_default()
+    let emotes = barbed::ffz::parse_room(text).map(|r| r.into_emotes());
+    from_barbed(Provider::Ffz, emotes.unwrap_or_default(), &IMAGES)
 }
 
 /// FFZ's globals from `/v1/set/global`: its default sets alone (the
-/// others in its answer are not global for everyone). None of them was
-/// animated on 2026-11-20: the reading of an `animated` object is written
-/// from the documentation.
+/// others in its answer are not global for everyone).
 pub fn ffz_global(text: &str) -> List {
-    let Some(v) = json(text) else {
-        return Vec::new();
-    };
-    let defaults: Vec<String> = v
-        .get("default_sets")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(|n| n.as_u64().map(|n| n.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    defaults
-        .iter()
-        .filter_map(|k| v.get("sets").and_then(|s| s.get(k)))
-        .flat_map(ffz_set)
-        .collect()
+    let emotes = barbed::ffz::parse_global(text).map(|g| g.default_emotes());
+    from_barbed(Provider::Ffz, emotes.unwrap_or_default(), &IMAGES)
 }
 
 /// Twitch's global emotes from Helix's Get Global Emotes (`{"data":
-/// [{"id", "name", "format": ["static", "animated"], ...}], "template"}`,
-/// round TW5, as our server answers it): each one's name, the emote
-/// (animated where its `format` lists `animated`) and its image, dark
-/// theme, 2×, as a message's fragment would give it ([`twitch_image`],
-/// [`twitch_animated_image`]; the `template` the documentation gives is
-/// the same address). UNVERIFIED against Twitch's real answer.
+/// [{"id", "name", "format": ["static", "animated"], "scale",
+/// "theme_mode", ...}], "template"}`, round TW5, as our server answers
+/// it): each one's name, the emote (animated where its `format` lists
+/// `animated`) and its image from the template by its id (dark theme, 2×,
+/// among those its lists offer), as a message's fragment would give it.
 pub fn twitch_global(text: &str) -> List {
-    let Some(v) = json(text) else {
-        return Vec::new();
-    };
-    let Some(list) = v.get("data").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    list.iter()
-        .filter_map(|e| {
-            let id = e.get("id")?.as_str().filter(|i| !i.is_empty())?;
-            let name = e.get("name")?.as_str().filter(|n| !n.is_empty())?;
-            let formats: Vec<&str> = e
-                .get("format")
-                .and_then(Value::as_array)
-                .map(|f| f.iter().filter_map(Value::as_str).collect())
-                .unwrap_or_default();
-            let emote = Emote::twitch(id);
-            if formats.contains(&"animated") {
-                Some((name.to_string(), emote.moving(), twitch_animated_image(id)?))
-            } else {
-                Some((name.to_string(), emote, twitch_image(id)?))
-            }
-        })
-        .collect()
+    let emotes = barbed::twitch::parse_emotes(text).map(|s| s.emotes);
+    from_barbed(Provider::Twitch, emotes.unwrap_or_default(), &IMAGES)
 }
 
 #[cfg(test)]
@@ -623,6 +460,71 @@ mod tests {
         assert!(sets.image(&Emote::twitch("emotesv2_1a2b")).is_some());
         assert!(set_addresses(Provider::Bttv, "../../me").is_empty());
         assert_eq!(set_addresses(Provider::Bttv, "12345").len(), 2);
+    }
+
+    /// Round BE: unusual or malformed answers read as `barbed-emotes`
+    /// reads them, where its reading is the better one or as good (each
+    /// differed from the game's own parsers before; none on the providers'
+    /// real global sets, `tests/emote_lists.rs`).
+    #[test]
+    fn unusual_answers_are_read_as_barbed_emotes_reads_them() {
+        let seven = |emotes: &str| seven_tv_global(&format!(r#"{{"emotes":[{emotes}]}}"#));
+        let file = |l: &List| l.iter().map(|(_, _, i)| i.url.rsplit('/').next().unwrap().to_string()).collect::<Vec<_>>();
+        // 7TV without a `2x.webp`: the nearest listed file (larger first),
+        // never a file nobody listed (the game made up `2x.webp` or
+        // `2x_static.webp`).
+        let l = seven(r#"{"id":"a1","name":"Big","data":{"animated":false,"host":{"url":"//cdn.7tv.app/emote/a1","files":[{"name":"1x.webp"},{"name":"4x.webp"}]}}}"#);
+        assert_eq!(file(&l), ["4x.webp"]);
+        // 7TV with AVIF files alone: no image we can be sure to decode, so
+        // no emote (the game made up `2x_static.webp`).
+        let l = seven(r#"{"id":"a2","name":"Avif","data":{"host":{"url":"//cdn.7tv.app/emote/a2","files":[{"name":"2x.avif"}]}}}"#);
+        assert!(l.is_empty());
+        // 7TV without a `host`: the files every emote has, its `2x.webp`
+        // (a still emote's own file; the game asked `2x_static.webp`).
+        let l = seven(r#"{"id":"a3","name":"NoHost","data":{"animated":false}}"#);
+        assert_eq!(file(&l), ["2x.webp"]);
+        // 7TV, an emote zero-width by its own flag (`data.flags` 256) as
+        // well as by the set's: left out as an overlay (the game read the
+        // set's flag alone; 7TV's real zero-width globals have both).
+        let l = seven(r#"{"id":"a4","name":"Cover","flags":0,"data":{"flags":256,"host":{"url":"//cdn.7tv.app/emote/a4","files":[{"name":"2x.webp"}]}}}"#);
+        assert!(l.is_empty());
+        // 7TV, `flags` not a number: the entry is of another shape, left
+        // out (the game kept it as not zero-width).
+        let l = seven(r#"{"id":"a5","name":"Odd","flags":"1","data":{"host":{"url":"//cdn.7tv.app/emote/a5","files":[{"name":"2x.webp"}]}}}"#);
+        assert!(l.is_empty());
+        // BetterTTV's file as uploaded whatever its `imageType` says, or
+        // without one (the only one of its files our proxy carries).
+        for kind in [r#","imageType":"webp""#, ""] {
+            let l = bttv_global(&format!(r#"[{{"id":"5f1b0186cf6d2144653d2970","code":"Up"{kind}}}]"#));
+            assert_eq!(l[0].2.proxy.as_deref(), Some("emotes/bttv/emote/5f1b0186cf6d2144653d2970/2x"));
+        }
+        // An empty word is no emote (it could never match a word).
+        assert!(bttv_global(r#"[{"id":"5f1b0186cf6d2144653d2970","code":"","imageType":"png"}]"#).is_empty());
+        // FrankerFaceZ without a 2× file: the nearest larger (4×, drawn
+        // smaller into the 64-pixel cell) rather than the 1× (drawn larger
+        // and blurred; the game took 1×).
+        let room = |emotes: &str| ffz_room(&format!(r#"{{"room":{{"set":1}},"sets":{{"1":{{"id":1,"emoticons":[{emotes}]}}}}}}"#));
+        let l = room(r#"{"id":5,"name":"NoTwo","urls":{"1":"https://cdn.frankerfacez.com/emote/5/1","4":"https://cdn.frankerfacez.com/emote/5/4"}}"#);
+        assert_eq!(l[0].2.proxy.as_deref(), Some("emotes/ffz/emote/5/4"));
+        // FrankerFaceZ, an address of another shape than its emotes'
+        // files: no image (our proxy's route would refuse it anyway; the
+        // game kept it).
+        assert!(room(r#"{"id":6,"name":"Other","urls":{"2":"https://cdn.frankerfacez.com/emote/2/2.png"}}"#).is_empty());
+        // FrankerFaceZ, `hidden` not a bool: the entry left out (the game
+        // kept it).
+        assert!(room(r#"{"id":7,"name":"Odd","hidden":"no","urls":{"2":"https://cdn.frankerfacez.com/emote/7/2"}}"#).is_empty());
+        // FrankerFaceZ's default sets written as strings are read too (the
+        // game read numbers alone, and so no global emote).
+        let g = ffz_global(r#"{"default_sets":["3"],"sets":{"3":{"id":3,"emoticons":[{"id":9,"name":"Z","urls":{"2":"https://cdn.frankerfacez.com/emote/9/2"}}]}}}"#);
+        assert_eq!(words(&g), ["Z"]);
+        // Twitch, an entry whose `format` holds a non-string: of another
+        // shape, left out (the game kept it).
+        let t = twitch_global(r#"{"data":[{"id":"25","name":"Kappa","format":["static",1]},{"id":"26","name":"Fine","format":["static"]}]}"#);
+        assert_eq!(words(&t), ["Fine"]);
+        // Twitch, an emote whose lists offer 1× alone: its 1× image (the
+        // game asked 2×, which its list did not offer).
+        let t = twitch_global(r#"{"data":[{"id":"88","name":"Small","format":["static"],"scale":["1.0"],"theme_mode":["dark"]}]}"#);
+        assert!(t[0].2.url.ends_with("/static/dark/1.0"), "{}", t[0].2.url);
     }
 
     #[test]
@@ -670,7 +572,12 @@ mod tests {
         );
         assert!(user[0].1.animated);
         assert!(!user[1].1.animated);
-        assert!(user[1].2.url.ends_with("/2x_static.webp"));
+        // A still emote's image is its `2x.webp` itself, the file its
+        // answer lists by `name` (round BE, barbed-emotes' reading; until
+        // then its `static_name`, which this made-up fixture gives as
+        // `2x_static.webp`: 7TV's real still emotes give `2x.webp` there
+        // too, so the two readings asked the same file of every real one).
+        assert!(user[1].2.url.ends_with("/2x.webp"), "{}", user[1].2.url);
         // The set's name for an emote (an alias), a zero-width one left
         // out, the 2x WebP among AVIF and GIF files.
         let global = seven_tv_global(&fixture("7tv-global.json"));
