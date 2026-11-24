@@ -1894,3 +1894,16 @@ web build).
   read it as the default. Neither is in any recorded answer. With the
   patch applied (a local `[patch.crates-io]`, never committed) the game
   reads both as its own parsers did and every chat test passes.
+- **Its cost**: the web app's wasm grows by 124,406 bytes (38,236
+  gzipped; 15,391,248 to 15,515,654), the typed readers barbed-emotes
+  derives for each provider's entries and serde_json's code for them; no
+  feature of the crate would drop it (the game reads all four providers,
+  and what it does not use is left out by the linker already). The page's
+  first bytes are unchanged (`check-boot`: 12,424 of 12,552 gzipped). One
+  crate more in the credits (`barbed-emotes`, MIT OR Apache-2.0).
+- **Walked** in Chrome and Firefox (release build, every request outside
+  localhost aborted): the smoke check, a solo play with the scripted `wall`
+  and `animated` chats over code-made pictures, and the global-emotes demo
+  over a local image base (all four sets read, BetterTTV's through the
+  proxy as the fixtures arrange; the assortment as round TW5's: Twitch two
+  animated, 7TV six, BetterTTV one, FrankerFaceZ none; no image failed).
