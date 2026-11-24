@@ -293,7 +293,11 @@ online room, with the mirror on or off.
 - Kicking does not ban and no list is kept: the person may come back by
   the invite. A host who wants them kept out replaces the invite link
   (More's Replace invite link, as today) or bans them on Twitch with the
-  mirror on.
+  mirror on. Since room model revision 24 (round R24) the kick is
+  remembered on the person's row (`Member::kicked`) until they are let
+  back in, and closing admission keeps them out as it keeps out a
+  newcomer; the server asks anyone who left for the current invite
+  (round RFs), so replacing it keeps them out too.
 - The person is told plainly: "The host removed you from the room." A
   kick is no secret, unlike the mirror's refusal (B6).
 - Never the server's observing administrators. CPUs leave by the roster

@@ -304,3 +304,81 @@ fn the_fake_server_keeps_a_kicked_person_out_while_admission_is_closed() {
     f.rewrite(|s| by_host(s, Command::SetAccess { admission: Admission::Open, rotate_invite: false }));
     assert_eq!(f.join(Identity::new("dev:kim"), "kim", Intent::Play), Ok(kim));
 }
+
+// ---- A room stored by revision 23 ----
+
+/// A room stored by revision 23 (`room-revision-23.json`, written by
+/// revision 23's own reducer before any of this: a live room under
+/// Adaptive with a list, one match in its history, the next one's first
+/// stage played and its second picked; Bob left after playing it, Cy a
+/// co-host who left, Dan who left, Kim who was kicked) reads with every
+/// new field at its default (nobody marked kicked), writes back what it
+/// read, and plays on: Kim, kicked before the revision, comes back as one
+/// who left (the server still asks for the current invite); Dan and Kim
+/// are the rows a Forget may drop, never Bob (the match names him) nor Cy
+/// (her role); the stage gathers readiness, its plan offers open to
+/// everyone the wait after its window opened.
+#[test]
+fn a_room_stored_by_revision_23_reads_and_plays_on() {
+    let text = include_str!("room-revision-23.json");
+    let state: RoomState = serde_json::from_str(text).unwrap();
+    let back = serde_json::to_value(&state).unwrap();
+    assert_eq!(back, serde_json::from_str::<serde_json::Value>(text).unwrap(), "written as it was read");
+    assert!(state.members.values().all(|m| !m.kicked));
+    let (bob, cy, dan, kim) = (ParticipantId(3), ParticipantId(5), ParticipantId(6), ParticipantId(7));
+    assert!(state.referenced(bob));
+    assert_eq!(state.to_forget(0), vec![dan, kim]);
+    assert!(state.to_forget(state.policy.left_rows_kept()).is_empty());
+    assert!(!state.forgettable(cy));
+    let stage = state.upcoming_stage().unwrap();
+    let opened = state.window_opened(stage).expect("its window");
+    assert!(!state.plan_offers_open(stage, opened));
+    assert!(state.plan_offers_open(stage, opened.after(live::plan::PLAN_OFFERS_V1.wait_ms)));
+    let mut r = Room { mirror: state.clone(), s: state, now: opened.0 + 1_000, host: ParticipantId(1) };
+    // Closed: Kim (kicked before the revision, unmarked) comes back as
+    // one who left; one kicked now would not.
+    r.by(r.host, Command::SetAccess { admission: Admission::Closed, rotate_invite: false }).unwrap();
+    assert_eq!(r.join_as("kim", Intent::Watch, false), Ok(kim));
+    r.by(r.host, Command::Remove { participant: kim }).unwrap();
+    assert_eq!(r.join_as("kim", Intent::Watch, false), Err(Rejection::AdmissionClosed));
+    let events = r.sys(Command::Forget).unwrap();
+    assert!(events.is_empty(), "two rows forgettable, 384 kept");
+    // The stage plays on: Host and Ana load and ready, the countdown
+    // into it.
+    let (host, ana) = (r.host, ParticipantId(2));
+    for p in [host, ana] {
+        r.load_for(p, stage, Loading::Loaded).unwrap();
+        r.ready_for(p, stage, true).unwrap();
+    }
+    r.wait(r.s.policy.readiness.countdown_ms + 1_000);
+    assert!(matches!(r.s.phase, Phase::Stage { .. }), "{:?}", r.s.phase);
+}
+
+/// The live side stored by revision 23 (`live-durable-revision-23.json`:
+/// a stage's plan and who prepared it) restores; its plan, without notes,
+/// keeps its digest and runs its stage's ledger as before revision 24,
+/// unbounded.
+#[test]
+fn a_live_side_stored_by_revision_23_restores_with_its_plan_unbounded() {
+    use ddi_room::live::server::{LiveDurable, LiveServer};
+    let text = include_str!("live-durable-revision-23.json");
+    let durable: LiveDurable = serde_json::from_str(text).unwrap();
+    let back = serde_json::to_value(&durable).unwrap();
+    assert_eq!(back, serde_json::from_str::<serde_json::Value>(text).unwrap(), "written as it was read");
+    let plan = &durable.plans[&StageId(3)];
+    assert!(plan.notes.is_empty());
+    assert_eq!(plan.compute_digest(), plan.digest, "its digest its own");
+    assert_eq!(plan.digest.0, "fnv1a64:8eb33e4c2c977833");
+    let server = LiveServer::restore(live::LIVE_V2, durable.clone());
+    assert_eq!(server.plan(StageId(3)), Some(plan));
+    let battle = StageBattle::new(
+        plan.rules().unwrap(),
+        POWER_CLASSES_V0,
+        "ddi",
+        plan.checkpoints_us.clone(),
+        StageRoster::default(),
+        plan.schedule.clone(),
+    )
+    .with_notes(plan.notes.clone());
+    assert_eq!(battle.notes_by(0), None, "unbounded, as before");
+}

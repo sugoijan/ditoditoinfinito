@@ -679,8 +679,8 @@ fn an_older_room_model_is_refused_except_during_a_stage() {
     use ddi_room::{ROOM_MODEL_REVISION, UPDATE_REQUIRED, UpdateRequired, check_model_against};
     let rev = ROOM_MODEL_REVISION;
     assert_eq!(
-        rev, 23,
-        "23: each player's own starting chart under Adaptive (22: choosing by the group)"
+        rev, 24,
+        "24: the review's revision (23: each player's own starting chart under Adaptive)"
     );
     assert_eq!(UPDATE_REQUIRED, "update_required");
     // The other way (round R2): a client refuses an authority older than

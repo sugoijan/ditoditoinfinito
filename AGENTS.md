@@ -1577,7 +1577,27 @@ Rust and the browser are implementation details, not advertised features.
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 23 since 2026-11-22: under Charts: Adaptive
+  (`ROOM_MODEL_REVISION`, 24 since 2026-11-24: what the code review of
+  2026-11-22 left for a revision, round R24: a battle plan's notes a
+  checkpoint, `BattlePlan::notes`, in its digest, an offered plan
+  without them refused, `PlanProblem::Notes`, bounding the judgments a
+  report is credited, `StageBattle::with_notes` (`notes-v0`: the
+  stage's chart's, under Adaptive every rung's together, up to
+  `NOTES_AHEAD_US` past each checkpoint); the rows of people long gone
+  forgotten, `Command::Forget`, `Event::MembersForgotten`,
+  `RoomState::forgettable`, `to_forget` (`forget-v0`: plain members who
+  left whom nothing kept names, `RoomState::referenced`, beyond
+  `RoomPolicy::left_rows_kept`, 384, the earliest first; a newcomer's
+  join forgets too; `member_rows` a far backstop); a kick remembered,
+  `Member::kicked` (back as a newcomer comes in while admission is
+  Closed, `AdmissionClosed`; the mark gone once let back in); a stage's
+  plan offered by anyone present once the room waited for its picker,
+  `live::plan::PLAN_OFFERS_V1` (`plan-offers-v1`, 8 s after its window
+  opened, `RoomState::window_opened`, `plan_offers_open`;
+  `LiveRefusal::OfferTooSoon`, offered again 2 s later); the pick
+  released in one place, `settle_host`; `tests/revision_24.rs`,
+  `tests/room-revision-23.json` and `tests/live-durable-revision-23.json`
+  read with nobody kicked and plans unbounded; 23 since 2026-11-22: under Charts: Adaptive
   each player starts on their own chart of the song, round OC
   (`Command::SetStart`, `Event::StartChosen`, `Prep::start`,
   `RoomState::start_of`, `charts_for`, `Rejection::ChartsAsPicked`; a

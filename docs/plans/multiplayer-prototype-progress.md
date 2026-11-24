@@ -14735,10 +14735,99 @@ client's own and reads today's rooms as they are.
   start charts are the listing's, the play's the read chart's ladder
   (documented since round OC).
 
+## Room model revision 24: what the review left for a revision (round R24, 2026-11-24)
+
+The code review's fixes that could not be made without peers agreeing
+on something new (rounds RFa, RFb and RFs said which), as room model
+revision 24 (`ROOM_MODEL_REVISION`): an older client is told to update
+(the web offers Reload), a client refuses an older server; the server
+deploys first, the game right after. A room stored by revision 23 loads
+and plays on (`tests/room-revision-23.json`, written by revision 23's
+reducer before the change; `tests/live-durable-revision-23.json`, a
+stored stage plan), every new field at its default. Tests:
+`crates/room/tests/revision_24.rs`, `review_rfa_live.rs`'s last,
+`ddi_ui`'s `state/online/plan_offer_tests.rs` and
+`state::battle_plan::tests`.
+
+- **Judged counts bounded by the chart** (`notes-v0`). The battle plan
+  carries each checkpoint's notes (`BattlePlan::notes`, in its digest):
+  how many of the stage's notes a play can have had judged by then,
+  those up to a second past the checkpoint (`NOTES_AHEAD_US`; a press is
+  judged at most about a fifth of a second early), holds', rolls' and
+  lifts' heads counted, mines and fakes not; under Charts: Adaptive the
+  notes of the stage's chart and every rung of its ladder together, a
+  note at the same row and lane once (whatever chart a competitor is on
+  or steps to, its notes are among them). The room credits a competitor,
+  and a CPU a device reports for, no more judgments in all by a
+  checkpoint than that (`StageBattle::with_notes`); what a report says
+  beyond it earns nothing: clamped, never refused, so no honest stream
+  is ever stopped for it. An honest play's judgments by a checkpoint are
+  at most its chart's notes up to the earliest a press is judged, under
+  the bound by most of a second's notes; a report of the wire's 4,096
+  judgments of the best tier is credited what a full accuracy play is.
+  The CPUs' fixture is unchanged with the bound applied (no honest CPU
+  reaches it). A plan offered without notes is refused
+  (`PlanProblem::Notes`); one stored before (no notes) runs its stage
+  unbounded, as before. Nothing a player sees changes.
+- **Rows of people long gone are forgotten** (`forget-v0`). A person who
+  left as a plain member, whom nothing the room keeps names (a kept
+  match: the running one or the last, and its history's: rosters, every
+  stage's preparation, lineup, reports and details; the next match's
+  stages; the pick or the spotlight; a listed song; the room's Twitch; a
+  choice or a draw), is forgettable; of those the room keeps the 384 who
+  arrived last (`RoomPolicy::left_rows_kept`, its member bound) and
+  forgets the rest, the earliest arrivals first, at every newcomer's
+  join (`Event::MembersForgotten`), and at the authority's
+  `Command::Forget` when it likes. A co-host who left keeps the row (the
+  role is theirs back). Someone forgotten who comes back is a newcomer
+  with a new id: they lose their attack policy (Spread again) and
+  nothing else; no match points (a kept match names them, so their row
+  stays). RFa's stopgap, a newcomer refused after 1,552 rows, stays as a
+  far backstop only rows something names could reach; the server's
+  1 MiB join bound rarely matters.
+- **The room remembers who was kicked** (`Member::kicked`). A kick marks
+  the row; while marked, the person's return is a newcomer's as far as
+  the admission goes: refused while it is Closed ("The host has
+  closed this room to new players.", the invite page's existing words). As for anyone who
+  left (round RFs), the server asks for the room's current invite, so
+  replacing the invite keeps them out too, and the mark outlives a
+  replacement (closing admission afterwards still keeps them out). A
+  kick is still not a ban (B9): back by the current invite while the
+  room is open, the mark goes. Bounded by the rows: a forgotten row's
+  person is a newcomer anyway, under the same two rules. A room stored
+  before marks nobody (Kim of the fixture comes back as one who left).
+- **Any prepared device offers the battle plan** (`plan-offers-v1`,
+  PROVISIONAL). The picker's device, or an operator's, offers at once as
+  before; any other person present (playing or watching) whose device
+  prepared the stage offers once the room still has none 8 s after the
+  stage's readiness window opened (`RoomState::plan_offers_open`), the
+  room refusing one sooner (`LiveRefusal::OfferTooSoon`); the first it
+  takes stands and every device compares its digest as before. A device
+  whose offer was refused for a reason that may pass (too soon, the
+  stage not known yet) offers again 2 s later. A picker away at the
+  pick, or whose song failed to load, now holds everyone's Loaded up
+  8 s, not the whole window. This needed the room's live side (the
+  server) to take others' offers and the client to make them, not the
+  revision itself (an older client offers as before); it ships with it.
+  The wait keeps a member's device from beating a present picker's to
+  it: a modified client's wrong plan, taken first, still makes the
+  others sit the stage out, as an operator's could before.
+- **The pick released in one place.** `settle_host`, run after every
+  command, lets the pick go from one who can hold it no longer (left,
+  away past the room's patience, or without the role or the
+  administrator's flag that takes it) and gives a pick nobody holds to
+  the host while there; the four callers that released it went. The
+  same outcomes; where a returning administrator lost the flag, the
+  pick's change now comes after their return in the events.
+- Nothing else the three rounds listed needs a revision.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `notes-v0` (2026-11-24, round R24, revision 24): a checkpoint's notes are those of the stage's chart (under Adaptive every rung's together, each row and lane once) up to a second past it; the room credits no more judgments by then | `ddi_ui::state::battle_plan::notes`, `ddi_room::live::plan::NOTES_AHEAD_US`, `StageBattle::with_notes` | None for an honest play; a forged report earns no more than full accuracy | The second |
+| `forget-v0` (2026-11-24, round R24, revision 24): the rows of plain members who left and whom nothing kept names, beyond the 384 who arrived last, forgotten at each newcomer's join (and the authority's Forget) | `RoomPolicy::left_rows_kept`, `RoomState::to_forget` | Someone gone long and back finds their attack policy Spread again | The 384; whether the server should also forget at quiet moments |
+| `plan-offers-v1` (2026-11-24, round R24, revision 24): anyone present offers a stage's plan 8 s after its window opened where the room has none; refused offers again after 2 s | `ddi_room::live::plan::PLAN_OFFERS_V1`, `RoomState::plan_offers_open`, `RoomClient::sync_live` | A picker away or whose load failed holds everyone 8 s, not the window | The 8 s |
 | `cpu-start-v0` (2026-11-22, round OC, revision 23): under Adaptive a CPU starts on the difficulty its pair of levels is at home on (1–2 Beginner, 3–4 Easy, 5–6 Medium, 7–8 Hard, 9–10 Challenge), the nearest the song has, the easier of two as near; the lowest meter of that difficulty for the first of the pair, the highest for the second | `ddi_engine::ladder::cpu_start`, `cpu_start_in` | Weak CPUs on a song's easy charts, strong ones on its hardest, in practice too; their scores (as earned) follow their charts | The mapping; whether by notes a second instead |
 | `live-chat-v0` (2026-11-21, round TW6): a welcome subscribed within Twitch's 10 s (a failure in passing asked again once while 4 s are left), the keep-alive Twitch stated plus 3 s of silence a loss, a reconnect's new socket given 30 s to welcome, losses opened again after 0, 1, 2, 5, 10, 30, 60 s and given up after eight in a row; the server's 2 s deadline a subscription, 20 subscribes a minute a person | `ddi_chat::live::LIVE_CHAT_V0`, the server's `twitch::SUBSCRIBE_DEADLINE_MS`, `room::CHATS_A_MINUTE` | None while hidden; then: a dropped chat comes back within seconds, a broken one stops quietly | The numbers once the maintainer's run and real chats are seen |
 | `chat-overlay-v1` (2026-11-20, round TW5): every emote drawn by itself; a message's first 8 emotes; at most 80 messages and 160 emotes on screen, 20 new messages a second, one a chatter every 2 s; dropped when full or without a free place, never queued | `ddi_chat::overlay::CHAT_OVERLAY_V1`, `ddi_chat::item::Cut` | None while the chat is hidden; then: a burst of emotes fills the screen behind the fields, past the budgets or the space the rest is left out | The numbers once real chats are seen |

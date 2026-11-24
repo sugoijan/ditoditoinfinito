@@ -55,7 +55,7 @@ decided, and when the stage is decided.
 | View delay | `live::delay` (`ViewDelay`, `VIEW_DELAY_V0`, `ViewMeter`) | How far behind the song a device draws the others' fields: what its frames measure, a second at most |
 | Clock | `live::clock` | `Ping`/`Pong` and `ClockEstimator` |
 | Start | `Event::StartCommitted::song_zero_at`, `StagePlay::song_zero_at` | Song time zero as an instant on the room's clock |
-| Battle plan | `live::plan` (`BattlePlan`, `PlanDigest`, `seed_for`), `Command::SetBattlePlan`, `Event::BattlePlanSet`, `StageContent::battle` | The chart's checkpoints and safe sections, offered by the picker's device, checked by digest |
+| Battle plan | `live::plan` (`BattlePlan`, `PlanDigest`, `seed_for`), `Command::SetBattlePlan`, `Event::BattlePlanSet`, `StageContent::battle` | The chart's checkpoints, notes and safe sections, offered by the picker's device (any prepared device after a wait, revision 24), checked by digest |
 | Stream | `live::stream` (`Moment`, `Batch`, `Outbox`, `Frame`, `FrameReader`), `live::wire` | Each competitor's moments and reports up; one combined frame a tick down |
 | Room side | `live::server` (`LiveServer`, `LiveStage`) | Sans-IO: the stage's streams, the ledger at deadlines, the decision, the frames, resume |
 | Client side | `live::client` (`LiveLink`), inside `OnlineAuthority` | Hello, pings, queued messages, batches until acknowledged, frames in order |
@@ -207,8 +207,13 @@ attacks, the picker's device computes the plan and sends it with
 
 The room checks it (`BattlePlan::check`: its own digest, the version, at
 most 2,048 checkpoints and slots, 16 shocks a section, everything in time
-order; ids it knows) and that the sender chooses the room's songs or is an
-operator, keeps it (`LiveDurable`, which the server stores: the room may
+order, since room model revision 24 a note count for each checkpoint,
+`BattlePlan::notes`, which bounds the judgments a report is credited;
+ids it knows) and that the sender chooses the room's songs or is an
+operator, or, since revision 24, is any person present once the room
+has waited 8 s from the stage's readiness window for its picker's
+(`plan-offers-v1`: a picker away or whose load failed held everyone's
+Loaded up until the window ran out), keeps it (`LiveDurable`, which the server stores: the room may
 sleep between the pick and the start) and issues `SetBattlePlan`, whose
 event `BattlePlanSet` puts the digest on the stage's content for everyone.
 A second plan with another digest is refused (`plan_set`).

@@ -228,7 +228,25 @@ pub fn supported(version: u32) -> bool {
 ///     would draw everyone on the stage's chart, so it is refused. A room
 ///     stored by revision 22 reads with no starts and plays as it did
 ///     (`tests/room-revision-22.json`).
-pub const ROOM_MODEL_REVISION: u32 = 23;
+/// 24. round R24 (2026-11-24), what the code review of 2026-11-22 left
+///     for a revision: the battle plan's notes a checkpoint
+///     (`BattlePlan::notes`, in its digest; an offered plan without them
+///     refused, `PlanProblem::Notes`), which bound the judgments a
+///     competitor's reports are credited (`StageBattle::with_notes`); the
+///     rows of people long gone forgotten (`Command::Forget`,
+///     `Event::MembersForgotten`, `RoomPolicy::left_rows_kept`, a
+///     newcomer's join forgetting too); a kick remembered on the row
+///     (`Member::kicked`: back as a newcomer comes in while admission is
+///     closed); a stage's plan offered by any device once the room has
+///     waited for its picker (`live::plan::PLAN_OFFERS_V1`,
+///     `LiveRefusal::OfferTooSoon`); the pick released in one place
+///     (`settle_host`, an event's order changed). An older client would
+///     keep rows the room forgot and offer plans the room refuses, so it
+///     is refused. A room stored by revision 23 reads with nobody marked
+///     kicked and plays on, its stored plans without notes unbounded as
+///     before (`tests/room-revision-23.json`,
+///     `tests/live-durable-revision-23.json`).
+pub const ROOM_MODEL_REVISION: u32 = 24;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being
