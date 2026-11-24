@@ -94,6 +94,10 @@ pub struct Request {
     /// The room the stage is of, with it: a member's, whose outcome it is
     /// given, or a seat's in the room's audience, which feeds its play.
     pub stage_room: Option<crate::room::StageRoom>,
+    /// TESTS AND TOOLS ONLY: the player's presses from a log, judged as
+    /// the play's own (`ddi_session::play::SessionConfig::seat`; set by
+    /// the host from [`host::Host::seat`]).
+    pub seat: Option<Rc<ddi_engine::history::PlayLog>>,
 }
 
 /// A line's scene in play, from the announcer studio
@@ -150,6 +154,7 @@ impl Request {
             staging: None,
             stage: None,
             stage_room: None,
+            seat: None,
         }
     }
 
@@ -247,6 +252,7 @@ impl Request {
         if let Some(r) = &self.replay {
             config.set_replay(r);
         }
+        config.seat = self.seat.as_deref().cloned();
         config
     }
 

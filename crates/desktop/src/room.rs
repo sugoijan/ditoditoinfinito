@@ -44,6 +44,10 @@ thread_local! {
     /// TESTING ONLY: the seed the next practice room's CPUs are drawn
     /// from in place of the time it is made ([`seed_for_tests`]).
     static TEST_SEED: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+    /// TESTS AND TOOLS ONLY: the wall clock (ms since the epoch) the next
+    /// practice room is made on, in place of the system's
+    /// ([`clock_for_tests`]).
+    static TEST_CLOCK: RefCell<Option<Rc<dyn Fn() -> u64>>> = const { RefCell::new(None) };
 }
 
 /// The room a stage handed to the play host is of (`crate::play::Request`
@@ -461,7 +465,9 @@ pub fn current() -> SharedRoom {
     let room = ROOM.with(|r| {
         r.borrow_mut()
             .get_or_insert_with(|| {
-                let now = crate::clock::now_ms();
+                let now = TEST_CLOCK
+                    .with_borrow(|c| c.as_ref().map(|c| c()))
+                    .unwrap_or_else(crate::clock::now_ms);
                 use ddi_ui::state::room::{RoomClient, development, practice_room};
                 match (TEST_SEED.get(), development().cpus) {
                     (None, _) => practice_room(now),
@@ -500,6 +506,15 @@ pub fn develop(cpus: u16) {
 /// cap, [`develop`], drawn from it too).
 pub fn seed_for_tests(seed: u64) {
     TEST_SEED.set(Some(seed));
+    discard();
+}
+
+/// TESTS AND TOOLS ONLY: the practice rooms this thread makes from now on
+/// are made at `clock`'s time (ms since the epoch), the clock the caller
+/// ticks the UI on (the README's animation, on a fixed clock), rather
+/// than the system's; the practice room there is forgotten.
+pub fn clock_for_tests(clock: Rc<dyn Fn() -> u64>) {
+    TEST_CLOCK.with_borrow_mut(|c| *c = Some(clock));
     discard();
 }
 

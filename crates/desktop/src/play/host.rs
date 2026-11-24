@@ -381,6 +381,12 @@ pub struct Host {
     /// screens say runs as in the window; nothing the view says does
     /// (the fields' places, what was drawn). Never set by the app.
     pub headless: bool,
+    /// TESTS AND TOOLS ONLY (the README's animation): every play this
+    /// host starts on the chart of this content, but a replay or a
+    /// calibration, takes the player's presses from this log
+    /// ([`super::Request::seat`]) and none from the keys. Never set by the
+    /// app.
+    pub seat: Option<(ddi_chart::ChartDigest, Rc<ddi_engine::history::PlayLog>)>,
 }
 
 impl Default for Host {
@@ -416,6 +422,7 @@ impl Default for Host {
             picture: None,
             scene_results: Duration::from_secs_f64(in_play::RESULTS_SECONDS),
             headless: false,
+            seat: None,
         }
     }
 }
@@ -1738,6 +1745,15 @@ impl Host {
             .unwrap_or(60.0);
         let mut request = r.request.clone();
         request.restart = std::mem::take(&mut self.restarting);
+        if let Some((digest, log)) = &self.seat
+            && request.replay.is_none()
+            && request.calibration.is_none()
+            && loaded.song.charts.get(request.chart).is_some()
+            && loaded.song.chart_digest(request.chart) == *digest
+        {
+            request.seat = Some(log.clone());
+            request.auto = false;
+        }
         let purpose = request.purpose();
         if settings.ghost && purpose.has_ghost() {
             request.ghost = self.ghost(&loaded, &request, settings).map(Rc::new);

@@ -195,6 +195,13 @@ pub struct SessionConfig {
     /// A room host's chat shown behind the play (`crate::chat`): its
     /// source and the device's choices; nothing of it judged or logged.
     pub chat: Option<crate::chat::ChatConfig>,
+    /// TESTS AND TOOLS ONLY (the README's animation,
+    /// `crates/desktop/examples/screenshot.rs`): the player's presses and
+    /// releases taken from a log instead of the keys, each fed at its
+    /// judged second as a replay's are, and judged as the play's own under
+    /// its own rules and options (a stage's too: its shocks may be stepped
+    /// on): never an autoplay, never a replay. Never set by a shell.
+    pub seat: Option<PlayLog>,
 }
 
 impl SessionConfig {
@@ -228,6 +235,7 @@ impl SessionConfig {
             stage_rules: None,
             live: None,
             chat: crate::chat::ChatConfig::for_play(settings),
+            seat: None,
         }
     }
 
@@ -302,6 +310,17 @@ impl SessionConfig {
                 || self.start.is_some())
         {
             return Err("a stage is played from its start, live".into());
+        }
+        if let Some(seat) = &self.seat
+            && (self.auto
+                || cpu
+                || self.replay.is_some()
+                || self.calibration.is_some()
+                || self.staging.is_some()
+                || self.start.is_some()
+                || seat.start != 0.0)
+        {
+            return Err("a seat's log is played alone, from the song's start".into());
         }
         if let Some(script) = &self.cpu {
             if self.replay.is_some()
@@ -512,6 +531,9 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     /// A replay: the log's edges, and how many were fed, and its
     /// covers' changes likewise.
     replay: Option<(PlayLog, usize, usize)>,
+    /// A seat's log ([`SessionConfig::seat`]): its edges, and how many
+    /// were fed.
+    seat: Option<(PlayLog, usize)>,
     /// The best play's ghost played beside it, and how far ahead of it
     /// the play was at its last update.
     ghost: Option<GhostRun>,
@@ -1123,6 +1145,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             latency,
             fail_report: None,
             replay: config.replay.map(|r| (r.log, 0, 0)),
+            seat: config.seat.map(|log| (log, 0)),
             ghost: config.ghost.as_ref().filter(|_| !spectating).map(Ghost::run),
             ghost_delta: None,
             sounds,
@@ -1314,7 +1337,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 continue;
             }
             // A replay's lanes and covers are its log's.
-            if self.replay.is_some() || self.cpu {
+            if self.replay.is_some() || self.cpu || self.seat.is_some() {
                 continue;
             }
             // Watching: no lane is played; the edges choose who is
@@ -1737,16 +1760,25 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         }
     }
 
-    /// A replay: the log's edges whose judged time has come, each at its
-    /// own time, before the frame's update. Every edge not fed yet is
+    /// A replay (or a seat's log, `SessionConfig::seat`): the log's
+    /// edges whose judged time has come, each at its own time, before
+    /// the frame's update. Every edge not fed yet is
     /// later than any judged time so far (updates judge behind the
     /// clock), so none is judged late, at any frame rate.
     fn feed_replay(&mut self, host_now: HostTime, events: &mut Vec<JudgeEvent>) {
-        let Some((log, next, next_cover)) = self.replay.as_mut() else {
-            return;
-        };
         let now = self.player.judge_time(host_now);
         let mut due = Vec::new();
+        // A seat's log: its edges alone (`SessionConfig::seat`).
+        if let Some((log, next)) = self.seat.as_mut() {
+            while let Some(i) = log.inputs.get(*next).filter(|i| i.time <= now) {
+                due.push(*i);
+                *next += 1;
+            }
+        }
+        let Some((log, next, next_cover)) = self.replay.as_mut() else {
+            self.feed_edges(due, events);
+            return;
+        };
         while let Some(i) = log.inputs.get(*next).filter(|i| i.time <= now) {
             due.push(*i);
             *next += 1;
@@ -1760,6 +1792,15 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         for c in covers {
             self.player.set_cover_at(c.cover, c.time);
         }
+        self.feed_edges(due, events);
+    }
+
+    /// Logged edges judged at their own times, the lanes shown held.
+    fn feed_edges(
+        &mut self,
+        due: Vec<ddi_engine::history::LoggedInput>,
+        events: &mut Vec<JudgeEvent>,
+    ) {
         for i in due {
             if let Some(h) = self.held.get_mut(usize::from(i.lane)) {
                 *h = i.pressed;

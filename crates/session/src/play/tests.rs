@@ -908,6 +908,98 @@ fn a_played_replay_with_misses_judges_as_the_play_did() {
 }
 
 #[test]
+fn a_seats_log_is_judged_as_the_plays_own_presses() {
+    // A person's presses off by up to ±60 ms, every ninth note left out,
+    // as a log of judged seconds (the README's animation's seat).
+    let song = bundled("beatucada");
+    let chart = 1;
+    let settings = Settings::default();
+    let player = ddi_engine::player::Player::new(
+        &song,
+        chart,
+        settings.ruleset_for(&song.charts[chart]),
+        PlayOptions::default(),
+    );
+    let script = ddi_engine::autoplay::script(player.judge().notes(), 0.0);
+    let mut edges = Vec::new();
+    for (n, p) in script.iter().enumerate() {
+        if n % 9 == 4 {
+            continue;
+        }
+        let off = ((n * 37) % 13) as f64 / 100.0 - 0.06;
+        let press = p.press + off;
+        let release = (p.release + off).max(press + 0.03);
+        edges.push((press, p.lane, true));
+        edges.push((release, p.lane, false));
+    }
+    edges.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let log = PlayLog {
+        start: 0.0,
+        inputs: edges
+            .iter()
+            .map(|&(time, lane, pressed)| ddi_engine::history::LoggedInput {
+                time: (time * 1e6).round() / 1e6,
+                lane,
+                pressed,
+            })
+            .collect(),
+        ..PlayLog::default()
+    };
+    let offline = ddi_engine::history::replay_with(
+        &song,
+        chart,
+        settings.ruleset_for(&song.charts[chart]),
+        &PlayOptions::default(),
+        &log,
+    );
+    // Keys pressed meanwhile reach no lane.
+    let clock: Clock = Rc::new(RefCell::new(20.0));
+    let layout = song.layout_of(&song.charts[chart]).unwrap();
+    let mut noise = FakeInputs::new(&clock);
+    for k in 0..40 {
+        let key = layout.lanes[k % 4].default_keys[0].clone();
+        noise.key(22.0 + k as f64 * 0.41, &key, true);
+        noise.key(22.1 + k as f64 * 0.41, &key, false);
+    }
+    let mut config = SessionConfig::from_settings(&settings, false, None);
+    config.seat = Some(log.clone());
+    let mut s = PlaySession::start(
+        &song,
+        chart,
+        &settings,
+        config,
+        FakeAudio::new(&clock, 0.02),
+        110.0,
+        noise,
+    )
+    .unwrap();
+    // Neither an autoplay nor a replay.
+    assert!(s.auto.is_none() && !s.replaying());
+    let Some(SessionEvent::Finished { results, facts, .. }) = run(&mut s, &clock, 53.0, 200.0)
+    else {
+        panic!("no end");
+    };
+    assert!(results.tally.taps[5] > 0, "{:?}", results.tally);
+    assert_eq!(without_late(&results), without_late(&offline));
+    assert_eq!(facts.log.inputs, log.inputs);
+    // A seat plays alone: never with autoplay or a replay.
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.seat = Some(log);
+    assert!(
+        PlaySession::start(
+            &song,
+            chart,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.02),
+            110.0,
+            FakeInputs::new(&clock),
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn a_failed_play_replays_to_its_fail_and_a_replay_can_be_quit() {
     let song = bundled("beatucada");
     let chart = 1;

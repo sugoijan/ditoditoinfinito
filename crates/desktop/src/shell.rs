@@ -2397,8 +2397,15 @@ impl Shell {
         let _ = self.poll_once();
     }
 
-    /// A key pressed and let go, as a window's keyboard sends it.
+    /// A key pressed and let go, as a window's keyboard sends it: the
+    /// play's while one runs (its quit, say), else the screens'.
     pub fn offscreen_key(&mut self, code: &str, key: &str) {
+        if self.play.playing() {
+            let time = self.play_input_time();
+            self.input.keyboard.key(code, true, false, time);
+            self.input.keyboard.key(code, false, false, time);
+            return;
+        }
         self.send(UiEvent::Key(KeyEvent::down(code, key)));
         self.send(UiEvent::Key(KeyEvent::up(code, key)));
     }
