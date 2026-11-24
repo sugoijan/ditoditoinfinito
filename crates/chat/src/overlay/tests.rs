@@ -655,3 +655,35 @@ fn the_look_sizes_emotes_and_text() {
         assert!((line.height - LINE * look.inline.max(1.0)).abs() < 0.01);
     }
 }
+
+/// Round SD: the room's ceiling lowered while a stage plays: the items
+/// that carry a message's words go (on screen and waiting), the
+/// emote-only ones stay, and no new words come; turned off, every item
+/// goes; raised again, words come with the next message. Nothing of it is
+/// counted as moderation's.
+#[test]
+fn a_lowered_level_takes_the_words_off_and_off_takes_everything() {
+    let mut o = overlay(Style::Across, false);
+    o.receive(&say(1, 1, "hello there"), 0.0, true);
+    o.receive(&kappa(2, 2), 0.0, true);
+    advance(&mut o, 0.1);
+    o.receive(&say(3, 3, "still waiting"), 0.2, true);
+    assert_eq!(o.messages(), 3);
+    o.set_level(Level::Emotes);
+    assert_eq!(o.options().level, Level::Emotes);
+    advance(&mut o, 0.3);
+    let texts: Vec<bool> = o
+        .drawn(0.3)
+        .map(|d| d.laid.iter().any(|l| matches!(l.what, Glyphs::Text(_) | Glyphs::Name(_))))
+        .collect();
+    assert_eq!(texts, [false], "the emote-only item alone");
+    assert_eq!(o.messages(), 1);
+    o.receive(&say(4, 4, "words"), 0.4, true);
+    assert_eq!(o.messages(), 1, "no words come");
+    o.set_level(Level::Messages);
+    o.receive(&say(5, 5, "words again"), 0.5, true);
+    assert_eq!(o.messages(), 2);
+    o.set_level(Level::Off);
+    assert!(o.is_empty());
+    assert_eq!(o.stats().removed, 0, "not moderation's");
+}

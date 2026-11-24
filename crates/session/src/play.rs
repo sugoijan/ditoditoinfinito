@@ -437,6 +437,12 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     /// A room host's chat beside the play, advanced on the host's clock
     /// in [`PlaySession::tick`] (`crate::chat`); never judged or logged.
     chat: Option<crate::chat::ChatLayer>,
+    /// Round SD: an online room's stage follows the room's chat while it
+    /// plays (`crate::chat::Following`), read from the room's client.
+    chat_follow: Option<(
+        crate::chat::Following,
+        std::rc::Rc<std::cell::RefCell<dyn ddi_ui::state::room::LiveRoom>>,
+    )>,
     pub player: Player,
     pub layout: Layout,
     /// The ruleset played by, fresh (its windows and gauge for the
@@ -1020,10 +1026,17 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         }
         // The chat under the room's ceiling in a room's stage (C1): none
         // where the room shows none. Before the stage's setup is taken.
-        let chat = config
-            .chat
-            .take()
-            .and_then(|c| c.under_room(config.opponents.as_ref()));
+        let device_chat = config.chat.take();
+        // Round SD: an online room's stage follows its room's chat as it
+        // plays (the device's option on; never outside a room).
+        let chat_follow = match (&device_chat, &config.live, &config.opponents) {
+            (Some(device), Some(live), Some(stage)) => Some((
+                crate::chat::Following::new(device.clone(), stage.chat.as_ref()),
+                live.room.clone(),
+            )),
+            _ => None,
+        };
+        let chat = device_chat.and_then(|c| c.under_room(config.opponents.as_ref()));
         let (battle, late_watch) = stage_battle(
             &mut config,
             &mut player,
@@ -1066,6 +1079,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let lanes = layout.lanes.len();
         Ok(PlaySession {
             chat: chat.map(crate::chat::ChatLayer::new),
+            chat_follow,
             volume: config.volume,
             music: Some(music),
             player,
@@ -1171,7 +1185,15 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
 
     /// Advance to the current host time. Returns judge events for effects.
     pub fn tick(&mut self, host_now: HostTime) -> (Vec<JudgeEvent>, Option<SessionEvent>) {
-        // The chat on the host's clock, beside the play and apart from it.
+        // Round SD: the room's chat as it is now (the host may change it
+        // while the stage plays), then the chat on the host's clock,
+        // beside the play and apart from it.
+        if let Some((follow, room)) = self.chat_follow.as_mut() {
+            let now = room.try_borrow().ok().and_then(|r| r.room_chat());
+            if let Some(now) = now {
+                follow.follow(&mut self.chat, now.as_ref());
+            }
+        }
         if let Some(c) = self.chat.as_mut() {
             c.advance(host_now.0);
         }

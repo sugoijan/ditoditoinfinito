@@ -1798,6 +1798,15 @@ pub trait LiveRoom {
     ) -> ddi_room::live::ViewDelay {
         self.view_delay(rules)
     }
+    /// Round SD: the room's chat as a stage of it shows it now
+    /// ([`RoomClient::stage_chat`]: whose channel, under which ceiling;
+    /// none where the room shows none), so that a stage being played
+    /// follows the host's changes at once. Outer `None` where nothing is
+    /// followed (CPU practice, an audience's seat): the stage keeps what
+    /// it started with.
+    fn room_chat(&self) -> Option<Option<crate::state::twitch::RoomChat>> {
+        None
+    }
     /// How far ahead of this device's song time (ms) the CPUs it computes
     /// for `stage` are judged: a member watching with its music delayed
     /// judges them on the room's song time all the same, so that what it
@@ -1968,6 +1977,10 @@ pub fn ranking_of(placements: &[Placement]) -> Vec<Vec<Finisher>> {
 }
 
 impl LiveRoom for RoomClient {
+    fn room_chat(&self) -> Option<Option<crate::state::twitch::RoomChat>> {
+        self.is_online().then(|| self.stage_chat())
+    }
+
     fn lineup(&self, stage: StageId) -> Option<Vec<ParticipantId>> {
         let play = self.state().stage(stage)?.play.as_ref()?;
         Some(play.lineup.iter().copied().collect())
@@ -2898,6 +2911,19 @@ impl RoomClient {
             used.push("chat");
         }
         crate::state::twitch::mark_used_in(&used, settings);
+    }
+
+    /// An online room's chat as its stages show it (revision 18): the
+    /// room's ceiling and its channel, the room's id naming its subscribe
+    /// route (round TW6), the development script's named channel in its
+    /// place on this device alone (round TW7); none where the room shows
+    /// none. A stage's setup takes it as its prompt opens, and the stage
+    /// follows it while it plays (round SD, [`LiveRoom::room_chat`]).
+    pub fn stage_chat(&self) -> Option<crate::state::twitch::RoomChat> {
+        crate::state::twitch::RoomChat::of(self.twitch()).map(|c| {
+            c.in_room(self.online_link().map(|l| l.room_id().to_string()))
+                .on_this_device()
+        })
     }
 
     /// Round DE: the room's chat as this device keeps it connected
@@ -5739,13 +5765,7 @@ impl RoomClient {
                 // host's Twitch: only a test's scripted chat or the live
                 // chat's development script give its stages one.
                 chat: if self.is_online() {
-                    // Round TW6: the room's id names its subscribe route;
-                    // round TW7: the development script's named channel
-                    // in its place on this device alone.
-                    crate::state::twitch::RoomChat::of(self.twitch()).map(|c| {
-                        c.in_room(self.online_link().map(|l| l.room_id().to_string()))
-                            .on_this_device()
-                    })
+                    self.stage_chat()
                 } else {
                     crate::state::twitch::RoomChat::practice()
                 },

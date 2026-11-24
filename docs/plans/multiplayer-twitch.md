@@ -1766,3 +1766,69 @@ new one is still (its first frame), as round TW4 built it; a chat with
 more distinct animated emotes on screen at once than fit shows the rest
 still. Not changed in this round: a decision for the maintainer if
 animated walls of many distinct emotes matter.
+
+## Round SD (2026-11-24): the room's chat setting applies at once
+
+The maintainer: "let's go with applying every change at once." Before,
+a stage took the room's chat setting (Host options' "Show my Twitch
+chat") at its start and kept it to its end (the chat-touch review's
+suspicion), while the room's kept connection already followed the new
+setting: a host who turned the chat off because it turned abusive saw it
+go on until the stage ended, and the room opened a second connection
+beside the stage's.
+
+Now a stage of an online room follows the room's setting while it plays
+(`ddi_session::chat::Following`, read each frame from the room's client,
+`LiveRoom::room_chat`, the same `RoomClient::stage_chat` a stage's setup
+takes at its start):
+
+- **Turned off**: the layer goes in that frame (the view cleared, the
+  layer under the field drawn no more); its connection is given back,
+  which the room's keeper closes since the room no longer wants it.
+- **Lowered to emotes**: the same layer at the new level; the messages on
+  screen (and waiting) go, the emote-only items stay, no words come
+  (`ddi_chat::overlay::Overlay::set_level`); the connection is the room's
+  new one for that level (its subscriptions differ: no moderation events),
+  the old given back and closed, the emote sets kept until the new
+  connection's are read.
+- **Turned on, or raised to messages**: as at a stage's start: the room's
+  kept connection taken where it holds one (its last two seconds of events
+  at the next frame), else one of the stage's own, which the room then
+  does not open a second of; emote sets as they arrive.
+- **Another channel** (a new host's, `RoomState::twitch` naming another
+  setter): the old layer off, then a new one on; the view is made again
+  for it (`ChatLayer::id`, `ChatView::shows`).
+
+Unchanged: the device's own option ("Twitch chat in rooms": never above
+it; Off, no layer ever), the permission, the rule that a player has no
+connection outside a room, CPU practice (its client follows nothing), the
+development flags' solo chat, and the audience (none). Nothing of it is
+judged or logged: a stage autoplayed with the setting changed five times
+judges, scores and logs exactly as one without the chat, at 60 and 37
+frames a second. No room model revision.
+
+Tests: `a_stage_follows_the_rooms_chat_while_it_plays` (`ddi-session`,
+the fake clock and the fake shell's side: lowered, raised, off, on, the
+channel replaced, with the room's tick before or after the stage's in a
+frame; one connection at most at any frame's end, none once off or left),
+`following_changes_nothing_the_room_did_not_change`,
+`a_stage_follows_the_hosts_chat_and_judges_the_same` (a whole stage over
+`PlaySession`), `a_lowered_level_takes_the_words_off_and_off_takes_everything`
+(`ddi-chat`), and `a_room_tells_its_keeper_what_chat_to_keep_connected`
+(`ddi-ui`: the room's client's `room_chat`, none in practice).
+
+Walked in Chrome and Firefox (the release build) over a local server
+(its fake Twitch) and the local fake EventSub socket, every request
+outside localhost aborted (`target/scratch/mp/sd/walks/chat-follow.mjs`):
+a host and a guest with the chat's permission, the room's chat on
+(messages), a stage; during it the host lowered the chat to emotes,
+raised it, turned it off and on again by the room's route (as Host
+options does). The guest's play showed each 47 to 127 ms after the
+host's request returned (Chrome about 120 ms, Firefox about 50 to 75):
+lowered, the words gone and an emote alone left on screen; off, no
+layer and nothing kept; on, the room's new connection taken, live. Four
+sockets opened in all (the room's, then one for each of the lowered,
+raised and on levels) and three closed, one live at a time. No frame
+around a change was longer than the frames before it (Chrome 16.8 ms
+at most around and before; Firefox 12.7 around against 13.0 before).
+

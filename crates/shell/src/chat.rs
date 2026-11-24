@@ -177,6 +177,8 @@ pub struct EmoteDrawn {
 
 /// The chat's view over a play.
 pub struct ChatView {
+    /// The layer it was made for ([`ChatLayer::id`]).
+    layer_id: u64,
     overlay: Overlay,
     cache: EmoteCache,
     seen: u64,
@@ -217,6 +219,7 @@ impl ChatView {
     pub fn new(chat: &ChatLayer, reduced: bool) -> ChatView {
         let c = chat.config();
         ChatView {
+            layer_id: chat.id(),
             overlay: Overlay::new(
                 rules(),
                 Options {
@@ -241,6 +244,12 @@ impl ChatView {
             last: None,
             ms: 0.0,
         }
+    }
+
+    /// Whether it is the view of `chat` (round SD: a stage's layer made
+    /// anew for another channel needs a view of its own).
+    pub fn shows(&self, chat: &ChatLayer) -> bool {
+        self.layer_id == chat.id()
     }
 
     /// The animation clock at host second `now`: running unless the
@@ -356,6 +365,10 @@ impl ChatView {
         fetched: Vec<(Fetch, Option<Decoded>)>,
     ) {
         let accepting = !self.shed;
+        // Round SD: what the room shows changed while the stage plays.
+        if chat.config().level != self.overlay.options().level {
+            self.overlay.set_level(chat.config().level);
+        }
         if chat.sets_version() != self.sets_version {
             self.sets_version = chat.sets_version();
             self.overlay.set_sets(chat.sets().clone());

@@ -14822,6 +14822,21 @@ stored stage plan), every new field at its default. Tests:
   pick's change now comes after their return in the events.
 - Nothing else the three rounds listed needs a revision.
 
+## Round SD: the room's chat setting applies at once (2026-11-24, no change to the room model)
+
+The maintainer: "let's go with applying every change at once." A stage
+of an online room follows the host's "Show my Twitch chat" while it
+plays (the chat-touch review's suspicion): turned off, the layer goes in
+that frame and its connection is closed by the room's keeper; lowered to
+emotes, the words on screen go and none come; turned on or raised, the
+layer starts as at a stage's start on the room's kept connection; a new
+host's channel is the old one off and the new one on
+(`ddi_session::chat::Following`, `LiveRoom::room_chat`). Walked in
+Chrome and Firefox over a local server and a fake EventSub socket: each
+change shown on the guest's play 47 to 127 ms after the host's request,
+one connection at a time, no frame longer than before it. Judging is
+the same with the chat on. `docs/plans/multiplayer-twitch.md`, "Round SD".
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

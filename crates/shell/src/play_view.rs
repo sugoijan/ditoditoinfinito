@@ -1229,7 +1229,9 @@ impl<H: PlayHost> PlayView<H> {
         // second that ended late. Without one, no layer is drawn.
         match session.chat() {
             Some(chat) => {
-                if self.chat.is_none() {
+                // (Made again for a layer made anew: another channel's,
+                // round SD.)
+                if self.chat.as_ref().is_none_or(|v| !v.shows(chat)) {
                     self.chat = Some(crate::chat::ChatView::new(chat, render.reduced_motion));
                 }
                 if !self.ensure_overlay(device, queue, target.format) {

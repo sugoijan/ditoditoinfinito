@@ -504,33 +504,118 @@ impl ChatConfig {
     /// connectivity"). Only the development script gives CPU practice's
     /// stages and solo plays a channel (`RoomChat::practice`: one's own,
     /// or the one it names). None for the audience (C13).
-    pub fn under_room(mut self, stage: Option<&StageSetup>) -> Option<ChatConfig> {
+    pub fn under_room(self, stage: Option<&StageSetup>) -> Option<ChatConfig> {
+        match stage {
+            Some(stage) => self.under_chat(stage.chat.as_ref()),
+            None => {
+                let ceiling = match &self.source {
+                    ChatSource::Script(s) => room_ceiling(None, Some(s)),
+                    ChatSource::Room | ChatSource::Live(_) => Level::Off,
+                };
+                // A solo play: the development script's alone.
+                self.under(ceiling, ddi_ui::state::twitch::RoomChat::practice().as_ref())
+            }
+        }
+    }
+
+    /// This chat as a room's stage shows it while the room's chat is
+    /// `chat` (its setup's at the start, the room's own as it changes
+    /// while the stage plays, round SD): never more than its ceiling, the
+    /// live chat reading its channel; none where the room shows none.
+    pub fn under_chat(self, chat: Option<&ddi_ui::state::twitch::RoomChat>) -> Option<ChatConfig> {
+        let ceiling = chat.map_or(Level::Off, |c| c.ceiling);
+        self.under(ceiling, chat)
+    }
+
+    /// The device's choice under `ceiling` (the scripted chat's) or under
+    /// `chat`'s (the live chat's, which reads its channel).
+    fn under(mut self, ceiling: Level, chat: Option<&ddi_ui::state::twitch::RoomChat>) -> Option<ChatConfig> {
         match &self.source {
-            ChatSource::Script(s) => {
-                self.level = self.level.under(room_ceiling(stage, Some(s)));
+            ChatSource::Script(_) => {
+                self.level = self.level.under(ceiling);
             }
             ChatSource::Room | ChatSource::Live(_) => {
-                let chat = match stage {
-                    Some(stage) => stage.chat.clone(),
-                    // A solo play: the development script's alone.
-                    None => ddi_ui::state::twitch::RoomChat::practice(),
-                }
+                let chat = chat
                     .filter(|c| c.channel_id != "scripted")
                     .filter(|c| c.named || !c.channel_id.is_empty())?;
                 self.level = self.level.under(chat.ceiling);
-                self.source = ChatSource::Live(LiveWant::from(&chat));
+                self.source = ChatSource::Live(LiveWant::from(chat));
             }
         }
         (self.level != Level::Off).then_some(self)
     }
 }
 
+/// Round SD: a room's stage's chat follows the room's setting while it
+/// plays (the maintainer, 2026-11-24: "let's go with applying every change
+/// at once"). The host turning the chat off clears the layer at once (its
+/// connection given back, which the room's keeper closes since the room
+/// no longer wants it); lowered to emotes alone, the messages on screen go
+/// and no new ones come ([`ChatLayer::set_level`]); turned on or raised,
+/// the layer starts as at a stage's start, taking the room's kept
+/// connection where it holds one; another channel (a new host's) is the
+/// old one off, then the new one on. The device's own choice ("Twitch
+/// chat in rooms"), as the play started, stays what it is.
+pub struct Following {
+    /// The device's chat, before any room's ceiling ([`ChatConfig::for_play`]).
+    device: ChatConfig,
+    /// The room's chat as last followed.
+    seen: Option<ddi_ui::state::twitch::RoomChat>,
+}
+
+impl Following {
+    /// A stage that started with the room's chat as `at_start` (its
+    /// setup's), the device's chat `device`.
+    pub fn new(device: ChatConfig, at_start: Option<&ddi_ui::state::twitch::RoomChat>) -> Following {
+        Following {
+            device,
+            seen: at_start.cloned(),
+        }
+    }
+
+    /// The room's chat is `now`: the stage's `layer` made to show it
+    /// (dropped, made, its level changed or made anew for another
+    /// channel). Nothing where it did not change. Whether it changed.
+    pub fn follow(
+        &mut self,
+        layer: &mut Option<ChatLayer>,
+        now: Option<&ddi_ui::state::twitch::RoomChat>,
+    ) -> bool {
+        if self.seen.as_ref() == now {
+            return false;
+        }
+        self.seen = now.cloned();
+        let want = self.device.clone().under_chat(now);
+        match (layer.as_mut(), want) {
+            (None, None) => {}
+            (Some(_), None) => *layer = None,
+            (None, Some(c)) => *layer = Some(ChatLayer::new(c)),
+            (Some(l), Some(c)) if l.config().source != c.source => {
+                // Off, then on: the old connection given back before the
+                // new one is taken.
+                *layer = None;
+                *layer = Some(ChatLayer::new(c));
+            }
+            (Some(l), Some(c)) => l.set_level(c.level),
+        }
+        true
+    }
+}
+
 /// Events kept for the view at most (a flood's second and more).
 const KEPT: usize = 512;
+
+/// A new layer's [`ChatLayer::id`].
+fn next_layer_id() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
 
 /// A play's chat: its source, the events it gave and when (host seconds),
 /// numbered so a view takes each once.
 pub struct ChatLayer {
+    /// Which layer this is (a view made for another is made again).
+    id: u64,
     config: ChatConfig,
     player: Option<Player>,
     /// The live chat's connection (round TW6).
@@ -800,15 +885,23 @@ impl Drop for ChatLayer {
     /// stage's lines told; else its sockets closed, its last lines told.
     fn drop(&mut self) {
         let messages = self.config.level == Level::Messages;
-        let Some(Leased {
+        if let Some(leased) = self.live.take() {
+            self.release(leased, messages);
+        }
+    }
+}
+
+impl ChatLayer {
+    /// A connection this layer held, let go: given back to the room
+    /// (kept between stages where it still wants it), the stage's lines
+    /// told; else its sockets closed, its last lines told.
+    fn release(&self, leased: Leased, messages: bool) {
+        let Leased {
             chat: l,
             key,
             messages_before,
             ..
-        }) = self.live.take()
-        else {
-            return;
-        };
+        } = leased;
         let view = self.view_note.borrow().clone();
         let given = l.machine.received().messages.saturating_sub(messages_before);
         match give_back(key, l) {
@@ -828,6 +921,54 @@ impl Drop for ChatLayer {
             }
         }
     }
+
+    /// The connection for `key`: the room's kept one where it holds one
+    /// for it (with its last events), else one of the layer's own.
+    fn lease(key: Key) -> Option<Leased> {
+        let (live, handed, kept) = match take_kept(&key) {
+            Some((l, events)) => (Some(l), events, true),
+            None => (LiveChat::new(key.want.clone(), key.from), Vec::new(), false),
+        };
+        live.map(|chat| Leased {
+            messages_before: chat.machine.received().messages,
+            chat,
+            key,
+            kept,
+            handed: Some(handed),
+        })
+    }
+
+    /// Round SD: what this layer shows changed while its stage plays (the
+    /// room's ceiling lowered or raised; the channel is the same). The
+    /// view takes the level at its next frame (lowered to emotes, the
+    /// messages on screen go). A live chat's connection is what the room
+    /// keeps for the new level (the moderation events are subscribed with
+    /// the messages alone): the old given back, which the room's keeper
+    /// closes since it no longer wants it, the room's new one taken where
+    /// it holds it, else one of the layer's own; the emote sets kept
+    /// until the new connection's come in.
+    pub fn set_level(&mut self, level: Level) {
+        let before = self.config.level;
+        if level == before || level == Level::Off {
+            return;
+        }
+        self.config.level = level;
+        let Some(old) = self.live.take() else {
+            return;
+        };
+        let key = Key {
+            messages: level == Level::Messages,
+            ..old.key.clone()
+        };
+        self.release(old, before == Level::Messages);
+        self.live = ChatLayer::lease(key);
+    }
+
+    /// Which layer this is: a view made for another is made again (round
+    /// SD: a stage's layer replaced for another channel).
+    pub fn id(&self) -> u64 {
+        self.id
+    }
 }
 
 impl ChatLayer {
@@ -837,28 +978,18 @@ impl ChatLayer {
             ChatSource::Live(want) => {
                 // Round DE: the room's kept connection where it has one
                 // for this chat; else one of the play's own.
-                let k = Key {
+                let live = ChatLayer::lease(Key {
                     want: want.clone(),
                     messages: config.level == Level::Messages,
                     from: config.emotes_from,
-                };
-                let (live, handed, kept) = match take_kept(&k) {
-                    Some((l, events)) => (Some(l), events, true),
-                    None => (LiveChat::new(want.clone(), config.emotes_from), Vec::new(), false),
-                };
-                let sets = live.as_ref().map(|l| l.sets.sets()).unwrap_or_default();
-                let live = live.map(|chat| Leased {
-                    messages_before: chat.machine.received().messages,
-                    chat,
-                    key: k,
-                    kept,
-                    handed: Some(handed),
                 });
+                let sets = live.as_ref().map(|l| l.chat.sets.sets()).unwrap_or_default();
                 (None, sets, live)
             }
             ChatSource::Room => (None, EmoteSets::default(), None),
         };
         ChatLayer {
+            id: next_layer_id(),
             config,
             player,
             live,
@@ -1529,6 +1660,192 @@ pub(crate) mod tests {
         room_ticks((ROOM_RETRY_MS / 100) as usize * 2, &mut t, Some(&want));
         assert_eq!(state.borrow().opened.len(), opened, "not opened again");
         room_ticks(1, &mut t, None);
+        set_live(None);
+    }
+
+    /// Round SD: a room's stage follows the room's chat while it plays,
+    /// the host's every change at once: lowered to emotes (the layer the
+    /// same, its connection the room's new one), raised again, turned off
+    /// (no layer, nothing open), on again (the room's kept connection
+    /// taken, its last events at the next frame), and another channel (a
+    /// new host's: the old one closed, a new layer reading the new
+    /// channel). Whichever comes first in a frame, the room's tick telling
+    /// its keeper or the stage's: never two connections at once once a
+    /// frame is done, none left open after the room is left, and the
+    /// stage's layer always on the room's current one.
+    #[test]
+    fn a_stage_follows_the_rooms_chat_while_it_plays() {
+        use ddi_ui::state::twitch::{KeptChat, RoomChat, keep_room_chat};
+        for keeper_first in [true, false] {
+            set_scripted(None);
+            ddi_ui::state::twitch::set_dev_live(None);
+            let state = fake_live();
+            let host = |ceiling: Level, id: &str| RoomChat {
+                ceiling,
+                channel_id: id.into(),
+                login: format!("host{id}"),
+                room: Some("Room000001".into()),
+                named: false,
+            };
+            let kept = |c: &Option<RoomChat>| {
+                c.as_ref().map(|c| KeptChat {
+                    chat: c.clone(),
+                    level: Level::Messages.under(c.ceiling),
+                    emotes_from: EmotesFrom::TwitchAndOthers,
+                })
+            };
+            let device = ChatConfig::for_play(&Settings {
+                twitch_chat: Level::Messages,
+                ..Settings::default()
+            })
+            .unwrap();
+            let mut t = 1_700_000_000_000u64;
+            let mut now = 100.0;
+            let mut room = Some(host(Level::Messages, "77"));
+            // Between stages: the room's connection kept.
+            for _ in 0..5 {
+                keep_room_chat(kept(&room).as_ref(), t);
+                t += 100;
+            }
+            let mut follow = Following::new(device.clone(), room.as_ref());
+            let mut layer = device.clone().under_chat(room.as_ref()).map(ChatLayer::new);
+            // One frame of the stage: the room's tick (its keeper told) and
+            // the stage's (following, then the chat driven), in either
+            // order.
+            let mut frame = |room: &Option<RoomChat>, layer: &mut Option<ChatLayer>| {
+                let k = kept(room);
+                if keeper_first {
+                    keep_room_chat(k.as_ref(), t);
+                }
+                follow.follow(layer, room.as_ref());
+                if let Some(l) = layer.as_mut() {
+                    l.advance(now);
+                }
+                if !keeper_first {
+                    keep_room_chat(k.as_ref(), t);
+                }
+                t += 16;
+                now += 0.016;
+            };
+            let open = |state: &Rc<RefCell<FakeIoState>>| {
+                let s = state.borrow();
+                s.opened.len() - s.closed.len()
+            };
+            for _ in 0..5 {
+                frame(&room, &mut layer);
+            }
+            let first = layer.as_ref().unwrap().id();
+            assert_eq!(layer.as_ref().unwrap().live_report().unwrap()["taken_from_room"], true);
+            assert_eq!((state.borrow().opened.len(), open(&state)), (1, 1));
+            // Lowered to emotes: the same layer at the new level, on the
+            // room's connection for it (the moderation events no longer
+            // subscribed); the old one closed.
+            room = Some(host(Level::Emotes, "77"));
+            frame(&room, &mut layer);
+            let l = layer.as_ref().unwrap();
+            assert_eq!((l.id(), l.config().level), (first, Level::Emotes), "kept first {keeper_first}");
+            assert_eq!(open(&state), 1, "one connection, keeper first {keeper_first}");
+            for _ in 0..5 {
+                frame(&room, &mut layer);
+            }
+            {
+                let s = state.borrow();
+                assert_eq!((s.opened.len(), s.closed.len()), (2, 1), "keeper first {keeper_first}");
+                assert!(!s.subscribed.last().unwrap().3, "emotes alone: no moderation events");
+            }
+            let before = layer.as_ref().unwrap().counts().0;
+            for _ in 0..3 {
+                frame(&room, &mut layer);
+            }
+            assert!(layer.as_ref().unwrap().counts().0 > before, "the chat goes on");
+            // Raised again: messages, on the room's new connection.
+            room = Some(host(Level::Messages, "77"));
+            for _ in 0..5 {
+                frame(&room, &mut layer);
+            }
+            let l = layer.as_ref().unwrap();
+            assert_eq!((l.id(), l.config().level), (first, Level::Messages));
+            assert_eq!((state.borrow().opened.len(), open(&state)), (3, 1));
+            assert!(state.borrow().subscribed.last().unwrap().3);
+            // Off: no layer within the frame, nothing open.
+            room = None;
+            frame(&room, &mut layer);
+            assert!(layer.is_none());
+            for _ in 0..5 {
+                frame(&room, &mut layer);
+            }
+            assert_eq!((state.borrow().opened.len(), open(&state)), (3, 0));
+            assert_eq!(kept_report(), None);
+            // On again: a layer as at a stage's start, the room's kept
+            // connection taken (opened once, by the room or the stage).
+            room = Some(host(Level::Messages, "77"));
+            for _ in 0..5 {
+                frame(&room, &mut layer);
+            }
+            let l = layer.as_ref().unwrap();
+            assert_ne!(l.id(), first);
+            assert_eq!(l.live_report().unwrap()["connection"]["state"], "live");
+            assert_eq!((state.borrow().opened.len(), open(&state)), (4, 1));
+            // Another channel (a new host's): the old off, the new on.
+            let second = l.id();
+            room = Some(host(Level::Messages, "88"));
+            for _ in 0..5 {
+                frame(&room, &mut layer);
+            }
+            let l = layer.as_ref().unwrap();
+            assert_ne!(l.id(), second);
+            assert_eq!(l.live_report().unwrap()["channel"], "host88");
+            assert_eq!((state.borrow().opened.len(), open(&state)), (5, 1));
+            assert_eq!(state.borrow().subscribed.last().unwrap().2.channel_id, "88");
+            // The stage ends and the room is left: nothing left open.
+            drop(layer);
+            keep_room_chat(None, t);
+            assert_eq!(open(&state), 0, "keeper first {keeper_first}");
+            set_live(None);
+        }
+    }
+
+    /// Round SD: nothing follows a room for a play outside one, nor where
+    /// the device's option is off; a room's chat the same as at the start
+    /// changes nothing.
+    #[test]
+    fn following_changes_nothing_the_room_did_not_change() {
+        set_scripted(None);
+        ddi_ui::state::twitch::set_dev_live(None);
+        let _state = fake_live();
+        let room = ddi_ui::state::twitch::RoomChat {
+            ceiling: Level::Emotes,
+            channel_id: "77".into(),
+            login: "host".into(),
+            room: Some("Room000001".into()),
+            named: false,
+        };
+        let device = ChatConfig::for_play(&Settings {
+            twitch_chat: Level::Messages,
+            ..Settings::default()
+        })
+        .unwrap();
+        let mut follow = Following::new(device.clone(), Some(&room));
+        let mut layer = device.under_chat(Some(&room)).map(ChatLayer::new);
+        let id = layer.as_ref().unwrap().id();
+        assert!(!follow.follow(&mut layer, Some(&room)));
+        assert_eq!(layer.as_ref().unwrap().id(), id);
+        // The device's own choice stays the device's: never above it.
+        let mut emotes_device = Following::new(
+            ChatConfig::for_play(&Settings {
+                twitch_chat: Level::Emotes,
+                ..Settings::default()
+            })
+            .unwrap(),
+            Some(&room),
+        );
+        let raised = ddi_ui::state::twitch::RoomChat {
+            ceiling: Level::Messages,
+            ..room.clone()
+        };
+        assert!(emotes_device.follow(&mut layer, Some(&raised)));
+        assert_eq!(layer.as_ref().unwrap().config().level, Level::Emotes);
+        drop(layer);
         set_live(None);
     }
 

@@ -425,6 +425,29 @@ impl Overlay {
         &self.rules
     }
 
+    /// What is shown changed while the layer runs (round SD: the room's
+    /// ceiling changed during a stage): lowered to emotes alone, the
+    /// items that carry a message's words or a chatter's name go, waiting
+    /// or on screen, and none come; Off, every item goes; raised, the new
+    /// level's items come from the next message on.
+    pub fn set_level(&mut self, level: Level) {
+        let before = self.options.level;
+        self.options.level = level;
+        if level == Level::Off {
+            self.remove_quietly(|_| true);
+        } else if before == Level::Messages && level != Level::Messages {
+            self.remove_quietly(|c| c.name.is_some() || !c.emote_only());
+        }
+    }
+
+    /// Items gone for a change of what is shown: not counted as taken off
+    /// by moderation.
+    fn remove_quietly(&mut self, which: impl Fn(&Content) -> bool) {
+        self.counted = None;
+        self.waiting.retain(|w| !which(&w.content));
+        self.shown.retain(|s| !which(&s.content));
+    }
+
     /// The emote sets words are matched against (they come in when the
     /// providers answer; items made before keep theirs).
     pub fn set_sets(&mut self, sets: EmoteSets) {

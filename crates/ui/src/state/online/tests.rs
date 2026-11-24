@@ -1217,6 +1217,12 @@ pub(crate) mod room {
         assert_eq!(alice.chat_kept(), Some(kept));
         tick(&clock, &mut [&mut bob], 100);
         assert_eq!(last(), None, "bob's access does not allow chat");
+        // Round SD: a stage being played reads the room's chat as its
+        // stages show it, whatever the device's access (its stage would
+        // have shown it from its start the same way).
+        use crate::state::room::LiveRoom;
+        assert_eq!(bob.room_chat(), Some(bob.stage_chat()));
+        assert_eq!(bob.room_chat().flatten().map(|c| c.ceiling), Some(ddi_chat::Level::Emotes));
         // The device's option off: nothing kept.
         crate::state::settings::Settings::default().save();
         tick(&clock, &mut [&mut alice], 100);
@@ -1236,6 +1242,7 @@ pub(crate) mod room {
         tick(&clock, &mut [&mut alice, &mut bob], 400);
         tick(&clock, &mut [&mut alice], 100);
         assert_eq!(last(), None);
+        assert_eq!(alice.room_chat(), Some(None), "a stage's layer goes");
         server
             .borrow_mut()
             .set_twitch(me, Some(shown(ddi_room::TwitchChat::EmotesAndMessages)))
@@ -1251,6 +1258,7 @@ pub(crate) mod room {
         told.borrow_mut().clear();
         let practice = crate::state::room::practice_room(1_000);
         practice.borrow_mut().tick(2_000);
+        assert_eq!(practice.borrow().room_chat(), None, "practice: nothing followed");
         drop(practice);
         assert!(told.borrow().is_empty());
         set_chat_keeper(None);

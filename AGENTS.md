@@ -981,7 +981,9 @@ Rust and the browser are implementation details, not advertised features.
   Display's "Twitch chat in rooms" is on; `chat::room_ceiling` the one
   answer to the room's ceiling: in a room's stage the room's own
   (`RoomState::twitch`'s chat, carried by `StageSetup::chat`, a
-  `ddi_ui::state::twitch::RoomChat`; none, no layer at all), outside a
+  `ddi_ui::state::twitch::RoomChat`; none, no layer at all; and since
+  round SD followed while the stage plays, the host's every change at
+  once, `chat::Following` over `LiveRoom::room_chat`), outside a
   room the script's line, for tests (round TW3).
   Parts of a frame timed for a shell's frame recorder (`perf.rs`: a
   clock set only while the web's `perf=1` records; the battle's
