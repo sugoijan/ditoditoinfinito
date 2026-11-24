@@ -297,8 +297,17 @@ pub enum LiveRefusal {
         stage: StageId,
         problem: PlanProblem,
     },
-    /// A plan only comes from the stage's picker (or an operator).
+    /// A plan only comes from the stage's picker (or an operator), or,
+    /// since room model revision 24, from a person present in the room
+    /// once the stage's plan offers are open to everyone
+    /// ([`plan::PLAN_OFFERS_V1`]).
     NotPicker {
+        stage: StageId,
+    },
+    /// A person's plan before the stage's offers are open to everyone
+    /// (room model revision 24, [`plan::PLAN_OFFERS_V1`]): offered again
+    /// later where the room still has none.
+    OfferTooSoon {
         stage: StageId,
     },
     /// The stage has a different plan already.

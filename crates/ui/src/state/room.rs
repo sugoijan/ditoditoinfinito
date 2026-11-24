@@ -1525,8 +1525,11 @@ pub struct RoomClient {
     /// Stages prepared for live play whose Loaded waits on the room's
     /// battle plan, with the readiness revision prepared for.
     preparing: BTreeMap<StageId, (u32, LivePrep)>,
-    /// The battle plans this device offered (once a stage).
-    offered: BTreeSet<StageId>,
+    /// The battle plans this device offered: when (this device's clock,
+    /// ms), and whether the room refused it for a reason that may pass
+    /// (offered again `PLAN_OFFERS_V1.again_ms` later, room model
+    /// revision 24).
+    offered: BTreeMap<StageId, Offered>,
     /// What this device worked out for each stage it said it plays live.
     live_preps: BTreeMap<StageId, LivePrep>,
     /// A practice room whose roster the settings keep as it changes
@@ -1653,6 +1656,15 @@ pub fn new_song(song: &SongEntry) -> Option<ddi_room::NewSong> {
             })
             .collect(),
     })
+}
+
+/// A battle plan this device offered ([`RoomClient`]'s `offered`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Offered {
+    /// When, on this device's clock (ms).
+    at: u64,
+    /// The room refused it for a reason that may pass.
+    refused: bool,
 }
 
 /// PROVISIONAL (`load-retry-v0`, round P1b): a member's failed download
@@ -2285,7 +2297,7 @@ impl RoomClient {
             starts: Default::default(),
             live_news: LiveNewsTap::default(),
             preparing: BTreeMap::new(),
-            offered: BTreeSet::new(),
+            offered: BTreeMap::new(),
             live_preps: BTreeMap::new(),
             remembers_roster: false,
             watch_music: crate::state::audience::MusicDelays::new(WATCH_MUSIC_V0),
@@ -5080,9 +5092,27 @@ impl RoomClient {
             let digest = match (ours, room_plan) {
                 (None, _) => None,
                 (Some(_), None) => {
-                    // The picker's device offers it, once; the others
-                    // wait for the room to say which it took.
-                    if self.chooses() && self.offered.insert(stage) {
+                    // The picker's (or an operator's) device offers it at
+                    // once; any other once the room's offers are open to
+                    // everyone (revision 24, `plan-offers-v1`: a picker
+                    // away or whose load failed held everyone's Loaded
+                    // up); again after a refusal that may pass. The room
+                    // takes the first; everyone compares theirs with it.
+                    let now = self.now_ms();
+                    let room_now = self.room_now().unwrap_or(ddi_room::Millis(now));
+                    let may = self.chooses()
+                        || self.may(Capability::ChooseContent)
+                        || self.state().plan_offers_open(stage, room_now);
+                    let due = match self.offered.get(&stage) {
+                        None => true,
+                        Some(o) => {
+                            o.refused
+                                && now.saturating_sub(o.at)
+                                    >= ddi_room::live::plan::PLAN_OFFERS_V1.again_ms
+                        }
+                    };
+                    if may && due {
+                        self.offered.insert(stage, Offered { at: now, refused: false });
                         let plan = self.preparing.get(&stage).and_then(|(_, p)| p.plan.clone());
                         if let (Some(plan), Some(link)) = (plan, self.online_link_mut()) {
                             link.authority
@@ -6295,6 +6325,19 @@ impl RoomClient {
             return;
         };
         let news = l.authority.live_mut().take_news();
+        // An offer refused for a reason that may pass is offered again
+        // (revision 24): too soon, the stage not known yet, not ours yet.
+        for n in &news {
+            if let ddi_room::live::LiveNews::Refused(
+                ddi_room::live::LiveRefusal::OfferTooSoon { stage }
+                | ddi_room::live::LiveRefusal::NotPicker { stage }
+                | ddi_room::live::LiveRefusal::UnknownStage { stage },
+            ) = n
+                && let Some(o) = self.offered.get_mut(stage)
+            {
+                o.refused = true;
+            }
+        }
         // A plan this device computed differently: it sits the stage out.
         let mismatched: Vec<StageId> = news
             .iter()

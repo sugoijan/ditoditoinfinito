@@ -1348,6 +1348,37 @@ impl RoomState {
             .filter(|_| self.phase.kind().match_running())
     }
 
+    /// When stage `stage`'s readiness window opened (its song available
+    /// to everyone), as its window says it, while the stage gathers
+    /// readiness; none otherwise. Under `hosted-deadline-v2` its loading
+    /// grace's end (or, ended early, when it would have ended; or, once
+    /// the countdown counts, the deadline less the window) less the
+    /// grace; under v1 the deadline less the window.
+    pub fn window_opened(&self, stage: StageId) -> Option<Millis> {
+        let Phase::Preparing { stage: p, window: Some(w) } = &self.phase else {
+            return None;
+        };
+        if *p != stage {
+            return None;
+        }
+        let r = &self.policy.readiness;
+        let back = |at: Millis, ms: u64| Millis(at.0.saturating_sub(ms));
+        let counted = back(w.deadline, r.window_ms);
+        Some(match r.grace() {
+            Some(grace) => back(w.loading_until.or(w.hold_until).unwrap_or(counted), grace),
+            None => counted,
+        })
+    }
+
+    /// Whether anyone present may offer stage `stage`'s battle plan at
+    /// `now`, not only its picker or an operator (room model revision 24,
+    /// `crate::live::plan::PLAN_OFFERS_V1`): its window opened at least
+    /// the wait before.
+    pub fn plan_offers_open(&self, stage: StageId, now: Millis) -> bool {
+        self.window_opened(stage)
+            .is_some_and(|at| now >= at.after(crate::live::plan::PLAN_OFFERS_V1.wait_ms))
+    }
+
     /// Whether anything the room keeps names `id` (room model revision
     /// 24): a match kept (the running one or the last, and the finished
     /// ones of its history: rosters, every stage's preparation, lineup,

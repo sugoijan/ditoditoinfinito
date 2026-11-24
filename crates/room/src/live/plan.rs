@@ -359,6 +359,30 @@ impl BattlePlan {
     }
 }
 
+/// Who offers a stage's plan, and when (`plan-offers-v1`, room model
+/// revision 24, round R24; PROVISIONAL): the picker's device, or an
+/// operator's, at once, as before; any other device that prepared the
+/// stage (a person present in the room, playing or watching) once the
+/// room still has none [`PlanOffers::wait_ms`] after the stage's
+/// readiness window opened ([`crate::RoomState::plan_offers_open`]), so
+/// that a picker who is away, or whose song failed to load, holds
+/// nobody's Loaded up. The first plan the room takes stands (every other
+/// device compares its own digest with it, as before); a device whose
+/// offer was refused for a reason that may pass (too soon, the stage not
+/// known yet) offers again [`PlanOffers::again_ms`] later.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlanOffers {
+    pub id: &'static str,
+    pub wait_ms: u64,
+    pub again_ms: u64,
+}
+
+pub const PLAN_OFFERS_V1: PlanOffers = PlanOffers {
+    id: "plan-offers-v1",
+    wait_ms: 8_000,
+    again_ms: 2_000,
+};
+
 /// The seed of an online stage's battle: from the room, the stage and its
 /// chart, so every device knows it and nobody chooses it.
 pub fn seed_for(room: &RoomId, stage: StageId, chart: &ChartKey) -> u64 {

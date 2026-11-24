@@ -348,7 +348,7 @@ impl LiveServer {
                 );
             }
             ClientLive::OfferPlan { stage, plan } => {
-                self.offer(room, from, stage, *plan, &mut out);
+                self.offer(room, from, stage, *plan, now, &mut out);
             }
             ClientLive::Resume { stage, after } => match self.stage.as_mut() {
                 // At a bounded rate (round RFa): past it, passed over.
@@ -380,6 +380,7 @@ impl LiveServer {
         from: ParticipantId,
         stage: StageId,
         plan: BattlePlan,
+        now: Millis,
         out: &mut LiveOut,
     ) {
         let Some(s) = room.stage(stage).filter(|s| s.play.is_none()) else {
@@ -402,9 +403,18 @@ impl LiveServer {
                         room.phase.kind(),
                     )
                 });
+        // Anyone present once the offers are open to everyone (revision
+        // 24, `plan-offers-v1`): a picker away, or whose song failed to
+        // load, holds nobody's Loaded up for long.
         if !may {
-            out.refuse(LiveRefusal::NotPicker { stage });
-            return;
+            if !room.member(from).is_some_and(|m| m.present_person()) {
+                out.refuse(LiveRefusal::NotPicker { stage });
+                return;
+            }
+            if !room.plan_offers_open(stage, now) {
+                out.refuse(LiveRefusal::OfferTooSoon { stage });
+                return;
+            }
         }
         if let Err(problem) = plan.check() {
             out.refuse(LiveRefusal::BadPlan { stage, problem });

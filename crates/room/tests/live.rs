@@ -1022,7 +1022,8 @@ fn a_plan_is_checked_by_its_digest_and_a_device_that_computed_another_sits_out()
     setup.attacks = true;
     let mut r = room(&setup);
     let good = plan(20, 5, |j| j % 2 == 0);
-    // Only the picker (or an operator) offers it.
+    // Only the picker (or an operator) offers it at once; anyone present
+    // once the offers are open to everyone (revision 24).
     r.players[1].link.live_mut().send(ClientLive::OfferPlan {
         stage: STAGE,
         plan: Box::new(good.clone()),
@@ -1039,7 +1040,7 @@ fn a_plan_is_checked_by_its_digest_and_a_device_that_computed_another_sits_out()
         r.players[1]
             .news
             .iter()
-            .any(|n| matches!(n, LiveNews::Refused(LiveRefusal::NotPicker { .. })))
+            .any(|n| matches!(n, LiveNews::Refused(LiveRefusal::OfferTooSoon { .. })))
     );
     assert!(
         r.players[0]
