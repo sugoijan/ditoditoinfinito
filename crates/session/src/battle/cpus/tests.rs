@@ -196,7 +196,11 @@ fn play(song: &ddi_chart::Song, chart: usize, rules: &StageRules, cpus: &[CpuSea
             seed: plan.seed,
         },
         plan.schedule.clone(),
-    );
+    )
+    // As the room runs it since revision 24: the plan's notes bound what
+    // each report is credited (an honest CPU's never reach them, so the
+    // fixture's lines are what they were).
+    .with_notes(plan.notes.clone());
     let mut lines = Vec::new();
     // The room's inbox (arrival, cpu, report or end) and the device's
     // (arrival, checkpoint, commitments).

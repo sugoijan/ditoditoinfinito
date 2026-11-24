@@ -128,6 +128,13 @@ pub fn plan_of(
         Schedule { slots },
     )
     .with_shocks(shocks)
+    .with_notes(notes(n))
+}
+
+/// The checkpoints' notes of [`plan_of`]'s plans (room model revision
+/// 24): 256 a checkpoint of 2 s, more than any script here judges.
+pub fn notes(n: usize) -> Vec<u32> {
+    (1..=n as u32).map(|k| 256 * k).collect()
 }
 
 /// A competitor's play, scripted: its moments in time order.

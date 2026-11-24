@@ -38,6 +38,9 @@ pub enum PlanProblem {
     UnknownVersion,
     /// More slots, checkpoints or cells than [`BattlePlan`]'s bounds.
     TooLarge,
+    /// No note count for each checkpoint, or counts that fall (room model
+    /// revision 24, [`BattlePlan::notes`]).
+    Notes,
     /// Checkpoints or slots not rising, or a section's cells out of order.
     Order,
     /// A shock count the rule does not offer, or a section that does not
@@ -94,8 +97,32 @@ pub struct BattlePlan {
     /// `None`, so a plan of eight is what it was, digest and all.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shocks: Option<u32>,
+    /// Each checkpoint's notes (room model revision 24, round R24): the
+    /// most of the stage's notes a play can have had judged before it,
+    /// one count for each of [`BattlePlan::checkpoints_us`], rising:
+    /// those whose time is earlier than the checkpoint's by less than
+    /// [`NOTES_AHEAD_US`] (a press is judged at most a timing window
+    /// before its note), of the stage's chart, or under Charts: Adaptive
+    /// of its chart and every rung of its ladder together, a note of two
+    /// charts at the same row and lane once (whatever chart a competitor
+    /// is on, or steps to, its notes are among them). Holds' heads,
+    /// rolls' and lifts count, mines and fakes do not. The room credits
+    /// no more judgments to a competitor by a checkpoint than this
+    /// ([`crate::attacks::StageBattle::with_notes`]), so that a report of
+    /// impossible counts earns no more power than a full accuracy play.
+    /// The room refuses a plan offered without it
+    /// ([`PlanProblem::Notes`]); a plan stored before (empty: no bound)
+    /// reads as it was, its digest its own, as the ladder.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<u32>,
     pub digest: PlanDigest,
 }
+
+/// How far past a checkpoint's time a note may lie and still have been
+/// judged before it ([`BattlePlan::notes`], `notes-v0`): a second, far
+/// beyond the earliest a press is judged (DDI's widest window is about a
+/// fifth of a second early, StepMania's rulesets' under a quarter).
+pub const NOTES_AHEAD_US: i64 = 1_000_000;
 
 impl BattlePlan {
     pub const VERSION: u32 = 1;
@@ -128,6 +155,7 @@ impl BattlePlan {
             stage_rules: None,
             at_once: None,
             shocks: None,
+            notes: Vec::new(),
             digest: PlanDigest(String::new()),
         };
         plan.digest = plan.compute_digest();
@@ -162,6 +190,14 @@ impl BattlePlan {
     /// eight kept as none), its digest computed again.
     pub fn with_shocks(mut self, shocks: u32) -> BattlePlan {
         self.shocks = (shocks != crate::attacks::SHOCKS_BEFORE_THE_RULE).then_some(shocks);
+        self.digest = self.compute_digest();
+        self
+    }
+
+    /// The plan with each checkpoint's notes ([`BattlePlan::notes`]),
+    /// its digest computed again.
+    pub fn with_notes(mut self, notes: Vec<u32>) -> BattlePlan {
+        self.notes = notes;
         self.digest = self.compute_digest();
         self
     }
@@ -237,6 +273,15 @@ impl BattlePlan {
             h.u64(0x5348_4f43);
             h.u64(u64::from(n));
         }
+        // The checkpoints' notes where there are some (every plan since
+        // room model revision 24), as the ladder.
+        if !self.notes.is_empty() {
+            h.u64(0x4e4f_5445);
+            h.u64(self.notes.len() as u64);
+            for &n in &self.notes {
+                h.u64(u64::from(n));
+            }
+        }
         let mut text = String::from("fnv1a64:");
         let _ = write!(text, "{:016x}", h.0);
         PlanDigest(text)
@@ -281,6 +326,13 @@ impl BattlePlan {
                 }))
         {
             return Err(PlanProblem::Shocks);
+        }
+        // A count for every checkpoint, never falling (room model
+        // revision 24: an offered plan without them is refused).
+        if self.notes.len() != self.checkpoints_us.len()
+            || self.notes.windows(2).any(|w| w[1] < w[0])
+        {
+            return Err(PlanProblem::Notes);
         }
         let rising = |v: Vec<i64>| v.windows(2).all(|w| w[1] > w[0]);
         if !rising(self.checkpoints_us.clone())
@@ -361,14 +413,19 @@ pub(crate) mod tests {
         )
     }
 
+    /// Each checkpoint's notes for [`plan`]'s: 16 a checkpoint.
+    pub(crate) fn notes(n: usize) -> Vec<u32> {
+        (1..=n as u32).map(|k| 16 * k).collect()
+    }
+
     #[test]
     fn a_plan_is_checked_by_its_digest_and_bounds() {
-        let p = plan(40, 7, |j| j % 3 != 0);
+        let p = plan(40, 7, |j| j % 3 != 0).with_notes(notes(40));
         assert!(p.digest.as_str().starts_with("fnv1a64:"));
         assert_eq!(p.check(), Ok(()));
         // The same facts, the same digest; another seed, another.
-        assert_eq!(plan(40, 7, |j| j % 3 != 0).digest, p.digest);
-        assert_ne!(plan(40, 8, |j| j % 3 != 0).digest, p.digest);
+        assert_eq!(plan(40, 7, |j| j % 3 != 0).with_notes(notes(40)).digest, p.digest);
+        assert_ne!(plan(40, 8, |j| j % 3 != 0).with_notes(notes(40)).digest, p.digest);
         // A shock moved: the digest no longer its contents'.
         let mut moved = p.clone();
         moved.schedule.slots[1].section.as_mut().unwrap().cells[0].lane = 3;
@@ -381,6 +438,33 @@ pub(crate) mod tests {
         // Read back from JSON, the same plan.
         let text = serde_json::to_string(&p).unwrap();
         assert_eq!(serde_json::from_str::<BattlePlan>(&text).unwrap(), p);
+    }
+
+    /// Room model revision 24: a plan offered without a note count for
+    /// each checkpoint, or with counts that fall, is refused; the counts
+    /// are in the digest only where there are some, so a plan stored
+    /// before reads with the digest it had.
+    #[test]
+    fn a_plans_notes_are_checked_and_in_its_digest() {
+        let bare = plan(40, 7, |j| j % 3 != 0);
+        assert_eq!(bare.check(), Err(PlanProblem::Notes));
+        assert!(serde_json::to_value(&bare).unwrap().get("notes").is_none());
+        let p = bare.clone().with_notes(notes(40));
+        assert_ne!(p.digest, bare.digest);
+        assert_eq!(bare.clone().with_notes(Vec::new()).digest, bare.digest);
+        let short = bare.clone().with_notes(notes(39));
+        assert_eq!(short.check(), Err(PlanProblem::Notes));
+        let mut falling = notes(40);
+        falling[5] = 1;
+        assert_eq!(bare.clone().with_notes(falling).check(), Err(PlanProblem::Notes));
+        let mut more = notes(40);
+        more[39] += 1;
+        assert_ne!(bare.clone().with_notes(more).digest, p.digest);
+        let json = serde_json::to_value(&p).unwrap();
+        assert_eq!(json["notes"][0], 16);
+        let back: BattlePlan = serde_json::from_value(json).unwrap();
+        assert_eq!(back.compute_digest(), p.digest);
+        assert_eq!(back.check(), Ok(()));
     }
 
     /// A plan without a ladder keeps the digest it had; one with a ladder
@@ -417,7 +501,7 @@ pub(crate) mod tests {
                 .digest,
             named.digest
         );
-        assert!(named.check().is_ok());
+        assert!(named.clone().with_notes(notes(40)).check().is_ok());
         let json = serde_json::to_value(&named).unwrap();
         assert_eq!(json["stage_rules"], "hard/boos/out");
         assert!(

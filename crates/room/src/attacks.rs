@@ -534,6 +534,8 @@ struct Seat {
     launched: u32,
     /// The checkpoint of its last launch ([`AttackRules::cooldown_checkpoints`]).
     last_launch: Option<usize>,
+    /// The judgments credited so far ([`StageBattle::with_notes`]).
+    judged: u32,
 }
 
 impl Seat {
@@ -552,6 +554,7 @@ impl Seat {
             waits: [0; 3],
             launched: 0,
             last_launch: None,
+            judged: 0,
         }
     }
 }
@@ -603,6 +606,10 @@ pub struct StageBattle {
     seats: BTreeMap<ParticipantId, Seat>,
     attacks: Vec<Attack>,
     record: Vec<CheckpointRecord>,
+    /// The most judgments a competitor is credited by each checkpoint
+    /// (room model revision 24, [`StageBattle::with_notes`]); none: as
+    /// many as reported.
+    notes: Option<Vec<u32>>,
 }
 
 impl StageBattle {
@@ -639,7 +646,29 @@ impl StageBattle {
                 .collect(),
             attacks: Vec::new(),
             record: Vec::new(),
+            notes: None,
         }
+    }
+
+    /// The ledger crediting each competitor by checkpoint `k` with at most
+    /// `notes[k]` judgments in all (room model revision 24, round R24: the
+    /// battle plan's notes, `crate::live::BattlePlan::notes`, what a play
+    /// of the stage's charts can have had judged by then): what a report
+    /// says beyond them earns nothing, so a report of impossible counts
+    /// is credited no more than a play of full accuracy. A count for each
+    /// checkpoint kept (the rest of the checkpoints bounded by the last);
+    /// none (a plan stored before the revision): unbounded, as before.
+    /// The judgments taken are the first reported, in the order given.
+    pub fn with_notes(mut self, notes: Vec<u32>) -> StageBattle {
+        self.notes = (!notes.is_empty()).then_some(notes);
+        self
+    }
+
+    /// The most judgments credited to a competitor by checkpoint `k`, if
+    /// the ledger bounds them.
+    pub fn notes_by(&self, k: usize) -> Option<u32> {
+        let notes = self.notes.as_ref()?;
+        notes.get(k).or(notes.last()).copied()
     }
 
     pub fn rules(&self) -> AttackRules {
@@ -706,7 +735,9 @@ impl StageBattle {
                 seat.out_at_us = Some(out);
             }
         }
-        // (2) Power, by timing (D2), capped; life.
+        // (2) Power, by timing (D2), capped; life. The judgments credited
+        // within what the stage's notes allow by now (revision 24).
+        let allowed = self.notes_by(k);
         for r in reports {
             let Some(seat) = self.seats.get_mut(&r.participant) else {
                 continue;
@@ -727,12 +758,19 @@ impl StageBattle {
                     targeting: t,
                 });
             }
+            let room = allowed.map_or(usize::MAX, |n| n.saturating_sub(seat.judged) as usize);
+            let mut taken = 0u32;
             let earned: u32 = r
                 .judged
                 .iter()
                 .filter(|j| j.at_us < at)
-                .map(|j| earned(&self.earns, j.tier))
+                .take(room)
+                .map(|j| {
+                    taken += 1;
+                    earned(&self.earns, j.tier)
+                })
                 .sum();
+            seat.judged = seat.judged.saturating_add(taken);
             let was = seat.power;
             let total = seat.power.saturating_add(earned);
             seat.power = total.min(self.rules.cap);

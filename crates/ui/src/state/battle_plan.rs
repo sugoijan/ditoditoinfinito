@@ -128,15 +128,18 @@ pub fn plan(song: &Song, chart: usize, rules: &StageRules, seed: u64) -> BattleP
         placed = ddi_engine::ladder::merged(song, chart, &ladder);
         &placed
     };
+    let checkpoints = checkpoints(song, chart, &ATTACKS);
+    let notes = notes(song, chart, &ladder, &checkpoints);
     BattlePlan::new(
         ATTACKS.id,
         placement.id,
         POWER_CLASSES_V0.id,
         &rules.ruleset,
         seed,
-        checkpoints(song, chart, &ATTACKS),
+        checkpoints,
         schedule(over, chart, &judge, seed, rules.shocks.count()),
     )
+    .with_notes(notes)
     .with_ladder(
         ladder
             .iter()
@@ -146,6 +149,43 @@ pub fn plan(song: &Song, chart: usize, rules: &StageRules, seed: u64) -> BattleP
     .with_stage_rules(rules.changed_tag())
     .with_at_once(rules.at_once.limit())
     .with_shocks(rules.shocks.count())
+}
+
+/// Each of `checkpoints`' notes (`BattlePlan::notes`, room model revision
+/// 24, `notes-v0`): how many of the notes a play of chart `chart` of
+/// `song` (or of any rung of `ladder`, stepped to and from) can have had
+/// judged before each checkpoint: those judged on a press or a release
+/// (taps, holds' and rolls' heads, lifts; never mines, shocks, fakes or
+/// what is never judged), a note of two charts at the same row and lane
+/// once, whose time is less than `NOTES_AHEAD_US` past the checkpoint.
+pub fn notes(song: &Song, chart: usize, ladder: &[usize], checkpoints: &[i64]) -> Vec<u32> {
+    use ddi_chart::NoteKind;
+    let mut rows: std::collections::BTreeMap<(i64, u8), i64> = std::collections::BTreeMap::new();
+    for c in std::iter::once(chart).chain(ladder.iter().copied()) {
+        let Some(ch) = song.charts.get(c) else {
+            continue;
+        };
+        let timing = ch.timing(song);
+        for n in &ch.notes {
+            let judged = matches!(
+                n.kind,
+                NoteKind::Tap | NoteKind::HoldHead { .. } | NoteKind::RollHead { .. } | NoteKind::Lift
+            );
+            if judged {
+                rows.entry((n.tick.0, n.lane))
+                    .or_insert_with(|| micros(timing.seconds_at(n.tick)));
+            }
+        }
+    }
+    let mut times: Vec<i64> = rows.into_values().collect();
+    times.sort_unstable();
+    checkpoints
+        .iter()
+        .map(|&at| {
+            let before = times.partition_point(|&t| t < at.saturating_add(ddi_room::live::plan::NOTES_AHEAD_US));
+            u32::try_from(before).unwrap_or(u32::MAX)
+        })
+        .collect()
 }
 
 /// The first and last note of chart `chart` of `song`, song seconds.
@@ -211,4 +251,73 @@ pub fn reading_horizon_us(song: &Song, chart: usize, options: &PlayOptions, atta
         first - 2.0,
         last,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ddi_chart::NoteKind;
+
+    fn song() -> Song {
+        ddi_library::scan::parse_simfile(
+            include_str!("../../../../assets/songs/beatucada/Beatucada.ssc"),
+            "ssc",
+        )
+        .unwrap()
+    }
+
+    /// The judged notes of chart `c` earlier than `before` µs.
+    fn judged(song: &Song, c: usize, before: i64) -> u32 {
+        let ch = &song.charts[c];
+        let timing = ch.timing(song);
+        ch.notes
+            .iter()
+            .filter(|n| {
+                matches!(
+                    n.kind,
+                    NoteKind::Tap | NoteKind::HoldHead { .. } | NoteKind::RollHead { .. } | NoteKind::Lift
+                )
+            })
+            .filter(|n| micros(timing.seconds_at(n.tick)) < before)
+            .count() as u32
+    }
+
+    /// Room model revision 24: each checkpoint's notes are the chart's
+    /// judged notes up to a second past it (every one of them by the
+    /// last), and under a ladder at least each rung's own, every row of
+    /// two charts once; they rise, and the plan carries them, its check
+    /// passing.
+    #[test]
+    fn a_plans_notes_are_the_charts_judged_notes_by_each_checkpoint() {
+        let song = song();
+        let chart = song
+            .charts
+            .iter()
+            .position(|c| c.layout == "dance-single" && c.difficulty == ddi_chart::Difficulty::Hard)
+            .unwrap();
+        let cps = checkpoints(&song, chart, &ATTACKS);
+        let alone = notes(&song, chart, &[], &cps);
+        assert_eq!(alone.len(), cps.len());
+        for (k, &at) in cps.iter().enumerate() {
+            assert_eq!(alone[k], judged(&song, chart, at + ddi_room::live::plan::NOTES_AHEAD_US));
+        }
+        assert_eq!(*alone.last().unwrap(), judged(&song, chart, i64::MAX));
+        let ladder: Vec<usize> = ddi_engine::cpu::planned_ladder(&song, chart).into_iter().map(|r| r.chart).collect();
+        assert!(!ladder.is_empty());
+        let all = notes(&song, chart, &ladder, &cps);
+        assert!(all.windows(2).all(|w| w[0] <= w[1]));
+        for c in std::iter::once(chart).chain(ladder.iter().copied()) {
+            let own = notes(&song, c, &[], &cps);
+            assert!(all.iter().zip(&own).all(|(a, o)| a >= o), "chart {c}");
+        }
+        let sum: u32 = std::iter::once(chart).chain(ladder.iter().copied()).map(|c| judged(&song, c, i64::MAX)).sum();
+        assert!(*all.last().unwrap() <= sum, "a row of two charts once");
+        let mut rules = ddi_room::MatchRules::hosted();
+        rules.charts = ddi_room::Charts::Adaptive;
+        let plan = plan(&song, chart, &StageRules::of(&rules), 7);
+        assert_eq!(plan.notes, all);
+        assert_eq!(plan.check(), Ok(()));
+        let plan = super::plan(&song, chart, &StageRules::of(&ddi_room::MatchRules::hosted()), 7);
+        assert_eq!(plan.notes, alone);
+    }
 }

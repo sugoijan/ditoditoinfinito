@@ -849,7 +849,10 @@ impl LiveStage {
                     seed: plan.seed,
                 },
                 plan.schedule.clone(),
-            ))
+            )
+            // No more judgments credited than the charts have notes by
+            // each checkpoint (revision 24; a plan stored before: none).
+            .with_notes(plan.notes.clone()))
         });
         LiveStage {
             id,

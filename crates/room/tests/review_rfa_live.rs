@@ -558,3 +558,48 @@ fn a_plan_of_another_seed_is_refused() {
     assert_eq!(refused(&out), None);
     assert_eq!(out.commands.len(), 1);
 }
+
+/// Room model revision 24 (round R24): a stage's live side credits a
+/// member's reports no more judgments than the battle plan's notes allow
+/// by each checkpoint. Ana's modified client reports the wire's most,
+/// 4,096 judgments of the best tier, for the first checkpoint; the plan
+/// says 256 notes by then (`common::notes`), so she is credited 512
+/// power's worth (two a judgment), the most a play of full accuracy
+/// earns there, the cap keeping 100 of it.
+#[test]
+fn a_forged_report_is_credited_no_more_than_the_plans_notes() {
+    use ddi_room::attacks::Judged;
+    use ddi_room::live::stream::LiveReport;
+    let mut l = Live::new(true, 0);
+    l.wait(100);
+    let ana = l.ana;
+    let ledger = l.server.stage().unwrap().ledger().unwrap();
+    assert_eq!(ledger.notes_by(0), Some(256), "the plan's notes bound the ledger");
+    let forged = LiveReport {
+        k: 0,
+        judged: (0..4_096).map(|i| Judged { at_us: i * 400, tier: 0 }).collect(),
+        life_ppm: 1_000_000,
+        out_at_us: None,
+        targeting: None,
+        score: 1,
+    };
+    let b = Batch {
+        stage: l.stage,
+        seq: 1,
+        through_us: 1_990_000,
+        moments: Vec::new(),
+        reports: vec![forged],
+        end: None,
+    };
+    assert_eq!(refused(&l.send(ana, &b)), None);
+    for _ in 0..100 {
+        l.wait(100);
+    }
+    let ledger = l.server.stage().unwrap().ledger().unwrap();
+    assert!(ledger.next_checkpoint().is_some_and(|(k, _)| k >= 1), "checkpoint 0 ran");
+    // Credited at checkpoint 0 (a report that came after its deadline
+    // would be credited at a later one, within that one's notes).
+    let credited =
+        ledger.power(ana) + ledger.overflow(ana) + ledger.stats(ana).launched * ledger.rules().cost;
+    assert_eq!(credited, 2 * 256);
+}
