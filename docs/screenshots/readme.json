@@ -11,27 +11,62 @@
     "preset": 6
   },
   "clock": 1800000000.0,
-  "menu": {
-    "focus": 0.8,
-    "open": 1.3,
-    "select": 1.8,
-    "start": 0.9
+  "seat": "readme-seat.json",
+  "practice": {
+    "seed": 7,
+    "rules": { "charts": "as_picked", "easiest": "out" }
   },
-  "cuts": [
-    { "to": 2 },
-    { "from": 14, "to": 28 },
-    { "from": 88, "to": 100 }
-  ],
   "transition": 1,
-  "combo": 100,
-  "still_after": 0.05,
-  "results": 4.0,
+  "fade": 0.5,
+  "shots": [
+    {
+      "keys": [
+        { "on": "start", "after": 0.8, "key": "Enter" },
+        { "on": "start", "after": 1.3, "key": "Enter" },
+        { "on": "select", "after": 1.6, "key": "Enter" },
+        { "on": "prompt", "after": 0.9, "key": "Enter" }
+      ],
+      "to": { "beat": 2 }
+    },
+    { "from": { "beat": 14 }, "to": { "beat": 26 } },
+    {
+      "settings": { "generated_background": "Bars", "generated_over_pictures": true },
+      "keys": [
+        { "on": "play", "key": "Escape" },
+        { "on": "play", "key": "Escape" },
+        { "on": "results", "after": 0.8, "key": "Enter" },
+        { "on": "select", "after": 0.8, "key": "Escape" },
+        { "on": "start", "after": 0.6, "key": "ArrowDown" },
+        { "on": "start", "after": 1.1, "key": "Enter" },
+        { "on": "multiplayer", "after": 0.6, "key": "ArrowDown" },
+        { "on": "multiplayer", "after": 0.8, "key": "ArrowDown" },
+        { "on": "multiplayer", "after": 1.0, "key": "ArrowDown" },
+        { "on": "multiplayer", "after": 1.3, "key": "Enter" },
+        { "on": "select", "after": 1.8, "key": "Enter" },
+        { "on": "prompt", "after": 1.4, "key": "Enter" }
+      ],
+      "from": { "screen": "start" },
+      "to": { "after_keys": 1.2 }
+    },
+    { "from": { "beat": 82 }, "to": { "beat": 96 } },
+    { "from": { "beat": 182 }, "to": { "beat": 194 } },
+    { "from": { "screen": "results" }, "to": { "seconds": 4.0 } }
+  ],
   "fade_out": 1.2,
   "settings": {
     "speed": 2.5,
     "note_colors": "Vivid",
     "bg_brightness": 0.55,
     "field_filter": 0.6,
+    "announcer": null,
+    "practice_roster": {
+      "v": 1,
+      "cpus": [
+        { "name": "Saltglass Rook", "level": 8 },
+        { "name": "Copper Fennec", "level": 6 },
+        { "name": "Pocket Thunder", "level": 2 }
+      ]
+    },
     "debug": false
   }
 }

@@ -46,8 +46,12 @@ SPDX-License-Identifier = "MIT AND CC-BY-4.0 AND CC0-1.0"
 
 # Generated animation (no sound): the same, and song select's banners of
 # the other bundled songs (Kevin Turner and Step Revolution, Lirodon: CC BY
-# 4.0; Jack5: CC BY 3.0). Reproduction: docs/screenshots/README.md,
-# `just screenshot`.
+# 4.0; Jack5: CC BY 3.0); its multiplayer part is the game's own work over
+# the same Beatucada material (the CPUs' invented names, the generated
+# background's bars). Its player's presses are the maintainer's own kept
+# play (docs/screenshots/readme-seat.json, MIT under the default
+# annotation; no part of the chart). Reproduction:
+# docs/screenshots/README.md, `just screenshot`.
 [[annotations]]
 path = ["docs/screenshots/readme.avif"]
 SPDX-FileCopyrightText = ["すごいジャン <me@sugoijan.dev>", "Jose Varela", "Timo Kitsune", "Dan Ulrich", "MZiemys", "Kevin Turner", "Step Revolution", "Jack5", "Lirodon"]
