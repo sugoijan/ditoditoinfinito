@@ -92,7 +92,8 @@ notes, and nothing was drawn. Desktop had no touch play at all.
   the space between the groups and the screen beyond the controls keep
   the lane, so a hold survives a thumb drifting and a boundary's jitter
   never flutters. Several fingers on one lane hold it until the last
-  lifts (the shells count them, as the columns did).
+  lifts (counted for both shells by `ddi_shell::play_pointers`, as the
+  columns did; round PU, below).
 - **Drawn** (`ddi_shell::touch_controls::TouchView`): by the play's 2D
   pass under everything else of it, over the unchanged field (but for
   round DE's receptors above them under Reverse upright), each
@@ -123,7 +124,7 @@ notes, and nothing was drawn. Desktop had no touch play at all.
   presses on them; the columns are kept as they were for the legacy
   style. `__DDI_DEBUG.touch` says the placed controls (CSS pixels),
   whether they show and the look. TESTING ONLY: `touchlook=glass|mat|glyphs`.
-- **Desktop** (`Shell::touch_lane`): winit's touch events reach the play's
+- **Desktop** (`Shell::touch`): winit's touch events reach the play's
   controls as on the web, the same counting and slides; touch becomes
   the UI's source, a key or a pad hides them. TESTING ONLY:
   `DDI_TOUCH_LOOK`. Checked offscreen (`tests/play_pointer.rs`); no touch
@@ -300,6 +301,71 @@ question "Reverse upright"), and the controls have a size.
   Upright, Larger buttons grow in height alone (two a side already fill
   the width), and the pad grows to the width; on its side a phone's pad
   beside the field has no room to grow.
+
+## Round PU (2026-11-24): one pointer handling for both shells
+
+Which pointer holds what during a play (a lane's touch control, the
+quit button, a stage's attack policy label, the music's volume, a
+watched stage's fields) was written twice, the web's in
+`crates/web/src/web/touch.rs` and desktop's in its shell, and the two
+had drifted (round RFb fixed a bug in desktop's copy alone). It is one
+platform-free `ddi_shell::play_pointers::PlayPointers` now: a press goes
+`down(id, press, places, lane)`, a move `moved(id, pos, lane)`, a lift
+`up(id, pos, cancel)`, and `release_all` lets go of everything; the
+edges go to a `Sink` (the play's inputs, the volume's edges, stamped
+with the shell's own time). Each shell keeps where its event lands (CSS
+pixels of the canvas, logical pixels of the window), the lane under a
+finger (the controls' plan; the web's legacy columns), its time stamps
+(the web's event time, desktop's clock as the event is handled, as
+before) and what it does around a press (the web's pointer capture and
+`preventDefault`, desktop's screens under a framed play).
+
+The maintainer's rule (2026-11-24): "The web input behavior makes most
+sense and unifying them would be best." Where the copies differed, the
+web's is taken:
+
+- **Every pointer on a target is counted**, the quit button and the
+  policy label as the lanes: pressed by the first to land, released by
+  the last to lift. Desktop kept one holder for the quit button and the
+  label: a second finger took it from the first and pressed it again,
+  which the play read as a second tap (two fingers on the quit button
+  within half a second quit); the first finger's lift was nobody's.
+- **A second finger on the volume** hands it its edges too; desktop
+  gave the volume to the last finger down and the first one's moves
+  and lift to nothing.
+- **A pointer id that goes down again before its lift** is taken and
+  does nothing; desktop pressed the quit button, the label or the volume
+  again.
+- **Hidden**: the window hidden (occluded) lets go of everything as the
+  web's page does on `visibilitychange`; desktop let go on the focus
+  lost alone.
+- **A finger landing on the play away from the buttons** makes touch
+  the input source whether touch controls are placed or not (desktop:
+  only with controls; it never had the legacy columns).
+- **A new play** starts with nothing held; desktop cleared the lanes'
+  fingers alone, and kept a quit button's, label's or volume's holder
+  from the play before.
+- **A focus lost**: each target released once, in the order the web
+  keeps its pointers (desktop: the lanes by number, then the quit
+  button, then the label; one time stamp either way).
+
+And one of desktop's: a drag on the volume cut off by the focus lost
+ends where it last was (the web sent `[0, 0]`, a placeholder; the level
+was already set while dragging, so nothing heard changes).
+
+Already the same in both and kept: the order a press is tried in (the
+volume, the quit button, the policy label, the skip plate, the watched
+fields, the lanes, so the quit button wins over the label where they
+overlap and the skip plate over a field); a press missing the volume
+while its slider is open closes it and goes on; only the primary press
+reaches the volume, the buttons and the fields (the web's other mouse
+and pen buttons, desktop's other mouse buttons, never reach it); the
+mouse presses no lane; a slide keeps its lane until the controls' dead
+band says another (`Controls::lane_at`), and moving off every target
+keeps it; a pointer that went down on nothing holds nothing and presses
+nothing when it slides onto a lane; a cancel is a lift (the volume's
+`Cancel` phase); a press on a watched field is a press alone, its lift
+nobody's.
 
 ## The look: three candidates (open)
 

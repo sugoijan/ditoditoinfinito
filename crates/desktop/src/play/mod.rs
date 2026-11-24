@@ -275,14 +275,11 @@ pub struct Feed {
     /// a moment: `ddi_session::play::quit_shown`).
     pub pointer_at: Option<std::time::Instant>,
     /// Where the quit button was drawn last (logical pixels: middle and
-    /// radius), for the presses on it, and the pointer down on it (the
-    /// shell's pointer id: the mouse's, or a finger's), if one is.
+    /// radius), for the presses on it.
     pub quit_at: Option<[f32; 3]>,
-    pub quit_down: Option<u64>,
     /// Where a stage's attack policy label takes a press (logical
-    /// pixels: left, top, right, bottom), and the pointer down on it.
+    /// pixels: left, top, right, bottom).
     pub policy_at: Option<[f32; 4]>,
-    pub policy_down: Option<u64>,
     /// A watched stage's fields a press follows (each with its seat;
     /// none: back to every field), and where one skips a stage the
     /// player is out of to its results (logical pixels: left, top,
@@ -290,20 +287,21 @@ pub struct Feed {
     pub watch_at: Vec<(Option<usize>, [f32; 4])>,
     pub skip_at: Option<[f32; 4]>,
     /// Where the music's volume takes a press (logical pixels;
-    /// `ddi_shell::play_volume`), the pointer that holds it, and its
-    /// edges since the last frame: the play's view's, never the play's
-    /// inputs or log.
+    /// `ddi_shell::play_volume`), and its edges since the last frame: the
+    /// play's view's, never the play's inputs or log.
     pub volume_at: Option<ddi_shell::play_volume::VolumeAt>,
-    pub volume_down: Option<u64>,
     pub volume_edges: Vec<ddi_shell::play_volume::Edge>,
     /// The touch controls the play was started with
     /// (`docs/plans/touch-controls.md`), whether they show (touch is the
-    /// input source), where the last frame placed them (logical pixels)
-    /// and the fingers on them with the lane each holds.
+    /// input source), and where the last frame placed them (logical
+    /// pixels).
     pub touch_choice: ddi_ui::touch_controls::Choice,
     pub touch_shown: bool,
     pub touch_at: Option<ddi_ui::touch_controls::Controls>,
-    pub touch_fingers: Vec<(u64, usize)>,
+    /// The pointers holding something on the play (a lane, the quit
+    /// button, the policy label, the volume; the shell's pointer ids: the
+    /// mouse's, or a finger's), `ddi_shell::play_pointers` as the web's.
+    pub pointers: ddi_shell::play_pointers::PlayPointers,
     /// The window was hidden or the sound stopped.
     pub interrupted: bool,
     /// The display or the audio device changed.
@@ -567,7 +565,9 @@ impl Play {
             let mut f = feed.borrow_mut();
             f.touch_choice = settings.touch_choice();
             f.touch_at = None;
-            f.touch_fingers.clear();
+            // Nothing held from another play (the web's are made anew
+            // with each play's).
+            f.pointers = Default::default();
         }
         let inputs = DesktopInputs::new(feed.clone(), request.auto_pad);
         let session = Session::start(

@@ -25,6 +25,9 @@
 //!   and the waiting line under the power bar, drawn by the same pass.
 //! - [`play_volume`]: the music's volume beside the play's quit button,
 //!   pointer only, drawn by the same pass.
+//! - [`play_pointers`]: which pointer holds what on a play (a lane's
+//!   touch control, the quit button, the policy label, the volume), the
+//!   one bookkeeping both shells' pointer events go through.
 //!
 //! Platform-free: built natively and for wasm, with no platform code.
 
@@ -38,6 +41,7 @@ pub mod generative;
 
 pub mod hand;
 pub mod opponents;
+pub mod play_pointers;
 pub mod play_view;
 pub mod play_volume;
 pub mod rivals;

@@ -16,44 +16,44 @@
 //!
 //! Pointer events rather than touch events: they carry a `pointerId` per
 //! finger (several fingers are a jump) and a `pointerType`, so mouse clicks
-//! are ignored while touch and pen press lanes. Each pointer is captured by
+//! press no lane while touch and pen do. Each pointer is captured by
 //! the host element, so a finger that slides off the canvas still releases.
-//! Sliding into another column releases the old lane and presses the new
-//! one. Several fingers on one lane hold it until the last one lifts; only
-//! the first is a step (`LaneInput` drops a press of a control already
-//! down).
 //!
-//! A press on the quit button (any pointer type; drawn by the scene at
-//! the left edge, away from the receptors, while a touch screen plays
-//! and for a moment after the mouse moved, [`set_quit_shown`],
-//! [`mouse_moved`], `ddi_render::scene::quit_button`) is the `cancel`
-//! control instead, which the play session treats like Escape (hold or
-//! double tap to quit). A press on a multiplayer stage's attack policy
-//! label (any pointer type; [`set_policy_at`]) is the `policy` control,
-//! which cycles the policy. A press on the music's volume beside the quit
-//! button (any pointer type; [`set_volume_at`],
-//! `ddi_shell::play_volume`) is neither a control nor a lane: its edges
-//! go to the play's view at the next frame ([`take_volume_edges`]),
-//! never to the play's inputs or log; a press elsewhere while its slider
-//! is open also closes it, and goes on. Touch is not a sync-accuracy target: event
+//! Which pointer holds what is `ddi_shell::play_pointers`, desktop's too
+//! (round PU): the order a press is tried in, the counting (several
+//! fingers on one lane, or on the quit button, hold it until the last one
+//! lifts), the slides and letting go of everything. This shell keeps its
+//! own: where an event lands on the canvas, the lane under a finger (the
+//! touch controls' plan or the legacy columns), the events' time stamps,
+//! the pointer captures. A press on the quit button (any pointer type;
+//! drawn by the scene at the left edge, away from the receptors, while a
+//! touch screen plays and for a moment after the mouse moved,
+//! [`set_quit_shown`], [`mouse_moved`], `ddi_render::scene::quit_button`)
+//! is the `cancel` control, which the play session treats like Escape
+//! (hold or double tap to quit). A press on a multiplayer stage's attack
+//! policy label (any pointer type; [`set_policy_at`]) is the `policy`
+//! control, which cycles the policy. A press on the music's volume beside
+//! the quit button (any pointer type; [`set_volume_at`],
+//! `ddi_shell::play_volume`) is neither a control nor a lane: its edges go
+//! to the play's view at the next frame ([`take_volume_edges`]), never to
+//! the play's inputs or log. Touch is not a sync-accuracy target: event
 //! timestamps are as good as the browser's touch pipeline.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use ddi_engine::FieldPlace;
-use ddi_platform::{DeviceId, HostTime, InputSource, RawInput};
+use ddi_platform::{HostTime, InputSource, RawInput};
 use ddi_render::FieldGeometry;
 use gloo::events::{EventListener, EventListenerOptions};
 use wasm_bindgen::JsCast;
 use web_sys::{Element, HtmlCanvasElement, PointerEvent};
 
-use ddi_shell::play_volume::{Edge as VolumeEdge, Phase as VolumePhase, VolumeAt};
+use ddi_shell::play_pointers::{Places, PlayPointers, Press, Sink};
+use ddi_shell::play_volume::{Edge as VolumeEdge, VolumeAt};
 
 use super::clock::PerformanceClock;
 
-/// Control emitted by the quit button.
-pub(crate) const CANCEL_CONTROL: &str = "cancel";
 /// The safe area's insets, and the canvas's size (CSS pixels) they were
 /// read at.
 type Insets = ((u32, u32), [f32; 4]);
@@ -278,15 +278,6 @@ pub(crate) fn take_volume_edges() -> Vec<VolumeEdge> {
     VOLUME_EDGES.with(|e| std::mem::take(&mut *e.borrow_mut()))
 }
 
-fn volume_edge(phase: VolumePhase, x: f64, y: f64) {
-    VOLUME_EDGES.with(|e| {
-        e.borrow_mut().push(VolumeEdge {
-            phase,
-            pos: [x as f32, y as f32],
-        })
-    });
-}
-
 /// The mouse moved over the play at `now_ms`: the quit button shows a
 /// moment (`ddi_session::play::quit_shown`).
 pub(crate) fn mouse_moved(now_ms: f64) {
@@ -374,39 +365,19 @@ pub(crate) fn watch_at() -> (WatchFields, Option<[f32; 4]>) {
     (WATCH_AT.with(|w| w.borrow().clone()), SKIP_AT.with(|s| s.get()))
 }
 
-/// The control a press at `(x, y)` (CSS pixels of the canvas) on a
-/// watched stage sends, if it lands on its skip or on one of its fields.
-fn watch_control(x: f64, y: f64) -> Option<String> {
-    let inside = |[l, t, r, b]: [f32; 4]| {
-        (f64::from(l)..=f64::from(r)).contains(&x) && (f64::from(t)..=f64::from(b)).contains(&y)
-    };
-    if SKIP_AT.with(|s| s.get()).is_some_and(inside) {
-        return Some(ddi_session::play::TOUCH_SKIP_CONTROL.to_string());
-    }
-    WATCH_AT.with(|w| {
-        w.borrow()
-            .iter()
-            .find(|(_, r)| inside(*r))
-            .map(|(seat, _)| match seat {
-                Some(seat) => format!("{}{seat}", ddi_session::play::TOUCH_WATCH_CONTROL),
-                None => ddi_session::play::TOUCH_WATCH_ALL.to_string(),
-            })
-    })
-}
-
-/// What a tracked pointer is holding.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Hold {
-    Lane(u8),
-    Cancel,
-    /// A stage's attack policy label.
-    Policy,
-    /// The music's volume (no control of the play's).
-    Volume,
-}
-
 struct Shared {
     queue: Vec<RawInput>,
+    /// Pointers holding something, by `pointerId`.
+    pointers: PlayPointers<i32>,
+    /// Where the lanes are.
+    lanes: Lanes,
+    /// What the listeners and pointer captures are on.
+    host: Element,
+}
+
+/// Where the lanes are: the touch controls the play placed, else the
+/// legacy columns.
+struct Lanes {
     canvas: HtmlCanvasElement,
     /// Each lane's `(column, scroll sign)` as in the layout.
     lanes: Vec<(f32, i8)>,
@@ -414,14 +385,31 @@ struct Shared {
     reverse: bool,
     /// Where the field is across the screen.
     place: FieldPlace,
-    /// Pointers currently down, by `pointerId`.
-    pointers: Vec<(i32, Hold)>,
-    /// What the listeners and pointer captures are on.
-    host: Element,
-    /// Pointers holding each lane, then the quit button.
-    lane_count: Vec<u32>,
-    cancel_count: u32,
-    policy_count: u32,
+}
+
+impl Shared {
+    /// The pointers, the lanes, and where their edges go: the play's
+    /// inputs and the volume's, stamped `at`.
+    fn with_sink<R>(
+        &mut self,
+        at: HostTime,
+        f: impl FnOnce(&mut PlayPointers<i32>, &Lanes, &mut Sink) -> R,
+    ) -> R {
+        VOLUME_EDGES.with_borrow_mut(|volume| {
+            let mut sink = Sink {
+                inputs: &mut self.queue,
+                volume,
+                at,
+            };
+            f(&mut self.pointers, &self.lanes, &mut sink)
+        })
+    }
+
+    /// Every pointer let go, its edges stamped `now`: no lift arrives once
+    /// the page loses the focus or is hidden.
+    fn release_all(&mut self, now: HostTime) {
+        self.with_sink(now, |pointers, _, sink| pointers.release_all(sink));
+    }
 }
 
 pub(crate) struct TouchLanes {
@@ -448,18 +436,16 @@ impl TouchLanes {
             .flatten()
             .or_else(|| canvas.parent_element())
             .unwrap_or_else(|| canvas.clone().into());
-        let count = lanes.len();
         let shared = Rc::new(RefCell::new(Shared {
             queue: Vec::new(),
-            canvas,
-            lanes,
-            reverse,
-            place,
-            pointers: Vec::new(),
+            pointers: PlayPointers::default(),
+            lanes: Lanes {
+                canvas,
+                lanes,
+                reverse,
+                place,
+            },
             host: host.clone(),
-            lane_count: vec![0; count],
-            cancel_count: 0,
-            policy_count: 0,
         }));
         let opts = EventListenerOptions::enable_prevent_default();
         let mut listeners = Vec::new();
@@ -482,87 +468,39 @@ impl TouchLanes {
                             .is_some()
                     };
                     let mut s = shared.borrow_mut();
-                    // The music's volume first: its press is its own (any
-                    // pointer type); one elsewhere closes its slider and
-                    // goes on.
-                    if event.button() == 0
-                        && let Some(at) = VOLUME_AT.with(|v| v.get())
-                    {
-                        let rect = s.canvas.get_bounding_client_rect();
-                        let x = event.client_x() as f64 - rect.left();
-                        let y = event.client_y() as f64 - rect.top();
-                        if at.holds([x as f32, y as f32]) {
-                            event.prevent_default();
-                            let id = event.pointer_id();
-                            if !s.pointers.iter().any(|(p, _)| *p == id) {
-                                let _ = host2.set_pointer_capture(id);
-                                s.pointers.push((id, Hold::Volume));
-                                volume_edge(VolumePhase::Down, x, y);
-                            }
-                            return;
-                        }
-                        if at.plate.is_some() {
-                            volume_edge(VolumePhase::Down, x, y);
-                        }
-                    }
-                    let on_quit = QUIT_AT.with(|q| q.get()).is_some_and(|[x, y, r]| {
-                        let rect = s.canvas.get_bounding_client_rect();
-                        let dx = event.client_x() as f64 - rect.left() - f64::from(x);
-                        let dy = event.client_y() as f64 - rect.top() - f64::from(y);
-                        dx * dx + dy * dy <= f64::from(r * r)
-                    });
-                    let on_policy = !on_quit
-                        && POLICY_AT.with(|p| p.get()).is_some_and(|[l, t, r, b]| {
-                            let rect = s.canvas.get_bounding_client_rect();
-                            let x = event.client_x() as f64 - rect.left();
-                            let y = event.client_y() as f64 - rect.top();
-                            (f64::from(l)..=f64::from(r)).contains(&x)
-                                && (f64::from(t)..=f64::from(b)).contains(&y)
-                        });
-                    // A watched stage: a press on a field follows it, one
-                    // on the skip's plate skips (any pointer type; a
-                    // press, with nothing to hold).
-                    if !on_quit && !on_policy && event.button() == 0 {
-                        let rect = s.canvas.get_bounding_client_rect();
-                        let x = event.client_x() as f64 - rect.left();
-                        let y = event.client_y() as f64 - rect.top();
-                        if let Some(control) = watch_control(x, y) {
-                            event.prevent_default();
-                            s.queue.push(RawInput {
-                                device: DeviceId::Touch,
-                                control,
-                                pressed: true,
-                                host_time: PerformanceClock::from_dom_ms(event.time_stamp()),
-                                slot: 0,
-                            });
-                            return;
-                        }
-                    }
-                    let hold = if on_quit || on_policy {
-                        if event.button() != 0 {
-                            return;
-                        }
-                        if on_quit { Hold::Cancel } else { Hold::Policy }
-                    } else if !is_touch(event) || within("a, button") {
-                        // Mouse clicks press nothing; links and buttons
+                    let rect = s.lanes.canvas.get_bounding_client_rect();
+                    let (cx, cy) = (event.client_x() as f64, event.client_y() as f64);
+                    let press = Press {
+                        pos: [cx - rect.left(), cy - rect.top()],
+                        primary: event.button() == 0,
+                        // Mouse clicks press no lane; links and buttons
                         // keep working.
-                        return;
-                    } else {
+                        finger: is_touch(event) && !within("a, button"),
+                    };
+                    let id = event.pointer_id();
+                    let at = PerformanceClock::from_dom_ms(event.time_stamp());
+                    let landed = WATCH_AT.with_borrow(|watch| {
+                        let places = Places {
+                            volume: VOLUME_AT.with(|v| v.get()),
+                            quit: QUIT_AT.with(|q| q.get()),
+                            policy: POLICY_AT.with(|p| p.get()),
+                            watch,
+                            skip: SKIP_AT.with(|s| s.get()),
+                        };
+                        s.with_sink(at, |pointers, lanes, sink| {
+                            pointers.down(id, press, &places, || lanes.lane_at(cx, cy, None), sink)
+                        })
+                    });
+                    if landed.touch {
                         // A finger: touch is the source, its controls show.
                         crate::ui_host::keep_source(ddi_ui::controller_hints::Source::Touch);
-                        match s.lane_at(event.client_x() as f64, event.client_y() as f64, None) {
-                            Some(lane) => Hold::Lane(lane),
-                            None => return,
-                        }
-                    };
-                    event.prevent_default();
-                    let id = event.pointer_id();
-                    if s.pointers.iter().any(|(p, _)| *p == id) {
-                        return;
                     }
-                    let _ = host2.set_pointer_capture(id);
-                    s.pointers.push((id, hold));
-                    s.press(hold, PerformanceClock::from_dom_ms(event.time_stamp()));
+                    if landed.taken {
+                        event.prevent_default();
+                    }
+                    if landed.holds {
+                        let _ = host2.set_pointer_capture(id);
+                    }
                 },
             ));
         }
@@ -574,34 +512,21 @@ impl TouchLanes {
                 };
                 let mut s = shared.borrow_mut();
                 let id = event.pointer_id();
-                let Some(i) = s.pointers.iter().position(|(p, _)| *p == id) else {
-                    return;
-                };
-                if s.pointers[i].1 == Hold::Volume {
-                    let rect = s.canvas.get_bounding_client_rect();
-                    volume_edge(
-                        VolumePhase::Move,
-                        event.client_x() as f64 - rect.left(),
-                        event.client_y() as f64 - rect.top(),
-                    );
+                // (The canvas's place is read for a pointer that holds
+                // something alone: not at every move of the mouse.)
+                if s.pointers.holding(id).is_none() {
                     return;
                 }
-                let Hold::Lane(old) = s.pointers[i].1 else {
-                    return;
-                };
-                // A finger keeps the row it went down on: sliding only moves
-                // it across, so a hold survives drifting past mid-screen.
-                let Some(new) =
-                    s.lane_at(event.client_x() as f64, event.client_y() as f64, Some(old))
-                else {
-                    return;
-                };
-                if new != old {
-                    let now = PerformanceClock::from_dom_ms(event.time_stamp());
-                    s.pointers[i].1 = Hold::Lane(new);
-                    s.release(Hold::Lane(old), now);
-                    s.press(Hold::Lane(new), now);
-                }
+                let rect = s.lanes.canvas.get_bounding_client_rect();
+                let (cx, cy) = (event.client_x() as f64, event.client_y() as f64);
+                let pos = [cx - rect.left(), cy - rect.top()];
+                let at = PerformanceClock::from_dom_ms(event.time_stamp());
+                // A finger keeps the row it went down on: sliding only
+                // moves it across, so a hold survives drifting past
+                // mid-screen.
+                s.with_sink(at, |pointers, lanes, sink| {
+                    pointers.moved(id, pos, |old| lanes.lane_at(cx, cy, Some(old)), sink)
+                });
             }));
         }
         // `lostpointercapture` covers a capture dropped without an up or
@@ -614,25 +539,17 @@ impl TouchLanes {
                 };
                 let mut s = shared.borrow_mut();
                 let id = event.pointer_id();
-                let Some(i) = s.pointers.iter().position(|(p, _)| *p == id) else {
-                    return;
-                };
-                let (_, hold) = s.pointers.swap_remove(i);
-                if hold == Hold::Volume {
-                    let rect = s.canvas.get_bounding_client_rect();
-                    let phase = if name == "pointerup" {
-                        VolumePhase::Up
-                    } else {
-                        VolumePhase::Cancel
-                    };
-                    volume_edge(
-                        phase,
-                        event.client_x() as f64 - rect.left(),
-                        event.client_y() as f64 - rect.top(),
-                    );
+                if s.pointers.holding(id).is_none() {
                     return;
                 }
-                s.release(hold, PerformanceClock::from_dom_ms(event.time_stamp()));
+                let rect = s.lanes.canvas.get_bounding_client_rect();
+                let pos = [
+                    event.client_x() as f64 - rect.left(),
+                    event.client_y() as f64 - rect.top(),
+                ];
+                let at = PerformanceClock::from_dom_ms(event.time_stamp());
+                let cancel = name != "pointerup";
+                s.with_sink(at, |pointers, _, sink| pointers.up(id, pos, cancel, sink));
             }));
         }
         // The long-press menu would steal the finger mid-hold.
@@ -675,7 +592,7 @@ fn is_touch(event: &PointerEvent) -> bool {
     matches!(event.pointer_type().as_str(), "touch" | "pen")
 }
 
-impl Shared {
+impl Lanes {
     /// The lane under a touch at `(client_x, client_y)` (CSS px in the
     /// viewport): of the lanes whose receptors are at the touched end of the
     /// screen (all of them unless the layout has two rows), the one with the
@@ -683,18 +600,15 @@ impl Shared {
     /// The receptors come from the renderer's own geometry on the canvas'
     /// backing store (CSS size × devicePixelRatio). With `row_of`, the row
     /// is that lane's instead of the touched half's.
-    fn lane_at(&self, client_x: f64, client_y: f64, row_of: Option<u8>) -> Option<u8> {
+    fn lane_at(&self, client_x: f64, client_y: f64, row_of: Option<usize>) -> Option<usize> {
         let rect = self.canvas.get_bounding_client_rect();
         // The touch controls, where the play placed them.
         let css = [
             (client_x - rect.left()) as f32,
             (client_y - rect.top()) as f32,
         ];
-        if let Some(lane) = CONTROLS.with_borrow(|c| {
-            c.as_ref()
-                .map(|c| c.lane_at(css, row_of.map(usize::from)))
-        }) {
-            return lane.and_then(|l| u8::try_from(l).ok());
+        if let Some(lane) = CONTROLS.with_borrow(|c| c.as_ref().map(|c| c.lane_at(css, row_of))) {
+            return lane.and_then(|l| u8::try_from(l).ok().map(usize::from));
         }
         let dpr = web_sys::window()
             .map(|w| w.device_pixel_ratio())
@@ -711,7 +625,7 @@ impl Shared {
         let y = ((client_y - rect.top()) * dpr) as f32;
         let at_top = |sign: i8| geo.lane_receptor_y(sign) < geo.height / 2.0;
         let two_rows = self.lanes.iter().any(|l| l.1 < 0) && self.lanes.iter().any(|l| l.1 > 0);
-        let touched_top = match row_of.and_then(|l| self.lanes.get(usize::from(l))) {
+        let touched_top = match row_of.and_then(|l| self.lanes.get(l)) {
             Some(l) => at_top(l.1),
             None => y < geo.height / 2.0,
         };
@@ -724,68 +638,7 @@ impl Shared {
                     .abs()
                     .total_cmp(&(geo.lane_x(b.0) - x).abs())
             })
-            .map(|(lane, _)| lane as u8)
-    }
-
-    fn counter(&mut self, hold: Hold) -> Option<&mut u32> {
-        match hold {
-            Hold::Lane(l) => self.lane_count.get_mut(l as usize),
-            Hold::Cancel => Some(&mut self.cancel_count),
-            Hold::Policy => Some(&mut self.policy_count),
-            Hold::Volume => None,
-        }
-    }
-
-    /// One more pointer on `hold`; the first one presses it.
-    fn press(&mut self, hold: Hold, at: HostTime) {
-        let Some(n) = self.counter(hold) else {
-            return;
-        };
-        *n += 1;
-        if *n == 1 {
-            self.emit(hold, true, at);
-        }
-    }
-
-    /// One pointer fewer on `hold`; the last one releases it.
-    fn release(&mut self, hold: Hold, at: HostTime) {
-        let Some(n) = self.counter(hold) else {
-            return;
-        };
-        if *n == 0 {
-            return;
-        }
-        *n -= 1;
-        if *n == 0 {
-            self.emit(hold, false, at);
-        }
-    }
-
-    fn emit(&mut self, hold: Hold, pressed: bool, host_time: HostTime) {
-        let control = match hold {
-            Hold::Lane(l) => format!("lane:{l}"),
-            Hold::Cancel => CANCEL_CONTROL.to_string(),
-            Hold::Policy => ddi_session::play::TOUCH_POLICY_CONTROL.to_string(),
-            Hold::Volume => return,
-        };
-        self.queue.push(RawInput {
-            device: DeviceId::Touch,
-            control,
-            pressed,
-            host_time,
-            slot: 0,
-        });
-    }
-
-    /// Forget every pointer, emitting releases stamped `now`.
-    fn release_all(&mut self, now: HostTime) {
-        for (_, hold) in std::mem::take(&mut self.pointers) {
-            if hold == Hold::Volume {
-                // A drag cut off keeps the level it reached.
-                volume_edge(VolumePhase::Cancel, 0.0, 0.0);
-            }
-            self.release(hold, now);
-        }
+            .map(|(lane, _)| lane)
     }
 }
 
@@ -803,10 +656,7 @@ impl Drop for TouchLanes {
         // `lostpointercapture` into listeners that borrow `shared`.
         let (host, ids): (_, Vec<i32>) = {
             let s = self.shared.borrow();
-            (
-                Some(s.host.clone()),
-                s.pointers.iter().map(|(id, _)| *id).collect(),
-            )
+            (Some(s.host.clone()), s.pointers.ids().collect())
         };
         if let Some(host) = host {
             for id in ids {

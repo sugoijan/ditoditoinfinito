@@ -24,6 +24,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ddi_desktop::shell::Shell;
 use ddi_room::attacks::Targeting;
+use ddi_shell::play_pointers::Hold;
 use ddi_ui::event::{PointerPhase, UiEvent};
 use ddi_ui::screens::data::Difficulty;
 use ddi_ui::state::room::SharedRoom;
@@ -179,11 +180,11 @@ fn a_press_on_the_policy_label_cycles_the_policy_once() {
     assert_eq!(w.policy(), before);
     // Down and up on the label: the next policy, once.
     assert!(w.shell.play_pointer(PointerPhase::Down, center(label)));
-    assert!(w.shell.play.feed.borrow().policy_down.is_some());
+    assert_eq!(w.shell.play.feed.borrow().pointers.held(Hold::Policy), 1);
     w.frames(2);
     // (Released off the label: the press begun on it is still its own.)
     assert!(w.shell.play_pointer(PointerPhase::Up, beside), "the release is the label's");
-    assert!(w.shell.play.feed.borrow().policy_down.is_none());
+    assert!(w.shell.play.feed.borrow().pointers.is_empty());
     w.frames(4);
     assert_eq!(w.policy(), Targeting::Retaliate, "cycled once");
     let p = w.shell.play.running().expect("playing");
@@ -294,35 +295,40 @@ fn fingers_on_the_touch_controls_press_slide_and_lift() {
     let at = |lane: usize| c.targets.iter().find(|t| t.lane == Some(lane)).unwrap().center();
     let held = |w: &Window| w.shell.play.running().expect("playing").session.held().to_vec();
     // A finger on Down, a second on Down: one press.
-    assert!(w.shell.touch_lane(1, PointerPhase::Down, at(1)));
-    assert!(w.shell.touch_lane(2, PointerPhase::Down, at(1)));
+    assert!(touched(&mut w, 1, PointerPhase::Down, at(1)));
+    assert!(touched(&mut w, 2, PointerPhase::Down, at(1)));
     w.frames(2);
     assert_eq!(held(&w), [false, true, false, false]);
     assert!(w.shell.ui.hints().source().is_touch(), "touch is the source");
     // The first slides onto Left: Down stays held by the second.
-    assert!(w.shell.touch_lane(1, PointerPhase::Move, at(0)));
+    assert!(touched(&mut w, 1, PointerPhase::Move, at(0)));
     w.frames(2);
     assert_eq!(held(&w), [true, true, false, false]);
     // The second lifts: Down is let go; the first, off the controls
     // up the screen, keeps Left.
-    assert!(w.shell.touch_lane(2, PointerPhase::Up, at(1)));
-    assert!(w.shell.touch_lane(1, PointerPhase::Move, [640.0, 100.0]));
+    assert!(touched(&mut w, 2, PointerPhase::Up, at(1)));
+    assert!(touched(&mut w, 1, PointerPhase::Move, [640.0, 100.0]));
     w.frames(2);
     assert_eq!(held(&w), [true, false, false, false]);
-    assert!(w.shell.touch_lane(1, PointerPhase::Up, [640.0, 100.0]));
+    assert!(touched(&mut w, 1, PointerPhase::Up, [640.0, 100.0]));
     w.frames(2);
     assert_eq!(held(&w), [false; 4]);
     // A finger far from the controls presses nothing and is still the
     // play's (no menu under a play).
-    assert!(w.shell.touch_lane(3, PointerPhase::Down, [640.0, 100.0]));
-    assert!(w.shell.touch_lane(3, PointerPhase::Up, [640.0, 100.0]));
+    assert!(touched(&mut w, 3, PointerPhase::Down, [640.0, 100.0]));
+    assert!(touched(&mut w, 3, PointerPhase::Up, [640.0, 100.0]));
     w.frames(2);
     assert_eq!(held(&w), [false; 4]);
 }
 
 /// A finger's edge as the window hands it on (`WindowEvent::Touch`).
 fn finger(w: &mut Window, id: u64, phase: PointerPhase, pos: [f32; 2]) {
-    w.shell.touch(id, phase, pos);
+    touched(w, id, phase, pos);
+}
+
+/// [`finger`], and whether the play took it.
+fn touched(w: &mut Window, id: u64, phase: PointerPhase, pos: [f32; 2]) -> bool {
+    w.shell.touch(id, phase, pos)
 }
 
 /// Review 2026-11-22, chat-touch 2: while one finger holds the attack
@@ -367,8 +373,49 @@ fn a_second_fingers_lift_is_its_lanes_while_the_label_is_held() {
     w.shell.release_touches();
     w.frames(2);
     assert_eq!(held(&w), [false; 4], "let go with the focus");
-    assert!(w.shell.play.feed.borrow().touch_fingers.is_empty());
+    assert!(w.shell.play.feed.borrow().pointers.is_empty());
     finger(&mut w, 2, PointerPhase::Down, at(1));
     w.frames(2);
     assert_eq!(held(&w), [false, true, false, false], "a finger down again presses");
+}
+
+/// Round PU (the web's rule, `ddi_shell::play_pointers`): two fingers on
+/// the quit button are one press of it, let go by the last to lift, so no
+/// double tap (desktop kept one holder: the second finger pressed it
+/// again, and the play read two presses within half a second as a quit);
+/// one finger's two taps still quit.
+#[test]
+fn two_fingers_on_the_quit_button_are_one_press() {
+    use ddi_session::play::Watching;
+    let mut w = Window::new();
+    w.start(true);
+    w.frames(8);
+    // A finger moving over the play shows the quit button.
+    finger(&mut w, 9, PointerPhase::Move, [640.0, 360.0]);
+    w.frames(2);
+    if !w.draws.drawn() {
+        w.shell.play.feed.borrow_mut().quit_at = Some([40.0, 40.0, 20.0]);
+    }
+    let [x, y, _] = w.shell.play.feed.borrow().quit_at.expect("the quit button's place");
+    assert!(touched(&mut w, 1, PointerPhase::Down, [x, y]));
+    w.frame();
+    assert!(touched(&mut w, 2, PointerPhase::Down, [x, y]));
+    assert_eq!(w.shell.play.feed.borrow().pointers.held(Hold::Quit), 2);
+    w.frame();
+    assert!(touched(&mut w, 1, PointerPhase::Up, [x, y]));
+    assert_eq!(w.shell.play.feed.borrow().pointers.held(Hold::Quit), 1);
+    w.frame();
+    assert!(touched(&mut w, 2, PointerPhase::Up, [x, y]));
+    w.frames(4);
+    assert_eq!(w.watching(), None, "two fingers are no double tap");
+    // One finger twice: the quit (a forfeit, watched on).
+    assert!(touched(&mut w, 1, PointerPhase::Down, [x, y]));
+    w.frame();
+    assert!(touched(&mut w, 1, PointerPhase::Up, [x, y]));
+    w.frame();
+    assert!(touched(&mut w, 1, PointerPhase::Down, [x, y]));
+    w.frame();
+    assert!(touched(&mut w, 1, PointerPhase::Up, [x, y]));
+    w.frames(4);
+    assert_eq!(w.watching().map(|x| x.0), Some(Watching::Left));
 }

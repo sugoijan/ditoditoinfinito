@@ -644,7 +644,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   controls, the judgment and the combo; nothing of the page is
   selected during a play. Round DE (2026-11-22): under Reverse on an
   upright screen the receptors stand above the controls; a size option
-  (Smaller, Standard, Larger) in Options and on the prompt.
+  (Smaller, Standard, Larger) in Options and on the prompt. Round PU
+  (2026-11-24): which pointer holds what during a play is one
+  bookkeeping for both shells (`ddi_shell::play_pointers`), the web's
+  rules where the two copies differed.
 - [Controller input in the UI core](controller-input-core.md) (2026-10-30):
   done. The `Ui` owns the bindings, the connected pads and the hint
   source, takes pads' edges as they are and releases what each held

@@ -574,7 +574,9 @@ Rust and the browser are implementation details, not advertised features.
   `FieldGeometry::lifted`; the look
   still open: `touchlook=` on the web, `DDI_TOUCH_LOOK` on desktop,
   TESTING ONLY); the shells press lanes through them (the web's
-  `web::touch`, desktop's `Shell::touch_lane`; while a web play is on
+  `web::touch`, desktop's `Shell::touch`; which pointer holds a lane,
+  the quit button, the policy label or the volume is one bookkeeping
+  for both, `ddi_shell::play_pointers`, round PU; while a web play is on
   nothing of the page is selectable, `web::touch::NoSelection`); the
   prompt's diagram shows each receptor's control cut out under it, with
   its glyphs (`prompt_controls::touch_cut`). Overrides
