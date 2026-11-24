@@ -127,36 +127,6 @@ impl RoomState {
         }
     }
 
-    /// `from` can hold the pick no longer (they left the room, lost the
-    /// role that lets one take it, or were disconnected past the
-    /// authority's patience): it is the owner's again while the owner is
-    /// in the room and not disconnected (the new owner's, where the one
-    /// gone was the owner: call this after [`Self::settle_host`]), else
-    /// nobody's until the owner is back or an operator takes it.
-    /// The pick released where `id` can no longer take it as the room
-    /// has them now (their role or admin flag just changed: run right
-    /// after that event, so the events keep their order).
-    fn release_pick_unless_able(&mut self, id: ParticipantId, out: &mut Vec<Event>) {
-        let able = self
-            .members
-            .get(&id)
-            .is_some_and(|m| can(m.role, m.admin, Capability::TakePick, self.phase.kind()));
-        if !able {
-            self.release_pick(id, out);
-        }
-    }
-
-    fn release_pick(&mut self, from: ParticipantId, out: &mut Vec<Event>) {
-        if self.closed.is_some() || self.picking.picker != Some(from) {
-            return;
-        }
-        let picker = self
-            .owner()
-            .filter(|o| o.id != from && !o.left && o.connection != Connection::Disconnected)
-            .map(|o| o.id);
-        self.emit(out, Event::PickerChanged { picker });
-    }
-
     /// The host's succession ([`Hosting`]), from the room's facts alone,
     /// so it holds whatever led to them: a host who left the room, or who
     /// is away past the authority's patience (`Disconnected`), no longer
@@ -168,7 +138,13 @@ impl RoomState {
     /// the grace is waited for, nothing changes hands. The host gone keeps
     /// no role: a member from then on (only an explicit
     /// [`crate::Command::MakeHost`] makes the one before a co-host). Then
-    /// a pick nobody holds is the host's while the host is there.
+    /// the pick (room model revision 24, round R24: here alone, from the
+    /// room's facts, where four callers released it before): one who can
+    /// hold it no longer (they left the room, are away past the
+    /// authority's patience, or lost the role or the administrator's flag
+    /// that lets one take it) lets it go, and a pick nobody holds is the
+    /// host's while the host is there (connected or reconnecting), else
+    /// nobody's until the host is back or an operator takes it.
     fn settle_host(&mut self, out: &mut Vec<Event>) {
         if self.closed.is_some() {
             return;
@@ -197,13 +173,16 @@ impl RoomState {
                 }
             }
         }
-        if self.picking.picker.is_none()
-            && let Some(owner) = self.owner().filter(|o| {
-                o.present_person() && o.connection != Connection::Disconnected
-            })
-        {
-            let picker = Some(owner.id);
-            self.emit(out, Event::PickerChanged { picker });
+        let there = |m: &Member| m.present_person() && m.connection != Connection::Disconnected;
+        let phase = self.phase.kind();
+        let holds = |m: &Member| there(m) && can(m.role, m.admin, Capability::TakePick, phase);
+        let host = self.owner().filter(|o| there(o)).map(|o| o.id);
+        match self.picking.picker {
+            Some(p) if self.members.get(&p).is_some_and(holds) => {}
+            // Held by one who can no longer, or by nobody: the host's.
+            Some(_) => self.emit(out, Event::PickerChanged { picker: host }),
+            None if host.is_some() => self.emit(out, Event::PickerChanged { picker: host }),
+            None => {}
         }
     }
 
@@ -939,8 +918,8 @@ impl RoomState {
                             role,
                         },
                     );
-                    // The pick is not kept without the role to take it.
-                    self.release_pick_unless_able(*participant, out);
+                    // The pick is not kept without the role to take it
+                    // (`settle_host`, after the command).
                 }
                 Ok(())
             }
@@ -1065,8 +1044,7 @@ impl RoomState {
                     if let Some(admin) = flag {
                         self.emit(out, Event::AdminChanged { participant, admin });
                         // The pick is not kept without the power to take
-                        // it, as when a co-host loses the role (round RFa).
-                        self.release_pick_unless_able(participant, out);
+                        // it (round RFa; `settle_host`, after the join).
                     }
                     let m = &self.members[&participant];
                     if m.left || m.connection != Connection::Connected {
@@ -1158,7 +1136,6 @@ impl RoomState {
                 if *connection == Connection::Disconnected {
                     self.drop_uploads_of(*participant, out);
                     self.settle_host(out);
-                    self.release_pick(*participant, out);
                 }
                 Ok(())
             }
@@ -1484,7 +1461,6 @@ impl RoomState {
         self.emit(out, gone);
         self.drop_uploads_of(id, out);
         self.settle_host(out);
-        self.release_pick(id, out);
         if self.closed.is_none() && self.spotlight.as_ref().is_some_and(|s| s.by == id) {
             self.emit(out, Event::SpotlightChanged { spotlight: None });
         }
