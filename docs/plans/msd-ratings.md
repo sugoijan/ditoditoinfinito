@@ -537,3 +537,20 @@ wide layout regardless). Nothing a player sees changed. The tests that
 covered the Off form ("nothing rated, read or written with both Off")
 cover From the song instead: its numbers the song's, its square the
 Groove radar's (or the quiet line), MSD still made and kept behind it.
+
+## Round SD (2026-11-24): no MSD under From the song
+
+Round RS left MSD made in the background under From the song, rated,
+kept and shown nowhere (its numbers are the song's, its radar the
+Groove values). The maintainer: "stop it." `ratings::wants_msd` is
+true under MSD alone, so under From the song nothing is queued, rated,
+read or written for MSD and `ratings::wanted` is false: the web's
+rating worker and desktop's thread never start there (`ratings::kick`
+and the shells' `ratings::next`). A song rated across a change of
+Chart ratings keeps only what is wanted when it is done (`ratings::done`).
+A later switch to MSD rates from then on, as for any song not yet
+rated; what was kept before stays and is used. The estimate and MSD
+sources are unchanged. Tests: `nothing_is_rated_read_or_written_under_the_song_s_numbers`,
+`msd_kept_before_the_song_s_numbers_is_used_again`, and song select's
+`from_the_song_nothing_is_rated_read_or_written` (round RS's two
+rewritten tests back to asserting nothing is rated).

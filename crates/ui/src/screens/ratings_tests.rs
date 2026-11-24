@@ -1,6 +1,7 @@
 //! Chart ratings on song select (`docs/plans/msd-ratings.md`): from the
-//! song the numbers are the songs' and the radar the Groove radar, MSD
-//! still made behind them; with Chart ratings on MSD a rated chart's number is its MSD
+//! song the numbers are the songs' and the radar the Groove radar, and
+//! nothing is rated, read or written; with Chart ratings on MSD a rated
+//! chart's number is its MSD
 //! (whole in its button, to a tenth in its row, the song's own said in
 //! the row's line), a chart not rated yet keeps the song's, fainter, and
 //! its song is offered for rating, the focused one first; the radar
@@ -73,12 +74,12 @@ fn fresh() -> Rc<MemoryStore> {
     store
 }
 
-/// Round RS: from the song (the radar's switch gone, and with it "both
-/// Off", where nothing was rated): the numbers are the songs', the radar's
-/// place the Groove radar's (a quiet line for charts without its values),
-/// and the songs are still offered for MSD, the focused one first.
+/// From the song: the numbers are the songs', the radar's place the
+/// Groove radar's (a quiet line for charts without its values), and
+/// nothing is rated, read or written (round SD; round RS had MSD made
+/// behind them, shown nowhere).
 #[test]
-fn from_the_song_the_numbers_are_the_songs_and_msd_is_made_behind_them() {
+fn from_the_song_nothing_is_rated_read_or_written() {
     let _store = fresh();
     ratings::set_mode(crate::state::ratings::Source::Song);
     let data = songs();
@@ -90,10 +91,10 @@ fn from_the_song_the_numbers_are_the_songs_and_msd_is_made_behind_them() {
     assert!(!hard.meter_is_songs());
     assert_eq!(radar_said(&e), "unrated", "no Groove values here");
     assert!(h.ui.bounds("RadarNote").is_some());
-    let job = ratings::next().expect("a song to rate");
-    assert_eq!(job.song, "s0");
-    assert_eq!(job.charts, vec![0, 1]);
-    assert!(storage::get(Area::Local, ratings::KEY).is_none(), "nothing rated yet");
+    assert_eq!(ratings::status().pending, 0);
+    assert_eq!(ratings::next(), None);
+    ratings::flush();
+    assert!(storage::get(Area::Local, ratings::KEY).is_none());
 }
 
 #[test]

@@ -15,10 +15,12 @@
 //! ([`Job::estimates`], [`rate_song`]).
 //!
 //! - What is shown: [`set_mode`] from the settings (at boot and when
-//!   Options changes them), read by the screens ([`msd_shown`]). Every
-//!   choice rates in the background: MSD under MSD and under the song's
-//!   (the radar's always there, round SLB), the estimate under the
-//!   estimate.
+//!   Options changes them), read by the screens ([`msd_shown`]). MSD is
+//!   rated in the background under MSD alone, the estimate under the
+//!   estimate; under the song's own numbers nothing is rated, read or
+//!   written (round SD: its radar draws the Groove values, which need
+//!   none), and a later switch to MSD rates from then on, what was kept
+//!   before still used.
 //! - What is known: a chart's eight numbers by its digest
 //!   ([`ddi_chart::ChartDigest`]) and the calculator's version. The bundled
 //!   songs' come in their manifest (`xtask gen-songs`) and are only
@@ -337,10 +339,11 @@ fn with<T>(f: impl FnOnce(&mut State) -> T) -> T {
 }
 
 impl State {
-    /// MSD is made: under MSD, and under the song's own numbers (the
-    /// radar's always shown); never under the DDI estimate.
+    /// MSD is made under MSD alone: never under the DDI estimate, nor
+    /// under the song's own numbers, whose radar is the Groove radar
+    /// (round SD).
     fn wants_msd(&self) -> bool {
-        matches!(self.source, Source::Msd | Source::Song)
+        self.source == Source::Msd
     }
 
     fn wants_estimate(&self) -> bool {
@@ -460,7 +463,7 @@ pub fn msd_shown() -> bool {
     with(|s| s.source == Source::Msd)
 }
 
-/// Whether MSD is made (shown, or on the radar).
+/// Whether MSD is made (under MSD alone: shown, and on the radar).
 pub fn wants_msd() -> bool {
     with(|s| s.wants_msd())
 }
@@ -476,8 +479,8 @@ pub fn ever_shown() -> bool {
     with(|s| s.ever)
 }
 
-/// Whether anything is rated (ratings are made and read only then):
-/// every source wants one or the other since the radar is always shown.
+/// Whether anything is rated (ratings are made and read only then): under
+/// MSD and under the DDI estimate, never under the song's own numbers.
 pub fn wanted() -> bool {
     with(|s| s.wanted())
 }
@@ -692,17 +695,25 @@ pub fn done(song: &str, rated: Vec<Rated>) {
         if s.rating.as_deref() == Some(song) {
             s.rating = None;
         }
-        s.load();
-        s.load_estimates();
+        // What is wanted now alone is kept (a song rated across a change
+        // of Chart ratings: under the song's own numbers nothing is read
+        // or written, round SD).
+        let (msd, est) = (s.wants_msd(), s.wants_estimate());
+        if msd {
+            s.load();
+        }
+        if est {
+            s.load_estimates();
+        }
         let mut any = false;
         for r in rated {
-            if let Some(v) = r.values {
+            if let Some(v) = r.values.filter(|_| msd) {
                 s.kept.insert(r.digest.0, v.map(|x| (x * 100.0).round() / 100.0));
                 s.unsaved += 1;
                 s.rated += 1;
                 any = true;
             }
-            if r.estimated {
+            if r.estimated && est {
                 // Kept whether one was made or not: a chart is estimated
                 // once (until a new estimator).
                 s.est_kept.insert(r.digest.0, r.estimate);
@@ -1009,23 +1020,66 @@ mod tests {
         }
     }
 
-    /// Round RS: the radar's switch is gone, and with it "both Off", where
-    /// nothing was rated: under the song's own numbers (the radar always
-    /// shown) MSD is still made in the background and kept, while the
-    /// numbers stay the song's.
+    /// Round SD: under the song's own numbers (whose radar draws the
+    /// Groove values) nothing is queued, rated, read or written; a song
+    /// rated across the change keeps nothing; a later switch to MSD rates
+    /// from then on.
     #[test]
-    fn the_song_s_numbers_still_rate_and_keep_msd() {
+    fn nothing_is_rated_read_or_written_under_the_song_s_numbers() {
         reset();
         let store = Rc::new(storage::MemoryStore::default());
         storage::install(store.clone());
         set_mode(Source::Song);
-        assert!(wanted() && wants_msd() && !wants_estimate());
+        assert!(!wanted() && !wants_msd() && !wants_estimate());
+        let job_a = Job {
+            song: "a".into(),
+            charts: vec![0],
+            ..Job::default()
+        };
+        offer([job_a.clone()]);
+        assert_eq!(status().pending, 0);
+        assert_eq!(next(), None);
+        assert_eq!(get(digest(1)), None);
+        flush();
+        assert!(storage::get(Area::Local, KEY).is_none());
+        // Rated under MSD, done after the change to the song's: not kept.
+        set_mode(Source::Msd);
+        offer([job_a.clone()]);
+        let job = next().expect("a");
+        set_mode(Source::Song);
+        done(
+            &job.song,
+            vec![Rated {
+                index: 0,
+                digest: digest(1),
+                values: Some([9.0; 8]),
+                ..Rated::default()
+            }],
+        );
+        flush();
+        assert!(storage::get(Area::Local, KEY).is_none(), "nothing written");
+        assert_eq!(shown(Some(digest(1)), "dance-single", true), None, "the song's number");
+        // MSD again: rated from then on, as any song not rated yet.
+        set_mode(Source::Msd);
+        assert_eq!(get(digest(1)), None);
+        offer([job_a]);
+        assert_eq!(status().pending, 1);
+        assert_eq!(next().map(|j| j.song), Some("a".into()));
+    }
+
+    /// Round SD: what MSD kept before stays and is used once MSD is
+    /// chosen again; nothing of it is read under the song's numbers.
+    #[test]
+    fn msd_kept_before_the_song_s_numbers_is_used_again() {
+        reset();
+        let store = Rc::new(storage::MemoryStore::default());
+        storage::install(store.clone());
+        set_mode(Source::Msd);
         offer([Job {
             song: "a".into(),
             charts: vec![0],
             ..Job::default()
         }]);
-        assert_eq!(status().pending, 1);
         let job = next().expect("a");
         done(
             &job.song,
@@ -1037,9 +1091,17 @@ mod tests {
             }],
         );
         flush();
-        assert!(storage::get(Area::Local, KEY).is_some(), "kept");
+        let kept = storage::get(Area::Local, KEY);
+        assert!(kept.is_some());
+        reset();
+        storage::install(store);
+        set_mode(Source::Song);
+        assert_eq!(get(digest(1)), None, "not read");
+        assert_eq!(status().known, 0, "not loaded");
+        flush();
+        assert_eq!(storage::get(Area::Local, KEY), kept, "left as it was");
+        set_mode(Source::Msd);
         assert_eq!(get(digest(1)), Some([9.0; 8]));
-        assert_eq!(shown(Some(digest(1)), "dance-single", true), None, "the song's number");
     }
 
     #[test]
@@ -1089,7 +1151,7 @@ mod tests {
         assert!(storage::get(Area::Local, KEY).is_some());
         reset();
         storage::install(store);
-        set_mode(Source::Song);
+        set_mode(Source::Msd);
         assert_eq!(get(digest(7)), Some([10.0; 8]));
         offer([a]);
         assert_eq!(status().pending, 1);
@@ -1100,7 +1162,7 @@ mod tests {
     fn a_chart_stands_rated_rating_or_unrated() {
         reset();
         storage::install(Rc::new(storage::MemoryStore::default()));
-        set_mode(Source::Song);
+        set_mode(Source::Msd);
         assert_eq!(standing("x", Some(digest(1)), "dance-double", true), Standing::NoLayout);
         assert_eq!(standing("a", Some(digest(1)), "dance-single", true), Standing::Unrated);
         offer([Job {
@@ -1228,8 +1290,8 @@ mod tests {
     /// Round Z2: the estimate's profile in the radar's place: shown (even
     /// where no skill stands out: round Z3's octagon), in words where the
     /// chart is outside what the estimate was studied on; a bundled one
-    /// from its manifest; and the radar shows MSD's under the song's
-    /// numbers.
+    /// from its manifest; MSD's under MSD, and none under the song's
+    /// numbers (song select draws the Groove values there, round SD).
     #[test]
     fn the_radar_s_source_follows_chart_ratings() {
         reset();
@@ -1247,8 +1309,10 @@ mod tests {
         remember(digest(3), [10.0; 8]);
         assert_eq!(standing("a", Some(digest(3)), "dance-single", true), Standing::Unrated, "no MSD");
         set_mode(Source::Song);
-        assert_eq!(standing("a", Some(digest(3)), "dance-single", true), Standing::Rated([10.0; 8]));
+        assert_eq!(standing("a", Some(digest(3)), "dance-single", true), Standing::Unrated, "no MSD");
         assert_eq!(shown(Some(digest(3)), "dance-single", true), None, "the song's number");
+        set_mode(Source::Msd);
+        assert_eq!(standing("a", Some(digest(3)), "dance-single", true), Standing::Rated([10.0; 8]));
     }
 
     /// A synthetic Single chart: `rows` repeated to `n` rows, 16 a measure,
