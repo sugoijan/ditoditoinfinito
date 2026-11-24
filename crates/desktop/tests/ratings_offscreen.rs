@@ -107,7 +107,7 @@ fn msd_numbers_and_the_skill_radar_draw_in_the_theme() {
     ] {
         assert!(ddi_l10n::force(lang), "{lang}");
         ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
-        ratings::set_mode(ddi_ui::state::ratings::Source::Msd, true);
+        ratings::set_mode(ddi_ui::state::ratings::Source::Msd);
         let css = [size[0] as f32, size[1] as f32];
         let look = Rc::new(ddi_theme::Infinito::new());
         let env = Env::new(look.clone(), Rc::new(|s: &str| s.to_string()));
@@ -188,7 +188,7 @@ fn msd_numbers_and_the_skill_radar_draw_in_the_theme() {
             keep("ratings-unrated", size, lang, &p);
         }
     }
-    ratings::set_mode(ddi_ui::state::ratings::Source::Song, false);
+    ratings::set_mode(ddi_ui::state::ratings::Source::Song);
     ddi_l10n::unforce();
 }
 
@@ -223,7 +223,7 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
     for lang in ["en", "ja"] {
         assert!(ddi_l10n::force(lang), "{lang}");
         ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
-        ratings::set_mode(ratings::Source::Estimate, true);
+        ratings::set_mode(ratings::Source::Estimate);
         // The bundled song as the sample has it, its Single charts with
         // their real estimates.
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs/into-my-dream");
@@ -298,7 +298,7 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
             ("z-partial", None, ratings::Source::Estimate, "estimate-partial", "shown"),
             ("z-outside", None, ratings::Source::Estimate, "estimate-outside", "outside"),
         ] {
-            ratings::set_mode(source, true);
+            ratings::set_mode(source);
             let mut ui = Ui::new(ddi_ui::screens::DESIGN, ddi_ui::TextMode::Own, false);
             ui.set_focus_ring(false);
             ui.push(SelectScreen::new(
@@ -350,7 +350,7 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
             }
         }
     }
-    ratings::set_mode(ratings::Source::Song, false);
+    ratings::set_mode(ratings::Source::Song);
     ddi_l10n::unforce();
 }
 
@@ -365,7 +365,7 @@ fn the_ddi_estimate_s_shapes_differ_among_bundled_charts() {
     let mut pictures = common::gpu::Pictures::new();
     assert!(ddi_l10n::force("en"));
     ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
-    ratings::set_mode(ratings::Source::Estimate, true);
+    ratings::set_mode(ratings::Source::Estimate);
     let mut data = sample::select();
     let songs = ["beatucada", "into-my-dream", "some-things-must", "sweeteners"];
     for id in songs {
@@ -453,6 +453,6 @@ fn the_ddi_estimate_s_shapes_differ_among_bundled_charts() {
             keep(&format!("rel-{id}-{}", difficulty.to_lowercase()), size, "en", &p);
         }
     }
-    ratings::set_mode(ratings::Source::Song, false);
+    ratings::set_mode(ratings::Source::Song);
     ddi_l10n::unforce();
 }

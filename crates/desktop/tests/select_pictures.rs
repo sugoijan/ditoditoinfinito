@@ -173,7 +173,7 @@ fn source_name(s: ratings::Source) -> &'static str {
 /// Song select alone on `song`, at `size`, in `lang`, under `source`.
 fn solo(pictures: &mut common::gpu::Pictures, data: &SelectData, song: &str, source: ratings::Source, size: [u32; 2], lang: &str) {
     assert!(ddi_l10n::force(lang), "{lang}");
-    ratings::set_mode(source, true);
+    ratings::set_mode(source);
     let css = [size[0] as f32, size[1] as f32];
     let look = Rc::new(ddi_theme::Infinito::new());
     let env = Env::new(look.clone(), Rc::new(|s: &str| s.to_string()));
@@ -213,7 +213,7 @@ fn solo_sources_sizes_and_phones() {
         solo(&mut pictures, &data, &s.id, ratings::Source::Song, [1280, 720], "en");
     }
     ddi_l10n::unforce();
-    ratings::set_mode(ratings::Source::Song, false);
+    ratings::set_mode(ratings::Source::Song);
 }
 
 /// The names an online room seats after alice and carol.
@@ -261,7 +261,7 @@ fn an_online_rooms_three_parts() {
     let all = library();
     for lang in ["en", "ja"] {
         assert!(ddi_l10n::force(lang));
-        ratings::set_mode(ratings::Source::Estimate, true);
+        ratings::set_mode(ratings::Source::Estimate);
         let size = [1280u32, 720];
         let css = [size[0] as f32, size[1] as f32];
         let clock = ManualClock::new(1_000);
@@ -322,7 +322,7 @@ fn an_online_rooms_three_parts() {
         shoot(&mut pictures, &mut scene.people[1].ui, size, &format!("room-member-{lang}"));
     }
     ddi_l10n::unforce();
-    ratings::set_mode(ratings::Source::Song, false);
+    ratings::set_mode(ratings::Source::Song);
 }
 
 /// CPU practice as the desktop opens it (`--screen room`): open and

@@ -15,9 +15,10 @@
 //! ([`Job::estimates`], [`rate_song`]).
 //!
 //! - What is shown: [`set_mode`] from the settings (at boot and when
-//!   Options changes them), read by the screens ([`msd_shown`],
-//!   [`radar_shown`]). With both Off nothing here reads or writes storage
-//!   and nothing is rated.
+//!   Options changes them), read by the screens ([`msd_shown`]). Every
+//!   choice rates in the background: MSD under MSD and under the song's
+//!   (the radar's always there, round SLB), the estimate under the
+//!   estimate.
 //! - What is known: a chart's eight numbers by its digest
 //!   ([`ddi_chart::ChartDigest`]) and the calculator's version. The bundled
 //!   songs' come in their manifest (`xtask gen-songs`) and are only
@@ -247,7 +248,6 @@ pub struct Status {
 #[derive(Default)]
 struct State {
     source: Source,
-    radar: bool,
     /// MSD has been shown this session: numbers drawn fainter may need
     /// drawing plainly again.
     ever: bool,
@@ -337,10 +337,10 @@ fn with<T>(f: impl FnOnce(&mut State) -> T) -> T {
 }
 
 impl State {
-    /// MSD is made: shown as the number, or on the radar, which shows
-    /// MSD's skillsets but under the DDI estimate.
+    /// MSD is made: under MSD, and under the song's own numbers (the
+    /// radar's always shown); never under the DDI estimate.
     fn wants_msd(&self) -> bool {
-        self.source == Source::Msd || (self.radar && self.source == Source::Song)
+        matches!(self.source, Source::Msd | Source::Song)
     }
 
     fn wants_estimate(&self) -> bool {
@@ -435,14 +435,13 @@ impl State {
     }
 }
 
-/// What the settings show: a rating in the numbers' place (`source`), the
-/// radar. A change of what is made forgets the songs waiting (song select
-/// offers them again for what is wanted now).
-pub fn set_mode(source: Source, radar: bool) {
+/// What the settings show: a rating in the numbers' place (`source`), and
+/// on the radar. A change of what is made forgets the songs waiting (song
+/// select offers them again for what is wanted now).
+pub fn set_mode(source: Source) {
     with(|s| {
         let before = (s.wants_msd(), s.wants_estimate());
         s.source = source;
-        s.radar = radar;
         s.ever |= source != Source::Song;
         if before != (s.wants_msd(), s.wants_estimate()) {
             s.pending.clear();
@@ -477,12 +476,8 @@ pub fn ever_shown() -> bool {
     with(|s| s.ever)
 }
 
-/// Whether song select shows the chart's skill radar.
-pub fn radar_shown() -> bool {
-    with(|s| s.radar)
-}
-
-/// Whether either is On (ratings are made and read only then).
+/// Whether anything is rated (ratings are made and read only then):
+/// every source wants one or the other since the radar is always shown.
 pub fn wanted() -> bool {
     with(|s| s.wanted())
 }
@@ -1014,22 +1009,37 @@ mod tests {
         }
     }
 
+    /// Round RS: the radar's switch is gone, and with it "both Off", where
+    /// nothing was rated: under the song's own numbers (the radar always
+    /// shown) MSD is still made in the background and kept, while the
+    /// numbers stay the song's.
     #[test]
-    fn nothing_is_read_written_or_queued_with_both_options_off() {
+    fn the_song_s_numbers_still_rate_and_keep_msd() {
         reset();
         let store = Rc::new(storage::MemoryStore::default());
         storage::install(store.clone());
-        set_mode(Source::Song, false);
+        set_mode(Source::Song);
+        assert!(wanted() && wants_msd() && !wants_estimate());
         offer([Job {
             song: "a".into(),
             charts: vec![0],
             ..Job::default()
         }]);
-        assert_eq!(next(), None);
-        assert_eq!(get(digest(1)), None);
+        assert_eq!(status().pending, 1);
+        let job = next().expect("a");
+        done(
+            &job.song,
+            vec![Rated {
+                index: 0,
+                digest: digest(1),
+                values: Some([9.0; 8]),
+                ..Rated::default()
+            }],
+        );
         flush();
-        assert!(storage::get(Area::Local, KEY).is_none());
-        assert_eq!(status().pending, 0);
+        assert!(storage::get(Area::Local, KEY).is_some(), "kept");
+        assert_eq!(get(digest(1)), Some([9.0; 8]));
+        assert_eq!(shown(Some(digest(1)), "dance-single", true), None, "the song's number");
     }
 
     #[test]
@@ -1037,7 +1047,7 @@ mod tests {
         reset();
         let store = Rc::new(storage::MemoryStore::default());
         storage::install(store.clone());
-        set_mode(Source::Msd, false);
+        set_mode(Source::Msd);
         offer([
             Job {
                 song: "a".into(),
@@ -1079,7 +1089,7 @@ mod tests {
         assert!(storage::get(Area::Local, KEY).is_some());
         reset();
         storage::install(store);
-        set_mode(Source::Song, true);
+        set_mode(Source::Song);
         assert_eq!(get(digest(7)), Some([10.0; 8]));
         offer([a]);
         assert_eq!(status().pending, 1);
@@ -1090,7 +1100,7 @@ mod tests {
     fn a_chart_stands_rated_rating_or_unrated() {
         reset();
         storage::install(Rc::new(storage::MemoryStore::default()));
-        set_mode(Source::Song, true);
+        set_mode(Source::Song);
         assert_eq!(standing("x", Some(digest(1)), "dance-double", true), Standing::NoLayout);
         assert_eq!(standing("a", Some(digest(1)), "dance-single", true), Standing::Unrated);
         offer([Job {
@@ -1156,7 +1166,7 @@ mod tests {
         reset();
         let store = Rc::new(storage::MemoryStore::default());
         storage::install(store.clone());
-        set_mode(Source::Estimate, false);
+        set_mode(Source::Estimate);
         offer([Job {
             song: "a".into(),
             estimates: vec![0, 1],
@@ -1187,7 +1197,7 @@ mod tests {
         // Read back by another session.
         reset();
         storage::install(store.clone());
-        set_mode(Source::Estimate, true);
+        set_mode(Source::Estimate);
         assert_eq!(estimate(digest(5)), Some(Some(estimate_of(14.27, Some(p)))));
         assert_eq!(
             shown(Some(digest(5)), "dance-single", true),
@@ -1211,7 +1221,7 @@ mod tests {
         storage::save(Area::Local, ESTIMATE_KEY, &stored).unwrap();
         reset();
         storage::install(store);
-        set_mode(Source::Estimate, false);
+        set_mode(Source::Estimate);
         assert_eq!(estimate(digest(5)), None);
     }
 
@@ -1224,7 +1234,7 @@ mod tests {
     fn the_radar_s_source_follows_chart_ratings() {
         reset();
         storage::install(Rc::new(storage::MemoryStore::default()));
-        set_mode(Source::Estimate, true);
+        set_mode(Source::Estimate);
         remember_estimate(digest(1), estimate_of(9.0, Some([0.1, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0])));
         let mut outside = estimate_of(18.7, None);
         outside.studied = false;
@@ -1236,7 +1246,7 @@ mod tests {
         assert_eq!(standing("a", Some(digest(2)), "dance-single", true), Standing::Outside);
         remember(digest(3), [10.0; 8]);
         assert_eq!(standing("a", Some(digest(3)), "dance-single", true), Standing::Unrated, "no MSD");
-        set_mode(Source::Song, true);
+        set_mode(Source::Song);
         assert_eq!(standing("a", Some(digest(3)), "dance-single", true), Standing::Rated([10.0; 8]));
         assert_eq!(shown(Some(digest(3)), "dance-single", true), None, "the song's number");
     }
@@ -1338,7 +1348,7 @@ mod tests {
     fn estimates_wait_for_a_play() {
         reset();
         storage::install(Rc::new(storage::MemoryStore::default()));
-        set_mode(Source::Estimate, false);
+        set_mode(Source::Estimate);
         offer([Job {
             song: "a".into(),
             estimates: vec![0],

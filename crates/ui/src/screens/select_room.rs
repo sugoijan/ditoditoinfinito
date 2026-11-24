@@ -373,7 +373,7 @@ impl SelectScreen {
         }
         // The skill radar in the ladder's place (round Z1): the wide
         // layout's alone (a phone's and a room's short side keep theirs).
-        l.radar = !l.compact && crate::state::ratings::radar_shown();
+        l.radar = !l.compact;
         l
     }
 

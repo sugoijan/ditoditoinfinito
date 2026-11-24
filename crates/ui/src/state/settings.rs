@@ -1549,7 +1549,7 @@ impl Settings {
             ChartRatings::Estimate => Source::Estimate,
         };
         // The radar is always shown, so ratings are always made.
-        crate::state::ratings::set_mode(source, true);
+        crate::state::ratings::set_mode(source);
     }
 
     pub fn rules(&self) -> RuleChoice {

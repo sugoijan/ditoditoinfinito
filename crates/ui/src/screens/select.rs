@@ -329,12 +329,11 @@ fn faint(a: &mut Actor, name: &str, songs: bool) {
 }
 
 /// The chart ratings as song select last showed them
-/// (`crate::state::ratings`): the options, the ratings' generation, and
+/// (`crate::state::ratings`): the option, the ratings' generation, and
 /// when the screen last showed new ones.
 #[derive(Clone, Copy, Debug, Default)]
 struct RatingsShown {
     source: crate::state::ratings::Source,
-    radar: bool,
     generation: u64,
     refreshed: f64,
     /// The song list offered for rating (its data's address).
@@ -437,7 +436,7 @@ struct Layout {
     /// chart buttons (the compact layouts; a room's, whose players take
     /// the room the banner and the ladder had, `Layout::for_room`).
     chips: bool,
-    /// The wide layout with "Skill radar: On" (round Z1): in the ladder's
+    /// The wide layout (round Z1; always since round SLB): in the ladder's
     /// place a row of chart buttons, then the chosen chart's lines and its
     /// radar (`fill_radar_side`).
     radar: bool,
@@ -1582,7 +1581,7 @@ impl SelectScreen {
     /// radar) shown again, the songs without them offered for rating.
     fn follow_ratings(&mut self, now: f64) {
         use crate::state::ratings;
-        let (source, radar) = (ratings::source(), ratings::radar_shown());
+        let source = ratings::source();
         let generation = ratings::generation();
         // A new song list: its songs offered.
         let data = Rc::as_ptr(&self.data) as usize;
@@ -1591,12 +1590,11 @@ impl SelectScreen {
             self.offer_ratings();
         }
         let r = &mut self.ratings;
-        let changed = (source, radar) != (r.source, r.radar);
+        let changed = source != r.source;
         if !changed && (generation == r.generation || now - r.refreshed < RATINGS_REFRESH) {
             return;
         }
         r.source = source;
-        r.radar = radar;
         r.generation = generation;
         r.refreshed = now;
         if changed {

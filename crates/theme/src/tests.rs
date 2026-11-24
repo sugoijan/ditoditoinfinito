@@ -2516,7 +2516,7 @@ fn song_select_draws_in_the_theme_as_pinned() {
     let first = data.songs[0].clone();
     let mut got = Vec::new();
     for msd in [false, true] {
-        ratings::set_mode(if msd { ddi_ui::state::ratings::Source::Msd } else { ddi_ui::state::ratings::Source::Song }, false);
+        ratings::set_mode(if msd { ddi_ui::state::ratings::Source::Msd } else { ddi_ui::state::ratings::Source::Song });
         for c in first.charts.iter().filter(|c| c.style == "dance-single").take(3) {
             let m = 10.0 + c.index as f32;
             ratings::remember(c.digest.unwrap(), [m, m, m - 2.0, m - 4.0, m - 1.0, m - 6.0, m - 5.0, m - 3.0]);
@@ -2547,7 +2547,7 @@ fn song_select_draws_in_the_theme_as_pinned() {
             got.push(hash(&h));
         }
     }
-    ratings::set_mode(ddi_ui::state::ratings::Source::Song, false);
+    ratings::set_mode(ddi_ui::state::ratings::Source::Song);
     assert_eq!(got, THEME_PINNED, "{got:?}");
 }
 
@@ -2590,7 +2590,7 @@ fn the_estimates_tenths_fit_the_rows_and_the_chart_buttons() {
     use ddi_ui::screens::select::SelectScreen;
     use ddi_ui::state::ratings;
     ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
-    ratings::set_mode(ratings::Source::Estimate, false);
+    ratings::set_mode(ratings::Source::Estimate);
     let decimals = [18.84_f32, 10.04, 19.96, 11.11, 14.27, 17.77, 12.5];
     let difficulties = [
         Difficulty::Beginner,
@@ -2645,16 +2645,13 @@ fn the_estimates_tenths_fit_the_rows_and_the_chart_buttons() {
         ..SelectData::default()
     };
     let theme = Rc::new(Infinito::new());
-    // The ladder's side, the radar's (its chart buttons), each at the
-    // design's size and the smallest wide window; a phone's buttons.
-    for (size, design, radar) in [
-        ([1280.0, 720.0], DESIGN, false),
-        ([600.0, 480.0], DESIGN, false),
-        ([1280.0, 720.0], DESIGN, true),
-        ([600.0, 480.0], DESIGN, true),
-        ([844.0, 390.0], COMPACT, false),
+    // The radar's side (its chart buttons) at the design's size and the
+    // smallest wide window; a phone's buttons.
+    for (size, design) in [
+        ([1280.0, 720.0], DESIGN),
+        ([600.0, 480.0], DESIGN),
+        ([844.0, 390.0], COMPACT),
     ] {
-        ratings::set_mode(ratings::Source::Estimate, radar);
         let compact = design == COMPACT;
         let env = env(&theme);
         let mut h = harness(size, design);
@@ -2719,11 +2716,9 @@ fn the_estimates_tenths_fit_the_rows_and_the_chart_buttons() {
                 "{size:?} Chart{k}'s number {m:?} outside its button {b:?}"
             );
         }
-        if radar || compact {
-            assert!(buttons >= 5, "{size:?}: {buttons} chart buttons");
-        }
+        assert!(buttons >= 5, "{size:?}: {buttons} chart buttons");
     }
-    ratings::set_mode(ratings::Source::Song, false);
+    ratings::set_mode(ratings::Source::Song);
 }
 
 /// Round AF ("Yes, fixed places in rooms too"): a room's row of chart
@@ -2740,7 +2735,7 @@ fn a_rooms_chart_row_fits_a_place_per_chart_with_the_estimates_tenths() {
     use ddi_ui::screens::select::SelectScreen;
     use ddi_ui::state::ratings;
     ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
-    ratings::set_mode(ratings::Source::Estimate, false);
+    ratings::set_mode(ratings::Source::Estimate);
     let decimals = [18.84_f32, 10.04, 19.96, 11.11, 14.27, 17.77, 12.5, 13.33];
     let song = |n: usize| {
         let charts = (0..n)
@@ -2865,7 +2860,7 @@ fn a_rooms_chart_row_fits_a_place_per_chart_with_the_estimates_tenths() {
             }
         }
     }
-    ratings::set_mode(ratings::Source::Song, false);
+    ratings::set_mode(ratings::Source::Song);
 }
 
 /// The song's title runs past the song side's right edge into the width

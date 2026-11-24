@@ -141,7 +141,7 @@ fn room_balance_study() {
         Ok("msd") => ddi_ui::state::ratings::Source::Msd,
         _ => ddi_ui::state::ratings::Source::Estimate,
     };
-    ddi_ui::state::ratings::set_mode(source, true);
+    ddi_ui::state::ratings::set_mode(source);
     let mut pictures = common::gpu::Pictures::new();
     let sizes: [[u32; 2]; 5] = [[1280, 720], [1024, 768], [1440, 900], [1920, 1080], [844, 390]];
     for size in sizes {

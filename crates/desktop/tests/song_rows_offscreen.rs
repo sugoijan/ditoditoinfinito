@@ -29,7 +29,7 @@ fn song_rows_draw_in_the_theme() {
     ] {
         assert!(ddi_l10n::set_language(lang));
         ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
-        ratings::set_mode(ratings::Source::Song, false);
+        ratings::set_mode(ratings::Source::Song);
         let css = [size[0] as f32, size[1] as f32];
         let look = Rc::new(ddi_theme::Infinito::new());
         let env = Env::new(look.clone(), Rc::new(|s: &str| s.to_string()));
@@ -98,10 +98,10 @@ fn song_rows_draw_in_the_theme() {
         );
         keep(&mut ui, "2-medium");
         // The DDI estimate in the levels' place, to a tenth.
-        ratings::set_mode(ratings::Source::Estimate, false);
+        ratings::set_mode(ratings::Source::Estimate);
         common::ui::frames(&mut ui, 1.5);
         keep(&mut ui, "3-estimate");
-        ratings::set_mode(ratings::Source::Song, false);
+        ratings::set_mode(ratings::Source::Song);
     }
     ddi_l10n::set_language("en");
 }

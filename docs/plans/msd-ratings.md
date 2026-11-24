@@ -521,3 +521,19 @@ The manifest stores each spoke as a numeric cost or the string `inactive` or
 `unavailable`. Old numeric arrays still deserialize. The versioned device cache
 refreshes imported estimates so it can distinguish structural absence from a
 numeric cost of zero.
+
+## Round RS (2026-11-24): the radar's switch removed from the code
+
+Round SLB took the "Skill radar" option away, but the ratings' state
+kept its switch: `ratings::set_mode(source, radar)`, `radar_shown()` and
+MSD made under From the song only with the radar On. The game always
+passed On (`Settings::show_ratings`), so only tests reached the Off
+form. The maintainer: "Remove it." Now `set_mode(source)` alone; MSD is
+made under MSD and under From the song, the DDI estimate under the
+estimate, so something is always rated in the background
+(`ratings::wanted` is always true); song select's wide layout always has
+the radar's square (`Layout::radar`, which `side_layout` had set on every
+wide layout regardless). Nothing a player sees changed. The tests that
+covered the Off form ("nothing rated, read or written with both Off")
+cover From the song instead: its numbers the song's, its square the
+Groove radar's (or the quiet line), MSD still made and kept behind it.

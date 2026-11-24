@@ -276,7 +276,7 @@ fn shown(level: &str, grade: &str, flag: Option<&str>, new: bool) -> Shown {
 #[test]
 fn a_row_shows_the_chart_play_would_play_and_its_best() {
     assert!(ddi_l10n::force("en"));
-    ddi_ui::state::ratings::set_mode(ddi_ui::state::ratings::Source::Song, false);
+    ddi_ui::state::ratings::set_mode(ddi_ui::state::ratings::Source::Song);
     let theme = Rc::new(Infinito::new());
     let env = env(&theme);
     for (size, design) in [
@@ -353,7 +353,7 @@ fn a_row_shows_the_chart_play_would_play_and_its_best() {
 fn a_best_that_comes_later_shows_on_its_row_in_place() {
     use ddi_ui::screens::select::{FEED, Feed, SharedFeed};
     assert!(ddi_l10n::force("en"));
-    ddi_ui::state::ratings::set_mode(ddi_ui::state::ratings::Source::Song, false);
+    ddi_ui::state::ratings::set_mode(ddi_ui::state::ratings::Source::Song);
     let theme = Rc::new(Infinito::new());
     let env = env(&theme);
     let feed: SharedFeed = Rc::new(std::cell::RefCell::new(Feed::default()));
@@ -405,7 +405,7 @@ fn a_best_that_comes_later_shows_on_its_row_in_place() {
 #[test]
 fn a_rooms_row_shows_the_chart_chosen_for_its_song() {
     assert!(ddi_l10n::force("en"));
-    ddi_ui::state::ratings::set_mode(ddi_ui::state::ratings::Source::Song, false);
+    ddi_ui::state::ratings::set_mode(ddi_ui::state::ratings::Source::Song);
     let theme = Rc::new(Infinito::new());
     let env = env(&theme);
     let mut data = five();
