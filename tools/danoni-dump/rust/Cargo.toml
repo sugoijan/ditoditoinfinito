@@ -39,7 +39,7 @@ rubato = { version = "5.0.1", default-features = false, features = ["fft_resampl
 rustfft = "6.4.1"
 audioadapter-buffers = "5.2.0"
 
-resvg = { version = "0.48.1", default-features = false, features = ["text"] }
+resvg = { version = "0.50.0", default-features = false, features = ["text"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 unicode-segmentation = "1.13.3"

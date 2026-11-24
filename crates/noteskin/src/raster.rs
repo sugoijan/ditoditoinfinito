@@ -27,8 +27,11 @@ pub fn layer_work(tree: &resvg::usvg::Tree, w: u32, h: u32) -> f64 {
     let (w, h) = (f64::from(w), f64::from(h));
     fn group(g: &Group, sx: f64, sy: f64, w: f64, h: f64) -> f64 {
         let mut work = 0.0;
-        if g.should_isolate() {
-            let b = g.abs_layer_bounding_box();
+        // A group with nothing to draw has no box (resvg 0.50), and resvg
+        // draws no layer for it.
+        if g.should_isolate()
+            && let Some(b) = g.abs_layer_bounding_box()
+        {
             let (left, top) = (
                 (f64::from(b.left()) * sx).max(-2.0 * w),
                 (f64::from(b.top()) * sy).max(-2.0 * h),

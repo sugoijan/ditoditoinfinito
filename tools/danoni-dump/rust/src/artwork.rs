@@ -141,7 +141,8 @@ impl TitleRenderer {
             .iter()
             .find(|n| matches!(n, resvg::usvg::Node::Text(_)))
             .ok_or_else(|| invalid("Title has no rendered glyphs"))?;
-        Ok(text.abs_bounding_box().width())
+        // A node that draws nothing has no box (resvg 0.50).
+        Ok(text.abs_bounding_box().map_or(0.0, |b| b.width()))
     }
     fn layout(&self, title: &str, role: Role) -> Result<(Vec<String>, u32)> {
         let [width, _] = role.dimensions();

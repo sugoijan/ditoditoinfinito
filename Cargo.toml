@@ -65,7 +65,7 @@ glyphon = "0.12"
 bytemuck = { version = "1", features = ["derive"] }
 # Skins' SVG images, drawn by the same code on both shells
 # (`ddi_noteskin::raster`; on the web in its SVG worker).
-resvg = { version = "0.49.0", default-features = false }
+resvg = { version = "0.50.0", default-features = false }
 
 # shared
 serde = { version = "1", features = ["derive"] }

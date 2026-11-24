@@ -78,7 +78,7 @@ now an experimental research crate; vello_gpu cannot draw masks yet. In wasm
 
 ## Step 1: done (2026-10-24)
 
-`ddi_noteskin::raster` (feature `raster`) draws an SVG with resvg 0.49;
+`ddi_noteskin::raster` (feature `raster`) draws an SVG with resvg 0.50;
 desktop decodes a skin's images on up to eight threads (admitted in turn
 against the budget first, each image's pixels known from its header or its
 root, so the outcome does not depend on the threads), and the web sends
