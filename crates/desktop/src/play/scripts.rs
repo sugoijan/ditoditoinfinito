@@ -87,6 +87,8 @@ pub struct ScriptLoad {
     layers: [Vec<backgrounds::BgSegment>; backgrounds::LAYERS],
     foregrounds: Vec<backgrounds::Foreground>,
     env: Option<ddi_noteskin::lua::Env>,
+    /// The slices of the Lua the last poll ran ([`ScriptLoad::slices`]).
+    slices: u32,
 }
 
 impl ScriptLoad {
@@ -128,6 +130,7 @@ impl ScriptLoad {
             layers: super::view::schedule(&loaded.song, loaded),
             foregrounds: backgrounds::foregrounds(&loaded.song, &folders),
             env: Some(ddi_session::scripted::env(&loaded.song, aspect)),
+            slices: 0,
         })
     }
 
@@ -137,10 +140,19 @@ impl ScriptLoad {
         matches!(self.step, Step::Lua { .. })
     }
 
+    /// How many slices of the Lua the last poll ran: what runs between
+    /// two of the host's turns, at most `ddi_noteskin::lua::LOAD_SLICE`
+    /// fuel of each of the scripts' functions. A poll runs slices until
+    /// `turn` has passed, so the last one it runs is the first past it.
+    pub fn slices(&self) -> u32 {
+        self.slices
+    }
+
     /// Moves the load on, running the Lua for at most about `turn`: once
     /// it is over, the scripts (`None`: none to show, or they did not
     /// load, noted on the log; the song background shows in their place).
     pub fn poll(&mut self, turn: Duration) -> Option<Option<Ready>> {
+        self.slices = 0;
         loop {
             match std::mem::replace(&mut self.step, Step::Done) {
                 Step::Reading(rx) => match rx.try_recv() {
@@ -159,6 +171,7 @@ impl ScriptLoad {
                     let started = Instant::now();
                     let mut cx = Context::from_waker(Waker::noop());
                     let loaded = loop {
+                        self.slices += 1;
                         match load.as_mut().poll(&mut cx) {
                             Poll::Ready(r) => break r,
                             Poll::Pending if started.elapsed() >= turn => {

@@ -342,9 +342,13 @@ const BURN: &str = "local n = 0\n\
     for i = 1, 8000000 do n = n + i end\n\
     return Def.Quad { OnCommand = cmd(FullScreen) }\n";
 
-/// A script that takes long to load is readied a turn at a time: no poll
-/// runs its Lua much past [`LUA_TURN`] (the loop draws between them), and
-/// it loads all the same. No GPU, no window.
+/// A script that takes long to load is readied a turn at a time (the loop
+/// draws between them), and it loads all the same. A turn ends at the
+/// first slice of the Lua past its budget ([`LUA_TURN`]), so a slice is
+/// the unit asserted: with no budget left each turn runs exactly one, and
+/// cut into turns of either size the Lua does the same work. The turns'
+/// wall time is printed only: a shared machine can stall any of them
+/// (CI's macOS once took 61 ms over a turn of 6). No GPU, no window.
 #[test]
 fn scripts_load_a_turn_at_a_time() {
     let dir = std::env::temp_dir().join(format!("ddi-play-scripts-turns-{}", std::process::id()));
@@ -365,33 +369,54 @@ fn scripts_load_a_turn_at_a_time() {
         bg_brightness: 1.0,
         ..Settings::default()
     };
-    let mut scripts = ScriptLoad::start(&loaded, &settings, None).expect("scripts to load");
-    let started = std::time::Instant::now();
-    let (mut turns, mut longest) = (0, std::time::Duration::ZERO);
-    let ready = loop {
-        let running = scripts.running();
-        let at = std::time::Instant::now();
-        let polled = scripts.poll(LUA_TURN);
-        if running {
-            turns += 1;
-            longest = longest.max(at.elapsed());
-        }
-        if let Some(r) = polled {
-            break r;
-        }
-        assert!(started.elapsed().as_secs() < 60, "the load never ended");
-        std::thread::sleep(std::time::Duration::from_millis(1));
+    // The load polled with `turn` as the host polls it: its turns, each
+    // one's slices, the longest turn's time and what loaded.
+    let run = |turn: std::time::Duration| {
+        let mut scripts = ScriptLoad::start(&loaded, &settings, None).expect("scripts to load");
+        let started = std::time::Instant::now();
+        let (mut slices, mut longest) = (Vec::new(), std::time::Duration::ZERO);
+        let ready = loop {
+            let running = scripts.running();
+            let at = std::time::Instant::now();
+            let polled = scripts.poll(turn);
+            // (The poll that finds the files read runs the Lua's first
+            // turn too.)
+            if running || scripts.slices() > 0 {
+                slices.push(scripts.slices());
+                longest = longest.max(at.elapsed());
+            }
+            if let Some(r) = polled {
+                break r;
+            }
+            assert!(started.elapsed().as_secs() < 60, "the load never ended");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        };
+        eprintln!(
+            "turns of {turn:?}: {} turns, {} slices, at most {} in a turn, the longest {:.1} ms, \
+             {:.0} ms in all",
+            slices.len(),
+            slices.iter().sum::<u32>(),
+            slices.iter().max().unwrap_or(&0),
+            longest.as_secs_f64() * 1000.0,
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+        let ready = ready.expect("the script to load");
+        assert!(ready.view.running());
+        slices
     };
-    eprintln!(
-        "{turns} turns, the longest {:.1} ms, {:.0} ms in all",
-        longest.as_secs_f64() * 1000.0,
-        started.elapsed().as_secs_f64() * 1000.0
-    );
-    let ready = ready.expect("the script to load");
-    assert!(ready.view.running());
-    assert!(turns > 10, "{turns} turns");
-    // A turn ends at the first slice past it.
-    assert!(longest < LUA_TURN * 10, "{longest:?}");
+    // Cut into turns (how many depends on the machine's speed: 22 on an
+    // M-series Mac, more on a slower or busier one), each running a slice
+    // at least.
+    let turns = run(LUA_TURN);
+    assert!(turns.len() > 1, "{} turns", turns.len());
+    assert!(turns.iter().all(|&n| n >= 1), "{turns:?}");
+    // No budget: the first slice is past it, so every turn runs one, and
+    // the load is many of them (169: the fuel's, on any machine).
+    let one_each = run(std::time::Duration::ZERO);
+    assert!(one_each.iter().all(|&n| n == 1), "{one_each:?}");
+    assert!(one_each.len() > 10, "{} turns", one_each.len());
+    // The same Lua either way.
+    assert_eq!(turns.iter().sum::<u32>(), one_each.len() as u32);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
