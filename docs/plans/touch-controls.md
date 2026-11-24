@@ -317,7 +317,9 @@ with the shell's own time). Each shell keeps where its event lands (CSS
 pixels of the canvas, logical pixels of the window), the lane under a
 finger (the controls' plan; the web's legacy columns), its time stamps
 (the web's event time, desktop's clock as the event is handled, as
-before) and what it does around a press (the web's pointer capture and
+before; under a test's own play clock, `Host::test_clock`, that clock,
+`Shell::pointer_time`, so an offscreen test never measures a press
+across two clocks) and what it does around a press (the web's pointer capture and
 `preventDefault`, desktop's screens under a framed play).
 
 The maintainer's rule (2026-11-24): "The web input behavior makes most
