@@ -14753,7 +14753,8 @@ stored stage plan), every new field at its default. Tests:
   carries each checkpoint's notes (`BattlePlan::notes`, in its digest):
   how many of the stage's notes a play can have had judged by then,
   those up to a second past the checkpoint (`NOTES_AHEAD_US`; a press is
-  judged at most about a fifth of a second early), holds', rolls' and
+  judged at most 0.28 s early, DDI's Easy timing's widest window, 0.21 s
+  under Normal), holds', rolls' and
   lifts' heads counted, mines and fakes not; under Charts: Adaptive the
   notes of the stage's chart and every rung of its ladder together, a
   note at the same row and lane once (whatever chart a competitor is on

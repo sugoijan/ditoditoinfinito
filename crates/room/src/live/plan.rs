@@ -120,8 +120,8 @@ pub struct BattlePlan {
 
 /// How far past a checkpoint's time a note may lie and still have been
 /// judged before it ([`BattlePlan::notes`], `notes-v0`): a second, far
-/// beyond the earliest a press is judged (DDI's widest window is about a
-/// fifth of a second early, StepMania's rulesets' under a quarter).
+/// beyond the earliest a press is judged (DDI's widest window, Easy
+/// timing's W5, is 0.28 s; Normal's 0.21 s; StepMania's rulesets' 0.18 s).
 pub const NOTES_AHEAD_US: i64 = 1_000_000;
 
 impl BattlePlan {
