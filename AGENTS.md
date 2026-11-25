@@ -1849,9 +1849,10 @@ Rust and the browser are implementation details, not advertised features.
   Pure (serde and JSON), natively tested.
 - The multiplayer prototype's CPU practice (M2 and M3,
   `docs/plans/multiplayer-prototype-progress.md`), behind no switch since
-  2026-11-14 (`Settings::multiplayer` gates nothing and is only read;
-  the web's `mp=1`/`mp=0` and desktop's `--multiplayer on|off` are taken
-  and do nothing): the start menu's Multiplayer opens the
+  2026-11-14 (the switch's setting went in round HY, stored settings
+  carrying it read as before; older links' `mp=1`/`mp=0` are read by
+  nothing and desktop's `--multiplayer on|off` is taken and says it
+  does nothing): the start menu's Multiplayer opens the
   multiplayer home (`ddi_ui::screens::online_home::Home`: the start
   menu's column and rain under
   the bars; Find match and Browse rooms grayed "Coming soon", Private

@@ -13635,12 +13635,6 @@ text = "3c722c0ba95c675f"
 by = "agent"
 date = "2026-11-07"
 
-[start-multiplayer]
-source = "1eeec4893e849736"
-text = "b34573180fea9380"
-by = "agent"
-date = "2026-11-07"
-
 [start-multiplayer-open]
 source = "0baae66936b515b2"
 text = "1e4850c546519314"

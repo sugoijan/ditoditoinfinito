@@ -204,8 +204,8 @@ fn restore_chat(hash: &str) {
 /// (`docs/plans/multiplayer-prototype-progress.md`), read from the address
 /// the page loads on, whatever its route, and from the start route's or
 /// an invite's link later; never a row of Options. Multiplayer is no
-/// longer behind a switch (2026-11-14): `mp=1` and `mp=0` are still taken
-/// and do nothing. DEVELOPMENT ONLY: `mpcpus=N`, practice against N CPUs
+/// longer behind a switch (2026-11-14): `mp=1` and `mp=0`, which older
+/// links carry, are read by nothing. DEVELOPMENT ONLY: `mpcpus=N`, practice against N CPUs
 /// beyond the cap (`crate::room::develop`), and `mpdevmines=BEAT`, a
 /// section of battle shocks (M8a); a convenience, `mpattacks=0`: the next
 /// practice room starts with its Attacks rule Off, which anyone sets in

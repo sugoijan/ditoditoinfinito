@@ -181,33 +181,27 @@ fn says_words(h: &Harness, words: &str) -> bool {
 }
 
 /// Multiplayer is no longer behind a switch (2026-11-14): the start menu
-/// opens its home by default; turned off (only a test does) it says
-/// Coming soon as before.
+/// opens its home (the switch's Coming soon went in round HY).
 #[test]
-fn the_start_menu_opens_multiplayer_by_default() {
-    for on in [false, true] {
-        let calls = Rc::new(RefCell::new(Vec::new()));
-        let sink = calls.clone();
-        let mut h = harness();
-        let start =
-            StartScreen::new(env(), false, Rc::new(move |c, _| sink.borrow_mut().push(c)));
-        h.push(if on { start } else { start.with_multiplayer(false) });
-        h.run(0.3);
-        h.key("a", "a");
-        h.key("ArrowDown", "ArrowDown");
-        assert_eq!(h.ui.focused(), Some("Multiplayer"));
-        h.key("Enter", "Enter");
-        h.tap(PointerKind::Touch, "Multiplayer");
-        let texts = h.texts();
-        if on {
-            assert_eq!(*calls.borrow(), [Choice::Multiplayer, Choice::Multiplayer]);
-            assert!(texts.iter().any(|t| t == "Multiplayer"), "{texts:?}");
-            assert!(!texts.iter().any(|t| t.contains("Coming soon")));
-        } else {
-            assert!(calls.borrow().is_empty());
-            assert!(texts.iter().any(|t| t.contains("Coming soon")), "{texts:?}");
-        }
-    }
+fn the_start_menu_opens_multiplayer() {
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let sink = calls.clone();
+    let mut h = harness();
+    h.push(StartScreen::new(
+        env(),
+        false,
+        Rc::new(move |c, _| sink.borrow_mut().push(c)),
+    ));
+    h.run(0.3);
+    h.key("a", "a");
+    h.key("ArrowDown", "ArrowDown");
+    assert_eq!(h.ui.focused(), Some("Multiplayer"));
+    h.key("Enter", "Enter");
+    h.tap(PointerKind::Touch, "Multiplayer");
+    let texts = h.texts();
+    assert_eq!(*calls.borrow(), [Choice::Multiplayer, Choice::Multiplayer]);
+    assert!(texts.iter().any(|t| t == "Multiplayer"), "{texts:?}");
+    assert!(!texts.iter().any(|t| t.contains("Coming soon")));
 }
 
 /// The multiplayer home's order (the maintainer, 2026-11-14: "CPU
@@ -246,7 +240,7 @@ fn the_home_lists_cpu_practice_last_and_the_first_key_focuses_private_room() {
 fn practice_opens_straight_on_song_select_with_the_rules_behind_their_button() {
     let env = env();
     let mut h = harness();
-    h.push(sample::start_screen(&env, false).with_multiplayer(true));
+    h.push(sample::start_screen(&env, false));
     h.run(0.3);
     h.key("a", "a");
     h.key("ArrowDown", "ArrowDown");
@@ -303,7 +297,7 @@ fn the_hidden_option_opens_the_rules_first_on_entering() {
     settings.save();
     let env = env();
     let mut h = harness();
-    h.push(sample::start_screen(&env, false).with_multiplayer(true));
+    h.push(sample::start_screen(&env, false));
     h.run(0.3);
     h.key("a", "a");
     h.key("ArrowDown", "ArrowDown");

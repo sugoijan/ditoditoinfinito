@@ -423,11 +423,6 @@ pub struct Settings {
     /// The token the uploads carry (kept as the rest of the settings
     /// are: as private as the browser's profile).
     pub share_token: String,
-    /// Once the multiplayer prototype's hidden switch (`#/?mp=1`,
-    /// desktop's `--multiplayer on`). Multiplayer is always there since
-    /// 2026-11-14: this gates nothing and is kept only so stored settings
-    /// with either value read as before; nothing sets it any more.
-    pub multiplayer: bool,
     /// Entering a multiplayer room opens its Rules pop-up by itself, in
     /// its first form (Reset and OK), as M7b had it. A hidden option, off
     /// by default (the maintainer, 2026-11-12: a room opens straight on
@@ -948,7 +943,6 @@ impl Default for Settings {
             song_offsets: BTreeMap::new(),
             sharing: false,
             share_token: String::new(),
-            multiplayer: false,
             multiplayer_rules_first: false,
             multiplayer_watch_link: false,
             practice_roster: None,
@@ -2504,6 +2498,20 @@ mod dancing_hand_tests {
         stored.multiplayer_rules_first = true;
         stored.save();
         assert!(!Settings::load().rules_first(), "the page's over the stored");
+    }
+
+    /// Round HY: `multiplayer`, once the prototype's hidden switch, went
+    /// from the settings; settings stored with it read as before, the
+    /// rest of them unchanged.
+    #[test]
+    fn settings_stored_with_the_old_multiplayer_switch_still_load() {
+        for on in [true, false] {
+            let text = format!(r#"{{"speed": 3.0, "multiplayer": {on}, "sharing": true}}"#);
+            let s: Settings = serde_json::from_str(&text).unwrap();
+            assert_eq!(s.speed, 3.0);
+            assert!(s.sharing);
+            assert!(!serde_json::to_string(&s).unwrap().contains("\"multiplayer\""));
+        }
     }
 
     /// Kept until what is stored changes, and changing with it.

@@ -941,7 +941,7 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
     use crate::state::room::{Refusal, RoomClient, Unsupported};
     for desktop in [false, true] {
         let mut h = harness();
-        h.push(sample::start_screen(env, desktop).with_multiplayer(true));
+        h.push(sample::start_screen(env, desktop));
         shown(&mut h, found);
     }
     let mut h = harness();

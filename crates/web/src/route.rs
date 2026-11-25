@@ -99,13 +99,14 @@ pub(crate) enum Route {
     Credits,
     /// The announcer studio (`docs/plans/announcer-studio.md`).
     Studio,
-    /// The multiplayer prototype (`docs/plans/multiplayer-prototype-progress.md`),
-    /// behind its hidden switch (`#/?mp=1`): its home (`#/mp`) and the
+    /// Multiplayer (`docs/plans/multiplayer-prototype-progress.md`),
+    /// behind no switch since 2026-11-14: its home (`#/mp`) and the
     /// practice room (`#/room`: its song select, M7b).
     Multiplayer,
     Room,
     /// An invite's page (`#/mp/join/<invite>`, M5c): the room it is for,
-    /// joining it; the link carries `mp=1`, the switch.
+    /// joining it (links made before 2026-11-14 carry `mp=1`, the old
+    /// switch, which nothing reads).
     MpJoin {
         invite: String,
     },
@@ -115,7 +116,8 @@ pub(crate) enum Route {
     },
     /// A room's audience link's page (`#/mp/audience/<link>`,
     /// `docs/plans/multiplayer-audience.md`): the invite's page offering
-    /// to watch with the audience; the link carries `mp=1`.
+    /// to watch with the audience (older links carry `mp=1`, read by
+    /// nothing).
     MpAudience {
         link: String,
     },

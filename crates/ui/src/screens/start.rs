@@ -11,8 +11,7 @@ use ddi_actor::{Actor, Kind};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
     Singleplayer,
-    /// The multiplayer home (always, since 2026-11-14;
-    /// [`StartScreen::with_multiplayer`] turns it off for tests).
+    /// The multiplayer home (behind no switch since 2026-11-14).
     Multiplayer,
     Options,
     Credits,
@@ -48,9 +47,6 @@ pub struct StartScreen {
     /// What the debug state was last told: the hints' keys (`None`: the
     /// keyboard's) and the compact layout.
     published: Option<(Option<[String; 2]>, bool)>,
-    /// Multiplayer opens its menu (always, since 2026-11-14; tests may turn
-    /// it off: then it says "Coming soon", focusable and inert, as before).
-    multiplayer: bool,
 }
 
 impl StartScreen {
@@ -67,16 +63,7 @@ impl StartScreen {
             background_animating: false,
             in_place: false,
             published: None,
-            multiplayer: true,
         }
-    }
-
-    /// Multiplayer opens its menu ([`Choice::Multiplayer`]) when `on`, as
-    /// it does by default; off, it says "Coming soon" (once the hidden
-    /// switch's, `Settings::multiplayer`, which no longer gates anything).
-    pub fn with_multiplayer(mut self, on: bool) -> Self {
-        self.multiplayer = on;
-        self
     }
 
     pub fn with_focus(mut self, focus: Option<String>) -> Self {
@@ -95,11 +82,12 @@ impl StartScreen {
     }
 
     fn choices(&self) -> Vec<Choice> {
-        let mut choices = vec![Choice::Singleplayer];
-        if self.multiplayer {
-            choices.push(Choice::Multiplayer);
-        }
-        choices.extend([Choice::Options, Choice::Credits]);
+        let mut choices = vec![
+            Choice::Singleplayer,
+            Choice::Multiplayer,
+            Choice::Options,
+            Choice::Credits,
+        ];
         if self.desktop {
             choices.push(Choice::Quit);
         }
@@ -120,14 +108,9 @@ impl StartScreen {
             .max(44.0 / css_scale);
         let gap = env.metric("TitleMenu.Gap", 12.0);
         use ddi_l10n::msg::start;
-        let multiplayer = if self.multiplayer {
-            ("Multiplayer", start::multiplayer_open(), "TitleMenu.Choice")
-        } else {
-            ("Multiplayer", start::multiplayer(), "TitleMenu.Disabled")
-        };
         let mut entries = vec![
             ("Singleplayer", start::singleplayer(), "TitleMenu.Primary"),
-            multiplayer,
+            ("Multiplayer", start::multiplayer_open(), "TitleMenu.Choice"),
             ("Options", start::options(), "TitleMenu.Choice"),
             ("Credits", start::credits(), "TitleMenu.Choice"),
         ];
@@ -291,16 +274,10 @@ impl Screen for StartScreen {
         }
     }
     fn focusables(&self) -> Vec<Focusable> {
-        let mut focus: Vec<_> = self
-            .choices()
+        self.choices()
             .iter()
             .map(|c| Focusable::new(c.id()))
-            .collect();
-        // Coming soon is selectable, but deliberately absent from the actions.
-        if !self.multiplayer {
-            focus.insert(1, Focusable::new("Multiplayer"));
-        }
-        focus
+            .collect()
     }
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
         if !cx.is_current_screen() {
@@ -443,20 +420,16 @@ mod tests {
     }
 
     #[test]
-    fn title_choices_focus_but_do_not_activate_multiplayer_and_put_quit_last() {
+    fn title_choices_focus_and_activate_and_put_quit_last() {
         for desktop in [false, true] {
             let calls = Rc::new(RefCell::new(Vec::new()));
             let sink = calls.clone();
             let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
-            // Multiplayer turned off, as only a test does now: Coming soon.
-            h.push(
-                StartScreen::new(
-                    env(),
-                    desktop,
-                    Rc::new(move |choice, _| sink.borrow_mut().push(choice)),
-                )
-                .with_multiplayer(false),
-            );
+            h.push(StartScreen::new(
+                env(),
+                desktop,
+                Rc::new(move |choice, _| sink.borrow_mut().push(choice)),
+            ));
             h.run(0.3);
             assert_eq!(h.ui.focused(), None);
             h.key("a", "a");
@@ -490,7 +463,12 @@ mod tests {
             h.pad(MenuAction::Start, false);
             h.tap(PointerKind::Mouse, "Multiplayer");
             h.tap(PointerKind::Touch, "Multiplayer");
-            assert!(calls.borrow().is_empty());
+            {
+                let calls = calls.borrow();
+                assert!(!calls.is_empty(), "Multiplayer opens its home");
+                assert!(calls.iter().all(|c| *c == Choice::Multiplayer), "{calls:?}");
+            }
+            calls.borrow_mut().clear();
             // The number pad's 2 is Down (its key "2" with Num Lock on).
             h.key("Numpad2", "2");
             assert_eq!(h.ui.focused(), Some("Options"));

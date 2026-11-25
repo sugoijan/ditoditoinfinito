@@ -4,10 +4,6 @@
 # Plays alone: opens the song list.
 start-singleplayer = Singleplayer
 
-# Playing together where it is not offered: the button grayed out (since
-# 2026-11-14 the game always offers it; only a test shows this one).
-start-multiplayer = Multiplayer · Coming soon
-
 # Playing together: opens the multiplayer menu.
 start-multiplayer-open = Multiplayer
 
