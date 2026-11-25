@@ -8,7 +8,7 @@ the gameplay core shared unchanged between both.
 
 Status (2026-11-25), phase by phase (the table in section 5):
 
-- Phases 0–7 done: the core, the web platform, the MVP, format breadth,
+- Phases 0–7 done: the scaffold, the core, the web platform, the MVP, format breadth,
   import and storage, layouts and Dancing☆Onigiri, input devices.
 - Phase 8 (presentation) partial. Open: the generative backgrounds'
   decision and documentation (`plans/phase-8-gaps.md`, step 6);
@@ -627,7 +627,7 @@ What exists:
   crate that CPU practice's local authority and the private server's
   rooms both run.
 - **CPU practice**: a room on the device, no sign-in and no network, up
-  to 72 named CPUs at ten levels (shown as stars) playing the whole
+  to 72 CPUs (named from a roster) at ten levels (shown as stars) playing the whole
   chart.
 - **Private online rooms** on the private server (`../ddi-server`, a Rust
   Cloudflare Worker with a Durable Object a room), signed in with Twitch,
@@ -1325,7 +1325,7 @@ The multiplayer decisions below (85–115) were recorded on 2026-11-25 from the 
 
 105. **The audience watches without signing in** (2026-11-15; the progress note, "The audience watches without signing in"; `docs/plans/multiplayer-audience.md`, "Sign-in: none"). "I think we should let the audience spectate without having to sign-in and be anonymous": anonymous seats counted by the connecting network (eight a network, "as long as sign-in seats don't count on their own network"), the address dropped once its daily mark is made.
 
-106. **An online room keeps its own list of songs** (2026-11-19 and 2026-11-20, room model revisions 17, 19 and 21; `docs/plans/multiplayer-room-songs.md`; the progress note, "Round RL1" to "Round RL3", "Round DB"). Songs uploaded when added and kept while the room lives, downloaded ahead by each member's device; hosts add by default, the owner may let everyone add (a person up to half the list, hosts and co-hosts exempt); bundled songs are uploaded as any other; an abandoned room's songs are kept a day after its last activity; no cap below the share's own limits (2026-11-22: "leave the share limit").
+106. **An online room keeps its own list of songs** (2026-11-19 to 2026-11-22, room model revisions 17, 19 and 21; `docs/plans/multiplayer-room-songs.md`; the progress note, "Round RL1" to "Round RL3", "Round DB"). Songs uploaded when added and kept while the room lives, downloaded ahead by each member's device; hosts add by default, the owner may let everyone add (a person up to half the list, hosts and co-hosts exempt); bundled songs are uploaded as any other; an abandoned room's songs are kept a day after its last activity; no cap below the share's own limits (2026-11-22: "leave the share limit").
 
 107. **Song choice by the group is a match rule, by a draw** (2026-11-19, room model revision 22; `docs/plans/multiplayer-room-songs.md`, "The maintainer's decisions of 2026-11-19"). Host (the default) or Group; under Group only those who will play choose, a host's or co-host's own choice starts the countdown, the server draws one entry a person, the choices are cleared after each draw; Repeats: Allowed (the default), Not in a row or Not in a match.
 
