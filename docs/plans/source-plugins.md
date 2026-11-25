@@ -1,9 +1,10 @@
 # Song sources: native plugins for the desktop app (2026-11-25)
 
-Status: a design, nothing built. One principle is decided (the
-maintainer, 2026-11-25: songs not imported stay in memory, section 1).
-The maintainer decides the open questions at the end; until then nothing
-else here is decided beyond their own words below.
+Status: a design, nothing built. Revised the same day after two
+decisions of the maintainer (2026-11-25): the game ships no source
+plugin (section 3), and songs not imported stay in memory (section 1).
+The maintainer decides the open questions at the end; nothing else here
+is decided beyond their own words below.
 
 ## The request
 
@@ -27,6 +28,9 @@ The maintainer, 2026-11-25:
 - "About songs that shouldn't be imported, we should prioritize keeping
   them in memory only and using known cache dirs when that's not
   possible/feasible." (A decision, section 1, "Memory first".)
+- "I think we shouldn't ship any plugins by default. Even DanOni SDK I'm
+  leaning more towards not including it and maybe even moving to another
+  repo (but not now)." (A decision, section 3, "No plugin is shipped".)
 - FFR levels a player has are not to be blocked from rooms ("if the
   author that uploads to FFR also wants to upload the unconverted level
   here, it should be possible too"). Rooms and shares are private and
@@ -36,14 +40,19 @@ The maintainer, 2026-11-25:
 And from the research of round SR (four community sites read on
 2026-11-25; the coordinator's notes): the game scrapes no one. An
 integration with a site is for that site's maintainers to write or to
-sanction. The design below makes that the natural way to add a source,
-and the only one.
+sanction. With plugins anyone may publish, the game cannot ensure that.
+It makes it the natural way (the SDK and the template say so), and it
+enforces what it can whatever a plugin says (section 4).
 
 ## In short
 
-- A **source plugin** is a native program shipped beside the desktop app,
-  run in a process of its own, speaking a versioned framed protocol over
-  anonymous pipes, as the DanOni importer does today.
+- A **source plugin** is a native program **a player installs**: a site's
+  maintainers (or anyone) publish it themselves, from their own
+  repository, on their own schedule. It runs in a process of its own and
+  speaks a versioned framed protocol over anonymous pipes, as the DanOni
+  importer does today. **The game ships none** (decided by the
+  maintainer). It provides the host, the protocol, the confinement and an
+  SDK.
 - It declares **capabilities**, each optional: inputs it resolves,
   search, filters, browse, metadata, fetch, and later sign-in and upload.
   The app offers only what a plugin declares and its manifest allows.
@@ -57,18 +66,26 @@ and the only one.
   path) does it go to the app's known cache folder, with a cap and
   cleanup as a room's store has. Imports keep their store. (Decided by
   the maintainer.)
-- Recommended for version 1: plugins **shipped with the game only**,
-  **confined** with the video helper's sandbox, and **the app doing every
-  network request and every file read** a plugin describes (a plugin with
-  no I/O of its own). The DanOni importer is the one reviewed exception
-  that keeps its own network, and keeps working as shipped throughout.
-- Reference implementations, in order: **a local folder source** (no
-  network; every capability but sign-in and upload; all three uses), **the
-  DanOni importer as a source** (first through an adapter, the helper
-  unchanged), **a catalog of openly licensed songs** (network search and
-  fetch over content anyone may redistribute, rooms included), then **a
-  template and an SDK** for a site's maintainers. The game's own shares
-  stay as they are.
+- What makes a plugin nobody reviewed tolerable is that it can do
+  nothing by itself. It is **confined by the app before its first
+  instruction runs**, with no network, no files and no other processes,
+  and with memory and CPU bounded. **The app makes every network request
+  and every file read** the plugin describes, to the hosts its manifest
+  declares, at the app's own pace. At worst it returns bad data and
+  wastes its bounded time.
+- Recommended: **an installed plugin never runs unconfined**. Where
+  confinement is not verified (Windows today), plugins are unavailable.
+- The player installs a plugin from a file they picked, in Options. The
+  game shows what the plugin declares, in its own words, before it is
+  enabled. A signature pins the publisher's key, so an update must come
+  from the same key. There is no store or registry run by the maintainer.
+- **The DanOni importer stays shipped and unchanged for now.** Its move to
+  an installed plugin in its own repository is a later step, which
+  changes nothing in the interface (section 5).
+- Searching a folder on this computer becomes a **built-in feature**,
+  behind the same interface the plugins use. The **examples, the SDK and
+  the conformance harness** live in a separate repository; they are
+  never in the game's packages. The game's own shares stay as they are.
 
 ## What exists today (read in the code, 2026-11-25)
 
@@ -225,14 +242,71 @@ bytes.
 - It never opens a file: the game serves every read (`Read` requests of
   at most 1 MiB).
 
-That last pattern is the model for plugins below.
+That last pattern is the model for plugins below. One difference
+matters now: the video helper confines **itself**, which is fine for our
+own code. A plugin nobody here reviewed cannot be trusted to call its own
+sandbox. Its confinement must come from the app, before its first
+instruction runs.
+
+**Confining a program we did not write, from the outside** (the DanOni
+SDK's supervisor, `tools/danoni-dump/rust/src/supervisor/process.rs`):
+the SDK already runs the Ruffle worker, untrusted Flash, under a sandbox
+its parent sets up before the worker's code runs.
+
+- **macOS**: through `/usr/bin/sandbox-exec -f worker.sb`, with the
+  worker's paths given as profile parameters.
+- **Linux**: in a `pre_exec` hook, between fork and exec, the parent
+  applies the confinement to the child before it becomes the worker:
+  - `setsid`;
+  - `RLIMIT_CPU`, `RLIMIT_FSIZE`, `RLIMIT_NOFILE` 128 and `RLIMIT_CORE`
+    0;
+  - Landlock (ABI 6 required) and a seccomp allowlist.
+- **Both**: the environment cleared, and stdin closed.
+
+That is the shape an installed plugin needs (section 3).
+
+**Song data is already treated as untrusted input**:
+
+- The library reads any pack a player puts in a folder or a zip, the web
+  imports whatever is picked, and a room's members download what another
+  member uploaded. A plugin's fetched songs are no new kind of input.
+- The chart crate has no `unsafe`; the library has one use, in
+  `path.rs`.
+- The zip reader is sans-IO and checks every length it is given. Its
+  decompression is bounded by the declared size
+  (`decompress_to_vec_with_limit`), and its tests damage and cut archives
+  (`zip_fuzz_other_methods`, opt-in).
+- An FFR SWF is refused over 256 MiB, and its interpreter is bounded in
+  actions, stack and values (`swf.rs`).
+- Pictures are decoded in process with bounds: 48 MiB a file, 8,192
+  pixels a side and 96 MiB an allocation (`images.rs`).
+- Music is decoded in process by pure Rust decoders: Symphonia, and
+  `rusty-opus` (pure Rust, with SIMD `unsafe` it documents).
+- Scripted backgrounds run on lunita, the sandboxed Lua, with fuel, a
+  deadline and memory limits.
+- Movies are decoded by the sandboxed video helper, or by the OS decoders
+  for checked subsets of H.264, HEVC and VP9.
+
+What is not claimed:
+
+- There is no fuzzing campaign over the chart parsers, only the zip
+  reader's damage tests.
+- A huge but well-formed chart is bounded only by the memory it takes.
+- The image and audio crates are third-party code with their own `unsafe`.
+
+The claim holds in the sense that matters here: a plugin's songs pass
+through exactly the code every pack from the internet already passes
+through.
 
 ## 1. The model
 
 ### Sources, items, capabilities
 
-A **source** is one plugin, as the player sees it: "Folder on this
-computer", a catalog, a site. It offers **items**. An item is a song or a
+A **source** is what the player sees as one place to find songs: an
+installed plugin (a site), or a source built into the app ("This
+computer", the folder search: section 5). Both implement the same
+interface; a built-in source runs it in process.
+It offers **items**. An item is a song or a
 pack, named by an opaque id the plugin chooses (at most 256 bytes) and
 stable for that source.
 
@@ -463,7 +537,7 @@ folder's `sources/library/<plugin>/<pack>/<song>/`.
   the licence as stated, the attribution, the import's date and its
   receipt.
 
-The DanOni plugin keeps its managed store and its own ids.
+The shipped DanOni importer keeps its managed store and its own ids.
 
 **The same item imported later** is recognized two ways:
 
@@ -506,11 +580,10 @@ The options:
 - **(B) A new crate, `crates/source-protocol` (`ddi-source-protocol`,
   serde only, platform-free like `importer-protocol` and
   `share-protocol`).** Its own version 1. `ddi-importer-protocol` is not
-  touched. The DanOni helper keeps speaking it, through an adapter in the
-  app (section 5). Later the helper may speak both, choosing by Hello.
-  Version 1 of the importer protocol retires once no shipped helper
-  speaks it; since the helper and the app are one build, that is one
-  commit.
+  touched. The shipped DanOni helper keeps speaking it, as it does now.
+  When the importer becomes an installed plugin (section 5), it speaks
+  the new protocol, and version 1 retires with the shipped helper in the
+  same release.
 
 **Recommended: (B).** Nothing shipped breaks, at any stage.
 
@@ -541,8 +614,8 @@ Bounds:
   value the app words ("This source needs a newer version of the game").
 - The plugin's Hello declares its capabilities, filter schema and input
   kinds. They must be a subset of its manifest's, which the app read from
-  the verified bundle before starting it. More than the manifest is a
-  protocol error, never a widening.
+  the installed package, and the player accepted, before starting it.
+  More than the manifest is a protocol error, never a widening.
 - A new optional message or field needs a minor version both sides
   declare. A message neither side declared is never sent.
 
@@ -638,734 +711,900 @@ A plugin's labels are data. The rules:
   of ours.
 - Each is at most 128 characters (an item's text 512). Control and bidi
   control characters are taken out. Empty text is refused.
-- A shipped plugin's English and Japanese labels are reviewed with the
-  plugin, but stay the plugin's data: they never enter `locales/`.
+- No plugin's text enters `locales/`. A built-in source's labels are
+  ordinary messages of ours.
 
-## 3. Trust, confinement and distribution
+## 3. Trust, confinement and installing
 
-### What a native plugin is
+### No plugin is shipped (decided, 2026-11-25)
 
-A native plugin is a program running on the player's computer. Without
-confinement it can do anything the player can:
+The maintainer: "I think we shouldn't ship any plugins by default. Even
+DanOni SDK I'm leaning more towards not including it and maybe even
+moving to another repo (but not now)."
 
-- read their files: the game's config folder, where the online session is
-  kept (`online-session`), their browser profiles, their keys;
-- make network requests to anywhere;
-- start other programs, and stay behind after the game closes.
+So:
 
-A digest compiled into the app says the bundle is the one this build of
-the game was made with. A signature says who made it. **Neither says it
-is harmless.** Confinement lowers what a plugin can do, but sandboxes
-have holes:
+- A plugin is something **a player installs**: a native program that a
+  site's maintainers, or anyone, publish themselves, from their own
+  repository, on their own schedule.
+- The game provides the host, the protocol, the confinement, and an SDK
+  published for plugin authors.
+- Reference implementations exist as examples and as tests of the host,
+  **never in the game's packages** (section 5).
+- The DanOni importer stays shipped, unchanged, for now. Its move to an
+  installed plugin is a later step (section 5).
 
-- macOS's `sandbox_init` is deprecated, although Chromium's helpers use
-  it;
-- a kernel bug is an escape;
-- the Windows path has never run on Windows.
+This makes the plugin nobody here reviewed **the main case**. The rest of
+this section is about that case.
 
-Nothing below makes native code a player downloaded safe.
+### What an installed plugin is, and what makes it tolerable
 
-### Who ships plugins
+A native program the player downloaded is, by default, as powerful as
+the player:
 
-1. **Shipped with the game** (as the DanOni helper is). Built and
-   reviewed in this repository, or pinned from another one by commit and
-   built from source here, as the Ruffle worker is. Each plugin is a
-   bundle `sources/<plugin>/<content id>/` (a manifest, `bin/`,
-   notices), with its content id and manifest digest compiled into the
-   app, verified before every start by the code of `danoni/bundle.rs`,
-   made general. A site's maintainers write the plugin (or sanction ours),
-   and the game's maintainer accepts it as any change.
-   - Cost: a site's change waits for a release of the game, and every
-     plugin's dependencies' licences pass `gen-credits` and the
-     importer's notice checks.
-   - Gain: everything a player runs has been read.
-2. **Installed by the player**: a folder of the data directory holding
-   bundles the player put there, pinned by a digest the player approves,
-   or signed by a key the game trusts. The game would show a warning that
-   says what is true ("This runs a program on your computer"), and none
-   of it makes the program safe.
-   - Cost: the game becomes a distribution channel for programs it has
-     not read. Players will install what a stranger links. Every hole in
-     the sandbox becomes the game's problem. Support turns into "which
-     plugin did you install".
-   - Gain: sites ship on their own schedule.
+- it can read their files: the game's config folder (where the online
+  session is kept, `online-session`), their browser profiles, their keys;
+- it can reach any host on the network;
+- it can start other programs, and stay behind after the game closes.
 
-### Confinement
+A digest says a file was not changed. A signature says it came from the
+holder of a key. **Neither says the program is harmless**, and no warning
+makes it so.
 
-For a plugin whose only I/O is host calls (section 2), the video
-helper's sandbox fits as it is: no files, no network, no other
-processes; pipes, memory and threads only, checked by the same self-test
-before it serves. A plugin that fails its self-test does not run.
+What can make it tolerable is that it can do **nothing by itself**:
 
-- The sandbox code moves from `video/helper/src/sandbox/` into a small
-  crate both helpers use. The video helper's profile and allowlist do not
-  change.
-- A plugin's seccomp allowlist may need a few calls more than FFmpeg's
-  (a Rust program's thread and allocator calls are much the same). To
-  check in stage 1.
+1. **Confined by the app, before its first instruction runs.** The app
+   starts the plugin through a launcher that confines the process and
+   then executes the plugin's file, as the DanOni SDK starts its Ruffle
+   worker (section "What exists today"). The confinement:
+   - no network;
+   - no file access at all, beyond loading its own executable;
+   - no other processes;
+   - only its inherited pipes, memory and threads;
+   - memory and CPU bounded;
+   - environment cleared.
 
-What a plugin that **makes its own requests** would need, against what
-the systems can enforce (my understanding, to verify in stage 1 before
-anything relies on it):
+   It is not the plugin's own call, as the video helper's is: a plugin
+   cannot skip it.
+2. **The app makes all of the plugin's I/O** (section 2, "Host calls"):
+   - every request, to the hosts its manifest declares, at the app's own
+     pace and within the app's own limits;
+   - every file read, inside folders the player chose for it, through
+     handles; it never learns a path;
+   - every write, into the app's memory.
+3. **It speaks only the protocol.** Every message is bounded and checked.
+   Its text is data in slots made for it. Its songs are read by the
+   app's own scanner, from bytes the app downloaded.
 
-- **macOS Seatbelt**: outbound network filtered by port and by IP
-  literal, or `localhost`. Not by host name.
-- **Linux Landlock**: since ABI 4, TCP connect and bind filtered by port
-  only. seccomp cannot read a `connect` call's address.
-- **Windows**: a restricted token blocks no network by itself. Filtering
-  by destination takes the Windows Filtering Platform, which needs an
-  administrator.
+Within that, a plugin's worst is to:
 
-So **"outbound HTTPS to declared hosts only" cannot be enforced by any of
-the three sandboxes**: only "port 443 anywhere" can. A plugin with its
-own network could send what it read anywhere on port 443.
+- return bad or hostile data;
+- waste its bounded memory and time;
+- send its declared hosts what it was given;
+- make the requests the app allows, to those hosts, at the app's pace.
 
-Files are the easier part. A folder the player chose can be allowed
-read-only by Seatbelt (a profile string built at run time) and by
-Landlock. But the app serving reads, as the game does for the video
-helper, needs no rule at all and works the same on every system.
+That is the case this design accepts.
 
-### Who makes the network requests
+### What remains (the residual risk)
 
-- **(A) The app makes every request a plugin describes.** The plugin has
-  no network and is confined totally.
-  - The host allowlist is enforced where it can be: in the app, against
-    the manifest the maintainer accepted.
-  - The DanOni discipline is applied in one place: public addresses only
-    (each hop of a redirect checked again); per-host pacing (the
-    manifest's interval, never under 1 s, one download at a time a host);
-    `429` and `Retry-After` honored; request, byte and time budgets;
-    cancellation; a User-Agent naming the game and the plugin
-    (`DitoDitoInfinito/<version> (source <plugin id>)`), so a site can
-    see and limit us.
-  - The player can be shown what was requested.
-  - A future sign-in token can be attached by the app and never seen by
-    the plugin.
-  - The plugin's logic becomes sans-IO, testable over recorded answers,
-    as `ddi_library::share::upload` already is (`contract::Upload`'s
-    steps, which both shells drive).
-  - Against it: unusual transports do not fit. WebSockets, BitTorrent (EO
-    offers magnet links beside its zips), HTTP signatures computed with a
-    secret, and challenge pages meant for browsers. The app grows an HTTP
-    feature set (redirects, ranges, ETags, resumes).
-  - Against it: the app's HTTP is `ureq` 3.5. Pinning resolved addresses
-    needs its `Resolver` trait, which sits in ureq's `unversioned` module,
-    outside its semver promise. Either accept that (pin the version and
-    test it) or resolve first and connect to the address with the host
-    name for TLS.
-  - Against it: the DanOni SDK's mature network stack (cache, receipts,
-    replay) is not reused. The app does not link the SDK, deliberately.
-- **(B) Each plugin makes its own requests.** Simple for plugin authors,
-  and any transport works. But the allowlist is not enforceable (above):
-  confinement shrinks to "files", and the game's promise never to read a
-  site that did not sanction it becomes the plugin's promise.
-- **(C) A separate network broker process.** As (A), outside the game's
-  process. It adds a third process for no gain over (A), since the game
-  already makes HTTP requests (shares, rooms, sign-in).
+- **A sandbox escape.** A kernel or sandbox bug lets a confined process
+  out. Where it happens:
+  - on macOS, Seatbelt is a deprecated interface (`sandbox_init`, and
+    `sandbox-exec`, its command), still used by Chromium's helpers and by
+    the DanOni SDK;
+  - on Linux, Landlock and seccomp are kernel features, as strong as the
+    kernel the player runs;
+  - nothing here removes this risk. It is the risk of running a
+    sandboxed browser tab, with less code exposed: the protocol, not a
+    web platform.
+- **A platform where confinement is not verified: Windows.** The video
+  helper's restricted token, job object and untrusted integrity were
+  written but never run on Windows. **Recommended: an installed plugin
+  never runs unconfined. Where the launcher's self-test cannot pass
+  (Windows today, a Linux kernel without the needed Landlock or
+  seccomp), plugins are unavailable**, and the screens say so.
+- **What it learns from what it is passed**:
+  - the queries and filter values the player types;
+  - the player's language and the game's version;
+  - the names and contents of files inside folders the player gave it;
+  - the answers of its declared hosts.
 
-**Recommended: (A) for every new plugin. The DanOni helper keeps its own
-network as the one reviewed exception**, as shipped. Its requests already
-carry the SDK's discipline and receipts. It takes any DanOni work URL on
-any host because a person asked for that one work (decision 51); no new
-plugin gets that shape.
+  It is never given:
+  - paths;
+  - the environment;
+  - the game's session, the Twitch identity or other plugins' data;
+  - the library, the history or the settings.
+
+  It can send what it learned to its declared hosts, inside the requests
+  it describes. A plugin that both reads folders and reaches the network
+  could therefore send a folder's names and contents to its hosts.
+  **Recommended: in version 1, a manifest may not declare both** (open
+  question 10). The consent page says plainly whatever a plugin may do.
+- **Hostile data**:
+  - Song files go through the same parsers every pack from the internet
+    already does (section "What exists today": song data is already
+    treated as untrusted).
+  - Its text is bounded and cleaned (section 2).
+  - Its banners are decoded with the images' bounds.
+  - A link it gives ("the source's page") must be https, on a declared
+    host. It opens in the player's browser, with the host shown first.
+- **Wasted resources**: bounded by the limits below. A plugin that hangs
+  or floods is killed. One that crashes three times in a run is off for
+  the run.
+- **Abuse of a site through the app.** A plugin could declare a victim's
+  host and use the game as a request engine. The app's own floors
+  prevent it (section 4, "What the app enforces whatever a plugin
+  says"):
+  - requests only during an operation the player started;
+  - one request a second a host at most, one download at a time;
+  - the app's budgets.
+
+  So at most one person's browsing speed.
+- **The install itself.** Players will install what a stranger links,
+  however the game words its warning. The consent page cannot prevent
+  that. It can only make what the plugin may do plain, and make "the
+  game's maintainer has not checked this" impossible to miss.
+
+### Confinement, applied by the app
+
+The sandbox code moves from `video/helper/src/sandbox/` into a small
+crate. The video helper keeps calling it on itself, unchanged. A new
+launcher calls it on the plugin's behalf.
+
+- **macOS.** Options:
+  - **(a)** `sandbox-exec -f <profile>`, as the SDK does;
+  - **(b)** a small launcher of ours that calls `sandbox_init` and then
+    executes the plugin. Seatbelt's confinement is inherited across exec.
+
+  **Recommended: (b)**: one code path, and the self-test runs inside the
+  launcher, confined, before the exec. The profile is the video helper's
+  `(deny default)`, plus what loading a program needs: running and
+  reading the plugin's one executable, and reading the system's
+  libraries. Exactly what dyld needs is the first thing to check in
+  stage 1.
+- **Linux.** In `pre_exec`, as the SDK does:
+  - `setsid` and `PR_SET_NO_NEW_PRIVS`;
+  - `RLIMIT_AS` 2 GiB, `RLIMIT_CPU`, `RLIMIT_NOFILE`, `RLIMIT_FSIZE` 0
+    and `RLIMIT_CORE` 0;
+  - Landlock allowing only to execute and read the plugin's file and the
+    system's library folders;
+  - seccomp refusing `socket` for every family (no network whatever the
+    kernel's Landlock version) and every call a confined Rust program
+    does not need.
+
+  Missing kernel support means the plugin does not run.
+- **Windows.** The parent-side token and job object exist
+  (`crates/desktop/src/video/helper/windows_spawn.rs`), never run. **Unavailable** until
+  checked on Windows.
+- **The self-test** is the video helper's escape list (open a file, list
+  a folder, reach localhost, bind a socket, start a process), run by the
+  launcher after confining and before executing the plugin. Any success:
+  no exec, and the plugin is reported unavailable.
+
+### Network, made by the app
+
+The options, for an installed plugin:
+
+- **(A) The app makes every request a plugin describes.** The only way to
+  enforce the hosts a manifest declares: no sandbox on any of the three
+  systems can limit a program to named hosts (my understanding, to verify
+  in stage 1):
+  - macOS Seatbelt filters outbound connections by port, by IP literal or
+    `localhost`, not by host name;
+  - Landlock filters TCP by port only (ABI 4 and later), and seccomp
+    cannot read the address a `connect` is given;
+  - Windows needs the Filtering Platform, which needs an administrator.
+
+  It also makes plugins sans-IO, testable over recorded answers, as
+  `ddi_library::share::upload` already is. Against it:
+  - unusual transports do not fit (WebSockets, BitTorrent, request
+    signatures with a secret, challenge pages meant for browsers);
+  - the app grows an HTTP feature set: redirects checked hop by hop,
+    ranges, ETags;
+  - pinning resolved addresses with `ureq` 3.5 needs its `Resolver`
+    trait, which is in its `unversioned` module, outside its semver
+    promise. Either pin and test that, or resolve first and connect to
+    the address with the host name for TLS.
+- **(B) Each plugin makes its own requests.** For an installed plugin,
+  this is a program with the network: it could send anything it was given
+  anywhere on port 443. Not acceptable.
+- **(C) A broker process.** As (A), with a third process and no gain.
+
+**Recommended: (A), with no exception for any installed plugin.** The
+shipped DanOni helper keeps its own network while it is shipped (decision
+51); as an installed plugin it would not (section 5).
 
 ### Receipts
 
 Each fetched or imported item keeps a record:
 
-- the plugin and its version;
+- the plugin, its version and its key's fingerprint;
 - that a person asked for it (`user-initiated`, as the DanOni receipts
-  say, without claiming any terms review);
+  say, claiming no terms review);
 - each request's URL, status, bytes and time;
-- the hashes of the files written.
+- the hashes of what was read.
 
 It lives with the item and in the import catalog. It is never sent
 anywhere.
 
 ### Resource limits, crashes and hangs
 
-- **Memory**: `RLIMIT_AS` 2 GiB on Linux, as the video helper; a job
-  object's memory limit on Windows. macOS has no enforced equivalent: the
-  app watches the plugin's resident size and kills it past 2 GiB.
+- **Memory**: `RLIMIT_AS` 2 GiB on Linux. macOS has no enforced
+  equivalent: the app watches the resident size and kills the plugin
+  past 2 GiB.
+- **CPU**: `RLIMIT_CPU` on Linux, and a CPU budget the app watches on
+  macOS. The plugin runs at a lower priority than the game, so a busy
+  plugin never takes a play's frames.
 - **Time**:
   - an operation with no message, and no host call pending, for 30 s is
     a hang;
   - a search ends within 60 s;
-  - a fetch's time budget is the manifest's, beside its byte budgets;
-  - past any of them, the plugin is killed and reaped. Every operation
-    then fails with `internal`, and the next use starts it again.
-  - Three crashes in a run, and the source is off for the rest of it
-    ("This source stopped working. It will be back next time you start
-    the game.").
-- **Pipes**: bounded channels both ways, as the importer's client has;
-  stderr's last 32 KiB kept for Details.
-- **Exit**: Shutdown, 5 s, then kill, never blocking the UI, as
-  `danoni::Imports::shutdown` and `drained` do today.
+  - a fetch's time is bounded by its budgets;
+  - past any of them, the plugin is killed and reaped, and its
+    operations fail with `internal`. Three crashes in a run and it is off
+    until the next run.
+- **No plugin runs during a play**, the play's own fetches excepted: its
+  operations wait. A room's stage starts nothing new in a plugin.
+- **Pipes**: bounded channels; stderr's last 32 KiB kept for Details.
+- **Exit**: Shutdown, 5 s, then kill, never blocking the UI.
 
-### Updates
+### Installing
 
-- Shipped plugins change with the game: a new content id.
-- Player-installed plugins (if ever) would have no automatic update in a
-  first version: the player replaces the folder.
-- A site's API that changes under a shipped plugin makes its operations
-  fail with values (`source_changed`, `unreadable_content`) until the
-  next release.
+**Where plugins live**: the data folder's `plugins/<id>/`. The app
+copies an installed package there and runs only that copy. The player's
+downloaded file is never run.
 
-### Version 1, recommended
+**A plugin package** is a zip (`.ddisource`) or a folder:
 
-- Shipped plugins only.
-- Confined with the video helper's sandbox and its self-test.
-- Every request and every file read made by the app.
-- The DanOni helper as it is.
-- macOS and Linux first. On Windows, sources wait until the restricted
-  token is checked on Windows, as the video helper's is still to be (open
-  question 3).
+- `source.toml`, the manifest (section 4): its id, name, publisher,
+  version, the source's page, the protocol versions, capabilities,
+  inputs, declared hosts, room rule, attribution;
+- `bin/<target>/<executable>`, one per platform it supports
+  (`aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, …): the app takes
+  its own platform's, and refuses the package where there is none;
+- its licences and notices;
+- `source.sig`: an ed25519 signature (the SDK's `sign` command makes one)
+  over an inventory of every file's path, size and SHA-256, in the shape
+  of the DanOni bundle's manifest.
 
-What it forecloses:
+**How the player adds one**: Options → Sources → "Add a source…", which
+opens the system's file dialog on a package file or folder they already
+have.
 
-- a site shipping or fixing its plugin on its own schedule;
-- plugins in languages our CI does not build (a plugin pinned from
-  another repository must build from source here);
-- transports other than HTTPS request and response (no torrents, no
-  sockets);
-- a plugin keeping a secret of its own (an API key). A site that wants a
-  key per client issues one to the game; the manifest holds the key's
-  name; the app attaches it; and a key compiled into an open-source game
-  is public, which the site must accept.
+- **Version 1: never a URL** the game downloads from, and no "install"
+  links. A one-click install would be easier, but:
+  - it makes a link in a chat, a room or a web page a way to put a
+    program on someone's computer in two presses;
+  - the game becomes a downloader of executables;
+  - it skips the browser's own warnings and the system's marks on
+    downloaded files.
 
-None of these is closed forever: section 9 says what would open each.
+  A file the player saved and then picks takes a deliberate step.
+  Recommended: file only (open question 11).
+
+**Before it is enabled**, the consent page, in the game's own words, with
+the plugin's own text only where it is the plugin's (its name and
+publisher, as data):
+
+- "{name}, version {version}, from {publisher} (as the plugin says). The
+  game's maintainer has not checked this program."
+- "It runs in a sandbox: it cannot read your files, reach the internet
+  or start other programs by itself."
+- "Through the game, it can reach: {hosts}, one request a second each at
+  most, and only while you use it."
+- Or: "It can read the folders you choose for it. It cannot reach the
+  internet."
+- "Songs it finds can be imported, played, {added to online rooms | not
+  added to online rooms}."
+- Its key's fingerprint, and the package's digest, for comparing with
+  what its publisher states.
+- Enable, or Cancel. A plugin is off until enabled here.
+
+**Integrity**:
+
+- The digest shows the package was not changed since it was signed.
+- The signature, required, ties every later version to the first one's
+  key: the key is **pinned at first install**, per plugin id.
+- An update signed by another key is not an update. The page says the
+  key changed, and the player must remove the old plugin first.
+- What a signature does not say: who the person is, or that the program
+  is harmless.
+
+**No registry or store run by the maintainer**, which is out of scope:
+
+- It would make the maintainer the one vouching for programs, or seem to.
+- It would mean moderating them, and being asked to delist and to judge
+  which sites a plugin may read.
+- A listing of integrations with sites of commercial content is a
+  liability the research (round SR) already flagged for rooms.
+- It costs hosting, and it contradicts "no plugins by default".
+
+Publishers distribute their own, from their own repositories.
+
+**Updates**: the player adds the new package the same way.
+
+- Same id, the pinned key, a higher version: the consent page shows what
+  changed in its declarations (new hosts, new capabilities, a changed
+  room rule), and an update that widens any of them must be accepted
+  again.
+- No automatic updates, and no checking for updates in version 1: that
+  would be the game reaching the publisher on its own.
+
+**Removal**: Options → Sources → the plugin → Remove. Its folder, its
+cache store and its pinned key are deleted. Songs already imported
+stay: they are files in the import store, with their provenance.
+
+**Enable switch**: each plugin can be turned off without removing it.
+Off, it is never started.
+
+**The systems' own gates** (my understanding; each to verify in stage 5
+on the system itself):
+
+- **macOS.**
+  - A file a browser downloads carries the quarantine mark. Gatekeeper
+    checks a marked program when it is started, and refuses one that
+    Apple has not notarized; System Settings then offers Open Anyway.
+    Whether this applies to a program another program starts, as here,
+    must be checked.
+  - Apple silicon also refuses arm64 code with no signature at all. The
+    Rust toolchain's linker signs ad hoc by default, which is enough for
+    that rule.
+  - The game itself is signed ad hoc and not notarized
+    (`docs/plans/packaging.md`).
+  - Two ways:
+    - **(a)** Keep the mark on the installed copy. Every plugin author
+      must then notarize, which takes Apple's paid developer program, a
+      yearly fee: a heavy price for a hobby site's maintainers.
+    - **(b)** Install the copy without the mark: the app writes the
+      file's bytes, not its attributes. Gatekeeper then never checks it.
+      The protection is the app's confinement, which for this purpose is
+      stronger than Gatekeeper's check of the publisher. The consent page
+      says the game has not checked it.
+
+    **Recommended: (b)**, saying so plainly, since the game steps around
+    a system check on purpose (open question 13).
+- **Windows.**
+  - A downloaded file carries the Mark of the Web. SmartScreen asks when
+    the player opens such a file from Explorer, as far as I know not when
+    another program starts it.
+  - Smart App Control on Windows 11, when on, blocks unsigned or unknown
+    programs however they are started. Authors would then need
+    Authenticode signing, which takes a paid certificate.
+  - Moot until confinement is verified there: plugins are unavailable.
+- **Linux.**
+  - No system gate. The app sets the executable bit on its copy.
+  - Authors build for a stated baseline (static, or an old enough
+    glibc). Landlock must allow reading the system's library folders
+    for a dynamically linked plugin.
+  - A kernel without the needed Landlock or seccomp support: unavailable.
 
 ### Sign-in to a source (not in version 1)
 
 The plugin never sees a site's credentials:
 
-- The manifest declares a scheme, such as an OAuth flow in the system
-  browser (the app opens it, as desktop's own sign-in does, through
-  `crate::os::open_url`) or a device code.
-- The app keeps the token in the config folder, per plugin, apart from
-  the game's own session.
-- The app attaches it to that plugin's requests to the hosts the
-  manifest names. The plugin learns only "signed in as <name>".
+- the manifest declares a scheme (an OAuth flow in the system browser,
+  opened by the app as desktop's own sign-in is, `crate::os::open_url`,
+  or a device code);
+- the app keeps the token, per plugin, apart from the game's own session;
+- the app attaches it to that plugin's requests to its declared hosts;
+- the plugin learns only "signed in as <name>".
 
-This waits for a site that needs it and asks for it.
+It waits for a site that needs it.
 
-## 4. Per-source rules
+### What this forecloses
+
+- Transports other than HTTPS request and response.
+- A plugin keeping a secret of its own: a key a site issues is visible to
+  anyone holding the package, as with any desktop client.
+- Plugins on Windows, until confinement is verified there.
+- Installing from a link.
+
+## 4. Per-source rules, and who decides them now
 
 ### The manifest
 
-A plugin's manifest is the source's rules. It is data in the bundle,
-covered by the compiled digest, and the app enforces it:
+A plugin's manifest declares its source's rules:
 
 ```toml
-id = "open-catalog"                  # stable; [a-z0-9-], at most 32
-name = { en = "Open songs", ja = "…" }
-kind = "first-party"                 # or "site": the site's own integration
-operator = "…"                       # who runs the source; shown in its details
-homepage = "https://…"
+id = "example-songs"                 # stable; [a-z0-9-], at most 32
+name = { en = "Example Songs", ja = "…" }
+publisher = "…"                      # as the plugin states it
+version = "1.2.0"
+homepage = "https://…"               # the source's page
 protocol = [1]
 capabilities = ["search", "filters", "metadata", "fetch"]
 inputs = []                          # or ["folder"], ["url"], ["link"], ["text"]
 
 [network]                            # absent: none
 hosts = ["example.org", "files.example.org"]  # exact names; https only
-min_interval_ms = 1000               # per host, never under the app's 1 s
+min_interval_ms = 2000               # per host; the app's floor still applies
 max_requests_per_operation = 10
 max_item_bytes = 2_000_000_000
 max_file_bytes = 512_000_000
 
-[files]                              # absent: none
-read = "input-folder"                # folder scopes the player chose
+[files]                              # absent: none (version 1: not with [network])
+read = "input-folder"
 
 [uses]
 play = true
 import = true
-rooms = "upload"                     # "upload" (through our server) or "none"
+rooms = "upload"                     # "upload" (through our server) or "none"; absent: "none"
 
 [attribution]
-required = true                      # shown with the song wherever it is shown
-link_back = true                     # the item's page shown with the song
-
-[sanction]                           # for kind = "site"
-by = "…"                             # the site's maintainers, by name
-record = "…"                         # where their yes is recorded (an issue, a mail summarized)
-date = "2026-…"
+required = true
+link_back = true
 ```
 
-### Room rules
+### Who decides now
 
-- A source's room rule applies to the **songs it fetched**: transient,
-  and imported (through the import catalog's provenance).
-- An item's metadata may narrow it (a site with mixed content may mark an
-  item "not for rooms"), never widen it.
-- `rooms = "none"` means Add to room is not offered for them, and the
-  room's My songs says why on such a row.
-- It **never** applies to files the player has otherwise. A level in a
-  folder of the player's own can be added as today: the maintainer's
-  "should be possible too". The research's point stands: what is in a
-  folder cannot be traced to where it came from. The rule covers what the
-  game itself fetched, the case the research said differs ("the game, not
-  the user, choosing the source").
-- A third value, `reference` (each member's device fetching the item
-  through the plugin, nothing through our server), is left out. The
-  research found it fails where it would matter: N automated downloads
-  for one person's choice, whole packs, no web members. It can come back
-  if a site asks for it.
+- With no review by the game's maintainer, **a plugin declares its own
+  rules**. The app enforces exactly what is declared, and its own floors
+  on top.
+- **Nothing vouches that a plugin is sanctioned by the site it reads.**
+  A plugin named for a site may have been written by anyone. The game
+  cannot know, and says so: "from {publisher}, as the plugin says", and
+  "not checked by the game's maintainer".
+- The research's principle (an integration is for a site's maintainers to
+  write or sanction) becomes a principle for **plugin authors**, said in
+  the SDK's documentation and the template. The game enforces what it
+  can.
+- The terms of use being drafted (round TU) put the responsibility for
+  what a person uploads on that person. The room's upload notice shows
+  for a fetched song as for any other.
 
-### Who decides
+### What the app enforces whatever a plugin says
 
-- A site's maintainers decide their source's rules, through the plugin
-  they write or sanction: what it may do, its hosts, its pacing, whether
-  rooms may carry its songs.
-- The game's maintainer decides by accepting the plugin into the game,
-  and may set stricter rules than a site asks for, never looser.
-- Code infers no rule.
+- **Requests only during an operation the player started.** No
+  background requests, no preloading through a plugin. A room's
+  preloading reads our server's share, never the source.
+- **Per-host pacing**:
+  - one request a second at most, whatever the manifest asks (a
+    manifest may ask for slower);
+  - one download at a time a host;
+  - `429` and `Retry-After` honored.
+- **Budgets**: requests an operation, bytes an item and a file (at most
+  the share's: 512 MB a file, 2 GB an item), time.
+- **Public addresses only**, each redirect hop checked again. No IP
+  literals, no `localhost`, https only.
+- **robots.txt for search and browse requests.**
+  - The app reads a host's robots.txt (cached for the run) before the
+    first `Http` call of a search or browse to it, under the token
+    `DitoDitoInfinito`, and refuses what it disallows.
+  - A `Download` of an item the player chose is not checked, as a single
+    work the player asked for is not in the DanOni importer (decision
+    51).
+  - This gives a site's operators a lever that needs neither the plugin
+    author nor the game's maintainer: a site that disallows automated
+    reading refuses every plugin's search.
+- **A deny list in the game**, data updated with releases, of hosts no
+  plugin may declare:
+  - the game's own server (its API and share hosts);
+  - any host whose operators ask the game's maintainer to be listed.
+
+  Recommended: the list starts with the game's own hosts and grows only
+  on request (open question 9).
+- **A room's rule as declared**; absent, `none`. It never applies to
+  the player's own files from elsewhere: a level in a folder of theirs
+  can be added as today (the maintainer's "should be possible too").
+  An item's metadata may narrow the rule, never widen it.
+- **The User-Agent**, `DitoDitoInfinito/<version> (source <plugin id>)`,
+  so a site sees and can limit the traffic.
 
 ### Naming a source in the screens
 
-- The source's name is its manifest's: the site's name for itself, or our
-  own words for a first-party source. It is shown as data in our frame
+- A plugin's name and publisher are its own, shown as data in our frame
   ("From {source}").
-- No logos in version 1: a mark is a trademark, and showing one invites
-  a reading of affiliation.
-- A site's source shows "Made by {operator}" in its details, which is
-  true and implies nothing of us.
-- UI text otherwise follows AGENTS.md: no other game's jargon of our own
-  making; a site is named only as the source it is.
+- No logos.
+- The built-in source's name is ours ("This computer").
+- UI text follows AGENTS.md: a site is named only as the source a plugin
+  says it is, and nothing implies the game's affiliation with it.
 
-## 5. Reference implementations
+## 5. Built-in, examples, and the DanOni importer
 
-### The local folder source (first)
+### Searching a folder on this computer: built in
 
-**Input**: a folder the player chooses (a USB stick, a downloads folder,
-a StepMania install, a friend's pack).
+Is a folder search worth being a plugin for players, now that none
+ships? Weighed:
 
-**Search and filters**:
+- **As a plugin only**: every player who wants to search a USB stick or
+  a downloads folder must first find, download and install a program, to
+  do what the game can do with its own scanner. A basic feature behind a
+  trust decision.
+- **Built in**: the app implements the same `Source` interface in
+  process ("This computer"). It is listed first in Find songs, with no
+  install and no sandbox needed: it is the game's own code reading the
+  player's own files, as the library already does.
+  - Search and filters: title, artist, pack, style, difficulty, level
+    range, BPM range and length range.
+  - Browse by pack; `song_key` before any fetch; delivery `in_place`;
+    all three uses.
+- **Recommended: built in**, and **also an example plugin** in the SDK's
+  repository: the same search over host-call file handles, which is the
+  host's test of folder scopes and the authors' model for a source that
+  reads folders.
 
-- title, artist and pack text;
-- style (the layouts found), difficulty, a meter range, a BPM range and a
-  length range;
-- browse by pack.
+How it differs from adding a folder in Options: a song folder becomes the
+library's (listed, scanned at every start, cached). This looks into a
+folder without making it the library's: find one song in a downloads
+folder, try a pack once, add a friend's song to a room, keep only what is
+imported.
 
-**Metadata**: read the way the library reads it. The plugin links
-`ddi-library` (pure, MIT) and reads through host calls: `List`, then
-`Read` of simfiles and of image headers. It implements `scan::Reader`
-over the protocol, and zips through the library's sans-IO zip reader on
-ranged reads. Its index of a large folder is kept with `CachePut`. It
-gives `song_key`, so "In your library" shows before anything else
-happens.
+### The openly licensed catalog
 
-**Fetch**: `in_place`. The app reads the song where it is.
+The earlier draft's catalog (our own index of CC BY and CC BY-SA songs
+not bundled, the files in a release of our own repository) has three
+fates now:
 
-- Import copies it into the import store, so it stays after the stick is
-  gone.
-- Play plays it in place.
-- Add to room uploads it in place, as a zip's or folder's library song is
-  uploaded today. Its small files are read into memory when it is added
-  (within the budget), so the upload, an Upload again and the adder's
-  own play do not depend on the stick staying in.
+- **(a) built into the app** as a second built-in source, our own
+  content like the bundled songs, reading only our own hosts;
+- **(b) an installable plugin** the maintainer publishes separately;
+- **(c) dropped.**
 
-**Network**: none. **Files**: the chosen folder, read through the app.
+(a) is not a plugin, so "no plugins by default" allows it, but it is a
+feature of its own: an index, a hosting decision, provenance work. (b)
+asks players to trust a program for what the game could do itself.
 
-**How it differs from adding a folder in Options**:
+**Recommended: (c) for now**, revisited as (a) if more free songs in the
+game are wanted. The network example authors need is a small fixture
+catalog in the SDK's repository (a local index served by the harness),
+which exercises search, filters, metadata, `Http`, `Download` and hashes
+without any real site.
 
-- An Options folder becomes part of the library: listed with everything,
-  scanned at every start, cached in `library-v1.json`, its bests and
-  packs mixed into the list.
-- This source looks into a folder without making it the library's: find
-  the one song in a downloads folder of a hundred zips, try a pack once,
-  add a friend's song to a room, and keep only what is imported.
+### The game's own shares
 
-What it needs from the library: nothing new in the scanner. Desktop's
-`files::DirReader` and `ZipReader` stay the app's; the plugin brings its
-own `Reader` over host calls.
-
-Why first: it exercises input, search, filters, browse, metadata, fetch
-and all three uses, plus confinement and host calls, with no network,
-testable offscreen with folders a test writes. And it is useful by
-itself.
-
-### The DanOni importer as a source (second, in two steps)
-
-**Step one, an adapter in the app.** The shipped helper and its version 1
-protocol are unchanged.
-
-- The app presents it as a source with `input.url` and `fetch`; its
-  delivery is `managed`.
-- Its client code (`danoni::Imports`, `client::run`) is driven by the
-  sources screen's Fetch, and its report and stages are shown there.
-- Use: import only, as today.
-- The URL tab in Add songs stays until the sources screen is accepted;
-  then it opens the sources screen on this source.
-- Nothing about the helper, its bundle, its packaging or its checks
-  (`--danoni-importer-check`) changes.
-
-**Step two (optional, later): play and rooms without importing.**
-
-- The SDK already separates a verified "Ready candidate" from its
-  admission into the store (`bind-import`, `resume-import`,
-  `prepared_import.rs`).
-- Play without importing would stop at the candidate. The SDK prepares
-  on disk by design, in its own `cache/danoni/staging` (a known cache
-  folder, the case where memory is not feasible). The helper names the
-  candidate's SSC, Opus and art (a new delivery, `prepared`); the app
-  reads those few small files into memory as a transient item; and the
-  SDK drops the candidate when the app says it is done, or at its next
-  start, as its staging is cleaned today.
-- Import afterwards binds the same candidate, with nothing fetched again.
-- Add to room then works as for any transient song.
-- This is SDK work (an API that stops before admission and hands over
-  the candidate's files) and helper work (the source protocol beside
-  version 1, chosen by Hello). Medium to large.
-- The helper's own confinement (it is unconfined) is a separate question,
-  unchanged by this.
-
-Its room rule: today a DanOni import is a library song like any other,
-and can be added to a room. Recommended: keep `rooms = "upload"`, so
-nothing changes for players (open question 4).
-
-### A catalog of openly licensed songs (third)
-
-**What**: songs whose music, charts and art each carry a free licence in
-the upstream files, by the same rule as the bundled songs (AGENTS.md,
-"Licensing and attribution"), but not bundled, to keep the game small.
-`docs/research/cc-songs.md` lists the candidates: about fourteen more
-CC BY and CC BY-SA songs of OutFox Serenity beyond the four bundled, and
-Sockpuppet's eight under CC BY-SA, minus the art it found unclear.
-
-**The index is ours**:
-
-- `xtask gen-catalog` builds `catalog/index.json` from a `catalog/`
-  folder of provenance entries in the bundled songs' `PROVENANCE.toml`
-  shape: upstream commit, licences per part, exclusions, modifications.
-- Each song carries its metadata, its charts with digests, its
-  `song_key`, and every file's URL, size and SHA-256.
-- It is published on the game's own Pages site beside the bundled songs'
-  manifest.
-
-**The files**, three options:
-
-- **(a)** On our Pages site, as the bundled songs are. Simple, but the
-  site grows by hundreds of MB, near Pages' limits.
-- **(b)** From upstream's own release assets and repository at pinned
-  commits, verified by our hashes. Licensed for it, but the bytes come
-  from someone else's account.
-- **(c)** A release of our own repository (as the `build-inputs`
-  pre-release holds the FFmpeg builds): the upstream files byte-identical,
-  with their provenance.
-
-Recommended: **(c)**. Both ends are ours, and nothing reads anyone's
-site.
-
-**The plugin**:
-
-- `Http` for the index (cached with `CachePut`, refreshed by ETag);
-- search and filters over it locally;
-- `Download` for an item's files (the app checks every hash), delivered
-  as `files`;
-- every use allowed, `rooms = "upload"`, attribution required, shown with
-  the song.
-
-It exercises network search, metadata with licences and attribution,
-fetch with verified hashes and rooms, with nothing in it anyone could
-object to. It is the closest model of a site's plugin, so the template is
-cut from it.
-
-### The game's own shares (not a plugin)
-
-Share by link (`#/s/<id>`, `--shared`) and a room's uploads stay as they
-are:
-
-- they run on both shells, the web included, from one contract
-  (`ddi-share-protocol`, `contract::Upload`);
-- they need the game's own session or grant;
-- making them plugin operations would split the web's path from
-  desktop's for nothing.
-
-A share link pasted into the sources screen can open the shared mode as
-`--shared` does, which is a link, not a plugin.
-
-So **upload is not in version 1**:
-
-- no first-party source needs it;
-- a site's upload needs that site's sign-in, which is not in version 1
-  either.
-
-The capability is reserved in the protocol's design:
+Unchanged (share by link, a room's uploads): one contract on both shells,
+the web included. So **upload is not in version 1**, and is reserved in
+the protocol:
 
 - `Upload { op, item_files, metadata }`: the app gives the song's files
   as the share gathers them (`stored_files`), its entry, and what the
-  player typed for that site. Never other files, the history, the
-  settings, the game's session or another plugin's tokens.
-- The app performs the requests the plugin describes, as with (A).
+  player typed for that site; never other files, the history, the
+  settings, any session or token;
+- the app performs the requests;
+- it needs sign-in, which waits for a site that asks.
 
-The SDK's harness tests it against a fake site in the test process.
-The first real implementer is a site that asks.
+### Where the examples, the SDK and the harness live
 
-### A template and an SDK (fourth)
+- **(a)** This repository's `examples/` or `tools/`, built in CI as tests
+  of the host, never packaged.
+- **(b)** A separate repository (for example `sugoijan/ddi-sources`):
+  the SDK, the harness, the examples and the template, MIT, consuming
+  the protocol crate as SkinCraft consumes the game's crates.
 
-- **`ddi-source-sdk`** (a crate in the workspace, MIT):
-  - the protocol's types;
-  - a `Source` trait whose methods each have a default answer of
-    "unsupported", so a plugin implements only its capabilities;
-  - a `serve()` loop: framing, Hello, host calls as async-free
-    request/answer helpers, cancellation tokens, progress;
-  - mappings from common style and difficulty names to our layout ids and
-    difficulties.
-- **A harness**:
-  - runs a plugin (in process, or its binary over pipes) against a fake
-    host: a folder fixture, recorded HTTP answers, a fake site for
-    upload;
-  - a conformance check (`xtask source check <bundle>`): the manifest
-    well formed, Hello a subset of it, every declared capability
-    answering, limits honored, cancellation within 5 s, no text where a
-    value belongs.
-- **The template** (`tools/sources/template/`): the catalog plugin
-  reduced to one search, one filter and one fetch, with its tests.
-- **Other languages**: the protocol alone, documented in a reference
-  page, with JSON examples taken from the SDK's tests. A shipped plugin
-  in another language must build in our CI and pass the same check.
+**Recommended: (b)**:
+
+- authors clone a small repository rather than the game's;
+- its release cadence is its own;
+- it is the shape every third-party plugin will have;
+- the game's repository stays free of plugin examples that could be
+  mistaken for shipped ones.
+
+This repository keeps:
+
+- `ddi-source-protocol`, published to crates.io from here, since the
+  host depends on it;
+- the host and the launcher;
+- fake plugins in its own tests: synthetic programs, as the importer
+  client's tests already use shell-script helpers;
+- `--source-check <package>`, a headless check of a package against the
+  real host, as `--danoni-importer-check` checks the shipped helper.
+
+**The SDK** (`ddi-source-sdk`):
+
+- a `Source` trait whose methods each default to "unsupported", so a
+  plugin implements only its capabilities;
+- `serve()`: framing, Hello, host calls, cancellation, progress;
+- mappings from common style and difficulty names to our layout ids and
+  difficulties;
+- `sign` and `package` commands.
+
+The built-in folder source implements the same trait in process.
+
+**The harness**: a fake host (folder fixtures, recorded HTTP, a fake
+site) and a conformance check:
+
+- the manifest well formed, and Hello a subset of it;
+- each declared capability answering;
+- limits honored, and cancellation within 5 s;
+- values where values belong.
+
+**Other languages**: the protocol alone, documented with JSON examples
+from the SDK's tests.
+
+### The DanOni importer: shipped now, an installed plugin later
+
+**Now**: unchanged:
+
+- the `danoni-importer` default feature;
+- the helper and worker built by `crates/desktop/build.rs` and packaged
+  by `tools/package/package.py`;
+- version 1 of `ddi-importer-protocol`, and the Add songs URL tab;
+- `--danoni-bundle-info` and `--danoni-importer-check`;
+- CI's `danoni.yml`.
+
+Find songs may show it as a source through an adapter in the app over
+its existing client (`danoni::Imports`); that is optional, and changes
+nothing of it.
+
+**The move, when it comes**: the importer becomes an installed plugin in
+its own repository, speaking the source protocol. The interface does not
+change for it; the host must first offer what the importer needs (below).
+
+What this repository would lose:
+
+- `tools/danoni-dump/`: the SDK, the Ruffle worker's build inputs, the
+  desktop probe and the pack verifier;
+- `tools/danoni-importer/`: the helper, `build.py`, `notices.py` and the
+  licences;
+- the root workspace members on Rust 1.99, and the `importer` profile;
+- the shared lock's part of those dependencies;
+- `crates/desktop/build.rs`'s preparation of the bundle, and the
+  `DDI_DANONI_BUNDLE_*` variables;
+- `cfg(danoni_importer)` and the `danoni-importer` feature, and with
+  them the default feature list and `DDI_IMPORTER_TEST_ONLY`;
+- the app side: `crates/desktop/src/danoni.rs`, `danoni/bundle.rs`,
+  `client.rs` and `report.rs`, and the managed adapter
+  `library/managed.rs`;
+- `crates/importer-protocol`;
+- package.py's `danoni-importer/` copy and audit;
+- `--danoni-bundle-info` and `--danoni-importer-check`;
+- CI's `danoni.yml`;
+- the helper's notices in the game's credits;
+- the Add songs URL tab;
+- the docs: `danoni-importer.md` and `danoni-import.md`, kept as
+  history, plus the research notes.
+
+What it would keep:
+
+- the library's reading of DanOni works and SSCs (`ddi_library::works`,
+  `danoni`);
+- the danoni layouts and skins;
+- the play of imported DanOni songs.
+
+The other repository would take:
+
+- the probe and verifier, depending on the game's crates by Git as
+  SkinCraft does;
+- its own CI and its own notices;
+- its own release builds (macOS arm64, x86_64 Linux; the worker's Vulkan
+  and Mesa needs on Linux);
+- its signing key.
+
+What the host must offer first, so that the move is not forced early:
+
+- **Network through host calls.** The SDK fetches with its own `reqwest`
+  and `hickory` stack, its cache, receipts and pacing. As an installed
+  plugin it gets no network: its transport (`network/transport.rs`,
+  `HttpTransport`) needs a variant over `Http` and `Download` host
+  calls. Its pacing and receipts can stay in the SDK; the app's floors
+  apply on top.
+- **A private folder.** The SDK's managed store, staging, evidence and
+  caches are files. The host would grant each plugin one private folder
+  (in the cache folder for the SDK's caches; a data folder only if
+  imports stayed in its store), enforced by Seatbelt and Landlock as
+  read and write there only. Or the SDK keeps its state in host calls.
+  Recommended: the private folder, a generic grant any plugin may
+  declare, shown on the consent page.
+- **Children from its own package.** The Ruffle worker is a second
+  program, confined by the SDK's supervisor. Under the launcher's
+  confinement the plugin may not start processes. The host would allow
+  a plugin to start only executables inside its own package, confined
+  at least as tightly (Seatbelt nests; Landlock and seccomp are
+  inherited). The SDK's own `sandbox-exec` and `pre_exec` steps then add
+  their own confinement on top.
+- **Imports through the app.** As an installed plugin, the importer
+  hands prepared songs (its SSC, Opus and art) to the app:
+  - for play and rooms, into memory, which is the "prepared" delivery
+    in place of today's managed store;
+  - for imports, into the app's import store.
+
+  Its managed store then retires.
+- **The players' existing imports**, in `data/danoni/library`:
+  - the plugin's first run hands the app its verified catalog;
+  - the app copies those songs into the import store, keeping the SDK's
+    ids so that bests, offsets and hidden songs carry over;
+  - a release in between must keep reading the old store, or the songs
+    vanish until the plugin is installed.
+
+  This is the move's hardest part, to design then.
+
+What players who use it would do: download the importer's package for
+their system from its repository's releases, add it in Options →
+Sources, and enable it. Their imported songs would be migrated on its
+first run. Players on Windows have no importer today, and still would
+not.
+
+Before moving, all of this should be true:
+
+- the host has run installed plugins on macOS and Linux for a release or
+  more;
+- the private-folder and own-children grants are built and checked by
+  the self-test;
+- the migration has been tested on real stores;
+- the other repository builds, signs and releases.
 
 ## 6. In the screens
 
 All of this is desktop only.
 
-**Where sources live**
+**Find songs**
 
-- A **Find songs** screen, opened from song select's More and from Add
-  songs, and, in an online room, from My songs' More ("Find songs to
-  add").
-- It is one of our theme's screens: header and footer bars as song
-  select's, so no bars slide.
-- On the left, the sources: Folder… first, then the others in the
-  manifest order the game chooses.
-- At the top, the search field, and the source's filters in a row (a
-  fold on a narrow window).
-- The results list.
-- On the right, the selected item's side: banner, charts, size,
-  licence, attribution, "Open the source's page", and what the item
-  allows.
+- Opened from song select's More, from Add songs, and, in an online
+  room, from My songs' More ("Find songs to add").
+- One of our theme's screens, with song select's bars.
+- The sources on the left: "This computer" first, then the enabled
+  installed plugins, each marked as installed ("from {publisher}, as it
+  says").
+- The search field and the source's filters at the top (a fold on a
+  narrow window), the results, and the item's side: banner, charts,
+  size, licence and attribution as the source states them, "Open the
+  source's page", and what it allows.
+- **Actions**: Play, Import, and, in a room, Add to room (where the
+  source's rule and the room's own rules allow). A pack offers Import and
+  Add pack to room within `add_pack`'s bounds.
+- **Progress**: worded from the step values. Cancel in the item's
+  actions.
+- **Errors**: our sentence from the code; a Details fold with the
+  plugin's detail and stderr tail.
+- **Fetched this session**: a pack at the top of Find songs and of the
+  room's My songs, so the room's `set_library` sees fetched songs.
+  Rows are marked as not in the library.
+- **In a room**: a fetched song added to the room reads from memory for
+  its upload, and is held while its upload is pending or failed. Members
+  see an ordinary room song.
 
-**What each result offers**
+**Options → Sources** (a page of its own; the settings revamp places it):
 
-- **Play**: fetches if needed, then opens the start prompt on the chosen
-  chart, as song select does.
-- **Import**: fetches and copies into the import store, then says "In
-  your library".
-- **Add to room**: in a room only, where the room rule and the room's
-  own rules allow (`RoomClient::add_blocked`).
+- the installed plugins, each with its enable switch, version,
+  publisher (as stated) and fingerprint;
+- Details (the consent page again), Remove;
+- "Add a source…";
+- on Windows, or where the self-test fails: "Sources from other
+  programs aren't available on this computer: the game can't run them
+  in a sandbox here." This Computer still works.
 
-A pack offers Import and, in a room, Add pack to room, which reuses
-`add_pack`'s bounds. Disabled actions say why on the status line, as
-song select's footer does.
+**Options → Data**: "Fetched songs" (the memory budget), "Fetch movies
+when playing", "Clear now".
 
-**Progress**: one line per running fetch ("Downloading 41%", "Reading
-the songs…"), worded from the `step` values. Cancel is in the item's
-actions. Reduced motion as elsewhere.
+**Basic and Advanced** (PLAN.md section 5, item 7): Find songs and
+This Computer are Basic. Options → Sources may be Advanced.
 
-**Errors**: our sentence from the `code`, with a Details fold holding
-the plugin's `detail` and the stderr tail.
+**The web**: nothing in version 1.
 
-**Fetched this session**: a pack at the top of the Find songs list, and
-of the room's My songs, holding the run's fetched songs. This is how
-they reach `set_library`: the room's song select builds its library map
-from `data.songs`, and a transient song must be in it, or the next
-refresh drops it from the client's map. Rows are marked as not in the
-library, as `SongEntry::room_only` marks a room's songs today.
-
-**An online room's Add to the room, for a transient song**: the same as
-for a library song.
-
-- The row's line says "From {source}".
-- The upload reads the song's bytes from memory, which the room now
-  holds: never dropped while its upload is pending or failed (More's
-  Upload again needs them). Once the upload is confirmed they stay while
-  the budget allows; under pressure they are released, and this device
-  then loads the song from the room's share as every member does.
-- Leaving the room releases them.
-- Members see an ordinary room song.
-
-**Options**: Data gets "Fetched songs" with the memory budget, a
-"Fetch movies when playing" switch (on by default), a "Clear now"
-action, and the list of shipped sources with an on/off for each. The
-settings revamp (PLAN.md section 5, item 3) places them. Under Basic and
-Advanced (item 7) the Find songs screen is the same. Its filters are the
-source's, and a source decides how technical they are; ours (the folder
-source's) are style, difficulty, level, BPM and length, all Basic words.
-
-**The web**: nothing in version 1. Add songs stays as it is. A line such
-as "More ways to find songs are in the desktop app" is possible later
-(open question 12).
-
-**Text**: every message in `locales/en/` and `locales/ja/`, in an area
-of its own (`sources.ftl`), joining the `qps-ploc` walk. Plugin text
-never enters it.
+**Text**: messages in `locales/en/` and `locales/ja/` (`sources.ftl`),
+joining the `qps-ploc` walk. Plugin text never enters them.
 
 ## 7. What it does not do
 
-- **The web.** No plugins, no sources, no proxy through our server: a
-  proxy would make our server the one redistributing (PLAN.md section 5,
-  "What comes next", item 1).
-- **Scraping.** No plugin reads a site's pages or private endpoints
-  without that site's maintainers writing or sanctioning it. The host
-  allowlist in the manifest the game's maintainer accepted is where that
-  is enforced. The DanOni importer's user-triggered single-work fetch
-  (decision 51) stays as it is and is not extended to anything new.
-- **Shipping an integration with a site that has not written or
-  sanctioned it.** The reference implementations are a folder, our own
-  catalog, and a helper the game already ships.
-- **Making native code safe.** A shipped plugin is as trustworthy as the
-  review that accepted it. A player-installed one (if ever) is as
-  trustworthy as whoever wrote it, sandbox or not.
-- **Rights decisions.** Whether rooms may carry content at all, terms of
-  use, the upload notice and takedown are round TU's and the
-  maintainer's. This design only gives a source a way to say "not in
-  rooms" for what it fetched.
-- **Automatic downloads from a source.** Nothing is fetched through a
-  plugin without a person's press: room preloading of a song added from
-  a source reads our server's share, never the source.
+- **The web.** No plugins, no sources, no proxy through our server.
+- **Ship any plugin.** The game's packages contain none. The DanOni
+  importer stays for now, as it is, until it moves.
+- **Run a plugin unconfined**, on any system (recommended).
+- **Vouch for a plugin.** The game enforces what a plugin declares and
+  its own floors; it cannot know who wrote it or whether a site
+  sanctioned it, and says so.
+- **Scrape through the app.** Search and browse requests honor robots.txt;
+  every request is paced and budgeted; nothing is fetched without a
+  person's press.
+- **Run a store or registry of plugins.**
+- **Make native code safe.** Confinement lowers what a plugin can do; a
+  sandbox escape remains possible.
+- **Rights decisions.** Terms of use, the upload notice and takedown are
+  round TU's and the maintainer's.
 
 ## 8. Stages
 
-Each stage is useful and testable alone. "No network" means a test needs
-no connection beyond loopback fixtures.
+Each is useful and testable alone.
 
 | Stage | What | Needs decided | Size | Tested without network |
 |---|---|---|---|---|
-| 1 | `ddi-source-protocol`; the sandbox moved to a shared crate (video helper unchanged, its self-test as before); the app's plugin host in `crates/desktop/src/sources/` (bundles of several plugins verified as `danoni/bundle.rs` does, spawn, framing, host calls `List`, `Stat`, `Read`, `CacheGet`, `CachePut`, limits, kill and restart); a fake plugin in the tests. | Questions 1, 2, 9. | Medium. | Yes: synthetic plugins as the importer's client tests use shell-script helpers; self-test on macOS and Linux in CI. |
-| 2 | The folder source and the SDK's first cut; fetched items in memory (`MemReader`, `Files::Memory`, `mem:` pictures, the preview from bytes, the budget) with the cache's `sources/` for what memory cannot hold, and `src:` ids in a registry `library::song` reads; play without importing (Find songs in a first, plain form); import into the import store with its catalog, merged into `Library`. | Questions 5, 6, 7. | Medium to large. | Yes: folders written by tests, offscreen plays as `tests/play.rs` does, imports and reopening. |
-| 3 | Add to a room without importing: fetched songs in My songs, held while listed, the room rule enforced. No room model change. | Question 4. | Small to medium. | Yes: `FakeServer` and the desktop room tests; a local server and bots for the upload. |
-| 4 | Find songs complete: filters rendered from schemas, browse, the item's side, progress, errors, Options rows, `sources.ftl`, the `qps-ploc` walk. | Question 5's details. | Medium. | Yes: offscreen pictures, the harness. |
-| 5a | The DanOni adapter: the shipped helper as a source, nothing of it changed. | | Small. | Yes: the importer client's script helpers; `--danoni-importer-check`. |
-| 6 | The app's HTTP for plugins: public addresses, allowlist, redirects checked hop by hop, pacing, `429`, budgets, receipts, cancellation, User-Agent. | Question 2's details (the resolver). | Medium. | Yes: a local HTTP fixture, with loopback allowed only under a test switch. |
-| 7 | The catalog: `xtask gen-catalog`, the release that holds the files, the plugin, its credits. | Question 8. | Medium. | Yes against the fixture; one real run at the end against our own release. |
-| 8 | The template, the SDK's docs, the conformance check. | | Small to medium. | Yes. |
-| 5b | (Optional) DanOni play and rooms without importing: the SDK stopping at a Ready candidate, the helper speaking the source protocol. | Question 13. | Medium to large. | Yes: the SDK's synthetic candidates. |
-| Later | Sign-in, upload, player-installed plugins, Windows. | Questions 3, 10, 11. | | |
+| 1 | `ddi-source-protocol`; the sandbox in a shared crate (video helper unchanged); the launcher confining a plugin from outside (macOS `sandbox_init` then exec; Linux `pre_exec`), its self-test; the host: spawn, framing, folder handles (`List`, `Stat`, `Read`), `Write` into memory, `CacheGet` and `CachePut`, limits, kill and restart; synthetic plugins in tests, one of them trying every escape. | Questions 1, 2, 3. | Medium. | Yes; the self-test on macOS and Linux in CI. |
+| 2 | "This computer" built in, behind the in-process `Source` trait; Find songs in a first form; fetched songs in memory (`MemReader`, `Files::Memory`, `mem:` pictures, the preview from bytes, the budget, the cache for what memory cannot hold); play without importing; the import store and its catalog. No plugin involved. | Questions 4, 5, 6, 7. | Medium to large. | Yes: folders written by tests, offscreen plays. |
+| 3 | Add to a room without importing; the room rule. No room model change. | Question 8. | Small to medium. | Yes: `FakeServer`, the desktop room tests, a local server and bots. |
+| 4 | The app's HTTP for plugins: public addresses, the allowlist, redirects, pacing floors, robots.txt for search and browse, the deny list, budgets, receipts, User-Agent. | Question 9. | Medium. | Yes: a local fixture, loopback allowed only under a test switch. |
+| 5 | Installing: the package, signatures and the pinned key, Options → Sources, the consent page, enable, update, remove; `--source-check`; the systems' gates checked on macOS and Linux. | Questions 10 to 13. | Medium. | Yes: packages made by tests. |
+| 6 | The SDK's repository: SDK, harness, the folder and fixture-catalog examples, the template; the protocol crate published. | Question 14. | Medium. | Yes. |
+| 7 | Find songs complete: filters from schemas, browse, the item's side, the room's Find songs to add. | | Medium. | Yes: offscreen pictures. |
+| Later | The DanOni importer as an installed plugin (its preconditions, section 5); Windows once confinement is verified there; sign-in; upload; the catalog if wanted. | Questions 15 to 17. | Large (DanOni). | |
 
-What breaks or changes along the way:
+What changes along the way:
 
-- **The library**: a fourth set in `Library::merge_songs` (imports) and a
-  fourth registry in `library::song` (transient songs). Folder songs keep
-  winning collisions. `library-v1.json` is untouched: it caches folder
-  roots only.
-- **Desktop's play loading**: `Files` gets its `Memory` kind, `LibSong`
-  says where a memory song is, the texture sources gain `mem:`, and the
-  preview takes bytes. Library, folder and zip songs read as before.
+- **Desktop's library**: a fourth set (imports) and a fourth registry
+  (fetched songs). Folder songs keep winning collisions.
+  `library-v1.json` is untouched.
+- **Desktop's play loading**: `Files::Memory`, `mem:` pictures, the
+  preview from bytes.
 - **The history**: plays of `src:` songs are kept. Their replays work
-  while the item is there, then say "the song of this play is no longer
-  there", as shared songs' do.
-- **The room's My songs**: one more pack, "Fetched this session". No room
-  model revision. A pin of drawn output may move with the new pack, so it
-  is recorded again.
-- **The build**: `crates/desktop/build.rs` builds the shipped plugins as
-  it builds the helpers, each in its own target directory, with a
-  `DDI_SOURCES_TEST_ONLY` debug switch as `DDI_IMPORTER_TEST_ONLY` is.
-- **Packaging**: `tools/package/package.py` copies `sources/`, and a
-  `--sources-check` runs headless as `--danoni-importer-check` does.
-- **The video helper**: only its sandbox's place in the tree.
+  while the item is held.
+- **The room's My songs**: a "Fetched this session" pack. No room model
+  revision.
+- **The video helper**: only where its sandbox code lives.
+- **The build and packaging**: the launcher is the one new executable
+  shipped (beside the video helper). No plugin is built into a package.
 
 ## 9. Open questions for the maintainer
 
-In the order they block work.
+**Decided** (2026-11-25):
 
-1. **Who ships plugins in version 1?** (Blocks stage 1.)
-   - (a) Only plugins built in or pinned by this repository, accepted by
-     you.
-   - (b) Also plugins players install, with a warning.
-   - **Recommended: (a).** Player-installed plugins are not considered
-     until the sandbox holds on all three systems and someone asks with
-     a real plugin. Even then: brokered network only, digest approval by
-     the player, and no promise of safety.
-2. **Who makes a plugin's network requests?** (Blocks stages 1 and 6.)
-   - (a) The app, for every new plugin; the DanOni helper keeps its own.
-   - (b) Each plugin.
-   - (c) A broker process.
-   - **Recommended: (a).** It is the only one where "declared hosts only"
-     holds, and it makes plugins sans-IO and testable. What it
-     forecloses is in section 3.
-3. **Windows.** (Blocks shipping there, not the work.)
-   - (a) Sources wait until the restricted-token sandbox is checked on
-     Windows hardware.
-   - (b) Shipped plugins run unconfined on Windows.
-   - **Recommended: (a)**, the video helper's rule: an open sandbox never
-     serves. The folder source's input is the player's own files, which
-     the game already parses in its own process, so (b) for that one
-     plugin alone would be defensible if Windows players should have it
-     sooner.
-4. **Rooms for songs a source fetched.** (Blocks stage 3.)
-   - Recommended:
-     - `rooms = "upload"` for the folder source (the player's own files,
-       your "should be possible too");
-     - the catalog: its licences allow it;
-     - the DanOni importer: as today, where any import can be added;
-     - a site's plugin: its maintainers' choice, never looser than you
-       accept.
-   - Also: should a source's "none" follow its songs into the library
-     after an import? Recommended: yes, through the import catalog; and
-     never to the player's own copies from elsewhere.
-5. **Where sources live in the screens.** (Blocks stages 2 and 4.)
-   - (a) A Find songs screen of its own, reached from song select, Add
+- "I think we shouldn't ship any plugins by default. Even DanOni SDK I'm
+  leaning more towards not including it and maybe even moving to another
+  repo (but not now)." The game ships no plugin. DanOni stays shipped
+  for now; its move is a later step (section 5).
+- "About songs that shouldn't be imported, we should prioritize keeping
+  them in memory only and using known cache dirs when that's not
+  possible/feasible." Fetched songs not imported live in memory, with
+  the cache only where memory will not do (section 1).
+
+**Open**, in the order they block work:
+
+1. **May an installed plugin ever run unconfined?** (Blocks stage 1.)
+   - **Recommended: never.** Where the launcher's self-test cannot pass
+     (Windows today, a kernel without the needed support), plugins are
+     unavailable and the screens say so.
+2. **Does the app make all of an installed plugin's I/O?** (Blocks stages
+   1 and 4.)
+   - **Recommended: yes, with no exception.** It is the only way to
+     enforce declared hosts; the price is HTTPS request and response
+     only.
+3. **The protocol.** (Blocks stage 1.)
+   - **Recommended**: a new crate, `ddi-source-protocol`, published to
+     crates.io; the importer protocol untouched while the DanOni helper
+     is shipped.
+4. **Folder search.** (Blocks stage 2.)
+   - **Recommended**: built in ("This computer"), and also an example
+     plugin in the SDK's repository.
+5. **Where Find songs lives.** (Blocks stage 2.)
+   - **Recommended**: a screen of its own, reached from song select, Add
      songs and a room's My songs.
-   - (b) Tabs inside Add songs, as DanOni's URL tab is.
-   - **Recommended: (a)**: search and results need a list and a side,
-     which a dialog's tab cannot hold well.
-6. **The import store for sources other than DanOni.** (Blocks stage
-   2.) DanOni's managed store stays as it is in every option.
-   - (a) An app-owned folder store scanned as a root, with a provenance
-     catalog beside it.
-   - (b) A transactional managed store like the SDK's, generalized.
-   - **Recommended: (a)**: an import is a copy renamed into place; the
-     SDK's transactions exist for its admission and replacement rules.
-7. **Memory's thresholds, and what forces the cache.** (Blocks stage
-   2.) Memory first is decided; these numbers and cases are not.
-   - **A song's small files in memory: 64 MiB at most.** Typical songs
-     are 3 to 15 MB. Above that, the song goes to the cache.
-   - **All fetched items held in memory: 256 MiB.** Twice the room
-     store's "Likely next", and beside a play's own decoded music of
-     about 70 MB. Alternatives: a share of the machine's memory (say an
-     eighth, bounded 128 MiB to 1 GiB), or a setting only.
-   - **What is dropped and what spills**: unheld items are dropped past
-     the budget (fetched again on a press); held items (a play, a room)
-     spill to the cache instead. Alternative: refuse a fetch that would
-     pass the budget, which is simpler but says "no" where a disk has
-     room.
-   - **Movies**: never in memory; fetched only when a play loads, into
-     the cache; a switch to leave them out. Alternative: never fetch a
-     transient song's movies (the background shows), so nothing of it is
-     ever written. Recommended: fetch to the cache, as shares do, the
-     switch on by default.
-   - **The cache's cap and lifetime**: 2 GiB, the run (deleted at a clean
-     exit and at the next start). Alternative: kept for a day, as room
-     shares are on the server, which saves fetching again at the cost of
-     a cleanup that must work after crashes.
-   - **A room's song after its upload is confirmed**: kept in memory
-     while the budget allows, then released to the room's share and
-     store (recommended). Alternative: held in memory until the room is
-     left, whatever the budget.
-8. **The catalog.** (Blocks stage 7.)
-   - Which songs: **recommended**, the CC BY and CC BY-SA songs of
-     `cc-songs.md` not bundled, each checked again against its upstream
-     files.
-   - Where the files live: **recommended**, a release of our own
-     repository, byte-identical files with their provenance.
-   - Also: whether the web may one day read the same index (our origin,
-     no CORS question) for a "more songs" list. Not in version 1.
-9. **The protocol.** (Blocks stage 1.)
-   - **Recommended**: a new crate, `ddi-source-protocol`, with the
-     importer protocol left alone until the DanOni helper moves (5b) or
-     never.
-10. **Player-installed plugins, ever?** Not blocking. Recommended: not
-    planned; reconsidered only on a concrete request from a site whose
-    plugin cannot be shipped with the game.
-11. **Sign-in and upload.** Not blocking. Recommended: out of version 1,
-    first built for the first site that asks, through the app (section
-    3).
-12. **The web.** Not blocking. Recommended: nothing in version 1; later,
-    perhaps one line in Add songs pointing to the desktop app.
-13. **DanOni without importing (stage 5b).** Not blocking.
-    Recommended: after stage 5a, only if you want DanOni works playable
-    and addable to rooms without entering the library; it is SDK work.
-14. **A source's name in a room's list.** Not blocking. Carrying "From
-    {source}" to the other members would put a field in a room's song
-    record and its share's record, a room model revision. Recommended:
-    later, if attribution in rooms is wanted. The adder sees it now.
+6. **The import store** for sources other than DanOni. (Blocks stage 2.)
+   - **Recommended**: an app-owned folder store with a provenance catalog.
+     DanOni's managed store is unchanged until it moves.
+7. **Memory's thresholds, and what forces the cache.** (Blocks stage 2.)
+   - **Recommended**:
+     - 64 MiB a song;
+     - 256 MiB for everything held;
+     - items nothing holds are dropped, held items spill to the cache;
+     - movies only in the cache, fetched when a play loads, with a
+       switch;
+     - the cache 2 GiB for the run;
+     - a room's song released to the room's share under pressure once
+       uploaded.
+   - Alternatives are in section 1.
+8. **Room rules.** (Blocks stage 3.)
+   - **Recommended**: as the manifest declares, `none` when absent; the
+     upload notice of round TU for every fetched song; never applied to
+     the player's own files; "This computer" allows rooms.
+9. **The app's floors.** (Blocks stage 4.)
+   - **Recommended**:
+     - one request a second a host at most, one download at a time;
+     - robots.txt honored for search and browse, not for a chosen item's
+       download;
+     - a deny list that starts with the game's own hosts and grows only
+       when a site's operators ask.
+10. **Folder reading and network in one plugin.** (Blocks stage 5.)
+    - **Recommended**: refused in version 1. Together they would let a
+      plugin send a folder's contents to its hosts.
+11. **How a plugin is added.** (Blocks stage 5.)
+    - **Recommended**: a file the player picked in Options only. No
+      install links or URLs in version 1.
+12. **Integrity.** (Blocks stage 5.)
+    - **Recommended**: signatures required, the key pinned at first
+      install, an update widening declarations accepted again.
+    - No registry or store run by you (out of scope, section 3).
+13. **macOS's quarantine mark.** (Blocks stage 5.)
+    - **Recommended**: install the copy without it, saying the game has
+      not checked the program. The alternative requires every author to
+      notarize, through Apple's paid program.
+14. **Where the SDK, harness and examples live.** (Blocks stage 6.)
+    - **Recommended**: a separate repository; this one keeps the
+      protocol, the host, the launcher and synthetic test plugins.
+15. **The DanOni importer's move.** Not blocking.
+    - **Recommended**: not before the preconditions of section 5 hold:
+      installed plugins proven for a release or more, the private-folder
+      and own-children grants, and a tested migration of existing imports.
+16. **The openly licensed catalog.** Not blocking.
+    - **Recommended**: dropped for now; revisited as a built-in source if
+      more free songs in the game are wanted.
+17. **Later**: sign-in and upload (for the first site that asks);
+    Windows (once its confinement is verified); the web (nothing); a
+    source's name carried into a room's list (a room model revision).
