@@ -24,6 +24,11 @@
 //!   ticks ([`keep_room_chat`]) to whoever keeps the connection
 //!   (`ddi_session::chat`, [`set_chat_keeper`]); none outside an online
 //!   room.
+//! - [`note_cleared`] (round RT): the room's chat connection heard that
+//!   someone's messages were cleared in the room's channel (a ban or a
+//!   timeout); the room's client takes it ([`take_cleared`]) and, where
+//!   the room's Twitch mirror is on and that person is in the room, asks
+//!   the server to check them again (`POST /rooms/<id>/recheck`).
 
 use std::cell::Cell;
 
@@ -34,6 +39,43 @@ thread_local! {
     static CHAT_TRIP: Cell<Option<Level>> = const { Cell::new(None) };
     static SCRIPTED_CEILING: Cell<Option<Level>> = const { Cell::new(None) };
     static DEV_LIVE: std::cell::RefCell<Option<DevLive>> = const { std::cell::RefCell::new(None) };
+    static CLEARED: std::cell::RefCell<Vec<Cleared>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Round RT: a user's clear the room's chat connection heard
+/// (`channel.chat.clear_user_messages`: Twitch's chat cleared someone's
+/// messages, which a ban or a timeout does): the online room's id whose
+/// route subscribed it, the channel it was heard in, and the person's
+/// Twitch user id.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Cleared {
+    pub room: String,
+    pub channel_id: String,
+    pub user_id: String,
+}
+
+/// How many user's clears wait for the room's client at most (a flood of
+/// a moderator's bans: the oldest go; the room's client takes them every
+/// tick).
+pub const CLEARED_KEPT: usize = 32;
+
+/// Round RT: the room's chat connection (`ddi_session::chat`, a room's
+/// route alone: never the development script's channel, a solo play or
+/// CPU practice) heard `cleared`, for the room's client to take.
+pub fn note_cleared(cleared: Cleared) {
+    CLEARED.with_borrow_mut(|c| {
+        if !c.contains(&cleared) {
+            c.push(cleared);
+        }
+        let over = c.len().saturating_sub(CLEARED_KEPT);
+        c.drain(..over);
+    });
+}
+
+/// The user's clears heard since in the online room `room` (the others
+/// are dropped: no client of theirs takes them).
+pub fn take_cleared(room: &str) -> Vec<Cleared> {
+    CLEARED.with_borrow_mut(|c| std::mem::take(c).into_iter().filter(|x| x.room == room).collect())
 }
 
 /// TESTING ONLY, the live chat's development script (round TW6; round
@@ -293,6 +335,17 @@ pub fn keep_room_chat(want: Option<&KeptChat>, now_ms: u64) {
             keeper(want, now_ms);
         }
     });
+}
+
+/// A person's Twitch user id from their game identity, as the server reads
+/// it: `twitch:<id>`'s id; a development person's (`dev:<name>`, the
+/// local server's development provider) `dev-<name>`, which only the
+/// server's fake Twitch knows. None for a bot.
+pub fn user_id_of(player_id: &str) -> Option<String> {
+    if let Some(id) = player_id.strip_prefix("twitch:") {
+        return Some(id.to_string());
+    }
+    player_id.strip_prefix("dev:").map(|n| format!("dev-{n}"))
 }
 
 /// The room model's chat choice as the chat's level.

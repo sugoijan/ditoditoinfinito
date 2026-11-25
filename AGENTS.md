@@ -984,7 +984,18 @@ Rust and the browser are implementation details, not advertised features.
   `ddi_ui::state::twitch::RoomChat`; none, no layer at all; and since
   round SD followed while the stage plays, the host's every change at
   once, `chat::Following` over `LiveRoom::room_chat`), outside a
-  room the script's line, for tests (round TW3).
+  room the script's line, for tests (round TW3). Since round RT a
+  user's clear heard on a room's own connection (Twitch's
+  `channel.chat.clear_user_messages`: a ban or a timeout in the room's
+  channel; the room's route subscribes it with emotes alone too,
+  `LiveWant::body`'s `clears`), never on the development script's, is
+  told to the room's client (`ddi_ui::state::twitch::note_cleared`),
+  whose tick asks the room to check that person again where its mirror
+  is on and they are in the room (`RoomClient::recheck_cleared`,
+  `OnlineLink::recheck`, `POST <api>/rooms/<id>/recheck {user_id}`,
+  once a person in 15 s); the server asks Twitch itself and removes
+  them as the mirror does. It works only while a device in the room
+  shows the room's chat.
   Parts of a frame timed for a shell's frame recorder (`perf.rs`: a
   clock set only while the web's `perf=1` records; the battle's
   advance). Platform-free, natively tested on a fake clock.
@@ -1672,7 +1683,11 @@ Rust and the browser are implementation details, not advertised features.
   others as a leave, 4406, `LinkState::NotAdmitted`,
   `Rejection::NotAdmitted`, `403 not_admitted`; `FakeServer::bar`,
   `sweep`, `set_twitch`; the Players pop-up's Moderate,
-  `room_dialogs::MODERATE`; `docs/plans/multiplayer-twitch.md`;
+  `room_dialogs::MODERATE`; the mirror asks Twitch at a join, a
+  ticket, a pick, the setting turned on, raised or replaced, and since
+  round RT when a device in the room heard in the room's chat that
+  someone there was banned or timed out, `POST /rooms/<id>/recheck`,
+  no new revision; `docs/plans/multiplayer-twitch.md`;
   `tests/twitch.rs`, `tests/room-revision-17.json` read with none);
   17 since 2026-11-19: an online room's own song
   list, `crate::songs` (`RoomState::songs`, behind a shared pointer and

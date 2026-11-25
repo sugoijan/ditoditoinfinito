@@ -318,13 +318,28 @@ impl LiveWant {
 
     /// The subscribe route's body: the socket's session, whether messages
     /// show (the moderation events subscribed too) and, for a named
-    /// channel, its login.
+    /// channel, its login. A room's route also asks for the user's clear
+    /// with emotes alone (`clears`, round RT: a ban or a timeout in the
+    /// room's channel heard, for the room to check that person again,
+    /// [`LiveWant::rechecks`]); a server that predates it subscribes as
+    /// before.
     pub fn body(&self, session_id: &str, messages: bool) -> String {
         let mut b = serde_json::json!({ "session_id": session_id, "messages": messages });
         if self.named {
             b["channel"] = self.login.clone().into();
         }
+        if self.rechecks().is_some() {
+            b["clears"] = true.into();
+        }
         b.to_string()
+    }
+
+    /// Round RT: the online room whose client is told of a user's clear
+    /// this chat heard (`ddi_ui::state::twitch::note_cleared`): a room's
+    /// own route alone, never the development script's named channel, a
+    /// solo play's or CPU practice's.
+    pub fn rechecks(&self) -> Option<&str> {
+        self.room.as_deref().filter(|_| !self.named)
     }
 
     /// Which channel and route, for the report's first line (never a
@@ -773,6 +788,22 @@ impl LiveChat {
         }
         self.flush(messages);
         let events = self.machine.take_events();
+        // Round RT: a user's clear heard in a room's channel (a ban or a
+        // timeout there) told to the room's client, which asks the room
+        // to check that person again where its mirror is on.
+        if let Some(room) = self.want.rechecks() {
+            for e in &events {
+                if let Event::ClearUser { user_id } = e
+                    && !user_id.is_empty()
+                {
+                    ddi_ui::state::twitch::note_cleared(ddi_ui::state::twitch::Cleared {
+                        room: room.to_string(),
+                        channel_id: self.want.channel_id.clone(),
+                        user_id: user_id.clone(),
+                    });
+                }
+            }
+        }
         let changed = self.sets.version() != self.sets_seen;
         self.sets_seen = self.sets.version();
         if self.sets_ready && !self.sets_told && self.sets.done() {
@@ -1225,6 +1256,9 @@ pub(crate) mod tests {
         /// Our server's refusals to answer the next subscribes with, in
         /// order (none left: each subscribed).
         pub refuse: VecDeque<String>,
+        /// Frames the live socket brings at the next poll, before its chat
+        /// message (round RT: a user's clear).
+        pub frames: Vec<String>,
         queue: Vec<LiveInput>,
         live: Option<u32>,
         n: u64,
@@ -1270,6 +1304,9 @@ pub(crate) mod tests {
         fn poll(&mut self) -> Vec<LiveInput> {
             let mut s = self.0.borrow_mut();
             if let Some(socket) = s.live {
+                for f in std::mem::take(&mut s.frames) {
+                    s.queue.push(LiveInput::Text(socket, f));
+                }
                 s.n += 1;
                 let n = s.n;
                 let chat = format!(
@@ -1539,6 +1576,131 @@ pub(crate) mod tests {
         assert_eq!(layer.live_report().unwrap()["lifetime"], "play");
         drop(layer);
         assert_eq!((state.borrow().opened.len(), state.borrow().closed.len()), (4, 4));
+        ddi_ui::state::twitch::set_dev_live(None);
+        set_live(None);
+    }
+
+    /// A user's clear (`channel.chat.clear_user_messages`) of Twitch user
+    /// `user_id` in channel `channel`, as Twitch's socket sends it.
+    pub(crate) fn clear_user_frame(n: u64, channel: &str, user_id: &str) -> String {
+        format!(
+            r#"{{"metadata":{{"message_id":"cu{n}","message_type":"notification","subscription_type":"channel.chat.clear_user_messages"}},"payload":{{"event":{{"broadcaster_user_id":"{channel}","broadcaster_user_login":"host","broadcaster_user_name":"Host","target_user_id":"{user_id}","target_user_login":"t","target_user_name":"T"}}}}}}"#
+        )
+    }
+
+    /// Round RT: a user's clear heard on the room's own connection (kept
+    /// between the stages or lent to a stage, emotes alone too: the room's
+    /// route asks for it, `clears`) is told to the room's client once; one
+    /// heard on a solo play's (the development script's own channel) or
+    /// on the development script's named channel in a room's place is
+    /// never told, and neither asks for the user's clear.
+    #[test]
+    fn a_user_cleared_in_the_rooms_chat_is_told_to_the_room_alone() {
+        use ddi_ui::state::twitch::{Cleared, KeptChat, RoomChat, keep_room_chat, take_cleared};
+        set_scripted(None);
+        ddi_ui::state::twitch::set_dev_live(None);
+        let state = fake_live();
+        let room = RoomChat {
+            ceiling: Level::Emotes,
+            channel_id: "77".into(),
+            login: "host".into(),
+            room: Some("Room000001".into()),
+            named: false,
+        };
+        let want = KeptChat {
+            chat: room.clone(),
+            level: Level::Emotes,
+            emotes_from: EmotesFrom::TwitchAndOthers,
+        };
+        let mut t = 1_700_000_000_000u64;
+        for _ in 0..3 {
+            keep_room_chat(Some(&want), t);
+            t += 100;
+        }
+        {
+            let s = state.borrow();
+            let (_, _, w, messages) = &s.subscribed[0];
+            assert!(!messages, "emotes alone");
+            assert_eq!(w.rechecks(), Some("Room000001"));
+            assert_eq!(
+                w.body("s1", false),
+                r#"{"clears":true,"messages":false,"session_id":"s1"}"#,
+                "the room's route asks for the user's clear with emotes alone"
+            );
+        }
+        let told = |n: u64, t: u64| {
+            state.borrow_mut().frames.push(clear_user_frame(n, "77", "42"));
+            keep_room_chat(Some(&want), t);
+            take_cleared("Room000001")
+        };
+        let cleared = Cleared {
+            room: "Room000001".into(),
+            channel_id: "77".into(),
+            user_id: "42".into(),
+        };
+        assert_eq!(told(1, t), std::slice::from_ref(&cleared), "between the stages");
+        t += 100;
+        keep_room_chat(Some(&want), t);
+        assert!(take_cleared("Room000001").is_empty(), "told once");
+        // In a stage, on the room's connection lent to it.
+        let settings = Settings {
+            twitch_chat: Level::Emotes,
+            ..Settings::default()
+        };
+        let stage = StageSetup {
+            chat: Some(room.clone()),
+            ..setup()
+        };
+        let config = ChatConfig::for_play(&settings).unwrap().under_room(Some(&stage)).unwrap();
+        let mut layer = ChatLayer::new(config);
+        layer.advance(10.0);
+        state.borrow_mut().frames.push(clear_user_frame(2, "77", "43"));
+        layer.advance(10.1);
+        assert_eq!(
+            take_cleared("Room000001"),
+            [Cleared {
+                user_id: "43".into(),
+                ..cleared.clone()
+            }]
+        );
+        assert!(
+            layer.since(0).any(|(_, _, e)| matches!(e, Event::ClearUser { .. })),
+            "the layer takes it off the screen as before"
+        );
+        drop(layer);
+        keep_room_chat(None, t);
+        // A solo play under the development script: never told, never asked.
+        ddi_ui::state::twitch::set_dev_live(own());
+        let solo = ChatConfig::for_play(&settings).unwrap().under_room(None).unwrap();
+        let ChatSource::Live(w) = &solo.source else { panic!() };
+        assert_eq!(w.rechecks(), None);
+        assert!(!w.body("s1", false).contains("clears"));
+        let mut layer = ChatLayer::new(solo);
+        layer.advance(20.0);
+        layer.advance(20.1);
+        state.borrow_mut().frames.push(clear_user_frame(3, "1001", "44"));
+        layer.advance(20.2);
+        assert!(layer.since(0).any(|(_, _, e)| matches!(e, Event::ClearUser { .. })));
+        assert!(take_cleared("Room000001").is_empty());
+        drop(layer);
+        // The named channel in a room's place on this device: the same.
+        ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Channel {
+            login: "busy".into(),
+        }));
+        let named = StageSetup {
+            chat: Some(room.on_this_device()),
+            ..setup()
+        };
+        let config = ChatConfig::for_play(&settings).unwrap().under_room(Some(&named)).unwrap();
+        let ChatSource::Live(w) = &config.source else { panic!() };
+        assert_eq!(w.rechecks(), None);
+        let mut layer = ChatLayer::new(config);
+        layer.advance(30.0);
+        layer.advance(30.1);
+        state.borrow_mut().frames.push(clear_user_frame(4, "77", "45"));
+        layer.advance(30.2);
+        assert!(take_cleared("Room000001").is_empty());
+        drop(layer);
         ddi_ui::state::twitch::set_dev_live(None);
         set_live(None);
     }

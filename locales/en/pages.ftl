@@ -424,7 +424,7 @@ pages-credits-rust-notice-for = for { $crates }
 pages-privacy = Privacy
 
 # The note's first paragraph.
-pages-privacy-intro = This note tells you what { -game-name } and its online server keep about you. It also tells you for how long. We last changed this note on November 22, 2026.
+pages-privacy-intro = This note tells you what { -game-name } and its online server keep about you. It also tells you for how long. We last changed this note on November 25, 2026.
 
 # A heading inside the note.
 pages-privacy-alone-heading = Playing alone
@@ -623,6 +623,7 @@ pages-privacy-twitch =
     • when a song is picked
     • when the host turns this on, or changes it to keep out blocked people too
     • when a new host of the room sets it
+    • when Twitch tells a device in the room that the person was banned or timed out in the host's channel
 
     Our server keeps the answers only in memory, for five minutes at most. It keeps an answer about a timeout no longer than the timeout lasts. It never stores the answers.
 
@@ -639,6 +640,10 @@ pages-privacy-twitch-chat =
     • that your Twitch account reads that channel's chat
 
     Our server only asks Twitch to start this. It never sees a message.
+
+    Twitch also tells your device when someone is banned or timed out in that chat. In a room that keeps out people banned on Twitch, your device then tells our server who it is. It does this only for someone who is in the room. Our server then asks Twitch about that person itself.
+
+    Our server keeps in memory, for one minute at most, who asked and about whom. It never stores this.
 
     To show emotes, your device asks 7TV, BetterTTV and FrankerFaceZ for emote lists: the channel's lists and their global lists. It also asks these three services and Twitch for the emote pictures. So these services see your device's address.
 

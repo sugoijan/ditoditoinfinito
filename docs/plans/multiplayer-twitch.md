@@ -2027,3 +2027,132 @@ room in every case ("Multiplayer home" went from the notices and More,
 and its message with it). The web leaves a gone room with the history
 returning to the multiplayer home (`router::returning_to`): the browser's
 Back does not reach the dead room again.
+
+## Round RT (2026-11-25): a ban or a timeout on Twitch removes the person at once
+
+The maintainer, after round BM: "we can't capture a block in real time,
+which is fine, but we can catch a ban/timeout and I think we could do an
+immediate kick in those cases", and to the way proposed (below): "Go
+ahead with that." (A dedicated Twitch ban event, with its broader
+`channel:moderate` permission and a webhook, was declined on 2026-11-24
+and is not built.)
+
+**What it uses.** When someone is banned or timed out in a channel,
+Twitch's chat clears their messages and sends
+`channel.chat.clear_user_messages` to every socket reading that chat.
+Each device that shows the room's chat already received it (C11: the
+overlay takes the person's items off). Now, in an online room whose
+mirror is on, that event is also a hint for the room: the device asks
+the server to check that one person again, and the server asks Twitch
+itself, exactly as the mirror asks at a join. Nothing is taken on a
+device's word: a person is removed only where Twitch lists them.
+
+**On the device** (`ddi_session::chat`, `ddi_ui::state::twitch`,
+`ddi_ui::state::room`):
+
+- A user's clear heard on a room's own connection (the room's route, kept
+  between the stages or lent to a stage, `LiveWant::rechecks`) is told to
+  the room's client (`twitch::note_cleared`, at most 32 waiting). Never
+  one heard on the development script's connection (a solo play, CPU
+  practice) or on its `live:<login>` channel in a room's place; never in
+  singleplayer or CPU practice (no online room, no request).
+- The room's client, at its tick, asks `POST /rooms/<id>/recheck
+  {user_id}` (`RoomClient::recheck_cleared`, `OnlineLink::recheck`) only
+  where the room's mirror is on, the clear was heard in the channel of the
+  one who set it, and the person is in the room (not left, not the one
+  who set it); once a person in 15 s from this device
+  (`link::RECHECK_EVERY_MS`). Its answer is not read: a removal comes as
+  the room's own news.
+- The room's route now asks for the user's clear with emotes alone too
+  (`{clears: true}` in the subscribe body): before, only a room showing
+  messages subscribed it. The event has no message text. On screen it
+  takes that person's emotes off, as it took their messages off before.
+
+**On the server** (`../ddi-server`, its README's "A ban or a timeout
+heard in the room's chat"): the caller a present member (`403
+not_a_member`; a bot `403 no_twitch`), the mirror on (`409 mirror_off`),
+the person named present and checked by the mirror (else `not_present`,
+nothing asked); the answer kept for them forgotten, the setter's lists
+asked about them alone; listed, removed as a sweep removes (a leave to
+the others, sockets 4406, "You can't join this room.", the single-OK
+notice of round BM; a stage they play ended as a removal ends it, graded
+QUIT; refused at the door on the answer kept, a timeout's no longer than
+it lasts).
+
+| Limit | Value | The most it allows |
+|---|---|---|
+| A member's asks | 20 a minute (`RECHECKS_A_MEMBER`) | 20 asks; most answered without Twitch |
+| One person rechecked | once in 15 s, whoever asks (`RECHECK_SAME_MS`) | 4 rechecks a minute of one person |
+| A room's rechecks that ask Twitch | 40 a minute (`RECHECKS_A_ROOM`) | 80 asks of the lists a minute: 80 Get Banned Users calls of the setter's access, 160 with the blocks read too, a tenth to a fifth of Twitch's 800 points a minute for one person's access |
+| A device | once a person in 15 s (`RECHECK_EVERY_MS`) | |
+
+Real moderation stays far below these: a moderator clearing twenty
+people of one room in a minute. Several devices hear the same event: the
+first recheck asks Twitch, the others are answered `already`.
+
+**The retry.** Twitch may list a ban or a timeout a moment after its chat
+said so. Where the first answer does not list the person, Twitch is
+asked once more 3 s after it (`RECHECK_AGAIN_MS`), never a third time;
+still not listed, nothing happens and no "not listed" answer is kept (so
+a reconnect's ticket asks Twitch rather than trusting it), and the
+mirror's usual checks (a ticket, the next pick) find a ban listed later.
+Twitch slow or unreachable: nothing, as B8.
+
+**When it works.** Only while at least one device in the room shows the
+room's chat: the host's "Show my Twitch chat" on (Emotes is enough), and
+some member's (the host's own included) "Twitch chat in rooms" on with
+the chat's permission. With the chat off, or no device showing it,
+nothing changes: the mirror's checks at a join, a reconnect and a pick,
+and the host's Kick. Blocks have no event: unchanged. An unban or the end
+of a timeout needs nothing (the invite lets them back; the answer kept
+lapses as before).
+
+**Why an HTTP route, not a socket message.** The removal is the
+authority's already (`Command::Remove`); only the hint is new. A route
+leaves the room's protocol untouched: no room model revision (24 stays),
+a game that predates it never sends it, and a server that predates it
+answers `404`, which the game ignores. A socket message would have
+needed every server to ignore an unknown live message and every game to
+send it only to a server that knows it. Deploy the server first, then
+the game; either order is harmless (an old game with the new server:
+nothing new happens, its subscriptions as before; a new game with the
+old server: its rechecks answered 404, its `clears` field ignored).
+
+**Privacy.** The note gains a moment in its list of when our server asks
+Twitch about a person, and two paragraphs in "A host's Twitch chat on
+your device" (both languages, the page and the Credits' fold, the date
+November 25, 2026), for the maintainer's approval before it is
+published.
+
+**Tests.** The server's, through the room's object (`live/tests/mirror.rs`,
+the fake Twitch answering in Twitch's documented shape):
+`a_ban_then_a_recheck_removes_them_at_once`,
+`a_timeout_then_a_recheck_removes_them_until_it_ends`,
+`not_listed_is_asked_once_more_then_left`,
+`a_recheck_of_someone_not_in_the_room_asks_nothing`,
+`two_devices_rechecks_make_one_call`,
+`the_rechecks_are_bounded_by_member_and_by_room`,
+`a_recheck_is_refused_to_strangers_and_without_the_mirror`,
+`a_recheck_unanswered_or_overtaken_removes_nobody`, and the route and the
+subscription's types. The game's: `a_user_cleared_in_the_rooms_chat_is_told_to_the_room_alone`
+(`ddi-session`, the fake clock and the fake shell's side: between the
+stages and in a stage, emotes alone; a solo play's and the named
+channel's never), `a_ban_heard_in_the_rooms_chat_asks_the_room_to_check_again`
+(`ddi-ui`, over the fake server: the mirror off, another channel,
+someone not there, the setter: nothing; one ask a person in 15 s; bob
+barred, removed and told; practice nothing).
+
+**Walked** in Chrome and Firefox (the release build) over a local server
+(its fake Twitch) and a local fake EventSub socket with a trigger, every
+request outside localhost aborted (`target/scratch/mp/rt/walks/rt.mjs`,
+not committed): a host (bans and chat) and a guest in a room with the
+mirror on and the chat at Emotes; the fake Twitch banned the guest and the
+fake socket sent the user's clear to both devices. Both devices asked; the
+first was answered `removed` 20 ms later, the second `not_present`; the
+guest's notice ("You can't join this room.", OK) showed 47 to 70 ms after
+the event, the host's players panel had the guest gone, and a join by the
+invite was refused `403 not_admitted`. During a stage, a second guest
+timed out (120 s) five seconds into the song: removed 23 to 29 ms after
+the event, their play left at once ("Left the stage", what is left to
+watch), the results graded QUIT, then the notice; refused at the door.
+The singleplayer smoke check passed in both.

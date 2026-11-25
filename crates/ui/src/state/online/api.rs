@@ -272,6 +272,18 @@ pub fn room_twitch(
         .json(serde_json::json!({ "mirror": mirror, "chat": chat }))
 }
 
+/// `POST /rooms/<id>/recheck {user_id}` (round RT): the room's chat told
+/// this device that the person with Twitch user id `user_id` had their
+/// messages cleared in the room's channel (a ban or a timeout); the room
+/// asks the lists of the one who set its mirror itself and removes them
+/// only where Twitch lists them. Its answer changes nothing here (the
+/// room says a removal as any other); a server that predates it answers
+/// `404`.
+pub fn recheck(room: &str, user_id: &str) -> ApiRequest {
+    ApiRequest::new(Method::Post, format!("/rooms/{room}/recheck"))
+        .json(serde_json::json!({ "user_id": user_id }))
+}
+
 /// `POST /auth/twitch/disconnect` (Options → Data's Disconnect).
 pub fn twitch_disconnect() -> ApiRequest {
     ApiRequest::new(Method::Post, "/auth/twitch/disconnect")

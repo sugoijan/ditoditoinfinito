@@ -1265,6 +1265,120 @@ pub(crate) mod room {
         crate::state::settings::Settings::default().save();
     }
 
+    /// Round RT: a user's clear the room's chat heard (a ban or a timeout
+    /// in the room's channel) makes this device ask the room to check
+    /// that person again, `POST /rooms/<id>/recheck {user_id}`, once a
+    /// person in fifteen seconds, only where the room's mirror is on, the
+    /// clear was heard in the channel of the one who set it, and the
+    /// person is in the room (never the setter, never someone not there).
+    /// The server decides (here the fake, as its lists say): bob, barred,
+    /// is removed and told he can't join the room.
+    #[test]
+    fn a_ban_heard_in_the_rooms_chat_asks_the_room_to_check_again() {
+        use crate::state::twitch::{Cleared, note_cleared};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob", "carol"]);
+        let asked: Rc<RefCell<Vec<String>>> = Rc::default();
+        let with_recheck = |who: &'static str| -> SharedOnline {
+            let mut inner = handler_of(&server, who);
+            let s = server.clone();
+            let log = asked.clone();
+            signed_in(Box::new(move |req| {
+                if req.path == "/rooms/Room000001/recheck" {
+                    let b: serde_json::Value =
+                        serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap();
+                    let user = b["user_id"].as_str().unwrap_or_default().to_string();
+                    log.borrow_mut().push(format!("{who}:{user}"));
+                    let identity = Identity::new(format!("dev:{}", user.trim_start_matches("dev-")));
+                    let removed = s.borrow().bars(&identity) && !s.borrow_mut().sweep().is_empty();
+                    return ok(if removed {
+                        r#"{"outcome":"removed"}"#
+                    } else {
+                        r#"{"outcome":"not_listed"}"#
+                    });
+                }
+                inner(req)
+            }))
+        };
+        let mut alice = client(&server, with_recheck("alice"), "alice", 1_000);
+        let mut bob = client(&server, with_recheck("bob"), "bob", 1_000);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        let me = alice.me();
+        let setting = |mirror| ddi_room::TwitchSetting {
+            by: me,
+            mirror,
+            chat: ddi_room::TwitchChat::Emotes,
+            user_id: "dev-alice".into(),
+            login: "alice".into(),
+        };
+        let heard = |user: &str, channel: &str| {
+            note_cleared(Cleared {
+                room: "Room000001".into(),
+                channel_id: channel.into(),
+                user_id: user.into(),
+            })
+        };
+        // The mirror off: nothing asked.
+        server
+            .borrow_mut()
+            .set_twitch(me, Some(setting(ddi_room::TwitchMirror::Off)))
+            .unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        heard("dev-bob", "dev-alice");
+        tick(&clock, &mut [&mut alice], 100);
+        assert!(asked.borrow().is_empty(), "the mirror off: never");
+        server
+            .borrow_mut()
+            .set_twitch(me, Some(setting(ddi_room::TwitchMirror::Bans)))
+            .unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        // Another channel, someone not in the room, the setter: nothing.
+        heard("dev-bob", "dev-someone");
+        heard("dev-dave", "dev-alice");
+        heard("dev-alice", "dev-alice");
+        tick(&clock, &mut [&mut alice], 100);
+        assert!(asked.borrow().is_empty(), "{:?}", asked.borrow());
+        // Carol, not barred: asked once, and once only within 15 s.
+        heard("dev-carol", "dev-alice");
+        tick(&clock, &mut [&mut alice], 100);
+        heard("dev-carol", "dev-alice");
+        tick(&clock, &mut [&mut alice], 100);
+        assert_eq!(*asked.borrow(), ["alice:dev-carol"]);
+        assert!(!server.borrow().state().member(carol_id(&server)).unwrap().left);
+        // Bob banned on Twitch, then heard: asked, removed, told.
+        server
+            .borrow_mut()
+            .bar(&Identity::new("dev:bob"), true);
+        heard("dev-bob", "dev-alice");
+        tick(&clock, &mut [&mut alice], 100);
+        assert_eq!(*asked.borrow(), ["alice:dev-carol", "alice:dev-bob"]);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert!(bob.room_gone(), "bob is out");
+        assert_eq!(bob.link_state(), LinkState::NotAdmitted);
+        assert_eq!(alice.online_link().unwrap().rechecks(), 2);
+        // Past 15 s, carol heard again: asked again.
+        tick(&clock, &mut [&mut alice], crate::state::online::link::RECHECK_EVERY_MS);
+        heard("dev-carol", "dev-alice");
+        tick(&clock, &mut [&mut alice], 100);
+        assert_eq!(asked.borrow().len(), 3);
+        // CPU practice: no online room, nothing asked.
+        let practice = crate::state::room::practice_room(1_000);
+        heard("dev-carol", "dev-alice");
+        practice.borrow_mut().tick(2_000);
+        assert_eq!(asked.borrow().len(), 3);
+    }
+
+    fn carol_id(server: &SharedFake) -> ddi_room::ParticipantId {
+        server
+            .borrow()
+            .state()
+            .member_by_identity(&Identity::new("dev:carol"))
+            .unwrap()
+            .id
+    }
+
     /// Round FX: where the room's line says the access lacks chat's
     /// permission, the room offers the trip itself: a button beside the
     /// line and More's item, back to this room. Canceled at Twitch,

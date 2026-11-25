@@ -51,7 +51,7 @@
            variants), plus how the desktop app's report differs. -->
       <section id="en" lang="en">
         <h1>Privacy</h1>
-        <p>This note tells you what Dito Dito Infinito and its online server keep about you. It also tells you for how long. We last changed this note on November 22, 2026.</p>
+        <p>This note tells you what Dito Dito Infinito and its online server keep about you. It also tells you for how long. We last changed this note on November 25, 2026.</p>
 
         <h2>Playing alone</h2>
         <p>When you play alone, the game keeps everything on your device: your settings, your songs and your play history. In a browser, they stay in the browser's storage. In the app, they stay in the app's folders on your computer.</p>
@@ -162,6 +162,7 @@
           <li>when a song is picked</li>
           <li>when the host turns this on, or changes it to keep out blocked people too</li>
           <li>when a new host of the room sets it</li>
+          <li>when Twitch tells a device in the room that the person was banned or timed out in the host's channel</li>
         </ul>
         <p>Our server keeps the answers only in memory, for five minutes at most. It keeps an answer about a timeout no longer than the timeout lasts. It never stores the answers.</p>
         <p>Someone who is kept out is told only: "You can't join this room." The other members see that person leave. The server's logs count these checks and never name anyone.</p>
@@ -173,6 +174,8 @@
           <li>that your Twitch account reads that channel's chat</li>
         </ul>
         <p>Our server only asks Twitch to start this. It never sees a message.</p>
+        <p>Twitch also tells your device when someone is banned or timed out in that chat. In a room that keeps out people banned on Twitch, your device then tells our server who it is. It does this only for someone who is in the room. Our server then asks Twitch about that person itself.</p>
+        <p>Our server keeps in memory, for one minute at most, who asked and about whom. It never stores this.</p>
         <p>To show emotes, your device asks 7TV, BetterTTV and FrankerFaceZ for emote lists: the channel's lists and their global lists. It also asks these three services and Twitch for the emote pictures. So these services see your device's address.</p>
         <p>If a direct request fails, our server asks in place of your device. Then the services see the server's address instead. Our server keeps each emote picture or list that it gets in this way for one day at most. It does not store who asked for it.</p>
         <p>If you set Options → Display → Emotes from to Twitch, your device does not ask the other three services.</p>
@@ -311,7 +314,7 @@
 
       <section id="ja" lang="ja">
         <h1>プライバシー</h1>
-        <p>このお知らせでは、Dito Dito Infinitoとオンラインのサーバーが、あなたについて何を保存するかを説明します。どのくらいの期間保存するかも説明します。このお知らせを最後に変えたのは、2026年11月22日です。</p>
+        <p>このお知らせでは、Dito Dito Infinitoとオンラインのサーバーが、あなたについて何を保存するかを説明します。どのくらいの期間保存するかも説明します。このお知らせを最後に変えたのは、2026年11月25日です。</p>
 
         <h2>ひとりで遊ぶとき</h2>
         <p>ひとりで遊ぶとき、ゲームはすべてをあなたのデバイスに保存します。すべてとは、設定、曲、プレイ履歴のことです。ブラウザーでは、ブラウザーの保存領域に保存します。アプリでは、コンピューターのアプリのフォルダーに保存します。</p>
@@ -422,6 +425,7 @@
           <li>曲が選ばれたとき</li>
           <li>ホストがこの機能をオンにしたとき、またはブロックした人も入れないように変えたとき</li>
           <li>ルームの新しいホストが、この機能を設定したとき</li>
+          <li>Twitchが、ルームにいるだれかのデバイスに、その人がホストのチャンネルでバンやタイムアウトをされたと伝えたとき</li>
         </ul>
         <p>サーバーは、答えをメモリーにだけ、長くても5分間持っています。メモリーは、一時的に使う記憶の場所です。タイムアウトについての答えは、タイムアウトが終わるまでしか持ちません。答えを保存することはありません。</p>
         <p>入れなかった人には、「このルームには参加できません。」とだけ伝えます。ほかのメンバーには、その人がルームを出たように見えます。サーバーのログは、この確認の回数だけを数えます。だれの名前も書きません。</p>
@@ -433,6 +437,8 @@
           <li>あなたのTwitchアカウントが、そのチャンネルのチャットを読んでいること</li>
         </ul>
         <p>サーバーは、これを始めるようにTwitchに頼むだけです。メッセージを見ることはありません。</p>
+        <p>Twitchは、そのチャットでだれかがバンやタイムアウトをされたことも、デバイスに伝えます。Twitchでバンされた人を入れないルームでは、デバイスは、それがだれかをサーバーに伝えます。伝えるのは、その人がルームにいるときだけです。そのあと、サーバーが自分で、その人についてTwitchに問い合わせます。</p>
+        <p>サーバーは、だれが頼んだか、だれについてかを、メモリーにだけ、長くても1分間持っています。これを保存することはありません。</p>
         <p>エモートを表示するために、デバイスは、7TV、BetterTTV、FrankerFaceZに、エモートの一覧を問い合わせます。チャンネルの一覧と、それぞれのサービス全体の一覧です。また、この3つのサービスとTwitchに、エモートの画像を問い合わせます。そのため、これらのサービスには、あなたのデバイスのアドレスが伝わります。</p>
         <p>直接の問い合わせがうまくいかないときは、サーバーが代わりに問い合わせます。そのときは、サービスには、サーバーのアドレスが伝わります。サーバーは、こうして取得したエモートの画像や一覧を、長くても1日間保存します。だれが問い合わせたかは保存しません。</p>
         <p>「オプション → 表示 → エモートの取得元」を「Twitch」にすると、デバイスは、ほかの3つのサービスに問い合わせません。</p>

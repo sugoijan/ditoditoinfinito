@@ -88,6 +88,12 @@ pub const NOTICE_MS: u64 = 5_000;
 /// How long after a failed read of the invite it is asked for again.
 pub const INVITE_RETRY_MS: u64 = 10_000;
 
+/// Round RT: a person this device asked the room to check again is not
+/// asked about again from it for this long (a moderator's repeated
+/// clears of one person; the server's own `RECHECK_SAME_MS`, which holds
+/// whoever asks).
+pub const RECHECK_EVERY_MS: u64 = 15_000;
+
 /// A stage's upload grant as the room answered it: for the content chosen
 /// at `chosen` (its `content_changed_at`).
 #[derive(Clone, Debug, PartialEq)]
@@ -145,6 +151,11 @@ pub struct OnlineLink {
     /// When the notice ends (set at the first tick after it was raised;
     /// [`LinkNotice::JoinedToWatch`]'s at the first tick connected).
     notice_until: Option<u64>,
+    /// Round RT: the Twitch user ids this device asked the room to check
+    /// again, when ([`Self::recheck`]).
+    rechecked: std::collections::BTreeMap<String, u64>,
+    /// And how many it asked in all (the debug state's).
+    rechecks: u64,
 }
 
 impl OnlineLink {
@@ -193,6 +204,8 @@ impl OnlineLink {
             song_grants: Vec::new(),
             notice: seated.then_some(LinkNotice::JoinedToWatch),
             notice_until: None,
+            rechecked: Default::default(),
+            rechecks: 0,
         }
     }
 
@@ -284,6 +297,31 @@ impl OnlineLink {
         // replaces it, so its answer is dropped, never held unread
         // (round LO).
         self.twitch_req = Some(Asked::ask(&self.online, api::room_twitch(&self.room_id, mirror, chat)));
+    }
+
+    /// Round RT: the room is asked to check the person with Twitch user id
+    /// `user_id` again (`POST /rooms/<id>/recheck`): the room's chat said
+    /// their messages were cleared in its channel. A hint the server
+    /// checks with Twitch itself; nothing here waits for its answer (a
+    /// removal comes as the room's own news). Once a person in
+    /// [`RECHECK_EVERY_MS`] from this device. Whether it was asked.
+    pub fn recheck(&mut self, user_id: &str) -> bool {
+        let now = self.now_ms;
+        self.rechecked
+            .retain(|_, at| now.saturating_sub(*at) < RECHECK_EVERY_MS);
+        if self.rechecked.contains_key(user_id) {
+            return false;
+        }
+        self.rechecked.insert(user_id.to_string(), now);
+        self.rechecks += 1;
+        // Its answer is not wanted: dropped when it comes.
+        drop(Asked::ask(&self.online, api::recheck(&self.room_id, user_id)));
+        true
+    }
+
+    /// Round RT: how many rechecks this device asked of the room.
+    pub fn rechecks(&self) -> u64 {
+        self.rechecks
     }
 
     /// The features to connect before the setting asked (once).

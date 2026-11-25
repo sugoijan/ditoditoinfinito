@@ -3022,6 +3022,46 @@ impl RoomClient {
         })
     }
 
+    /// Round RT: the user's clears the room's chat connection heard since
+    /// (`twitch::take_cleared`: Twitch's chat cleared someone's messages
+    /// in the room's channel, which a ban or a timeout does), each asked
+    /// of the room to check again (`OnlineLink::recheck`) where the
+    /// room's Twitch mirror is on, it was heard in the channel of the one
+    /// who set it, and the person is in the room (not left, not the one
+    /// who set it, never a bot). Nothing in CPU practice (no online room)
+    /// or once this player left; the server decides by asking Twitch.
+    fn recheck_cleared(&mut self) {
+        let Some(room) = self.online_link().map(|l| l.room_id().to_string()) else {
+            return;
+        };
+        let cleared = crate::state::twitch::take_cleared(&room);
+        if cleared.is_empty() || self.left_at.is_some() {
+            return;
+        }
+        let Some(t) = self.twitch().filter(|t| t.mirror.on()) else {
+            return;
+        };
+        let in_room = |user_id: &str| {
+            self.state().members.values().any(|m| {
+                !m.left
+                    && m.id != t.by
+                    && m.identity()
+                        .and_then(|i| crate::state::twitch::user_id_of(i.as_str()))
+                        .is_some_and(|u| u == user_id)
+            })
+        };
+        let asked: Vec<String> = cleared
+            .into_iter()
+            .filter(|c| c.channel_id == t.user_id && in_room(&c.user_id))
+            .map(|c| c.user_id)
+            .collect();
+        if let Some(l) = self.online_link_mut() {
+            for user_id in asked {
+                l.recheck(&user_id);
+            }
+        }
+    }
+
     /// Round FX: the room shows its host's chat, this device's "Twitch
     /// chat in rooms" is on, and the person's Twitch access (as `/me`
     /// last said it) does not allow reading chat: the room offers the
@@ -3534,6 +3574,7 @@ impl RoomClient {
         if self.is_online() {
             crate::state::twitch::keep_room_chat(self.chat_kept_in(&settings).as_ref(), now_ms);
         }
+        self.recheck_cleared();
         self.read_live();
         self.tell_spotlight();
         self.sync_preload(&settings);
