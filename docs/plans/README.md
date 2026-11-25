@@ -772,20 +772,19 @@ so.
   token-authenticated uploader in the app; the contract both repositories
   keep (one crate since 2026-11-10, `crates/share-protocol`), and online
   rooms' shares made under a room's upload grant (M5d).
-- [Song sources: native plugins](source-plugins.md) (2026-11-25): a
-  design, nothing built; for the maintainer to decide. Source plugins a
-  player installs for the desktop app (decided: the game ships none; the
-  DanOni importer stays shipped for now and may move to a plugin of its
-  own later), each declaring the capabilities it has (inputs, search,
-  filters, browse, metadata, fetch; sign-in and upload later); a fetched
-  song imported, played without importing or added to a room without
-  importing, held in memory only (decided: the known cache folder only
-  where memory will not do). Recommended: plugins confined by the app
-  before they run and never unconfined (none on Windows until its
-  sandbox is verified), the app making all their requests and file
-  reads at its own pace, installed from a file with a pinned signing
-  key; folder search built into the app; the SDK, harness and examples
-  in a repository of their own.
+- [Song sources: native plugins](source-plugins.md) (2026-11-25,
+  revised 2026-11-26): a design, nothing built; for the maintainer to
+  decide. Decided: plugins are trusted native programs an advanced
+  player installs, as other desktop software's are, with no sandbox or
+  network imposed by the game; the game ships none (the DanOni importer
+  stays shipped for now and may become a plugin later, a small move);
+  songs not imported are held in memory, the known cache folder only
+  where memory will not do. A plugin declares the capabilities it has
+  (inputs, search, filters, browse, metadata, fetch); a fetched song is
+  imported, played without importing or added to a room without
+  importing. Recommended: a separate process over a versioned protocol;
+  folder search built into the app; the SDK, harness and examples in a
+  repository of their own.
 - [Quiet calibration](quiet-calibration.md) (2026-10-29): done
   (decision 76), the thresholds to tune by playing. The
   device banners, the devices line, the prompt's new-device step and the
