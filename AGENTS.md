@@ -1209,7 +1209,8 @@ Rust and the browser are implementation details, not advertised features.
   select in its shared mode, `select_page::Props::shared`,
   `SelectData::shared`: headed "SHARED SONGS", nothing added, managed
   or edited, or the page saying the link is gone; the uploader hidden
-  behind `#/?share=1`, `Settings::sharing`: Options' Sharing section
+  behind `#/?share=1` (for the page alone; `Settings::sharing` stored
+  on with a token set): Options' Sharing section
   with the token, Share… in song select's More on imported songs and
   packs, the upload in `share.rs`; a shared song's movies streamed,
   `web/movie_source.rs` and the decoder worker's download of the whole
@@ -2375,7 +2376,8 @@ Rust and the browser are implementation details, not advertised features.
   `--screen multiplayer|room`; `--join
   LINK|INVITE` an online room's invite; `--mp-rules-first on|off`, a
   hidden option, off by default: a room's Rules open by themselves on
-  entering, as the web's `mprules=1` (`mprules=0`),
+  entering, as the web's `mprules=1` (`mprules=0`; the web's for the
+  page alone, never stored, `give_hidden`),
   `Settings::multiplayer_rules_first`; `--mp-watch-link on|off`, another,
   More's Copy watch-only link, as the web's `mpwatchlink=1`,
   `Settings::multiplayer_watch_link`; `--mp-attacks` and its old name

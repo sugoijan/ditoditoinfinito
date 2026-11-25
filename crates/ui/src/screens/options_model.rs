@@ -2581,6 +2581,9 @@ impl OptionsModel {
             }
             ("share.token", 1) => {
                 self.settings.share_token.clear();
+                // Sharing kept off with it (round HY: the web's address
+                // turns it on for the page alone).
+                self.settings.sharing = false;
                 self.notice = m::notice_token_cleared().into();
                 Act::Done
             }
@@ -2781,6 +2784,11 @@ impl OptionsModel {
     /// The upload token typed into its dialog, kept.
     pub fn set_share_token(&mut self, token: &str) {
         self.settings.share_token = token.trim().to_string();
+        // Sharing is kept on where a token is set, off where it is
+        // cleared (round HY, 2026-11-25: the web's `#/?share=1` turns it
+        // on for the page alone, never stored, so that a link cannot
+        // change a stranger's settings; setting the token keeps it).
+        self.settings.sharing = !self.settings.share_token.is_empty();
         self.notice = if self.settings.share_token.is_empty() {
             m::notice_token_cleared()
         } else {

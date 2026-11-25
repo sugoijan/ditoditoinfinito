@@ -414,8 +414,11 @@ pub struct Settings {
     /// device calibration can fix. Zero entries are not stored.
     pub song_offsets: BTreeMap<String, f64>,
     /// Sharing songs by link is on (`docs/plans/shared-songs.md`): a
-    /// hidden switch (`#/?share=1`), never a row of Options; with it
-    /// Options gets its Sharing section and song select its Share….
+    /// hidden switch, never a row of Options; with it Options gets its
+    /// Sharing section and song select its Share…. Desktop's `--sharing
+    /// on|off` stores it; the web's `#/?share=1` gives it for the page
+    /// alone (round HY, 2026-11-25), and setting the token in that
+    /// section stores it on (clearing the token, off).
     pub sharing: bool,
     /// The token the uploads carry (kept as the rest of the settings
     /// are: as private as the browser's profile).
@@ -429,15 +432,19 @@ pub struct Settings {
     /// its first form (Reset and OK), as M7b had it. A hidden option, off
     /// by default (the maintainer, 2026-11-12: a room opens straight on
     /// its song select with the default rules; Rules stays behind its
-    /// button): `#/?mp=1&mprules=1` (`mprules=0`), desktop's
-    /// `--mp-rules-first on|off`; never a row of Options.
+    /// button): desktop's `--mp-rules-first on|off`; never a row of
+    /// Options. The web's `mprules=1` (`mprules=0`) gives it for the page
+    /// alone, never stored ([`give_hidden`]); read it through
+    /// [`Settings::rules_first`].
     pub multiplayer_rules_first: bool,
     /// More offers Copy watch-only link in an online room. The watch-only
     /// link is kept but hidden (the maintainer, 2026-11-13: "Keep, but
     /// maybe we can keep watch-only hidden"): joining by one works as
     /// ever; its Copy shows only with this hidden option, off by default:
-    /// `#/?mp=1&mpwatchlink=1` (`mpwatchlink=0`), desktop's
-    /// `--mp-watch-link on|off`; never a row of Options.
+    /// desktop's `--mp-watch-link on|off`; never a row of Options. The
+    /// web's `mpwatchlink=1` (`mpwatchlink=0`) gives it for the page
+    /// alone, never stored ([`give_hidden`]); read it through
+    /// [`Settings::watch_link`].
     pub multiplayer_watch_link: bool,
     /// The CPU roster the last practice room was left with (names,
     /// levels, personalities and policies, in order; never their seeds):
@@ -536,6 +543,38 @@ impl Settings {
     pub fn room_ahead(&self) -> RoomAhead {
         self.room_ahead.unwrap_or_else(device_room_ahead)
     }
+
+    /// [`Settings::multiplayer_rules_first`], or what an address gave for
+    /// the page ([`give_hidden`]).
+    pub fn rules_first(&self) -> bool {
+        GIVEN.with(|g| g.get().0).unwrap_or(self.multiplayer_rules_first)
+    }
+
+    /// [`Settings::multiplayer_watch_link`], or what an address gave for
+    /// the page ([`give_hidden`]).
+    pub fn watch_link(&self) -> bool {
+        GIVEN.with(|g| g.get().1).unwrap_or(self.multiplayer_watch_link)
+    }
+}
+
+thread_local! {
+    /// The hidden multiplayer options an address gave for the page
+    /// ([`give_hidden`]): rules first, the watch-only link.
+    static GIVEN: std::cell::Cell<(Option<bool>, Option<bool>)> =
+        const { std::cell::Cell::new((None, None)) };
+}
+
+/// The web's testing parameters `mprules` and `mpwatchlink`: the hidden
+/// options [`Settings::multiplayer_rules_first`] and
+/// [`Settings::multiplayer_watch_link`] for the page alone, each where
+/// given (`None` leaves it as it was), never stored: an invite link
+/// carrying one changes nothing of the player's settings (round HY,
+/// 2026-11-25; until then the address wrote them into the settings).
+pub fn give_hidden(rules_first: Option<bool>, watch_link: Option<bool>) {
+    GIVEN.with(|g| {
+        let (r, w) = g.get();
+        g.set((rules_first.or(r), watch_link.or(w)));
+    });
 }
 
 /// The pointer offered under Options → Display. Stored by these names;
@@ -2443,6 +2482,28 @@ mod dancing_hand_tests {
         on.dancing_hand = false;
         assert!(!on.dancing_hand_in("dance-single", true));
         assert!(!on.dancing_hand_in("dance-single", false));
+    }
+
+    /// Round HY: the hidden multiplayer options an address gives are the
+    /// page's alone: read through the settings, never written into them.
+    #[test]
+    fn hidden_options_given_by_an_address_are_never_stored() {
+        storage::install(std::rc::Rc::new(storage::MemoryStore::default()));
+        Settings::load();
+        let before = storage::get(Area::Local, KEY);
+        give_hidden(Some(true), None);
+        let s = Settings::cached();
+        assert!(s.rules_first() && !s.watch_link());
+        assert!(!s.multiplayer_rules_first, "not in the settings");
+        assert_eq!(storage::get(Area::Local, KEY), before, "nothing stored");
+        give_hidden(None, Some(true));
+        assert!(Settings::load().rules_first(), "kept where not given again");
+        assert!(Settings::load().watch_link());
+        give_hidden(Some(false), Some(false));
+        let mut stored = Settings::load();
+        stored.multiplayer_rules_first = true;
+        stored.save();
+        assert!(!Settings::load().rules_first(), "the page's over the stored");
     }
 
     /// Kept until what is stored changes, and changing with it.

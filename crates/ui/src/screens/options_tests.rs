@@ -997,6 +997,9 @@ fn the_sharing_section_shows_only_with_the_switch_and_keeps_the_token() {
     assert!(matches!(m.action("share.token", 0), Act::ShareToken));
     m.set_share_token("  secret  ");
     assert_eq!(m.settings.share_token, "secret");
+    // Round HY: a token set keeps sharing on (the web's address gives it
+    // for the page alone), a token cleared keeps it off.
+    assert!(m.settings.sharing, "kept on with its token");
     let token = m
         .data()
         .sections
@@ -1009,6 +1012,7 @@ fn the_sharing_section_shows_only_with_the_switch_and_keeps_the_token() {
     assert_eq!(token.values(), ["Change…", "Clear"]);
     assert!(matches!(m.action("share.token", 1), Act::Done));
     assert!(m.settings.share_token.is_empty());
+    assert!(!m.settings.sharing, "kept off with its token cleared");
 }
 
 #[test]

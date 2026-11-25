@@ -1123,7 +1123,9 @@ No "Still emotes" option for now (decided 2026-11-20).
 
 The maintainer: "We could also test a demo with an assortment of global
 animated emotes from all 4 providers." `mpfakechat=global` (desktop
-`--mp-dev-chat global`) reads the four providers' global sets by the
+`--mp-dev-chat global`; on the web taken only where the device's
+"Twitch chat in rooms" is on since 2026-11-25, round HY, so that a
+link cannot make a visitor's browser ask the providers) reads the four providers' global sets by the
 real chat's code: 7TV's, BetterTTV's and FrankerFaceZ's asked directly,
 through our proxy after a failure; Twitch's, which no page may read
 without a token, through a new route of our server,

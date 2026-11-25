@@ -756,7 +756,7 @@ impl SelectScreen {
             // Only under the hidden option (`Settings::multiplayer_rules_first`,
             // off by default): a room opens straight on its song select,
             // its Rules behind their button.
-            if crate::state::settings::Settings::cached().multiplayer_rules_first {
+            if crate::state::settings::Settings::cached().rules_first() {
                 self.cancel_navigation();
                 cx.overlay(RulesDialog::first(self.env.clone(), room.clone()), true);
                 return;

@@ -77,7 +77,18 @@ pub(crate) fn global_report() -> Option<serde_json::Value> {
 /// read; every provider's address served from `at` instead where given
 /// (`mpfakechatimg`: a local folder of fixtures, never a provider).
 fn global(at: Option<&str>) {
-    let from = crate::settings::Settings::load().chat_emotes_from;
+    let settings = crate::settings::Settings::load();
+    // Round HY (2026-11-25): only where this device shows Twitch chat
+    // (Options → Display), as the privacy note says the providers are
+    // asked; else a link carrying `mpfakechat=global` would have any
+    // visitor's browser ask them at once.
+    if settings.twitch_chat == ddi_chat::Level::Off {
+        web_sys::console::warn_1(
+            &"mpfakechat=global: Options → Display → Twitch chat in rooms is Off; not taken".into(),
+        );
+        return;
+    }
+    let from = settings.chat_emotes_from;
     let demo = ddi_chat::global::Demo::new(from, Some(crate::share::base()), at.map(str::to_string));
     ddi_session::chat::set_scripted(Some(demo.script()));
     GLOBAL.with(|g| *g.borrow_mut() = Some(demo));

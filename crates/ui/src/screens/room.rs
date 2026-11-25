@@ -1988,7 +1988,7 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
         // 2026-11-13): its Copy only under the hidden option
         // (`Settings::multiplayer_watch_link`).
         if r.watch_invite_link().is_some()
-            && crate::state::settings::Settings::cached().multiplayer_watch_link
+            && crate::state::settings::Settings::cached().watch_link()
         {
             items.push((MORE_COPY_WATCH.to_string(), m::copy_watch_invite().into()));
         }

@@ -151,9 +151,12 @@ read grant on the share's URLs).
   Back goes to the start menu and drops the share; Singleplayer from
   there is the player's own library, as ever. An unknown or expired id
   shows the page above instead.
-- **The uploader, hidden.** `#/?share=1` once sets `Settings::sharing`
-  (and `#/?share=0` clears it; a developer-ish switch, never in Options'
-  rows). With it set, Options gets a "Sharing" section: the token (a
+- **The uploader, hidden.** `#/?share=1` turns sharing on for the page
+  (and `#/?share=0` off; a developer-ish switch, never in Options'
+  rows); since 2026-11-25 (round HY) the address stores nothing, so a
+  link cannot change a stranger's settings: `Settings::sharing` is
+  stored on when a token is set in the Sharing section, off when it is
+  cleared (desktop's `--sharing on|off` stores it too). With it on, Options gets a "Sharing" section: the token (a
   masked text field; kept in the settings, so it is only as private as
   the browser's profile, which is the proof of concept's bargain), the
   server it uploads to (read-only, the API's base), and a note

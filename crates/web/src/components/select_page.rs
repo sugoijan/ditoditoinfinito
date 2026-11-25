@@ -596,7 +596,7 @@ impl SelectPage {
             screen
                 .with_editing()
                 // Share… while the hidden switch is on (`crate::share`).
-                .with_sharing_if(Settings::load().sharing)
+                .with_sharing_if(crate::router::sharing(&Settings::load()))
         };
         let screen = screen
             // A chart's kept plays (`docs/plans/play-history.md`, Replays).

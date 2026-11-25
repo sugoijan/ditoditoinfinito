@@ -143,7 +143,7 @@ impl Component for OptionsPage {
         let world = World {
             plays: crate::history::plays().history().len(),
             importing: import::status().0.is_some(),
-            sharing: settings.sharing,
+            sharing: crate::router::sharing(&settings),
             share_url: crate::share::base(),
             privacy_signal: crate::errors::privacy_signal(),
             twitch: crate::online::twitch_row(),
