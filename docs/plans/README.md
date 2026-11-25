@@ -772,6 +772,18 @@ so.
   token-authenticated uploader in the app; the contract both repositories
   keep (one crate since 2026-11-10, `crates/share-protocol`), and online
   rooms' shares made under a room's upload grant (M5d).
+- [Song sources: native plugins](source-plugins.md) (2026-11-25): a
+  design, nothing built; for the maintainer to decide. Source plugins
+  for the desktop app, each declaring the capabilities it has (inputs,
+  search, filters, browse, metadata, fetch; sign-in and upload later);
+  a fetched song imported, played without importing or added to a room
+  without importing, held in memory only (decided: the known cache
+  folder only where memory will not do). Recommended for version 1: plugins shipped with
+  the game only, confined with the video helper's sandbox, the app making
+  every request and file read; the DanOni importer kept as shipped. A
+  local folder source first, then the DanOni importer through an
+  adapter, then a catalog of openly licensed songs, then a template and
+  an SDK.
 - [Quiet calibration](quiet-calibration.md) (2026-10-29): done
   (decision 76), the thresholds to tune by playing. The
   device banners, the devices line, the prompt's new-device step and the

@@ -1010,6 +1010,12 @@ named was looked at for this list.
      `docs/plans/shared-songs.md`; 100 songs a room's list).
    - How a song's source travels with it (where it came from, for the
      credits and for a room's list).
+
+   For items 1 and 2, the maintainer then asked for a plugin interface
+   that a site's own maintainers could implement, native and desktop
+   only, as the DanOni importer is. Its design, with the choices left to
+   the maintainer: [Song sources: native plugins](plans/source-plugins.md)
+   (2026-11-25; nothing built).
 3. **A settings revamp.** A better hierarchy, and previews for each
    option beyond today's live field preview: the choices side by side
    where what they look like matters. Most of the work is deciding each
