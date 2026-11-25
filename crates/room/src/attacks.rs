@@ -1209,14 +1209,15 @@ impl Reporter {
     }
 }
 
-/// How a stage is settled once attacks exist (D6). PROVISIONAL.
+/// How a stage is settled once attacks exist (D6), named and versioned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settlement {
     pub id: &'static str,
 }
 
-/// `settlement-v1` (PROVISIONAL; the maintainer, 2026-11-13: "we can
-/// differentiate between 'last standing' and 'stage won' … to rule that
+/// `settlement-v1` (decided, no longer provisional since round HY: the
+/// progress note's Provisional choices cite the maintainer, 2026-11-13,
+/// "we can differentiate between 'last standing' and 'stage won' … to rule that
 /// the stage has been won has to wait for it to be played until the end,
 /// since that player could still fail and cause a tie"): a stage is
 /// decided once at most one competitor is still in and no committed
