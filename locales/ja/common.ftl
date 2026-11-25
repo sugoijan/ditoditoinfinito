@@ -15,6 +15,8 @@ common-cancel = キャンセル
 
 common-close = 閉じる
 
+common-ok = OK
+
 common-more = その他
 
 common-on = オン

@@ -168,6 +168,8 @@ pub fn seat_end_text(e: &crate::state::room::SeatEnd) -> UiText {
         SeatEnd::RoomClosed => m::invite_room_closed(),
         SeatEnd::ClosedByOperator => m::closed_by_operator(),
         SeatEnd::LinkReplaced => m::audience_link_unknown(),
+        SeatEnd::Removed => m::link_kicked(),
+        SeatEnd::NotAdmitted => m::link_not_admitted(),
         SeatEnd::Refused(code) => super::online::invite_problem(&crate::state::online::api::Problem {
             status: 0,
             code: code.clone(),

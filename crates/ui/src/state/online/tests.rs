@@ -1939,7 +1939,8 @@ pub(crate) mod room {
     /// (shared in place of its invite link) signed out. They are asked to
     /// sign in to enter it, never told their sign-in "ended"; signed in,
     /// they are told they are not in the room, never that they "left";
-    /// either way the room's More offers the multiplayer home.
+    /// either way the room's More offers Leave room, to the multiplayer
+    /// home (round BM: once read "Multiplayer home").
     #[test]
     fn a_rooms_address_opened_by_someone_never_in_it_says_so() {
         use crate::screens::room::{more_items, status};
@@ -1969,7 +1970,7 @@ pub(crate) mod room {
         let items = more_items(&eve, false);
         let labels: Vec<&str> = items.iter().map(|(_, l)| l.as_str()).collect();
         assert!(labels.contains(&"Sign in with Twitch"), "{labels:?}");
-        assert!(labels.contains(&"Multiplayer home"), "{labels:?}");
+        assert!(labels.contains(&"Leave room"), "{labels:?}");
         assert!(!labels.contains(&"Sign in again"), "{labels:?}");
         // Sign in: back to the room's address, then not a member.
         eve.sign_in_again();
@@ -1995,7 +1996,7 @@ pub(crate) mod room {
         assert!(!eve.take_opened_elsewhere());
         assert!(eve.take_opened_elsewhere(), "its own notice");
         let items = more_items(&eve, false);
-        assert!(items.iter().any(|(id, l)| id == "leave" && l == "Multiplayer home"));
+        assert!(items.iter().any(|(id, l)| id == "leave" && l == "Leave room"));
         assert_eq!(server.borrow().state().members.len(), 1, "nobody let in");
         // Then the invite link, joined: the shell's kept client of that
         // room, which never reached it, is made anew, and the room is in.

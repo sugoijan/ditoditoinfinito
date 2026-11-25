@@ -340,6 +340,16 @@ fn multiplayer_params(hash: &str, at_load: bool) {
     if let Some(s) = param("mpfakeelsewhere").and_then(|s| s.parse::<f64>().ok()) {
         crate::fake_room::opened_elsewhere(s);
     }
+    // Round BM: `mpfakeremove=S,kick|mirror|close`, S seconds after the
+    // player connected they are kicked by alice, removed by the host's
+    // Twitch lists, or the room closes.
+    if let Some((s, how)) = param("mpfakeremove")
+        .as_deref()
+        .and_then(|v| v.split_once(','))
+        .and_then(|(s, how)| Some((s.parse::<f64>().ok()?, how.to_string())))
+    {
+        crate::fake_room::remove(s, &how);
+    }
     let flag = |key: &str| match param(key).as_deref() {
         Some("1") => Some(true),
         Some("0") => Some(false),
@@ -452,7 +462,23 @@ fn changed() {
 }
 
 pub(crate) fn navigate(next: &str) {
-    visit(next, false);
+    let returning = RETURNING.with_borrow_mut(|r| r.take()).as_deref() == Some(next);
+    visit(next, returning);
+}
+
+thread_local! {
+    /// The route whose next navigation returns to it ([`returning_to`]).
+    static RETURNING: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The next navigation to `next` (a `UiRequest::Navigate` carried out once
+/// the page's own history entries have settled) returns to it as
+/// [`Route::return_to`] does, to its visit earlier in the trail or in the
+/// current entry's place, rather than adding a visit: the page left can
+/// no longer be reached by the browser's Back (round BM: a room gone for
+/// its member, left for the multiplayer home).
+pub(crate) fn returning_to(next: &str) {
+    RETURNING.with_borrow_mut(|r| *r = Some(next.to_string()));
 }
 
 fn visit(next: &str, returning: bool) {

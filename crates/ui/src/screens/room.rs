@@ -2055,21 +2055,10 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
             items.push((RETRY_LOAD.to_string(), m::retry_download().into()));
         }
     }
-    // Never in the room (feedback round AA), or out of it (revision 18:
-    // removed, not let in): its way out is the home.
-    let never_in = matches!(
-        r.link_state(),
-        LinkState::SignInToEnter
-            | LinkState::NotAMember
-            | LinkState::Kicked
-            | LinkState::NotAdmitted
-    );
-    let leave = if never_in {
-        m::multiplayer_home()
-    } else {
-        m::leave()
-    };
-    items.push(("leave".to_string(), leave.into()));
+    // Leave room, to the multiplayer home (round BM: the same words where
+    // the room is gone for the player, whose notice's OK goes there too;
+    // the maintainer: "'Leave room' … is a better term").
+    items.push(("leave".to_string(), m::leave().into()));
     items
 }
 
@@ -2168,82 +2157,64 @@ pub fn kick_button_name(id: u64) -> String {
 }
 
 /// The notice to someone out of the room (revision 18): removed by a host
-/// ([`LinkState::Kicked`]) or not let in ([`LinkState::NotAdmitted`]),
-/// with the way to the multiplayer home.
+/// ([`LinkState::Kicked`]) or not let in ([`LinkState::NotAdmitted`]):
+/// one OK, to the multiplayer home ([`EndedDialog`]).
 pub const REMOVED: &str = "room-removed";
+
+/// The notice that the room is gone for the player another way (round
+/// BM): it closed ([`LinkState::Closed`]), or they are no member any more
+/// by another way than this device's own Leave ([`LinkState::Left`]): one
+/// OK, to the multiplayer home ([`EndedDialog`]).
+pub const ENDED: &str = "room-ended";
 
 /// The notice a link's end asks the person to act on, once each time
 /// (`RoomClient::take_opened_elsewhere`): the room opened on another
-/// device (round P1b), or a room's page opened by someone never in it
-/// (feedback round AA): sign in, or go to the multiplayer home.
+/// device (round P1b: Use this device, or Not now); and, where the room
+/// is gone for them (`RoomClient::room_gone`, round BM), the notice whose
+/// OK goes to the multiplayer home, Escape, Back and a press beside it
+/// too: a room's page opened by someone never in it (feedback round AA;
+/// not signed in: Sign in beside OK), removed or kept out, the room
+/// closed, no member any more.
 pub fn tell_opened_elsewhere(env: &Env, room: &SharedRoom, cx: &mut Cx) {
     // More's End the match now (round AA), asked over the screen.
     if room.borrow().take_end_question() {
         ask_end_match(env, room, cx);
         return;
     }
-    let state = room.borrow().link_state();
-    let home: super::dialog::ConfirmFn = Rc::new(|cx| {
-        cx.broadcast(
-            crate::Message::new(LEAVE_CONFIRMED)
-                .with("Action", crate::message::Param::Str(LeaveBy::More.id().into())),
-        )
-    });
-    match state {
+    let (state, closure) = {
+        let r = room.borrow();
+        (r.link_state(), r.state().closed)
+    };
+    let ended = |name, title: UiText, body: UiText| EndedDialog::new(env.clone(), name, &title, &body);
+    let notice = match state {
         LinkState::SignInToEnter => {
             let room = room.clone();
-            cx.overlay(
-                super::dialog::ConfirmDialog::new(
-                    env.clone(),
-                    &m::link_sign_in_to_enter(),
-                    &m::sign_in_to_enter_body(),
+            Some(
+                ended(NEVER_IN, m::link_sign_in_to_enter(), m::sign_in_to_enter_body()).with_action(
                     &m::sign_in(),
                     Rc::new(move |_| room.borrow_mut().sign_in_again()),
-                )
-                .with_answer(&m::multiplayer_home(), home)
-                .with_no(&m::opened_elsewhere_not_now())
-                .named(NEVER_IN),
-                true,
-            );
-            return;
+                ),
+            )
         }
-        LinkState::NotAMember => {
-            cx.overlay(
-                super::dialog::ConfirmDialog::new(
-                    env.clone(),
-                    &m::link_not_a_member(),
-                    &m::not_a_member_body(),
-                    &m::multiplayer_home(),
-                    home,
-                )
-                .with_no(&common::close())
-                .named(NEVER_IN),
-                true,
-            );
-            return;
-        }
+        LinkState::NotAMember => Some(ended(NEVER_IN, m::link_not_a_member(), m::not_a_member_body())),
         // Revision 18: removed by a host, or not let in.
-        LinkState::Kicked | LinkState::NotAdmitted => {
-            let (title, body) = if state == LinkState::Kicked {
-                (m::link_kicked(), m::kicked_body())
+        LinkState::Kicked => Some(ended(REMOVED, m::link_kicked(), m::kicked_body())),
+        LinkState::NotAdmitted => Some(ended(REMOVED, m::link_not_admitted(), m::not_admitted_body())),
+        // Round BM: the room closed, or no member any more.
+        LinkState::Closed => {
+            let title = if closure == Some(ddi_room::Closure::ByAdministrator) {
+                m::closed_by_operator()
             } else {
-                (m::link_not_admitted(), m::not_admitted_body())
+                m::link_closed()
             };
-            cx.overlay(
-                super::dialog::ConfirmDialog::new(
-                    env.clone(),
-                    &title,
-                    &body,
-                    &m::multiplayer_home(),
-                    home,
-                )
-                .with_no(&common::close())
-                .named(REMOVED),
-                true,
-            );
-            return;
+            Some(ended(ENDED, title, m::ended_body()))
         }
-        _ => {}
+        LinkState::Left => Some(ended(ENDED, m::link_left(), m::ended_body())),
+        _ => None,
+    };
+    if let Some(notice) = notice {
+        cx.overlay(notice, true);
+        return;
     }
     let room = room.clone();
     cx.overlay(
@@ -2258,6 +2229,134 @@ pub fn tell_opened_elsewhere(env: &Env, room: &SharedRoom, cx: &mut Cx) {
         .named(OPENED_ELSEWHERE),
         true,
     );
+}
+
+/// The way out of a room gone for the player: the room's screens leave it
+/// for the multiplayer home (`LEAVE_CONFIRMED`, as More's Leave room).
+fn go_home(cx: &mut Cx) {
+    cx.broadcast(
+        crate::Message::new(LEAVE_CONFIRMED)
+            .with("Action", crate::message::Param::Str(LeaveBy::More.id().into())),
+    );
+}
+
+/// The notice that a room is gone for the player (round BM; the
+/// maintainer, 2026-11-25: a removed person's "Close" left a room screen
+/// where nothing worked): what happened, and OK, which goes to the
+/// multiplayer home, as Escape, Back (the browser's too) and a press
+/// beside it do. Nothing stays on the room's screen. Where the person
+/// can mend it from here (a room's page opened without signing in), a
+/// second button does that first ([`EndedDialog::with_action`]).
+pub struct EndedDialog {
+    env: Env,
+    name: &'static str,
+    title: String,
+    body: String,
+    action: Option<(String, super::dialog::ConfirmFn)>,
+}
+
+impl EndedDialog {
+    pub fn new(env: Env, name: &'static str, title: &str, body: &str) -> EndedDialog {
+        EndedDialog {
+            env,
+            name,
+            title: title.into(),
+            body: body.into(),
+            action: None,
+        }
+    }
+
+    /// With a button `label` before OK that runs `on` instead of going
+    /// home (Sign in).
+    pub fn with_action(mut self, label: &str, on: super::dialog::ConfirmFn) -> EndedDialog {
+        self.action = Some((label.into(), on));
+        self
+    }
+
+    fn home(cx: &mut Cx) {
+        cx.close(false);
+        go_home(cx);
+    }
+}
+
+/// [`EndedDialog`]'s OK button and its second action's.
+pub const ENDED_OK: &str = "Confirm";
+pub const ENDED_ACTION: &str = "Action";
+
+impl crate::screen::Screen for EndedDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        let vp = cx.viewport().screen;
+        let (screen, scale) = super::narrow_fit(&self.env, vp);
+        let w = 520.0_f32.min(screen[0] - 32.0);
+        let body = super::dialog::wrap_lines(&self.body, w - 48.0, 14.0);
+        let h = 160.0 + body.len() as f32 * 18.0;
+        let (mut c, [x, y]) = super::dialog::shell(&self.env, screen, [w, h], &self.title);
+        super::dialog::dialog_body(&self.env, &mut c, &body, [x, y], w, |_| "Muted");
+        let mut buttons: Vec<(&str, String, &str)> = Vec::new();
+        if let Some((label, _)) = &self.action {
+            buttons.push((ENDED_ACTION, label.clone(), "Button"));
+        }
+        buttons.push((ENDED_OK, common::ok().into(), "Button"));
+        let per_row = buttons.len();
+        c.extend(super::dialog::button_rows(&self.env, &buttons, per_row, [x, y, w, h], 180.0));
+        self.env.state.borrow_mut().page_items = buttons.iter().map(|b| b.0.to_string()).collect();
+        super::dialog::fitted_dialog(c, screen, h, scale)
+    }
+
+    fn focusables(&self) -> Vec<crate::nav::Focusable> {
+        let mut v = Vec::new();
+        if self.action.is_some() {
+            v.push(crate::nav::Focusable::new(ENDED_ACTION));
+        }
+        v.push(crate::nav::Focusable::new(ENDED_OK));
+        v
+    }
+
+    fn input(
+        &mut self,
+        input: &crate::screen::Input,
+        _root: &mut Actor,
+        cx: &mut Cx,
+    ) -> crate::screen::Handled {
+        use crate::screen::{Handled, Input};
+        match input {
+            Input::Activate { name } if name == ENDED_ACTION => {
+                if let Some((_, on)) = &self.action {
+                    on(cx);
+                }
+                cx.close(false);
+                Handled::Yes
+            }
+            // OK; Escape, Back, a press beside it (on the dimmed screen
+            // around it, or past it): the same.
+            Input::Activate { .. }
+            | Input::Menu {
+                action: crate::nav::MenuAction::Back,
+                ..
+            }
+            | Input::Outside => {
+                Self::home(cx);
+                Handled::Yes
+            }
+            Input::Pointer {
+                target: Some(t),
+                gesture: crate::gesture::Gesture::Tap,
+                ..
+            } if t.name == "Dim" => {
+                Self::home(cx);
+                Handled::Yes
+            }
+            _ => Handled::No,
+        }
+    }
 }
 
 /// More's Replace invite link (an operator's, round B1), asked once.

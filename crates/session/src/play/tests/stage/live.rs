@@ -861,6 +861,65 @@ fn a_socket_lost_mid_stage_resends_and_resumes_the_stage_whole() {
     assert_eq!(stage.end(ids[1]), Some(StreamEnd::Finished));
 }
 
+/// Round BM: a player removed from the room during their play (a host's
+/// kick, 4403; kept out by the host's Twitch lists, 4406; the room
+/// closed, 4410): the room has them out of the stage at once, and their
+/// play here is left as a quit is, within a few frames, judged to then:
+/// what is left to watch of the stage stops and says why (`seat_end`), or
+/// the play ends on its results. The others play on.
+#[test]
+fn a_player_removed_during_their_play_leaves_it_at_once() {
+    use ddi_room::online::close;
+    for (code, end) in [
+        (close::KICKED, ddi_ui::state::room::SeatEnd::Removed),
+        (close::NOT_ADMITTED, ddi_ui::state::room::SeatEnd::NotAdmitted),
+    ] {
+        let song = bundled("beatucada");
+        let r = Room::new(
+            &[
+                ("alice", Intent::Play),
+                ("bob", Intent::Play),
+                ("carol", Intent::Play),
+            ],
+            None,
+        );
+        let orders = pick_and_ready(&r, &song, true, 0);
+        let mut plays = sessions(&r, &song, &orders, &[0.0, 0.0, 0.0]);
+        let ids: Vec<_> = r.rooms.iter().map(|x| x.borrow().me()).collect();
+        let server = r.server.clone();
+        let mut removed_at = None;
+        let mut left_at = None;
+        let ended = play_out(&r, &mut plays, 60.0, |t, plays| {
+            if t > 20.0 && removed_at.is_none() {
+                removed_at = Some(t);
+                server
+                    .borrow_mut()
+                    .fault(ids[1], ddi_room::fake::Fault::Close(code));
+            }
+            let host = *r.host.borrow();
+            let bob = &plays[1];
+            if left_at.is_none() && bob.battle().is_some_and(|b| b.seat_end().is_some()) {
+                assert_eq!(bob.battle().unwrap().seat_end(), Some(&end));
+            }
+            if left_at.is_none()
+                && bob
+                    .watch(host)
+                    .is_some_and(|w| w.why == Watching::Left && w.ended)
+            {
+                left_at = Some(t);
+            }
+        });
+        let removed_at = removed_at.expect("removed");
+        let bob_left = match &ended[1] {
+            Some((SessionEvent::Aborted { .. }, _)) => true,
+            _ => left_at.is_some_and(|at| at - removed_at < 1.0),
+        };
+        assert!(bob_left, "{code}: ended {} {left_at:?}", ended[1].is_some());
+        assert!(plays[1].player.results().quit, "graded QUIT");
+        assert!(!plays[0].player.results().quit, "Alice plays on");
+    }
+}
+
 /// The room's object restarts mid-stage (`FakeServer::restart_live`, as
 /// the server's may): its live part is lost, every batch is answered
 /// `unknown_stage`. Each play keeps going, stops streaming, says so on the

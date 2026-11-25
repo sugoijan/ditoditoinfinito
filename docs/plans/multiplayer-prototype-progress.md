@@ -15523,3 +15523,21 @@ the same with the chat on. `docs/plans/multiplayer-twitch.md`, "Round SD".
   singleplayer's": a room's header shows the match's rules in their few
   words where singleplayer shows the player's ruleset's options.)
 
+
+## Round BM (2026-11-25): a room's ends for its member
+
+`docs/plans/multiplayer-twitch.md`, "Round BM", has the table of every
+end before and after. In short: removed by a host, kept out by the host's
+Twitch lists, the room closed (by its host leaving, its end or the
+server's operator), no member any more, and a room's page opened by
+someone never in it each show one notice whose one button, OK, leaves
+for the multiplayer home, as Escape, Back (the browser's too) and a press
+on the dim around it do (`screens::room::EndedDialog`,
+`RoomClient::room_gone`); a page opened signed out keeps Sign in beside
+OK; the room opened on another device keeps Use this device and Not now.
+No prompt is a gone room's player's (`RoomClient::view`); a play still
+running is left as a quit (`LiveRoom::seat_end` for a member,
+`SeatEnd::Removed`, `SeatEnd::NotAdmitted`); More's way out reads Leave
+room everywhere; the web leaves a gone room with the history returning
+to `#/mp` (`router::returning_to`). TESTING ONLY: `mpfakeremove=S,
+kick|mirror|close` in the web's fake room.

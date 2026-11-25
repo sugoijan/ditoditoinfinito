@@ -1623,6 +1623,21 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             self.view.restarting = true;
         }
         let over = self.scene_until.is_some_and(|at| song_now >= at);
+        // The player's own link to the room ended for good during their
+        // play (round BM: removed by a host, kept out by the host's Twitch
+        // lists, the room closed): the room has them out of the stage
+        // already, so the play is left as a quit is (graded QUIT, judged
+        // to now), on to what is left to watch of it, which then stops
+        // and says why (`seat_end`), or to its results; the room's song
+        // select then says the room is gone, its OK going to the
+        // multiplayer home.
+        if !self.aborted
+            && self.watch.is_none()
+            && !self.player.finished()
+            && self.battle.as_ref().is_some_and(|b| b.seat_end().is_some())
+        {
+            self.aborted = true;
+        }
         // Leaving a stage's play while still in it forfeits the stage and
         // goes on to watch the rest of it (the maintainer, 2026-11-12):
         // out by quitting is out by life's path. Where nothing is left to

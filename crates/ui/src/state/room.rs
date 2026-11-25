@@ -1779,9 +1779,10 @@ pub trait LiveRoom {
     }
     /// Why this device's link to the stage ended for good, where it did
     /// (an audience's seat: the audience closed, the room ended, its link
-    /// replaced): what it shows of the stage is stale from then on. A
-    /// member's never does (its link reconnects; the room's end is said by
-    /// its phase).
+    /// replaced; a member's, round BM: removed by a host, kept out by the
+    /// host's Twitch lists, the room closed): what it shows of the stage
+    /// is stale from then on. A member's link that drops reconnects and
+    /// never ends so.
     fn seat_end(&self) -> Option<SeatEnd> {
         None
     }
@@ -1854,6 +1855,10 @@ pub enum SeatEnd {
     /// Its link is no longer the room's (the invite replaced): a new
     /// ticket was refused.
     LinkReplaced,
+    /// A member removed by a host (4403, round BM).
+    Removed,
+    /// A member the host's Twitch lists keep out (4406, round BM).
+    NotAdmitted,
     /// Another refusal of a new ticket (its code: data).
     Refused(String),
 }
@@ -1979,6 +1984,22 @@ pub fn ranking_of(placements: &[Placement]) -> Vec<Vec<Finisher>> {
 impl LiveRoom for RoomClient {
     fn room_chat(&self) -> Option<Option<crate::state::twitch::RoomChat>> {
         self.is_online().then(|| self.stage_chat())
+    }
+
+    /// Round BM: a member's link ends for good when a host removed them,
+    /// the host's Twitch lists keep them out, or the room closed: a play
+    /// of theirs still running is left as a quit is, and a stage they
+    /// watch stops, saying why.
+    fn seat_end(&self) -> Option<SeatEnd> {
+        match self.link_state() {
+            LinkState::Kicked => Some(SeatEnd::Removed),
+            LinkState::NotAdmitted => Some(SeatEnd::NotAdmitted),
+            LinkState::Closed if self.state().closed == Some(ddi_room::Closure::ByAdministrator) => {
+                Some(SeatEnd::ClosedByOperator)
+            }
+            LinkState::Closed => Some(SeatEnd::RoomClosed),
+            _ => None,
+        }
     }
 
     fn lineup(&self, stage: StageId) -> Option<Vec<ParticipantId>> {
@@ -2507,6 +2528,30 @@ impl RoomClient {
     pub fn link_state(&self) -> LinkState {
         self.online_link()
             .map_or(LinkState::Connected, OnlineLink::state)
+    }
+
+    /// Whether this online room is gone for the local player for good,
+    /// their screens showing nothing they can do in it (round BM): removed
+    /// by a host (`LinkState::Kicked`), kept out by the host's Twitch lists
+    /// (`NotAdmitted`), the room closed (`Closed`), no member any more by
+    /// another way than this device's own Leave (`Left`), or a room's page
+    /// opened by someone never in it (`NotAMember`, `SignInToEnter`). Its
+    /// screens say so in a notice whose OK goes to the multiplayer home
+    /// (`screens::room::tell_opened_elsewhere`), no stage's prompt is
+    /// theirs ([`RoomClient::view`]), and a play of theirs still running
+    /// is left as a quit is ([`LiveRoom::seat_end`]). Not the ends a
+    /// person mends from here (signed out, the room opened on another
+    /// device, a newer game or server).
+    pub fn room_gone(&self) -> bool {
+        match self.link_state() {
+            LinkState::Kicked
+            | LinkState::NotAdmitted
+            | LinkState::Closed
+            | LinkState::NotAMember
+            | LinkState::SignInToEnter => true,
+            LinkState::Left => self.left_at.is_none(),
+            _ => false,
+        }
     }
 
     /// The room's name (online, once read).
@@ -3231,8 +3276,11 @@ impl RoomClient {
         }
         let state = self.link_state();
         let never_in = matches!(state, LinkState::SignInToEnter | LinkState::NotAMember);
-        // Removed from the room (revision 18): told once, as a stop is.
-        let removed = matches!(state, LinkState::Kicked | LinkState::NotAdmitted);
+        // Removed from the room (revision 18), or the room gone for them
+        // another way (round BM: closed, or no member any more other than
+        // by this device's own Leave): told once, as a stop is.
+        let removed = matches!(state, LinkState::Kicked | LinkState::NotAdmitted)
+            || (matches!(state, LinkState::Closed | LinkState::Left) && self.room_gone());
         if state != LinkState::OpenedElsewhere && !never_in && !removed {
             if !state.ended() {
                 // The link went on (signed in, joining again): its next
@@ -3604,6 +3652,11 @@ impl RoomClient {
     /// What the room's screens should show now (M7b): the start prompt of
     /// the stage this player is in or may still join, else song select.
     pub fn view(&self) -> RoomView {
+        // Gone for this player (round BM): no prompt of theirs; the room's
+        // song select says so.
+        if self.room_gone() {
+            return RoomView::Select;
+        }
         match self.prompt_stage() {
             Some(stage) => RoomView::Prompt(stage),
             None => RoomView::Select,

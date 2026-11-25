@@ -279,7 +279,13 @@ impl PromptScreen {
         }
         let changed = rm.pump.borrow_mut().run(&rm.room, &rm.shell, cx);
         // This device stopped for another of the person's (round P1b).
-        if cx.is_current_screen() && rm.room.borrow().take_opened_elsewhere() {
+        // A room gone for the player (round BM) is said by the room's song
+        // select, which the prompt goes back to (`RoomClient::view`), and
+        // whose notice's OK leaves for the multiplayer home.
+        if cx.is_current_screen()
+            && !rm.room.borrow().room_gone()
+            && rm.room.borrow().take_opened_elsewhere()
+        {
             room::tell_opened_elsewhere(&self.env, &rm.room, cx);
         }
         if room::quit_due(&rm.room, rm.quit_at.get(), cx.time()) {
@@ -414,6 +420,9 @@ impl PromptScreen {
             // Why the player sits the stage out, as the room's status
             // line says it.
             let line = match r.state().participation(r.me()) {
+                // The room gone for them (round BM): its own line (removed,
+                // kept out, closed).
+                _ if r.room_gone() => room::status_line(&r),
                 Some(Participation::SittingOut { stage, reason }) => {
                     room::sat_out_status(&r, stage, reason)
                 }

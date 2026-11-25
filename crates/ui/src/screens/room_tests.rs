@@ -4100,7 +4100,9 @@ fn practice_is_known_from_its_first_frame() {
 /// A link that ends before the room is known (not a member, the room
 /// closed, the sign-in ended) says so where the joining line is: never
 /// "Joining the room…" for good. Since feedback round AA a person who was
-/// never in the room is told that, with its notice, never "You left".
+/// never in the room is told that, with its notice, never "You left";
+/// since round BM that notice's one button, OK, leaves for the
+/// multiplayer home.
 #[test]
 fn a_room_that_cannot_be_joined_says_why() {
     use crate::state::online::tests::room::{client, person};
@@ -4112,16 +4114,162 @@ fn a_room_that_cannot_be_joined_says_why() {
         1_000,
     )));
     let env = env();
-    let mut h = online_select(&env, &dave, songs_of(&["Delta One"]), &Orders::default());
+    let calls: Calls = Rc::default();
+    let mut h = harness();
+    h.push(
+        sample::room_select(&env, dave.clone(), songs_of(&["Delta One"]))
+            .with_room(dave.clone(), leaving_shell(&dave, &Orders::default(), &calls)),
+    );
     frames(&t.clock, &[&dave], &mut h, 1.5, &[]);
     assert_eq!(super::test_kit::top(&h), super::room::NEVER_IN);
-    h.tap(PointerKind::Mouse, "Cancel");
-    frames(&t.clock, &[&dave], &mut h, 0.5, &[]);
-    assert!(no_view(&h), "{:?}", h.texts());
     let never = "You're not in this room. Ask its host for the invite link.";
     assert_eq!(said(&h, "RoomJoining"), never);
-    assert_eq!(alpha(&h, "RoomJoining"), 1.0);
     assert_eq!(view(&env).status, never);
+    assert!(there(&h, super::room::ENDED_OK) && !there(&h, "Cancel"), "{:?}", h.texts());
+    h.tap(PointerKind::Mouse, super::room::ENDED_OK);
+    frames(&t.clock, &[&dave], &mut h, 0.5, &[]);
+    assert_eq!(*calls.borrow(), ["discard"]);
+}
+
+/// Round BM (the maintainer's run of 2026-11-25: a removed person's
+/// "Close" left a room screen where Ready and the rest did nothing): every
+/// end of a room for its member shows one notice with one button, OK,
+/// and leaves for the multiplayer home (the room forgotten) by it, by
+/// Escape (the browser's Back is the same), and by a press beside it;
+/// nothing stays on the dead room. Removed by a host (4403), kept out by
+/// the host's Twitch lists (4406), the room closed (4410), no member any
+/// more by another way than this device's Leave (4000). No stage's prompt
+/// is theirs once the room is gone.
+#[test]
+fn each_end_of_a_room_shows_one_ok_and_leaves_for_the_home() {
+    use ddi_room::online::close;
+    use ddi_room::{LinkState, ParticipantId};
+    let ends = [
+        (close::KICKED, LinkState::Kicked, super::room::REMOVED, "The host removed you from the room."),
+        (close::NOT_ADMITTED, LinkState::NotAdmitted, super::room::REMOVED, "You can't join this room."),
+        (close::ROOM_CLOSED, LinkState::Closed, super::room::ENDED, "This room has closed."),
+        (close::LEFT, LinkState::Left, super::room::ENDED, "You left this room."),
+    ];
+    for (k, (code, state, layer, title)) in ends.into_iter().enumerate() {
+        for how in ["ok", "escape", "outside"] {
+            let t = Three::new(false);
+            let env = env();
+            let calls: Calls = Rc::default();
+            let mut h = harness();
+            h.push(
+                sample::room_select(&env, t.carol.clone(), songs_of(&["Charlie One"]))
+                    .with_room(t.carol.clone(), leaving_shell(&t.carol, &Orders::default(), &calls)),
+            );
+            t.settle(400, &mut [&mut h]);
+            t.server
+                .borrow_mut()
+                .fault(ParticipantId(3), ddi_room::fake::Fault::Close(code));
+            t.settle(400, &mut [&mut h]);
+            assert_eq!(t.carol.borrow().link_state(), state, "{k}");
+            assert!(t.carol.borrow().room_gone());
+            assert_eq!(t.carol.borrow().view(), crate::state::room::RoomView::Select);
+            assert_eq!(top(&h), layer, "{k} {:?}", h.texts());
+            let texts = h.texts();
+            assert!(has(&h, title), "{k} {texts:?}");
+            assert!(has(&h, "OK"), "{k} {texts:?}");
+            for not in ["Close", "Multiplayer home", "Cancel", "Not now"] {
+                assert!(!texts.iter().any(|t| t == not), "{k} {not}: {texts:?}");
+            }
+            assert!(there(&h, super::room::ENDED_OK) && !there(&h, super::room::ENDED_ACTION));
+            let _ = match how {
+                "ok" => h.tap(PointerKind::Mouse, super::room::ENDED_OK),
+                "escape" => h.key("Escape", "Escape"),
+                _ => h.tap_at(PointerKind::Mouse, [30.0, 400.0]),
+            };
+            t.settle(400, &mut [&mut h]);
+            assert_eq!(*calls.borrow(), ["discard"], "{k} {how}");
+            assert_ne!(top(&h), layer, "{k} {how}: told once");
+        }
+    }
+}
+
+/// Round BM: removed while their stage's prompt shows (the Ready card),
+/// a member is not left on it: no notice over the prompt, which goes back
+/// to the room (`RoomClient::view`, its line the room's own), whose song
+/// select tells the end with its one OK, the home.
+#[test]
+fn removed_on_a_stages_prompt_goes_back_and_is_told_once() {
+    use crate::state::online::tests::room::{prepare, upload};
+    use ddi_room::ParticipantId;
+    let t = Three::new(false);
+    let ec = env();
+    let orders = Orders::default();
+    let everyone = [&t.alice, &t.bob, &t.carol];
+    t.step(400);
+    t.step(400);
+    let song = songs_of(&["Alpha One"]).songs.remove(0);
+    t.alice.borrow_mut().pick(&song, &song.charts[0]).unwrap();
+    t.step(400);
+    upload(&t.server, &mut t.alice.borrow_mut(), "abc12340");
+    t.step(400);
+    for r in everyone {
+        prepare(&mut r.borrow_mut());
+    }
+    t.step(400);
+    let order = t.carol.borrow_mut().take_stage_order().expect("her prompt");
+    let calls: Calls = Rc::default();
+    let chose: Rc<RefCell<Vec<PromptChoice>>> = Rc::default();
+    let mut h = harness();
+    h.push(
+        sample::room_select(&ec, t.carol.clone(), songs_of(&["Alpha One"]))
+            .with_room(t.carol.clone(), leaving_shell(&t.carol, &orders, &calls)),
+    );
+    let state = Rc::new(RefCell::new(PromptState::default()));
+    let sink = chose.clone();
+    h.push(
+        PromptScreen::new(ec.clone(), state, Rc::new(move |c, cx| {
+            let back = c == PromptChoice::Back;
+            sink.borrow_mut().push(c);
+            if back {
+                cx.close(true);
+            }
+        }))
+        .with_room(t.carol.clone(), order.stage, leaving_shell(&t.carol, &orders, &calls)),
+    );
+    t.settle(400, &mut [&mut h]);
+    assert_eq!(top(&h), "play-prompt");
+    t.server
+        .borrow_mut()
+        .fault(ParticipantId(3), ddi_room::fake::Fault::Close(ddi_room::online::close::KICKED));
+    t.settle(400, &mut [&mut h]);
+    assert_ne!(top(&h), super::room::REMOVED, "never over the prompt");
+    assert!(has(&h, "The host removed you from the room."), "{:?}", h.texts());
+    for _ in 0..12 {
+        t.settle(200, &mut [&mut h]);
+    }
+    assert!(chose.borrow().contains(&PromptChoice::Back), "{:?}", chose.borrow());
+    assert_eq!(top(&h), super::room::REMOVED, "{:?}", h.texts());
+    h.tap(PointerKind::Mouse, super::room::ENDED_OK);
+    t.settle(400, &mut [&mut h]);
+    assert_eq!(*calls.borrow(), ["discard"]);
+}
+
+/// Round BM: leaving by this device's own Leave is no end to be told:
+/// the room's answer (4000) after More's Leave room brings no notice.
+#[test]
+fn ones_own_leave_is_not_told_as_an_end() {
+    let t = Three::new(false);
+    let env = env();
+    let calls: Calls = Rc::default();
+    let mut h = harness();
+    h.push(
+        sample::room_select(&env, t.carol.clone(), songs_of(&["Charlie One"]))
+            .with_room(t.carol.clone(), leaving_shell(&t.carol, &Orders::default(), &calls)),
+    );
+    t.settle(400, &mut [&mut h]);
+    press(&mut h, "More");
+    h.tap(PointerKind::Mouse, "Item.leave");
+    t.settle(400, &mut [&mut h]);
+    t.settle(400, &mut [&mut h]);
+    assert_eq!(t.carol.borrow().link_state(), ddi_room::LinkState::Left);
+    assert!(!t.carol.borrow().room_gone());
+    assert_eq!(*calls.borrow(), ["discard"]);
+    assert_ne!(top(&h), super::room::ENDED, "{:?}", h.texts());
 }
 
 fn role_of(v: &super::room::RoomView, id: u64) -> String {

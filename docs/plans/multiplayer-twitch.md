@@ -1942,3 +1942,88 @@ entry for entry (7TV 42 / 18 animated, BetterTTV 56 / 1, FrankerFaceZ 9 /
 answer agrees as it did under round BE's patch. The web app's wasm:
 15,517,403 bytes (6,472,347 gzipped), 1,749 (2,615) more than with 0.0.7;
 `check-boot` 12,417 of 12,552 gzipped.
+
+## Round BM (2026-11-25): the maintainer's run against Twitch, and a room's ends
+
+The maintainer ran the ban mirror against real Twitch for the first time,
+with a second account, in ten steps. Worked: a join refused while banned;
+an unban and the five-minute answer; banned inside, then kicked (kept out
+at once); banned inside, then a pick (removed); blocks; the mirror turned
+on with a banned person inside; a reconnect; access ended. Did not: **a
+timeout, then a kick, let the person back in while the timeout lasted.**
+
+**The timeout (the server, `../ddi-server`).** Read against Twitch's API
+reference for Get Banned Users (fetched 2026-11-25): the endpoint lists
+people "banned or put in a timeout", a `user_id` filter returns only those
+banned or timed out and an empty `pagination` object, `expires_at` is an
+RFC 3339 time for a timeout and an empty string for a ban, and the
+example answer is `"expires_at": "2022-03-15T02:00:28Z"`. The server read
+that shape right: the reader, the "until when" kept in memory, the kept
+answer no longer than the timeout and the join's decision treat a timeout
+as a ban until its end, and the kick forgets the answer kept, as for a
+ban. So the cause was not found by reading, and nothing was guessed:
+
+- One way the server let such a person in was found and closed: an
+  `expires_at` it could not read was read by `Date.parse` as `NaN`, taken
+  as 0, a timeout over in 1970. It is now read by the server's own RFC
+  3339 reader (`twitch::rfc3339_ms`, the same natively and in the
+  Worker), and a listed person whose end is unreadable is kept out (with
+  no end of its own: asked again after the answer's five minutes). The
+  documented shape reads the same as before.
+- The fake Twitch now answers Get Banned Users as a body in the
+  documented shape, read by the reader Twitch's answer goes through, and
+  the documentation's example is a fixture
+  (`worker/src/fixtures/twitch-get-banned-users.json`, written from the
+  documentation, not recorded), so a fake shaped otherwise cannot hide a
+  reading again. Tests through the room's own path: a timeout then a kick
+  refused until its end and admitted after it; a timeout longer than the
+  kept answer asked again and still refused; a ban unchanged; an
+  `expires_at` of `null` still no ban (not read, let in, B8); the blocks
+  only where the mirror reads them.
+- What real answer could explain the run: Twitch not listing the timeout
+  when asked (a lag after `/timeout`, or the person's join coming before
+  it was listed); Twitch slow past the 2 s deadline or an answer not read
+  (B8 lets in); a time format the old reader could not read (now kept
+  out). The server now logs each check without names: the `TwitchLink`'s
+  `twitch: check of N (blocks …): get banned users: http …, N rows;
+  expires_at: … empty, … times read (ending in … s), … not read, …; time
+  shapes: dddd-dd-ddTdd:dd:ddZ; fields: …; nulls: …; pagination: …; kept
+  out: …; answered|unreachable or not read: let in`, and the room's
+  `room: <id>: the mirror's join|ticket: kept out|let in on an answer
+  kept|on the lists' answer (…)`. **To retest:** time the second account
+  out (`/timeout <name> 120`), wait a few seconds, kick it, rejoin by the
+  invite within the two minutes, and note the time; then read those two
+  lines in the Worker's logs at that minute. Rows 0 means Twitch did not
+  list the timeout; `not read` or a time shape other than the one above
+  means its format; `unreachable` means slow or unread.
+
+**A room's ends (the game).** A removed person's notice had "Multiplayer
+home" and "Close", and Close left a room screen where nothing worked.
+Every end of a room for its member now has one notice with one button,
+OK, which leaves for the multiplayer home, as Escape, Back (the browser's
+too) and a press beside it do (`screens::room::EndedDialog`,
+`RoomClient::room_gone`):
+
+| End | Before | After |
+|---|---|---|
+| Removed by a host (4403) | "The host removed you from the room." Multiplayer home, Close | the same words, OK |
+| Kept out by the host's Twitch (4406) | "You can't join this room." Multiplayer home, Close | the same words, OK |
+| The room closed (4410: its host left with Close, it ended) | the status line alone, the room's screen dead | "This room has closed." "You'll go back to the multiplayer home." OK |
+| Closed by the server's operator | the status line alone | "The room was closed." the same, OK |
+| No member any more (4000, not this device's own Leave) | the status line alone | "You left this room." the same, OK |
+| A room's page, signed in, never a member | Multiplayer home, Close | the same words, OK |
+| A room's page, not signed in | Sign in, Multiplayer home, Not now | Sign in, OK |
+| Opened on another device (4429) | Use this device, Not now | unchanged: the room is not gone, More's Use this device |
+| Signed out, a newer game, the server being updated | the status line, More's action | unchanged: mended from the room's screen |
+
+No stage's prompt is a gone room's player's (`RoomClient::view`): a
+prompt showing goes back to the room, saying why, and the room's song
+select tells the end. A play still running is left as a quit is
+(graded QUIT, judged to then: `LiveRoom::seat_end` now ends a member's
+link where they were removed, kept out or the room closed, and the
+session leaves the play), what is left to watch of the stage stops and
+says why, then the results, then the notice. More's way out reads Leave
+room in every case ("Multiplayer home" went from the notices and More,
+and its message with it). The web leaves a gone room with the history
+returning to the multiplayer home (`router::returning_to`): the browser's
+Back does not reach the dead room again.

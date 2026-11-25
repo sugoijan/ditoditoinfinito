@@ -30,6 +30,10 @@ common-cancel = Cancel
 # Closes a dialog or a panel that only shows something.
 common-close = Close
 
+# Acknowledges a notice; what the notice says follows (a room gone for the
+# player: back to the multiplayer home).
+common-ok = OK
+
 # Opens a menu of a screen's further actions.
 common-more = More
 

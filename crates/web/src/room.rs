@@ -620,6 +620,11 @@ pub(crate) fn shell(which: RoomRoute) -> ddi_ui::screens::room::RoomShell {
     Rc::new(move |call, cx| match call {
         RoomCall::Leave => cx.request(UiRequest::Navigate(Route::Multiplayer.to_hash())),
         RoomCall::Discard => {
+            // A room gone for its member (round BM: removed, kept out,
+            // closed): never reached again by the browser's Back.
+            if room.try_borrow().is_ok_and(|r| r.room_gone()) {
+                crate::router::returning_to(&Route::Multiplayer.to_hash());
+            }
             match &which {
                 RoomRoute::Practice => discard(),
                 RoomRoute::Online(_) => crate::online::discard(),
@@ -1036,6 +1041,9 @@ pub(crate) fn results_shell() -> ddi_ui::screens::room::RoomShell {
     Rc::new(move |call, cx| match call {
         RoomCall::Leave => cx.request(UiRequest::Navigate(Route::Multiplayer.to_hash())),
         RoomCall::Discard => {
+            if last_room().try_borrow().is_ok_and(|r| r.room_gone()) {
+                crate::router::returning_to(&Route::Multiplayer.to_hash());
+            }
             if last_room().try_borrow().is_ok_and(|r| r.is_online()) {
                 crate::online::discard();
             } else {

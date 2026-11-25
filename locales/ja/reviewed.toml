@@ -9933,12 +9933,6 @@ text = "0da9363c80268c44"
 by = "agent"
 date = "2026-11-22"
 
-[room-multiplayer-home]
-source = "9df83417d6434701"
-text = "b249fd6d0a3844b1"
-by = "agent"
-date = "2026-11-22"
-
 [room-next-match]
 source = "1af49518e8d88541"
 text = "5bc90e1bf3bda5d5"

@@ -1288,6 +1288,11 @@ room-server-updating = The server is being updated. Try again in a moment.
 # The status line after leaving.
 room-link-left = You left this room.
 
+# Round BM: the text of the notice titled by one of the two lines above
+# (the room closed, or the player no member any more): its one button,
+# OK, goes to the multiplayer home.
+room-ended-body = You'll go back to the multiplayer home.
+
 # Feedback round AA: the status line, and the notice's title, on a room's
 # page opened by someone not signed in here (the room's page address
 # shared in place of its invite link, or a reload after the sign-in
@@ -1305,10 +1310,6 @@ room-link-not-a-member = You're not in this room. Ask its host for the invite li
 
 # The notice's text under that title.
 room-not-a-member-body = A room's page address doesn't let anyone in; its invite link does. Ask the host to send it to you (the room's More, Copy invite link).
-
-# A button (those notices', and More's item in Leave room's place there)
-# that goes to the multiplayer home (about 16 letters).
-room-multiplayer-home = Multiplayer home
 
 # Under a person's name in the players' column (about 16 letters each).
 room-role-host = Host

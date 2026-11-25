@@ -2245,7 +2245,9 @@ Rust and the browser are implementation details, not advertised features.
   streams the chart); `mpfakefail=N` fails the player's first N
   downloads of a stage's song, `mpfakeslow=S` makes each take S
   seconds, `mpfakeelsewhere=S` closes the player's socket 4429 S
-  seconds after a pick (a fifth device; away after 5 s)
+  seconds after a pick (a fifth device; away after 5 s), and
+  `mpfakeremove=S,kick|mirror|close` removes the player S seconds after
+  they connected (alice's Kick, the host's Twitch lists, the room closed)
   (`crate::fake_room`: a member's view without a server). `Trunk.toml` passes `/api/` (redirects untouched) and
   `/api/sockets/` (WebSockets) to `just dev` of `../ddi-server`.
 - `tools/danoni-importer/` the native helper, a root workspace member requiring
@@ -2692,7 +2694,7 @@ comes or goes). The testing parameters (`gfx`, `auto`, `bias`,
 `crate::ratings`), and the multiplayer ones, `mprules`,
 `mpwatchlink`, `mpattacks`, `mpcpus`, `mpdevmines`, `mpfakeseat`,
 `mpfakeend`, `mpfakematch`, `mpfakeroom`, `mpfakeready`, `mpfakelive`,
-`mpfakefail`, `mpfakeslow`, `mpfakeelsewhere`, and the scripted chat's
+`mpfakefail`, `mpfakeslow`, `mpfakeelsewhere`, `mpfakeremove`, and the scripted chat's
 `mpfakechat`, `mpfakechatimg`, and the live chat's `mpfakechat=live`
 with `mpfakechaturl`, round TW6) take effect given in the address the page loads on, on any
 route (`#/select?perf=1`, `#/mp?mpcpus=16`, `#/options?lang=ja`;

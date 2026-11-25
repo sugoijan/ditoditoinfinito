@@ -31,7 +31,11 @@
 //! `mpfakeelsewhere=S`, S seconds after a pick the server closes the
 //! player's socket 4429, as when a fifth device of theirs opens the room
 //! (the notice and Use this device; the room's reconnect grace 5 s here,
-//! so that a member gone that long is away and sits a stage out as such).
+//! so that a member gone that long is away and sits a stage out as such);
+//! and (round BM) `mpfakeremove=S,kick|mirror|close`, S seconds after the
+//! player connected alice kicks them (her own Kick: 4403), the host's
+//! Twitch lists remove them (the server's removal: 4406), or the room
+//! closes (4410): the notice whose one OK goes to the multiplayer home.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -61,6 +65,9 @@ thread_local! {
     /// Asked for (`mpfakeelsewhere=S`): how long after a pick the server
     /// closes the player's socket 4429, seconds.
     static ELSEWHERE: Cell<Option<f64>> = const { Cell::new(None) };
+    /// Asked for (`mpfakeremove=S,HOW`): how long after the player
+    /// connected they are removed, and how.
+    static REMOVE: RefCell<Option<(f64, String)>> = const { RefCell::new(None) };
     static FAKE: RefCell<Option<Rc<RefCell<Fake>>>> = const { RefCell::new(None) };
 }
 
@@ -102,6 +109,14 @@ pub(crate) fn opened_elsewhere(seconds: f64) {
     ELSEWHERE.set(Some(seconds.max(0.0)));
 }
 
+/// `seconds` after the player connected they are removed from the room
+/// (`mpfakeremove=S,HOW`, round BM): `kick` (alice's Kick), `mirror` (the
+/// host's Twitch lists, the server's removal) or `close` (the room
+/// closed).
+pub(crate) fn remove(seconds: f64, how: &str) {
+    REMOVE.with_borrow_mut(|r| *r = Some((seconds.max(0.0), how.to_string())));
+}
+
 /// The reconnect grace the fake server gives where it closes the player's
 /// socket (the real one's is 30 s): a member gone that long is away.
 const GRACE_MS: u64 = 5_000;
@@ -140,6 +155,8 @@ struct Fake {
     /// When the last pick was seen (alice's), and whether the player's
     /// socket was closed for it ([`ELSEWHERE`]).
     picked_at: Option<(ddi_room::StageId, u64, bool)>,
+    /// The player was removed ([`REMOVE`]).
+    removed: bool,
     /// The song, once read, and bob's stream of a live stage.
     song: Rc<RefCell<Option<Rc<ddi_chart::Song>>>>,
     stream: Option<(ddi_room::StageId, ddi_room::Millis, crate::fake_seat::Script)>,
@@ -198,6 +215,7 @@ fn fake() -> Rc<RefCell<Fake>> {
         connected_at: None,
         listed: false,
         picked: false,
+        removed: false,
         ready_at: [None; 2],
         playing: [None; 2],
         picked_at: None,
@@ -463,6 +481,50 @@ impl Fake {
         self.picked_at = Some((stage, at, closed || close));
     }
 
+    /// [`REMOVE`]'s seconds after the player connected, the player removed
+    /// as it says (round BM).
+    fn remove(&mut self, now: u64) {
+        let Some((after, how)) = REMOVE.with_borrow(|r| r.clone()) else {
+            return;
+        };
+        let Some(at) = self.connected_at else {
+            return;
+        };
+        if self.removed || now < at + (after * 1_000.0) as u64 {
+            return;
+        }
+        let you = self
+            .server
+            .borrow()
+            .state()
+            .member_by_identity(&Identity::new("dev:you"))
+            .map(|m| m.id);
+        let Some(you) = you else {
+            return;
+        };
+        self.removed = true;
+        web_sys::console::log_1(&format!("fake room: the player removed ({how}, mpfakeremove)").into());
+        let close = ddi_room::online::close::ROOM_CLOSED;
+        match how.as_str() {
+            "kick" => {
+                if let Ok(mut a) = self.alice.try_borrow_mut() {
+                    let _ = a.kick(you);
+                }
+            }
+            "mirror" => {
+                let _ = self.server.borrow_mut().authority(Command::Remove { participant: you });
+                self.server
+                    .borrow_mut()
+                    .fault(you, ddi_room::fake::Fault::Close(ddi_room::online::close::NOT_ADMITTED));
+            }
+            _ => {
+                self.server
+                    .borrow_mut()
+                    .fault(you, ddi_room::fake::Fault::Close(close));
+            }
+        }
+    }
+
     fn pump(&mut self) {
         let now = now_ms();
         self.clock.set(now.max(self.clock.now().0));
@@ -548,6 +610,7 @@ impl Fake {
                 }
             }
         }
+        self.remove(now);
         if !self.picked {
             return;
         }

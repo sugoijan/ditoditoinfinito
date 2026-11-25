@@ -2136,6 +2136,9 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         Fault::Close(ddi_room::online::close::ROOM_CLOSED),
     );
     step(1_000);
+    hb.run(0.3);
+    // Round BM: the room closed is a notice whose OK goes home.
+    assert_eq!(super::test_kit::top(&hb), super::room::ENDED);
     shown(&mut hb, found);
     // Feedback round AA: a room's address opened by someone never in it,
     // signed out (the notice, More), then signed in and no member; and
@@ -2157,11 +2160,9 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
             shown(&mut he, found);
         }
         assert_eq!(super::test_kit::top(&he), super::room::NEVER_IN);
-        he.tap(PointerKind::Mouse, "Cancel");
+        // Its Sign in (its OK would leave for the home).
+        he.tap(PointerKind::Mouse, super::room::ENDED_ACTION);
         he.run(0.3);
-        he.tap(PointerKind::Mouse, "More");
-        shown(&mut he, found);
-        he.key("Escape", "Escape");
         server.borrow_mut().sign_in(&eve_id);
         eve_online
             .borrow_mut()
@@ -2237,10 +2238,8 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
             );
             assert_eq!(super::test_kit::top(h), super::room::REMOVED);
             shown(h, found);
-            h.tap(PointerKind::Mouse, "Cancel");
+            h.tap(PointerKind::Mouse, super::room::ENDED_OK);
             h.run(0.3);
-            h.tap(PointerKind::Mouse, "More");
-            shown(h, found);
         }
         checked(
             vec![

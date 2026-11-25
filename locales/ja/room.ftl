@@ -581,11 +581,12 @@ room-update-reload-button = 再読み込み
 room-server-updating = サーバーを更新しています。しばらくしてからもう一度お試しください。
 
 room-link-left = このルームから退出しました。
+
+room-ended-body = マルチプレイのホームに戻ります。
 room-link-sign-in-to-enter = このルームに入るにはサインインしてください。
 room-sign-in-to-enter-body = ルームには招待リンクから入ります。すでにこのルームのメンバーなら、Twitchでサインインすると戻れます。そうでなければ、ホストに招待リンクをもらってください。
 room-link-not-a-member = このルームのメンバーではありません。ホストに招待リンクをもらってください。
 room-not-a-member-body = ルームのページのアドレスでは入れません。入るには招待リンクが必要です。ホストに送ってもらってください（ルームの「その他」→「招待リンクをコピー」）。
-room-multiplayer-home = マルチプレイのホーム
 
 room-role-host = ホスト
 room-role-co-host = 共同ホスト

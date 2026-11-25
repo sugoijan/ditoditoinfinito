@@ -739,8 +739,10 @@ impl SelectScreen {
             return;
         }
         // This device stopped for another of the person's (round P1b):
-        // said once, with Use this device.
-        if room.borrow().take_opened_elsewhere() {
+        // said once, with Use this device; or the room is gone for them
+        // (round BM), its notice's OK leaving for the multiplayer home.
+        // Never once this screen is leaving the room itself.
+        if !rm.left && rm.quit_at.is_none() && room.borrow().take_opened_elsewhere() {
             self.cancel_navigation();
             room::tell_opened_elsewhere(&self.env, &room, cx);
             return;
