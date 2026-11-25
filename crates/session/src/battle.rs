@@ -1154,8 +1154,10 @@ impl Battle {
     /// The stage played live (its setup's [`StageSetup::live`]) through
     /// `handle`, the room's client: the play's stream sent, the others'
     /// fields and the room's attacks read from its frames (`lock`: the
-    /// seconds a shock stepped on locks a lane under the stage's rules).
-    pub fn with_live(mut self, handle: live::LiveHandle, lock: Option<f64>) -> Battle {
+    /// seconds a shock stepped on locks a lane under the stage's rules;
+    /// `life`: the life their gauge starts at, the others' fields' until
+    /// their streams say).
+    pub fn with_live(mut self, handle: live::LiveHandle, lock: Option<f64>, life: f32) -> Battle {
         let Some(order) = self.setup.live.clone() else {
             return self;
         };
@@ -1190,6 +1192,7 @@ impl Battle {
             &order.people,
             &self.track,
             lock,
+            life,
         ));
         if let Some(l) = self.remote_live.as_mut() {
             l.set_fails_on(fails_on);

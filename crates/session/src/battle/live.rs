@@ -754,6 +754,8 @@ pub(crate) struct Live {
     late: Vec<(ParticipantId, String)>,
     track: feed::TapTrack,
     lock: Option<f64>,
+    /// The life a field starts at: the stage's rules' gauge's.
+    life: f32,
     /// The shell's wall clock (ms) when the room's news was last read
     /// (none: never yet, by a play that started part-way and has the
     /// stage's backlog to read first).
@@ -912,15 +914,19 @@ pub(crate) fn sum_view(score: i64) -> ScoreView {
 }
 
 /// A field of `p` (named `name`) drawn on `track`, `delay` seconds behind
-/// the song, its lanes locked `lock` seconds by a shock.
+/// the song, its lanes locked `lock` seconds by a shock, its gauge at
+/// `life` until its stream's first moment says otherwise (the stage's
+/// rules' starting life: a field made full showed a loss at its first
+/// note that never happened).
 fn remote_seat(
     p: ParticipantId,
     name: &str,
     track: &feed::TapTrack,
     delay: f64,
     lock: Option<f64>,
+    life: f32,
 ) -> RemoteSeat {
-    let mut feed = feed::FieldFeed::new(track, 1.0, delay);
+    let mut feed = feed::FieldFeed::new(track, life, delay);
     feed.set_lock(lock);
     RemoteSeat {
         participant: p,
@@ -971,6 +977,7 @@ impl Live {
         people: &[(ParticipantId, String)],
         track: &feed::TapTrack,
         lock: Option<f64>,
+        life: f32,
     ) -> Live {
         let (rules, view_delay) = {
             let room = handle.room.borrow();
@@ -990,7 +997,7 @@ impl Live {
             .partition(|(p, _)| lineup.as_ref().is_none_or(|l| l.contains(p)));
         let seats = seated
             .iter()
-            .map(|(p, name)| remote_seat(*p, name, track, delay, lock))
+            .map(|(p, name)| remote_seat(*p, name, track, delay, lock, life))
             .collect();
         let reporter = (competes && plan.is_some())
             .then(|| Reporter::new(me, plan.as_ref().map_or_else(Vec::new, |p| p.checkpoints_us.clone())));
@@ -1060,6 +1067,7 @@ impl Live {
             late,
             track: track.clone(),
             lock,
+            life,
         }
     }
 
@@ -1079,7 +1087,7 @@ impl Live {
             .partition(|(p, _)| lineup.contains(p));
         self.late = still;
         for (p, name) in entered {
-            let mut seat = remote_seat(p, &name, &self.track, delay, self.lock);
+            let mut seat = remote_seat(p, &name, &self.track, delay, self.lock, self.life);
             seat.shown = self.counted.first().map(|c| Shown::new(c));
             let rung = self.start_rung(p);
             seat.start_on((&self.rungs, &self.counted), rung);
@@ -1954,6 +1962,7 @@ impl LivePlay {
             &live.people,
             &track,
             None,
+            1.0,
         );
         let fails_on = order.rules.plays_on_failed();
         play.set_fails_on(fails_on);
@@ -2124,6 +2133,21 @@ mod tests {
         assert_eq!((seen.points, seen.score), (400, own.score));
     }
 
+    /// A remote field starts at the stage's rules' starting life, as a
+    /// CPU's does, until its stream's first moment (made full, it showed a
+    /// loss at the first note that never happened: the maintainer's
+    /// report of 2026-11-25).
+    #[test]
+    fn a_remote_field_starts_at_the_stages_starting_life() {
+        let song = crate::test_songs::bundled("beatucada");
+        let track = feed::TapTrack::full(&song, 5).unwrap();
+        let life = ddi_engine::rules::presets::ddi().gauge.life();
+        assert!(life > 0.0 && life < 1.0, "DDI starts part-way: {life}");
+        let seat = remote_seat(ParticipantId(2), "x", &track, 0.5, None, life);
+        assert_eq!(seat.feed.shown(0.0).life, life);
+        assert_eq!(seat.feed.shown(30.0).life, life, "and stays until a moment says");
+    }
+
     /// Round RFa, finding 1: a remote competitor's moments say its
     /// combo, and the combo part was summed note by note from the last one
     /// said: moments alternating 0 and a forged combo of billions froze
@@ -2134,7 +2158,7 @@ mod tests {
     fn a_remote_combo_costs_the_same_whatever_it_says() {
         let song = crate::test_songs::bundled("beatucada");
         let track = feed::TapTrack::full(&song, 5).unwrap();
-        let mut seat = remote_seat(ParticipantId(2), "x", &track, 0.5, None);
+        let mut seat = remote_seat(ParticipantId(2), "x", &track, 0.5, None, 1.0);
         for combo in [5, 3, 120] {
             seat.combo_to(combo);
         }
@@ -2171,7 +2195,7 @@ mod tests {
         let tracks: Vec<(Rc<feed::TapTrack>, bool)> = rungs.iter().map(|r| (Rc::clone(&r.track), r.up)).collect();
         assert!(tracks.len() >= 2);
         let stage = Rc::new(feed::TapTrack::full(&song, 5).unwrap());
-        let mut seat = remote_seat(ParticipantId(2), "x", &stage, 0.0, None);
+        let mut seat = remote_seat(ParticipantId(2), "x", &stage, 0.0, None, 1.0);
         // A step to the chart it is on is nothing.
         seat.step(&stage, (&tracks, &[]), 0, 1.0, Tick(48));
         assert_eq!(seat.feed.steps().count(), 0);
@@ -2243,12 +2267,12 @@ mod tests {
             assert_eq!(seat.feed.rung_at(boundary + 0.5), medium, "{how}");
         };
         // Followed from the start: her stream's step.
-        let mut seat = remote_seat(ParticipantId(2), "Alice", &stage, 0.0, None);
+        let mut seat = remote_seat(ParticipantId(2), "Alice", &stage, 0.0, None, 1.0);
         seat.start_on((&tracks, &[]), easy);
         seat.step(&stage, (&tracks, &[]), medium, 30.0, tick);
         check(&seat, "her stream");
         // Followed from part-way: a snapshot from a room without a plan.
-        let mut seat = remote_seat(ParticipantId(2), "Alice", &stage, 0.0, None);
+        let mut seat = remote_seat(ParticipantId(2), "Alice", &stage, 0.0, None, 1.0);
         seat.start_on((&tracks, &[]), easy);
         seat.step_status(
             &stage,

@@ -2609,7 +2609,11 @@ fn stage_battle(
                 ladder,
             )?;
             Some(match config.live.take() {
-                Some(handle) => b.with_live(handle, player.ruleset().judge.lock),
+                Some(handle) => b.with_live(
+                    handle,
+                    player.ruleset().judge.lock,
+                    player.ruleset().gauge.life(),
+                ),
                 None => b,
             })
         }
