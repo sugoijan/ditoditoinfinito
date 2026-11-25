@@ -2448,7 +2448,10 @@ Rust and the browser are implementation details, not advertised features.
   Technical). These are pattern proxies, not MSD measurements; balanced preserves
   the original seeded inputs. See `docs/plans/cpu-player.md`.
   Prepares an analytical plan locally for imported/bundled keyboard 4K charts.
-  Tap-only, 1×, no fail; normal judge, no personal history or bests. It
+  At 1×, no fail; normal judge, no personal history or bests; at a level of
+  the absolute scale it plays the chart itself (holds, rolls, lifts and
+  mines, `cpu-play-v1`, `ddi_engine::cpu::solo_play`), a prepared profile
+  the tap-only copy. It
   plays the multiplayer CPUs' absolute scale (`CPU_LEVELS`,
   `cpu-levels-v2`, `ddi_engine::cpu::solo_script`): `--cpu-level N` / `level=N`, 1 to 10,
   level 5 where none is named (`SOLO_LEVEL`); the five named strengths
