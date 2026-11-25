@@ -2,8 +2,52 @@
 
 A DDR-style rhythm game (genre term: 4K VSRG, four-key vertical scrolling
 rhythm game) written entirely in Rust. Browser first (wasm, Trunk,
-GitHub Pages at `https://sugoijan.dev/ditoditoinfinito/`), desktop later, with
+GitHub Pages at `https://sugoijan.dev/ditoditoinfinito/`), and a desktop
+app built from the same code (from source; no packaged release yet), with
 the gameplay core shared unchanged between both.
+
+Status (2026-11-25), phase by phase (the table in section 5):
+
+- Phases 0–7 done: the core, the web platform, the MVP, format breadth,
+  import and storage, layouts and Dancing☆Onigiri, input devices.
+- Phase 8 (presentation) partial. Open: the generative backgrounds'
+  decision and documentation (`plans/phase-8-gaps.md`, step 6);
+  StepMania 3.9 formats' movie layers draw nothing; AV1, movie audio and
+  MP4 through WebCodecs are not built (known gaps, "Audio and video").
+- Phase 9 (UI core and desktop) in progress. Done: the UI core, our
+  theme and start menu, desktop parity (steps 7.0–7.9), the OS video
+  decoders on macOS and the sandboxed FFmpeg helper, the packaging
+  scripts and the release workflow. The workflow has never run (no
+  version tag), and the first desktop release is on hold (the
+  maintainer, 2026-11-25). Left: the maintainer's hardware checks
+  (loopback, key timing, a controller), a whole fullscreen song under
+  late pacing again, Windows (Media Foundation's runtime validation, the
+  video helper's build, gilrs's 8 ms polling), the instance lock's
+  dialog seen on Windows and Linux (`plans/desktop.md`,
+  `plans/packaging.md`).
+- Phase 10 (later) partial. Done: replays and the ghost, importing
+  plays, FFR levels, more rulesets, a chart editor (two minor items left,
+  `plans/editor.md`, "Left"). Left: music rate as a player option (the
+  engine's clock and DDI's windows take a rate, `ddi::at_rate`; no
+  setting offers one), FFR levels' timing against a real level's music.
+- Multiplayer (since 2026-11-10; not one of the original phases): CPU
+  practice, private online rooms on the private server, live stages with
+  attacks, the audience, the host's Twitch, a room's own songs and
+  choosing them as a group, each player's own chart under Adaptive;
+  room model revision 24. Its own section below section 5's table,
+  "Multiplayer", and its decisions, 85 onward.
+- Beyond the plan's phases: DDI, the game's own ruleset, the default
+  (decision 83); the UI in English and Japanese (decision 82; Japanese
+  shipped 2026-11-17, reviewed by agents only); announcers, with a
+  built-in one on by default (decision 81); chart ratings and a skill
+  radar (decision 84); the CPU player; the dancing hand; touch controls;
+  favorite songs; controller hints.
+
+What comes next is the maintainer's list in section 5, "What comes
+next" (2026-11-25).
+
+The paragraphs below are dated records of earlier states, kept as they
+were written.
 
 Status (2026-10-21): phases 0–3 done and deployed (scaffold, chart
 importers, engine, web platform, renderer, song select, options, credits,
@@ -121,6 +165,15 @@ Seven pattern skill multipliers are available through web `skills=` and desktop
 `--cpu-skills`, with presets and custom vectors. Balanced retains the existing
 seeded inputs; these controls are heuristic, not calibrated MSD ratings.
 See [CPU player](plans/cpu-player.md) for controls, limits and verification.
+Since then (2026-11-12 to 11-17), for multiplayer's opponents: ten levels
+on an absolute scale (abilities in real units, the same on every chart;
+`cpu-levels-v2` since 2026-11-17, room model revision 14), shown as five
+stars, and the whole chart played at a level (holds, rolls, lifts and the
+chart's mines, `cpu-play-v1`, 2026-11-14). The solo CPU plays the same
+scale (level 5 where none is named; the five strengths are levels 6 to
+10); only a prepared profile still plays the tap-only copy. The levels
+are measured against charts and the maintainer's kept plays in
+aggregate, never against people playing (provisional).
 
 ## 1. Goals and non-goals
 
@@ -131,16 +184,30 @@ Goals, in priority order:
 3. Pluggable everything the brief names: input devices, song sources and formats, note skins and color schemes, background layers, and rulesets (judgement windows, scoring, combo, gauge, fail policy).
 4. Eventually the union of DDR, StepMania, DWI, FFR and Dancing☆Onigiri features: holds, rolls, mines, lifts, fakes, shock arrows, speed/scroll changes, warps, arbitrary lane layouts (4-panel, 6-panel solo, 5-key onigiri, 7-key, …), lyrics and background events.
 
-Non-goals for now: public matchmaking and room browsing, online scores, mobile as a sync-accurate target, keysounds, editor.
+Non-goals for now: online scores, mobile as a sync-accurate target, keysounds.
+(The chart editor, once a non-goal, is built: phase 10.)
+
+Later (wanted, not now; the maintainer, 2026-11-25): public play, the
+multiplayer home's Find match (automatic public rooms with CPUs filling
+them) and Browse rooms (hosted rooms listed). Both still say "Coming
+soon" in the game; what they would need is in section 5, "What comes
+next".
+
 Focused CPU-practice and invite-only-room prototyping is authorized as of
 2026-11-10; see the [prototype handoff](plans/multiplayer-prototype-handoff.md).
-What it has built is in the [progress note](plans/multiplayer-prototype-progress.md):
+What it has built is in the [progress note](plans/multiplayer-prototype-progress.md)
+and in short in section 5, "Multiplayer":
 the shared room model, CPU practice and invite-only private rooms (signed
 in with Twitch, played live against the server) on both shells, stages
 played to the match's results with battle attacks and adaptive charts as
 match rules and each player's own targeting. Since 2026-11-14 the
 prototype is reachable from the start menu by everyone (no hidden switch);
 inside it, Find match and Browse rooms still say "Coming soon".
+
+The next paragraph is the design's starting point as it was written
+(2026-10-26 to 11-10); where it differs from what was built, section 5's
+"Multiplayer" and decisions 85 onward are current (the competitor cap is
+73, not eight; live online stages are built).
 
 Multiplayer research began 2026-10-26 ([exploration](research/multiplayer.md));
 a [provisional battle design](plans/multiplayer.md) began 2026-11-08 while the
@@ -258,6 +325,15 @@ DitoDitoInfinito/
   assets/       songs/ (CC-licensed .sm fixtures), noteskins/, fonts/
   docs/
 ```
+
+The block above is the layout as first planned. Since then (to
+2026-11-25) the workspace also has `room` (the multiplayer room's model,
+shared with the private server), `share-protocol` (songs shared by link),
+`chat` (a room host's Twitch chat), `l10n` (the UI's languages), `msd`
+and `rating` (chart ratings), `msd-worker` (the web's ratings worker),
+`character`, `hand-plan`, `hand-pose` and `dance-mat` (the dancing hand),
+and `icon` (the brand icon's compositor); `AGENTS.md`'s "Layout" is the
+current description of each.
 
 Dependency direction: `app` → `web` (wasm) or `desktop` (native); `web` and `desktop` → {`shell`, `session`, their platform impls, `render`, `engine`, `library`, `chart`}; `shell` → `session`, `render`, `ui`; `session` → `engine`, `chart`, `library`, `platform`, `ui`; `library` → `chart`, `engine` (a work's charts' keys), `platform`; `render` → `engine` (reads `Frame`), `actor`; `noteskin` → `actor`; `ui` → `actor`, `engine`; `engine` → `chart`; `platform`, `actor` → nothing. `chart`, `engine`, `actor`, `ui`, `platform`, `session`, `shell` compile for native and wasm and are tested with plain `cargo test`.
 
@@ -498,7 +574,7 @@ Definition of done: a chart plays in Chrome, Firefox and Safari with judgements 
 
 ## 5. Roadmap
 
-Status as of 2026-10-22: one line per phase, the full notes below the table; known gaps before phase 9 after them. The plans and their status are indexed in `docs/plans/README.md`.
+Status as of 2026-11-25: one line per phase, the full notes below the table; then multiplayer, the known gaps (reviewed 2026-10-22, with the corrections of 2026-11-25 marked) and what comes next. The plans and their status are indexed in `docs/plans/README.md`.
 
 | Phase | Status | Deliverable | Notes |
 |---|---|---|---|
@@ -510,9 +586,10 @@ Status as of 2026-10-22: one line per phase, the full notes below the table; kno
 | 5 Import & storage | done | folder/zip/drag-drop import, OPFS/IDB store, per-song offset editor, Symphonia fallback decode | IndexedDB only (decision 8); folder handles re-read in place on Chromium (decision 32); notes below |
 | 6 Layouts & DanOni | done | `Layout` as data in the UI, 6-panel solo, DanOni 5/7/9A/11 key modes (7i until 2026-10-13), onigiri lane, `speed_data`/`boost_data`, color events, lyrics (`word_data`) | solo, double and pump layouts (decisions 20–22, 40); Dancing☆Onigiri key modes and works (decisions 25–29); notes below |
 | 7 Input devices | done | gamepad poller, dance-pad profiles, touch lanes, WebHID experiment | 1 ms poll loop with pad timestamps, bindings per controller model, touch lanes; WebHID out of scope; notes below |
-| 8 Presentation | partial | skin packs (static/quantized/rainbow/vivid), background layers (BGCHANGES, DanOni back/mask, generative), DDR option set (Boost/Brake/Wave, Hidden/Sudden, Turn, Cut) | done: options, color schemes, `#BGCHANGES`/`#BGCHANGES2`, background videos (`docs/plans/video-backgrounds.md`), noteskins with Lua, models and legacy formats (`docs/plans/noteskins.md` and the skin plans), DanOni overlays and StepMania's named background effects and transitions (`docs/plans/overlays.md`). Scripted backgrounds and `#FGCHANGES`: `default.lua` folders, StepMania 3.9's and ITG's formats and render targets done (`docs/plans/scripted-backgrounds.md`); their movies since 2026-11-03 (`docs/plans/phase-8-gaps.md`), generative backgrounds from the music since 2026-11-05 (the same plan, step 5). Announcers: StepMania's packs imported and spoken, with a few lines of ours, done (`docs/plans/announcers.md`, decision 81); an announcer studio for pack authors on both shells, each line heard in its scene, in play too (`docs/plans/announcer-studio.md`); notes below |
-| 9 UI core & desktop | in progress | the screens drawn by our own UI core (`actor`, `ui`) on web and desktop (`docs/plans/ui-core.md`, decision 45); then the `desktop` crate: winit + wgpu + cpal + gilrs (`docs/plans/desktop.md`); same `engine`/`render`/`chart` | UI core and theme done (`docs/plans/ui-core.md`, `docs/plans/theme.md`); desktop parity steps 7.0–7.9 done (`docs/plans/desktop.md`); movies through OS decoders and a sandboxed FFmpeg helper (`docs/plans/native-video.md`); packaging and draft releases from tags (`docs/plans/packaging.md`); start menu since 2026-10-21, animated Dosis wordmark since 2026-10-25 (`docs/plans/start-menu.md`); next: hardware checks, frame pacing measurements, Windows video; notes below |
-| 10 Later | partial | FFR `beatBox` import (user-owned data), replays (from the play history, phase 9), more rulesets (DDR legacy scoring, FLARE, LIFE4), editor | replays and the ghost done (decision 49, `docs/plans/play-history.md`); importing plays done, FFR levels imported on both shells (`docs/plans/phase-10.md`) and played by FFR's rules (`ffr`, decision 58, `docs/plans/rulesets.md`); more rulesets done (decision 57, `docs/plans/rulesets.md`: `ddr-extreme`, DDR A's LIFE4, RISKY, FLARE and FLOATING FLARE gauges with FLARE SKILL, LIFE4's lamps; `ddr-x`, decision 59); a first chart editor on both shells (`docs/plans/editor.md`: the `.ssc`/`.sm` writer, notes and timing with undo, listening with the metronome, tap-to-tempo and the music's overview, playtests, saving and the autosave, the field in the player's skin in an edit and a play view, new songs from a music file) |
+| 8 Presentation | partial | skin packs (static/quantized/rainbow/vivid), background layers (BGCHANGES, DanOni back/mask, generative), DDR option set (Boost/Brake/Wave, Hidden/Sudden, Turn, Cut) | done: options, color schemes, `#BGCHANGES`/`#BGCHANGES2`, background videos (`docs/plans/video-backgrounds.md`), noteskins with Lua, models and legacy formats (`docs/plans/noteskins.md` and the skin plans), DanOni overlays and StepMania's named background effects and transitions (`docs/plans/overlays.md`). Scripted backgrounds and `#FGCHANGES`: `default.lua` folders, StepMania 3.9's and ITG's formats and render targets done (`docs/plans/scripted-backgrounds.md`); their movies since 2026-11-03 (`docs/plans/phase-8-gaps.md`), generative backgrounds from the music since 2026-11-05 (the same plan, step 5). Announcers: StepMania's packs imported and spoken, with a few lines of ours, done (`docs/plans/announcers.md`, decision 81); an announcer studio for pack authors on both shells, each line heard in its scene, in play too (`docs/plans/announcer-studio.md`); notes below. Open (2026-11-25): the generative backgrounds' decision and documentation (`docs/plans/phase-8-gaps.md`, step 6), StepMania 3.9 formats' movie layers, AV1, movie audio, MP4 through WebCodecs |
+| 9 UI core & desktop | in progress | the screens drawn by our own UI core (`actor`, `ui`) on web and desktop (`docs/plans/ui-core.md`, decision 45); then the `desktop` crate: winit + wgpu + cpal + gilrs (`docs/plans/desktop.md`); same `engine`/`render`/`chart` | UI core and theme done (`docs/plans/ui-core.md`, `docs/plans/theme.md`); desktop parity steps 7.0–7.9 done (`docs/plans/desktop.md`); movies through OS decoders and a sandboxed FFmpeg helper (`docs/plans/native-video.md`); packaging and draft releases from tags (`docs/plans/packaging.md`); start menu since 2026-10-21, animated Dosis wordmark since 2026-10-25 (`docs/plans/start-menu.md`); left (2026-11-25): the maintainer's hardware checks, a whole fullscreen song under late pacing again, Windows (Media Foundation's runtime validation, the video helper's build, gilrs's polling), the instance lock's dialog on Windows and Linux; the release workflow has never run (no version tag) and the first release is on hold (the maintainer, 2026-11-25); notes below |
+| 10 Later | partial | FFR `beatBox` import (user-owned data), replays (from the play history, phase 9), more rulesets (DDR legacy scoring, FLARE, LIFE4), editor | replays and the ghost done (decision 49, `docs/plans/play-history.md`); importing plays done, FFR levels imported on both shells (`docs/plans/phase-10.md`) and played by FFR's rules (`ffr`, decision 58, `docs/plans/rulesets.md`); more rulesets done (decision 57, `docs/plans/rulesets.md`: `ddr-extreme`, DDR A's LIFE4, RISKY, FLARE and FLOATING FLARE gauges with FLARE SKILL, LIFE4's lamps; `ddr-x`, decision 59); a first chart editor on both shells (`docs/plans/editor.md`: the `.ssc`/`.sm` writer, notes and timing with undo, listening with the metronome, tap-to-tempo and the music's overview, playtests, saving and the autosave, the field in the player's skin in an edit and a play view, new songs from a music file; two minor items left, its plan's "Left"). Left (2026-11-25): music rate as a player option (the engine takes a rate, no setting offers one), FFR levels' timing against a real level's music |
+| Multiplayer | built, provisional in its numbers (since 2026-11-10) | CPU practice and invite-only online rooms on both shells (the [handoff](plans/multiplayer-prototype-handoff.md)) | not one of the original phases: CPU practice, private online rooms on the private server, live stages with attacks, the audience, the host's Twitch, a room's own songs and group choice, own charts under Adaptive; room model revision 24 (2026-11-24); Find match and Browse rooms later. The section "Multiplayer" below; the [progress note](plans/multiplayer-prototype-progress.md) for each round |
 
 ### Phase notes
 
@@ -530,7 +607,73 @@ What each phase delivered and how it was checked, in full.
 
 **9 UI core & desktop.** UI core steps 0–6 done 2026-10-16 (`actor`, `ui`, the 2D pass, our theme `theme/`, `docs/plans/theme.md`: every web page is the theme's screens on the canvas, song select, options, results, the start prompt, calibration's menu and outcomes, the credits, the device notices; Dancing☆Onigiri's lyrics in the scene; no Yew; the play history, `docs/plans/play-history.md`); desktop parity steps 7.0–7.9 done 2026-10-16 (`docs/plans/desktop.md`: one session for both shells in `session/` and the import's core in `library/`; cpal with our own mixer and CoreAudio's latency, every music format, MP3 as StepMania 5.1 decodes it; the library read in place from folders and zips, simfiles and works; keys with the OS's stamps, controllers through gilrs; play with noteskins and their Lua, backgrounds, movies (since 2026-10-20 through the OS decoders and a sandboxed FFmpeg helper process; wasmtime dropped), a work's layers and lyrics, the theme's results and the history; calibration and device profiles; CI on Linux, macOS and Windows); next: the maintainer's checks on hardware (listed at the top of `docs/plans/desktop.md`), frame pacing: late with two frames in flight defaults on when a macOS display link is available, block with one elsewhere (`--pacing-report` compares all four); the follow-up held 120 Hz with no acquire-inferred misses in late·2 and 4.20 ms mean frame start to estimated shown; target gaps are now distinguished from observed repeats; fullscreen (direct presentation) measured 2026-10-22, where late pacing missed: a wait for a drawable is no longer a miss, and late pacing that keeps missing with its margin at its cap blocks until the window's size or fullscreen state changes (simulated, then rerun on the Mac: late·1 falls back, late·2 halves its misses and stays late; a whole fullscreen song of late·2 fell back on the fullscreen transition's stall, which no longer counts toward it, and is next again); macOS hardware video for checked H.264/HEVC/VP9 subsets implemented with exact seeks and software fallback, MP4/Matroska/WebM packets demuxed by the sandboxed helper (`video/helper`); Windows Media Foundation experimental and opt-in, wider stream classes next (decision 50); packaging done 2026-10-21 (`docs/plans/packaging.md`: an ad hoc signed `.app` in a zip and a `.dmg`, a Linux tarball, a Windows zip, built by `release.yml` for draft releases from tags); SDL3 if winit timestamps are a problem
 
-**10 Later.** Replays done (2026-10-16, decision 49, `docs/plans/play-history.md` "Replays"): a kept play watched again on both shells from its results ("Watch replay"), from song select's plays list for a chart (P, or a long press on a phone's chart: newest first, the best marked, its results, removal) and its best (W), `#/play?replay=<id>` and desktop's `--replay`; its results checked against the record's, refusals said; the ghost of the chart's best play beside a play (off by default). Not done: importing plays
+**10 Later.** Replays done (2026-10-16, decision 49, `docs/plans/play-history.md` "Replays"): a kept play watched again on both shells from its results ("Watch replay"), from song select's plays list for a chart (P, or a long press on a phone's chart: newest first, the best marked, its results, removal) and its best (W), `#/play?replay=<id>` and desktop's `--replay`; its results checked against the record's, refusals said; the ghost of the chart's best play beside a play (off by default). Importing plays done since (`docs/plans/phase-10.md`; this note said "not done" until 2026-11-25), FFR levels, more rulesets and the chart editor too (the table above). Not done: music rate as a player option, FFR levels' timing against a real level's music
+
+### Multiplayer
+
+As of 2026-11-25, room model revision 24 (`ddi_room::ROOM_MODEL_REVISION`).
+Not one of the original phases: the maintainer authorized CPU practice
+and invite-only rooms on 2026-11-10 ([handoff](plans/multiplayer-prototype-handoff.md));
+each round since is a dated section of the
+[progress note](plans/multiplayer-prototype-progress.md), and the
+decisions are 85 onward. Reachable by everyone from the start menu since
+2026-11-14; on both shells.
+
+What exists:
+
+- **The room's model** (`crates/room`): rooms, matches of stages, roles
+  (owner, co-hosts, the picker), readiness, standings and awards, the
+  attack ledger, live play's contract and the audience's, as one pure
+  crate that CPU practice's local authority and the private server's
+  rooms both run.
+- **CPU practice**: a room on the device, no sign-in and no network, up
+  to 72 named CPUs at ten levels (shown as stars) playing the whole
+  chart.
+- **Private online rooms** on the private server (`../ddi-server`, a Rust
+  Cloudflare Worker with a Durable Object a room), signed in with Twitch,
+  joined by invite link; the host's succession, co-hosts, one picker at a
+  time, Kick; up to 73 competitors (people and CPUs) and 384 members.
+- **Live stages**: everyone plays the same song at once on the room's
+  clock, the others' fields drawn beside one's own about half a second
+  behind or less; attack power earned by timing, full bars launched as
+  shocks (mines that lock their lane) at a target the player's policy
+  picks (Spread, Retaliate, Top score); a stage's standings and awards,
+  a match's results; watching a stage (Play or Watch; a grid of fields
+  or one competitor followed); late entry; CPUs in online rooms computed
+  alike on every device.
+- **Adaptive charts** (a match rule, the default): a player steps down
+  the song's ladder at zero life and up after clean bars, ranked by the
+  score as earned; since revision 23 each player starts on a chart of
+  their own.
+- **The audience**: people beyond the members watch by a link of its own,
+  without signing in, through relays.
+- **The host's Twitch**: bans and blocks mirrored to keep people out, and
+  the host's chat behind the play on each member's device, both Off by
+  default.
+- **A room's own songs**: a list apart from each member's library,
+  uploaded when added, downloaded ahead by each device; who may add (the
+  owner's choice); Song choice by the host or by the group (a draw
+  among the players' choices).
+- **Around it**: the server's operator panel; usage statistics and the
+  web's error reports, said in the privacy note (`site/privacy.html`);
+  bots for testing rooms (a development tool, `--mp-bots`).
+
+What is provisional, in one paragraph: the numbers and many rules are
+first versions, each named and versioned in the code (about 60
+`PROVISIONAL` markers) and listed in the progress note's "Provisional
+choices" (about 180 rows; counts from the review of 2026-11-25), with
+its "Open questions". They wait on different things: real players' use
+(live timing, readiness windows, the room songs' and the audience's
+bounds), play-testing (the attack rules, shock placement, settlement,
+Adaptive's steps, DDI's combo weights, the battle's voice, the views of
+large fields), measuring the CPUs against people (no CPU level has been),
+and real Twitch traffic (the chat's budgets, the emote atlas).
+Unverified in the real world: the ban and block mirror's calls have
+never been run against Twitch (only a fake Twitch has answered them), the
+web's chat sockets are untried (`plans/multiplayer-twitch.md`, "Still
+unverified"), and one session with real people (5 to 15, 2026-11-16, at
+about revision 11) is the only one; since then the maintainer, bots and
+fakes. Outcomes are self-reported (decision 101).
 
 ### Beyond the original plan
 
@@ -550,7 +693,8 @@ controller editor operations and numeric forms are implemented. Detection,
 hints and overrides are next; dance-pad and arcade hint profiles are deferred.
 
 Start menu (implemented 2026-10-21; [plan](plans/start-menu.md)): a
-Singleplayer-first entry before song select, disabled Multiplayer hint,
+Singleplayer-first entry before song select, disabled Multiplayer hint
+(Multiplayer opens the multiplayer home since 2026-11-14, decision 88),
 Options returning to its caller, and desktop Quit. Back from ordinary
 song browsing returns to the silent menu in one press, preserving its filter
 and place; Clear resets search explicitly. Web Start is `#/`, Songs is
@@ -638,7 +782,10 @@ Everything known to be missing, approximate or unchecked before the
 desktop build, gathered in one place; what has been built since is
 removed. Items marked *new* were found in
 code comments or test reports and were not written down before; the
-others point to where they are described.
+others point to where they are described. Corrected 2026-11-25 where it
+had become false (the chart editor is built; a phone was tried); not
+reviewed again as a whole, and multiplayer's gaps are in its section
+above and the progress note.
 
 Charts and import:
 
@@ -681,7 +828,7 @@ Rules and options:
   judge window) are not built, nor DDR X2 to 2014's rules
   (`docs/plans/rulesets.md`).
 - Not built: music rate, a separate judge
-  offset (section 3.3); the editor (phase 10); LIFE4's standings and the
+  offset (section 3.3); LIFE4's standings and the
   FLARE SKILL total (across plays and DDR's versions;
   `docs/plans/rulesets.md`). The battery is an option of the StepMania
   presets, not a preset (`docs/plans/rules-options.md`).
@@ -779,8 +926,11 @@ Noteskins, Lua and models:
   (`docs/plans/lua.md`), the VM's known costs (`docs/plans/piccolo-fork.md`),
   NotITG's mods (`docs/plans/legacy-skins.md`); a skin's Lua state over a
   retry, skin images' storage (section 7).
-- Not checked by the maintainer: a phone. (WebGPU in Firefox is the
-  maintainer's everyday setting; headless Firefox has no adapter.)
+- A phone: the maintainer tried the touch controls on one on
+  2026-11-21 (`docs/plans/touch-controls.md`, round TC2); Safari was
+  last checked by them on 2026-10-22, before multiplayer, and a desktop
+  touch screen never. (WebGPU in Firefox is the maintainer's everyday
+  setting; headless Firefox has no adapter.)
 
 Dancing☆Onigiri:
 
@@ -810,7 +960,155 @@ Tooling:
 - The local-corpus tests (differential, autoplay, skins, Lua) are opt-in,
   not in CI (phase 1, `AGENTS.md`).
 
-## 6. Decisions (1–7 confirmed 2026-10-06; 8–10 made with phase 5, 2026-10-07; 11–12 with phase 7, 2026-10-07; 13–19 with phase 8, 2026-10-08; 20–29 with phase 6, 2026-10-08/09; 30–33 with the loose ends, 2026-10-09; 34–35 with the background videos, 2026-10-10; 36 with noteskins, 2026-10-10; 37–39 with bundled noteskins and skins' scripts, 2026-10-12; 40 with pump layouts, 2026-10-13; 41 with the overlays, 2026-10-14; 42–44 with the local corpus sweep, 2026-10-14; 45 with the UI core, 2026-10-15; 46–47 with desktop parity, 2026-10-16; 48–49 with the second layer and replays, 2026-10-16; 50 with native video, 2026-10-17; 51–52 with DanOni URL imports and simplified charts, 2026-10-18; 53–54 with song navigation and the video helper, 2026-10-20; 55 with the rules options, 56 with skin parameters, 57 with more rulesets, 2026-10-21; 58–59 with FFR's and DDR X's rules, 2026-10-22; 60 with center-free pump charts, 61 with the start prompt's loading, 2026-10-24)
+### What comes next (the maintainer, 2026-11-25)
+
+After the review of 2026-11-25 the maintainer set the direction: before
+public play, their own list below, in their order. Each item is their
+wish in a few sentences and **needs design**: nothing here is designed
+or decided beyond the wish. Under each, the questions a design will have
+to answer that are already visible from the code and from the licensing
+rules (`AGENTS.md`, "Licensing and attribution"); none of the sites
+named was looked at for this list.
+
+1. **FFR as a source.** Search and load songs and charts from FFR
+   (FlashFlashRevolution), at least on desktop, perhaps as a plugin as
+   the DanOni URL importer is, so that they can also be shared into an
+   online room. Needs design. Visible questions:
+   - FFR's terms of use and robots rules for searching and downloading
+     by a program, and whether a search needs an index of its own.
+   - FFR's content is not ours to redistribute (section 2.1: the
+     importer is for user-owned data). A song added to a room's list is
+     uploaded into the room's share and downloaded by every member
+     (decision 106); room shares are readable by anyone holding their id,
+     not only by members (`docs/plans/shared-songs.md`, "Room shares").
+     Whether a downloaded level may be shared into a room at all, and to
+     whom, is the first question.
+   - The precedent: the DanOni URL import is a user-triggered single
+     download of one work, desktop only (not the web, not Windows), in
+     a separate native helper with public-address checks, limits and
+     pacing, and no robots request because a person asked for that one
+     work (decision 51, `docs/plans/danoni-importer.md`). Whether FFR
+     follows that shape, and whether it needs a helper at all: the game
+     already reads FFR levels and a SWF's chart and music natively
+     (`ddi_library::ffr`, `swf`, `docs/plans/phase-10.md`), and plays
+     them by FFR's rules (`ffr`, decision 58).
+   - The web: a browser cannot fetch another site's files without that
+     site's leave (CORS); a proxy through our server would make our
+     server the one redistributing.
+2. **Other sources the same way.** stepmaniaonline.net,
+   zenius-i-vanisher.com (its v5.2 simfiles), etternaonline.com,
+   possibly more. Needs design. Visible questions:
+   - Each site's terms and robots rules, whether downloads need an
+     account, and what rate is acceptable.
+   - What each serves (single songs, packs as zips) against what the
+     import reads (`.sm`, `.ssc`, `.dwi`, zips and `.smzip` with the
+     compression methods of `docs/plans/format-gaps.md`), and which
+     format version "v5.2" names and whether our readers cover it.
+   - Most of these songs carry commercial music under no licence to
+     share; the same question as FFR's for a room's share, and the
+     share's limits (100 MB a file upload on most Cloudflare plans,
+     `docs/plans/shared-songs.md`; 100 songs a room's list).
+   - How a song's source travels with it (where it came from, for the
+     credits and for a room's list).
+3. **A settings revamp.** A better hierarchy, and previews for each
+   option beyond today's live field preview: the choices side by side
+   where what they look like matters. Most of the work is deciding each
+   option's interface. Needs design. Visible questions: Options today is
+   one screen of sections built from the settings for both shells
+   (`ddi_ui::screens::options_model`, `options_shell`), with one field
+   preview (`ddi_render::field_preview`, P to change its layout), a
+   skin's parameters under Arrows and a play's own options on the start
+   prompt; which options get a preview and of what; what several
+   previews at once cost on WebGL2 and on phones; how it meets items 7
+   and 8; keyboard, controller and touch, reduced motion and the
+   languages' walk (`l10n_tests.rs`); stored settings keep reading.
+4. **A credits revamp.** Complete but not all at once: those directly
+   involved, those indirectly, and the tools, libraries and asset
+   bases, simple first with the detail on opening an item. Needs design.
+   Visible questions: the Credits screen is generated
+   (`xtask gen-credits` from `REUSE.toml`, each `PROVENANCE.toml`,
+   `credits/THIRD_PARTY.toml` and the Rust crates' licences into
+   `credits/credits.json`, `ddi_library::credits`); none of those sources
+   says whether an entry is direct or indirect involvement today; the
+   attribution CC BY asks for must stay reachable in the game (section
+   8), and the Rust libraries' licence texts must still ship; the
+   privacy note's fold lives there too.
+5. **Music on the main menu, and the dancing hand behind it.** Its
+   animation may change with the focused submenu. Needs design. Visible
+   questions: the start menu is silent today by design (the preview's
+   sound belongs to song select, `docs/plans/start-menu.md`); a browser
+   starts sound only from a person's press (Safari only inside it), so
+   the web's menu cannot play before the first input; which music, and
+   under what licence and attribution; the hand plays a chart's notes as
+   an autoplay, so it needs a chart and its timing to dance to, and it
+   has a frame budget (`hand-load-v0`); the web's loader and first
+   screens are readied before the fade (`AGENTS.md`, "Deployment"); the
+   one Volume, reduced motion, and the announcer's song-select intro.
+6. **A calibration revamp,** perhaps calibration done automatically in
+   the background as a person plays. Needs design. Visible questions:
+   decision 76 keeps calibration quiet and applies nothing from the kept
+   plays ("as the maintainer asked"), which an automatic correction
+   would revise; the audio and visual offsets are told apart only by
+   the muted and the hidden tests (section 2.3, the timing model in
+   `AGENTS.md`); offsets are per device profile; what a correction made
+   during plays does to kept plays, replays and bests, and in a room;
+   Firefox's coarse timestamps are not detected (known gaps).
+7. **Two UI levels.** Basic, the default, without jargon or technical
+   detail, and Advanced, for people who know the genre and
+   StepMania, Etterna or ITGmania, switched in the settings. Needs
+   design. Visible questions: which options and words are jargon (other
+   games' ruleset names, MSD and the Groove radar, timing windows'
+   names); whether Advanced only adds rows or also changes wording (two
+   wordings a message in every language); what Basic does with a
+   setting already changed; the convention that UI text avoids other
+   games' jargon (`AGENTS.md`, "Conventions").
+8. **A hidden settings screen** like a browser's `about:config`, for
+   experimental and advanced options. Needs design. Visible questions:
+   what is hidden today (`Settings::multiplayer_rules_first` and
+   `multiplayer_watch_link`, the sharing switch `#/?share=1`, desktop's
+   flags, the developer screen `crates/ui/src/dev.rs`) and the testing
+   parameters (round HY is listing them, 2026-11-25); how it is reached;
+   whether its values persist and how they reset; whether its entries
+   are translated messages or data.
+
+Below these, later:
+
+- **Browse rooms and Find match** (decision 85). Not designed past the
+  screen studies (`docs/plans/multiplayer-ui.md`). From the review of
+  2026-11-25, what they would need: what a host can do to strangers
+  beyond Kick, closed admission and a new invite link (reports, bans
+  beyond one room, rules for room and display names); whether a public
+  room may pass a member's uploaded songs to strangers (room uploads are
+  people's own simfiles, often not theirs to share); whether
+  self-reported outcomes (decision 101) stay acceptable; rate and abuse
+  limits beyond the present per-network ones; whether browsing needs a
+  sign-in; the server's room registry exists (its README, "The
+  registry"). Find match needs all of that and more: rooms the server
+  runs (today the host's device drives the picks and every device
+  computes the CPUs, decision 103), a song pool the server may serve to
+  anyone (only the bundled songs qualify today), a skill bracket (the
+  DDI estimate and the CPU levels are not a player's rating), and
+  checked results, such as plays judged by the server from the play logs
+  the engine already records.
+- **The first desktop release: on hold** (the maintainer, 2026-11-25).
+  Ready: the packages and the tag-triggered release workflow
+  (`docs/plans/packaging.md`), never run. What it would decide first
+  (the review's list): Windows without the video helper (movies fall
+  back to the song's background), no notarization, Apple silicon only
+  on macOS, the Linux baseline (glibc 2.39), the release's language gate
+  (Japanese is reviewed by agents only), and phase 9's open items above.
+- **A second session with real people** when it can happen (the
+  maintainer: maybe in a few weeks). Most provisional numbers wait for
+  it (section 5, "Multiplayer"); attacks in online rooms, Song choice by
+  the group, own charts, a room's song list and Kick have met only the
+  maintainer, bots and fakes.
+- **A native Japanese review** when one can happen (not to be counted on,
+  the maintainer said): Japanese is shipped with every message reviewed
+  by agents and none by a person (`locales/ja/reviewed.toml`), and
+  messages changed since 2026-11-22 may be unverified again
+  (`xtask l10n report ja --unverified`).
+
+## 6. Decisions (1–7 confirmed 2026-10-06; 8–10 made with phase 5, 2026-10-07; 11–12 with phase 7, 2026-10-07; 13–19 with phase 8, 2026-10-08; 20–29 with phase 6, 2026-10-08/09; 30–33 with the loose ends, 2026-10-09; 34–35 with the background videos, 2026-10-10; 36 with noteskins, 2026-10-10; 37–39 with bundled noteskins and skins' scripts, 2026-10-12; 40 with pump layouts, 2026-10-13; 41 with the overlays, 2026-10-14; 42–44 with the local corpus sweep, 2026-10-14; 45 with the UI core, 2026-10-15; 46–47 with desktop parity, 2026-10-16; 48–49 with the second layer and replays, 2026-10-16; 50 with native video, 2026-10-17; 51–52 with DanOni URL imports and simplified charts, 2026-10-18; 53–54 with song navigation and the video helper, 2026-10-20; 55 with the rules options, 56 with skin parameters, 57 with more rulesets, 2026-10-21; 58–59 with FFR's and DDR X's rules, 2026-10-22; 60 with center-free pump charts, 61 with the start prompt's loading, 2026-10-24; 62–84 each with its work, 2026-10-25 to 2026-11-18, dated in its entry; 85–115 multiplayer's, made 2026-11-09 to 2026-11-25 and recorded here 2026-11-25)
 
 1. **Licence: MIT.** Bundled songs keep their own licences in `assets/songs/*/LICENSE`.
 2. **Rendering: wgpu from day one** (WebGPU + WebGL2 fallback), not Canvas2D, because desktop parity is a stated goal and heddobureika already proves the wgpu+Trunk path. Costs ~1 MB on the wire.
@@ -981,7 +1279,71 @@ remain separate work.
 81. **Announcers: StepMania's packs imported, spoken where 5.1 speaks them, and a few lines of ours** (2026-11-03; `docs/plans/announcers.md`, `docs/announcer-lines.md`, `docs/research/announcers.md`; `ddi_library::announcer`, `ddi_session::announcer`). The maintainer asked to import the announcer packs made for StepMania, ITGmania, Etterna and the rest, Etterna's extension of StepMania's lines the starting point, then a few lines more. Imported, never bundled: the maintainer's example packs stay local (an ignored test reads them; tests generate their own), and a pack of our own is explored apart (ElevenLabs, not bundled; bundling it would amend this). Amended 2026-11-06: our own packs, `Mr. Clank` (English) and `ガキンさん` (Japanese), made with Kokoro-82M and released as CC0, come with both shells (`assets/announcers/`, keys `bundled:<name>`, listed first, never removed), the maintainer keeping the announcer Off by default; no other pack is bundled. Off by default, one choice for every layout under Options → Sound, with a volume of its own as a share of the music's; presentation only, never judging, the clock, a play's log or a replay's outcome, and a line not decoded when due is left out (Start never waits for it). On the web an import's announcers are stored in IndexedDB (`announcers`, their sounds in `files`); desktop finds them in place in the song folders' `Announcers/`, zips too. Read: StepMania 5.1's layout, names and aliases, without regard to case, Etterna's `evaluation aaaaa` and `evaluation f`; a folder with no sound in it is no line (5.1 lets a readme silence one). Spoken with 5.1's timings and order: `ready` and `here we go` fitted into the lead-in, one gate shared by the comments (10 s), the combos and `combo stopped` (2 s), counted from the play's start, a line that comes too soon dropped rather than queued, lines free to overlap; one results line by precedence, then the cheer 2.5 s later for AA or better; song select's intro at each showing and a chosen chart's comment (repeat, new, hard, general); each line's variants taken from a shuffle kept for the run, a play decoding only what it can use, four variants of a line at most. Ours, in StepMania's style so a pack with them still works there, each falling back to a 5.1 line or to silence (the maintainer wanted all of them): `gameplay restart` (decision 79), `gameplay full combo w1`…`w3` and `gameplay full combo` as the last note is judged, then `cleared`; `gameplay life lost` and `gameplay last life` on the gauges that count lives; `gameplay N combo` past 1000 before `combo overflow`; `evaluation quit` (decision 75); `evaluation first clear`, which the maintainer chose over `new record` for a chart's first cleared play, `new record` speaking for a first play only where no other results line can. The `oni` comment speaks on the gauges of lives (StepMania's battery, DDR's LIFE4 and RISKY), as the maintainer chose. Never in calibration (nothing may cue the player), the field preview, the controls diagram or the editor; autoplay, replays and playtests speak but never say `first clear` or `new record`. The voice is on a bus of its own after the master on both shells, which a fail's hold and a work's fades leave alone, so `gameplay failed` carries into the results; desktop keeps the play's sound through its results for their line. Lamps past the full combos (single-digit perfects, LIFE4's) wait for a pack author's asking. Effects audition 2026-11-15: `tools/announcer-design/effects.py` compares the existing takes through SoundCraft's race, arena and stadium treatments, at matched loudness in both languages, alone and over music. On 2026-11-16 the maintainer selected `stadium-soft` and the lead "Here comes the next challenge.…" after the endings study (`pack-endings.toml`). All 217 English sounds use that lead; both packs (433 sounds) include the effect through `stadium.py`/`stadium.json` and SoundCraft 0.20.1, then the shared gain/limiter finish (`announcer-finish-v1`). Opening-call durations stay unchanged by the effect, other tails are bounded to 0.6 s, and MP3 encoding happens once at the end. After the FFmpeg replacement was approved, studio and generation moved to shared Rust processing (`announcer-stadium-rust-v1`), using the same captured responses and saturation. Advanced → Stadium effect is optional and saved with the draft, applied to original recordings for preview/scenes/export. The browser loads response files on first use. Neither studio nor generation needs SoundCraft; FFmpeg remains for pack encoding/metering. Amended 2026-11-17 (the maintainer): the two packs are one built-in announcer (`assets/announcers/Clank/`, `bundled:clank`, a voice a language), **on by default**, speaking the game's language unless a Language row says otherwise (each language, or Mixed); settings with it Off or with either old pack moved to it once (`Settings::announcer_moved`), the old language not kept, other packs kept, those who had it Off told once on song select with a link to turn it off; a chosen announcer that is gone falls back to it, never to Off. Announcers are pools of takes a pack's folders make (`announcer.ini` declares languages and names), filtered by the player's choices before the session sees them, so its timing and precedence are unchanged; a pack's `announcer.lua` may build its pool once at load on the sandboxed Lua (a take for several lines, tags the player switches off, parameters declared in `announcer.ini`), never during a play, refused whole for its folders when it fails; the built-in runs on its own (`docs/plans/announcers.md`, the last sections).
 82. **The UI speaks Fluent messages, English the source and Japanese first** (2026-11-07; `docs/plans/localization.md`, `crates/l10n/`, `locales/`). The maintainer asked for the UI in Japanese as well as English, the approach settled first so that more languages are easy to add (British English, the main European languages, Russian, Korean, Turkish, Tagalog later; none right to left), no text reaching the screen without passing through translation, and a check of each language's coverage before a release. Messages are Fluent files, one a language an area, each English message a typed function made at build time (its comment declares its variables), returning a `UiText` in the thread's language, falling back to English; what is not ours to translate is `UiText::data`. Judgments, grades and the game's readouts vary with the Judge, never with the language. Whoever changes English text writes every maintained language in the same change; a translation is unverified until a review is recorded against hashes of the English and the translation (an agent's or the maintainer's), so drafts always show and a review lapses by itself when either side changes. The pseudo-language `qps-ploc` and a walk of the screens catch text written in code (those not moved yet listed, the list only shrinking); `xtask l10n check` fails a language missing a message, and a shipped language must be complete for a release, its review states listed, not required. Japanese is drawn with Noto Sans CJK JP (the DanOni SDK's face), with Unicode line breaking. Fluent's runtime costs the web build 58 KB gzipped, under 2%. Amended 2026-11-17 (the maintainer): Japanese is shipped, so a Japanese system gets it on the web and on desktop, its drafts unreviewed as they are; DDI's judgment words are English by default (Japanese or the game's language where chosen); stored settings' language, judgment words and cursor were put back to the defaults once (`Settings::defaults_reset_2026_11_17`).
 83. **DDI, the game's own ruleset, is the default** (2026-11-12; `docs/plans/ddi-ruleset.md`, `crates/engine/src/rules/ddi.rs`). Until now the game played other games' rules; multiplayer needs one ruleset everyone plays, and a ruleset of our own takes what we like of each family: windows on a 1/120 s grid (1/144 Hard, 1/90 Easy) with an early and a late word a tier, W0 "Absolute" inside the best one, combo to W3, optional Boos, mines that lock their lane for a second, holds credited by whole seconds, a life of 0 to 100, one point count shown as a score out of 1,000,000, a percent and an absolute score, grades to Absolute Dito with floors, DDR's full-combo lamps with three FFR-style flags. It is the first ruleset in Options and the default for new settings; settings that named ITG, the default before, moved to it once (the settings store every value, so a default and a choice cannot be told apart), and their kept ITG plays were judged again under it from their input logs, what they came to under ITG kept beside (`docs/plans/play-history.md`, "Judged again under other rules"). The other rulesets stay, unchanged. It plays every chart, pump's and Dancing☆Onigiri's too, under the ruleset mode's default. The multiplayer prototype's rooms play it alone since round 3 (2026-11-12): its difficulty and Boos are match rules, and a battle's shock is a mine that locks its lane.
-84. **MSD stands in for a rating of our own** (2026-11-18; `docs/plans/msd-ratings.md`, `crates/msd/`, `ddi_ui::state::ratings`). The maintainer wants chart ratings of the game's own in place of the simfiles' numbers, and a skill radar, both behind options Off by default; their simulation rating (`teacher-v1`) was not ready ("too slow and too flat a scale"), so: "Maybe we can use MSD for the feature and replace it with a new system when it's ready." MSD is Etterna's calculator (MIT), translated file for file for four keys and checked against upstream's own build to the bit on nearly every chart. Ratings are made in the background where an option wants them, never during a play ("we should pause it during gameplay, even if it can in theory run in parallel"), kept per device by chart digest and calculator version, and are each device's own display (nothing is agreed between peers). Everything that reads a chart's meter for a decision (sorting, ladders, the CPUs, the editor) keeps the song's number.
+84. **MSD stands in for a rating of our own** (2026-11-18; `docs/plans/msd-ratings.md`, `crates/msd/`, `ddi_ui::state::ratings`). The maintainer wants chart ratings of the game's own in place of the simfiles' numbers, and a skill radar, both behind options Off by default; their simulation rating (`teacher-v1`) was not ready ("too slow and too flat a scale"), so: "Maybe we can use MSD for the feature and replace it with a new system when it's ready." MSD is Etterna's calculator (MIT), translated file for file for four keys and checked against upstream's own build to the bit on nearly every chart. Ratings are made in the background where an option wants them, never during a play ("we should pause it during gameplay, even if it can in theory run in parallel"), kept per device by chart digest and calculator version, and are each device's own display (nothing is agreed between peers). Everything that reads a chart's meter for a decision (sorting, ladders, the CPUs, the editor) keeps the song's number. Amended 2026-11-20 (round SLB, the maintainer; `docs/plans/msd-ratings.md`, "Round SLB"): the skill radar is always shown, with no option, and the DDI estimate (`crates/rating`, the game's own estimate of a dance-single chart's level) is the default rating, made in the background for everyone (stored settings moved to it once, `Settings::ratings_moved`); MSD and From the song (the simfile's own numbers, with StepMania 5.1's Groove radar) stay choices. Since 2026-11-24 MSD is not computed while From the song is chosen. So the decision's title is history: MSD no longer stands in by default, the estimate does, and it is not behind an option Off by default.
+
+The multiplayer decisions below (85–115) were recorded on 2026-11-25 from the multiplayer plans, the progress note and the coordinator's notes of the rounds, each with where it is written; they were made between 2026-11-09 and 2026-11-25. Numbers, windows and versioned rules that stay provisional are not decisions and are listed in the progress note's "Provisional choices".
+
+85. **Multiplayer begins with CPU practice and invite-only rooms; public play comes later** (2026-11-10; [the handoff](plans/multiplayer-prototype-handoff.md); 2026-11-25, section 5 "What comes next"). The maintainer authorized these two flows while the wider design went on; public matchmaking (Find match) and room browsing (Browse rooms) stay unbuilt, and on 2026-11-25 the maintainer moved them from non-goals to "later".
+
+86. **Online rooms run on the private server, and the room's model is one crate both run** (2026-11-10; the progress note, M1 and M5c). The maintainer asked for every backend part in the private server (`../ddi-server`, a Rust Cloudflare Worker) and for its messages and state machines to be shared with the game; so the room's reducer is `crates/room`, pure, run by CPU practice's local authority and by the server's rooms alike. (That the shared crate lives in the game's repository was the coordinator's choice from that request.)
+
+87. **Twitch is the online identity; CPU practice needs no sign-in** (2026-11-09 and 2026-11-10; `docs/plans/multiplayer-ui.md`, "Sign-in and participant identity"; the prototype's request). No registration, password or recovery of the game's own; bots are an identity of their own (decision 114).
+
+88. **Multiplayer is open to everyone** (2026-11-14; the progress note, "Feedback round D", "Multiplayer is no longer hidden"). "I think we can remove the dev flag for the Multiplayer mode": the start menu's Multiplayer opens the multiplayer home on both shells; inside it Find match and Browse rooms say "Coming soon"; the home's order puts CPU practice last.
+
+89. **Rooms play DDI alone** (2026-11-11 and 2026-11-12; `docs/plans/multiplayer-ui.md`, D0 and "DDI in rooms"; decision 83). The ruleset is the match's, never a player's own Options ruleset; DDI's Timing difficulty and Boos are match rules; Practice is never offered.
+
+90. **Attacks are automatic and a match rule, On by default; a shock is a mine** (2026-11-11 and 2026-11-12; `docs/plans/multiplayer-ui.md`, D1–D8, "DDI in rooms" and "after testing attacks"). Power is earned by timing (DDI's W0 and W1 earn 2, W2 earns 1), a full bar is launched as an attack by itself, and a battle's shock is judged as a mine: it costs life, breaks the combo and locks its lane for a second. "I think it's working really well, we can switch it to On by default"; anyone turns the rule Off in Rules.
+
+91. **Each player chooses an attack policy, changeable during the play; Top score attacks the top score** (2026-11-11, 2026-11-20; `docs/plans/multiplayer-ui.md`, D8; the progress note, "Round DC"). Spread, Retaliate or Top score (named Leader until 2026-11-20), chosen before a stage and changed during it from the next checkpoint, kept in the play's log. Top score: "Make it attack the top score", ties "Random pick as tie breaker" (a pick drawn from values every device shares).
+
+92. **Shocks per attack is a match rule, four by default** (2026-11-16; the progress note, "Feedback round N2"). After the session with real people found eight a lot; 2, 4, 6 or 8, an attack's cost unchanged.
+
+93. **One picker at a time** (2026-11-12; `docs/plans/multiplayer-ui.md`, "one picker at a time"). The room's picker, its owner at first, chooses its songs; an operator takes the pick over at once with Pick songs; it goes back to the owner when its holder goes.
+
+94. **What a room does when its host goes is a room setting** (2026-11-12 and 2026-11-13; `docs/plans/multiplayer-ui.md`, "a room's host"; the progress note, "Decisions round B1", "The host's succession"). "If the host leaves": Pass it on (the default) or Close the room. "A co-host role should never be inherited", a co-host comes before a member, and a co-host's disconnection changes no role; an observing administrator is skipped. Leaving asks first where it costs something; CPU practice is never asked about.
+
+95. **One award table for every field size, first place alone at 12** (2026-11-13; the progress note, "Rooms of 1+72 players", "The award curve", and "Decisions round B1", "One award rule"). Fields of nine or more read the eight-player table (12, 9, 7, 5, 4, 3, 2, 1) stretched toward the top, fields under eight read it squeezed up the field ("for consistency"), in whole numbers, equal neighbors fine; "first place alone at 12 seems good for all curves".
+
+96. **Up to 73 competitors a room** (2026-11-12 and 2026-11-13; the progress note, "Rooms of 1+72 players"). "I want to increase the room limit from 1+8 to 1+72 players, and for 'watch only' I'd like to have no limit (at least within reason of what the Cloudflare deploy can work with)": 73 competitors, people and CPUs (`RoomPolicy::INITIAL_COMPETITOR_CAP`); the member bound of 384 is provisional.
+
+97. **Adaptive charts, the default for a new room** (2026-11-13, 2026-11-14; the progress note, "Adaptive charts" and "Feedback round D", "Adaptive is the default"). A player who runs out of life steps down to an easier chart of the song rather than going out, and steps up after clean bars, the picked chart's harder ones too; stepping down never ranks a player below by itself: a stage under Adaptive ranks by the score as earned. "I think we can also make Adaptive the default."
+
+98. **Under Adaptive each player starts on a chart of their own** (2026-11-22, room model revision 23; the progress note, "Round OC"). The pick or the draw names the song; each player's chart is chosen on the room's song list or the Ready card, their usual difficulty where they chose none; CPUs by their level.
+
+99. **Leaving a stage's play is a forfeit at once** (2026-11-13; the progress note, "Watching a stage", "Out of a stage"; the coordinator's notes). A forfeit keeps a place in the standings, and the player watches the stage on from their own dimmed field until it is decided.
+
+100. **Every opponent is a field of their own, drawn in the player's own noteskin; no list of opponents** (2026-11-10, 2026-11-12, 2026-11-14; the progress note, M6, "Feedback round A" and "Feedback round E1"; `docs/plans/multiplayer-ui.md`, "no list of opponents"). One noteskin for everything ("doesn't have to look super good"); at least eight opponents always shown, every opponent where they fit (up to 72).
+
+101. **Outcomes are self-reported: private rooms run on trust** (2026-11-24, the maintainer, in the coordinator's notes; `docs/plans/multiplayer-online-play.md`, "Trust"). Each device judges its own play and reports it; the room ranks the reports (`self-reported-v0`). What matters for private rooms is that hosts and co-hosts can kick and that people banned or blocked on the host's Twitch are kept out; anti-cheat matters later, for public rooms, matchmaking or rankings.
+
+102. **A client and the server of different room model revisions refuse each other; the server deploys first** (2026-11-13, 2026-11-14; the progress note, "Decisions round B1", "Reload to update", and "Revision 9"). "Refusing with 'reload to update' seems useful, I'd rather not focus on keeping compatibility right now": `ROOM_MODEL_REVISION` is raised whenever peers must agree on something new, an older client is told to update (the web offers Reload), a client refuses an older server ("The server is being updated"), and no per-feature soft failures are built for older peers. The server and the game deploy together, the server first. A room stored by an older revision still loads.
+
+103. **CPUs in an online room are computed alike on every device** (2026-11-13; the progress note, "CPUs in private online rooms"; `docs/plans/multiplayer-online-play.md`, `online-cpus-v0`, PROVISIONAL). The maintainer queued CPUs for private online rooms; the way they play (no connection plays them, every device computes each one from the chart, its level, its seed and the shocks put in, devices report for them and the room takes the first report) is that round's design, and whether the first or a majority of reports should stand is still open.
+
+104. **A CPU has one of ten levels, shown as stars, and plays the whole chart** (2026-11-12, 2026-11-14; `docs/plans/multiplayer-ui.md`, "CPU levels"; the progress note, "CPUs play the full chart"). Levels 1 to 5 silver, 6 to 10 gold, never a number or "of 5"; "CPUs should play the full charts" (holds, rolls, lifts, the chart's mines). The levels themselves are provisional (never measured against people).
+
+105. **The audience watches without signing in** (2026-11-15; the progress note, "The audience watches without signing in"; `docs/plans/multiplayer-audience.md`, "Sign-in: none"). "I think we should let the audience spectate without having to sign-in and be anonymous": anonymous seats counted by the connecting network (eight a network, "as long as sign-in seats don't count on their own network"), the address dropped once its daily mark is made.
+
+106. **An online room keeps its own list of songs** (2026-11-19 and 2026-11-20, room model revisions 17, 19 and 21; `docs/plans/multiplayer-room-songs.md`; the progress note, "Round RL1" to "Round RL3", "Round DB"). Songs uploaded when added and kept while the room lives, downloaded ahead by each member's device; hosts add by default, the owner may let everyone add (a person up to half the list, hosts and co-hosts exempt); bundled songs are uploaded as any other; an abandoned room's songs are kept a day after its last activity; no cap below the share's own limits (2026-11-22: "leave the share limit").
+
+107. **Song choice by the group is a match rule, by a draw** (2026-11-19, room model revision 22; `docs/plans/multiplayer-room-songs.md`, "The maintainer's decisions of 2026-11-19"). Host (the default) or Group; under Group only those who will play choose, a host's or co-host's own choice starts the countdown, the server draws one entry a person, the choices are cleared after each draw; Repeats: Allowed (the default), Not in a row or Not in a match.
+
+108. **A host may keep out the people banned or blocked on their Twitch** (2026-11-20; `docs/plans/multiplayer-twitch.md`, B1–B8 and "The maintainer's answers"). A room setting, Off by default, checked at join, at each ticket and at each pick, with one neutral line to whoever is refused; the lists stay those of the person who set it while they are a member; a timeout keeps a person out while it lasts; Twitch not answering lets a person in, checked again later.
+
+109. **A kick is not a ban, and there is no "kick and keep out"** (2026-11-20, 2026-11-24; `docs/plans/multiplayer-twitch.md`, B9, answers 5 and 12; the 2026-11-24 decision in the coordinator's notes). Kick, behind a Moderate toggle for the host and co-hosts, removes a person at once and keeps no list; to keep someone out the host bans or times them out on Twitch with the mirror on, then kicks them (or closes admission or replaces the invite link). A kick forgets the mirror's cached answer for that person (2026-11-24). Since revision 24 a kicked person comes back only as a newcomer would.
+
+110. **No Twitch ban events; ban checks on the app token later** (2026-11-22, 2026-11-24; the coordinator's notes; `docs/plans/multiplayer-twitch.md`, B4). The mirror asks Twitch at join, ticket and pick; subscribing to `channel.ban` events is not to be built or planned ("I'd skip doing 2"). Asking Get Banned Users with the app token instead of the setter's own link: later, once the mirror is proven against real Twitch.
+
+111. **The host's chat never passes through our server and never shows in singleplayer** (2026-11-19/20, 2026-11-21; `docs/plans/multiplayer-twitch.md`, the request, C1–C2 and "Round TW7"). Each device opens its own socket to Twitch, subscribed by the server with that person's token; the host sets a ceiling and each device opts in, both Off by default; "singleplayer should never require online connectivity, the chat/emotes background should be purely an optional multiplayer feature" (a development script excepted).
+
+112. **A person's Twitch access is kept on the server, and not given up for 30 days unused** (2026-11-20, 2026-11-22; `docs/plans/multiplayer-twitch.md`, answer 1, A2–A4 and "Round TB", "Permissions kept"). A store a person, deleted after 30 days unused; a permission a device used within 30 days is asked for again at that device's next sign-in ("maybe if a permission isn't used for 30 or 60 days, it isn't requested on the next sign-in"), so turning a feature off and on again is not a new trip through Twitch.
+
+113. **The dancing hand in multiplayer is a local choice, Off by default** (2026-11-14; the progress note, "Feedback round E1"). "We should have a local option of whether to show the dancing hand in multiplayer, by default only on singleplayer": Options → Display, never a match rule; Off, a stage prepares no hand at all.
+
+114. **Bots for testing are a kind of player of their own** (2026-11-11; the progress note, M7d). A development tool against the deployed server or a local one: identity `bot:<name>`, never confusable with a Twitch user, labeled Bot wherever players are listed, signed in with an administrator's share token, never an administrator in a room; bounded by the server (sessions an hour, bots a room).
+
+115. **Usage statistics and error reports, without anything that identifies a person** (2026-11-16, 2026-11-17/18; the progress note, "Usage statistics, steps 1–4"; `site/privacy.html`). The maintainer asked to collect what a real session could not tell them (devices and browsers, connection health, readiness, runtime errors "as long as they don't carry any sensitive information"); daily totals and a room's session log by seat number and fixed words, never per person; the privacy note says what is kept, approved by the maintainer.
 
 ## 7. Risks
 
