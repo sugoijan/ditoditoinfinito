@@ -596,10 +596,16 @@ pages-privacy-twitch =
     • keep out of the room the people that the host banned or blocked on Twitch
     • show the host's Twitch chat during play
 
-    These features are off until you turn them on. When you turn one on, the game takes you through Twitch. There, you allow only what the feature needs:
-    • reading who is banned or timed out in your channel
-    • reading who you blocked
-    • reading chat
+    A new room has both features on. If you turned a feature off for your last room, it stays off. This device remembers that choice. You can turn each feature on or off in the room's Host options.
+
+    When you make a room, the game asks Twitch for what keeping people out needs. It asks when you sign in to make a room. If you are already signed in, it asks when you make the room. It does not ask if you turned this feature off. If you do not allow it, the room is made with this feature off. When you only join a room, the game asks Twitch for nothing new.
+
+    Each feature needs only this:
+    • keeping out banned people: reading who is banned or timed out in your channel
+    • keeping out blocked people too: reading who you blocked
+    • showing your chat: nothing from you
+
+    To see a host's chat on your device, turn on Options → Display → Twitch chat in rooms. The game then asks Twitch for reading chat.
 
     If you allow it, our server keeps Twitch's keys for this access. It seals the keys so that only the server can read them. It never gives the keys to the game.
 
@@ -610,7 +616,7 @@ pages-privacy-twitch =
     • when Twitch ends it
 
     This device also remembers which of these permissions you used, and when. It keeps this in the game's settings on this device, never on our server. You use a permission when you:
-    • host a room with one of these features on
+    • host a room that keeps out people banned or blocked on Twitch
     • show a host's chat on this device
 
     When you sign in on this device again, it asks Twitch for the permissions that you used in the last 30 days. It does this in the same step as the sign-in. So you do not go through Twitch again for each permission when you sign out and in. The device does not ask for a permission that you have not used for 30 days.

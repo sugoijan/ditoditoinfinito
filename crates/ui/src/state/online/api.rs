@@ -246,18 +246,11 @@ where
 }
 
 /// The features (`TwitchAccess::features`' words) a room's Twitch setting
-/// needs.
-pub fn twitch_needs(mirror: ddi_room::TwitchMirror, chat: ddi_room::TwitchChat) -> Vec<&'static str> {
-    let mut need = Vec::new();
-    if mirror.blocks() {
-        need.push("blocks");
-    } else if mirror.on() {
-        need.push("bans");
-    }
-    if chat.on() {
-        need.push("chat");
-    }
-    need
+/// needs of the host's access: the mirror's alone since round RD (the
+/// room's chat asks nothing of the host: each device reads the channel
+/// with its own person's access, `chat` on that device).
+pub fn twitch_needs(mirror: ddi_room::TwitchMirror, _chat: ddi_room::TwitchChat) -> Vec<&'static str> {
+    crate::state::twitch::host_feature(mirror).into_iter().collect()
 }
 
 /// `POST /rooms/<id>/twitch` (round TW1): the room's Twitch setting with
@@ -294,6 +287,11 @@ pub fn twitch_disconnect() -> ApiRequest {
 pub struct Created {
     pub room_id: String,
     pub invite: String,
+    /// Round RD: the Twitch setting the room was made with, as far as the
+    /// maker's access granted the one asked; none from a server that
+    /// predates it (the room then starts with it off).
+    #[serde(default)]
+    pub twitch: Option<crate::state::twitch::HostTwitch>,
 }
 
 /// Whether a newcomer could enter now, as an invite's preview says.
@@ -507,10 +505,22 @@ pub fn login_path(route: &str) -> String {
 /// [`login_path`] asking Twitch again for the permissions `keep` (round
 /// TB, `crate::state::twitch::kept_features`) in the sign-in's own step.
 pub fn login_path_keeping(route: &str, keep: &[&str]) -> String {
-    match keep {
-        [] => login_path(route),
-        keep => format!("{}&keep={}", login_path(route), percent_encode(&keep.join(","))),
+    login_path_for(route, keep, None)
+}
+
+/// [`login_path_keeping`] for a sign-in that says what it is for (round
+/// RD, `purpose`: `host` from making a private room,
+/// `crate::state::twitch::host_purpose`), which the server reads as one of
+/// its fixed sets of permissions.
+pub fn login_path_for(route: &str, keep: &[&str], purpose: Option<&str>) -> String {
+    let mut path = login_path(route);
+    if !keep.is_empty() {
+        path = format!("{path}&keep={}", percent_encode(&keep.join(",")));
     }
+    if let Some(p) = purpose {
+        path = format!("{path}&purpose={}", percent_encode(p));
+    }
+    path
 }
 
 /// The web's trip through Twitch for the person's Twitch access (round
@@ -539,9 +549,18 @@ pub fn new_attempt(route: &str) -> ApiRequest {
 /// [`new_attempt`] asking Twitch again for the permissions `keep` (round
 /// TB), as the web's [`login_path_keeping`].
 pub fn new_attempt_keeping(route: &str, keep: &[&str]) -> ApiRequest {
+    new_attempt_for(route, keep, None)
+}
+
+/// [`new_attempt_keeping`] for a sign-in that says what it is for (round
+/// RD), as the web's [`login_path_for`].
+pub fn new_attempt_for(route: &str, keep: &[&str], purpose: Option<&str>) -> ApiRequest {
     let mut body = serde_json::json!({ "return": route, "shows_code": true });
     if !keep.is_empty() {
         body["keep"] = keep.join(",").into();
+    }
+    if let Some(p) = purpose {
+        body["purpose"] = p.into();
     }
     ApiRequest::new(Method::Post, "/auth/attempts").json(body)
 }
@@ -560,8 +579,15 @@ pub fn cancel_attempt(id: &str, secret: &str) -> ApiRequest {
     }
 }
 
-pub fn create_room(name: Option<&str>) -> ApiRequest {
-    ApiRequest::new(Method::Post, "/rooms").json(serde_json::json!({ "name": name }))
+/// `POST /rooms`; `twitch` (round RD): the Twitch setting the room is to
+/// start with, which the server makes only as far as the maker's access
+/// grants it (a server that predates it ignores it).
+pub fn create_room(name: Option<&str>, twitch: Option<crate::state::twitch::HostTwitch>) -> ApiRequest {
+    let mut body = serde_json::json!({ "name": name });
+    if let Some(t) = twitch {
+        body["twitch"] = serde_json::json!({ "mirror": t.mirror, "chat": t.chat });
+    }
+    ApiRequest::new(Method::Post, "/rooms").json(body)
 }
 
 pub fn preview(invite: &str) -> ApiRequest {

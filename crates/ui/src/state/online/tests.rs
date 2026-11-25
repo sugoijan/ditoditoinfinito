@@ -124,6 +124,8 @@ fn paths(log: &Rc<RefCell<Vec<ApiRequest>>>) -> Vec<String> {
 
 #[test]
 fn desktop_signs_in_through_an_attempt_then_makes_the_room() {
+    // A device whose host never chose: the new room's default.
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
     let polls = Rc::new(RefCell::new(0));
     let p = polls.clone();
     let r = rig(
@@ -131,10 +133,11 @@ fn desktop_signs_in_through_an_attempt_then_makes_the_room() {
         Box::new(move |req| match (req.method, req.path.as_str()) {
             (Method::Post, "/auth/attempts") => {
                 // This build shows the attempt's code (a server refuses
-                // one that does not).
+                // one that does not); round RD: the sign-in that comes
+                // from making a room says so.
                 assert_eq!(
                     req.body.as_deref(),
-                    Some(r#"{"return":"/mp","shows_code":true}"#)
+                    Some(r#"{"purpose":"host","return":"/mp","shows_code":true}"#)
                 );
                 Some(ApiResponse {
                     status: 201,
@@ -160,6 +163,10 @@ fn desktop_signs_in_through_an_attempt_then_makes_the_room() {
             }
             (Method::Post, "/rooms") => {
                 assert_eq!(req.bearer.as_deref(), Some("tok"));
+                assert_eq!(
+                    req.body.as_deref(),
+                    Some(r#"{"name":null,"twitch":{"chat":"emotes","mirror":"bans"}}"#)
+                );
                 Some(ApiResponse {
                     status: 201,
                     body: format!(r#"{{"room_id":"Room000001","invite":"{INVITE}"}}"#),
@@ -485,6 +492,7 @@ fn a_failed_desktop_twitch_trip_ends_as_a_canceled_one() {
             room: room.into(),
             mirror: ddi_room::TwitchMirror::Bans,
             chat: ddi_room::TwitchChat::Off,
+            need: vec!["bans".into()],
         };
         o.connect_twitch_for(Dest::Room(room.into()), "bans", Some(wanted.clone()));
         for t in 1..=4 {
@@ -2569,4 +2577,301 @@ fn a_sign_in_asks_again_for_the_twitch_permissions_used_lately() {
     s.twitch_used.insert("moderation:read".into(), 1);
     s.save();
     assert!(!crate::state::settings::Settings::load().twitch_used.contains_key("moderation:read"));
+}
+
+/// Round RD (the maintainer, 2026-11-25): the sign-in that comes from
+/// making a private room says what it is for (`purpose`), which the server
+/// reads as the room host's fixed set of permissions; every other sign-in
+/// (an invite, the account's Sign in) asks nothing new; the purpose
+/// follows the host's last choice (none where it is Off), and after the
+/// person said no this session the next sign-in for a room is plain.
+#[test]
+fn making_a_room_signs_in_for_the_hosts_bans_and_joining_asks_nothing_new() {
+    use crate::state::twitch::{HostTwitch, remember_host_choice};
+    use ddi_room::{TwitchChat, TwitchMirror};
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    let web = |go: &dyn Fn(&mut Online)| {
+        let r = rig(Platform::Web, Box::new(|req| match req.path.as_str() {
+            "/me" => err(401, "signed_out"),
+            _ => None,
+        }));
+        let mut o = r.online.borrow_mut();
+        o.check();
+        o.poll(0);
+        go(&mut o);
+        match o.take_redirect() {
+            Some(Redirect::Page(p)) => p,
+            other => panic!("{other:?}"),
+        }
+    };
+    let desktop = |dest: Dest| {
+        let r = rig(Platform::Desktop, Box::new(|_| None));
+        r.online.borrow_mut().sign_in(dest);
+        let log = r.log.borrow();
+        log.last().and_then(|q| q.body.clone()).unwrap_or_default()
+    };
+    // A host who never chose: Bans, so the room host's set.
+    assert_eq!(
+        web(&|o| o.private_room()),
+        "/auth/twitch/login?return=%2Fmp&purpose=host"
+    );
+    assert_eq!(
+        desktop(Dest::Create),
+        r#"{"purpose":"host","return":"/mp","shows_code":true}"#
+    );
+    // Joining, the account's Sign in: plain.
+    assert_eq!(
+        web(&|o| o.sign_in(Dest::Join(INVITE.into()))),
+        format!("/auth/twitch/login?return=%2Fmp%2Fjoin%2F{INVITE}")
+    );
+    assert!(!web(&|o| o.sign_in(Dest::Home)).contains("purpose"));
+    assert!(!web(&|o| o.sign_in(Dest::Room("Room000001".into()))).contains("purpose"));
+    assert_eq!(desktop(Dest::Join(INVITE.into())), r#"{"return":"/mp/join/Room000001.abcdefghijABCDEFGHIJ01","shows_code":true}"#);
+    // The permissions used lately are asked as before, beside it.
+    ddi_platform::storage::install_clock(epoch_now);
+    EPOCH_NOW.with(|n| n.set(1_800_000_000_000.0));
+    crate::state::twitch::mark_used(&["chat"]);
+    assert_eq!(
+        web(&|o| o.private_room()),
+        "/auth/twitch/login?return=%2Fmp&keep=chat&purpose=host"
+    );
+    assert_eq!(
+        web(&|o| o.sign_in(Dest::Join(INVITE.into()))),
+        format!("/auth/twitch/login?return=%2Fmp%2Fjoin%2F{INVITE}&keep=chat")
+    );
+    crate::state::twitch::forget_used();
+    // The host's last choice: the blocks too, then the bans off.
+    remember_host_choice(HostTwitch {
+        mirror: TwitchMirror::BansAndBlocks,
+        chat: TwitchChat::Off,
+    });
+    assert_eq!(
+        web(&|o| o.private_room()),
+        "/auth/twitch/login?return=%2Fmp&purpose=host_blocks"
+    );
+    remember_host_choice(HostTwitch {
+        mirror: TwitchMirror::Off,
+        chat: TwitchChat::Emotes,
+    });
+    assert_eq!(web(&|o| o.private_room()), "/auth/twitch/login?return=%2Fmp");
+    // Said no once this session: the next sign-in for a room is plain.
+    remember_host_choice(crate::state::twitch::HOST_DEFAULT);
+    {
+        let r = rig(Platform::Web, Box::new(|_| None));
+        let mut o = r.online.borrow_mut();
+        o.private_room();
+        let _ = o.take_redirect();
+        o.sign_in_canceled(Dest::Create);
+        assert_eq!(o.sign_in_state(), &SignIn::Canceled { dest: Dest::Create });
+    }
+    assert!(crate::state::twitch::host_declined());
+    assert_eq!(web(&|o| o.private_room()), "/auth/twitch/login?return=%2Fmp");
+}
+
+/// Round RD: a host signed in without what their new room's Twitch bans
+/// need is asked at creation, one trip through Twitch for it, and the room
+/// is made when the trip ends whatever Twitch answered (granted, declined,
+/// failed), starting with the host's choice as far as the server allows
+/// it; a host whose access has it, or whose choice is Off, or who said no
+/// this session, goes to no trip at all; a bot never does.
+#[test]
+fn signed_in_without_the_bans_a_host_is_asked_at_creation_and_the_room_is_made_regardless() {
+    use crate::state::twitch::{HostTwitch, remember_host_choice};
+    use ddi_room::{TwitchChat, TwitchMirror};
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    enum Twitch {
+        Grants,
+        Declines,
+        Fails,
+    }
+    // Desktop: the trip's attempt, its poll, `/me` before and after.
+    let run = |has: &'static str, answer: Twitch| {
+        ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+        let granted = Rc::new(RefCell::new(false));
+        let g = granted.clone();
+        let r = rig(
+            Platform::Desktop,
+            Box::new(move |req| match (req.method, req.path.as_str()) {
+                (Method::Get, "/me") => {
+                    let features = if *g.borrow() { r#"["bans"]"# } else { has };
+                    ok(&format!(
+                        r#"{{"player_id":"dev:carol","login":"carol","display_name":"Carol","twitch":{{"features":{features}}}}}"#
+                    ))
+                }
+                (Method::Post, "/auth/attempts") => {
+                    let body: serde_json::Value =
+                        serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap();
+                    assert_eq!(body["scopes"], "bans", "the trip asks for what is missing");
+                    assert_eq!(body["return"], "/mp");
+                    ok(r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"u","user_code":"ABC234","expires_at_ms":9}"#)
+                }
+                (Method::Get, "/auth/attempts/a1") => match answer {
+                    Twitch::Grants => {
+                        *g.borrow_mut() = true;
+                        ok(r#"{"status":"done","session_token":"tok"}"#)
+                    }
+                    Twitch::Declines => ok(r#"{"status":"canceled"}"#),
+                    Twitch::Fails => ok(r#"{"status":"expired"}"#),
+                },
+                (Method::Post, "/rooms") => {
+                    let body: serde_json::Value =
+                        serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap();
+                    let mirror = if *g.borrow() || has.contains("bans") { "bans" } else { "off" };
+                    Some(ApiResponse {
+                        status: 201,
+                        body: format!(
+                            r#"{{"room_id":"Room000001","invite":"{INVITE}","twitch":{{"mirror":"{mirror}","chat":{}}}}}"#,
+                            body["twitch"]["chat"]
+                        ),
+                        session: None,
+                    })
+                }
+                (Method::Delete, "/auth/attempts/a1") => Some(ApiResponse {
+                    status: 204,
+                    body: String::new(),
+                    session: None,
+                }),
+                _ => panic!("unexpected {req:?}"),
+            }),
+        );
+        r.online.borrow_mut().check();
+        r.online.borrow_mut().poll(0);
+        r
+    };
+    let made = |r: &Rig| {
+        let mut o = r.online.borrow_mut();
+        for t in 1..=6 {
+            o.poll(t);
+        }
+        (o.take_entered(), o.take_made("Room000001"))
+    };
+    let asked = crate::state::twitch::HOST_DEFAULT;
+    // Granted: one trip, then the room with both on.
+    let r = run("[]", Twitch::Grants);
+    r.online.borrow_mut().private_room();
+    assert!(r.online.borrow().host_trip(), "the home shows it");
+    assert_eq!(
+        made(&r),
+        (
+            Some("Room000001".into()),
+            Some((asked, Some(HostTwitch { mirror: TwitchMirror::Bans, chat: TwitchChat::Emotes })))
+        )
+    );
+    assert_eq!(
+        paths(&r.log),
+        ["GET /me", "POST /auth/attempts", "GET /auth/attempts/a1", "GET /me", "POST /rooms"]
+    );
+    assert!(!crate::state::twitch::host_declined());
+    // Declined at Twitch, or the attempt failed: the room all the same,
+    // the bans off, and nothing more asked this session.
+    for answer in [Twitch::Declines, Twitch::Fails] {
+        let r = run("[]", answer);
+        r.online.borrow_mut().private_room();
+        assert_eq!(
+            made(&r),
+            (
+                Some("Room000001".into()),
+                Some((asked, Some(HostTwitch { mirror: TwitchMirror::Off, chat: TwitchChat::Emotes })))
+            ),
+            "{answer:?}"
+        );
+        assert_eq!(r.online.borrow().sign_in_state(), &SignIn::Idle, "{answer:?}");
+        assert!(crate::state::twitch::host_declined(), "{answer:?}");
+        r.online.borrow_mut().private_room();
+        r.online.borrow_mut().poll(10);
+        assert_eq!(
+            paths(&r.log).iter().filter(|p| *p == "POST /auth/attempts").count(),
+            1,
+            "{answer:?}: not asked again"
+        );
+    }
+    // Canceled in the game's own dialog: the same.
+    let r = run("[]", Twitch::Grants);
+    r.online.borrow_mut().private_room();
+    r.online.borrow_mut().poll(1);
+    r.online.borrow_mut().cancel_sign_in();
+    assert!(r.online.borrow().creating());
+    assert_eq!(r.online.borrow().sign_in_state(), &SignIn::Idle);
+    // The access has the bans already: no trip.
+    let r = run(r#"["bans"]"#, Twitch::Grants);
+    r.online.borrow_mut().private_room();
+    assert_eq!(made(&r).0.as_deref(), Some("Room000001"));
+    assert_eq!(paths(&r.log), ["GET /me", "POST /rooms"]);
+    // The host's last choice Off for the bans: never sent to Twitch.
+    let r = run("[]", Twitch::Grants);
+    remember_host_choice(HostTwitch {
+        mirror: TwitchMirror::Off,
+        chat: TwitchChat::Off,
+    });
+    r.online.borrow_mut().private_room();
+    assert_eq!(made(&r).0.as_deref(), Some("Room000001"));
+    assert_eq!(paths(&r.log), ["GET /me", "POST /rooms"]);
+    let log = r.log.borrow();
+    assert_eq!(
+        log.last().and_then(|q| q.body.as_deref()),
+        Some(r#"{"name":null,"twitch":{"chat":"off","mirror":"off"}}"#)
+    );
+}
+
+/// Round RD: the web's host trip leaves the page and comes back; the room
+/// is made on the way back whether Twitch allowed it or the trip was
+/// canceled (`?signin=canceled`), which it tells apart from a canceled
+/// sign-in by what it kept for the trip.
+#[test]
+fn the_webs_host_trip_comes_back_to_a_room_made_either_way() {
+    for canceled in [false, true] {
+        ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+        let r = rig(
+            Platform::Web,
+            Box::new(|req| match (req.method, req.path.as_str()) {
+                (Method::Get, "/me") => ok(ME),
+                (Method::Post, "/rooms") => Some(ApiResponse {
+                    status: 201,
+                    body: format!(r#"{{"room_id":"Room000001","invite":"{INVITE}"}}"#),
+                    session: None,
+                }),
+                _ => panic!("unexpected {req:?}"),
+            }),
+        );
+        {
+            let mut o = r.online.borrow_mut();
+            o.check();
+            o.poll(0);
+            o.private_room();
+            assert_eq!(
+                o.take_redirect(),
+                Some(Redirect::Page("/auth/twitch/login?return=%2Fmp&scopes=bans".into()))
+            );
+        }
+        // The page left; a new one comes back.
+        let back = rig(
+            Platform::Web,
+            Box::new(|req| match (req.method, req.path.as_str()) {
+                (Method::Get, "/me") => ok(ME),
+                (Method::Post, "/rooms") => Some(ApiResponse {
+                    status: 201,
+                    // A server that predates round RD: nothing said.
+                    body: format!(r#"{{"room_id":"Room000001","invite":"{INVITE}"}}"#),
+                    session: None,
+                }),
+                _ => panic!("unexpected {req:?}"),
+            }),
+        );
+        let mut o = back.online.borrow_mut();
+        if canceled {
+            o.sign_in_canceled(Dest::Create);
+        } else {
+            o.returned(Dest::Create);
+        }
+        o.poll(1);
+        o.poll(2);
+        assert_eq!(o.take_entered().as_deref(), Some("Room000001"), "canceled {canceled}");
+        assert_eq!(
+            o.take_made("Room000001"),
+            Some((crate::state::twitch::HOST_DEFAULT, None)),
+            "an older server says nothing of it"
+        );
+        assert_eq!(crate::state::twitch::host_declined(), canceled);
+        assert_eq!(ddi_platform::storage::get(ddi_platform::storage::Area::Session, HOST_TRIP), None);
+    }
 }

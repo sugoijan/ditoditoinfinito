@@ -122,6 +122,9 @@ pub struct RoomView {
     /// The status line, and the refusal it says (its kind), if any.
     pub status: String,
     pub refusal: Option<String>,
+    /// The room's Twitch setting (round RD), its mirror and chat (`bans`,
+    /// `emotes`…); none where it has none.
+    pub twitch: Option<(String, String)>,
     /// Finished matches kept in the room.
     pub history: usize,
     /// The screen's own controls: where a shell's debug view finds them.
@@ -921,6 +924,7 @@ fn phase_status(r: &RoomClient) -> UiText {
             LinkNotice::TwitchChatOn => m::twitch_chat_on(),
             LinkNotice::TwitchEnded => m::twitch_ended(),
             LinkNotice::TwitchChatNoAccess => m::twitch_chat_no_access(),
+            LinkNotice::TwitchBansOff => m::twitch_bans_off(),
             LinkNotice::TwitchSetterLeft { who } => m::twitch_setter_left(UiText::data(
                 r.state().member(who).map(person_name).unwrap_or_default(),
             )),
@@ -3636,6 +3640,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         ready: r.ready(),
         countdown: seconds_left(&r),
         audience: r.audience(),
+        twitch: r.twitch().map(|t| (snake(&t.mirror), snake(&t.chat))),
         status: status(&r).into(),
         refusal: r.refusal().map(|f| format!("{f:?}")),
         history: s.history.len(),

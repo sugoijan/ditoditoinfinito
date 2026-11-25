@@ -38,6 +38,10 @@ room-sign-in-title = Sign in
 # The sign-in dialog's text when Private room was chosen signed out
 # (wrapped, about 60 letters a line).
 room-sign-in-for-private = Private rooms are invite-only and are played as your Twitch identity. Sign in with Twitch to make one.
+# Round RD: the same dialog's text where the sign-in also asks Twitch for
+# what a new room's "Twitch bans" needs (a new room starts with them on;
+# Host options is the room's dialog where they are turned off).
+room-sign-in-for-private-host = Private rooms are invite-only and are played as your Twitch identity. Sign in with Twitch to make one. Twitch will also ask to let the game see who is banned or timed out in your channel, so they are kept out of your room (Host options → Twitch bans).
 
 # The sign-in dialog's text when opened from the footer's Sign in.
 room-sign-in-for-account = Sign in with Twitch to make private rooms and join invites. CPU practice needs no account.
@@ -2425,6 +2429,9 @@ room-host-twitch-whose = { $login }'s Twitch bans and chat apply.
 # Round TW7: under those rows, always: what Show my Twitch chat does, for a
 # host who has never seen it (each player still chooses on their device).
 room-host-twitch-chat-about = Show my Twitch chat: your channel's chat moves behind the fields during each stage, for the players who turn on Twitch chat in rooms on their own device (Options → Display).
+# Round RD: under those rows, always: the next room this person makes
+# starts with the two rows as they leave them here.
+room-host-twitch-remembered = The next room you make starts with these two as you leave them.
 # Round TW7: the status line, once, where the room shows its host's chat
 # and this player's device has Twitch chat in rooms on (Options → Display),
 # but their Twitch access does not allow reading chat (round FX: with a
@@ -2457,6 +2464,10 @@ room-chat-trouble-not-allowed = Twitch chat could not show: only an administrato
 # Round TW1b: the status line after a trip through Twitch for the room's
 # Twitch setting ended without connecting it (canceled at Twitch).
 room-twitch-not-connected = Twitch access was not connected: nothing changed.
+# Round RD: the status line once, in a room just made, where it was to start
+# with Twitch bans on and Twitch did not allow them (declined, or not asked
+# again this session): they are off; Host options turns them on.
+room-twitch-bans-off = Twitch bans are off: Twitch did not allow them.
 # Round TW3: the status line after a trip through Twitch for this
 # device's "Twitch chat in rooms" (Options → Display) connected it.
 room-twitch-chat-on = Twitch chat in rooms is on for this device.
@@ -2466,6 +2477,10 @@ room-twitch-chat-on = Twitch chat in rooms is on for this device.
 room-twitch-connecting = Connecting Twitch access…
 # The same dialog while the browser is open on Twitch's page.
 room-twitch-connect-waiting = Allow Twitch access in your browser, then come back here.
+# Round RD: desktop, the same dialog where making a private room asks
+# Twitch for what the new room's Twitch bans need (the person is signed in
+# without it): why, and that the room is made either way.
+room-host-trip-why = Your new room starts with Twitch bans on. Allow the game to see who is banned or timed out in your channel. If you don't, the room is made with them off.
 # Round TW3: the status line where the room's Twitch bans and chat turned
 # off because this player's own Twitch access ended (Twitch refused it,
 # or it was disconnected on another device). Nobody was removed.

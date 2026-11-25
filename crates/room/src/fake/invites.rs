@@ -253,10 +253,14 @@ impl FakeServer {
             .member_by_identity(&identity)
             .is_some_and(|m| m.admin || matches!(m.role, Role::Owner | Role::CoHost));
         Some(match (method, path) {
+            // With the Twitch access the fake grants
+            // ([`super::FakeServer::grant_twitch`]), as the server's `/me`
+            // says it.
             ("GET", "/me") => (
                 200,
                 format!(
-                    r#"{{"player_id":"dev:{who}","login":"{who}","display_name":"{who}","admin":false,"expires_at_ms":1}}"#
+                    r#"{{"player_id":"dev:{who}","login":"{who}","display_name":"{who}","admin":false,"expires_at_ms":1,"twitch":{{"features":{}}}}}"#,
+                    serde_json::to_string(&self.twitch_features(&identity)).unwrap_or_else(|_| "[]".into())
                 ),
             ),
             ("GET", p) if p == rooms => (
@@ -276,14 +280,14 @@ impl FakeServer {
                     serde_json::from_value(b["mirror"].clone()).unwrap_or_default();
                 let chat: crate::TwitchChat =
                     serde_json::from_value(b["chat"].clone()).unwrap_or_default();
+                // Round RD: the mirror's alone; the room's chat asks
+                // nothing of the host (each device reads the channel with
+                // its own person's access).
                 let mut need = Vec::new();
                 if mirror.blocks() {
                     need.push("blocks");
                 } else if mirror.on() {
                     need.push("bans");
-                }
-                if chat.on() {
-                    need.push("chat");
                 }
                 let has = self.twitch_grants.get(&identity).cloned().unwrap_or_default();
                 let missing: Vec<&str> =

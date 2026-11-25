@@ -134,12 +134,15 @@
           <li>keep out of the room the people that the host banned or blocked on Twitch</li>
           <li>show the host's Twitch chat during play</li>
         </ul>
-        <p>These features are off until you turn them on. When you turn one on, the game takes you through Twitch. There, you allow only what the feature needs:</p>
+        <p>A new room has both features on. If you turned a feature off for your last room, it stays off. This device remembers that choice. You can turn each feature on or off in the room's Host options.</p>
+        <p>When you make a room, the game asks Twitch for what keeping people out needs. It asks when you sign in to make a room. If you are already signed in, it asks when you make the room. It does not ask if you turned this feature off. If you do not allow it, the room is made with this feature off. When you only join a room, the game asks Twitch for nothing new.</p>
+        <p>Each feature needs only this:</p>
         <ul>
-          <li>reading who is banned or timed out in your channel</li>
-          <li>reading who you blocked</li>
-          <li>reading chat</li>
+          <li>keeping out banned people: reading who is banned or timed out in your channel</li>
+          <li>keeping out blocked people too: reading who you blocked</li>
+          <li>showing your chat: nothing from you</li>
         </ul>
+        <p>To see a host's chat on your device, turn on Options → Display → Twitch chat in rooms. The game then asks Twitch for reading chat.</p>
         <p>If you allow it, our server keeps Twitch's keys for this access. It seals the keys so that only the server can read them. It never gives the keys to the game.</p>
         <p>Our server uses this access only when a room's feature needs it. It deletes the access:</p>
         <ul>
@@ -150,7 +153,7 @@
         </ul>
         <p>This device also remembers which of these permissions you used, and when. It keeps this in the game's settings on this device, never on our server. You use a permission when you:</p>
         <ul>
-          <li>host a room with one of these features on</li>
+          <li>host a room that keeps out people banned or blocked on Twitch</li>
           <li>show a host's chat on this device</li>
         </ul>
         <p>When you sign in on this device again, it asks Twitch for the permissions that you used in the last 30 days. It does this in the same step as the sign-in. So you do not go through Twitch again for each permission when you sign out and in. The device does not ask for a permission that you have not used for 30 days.</p>
@@ -397,12 +400,15 @@
           <li>Twitchでバンやブロックをした人を、ルームに入れない</li>
           <li>プレイ中に、ホストのTwitchチャットを表示する</li>
         </ul>
-        <p>これらの機能は、オンにするまでオフです。機能をオンにすると、ゲームはあなたをTwitchのページに案内します。そこで、機能に必要なことだけを許可します。</p>
+        <p>新しいルームでは、2つの機能はオンです。前のルームで機能をオフにした場合は、オフのままです。このデバイスがその選択を覚えています。それぞれの機能は、ルームの「ホスト設定」でオンやオフにできます。</p>
+        <p>ルームを作るとき、ゲームは、人を入れないために必要な許可をTwitchに求めます。ルームを作るためにサインインするときに求めます。すでにサインインしているときは、ルームを作るときに求めます。この機能をオフにしている場合は、求めません。許可しなかった場合は、この機能をオフにしてルームを作ります。ルームに参加するだけのときは、新しい許可は何も求めません。</p>
+        <p>それぞれの機能に必要なのは、次のことだけです。</p>
         <ul>
-          <li>チャンネルでだれがバンやタイムアウトをされているかを読む</li>
-          <li>あなたがだれをブロックしたかを読む</li>
-          <li>チャットを読む</li>
+          <li>バンされた人を入れない：チャンネルでだれがバンやタイムアウトをされているかを読む</li>
+          <li>ブロックした人も入れない：あなたがだれをブロックしたかを読む</li>
+          <li>自分のチャットを表示する：あなたからの許可は必要ありません</li>
         </ul>
+        <p>自分のデバイスでホストのチャットを見るには、「オプション → 表示 → ルームでのTwitchチャット」をオンにします。そのとき、ゲームはチャットを読む許可をTwitchに求めます。</p>
         <p>許可すると、サーバーは、このアクセスのためのTwitchの鍵を保存します。鍵には封をして、サーバーだけが読めるようにします。鍵をゲームに渡すことはありません。</p>
         <p>サーバーがこのアクセスを使うのは、ルームの機能に必要なときだけです。アクセスを削除するのは、次のときです。</p>
         <ul>
@@ -413,7 +419,7 @@
         </ul>
         <p>このデバイスは、これらの許可のうちどれをいつ使ったかも覚えています。この記録は、このデバイスのゲームの設定に保存します。サーバーには保存しません。許可を使うのは、次のときです。</p>
         <ul>
-          <li>これらの機能のどれかをオンにして、ルームのホストをしたとき</li>
+          <li>Twitchでバンやブロックをした人を入れないルームの、ホストをしたとき</li>
           <li>このデバイスで、ホストのチャットを表示したとき</li>
         </ul>
         <p>このデバイスでもう一度サインインすると、このデバイスは、過去30日に使った許可をTwitchに求めます。これは、サインインと同じ手順で行います。そのため、サインアウトしてもう一度サインインしても、許可ごとにTwitchのページを通る必要はありません。30日間使わなかった許可は求めません。</p>

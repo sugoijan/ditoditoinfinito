@@ -2744,6 +2744,18 @@ impl RoomClient {
         }
     }
 
+    /// Host options' rows pressed (round RD): the room's Twitch setting
+    /// asked ([`RoomClient::set_twitch`]), and the choice kept on this
+    /// device for the next room its host makes
+    /// (`crate::state::twitch::remember_host_choice`), Off included.
+    pub fn choose_twitch(&mut self, mirror: ddi_room::TwitchMirror, chat: ddi_room::TwitchChat) {
+        if !self.may_set_twitch() {
+            return;
+        }
+        crate::state::twitch::remember_host_choice(crate::state::twitch::HostTwitch { mirror, chat });
+        self.set_twitch(mirror, chat);
+    }
+
     /// The room's Twitch setting as Host options show it and build the
     /// next change on (round TB): the one this player asked until the room
     /// says it (a trip through Twitch on the way, the answer in flight),
@@ -2813,6 +2825,7 @@ impl RoomClient {
             room: room.clone(),
             mirror,
             chat,
+            need: trip.split(',').filter(|n| !n.is_empty()).map(String::from).collect(),
         });
         link.online().borrow_mut().connect_twitch_for(
             crate::state::online::Dest::Room(room),
@@ -2833,6 +2846,16 @@ impl RoomClient {
             return;
         };
         let (online, room) = (link.online().clone(), link.room_id().to_string());
+        // Round RD: this room was just made here asking for Twitch bans,
+        // and the host's access did not allow them: said once, quietly
+        // (nothing asked again; Host options turns them on).
+        let made = online.borrow_mut().take_made(&room);
+        if let Some((asked, Some(got))) = made
+            && got.mirror < asked.mirror
+            && !got.mirror.on()
+        {
+            self.set_link_notice(Some(LinkNotice::TwitchBansOff));
+        }
         // Round TW3: a trip for this device's chat, back here.
         let chat = online.borrow_mut().take_chat_outcome();
         if let Some(on) = chat {

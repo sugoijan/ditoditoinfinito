@@ -2156,3 +2156,130 @@ timed out (120 s) five seconds into the song: removed 23 to 29 ms after
 the event, their play left at once ("Left the stage", what is left to
 watch), the results graded QUIT, then the notice; refused at the door.
 The singleplayer smoke check passed in both.
+
+## Round RD (2026-11-25): a new room starts with the host's Twitch on, asked for where the room is made
+
+The maintainer: "I'd like to make the default option for creating rooms
+to be 'Twitch bans: Bans' and 'Show my Twitch chat: Emotes', but an
+important aspect of this is that the first 'Sign-in with Twitch' should
+request the extra permissions it needs only when it comes from creating
+a private room, if it comes from joining a room it shouldn't request
+those extra permissions." Then: "Yes, ask at creation. If the person
+declines make the room with whatever was granted. Keep the host's last
+choice for new rooms. The consequences are fine, update the privacy
+note." This changes A1's table and B1's and C1's "Off by default".
+
+**What the host's side of the chat needs: nothing.** Each device that
+shows the chat opens its own socket and is subscribed with its own
+person's `user:read:chat` (C2; Twitch's EventSub reference for
+`channel.chat.message` over a WebSocket asks for that scope of the
+reading user and nothing of the broadcaster, read in the design round;
+the broadcaster's `channel:bot` is asked only of an app token, which we
+do not use). Our server never used the host's `user:read:chat` for the
+room's chat: every subscription names the reader's own link
+(`TwitchLink`'s `/subscribe`), the channel only as its broadcaster id,
+which the room takes from the host's identity. It was asked (A1's
+"Host, Chat shown") only because the design assumed it. Not yet seen
+against Twitch: a viewer reading another person's channel with their
+own access alone (the real runs these notes record read the runner's
+own channel);
+the reference says it works, and the room's guests have always relied
+on it. So "Show my Twitch chat" now asks nothing of the host: the
+server's `POST /rooms/<id>/twitch` needs `moderation:read` for Bans
+(and `user:read:blocked_users` with it for Bans and blocks) and nothing
+for the chat, and hosting a room with the chat on no longer marks the
+chat's permission used (`api::twitch_needs`, `mark_twitch_used`). Each
+viewer still needs their own `user:read:chat` for their own device's
+"Twitch chat in rooms", Off by default and unchanged.
+
+**A new room's setting** (`crate::state::twitch::host_wanted`): the host's
+last choice on this device (`Settings::room_twitch`: what they last left
+Host options' two rows at in any room, Off included; written by the
+rows' presses, `RoomClient::choose_twitch`, never by Disconnect or by
+what the server made of a choice), and for a host who never chose
+`HOST_DEFAULT`, Bans and Emotes. It reaches the room in the create
+request itself: `POST /rooms {name, twitch: {mirror, chat}}`. The
+server makes the room first, then gives it the setting as Host options
+would (`RoomDO`'s `/twitch`, the authority's `Command::SetTwitch`), as
+far as the maker's link grants it (`twitch::room_defaults`: Bans and
+blocks where both are granted, Bans where only the bans are, else Off;
+the chat as asked). The room has only its maker, so the mirror's sweep
+asks Twitch about nobody. Whatever the link, Twitch or the room
+answers, the room is made; the answer says what it got
+(`{room_id, invite, twitch: {mirror, chat}}`). Why this way and not the
+host's client asking after the room is made: one request, decided on
+the server against the link as it is, no window where the room exists
+without its setting, no `409` to handle, and nothing new in the room's
+protocol (no room model revision: 24 stays). An old game sends no
+`twitch` and gets a room with it off, as before; a new game against an
+old server gets the same (the field ignored, the answer without
+`twitch`).
+
+**The sign-in that comes from making a room** says so: `purpose=host`
+on the web's `/auth/twitch/login`, `"purpose": "host"` in desktop's
+`POST /auth/attempts` (`host_blocks` for a host whose last choice is
+Bans and blocks; no purpose where it is Off). The purpose is a hint: the
+server maps it to one of its fixed sets (`twitch::purpose_features`:
+`host` the bans' `moderation:read`, `host_blocks` that and
+`user:read:blocked_users`, anything else the plain sign-in) and never
+takes a scope from the client. It is added to round TB's `keep`. Every
+other sign-in (an invite, Join by link, the account's Sign in, a room's
+page) asks only the plain sign-in and `keep`, as before. The sign-in
+dialog says what Twitch will ask (`room-sign-in-for-private-host`);
+desktop's attempt page lists it as for any trip. Twitch's consent is
+all or nothing, so a person who declines it at a sign-in is not signed
+in and no room is made; the game then remembers for the session that
+they said no (`twitch::decline_host`), and their next Private room asks
+only the plain sign-in.
+
+**Signed in without it** (`Online::private_room`): where the wanted
+mirror needs a feature `/me` does not list, one trip through Twitch for
+it first (`connect_twitch_for(Dest::Create, "bans")`, the host's trip,
+`Online::host_trip`), then the room. Desktop: the multiplayer home
+shows the trip as Host options shows its trips, the code on its plate,
+with why (`room-host-trip-why`). The web: the page leaves for Twitch and
+comes back to the multiplayer home, which makes the room
+(`HOST_TRIP` in `sessionStorage` tells a canceled trip, `?signin=canceled`,
+from a canceled sign-in). Granted, declined, canceled in the game's
+dialog or failed: the room is made, with what was granted, and nothing
+more is asked when making a room this session (`decline_host`); Host
+options still asks when a row is turned on. Never sent to Twitch: a
+host whose last choice for the bans is Off, a bot, one who said no this
+session.
+
+**Told**: a room made asking for the bans that got none says once on
+its status line "Twitch bans are off: Twitch did not allow them."
+(`LinkNotice::TwitchBansOff`, `Online::take_made`). Host options has a
+line under its rows: "The next room you make starts with these two as
+you leave them."
+
+**The 30 days** (round TB) are unchanged and for every sign-in: the bans
+granted this way count as used when the host hosts a room with them on;
+unused for 30 days they are not in the next sign-in's `keep`. A host
+whose last choice is Bans but whose permission lapsed is asked again
+when they make a room (in the sign-in's purpose, or the trip at
+creation); the last choice and the permissions used are kept apart, so
+a lapse never turns the choice Off.
+
+**Also changed**: a trip that ended canceled or failed never sets the
+room's setting from an older `/me` (`take_twitch_wanted`; before, a
+stale `/me` could send the person through Twitch again and again), and
+it compares what was granted with what the server asked for (the
+`need` of its `409`, `TwitchWanted::need`), so a new game against a
+server that still asks the host for the chat is not looped either.
+
+**Deploy**: the server first, then the game; either alone is harmless
+(above). The privacy note's section "Twitch access for a room's
+features" says it, in both languages, the page and the Credits' fold.
+
+**Tests.** Server: `a_purpose_chooses_among_fixed_sets_and_anything_else_is_plain`,
+`a_new_rooms_setting_is_what_the_link_grants` (`twitch.rs`),
+`a_new_room_takes_its_makers_setting_and_asks_about_nobody` (`room.rs`).
+Game (`ddi-ui`): `making_a_room_signs_in_for_the_hosts_bans_and_joining_asks_nothing_new`,
+`signed_in_without_the_bans_a_host_is_asked_at_creation_and_the_room_is_made_regardless`,
+`the_webs_host_trip_comes_back_to_a_room_made_either_way`
+(`state/online/tests.rs`),
+`desktops_private_room_asks_for_the_bans_at_creation_and_the_room_is_made_either_way`
+(`screens/room_tests.rs`: the home's dialog with its code and why,
+granted and canceled, the rows remembered, Off included, the notice),
+and the `qps-ploc` walk over the host's trip and the notice.

@@ -1687,7 +1687,16 @@ Rust and the browser are implementation details, not advertised features.
   ticket, a pick, the setting turned on, raised or replaced, and since
   round RT when a device in the room heard in the room's chat that
   someone there was banned or timed out, `POST /rooms/<id>/recheck`,
-  no new revision; `docs/plans/multiplayer-twitch.md`;
+  no new revision; since round RD a new online room starts with its
+  maker's last choice of the two rows on that device
+  (`Settings::room_twitch`, `ddi_ui::state::twitch::host_wanted`), else
+  Bans and Emotes, given by the server's `POST /rooms {twitch}` only as
+  far as the maker's access grants it, the room made whatever Twitch
+  answers; the sign-in from Private room states `purpose=host` (the
+  server's fixed set, `moderation:read`), one signed in without it is
+  sent through Twitch once at creation (`Online::host_trip`), joining
+  asks nothing new, and the room's chat asks nothing of its host, no
+  new revision; `docs/plans/multiplayer-twitch.md`;
   `tests/twitch.rs`, `tests/room-revision-17.json` read with none);
   17 since 2026-11-19: an online room's own song
   list, `crate::songs` (`RoomState::songs`, behind a shared pointer and

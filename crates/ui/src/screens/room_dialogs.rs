@@ -2803,6 +2803,12 @@ impl Screen for HostDialog {
                     inner,
                     13.0,
                 ));
+                // Round RD: the next room starts with these rows as left.
+                whose.extend(super::dialog::wrap_lines(
+                    &String::from(m::host_twitch_remembered()),
+                    inner,
+                    13.0,
+                ));
                 (r.twitch_shown(), whose)
             })
         };
@@ -3238,7 +3244,7 @@ impl Screen for HostDialog {
                             let k = TwitchChat::ALL.iter().position(|c| *c == chat).unwrap_or(0);
                             chat = TwitchChat::ALL[step(k, up, 3)];
                         }
-                        self.room.borrow_mut().set_twitch(mirror, chat);
+                        self.room.borrow_mut().choose_twitch(mirror, chat);
                         self.rebuild(root, cx);
                     }
                     "Dec.leaves" | "Inc.leaves" => {

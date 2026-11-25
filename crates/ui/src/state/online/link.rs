@@ -67,6 +67,12 @@ pub enum LinkNotice {
     /// not allow reading chat: what to do, said once for
     /// [`JOINED_TO_WATCH_MS`].
     TwitchChatNoAccess,
+    /// Round RD: this room was just made here asking for "Twitch bans"
+    /// (the host's last choice, or the default), and the host's Twitch
+    /// access did not allow them (declined at Twitch, or never asked this
+    /// session): the room has them off, said once for
+    /// [`JOINED_TO_WATCH_MS`]; Host options turns them on.
+    TwitchBansOff,
     /// Room model revision 22 (round RL4b): the room took this player's
     /// song choice away, not by their own doing (Song choice turned to
     /// Host, the Repeats rule excluding the song, the song gone, the draw

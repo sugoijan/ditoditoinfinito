@@ -1686,6 +1686,29 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     shown(&mut h, found);
     r.online.borrow_mut().cancel_sign_in();
     shown(&mut h, found);
+    // Round RD: the host's trip, asked for by making a private room: why,
+    // and the code.
+    let r = rig(
+        Platform::Desktop,
+        Box::new(move |req| match req.path.as_str() {
+            "/auth/attempts" => ok(attempt),
+            "/me" => err(401, "signed_out"),
+            _ => None,
+        }),
+    );
+    r.online.borrow_mut().connect_twitch_for(Dest::Create, "bans", None);
+    let mut h = harness();
+    h.push(Home::new(env.clone(), r.online.clone(), quiet()));
+    h.push(super::online_home::SignInDialog::connecting(
+        env.clone(),
+        r.online.clone(),
+        Dest::Create,
+        "bans",
+        None,
+    ));
+    shown(&mut h, found);
+    r.online.borrow_mut().poll(1);
+    shown(&mut h, found);
     // Signed in: the account, Sign out, the invite field and its refusal.
     let r = rig(
         Platform::Desktop,
@@ -2036,6 +2059,8 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
             crate::state::online::link::LinkNotice::ChoiceGone { why: ddi_room::ChoiceGone::Repeats },
             crate::state::online::link::LinkNotice::ChoiceGone { why: ddi_room::ChoiceGone::Song },
             crate::state::online::link::LinkNotice::ChoiceGone { why: ddi_room::ChoiceGone::Stage },
+            // A room made without the Twitch bans it asked for (round RD).
+            crate::state::online::link::LinkNotice::TwitchBansOff,
         ]
         .into_iter()
         .map(|n| {

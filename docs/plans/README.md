@@ -109,7 +109,11 @@ so.
   and the layer's limits tripled, `chat-overlay-v2`, measured against
   v1; round SD (2026-11-24) the room's chat setting followed at once
   during a stage; rounds BE and B8 (2026-11-24) the emote sets read
-  through `barbed-emotes` 0.0.8. Not yet run against real Twitch: the
+  through `barbed-emotes` 0.0.8; round RD (2026-11-25) a new room
+  starting with the host's last choice, else Bans and Emotes, the bans'
+  permission asked where a room is made (at its sign-in, or one trip at
+  creation) and never where one is joined, the room made whatever
+  Twitch answers, and the chat asking nothing of the host. Not yet run against real Twitch: the
   ban and block mirror's calls, and the web's chat sockets ("Still
   unverified"). A streaming host's Twitch bans and blocks
   keeping people out of the room (the host's token on the server, checked

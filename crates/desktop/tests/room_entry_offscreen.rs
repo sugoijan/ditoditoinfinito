@@ -112,6 +112,11 @@ fn from_the_home_into_a_private_room_frame_by_frame() {
             server
                 .borrow_mut()
                 .fault(ParticipantId(1), Fault::Delay(lag));
+            // Round RD: alice's access has what a new room's Twitch bans
+            // need, so Private room makes the room at once (no trip).
+            server
+                .borrow_mut()
+                .grant_twitch(&Identity::new("dev:alice"), &["bans"]);
             let online: SharedOnline = Online::new(
                 Box::new(LaggyHttp {
                     server: server.clone(),

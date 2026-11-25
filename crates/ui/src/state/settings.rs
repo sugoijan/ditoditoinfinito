@@ -375,6 +375,13 @@ pub struct Settings {
     /// (`crate::state::twitch::kept_features`); forgotten by Options →
     /// Data's Disconnect. Kept across signing out.
     pub twitch_used: BTreeMap<String, u64>,
+    /// Round RD: the room's Twitch setting this device's host last left
+    /// Host options' two rows at ("Twitch bans", "Show my Twitch chat"),
+    /// Off included, which a new online room starts with
+    /// (`crate::state::twitch::host_wanted`); none until a host chose:
+    /// Bans and Emotes. Forgotten with the settings.
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "ddi_engine::lenient")]
+    pub room_twitch: Option<crate::state::twitch::HostTwitch>,
     /// "Chat style": the chat crossing the screen or falling (C6).
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub chat_style: ddi_chat::Style,
@@ -929,6 +936,7 @@ impl Default for Settings {
             touch_size: Default::default(),
             twitch_chat: ddi_chat::Level::Off,
             twitch_used: BTreeMap::new(),
+            room_twitch: None,
             chat_style: ddi_chat::Style::Across,
             chat_names: false,
             chat_emotes_from: ddi_chat::EmotesFrom::default(),

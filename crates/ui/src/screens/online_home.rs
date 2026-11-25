@@ -280,15 +280,26 @@ impl Home {
             return;
         }
         self.dialog.set(true);
-        cx.overlay(
-            SignInDialog::new(
+        // Round RD: a host's trip through Twitch, asked for by making a
+        // private room signed in without the access its Twitch bans need,
+        // shows as Host options' trips do (desktop's code to type); the
+        // room is made when it ends.
+        let host_trip = self.online.borrow().host_trip();
+        let dialog = if host_trip {
+            let feature = crate::state::twitch::host_feature(crate::state::twitch::host_wanted().mirror);
+            let mut d = SignInDialog::connecting(
                 self.env.clone(),
                 self.online.clone(),
                 dest,
-                self.dialog.clone(),
-            ),
-            true,
-        );
+                feature.unwrap_or("bans"),
+                None,
+            );
+            d.open = self.dialog.clone();
+            d
+        } else {
+            SignInDialog::new(self.env.clone(), self.online.clone(), dest, self.dialog.clone())
+        };
+        cx.overlay(dialog, true);
     }
 
     fn activate(&mut self, name: &str, cx: &mut Cx) {
@@ -471,7 +482,7 @@ impl Screen for Home {
         // (round TB): one left over here, its dialog gone with that screen
         // (a room closed during it), is stopped, and one that ended is
         // forgotten, so the home never shows it as a sign-in.
-        if self.online.borrow().twitch_trip() {
+        if self.online.borrow().twitch_trip() && !self.online.borrow().host_trip() {
             let mut o = self.online.borrow_mut();
             if o.sign_in_state().busy() {
                 o.cancel_sign_in();
@@ -685,6 +696,12 @@ impl SignInDialog {
         let o = self.online.borrow();
         let intro = |dest: &Dest| -> String {
             match dest {
+                // Round RD: the sign-in asks Twitch for what the new room's
+                // Twitch bans need too (none where the host's choice is
+                // off, or once they said no this session).
+                Dest::Create if crate::state::twitch::host_purpose().is_some() => {
+                    m::sign_in_for_private_host().into()
+                }
                 Dest::Create => m::sign_in_for_private().into(),
                 _ => m::sign_in_for_account().into(),
             }
@@ -724,13 +741,18 @@ impl SignInDialog {
         let o = self.online.borrow();
         let cancel = ("Cancel", common::cancel().into(), "Button");
         let retry = ("Retry", m::sign_in_retry().into(), "PlayButton");
+        // Round RD: a host's trip, asked for by making a room: why, and
+        // that the room is made either way.
+        let why: Option<String> = (self.dest == Dest::Create).then(|| m::host_trip_why().into());
         match o.sign_in_state() {
-            SignIn::Idle | SignIn::Starting { .. } | SignIn::Completing { .. } => {
-                (vec![m::twitch_connecting().into()], vec![cancel])
-            }
+            SignIn::Idle | SignIn::Starting { .. } | SignIn::Completing { .. } => (
+                why.into_iter().chain([m::twitch_connecting().into()]).collect(),
+                vec![cancel],
+            ),
             SignIn::Waiting { code, .. } => (
                 code.iter()
                     .map(|_| m::sign_in_code_type().into())
+                    .chain(why)
                     .chain([m::twitch_connect_waiting().into()])
                     .collect(),
                 vec![

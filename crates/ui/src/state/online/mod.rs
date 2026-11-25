@@ -67,12 +67,23 @@ pub const TWITCH_WANTED: &str = "ddi.mp.twitch";
 /// through Twitch (round TW3, [`Online::connect_twitch_chat`]).
 pub const CHAT_WANTED: &str = "ddi.mp.twitch.chat";
 
+/// Round RD: where the web remembers, across the page's trip through
+/// Twitch, that the trip was a host's asked for by making a private room
+/// (signed in already): canceled or not, the room is made on the way back.
+pub const HOST_TRIP: &str = "ddi.mp.host.trip";
+
 /// A room's Twitch setting asked, waiting for the person's Twitch access.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TwitchWanted {
     pub room: String,
     pub mirror: ddi_room::TwitchMirror,
     pub chat: ddi_room::TwitchChat,
+    /// Round RD: the features the trip asked for, as the server said them
+    /// (`409 scope_missing`'s `need`): the setting is asked again once the
+    /// access grants these. Empty from a build before: those the setting
+    /// needs ([`api::twitch_needs`]).
+    #[serde(default)]
+    pub need: Vec<String>,
 }
 
 /// Where signing in leads: the game's route it returns to.
@@ -276,6 +287,13 @@ pub struct Online {
     /// sign-in: its dialog is the screen's that asked for it, and its end
     /// enters no room.
     trip: bool,
+    /// Round RD: the Twitch setting the room being made was asked to start
+    /// with ([`crate::state::twitch::host_wanted`]).
+    asking: Option<crate::state::twitch::HostTwitch>,
+    /// Round RD: the room just made, the setting asked and what the server
+    /// made of it (none from a server that predates it), until the room's
+    /// client takes it ([`Online::take_made`]).
+    made: Option<(String, crate::state::twitch::HostTwitch, Option<crate::state::twitch::HostTwitch>)>,
 }
 
 /// The shell's account of what kind of client it is, asked when a report
@@ -340,6 +358,8 @@ impl Online {
             redirect: None,
             chat_outcome: None,
             trip: false,
+            asking: None,
+            made: None,
             next_id: 1,
             pending: BTreeMap::new(),
             answers: BTreeMap::new(),
@@ -517,9 +537,17 @@ impl Online {
         // Round TB: the Twitch permissions this device used recently,
         // asked for again in the same step.
         let keep = crate::state::twitch::kept_features();
+        // Round RD: the sign-in that comes from making a private room says
+        // so, and the server asks for the host's fixed set too (what the
+        // new room's "Twitch bans" needs); any other asks nothing new.
+        let purpose = if dest == Dest::Create {
+            crate::state::twitch::host_purpose()
+        } else {
+            None
+        };
         match self.config.platform {
             Platform::Web => {
-                self.redirect = Some(Redirect::Page(api::login_path_keeping(&dest.route(), &keep)));
+                self.redirect = Some(Redirect::Page(api::login_path_for(&dest.route(), &keep, purpose)));
                 self.sign_in = SignIn::Completing { dest };
             }
             Platform::Desktop => {
@@ -530,7 +558,7 @@ impl Online {
                     let cancel = api::cancel_attempt(attempt, secret);
                     self.start(cancel, Want::Cancel);
                 }
-                self.start(api::new_attempt_keeping(&dest.route(), &keep), Want::NewAttempt);
+                self.start(api::new_attempt_for(&dest.route(), &keep, purpose), Want::NewAttempt);
                 self.sign_in = SignIn::Starting { dest };
             }
         }
@@ -629,6 +657,49 @@ impl Online {
         self.trip
     }
 
+    /// Round RD: the trip through Twitch is a host's, asked for by making
+    /// a private room (the multiplayer home shows it, and the room is made
+    /// when it ends, whatever Twitch answered).
+    pub fn host_trip(&self) -> bool {
+        self.trip && self.sign_in_dest() == Some(&Dest::Create)
+    }
+
+    /// Where the sign-in under way, or the one that ended, was going.
+    fn sign_in_dest(&self) -> Option<&Dest> {
+        match &self.sign_in {
+            SignIn::Idle => None,
+            SignIn::Starting { dest }
+            | SignIn::Waiting { dest, .. }
+            | SignIn::Completing { dest }
+            | SignIn::Canceled { dest }
+            | SignIn::Failed { dest, .. } => Some(dest),
+        }
+    }
+
+    /// Round RD: a host's trip that ended without the access (canceled,
+    /// declined at Twitch, failed): the room is made all the same, with
+    /// what was granted, and nothing more is asked when making a room this
+    /// session. A sign-in for making a room canceled is remembered the
+    /// same way, so the next one asks nothing new.
+    fn settle_host_trip(&mut self) {
+        let ended = matches!(
+            self.sign_in,
+            SignIn::Canceled { dest: Dest::Create } | SignIn::Failed { dest: Dest::Create, .. }
+        );
+        if !ended {
+            return;
+        }
+        if self.trip {
+            self.trip = false;
+            self.sign_in = SignIn::Idle;
+            crate::state::twitch::decline_host();
+            self.create();
+            self.changed();
+        } else if matches!(self.sign_in, SignIn::Canceled { .. }) {
+            crate::state::twitch::decline_host();
+        }
+    }
+
     /// Desktop or the web.
     pub fn platform(&self) -> Platform {
         self.config.platform
@@ -646,7 +717,14 @@ impl Online {
         if w.room != room || self.sign_in.busy() || matches!(self.account, Account::Checking) {
             return None;
         }
-        let needs = api::twitch_needs(w.mirror, w.chat);
+        // Round RD: what the trip asked for (the server's `need`), so a
+        // server that still asks the host for the chat is not sent through
+        // Twitch again for it once granted.
+        let needs: Vec<String> = if w.need.is_empty() {
+            api::twitch_needs(w.mirror, w.chat).into_iter().map(String::from).collect()
+        } else {
+            w.need.clone()
+        };
         let granted = match &self.account {
             Account::SignedIn(me) => needs.iter().all(|n| me.twitch.has(n)),
             _ => false,
@@ -657,7 +735,10 @@ impl Online {
             return None;
         }
         storage::remove(Area::Session, TWITCH_WANTED);
-        Some((w, !granted))
+        // A trip that ended canceled or failed never asks again, whatever
+        // an older `/me` said (it would answer the same way and send the
+        // person through Twitch once more, and again).
+        Some((w, canceled || !granted))
     }
 
     /// The person's Twitch access as `/me` last said it.
@@ -706,14 +787,26 @@ impl Online {
         self.polling = false;
         self.sign_in = SignIn::Canceled { dest };
         self.settle_chat_wish();
+        self.settle_host_trip();
         self.changed();
     }
 
     /// The web came back from the server's sign-in canceled
     /// (`?signin=canceled`).
     pub fn sign_in_canceled(&mut self, dest: Dest) {
+        use ddi_platform::storage::{self, Area};
+        // Round RD: a host's trip, asked for by making a private room while
+        // signed in: the room is made all the same (who is signed in read
+        // first, as a return's).
+        if dest == Dest::Create && storage::get(Area::Session, HOST_TRIP).is_some() {
+            storage::remove(Area::Session, HOST_TRIP);
+            crate::state::twitch::decline_host();
+            self.returned(Dest::Create);
+            return;
+        }
         self.sign_in = SignIn::Canceled { dest };
         self.settle_chat_wish();
+        self.settle_host_trip();
         self.changed();
     }
 
@@ -741,11 +834,33 @@ impl Online {
     }
 
     /// The home's Private room: made at once when signed in, else after
-    /// signing in.
+    /// signing in (round RD: a sign-in that asks Twitch for what the new
+    /// room's "Twitch bans" needs too). Signed in without it, one trip
+    /// through Twitch for it first (never where the host's choice is off,
+    /// for a bot, or once the person said no this session); the room is
+    /// made when the trip ends, whatever Twitch answered.
     pub fn private_room(&mut self) {
         self.create_problem = None;
         match &self.account {
-            Account::SignedIn(_) => self.create(),
+            Account::SignedIn(me) => {
+                let wanted = crate::state::twitch::host_wanted();
+                let lacks = crate::state::twitch::host_feature(wanted.mirror).filter(|f| {
+                    !me.twitch.has(f)
+                        && me.own_channel().is_some()
+                        && !crate::state::twitch::host_declined()
+                });
+                match lacks {
+                    Some(feature) => {
+                        let _ = ddi_platform::storage::set(
+                            ddi_platform::storage::Area::Session,
+                            HOST_TRIP,
+                            "1",
+                        );
+                        self.connect_twitch_for(Dest::Create, feature, None);
+                    }
+                    None => self.create(),
+                }
+            }
             _ => self.sign_in(Dest::Create),
         }
         self.changed();
@@ -753,8 +868,39 @@ impl Online {
 
     fn create(&mut self) {
         if !self.creating {
+            ddi_platform::storage::remove(ddi_platform::storage::Area::Session, HOST_TRIP);
             self.creating = true;
-            self.start(api::create_room(None), Want::Create);
+            // Round RD: the room starts with the host's last choice, made
+            // by the server as far as their access grants it.
+            let wanted = crate::state::twitch::host_wanted();
+            self.asking = Some(wanted);
+            self.start(api::create_room(None, Some(wanted)), Want::Create);
+        }
+    }
+
+    /// For tests: room `room` made here asking `asked`, the server making
+    /// `got` of it.
+    #[cfg(test)]
+    pub(crate) fn set_made(
+        &mut self,
+        room: &str,
+        asked: crate::state::twitch::HostTwitch,
+        got: Option<crate::state::twitch::HostTwitch>,
+    ) {
+        self.made = Some((room.into(), asked, got));
+    }
+
+    /// Round RD: room `room` was just made here: the Twitch setting asked
+    /// and what the server made of it (none from a server that predates
+    /// it), once.
+    pub fn take_made(
+        &mut self,
+        room: &str,
+    ) -> Option<(crate::state::twitch::HostTwitch, Option<crate::state::twitch::HostTwitch>)> {
+        if self.made.as_ref().is_some_and(|(r, ..)| r == room) {
+            self.made.take().map(|(_, asked, got)| (asked, got))
+        } else {
+            None
         }
     }
 
@@ -862,9 +1008,10 @@ impl Online {
         // A trip through Twitch that ended now without the access
         // (canceled at the server's page, the attempt expired or refused,
         // the network gone; round LO): its chat wish settled as a
-        // cancel's.
+        // cancel's, and a host's room made all the same (round RD).
         if busy && !self.sign_in.busy() {
             self.settle_chat_wish();
+            self.settle_host_trip();
         }
         if let SignIn::Waiting {
             attempt, secret, ..
@@ -903,8 +1050,9 @@ impl Online {
                             // was asked from, already shown (round TB: the
                             // home under a room once took it for a room to
                             // show and pushed a second room over the
-                            // first's Host options).
-                            if !std::mem::take(&mut self.trip) {
+                            // first's Host options); a host's goes on to
+                            // make the room (round RD).
+                            if !std::mem::take(&mut self.trip) || dest == Dest::Create {
                                 self.resume(dest);
                             }
                         }
@@ -1009,8 +1157,14 @@ impl Online {
             }
             Want::Create => {
                 self.creating = false;
+                let asked = self.asking.take();
                 match api::read::<api::Created>(&response) {
-                    Ok(c) => self.entered = Some(c.room_id),
+                    Ok(c) => {
+                        if let Some(asked) = asked {
+                            self.made = Some((c.room_id.clone(), asked, c.twitch));
+                        }
+                        self.entered = Some(c.room_id);
+                    }
                     Err(p) => {
                         self.note_problem(&p);
                         self.create_problem = Some(p);

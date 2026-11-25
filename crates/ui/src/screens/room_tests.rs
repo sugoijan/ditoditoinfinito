@@ -6447,7 +6447,8 @@ fn the_rooms_screens_draw_as_pinned() {
 /// the line under the Twitch rows saying what it does. Round OC
 /// (revision 23) moved "rules" and the two pop-ups drawn over it, "add"
 /// and "add-level": Adaptive's sentence says each player starts on their
-/// own chart.
+/// own chart. Round RD moved "host": the line under the Twitch rows
+/// saying the next room starts with them as left.
 const PINNED: [(&str, u64); 10] = [
     ("select", 1409723276464905846),
     ("rules", 6687782191474637924),
@@ -6458,7 +6459,7 @@ const PINNED: [(&str, u64); 10] = [
     ("online-select", 6323310014290112460),
     ("online-member", 15885329307818148993),
     ("online-players", 3138793288985063061),
-    ("host", 17985816994654734515),
+    ("host", 10313864291415372187),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's
@@ -7790,6 +7791,7 @@ fn desktop_person(
     use crate::state::online::tests::{FakeHttp, Handler, ok};
     use crate::state::online::{Online, OnlineConfig, Platform};
     let mut inner = handler_of(server, who);
+    let rooms_server = server.clone();
     let handler: Handler = Box::new(move |req| match (req.method, req.path.as_str()) {
         (Method::Post, "/auth/attempts") => {
             attempts.set(attempts.get() + 1);
@@ -7807,6 +7809,27 @@ fn desktop_person(
             body: String::new(),
             session: None,
         }),
+        // Round RD: a room made, its Twitch setting as far as the access
+        // the fake grants allows the one asked.
+        (Method::Post, "/rooms") => {
+            let body: serde_json::Value =
+                serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap_or_default();
+            let has = rooms_server.borrow().twitch_features(&ddi_room::Identity::new(format!("dev:{who}")));
+            let wanted = &body["twitch"];
+            let mirror = if wanted["mirror"] != "off" && has.iter().any(|f| f == "bans") {
+                "bans"
+            } else {
+                "off"
+            };
+            Some(ApiResponse {
+                status: 201,
+                body: format!(
+                    r#"{{"room_id":"Room000001","invite":"Room000001.abcdefghijABCDEFGHIJ01","twitch":{{"mirror":"{mirror}","chat":{}}}}}"#,
+                    wanted["chat"]
+                ),
+                session: None,
+            })
+        }
         (Method::Get, p) if p.starts_with("/auth/attempts/a") => {
             let n: u32 = p["/auth/attempts/a".len()..].parse().unwrap();
             if done.get() >= n {
@@ -7896,10 +7919,17 @@ fn desktops_second_twitch_trip_shows_its_code_over_host_options() {
     open_players(&mut h);
     press(&mut h, "HostOptions");
     assert_eq!(top(&h), "room-host");
+    // Round RD: the room's chat asks nothing of its host: no trip.
+    press(&mut h, "Inc.twitchchat");
+    settle(&mut h);
+    assert_eq!(top(&h), "room-host", "the chat: no trip: {:?}", h.ui.layers());
+    assert_eq!(attempts.get(), 0);
+    let set = t.server.borrow().state().twitch.clone().expect("set");
+    assert_eq!((set.mirror, set.chat), (TwitchMirror::Off, TwitchChat::Emotes));
     // A trip for each feature in turn, each as the person takes it.
     for (row, feature, k, granted) in [
-        ("Inc.twitchchat", "chat", 1, vec!["chat"]),
-        ("Inc.twitchbans", "bans", 2, vec!["chat", "bans"]),
+        ("Inc.twitchbans", "bans", 1, vec!["bans"]),
+        ("Inc.twitchbans", "blocks", 2, vec!["bans", "blocks"]),
     ] {
         press(&mut h, row);
         settle(&mut h);
@@ -7917,11 +7947,12 @@ fn desktops_second_twitch_trip_shows_its_code_over_host_options() {
         assert!(matches!(online.borrow().sign_in_state(), SignIn::Idle));
     }
     let set = t.server.borrow().state().twitch.clone().expect("set");
-    assert_eq!((set.mirror, set.chat), (TwitchMirror::Bans, TwitchChat::Emotes));
-    // A third trip asked, canceled, and the room closed: the home shown
-    // under it asks nothing (it once showed its own sign-in dialog for a
-    // trip left so).
-    press(&mut h, "Inc.twitchbans");
+    assert_eq!((set.mirror, set.chat), (TwitchMirror::BansAndBlocks, TwitchChat::Emotes));
+    // A third trip asked (the access gone meanwhile), canceled, and the
+    // room closed: the home shown under it asks nothing (it once showed
+    // its own sign-in dialog for a trip left so).
+    t.server.borrow_mut().grant_twitch(&Identity::new("dev:alice"), &[]);
+    press(&mut h, "Dec.twitchbans");
     settle(&mut h);
     assert_eq!(top(&h), "sign-in");
     assert_eq!(attempts.get(), 3);
@@ -7951,6 +7982,103 @@ fn desktops_second_twitch_trip_shows_its_code_over_host_options() {
     assert!(matches!(online.borrow().sign_in_state(), SignIn::Idle));
 }
 
+/// Round RD (the maintainer, 2026-11-25): desktop, a host signed in
+/// without what their new room's Twitch bans need makes a private room:
+/// the home shows the trip through Twitch with its code and why, and the
+/// room is made when it ends, with the bans where Twitch allowed them and
+/// without where the person canceled (then nothing more is asked this
+/// session); Host options' rows are remembered for the next room, Off
+/// included, and a room made without the bans asked for says so once.
+#[test]
+fn desktops_private_room_asks_for_the_bans_at_creation_and_the_room_is_made_either_way() {
+    use crate::state::online::SignIn;
+    use crate::state::settings::Settings;
+    use crate::state::twitch::{HOST_DEFAULT, HostTwitch, host_declined};
+    use ddi_room::{Identity, TwitchChat, TwitchMirror};
+    use std::cell::Cell;
+    for cancel in [false, true] {
+        ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+        let t = Three::new(false);
+        let (done, attempts) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+        let online = desktop_person(&t.server, "alice", done.clone(), attempts.clone());
+        let env = env();
+        let entered = Rc::new(Cell::new(0));
+        let home_shell: super::online::OnlineShell = {
+            let entered = entered.clone();
+            Rc::new(move |call, _cx| {
+                if let super::online::OnlineCall::EnterRoom(_) = call {
+                    entered.set(entered.get() + 1);
+                }
+            })
+        };
+        let mut h = harness();
+        h.push(super::online_home::Home::new(env.clone(), online.clone(), home_shell));
+        h.run(0.5);
+        assert!(online.borrow().me().is_some(), "signed in, no Twitch access");
+        h.tap(PointerKind::Mouse, "Choice.private");
+        h.run(0.5);
+        assert_eq!(top(&h), "sign-in", "cancel {cancel}: {:?}", h.ui.layers());
+        assert_eq!(attempts.get(), 1);
+        let texts = h.texts().join(" ");
+        assert!(texts.contains("ABC-231"), "its code: {texts}");
+        assert!(texts.contains(&String::from(ddi_l10n::msg::room::host_trip_why())), "{texts}");
+        if cancel {
+            h.tap(PointerKind::Mouse, "Cancel");
+        } else {
+            t.server.borrow_mut().grant_twitch(&Identity::new("dev:alice"), &["bans"]);
+            done.set(1);
+        }
+        for _ in 0..6 {
+            h.run(0.3);
+        }
+        assert!(!h.ui.layers().iter().any(|l| l.name == "sign-in"), "{:?}", h.ui.layers());
+        assert_eq!(entered.get(), 1, "cancel {cancel}: the room made and entered");
+        assert!(matches!(online.borrow().sign_in_state(), SignIn::Idle));
+        assert_eq!(host_declined(), cancel);
+        let mirror = if cancel { TwitchMirror::Off } else { TwitchMirror::Bans };
+        assert_eq!(
+            online.borrow_mut().take_made("Room000001"),
+            Some((HOST_DEFAULT, Some(HostTwitch { mirror, chat: TwitchChat::Emotes })))
+        );
+    }
+    // Host options' rows remembered for the next room, Off included; a
+    // room made asking for the bans without them says so once.
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    let t = Three::new(false);
+    t.server.borrow_mut().grant_twitch(&Identity::new("dev:alice"), &["bans"]);
+    let settle = |t: &Three| {
+        for _ in 0..4 {
+            t.clock.advance(100);
+            let now = ddi_room::Clock::now(&t.clock).0;
+            t.alice.borrow_mut().tick(now);
+        }
+    };
+    settle(&t);
+    t.alice.borrow_mut().choose_twitch(TwitchMirror::Bans, TwitchChat::Off);
+    assert_eq!(
+        Settings::load().room_twitch,
+        Some(HostTwitch { mirror: TwitchMirror::Bans, chat: TwitchChat::Off })
+    );
+    t.alice.borrow_mut().choose_twitch(TwitchMirror::Off, TwitchChat::Off);
+    assert_eq!(crate::state::twitch::host_wanted(), HostTwitch::default(), "Off counts");
+    // Bob may not change it: nothing remembered on his device.
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    t.bob.borrow_mut().choose_twitch(TwitchMirror::Bans, TwitchChat::Emotes);
+    assert_eq!(Settings::load().room_twitch, None);
+    let online = t.alice.borrow().online_link().unwrap().online().clone();
+    online.borrow_mut().set_made(
+        "Room000001",
+        HOST_DEFAULT,
+        Some(HostTwitch { mirror: TwitchMirror::Off, chat: TwitchChat::Emotes }),
+    );
+    settle(&t);
+    assert_eq!(
+        t.alice.borrow().link_notice(),
+        Some(crate::state::online::link::LinkNotice::TwitchBansOff)
+    );
+    assert_eq!(online.borrow_mut().take_made("Room000001"), None, "once");
+}
+
 thread_local! {
     static TB_NOW: std::cell::Cell<f64> = const { std::cell::Cell::new(1_800_000_000_000.0) };
 }
@@ -7961,9 +8089,10 @@ fn tb_now() -> f64 {
 
 /// Round TB: what marks a Twitch permission used on this device, for its
 /// next sign-in to ask for again: a room this person hosts with the
-/// feature on (bans, blocks, the chat), and a room whose host's chat this
-/// device shows (its "Twitch chat in rooms" on, its access allowing chat).
-/// Turning a feature off gives nothing up.
+/// feature on (bans, blocks; since round RD not the chat, which asks
+/// nothing of the host), and a room whose host's chat this device shows
+/// (its "Twitch chat in rooms" on, its access allowing chat). Turning a
+/// feature off gives nothing up.
 #[test]
 fn hosting_with_twitch_on_and_showing_a_hosts_chat_mark_permissions_used() {
     use crate::state::online::tests::room::tick;
@@ -7983,12 +8112,14 @@ fn hosting_with_twitch_on_and_showing_a_hosts_chat_mark_permissions_used() {
     t.alice.borrow_mut().set_twitch(TwitchMirror::BansAndBlocks, TwitchChat::Off);
     alice(400);
     assert_eq!(used(), ["blocks"]);
+    // Round RD: the room's chat asks nothing of its host, so hosting it
+    // marks nothing (this device's own option is off).
     t.alice.borrow_mut().set_twitch(TwitchMirror::Off, TwitchChat::Emotes);
     alice(400);
-    assert_eq!(used(), ["blocks", "chat"], "off keeps what was used");
+    assert_eq!(used(), ["blocks"], "off keeps what was used; the chat asks nothing");
     t.alice.borrow_mut().set_twitch(TwitchMirror::Off, TwitchChat::Off);
     alice(400);
-    assert_eq!(used(), ["blocks", "chat"]);
+    assert_eq!(used(), ["blocks"]);
     // Bob's device (its own settings) in a room that shows alice's chat.
     ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
     t.alice.borrow_mut().set_twitch(TwitchMirror::Off, TwitchChat::Emotes);
@@ -8022,7 +8153,8 @@ fn a_canceled_trip_changes_nothing_and_says_so() {
     t.settle(400, &mut [&mut ha]);
     open_players(&mut ha);
     press(&mut ha, "HostOptions");
-    press(&mut ha, "Inc.twitchchat");
+    // (The bans: the room's chat asks no trip since round RD.)
+    press(&mut ha, "Inc.twitchbans");
     t.settle(400, &mut [&mut ha]);
     let online = t.alice.borrow().online_link().unwrap().online().clone();
     online

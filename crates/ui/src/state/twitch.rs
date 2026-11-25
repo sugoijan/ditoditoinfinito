@@ -189,6 +189,86 @@ pub fn kept_features() -> Vec<&'static str> {
         .collect()
 }
 
+/// Round RD (the maintainer, 2026-11-25): a room's Twitch setting as a
+/// host leaves Host options' two rows, kept on the device
+/// (`Settings::room_twitch`) for the next room they make.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct HostTwitch {
+    #[serde(default, deserialize_with = "ddi_engine::lenient")]
+    pub mirror: ddi_room::TwitchMirror,
+    #[serde(default, deserialize_with = "ddi_engine::lenient")]
+    pub chat: ddi_room::TwitchChat,
+}
+
+/// A new room's Twitch setting for a host who never chose: "Twitch bans:
+/// Bans", "Show my Twitch chat: Emotes".
+pub const HOST_DEFAULT: HostTwitch = HostTwitch {
+    mirror: ddi_room::TwitchMirror::Bans,
+    chat: ddi_room::TwitchChat::Emotes,
+};
+
+/// The Twitch setting a new online room starts with: this device's host's
+/// last choice (Off counts), else [`HOST_DEFAULT`]. The server makes it
+/// only as far as the host's Twitch access grants it.
+pub fn host_wanted() -> HostTwitch {
+    crate::state::settings::Settings::cached()
+        .room_twitch
+        .unwrap_or(HOST_DEFAULT)
+}
+
+/// The host left Host options' rows at `choice`: the next room starts so.
+pub fn remember_host_choice(choice: HostTwitch) {
+    let mut s = crate::state::settings::Settings::load();
+    if s.room_twitch != Some(choice) {
+        s.room_twitch = Some(choice);
+        s.save();
+    }
+}
+
+/// The feature a host's access needs for the mirror `mirror` (`bans`,
+/// `blocks`, as the server names them); none where it is off. The chat
+/// needs nothing of the host (round RD: each device reads the channel with
+/// its own person's access).
+pub fn host_feature(mirror: ddi_room::TwitchMirror) -> Option<&'static str> {
+    match mirror {
+        ddi_room::TwitchMirror::Off => None,
+        ddi_room::TwitchMirror::Bans => Some("bans"),
+        ddi_room::TwitchMirror::BansAndBlocks => Some("blocks"),
+    }
+}
+
+/// What a sign-in that comes from making a private room tells the server
+/// it is for (`purpose`), for the host's fixed set of permissions: none
+/// where the wanted mirror is off, or once the person said no this session
+/// ([`host_declined`]).
+pub fn host_purpose() -> Option<&'static str> {
+    if host_declined() {
+        return None;
+    }
+    match host_wanted().mirror {
+        ddi_room::TwitchMirror::Off => None,
+        ddi_room::TwitchMirror::Bans => Some("host"),
+        ddi_room::TwitchMirror::BansAndBlocks => Some("host_blocks"),
+    }
+}
+
+/// Where this session remembers that the person said no at Twitch to a
+/// host's permissions (round RD), kept across the web page's trip.
+const HOST_DECLINED: &str = "ddi.mp.host.declined";
+
+/// The person said no at Twitch (or canceled) to the permissions making a
+/// room asked for: nothing more is asked when they make a room this
+/// session (the room is made with what was granted; Host options still
+/// asks when a row is turned on).
+pub fn decline_host() {
+    let _ = ddi_platform::storage::set(ddi_platform::storage::Area::Session, HOST_DECLINED, "1");
+}
+
+/// Whether [`decline_host`] was said this session.
+pub fn host_declined() -> bool {
+    ddi_platform::storage::get(ddi_platform::storage::Area::Session, HOST_DECLINED).is_some()
+}
+
 /// Options → Data's Disconnect: nothing is asked for again at the next
 /// sign-in.
 pub fn forget_used() {
