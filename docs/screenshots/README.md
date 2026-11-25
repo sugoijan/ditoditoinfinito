@@ -104,7 +104,9 @@ chosen from the four looks by stills of each in the stage at beat 91: it
 reads at the animation's size, stays at the screen's bottom edge, and
 neither the notes nor the miniatures compete with it (Rain's outlines are
 arrows, faint at this size; Field's lines nearly vanish; Kaleidoscope
-washes the picture grey).
+washes the picture grey there: its piece then folds the picture's plain
+sky, which its desaturation and darkening make a flat blue grey, the
+look as designed, round HY).
 
 ### The still
 
