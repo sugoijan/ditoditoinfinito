@@ -5,6 +5,11 @@ Status (2026-11-13): designed; the contract for the recommended path
 `audience-v0`, PROVISIONAL) with the fake room running it; the server's
 side is built and tested in `../ddi-server` (not deployed; "The server, as
 built" below); nothing of it is in the game yet.
+(That was the state when this was written. Later on 2026-11-13 the
+server's side was deployed and the game's side built on both shells:
+`multiplayer-prototype-progress.md`, "The audience, the client front"
+and "The audience, what the client front left"; the index,
+`README.md`, keeps the current line.)
 
 2026-11-15: the audience watches without signing in, anonymously, bounded
 by network ("Sign-in: none" below; open question 1 answered).

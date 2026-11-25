@@ -3,7 +3,8 @@
 Each plan was written before its work and kept as the record of what was
 built, how it was checked and what was left; `docs/PLAN.md` holds the
 architecture, the decisions and the roadmap they belong to. Status as of
-2026-10-22. Dates are each plan's own (* its first commit).
+2026-11-25 (each entry's one line checked against its plan and the code
+that day). Dates are each plan's own (* its first commit).
 
 ## CPU player
 
@@ -17,8 +18,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   ones with lapses, measured over local arcade packs, provisional.
   Absolute levels (`cpu-levels-v1`, 2026-11-13): abilities in real units,
   a row's demand from the chart, the ten levels rungs anchored by
-  measurement; every multiplayer CPU plays them, the solo CPU at one with
-  `--cpu-level`/`level=`; provisional. The full chart (`cpu-play-v1`,
+  measurement; every multiplayer CPU plays them, and the solo CPU too
+  since 2026-11-14 (level 5 where none is named, `--cpu-level`/`level=`;
+  a prepared profile keeps its strength); provisional. The full chart (`cpu-play-v1`,
   2026-11-14): at a level a CPU plays holds, rolls, lifts and the chart's
   mines, its field drawn whole and its score its own; the levels' anchors
   unmoved; the hold model provisional. Round V (`cpu-levels-v2`,
@@ -30,6 +32,15 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   after, not retuned; provisional.
 
 ## Multiplayer design
+
+Built since 2026-11-10 (CPU practice, private online rooms, live stages
+with attacks, the audience, the host's Twitch, a room's own songs; room
+model revision 24 on 2026-11-24), in short in `docs/PLAN.md`, section 5,
+"Multiplayer", with its decisions (85–115). The progress note is the
+record of what was built, round by round; the design documents below it
+(the battle design, the screens, the handoff) are the starting point as
+written, overridden where their "Decided" notes or the progress note say
+so.
 
 - [Online play: the shared base](multiplayer-online-play.md) (2026-11-13):
   the contract for live online stages, built and tested in `crates/room`
@@ -96,7 +107,11 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   days); round DE (2026-11-22) the live chat's connection kept for the
   room between its stages (the chat there from a stage's first frame)
   and the layer's limits tripled, `chat-overlay-v2`, measured against
-  v1. A streaming host's Twitch bans and blocks
+  v1; round SD (2026-11-24) the room's chat setting followed at once
+  during a stage; rounds BE and B8 (2026-11-24) the emote sets read
+  through `barbed-emotes` 0.0.8. Not yet run against real Twitch: the
+  ban and block mirror's calls, and the web's chat sockets ("Still
+  unverified"). A streaming host's Twitch bans and blocks
   keeping people out of the room (the host's token on the server, checked
   at join, ticket and each pick; room model revision 18), a host's or
   co-host's Kick behind a Moderate toggle, and the host's chat behind
@@ -124,8 +139,15 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   fake's links answered as the server's (its "The audience, what the
   client front left").
 - [Multiplayer prototype progress](multiplayer-prototype-progress.md)
-  (2026-11-10): what the prototype has actually built and tested, kept apart
-  from the design studies below. M1: the shared room, match and stage model
+  (2026-11-10, to round SD of 2026-11-24): what the prototype has
+  actually built and tested, a dated section a round, kept apart from the
+  design studies below; at its end "Provisional choices" and "Open
+  questions" (some rows of both answered since and not yet marked so,
+  2026-11-25). Since the rounds listed in this entry: the room's own songs
+  (revisions 17, 19, 21, 22), the host's Twitch (18), Top score
+  (`attacks-v4`, 20), each player's own chart under Adaptive (23), the
+  review's fixes and revision 24 (2026-11-24); each is a section of its
+  own there. M1: the shared room, match and stage model
   (`crates/room`). M2: the CPU-practice room on both shells, behind a hidden
   switch until 2026-11-14 (now reachable from the start menu by everyone;
   feedback round D), bound to the model's local
@@ -237,7 +259,8 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   [copyable handover prompt](multiplayer-prototype-prompt.md) starts that work;
   [six archived mockup studies and seven logic checks](../../tools/multiplayer-design/README.md)
   preserve the reviewed examples. Documentation/snapshots only in this handoff,
-  with no game/server implementation or claim of validated balance.
+  with no game/server implementation or claim of validated balance (as
+  handed over; what was built from it is the progress note above).
 - [Multiplayer navigation and screens](multiplayer-ui.md) (2026-11-09): first
   menu tree and layout draft for discovery, hosted/automatic/local rooms,
   preparation, play/watch, intermission and match results. Separates room phase,
@@ -281,8 +304,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   next-match drafts. It validates incompatible rules and capacity, preserves
   readiness for access/future changes, and rechecks saved proposals at the match
   boundary. All changes remain design mockups.
-  Proposed layouts and local mock interactions only;
-  no multiplayer implementation.
+  The study itself is proposed layouts and local mock interactions; the
+  maintainer's decisions are recorded in it as dated "Decided" notes
+  (2026-11-11 and 12), and what was built from it is in the progress note.
 - [Multiplayer battle](multiplayer.md) (2026-11-08): provisional experience
   design; proposed Room → Match → Stage vocabulary. Persistent rooms run finite
   matches of one or more songs (four proposed by default), with overall rankings.
@@ -299,6 +323,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   earning; manual handicaps and teams alone do not meet that launch constraint
   (2026-11-09). Design proceeds
   while the simulator develops independently; no validated battle default yet.
+  (The design as of 2026-11-08 to 11-10: what was built differs, such as
+  73 competitors rather than eight and the eight-player award table for
+  every field; `docs/PLAN.md`, decisions 85–115.)
   CPU/private-room prototype implementation was authorized separately on
   2026-11-10 through the handoff above. Builds on the [exploration](../research/multiplayer.md), reference
   comparisons and the six [simulation scenarios](../research/multiplayer-simulations.md).
@@ -312,7 +339,8 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
 - [Running noteskins' Lua safely](lua.md) (2026-10-11): done 2026-10-12,
   with presentation extensions 2026-10-20 (`HoldUseDroppedState`,
   `HitX`/`HitY`, `TapJudgmentsPerNote`). Left: native ops for simple
-  commands, scripted backgrounds, modfiles.
+  commands, modfiles (scripted backgrounds run on the same host since
+  2026-10-21, their own plan).
 - [Hardening a fork of piccolo](piccolo-fork.md) (2026-10-11): done;
   published as `lunita` on crates.io. The brief and definition of done for
   the sandboxed VM.
@@ -344,12 +372,15 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   Rainbow and Flat colors, optional per-note charge timing, onigiri, mine shape, receptor fill and hit-effect
   controls (2026-10-25); its original asset variants and procedural controls
   are retired.
-- [Noteskin SVG](noteskin-svg.md) (2026-10-24): in progress. One
+- [Noteskin SVG](noteskin-svg.md) (2026-10-24): done as far as it goes:
+  steps 1, 3, 4 and 5 done, step 2 (vello_cpu) measured and not adopted,
+  steps 6 and 7 taken over by the components plan. One
   rasterizer on both shells (a worker on the web), vello_cpu measured,
   what images cost shown, bounded filters, raster quality apart from
   logical size; its material steps taken over by the components plan.
 - [Noteskin components and materials](noteskin-scene.md) (2026-10-25):
-  in progress; step 1 done (materials as shaders: long notes about 30
+  steps 1 to 5 done; left only showing a part's bindings in SkinCraft
+  (SkinCraft's own repository). Step 1 done (materials as shaders: long notes about 30
   times fewer quads), 2 done (components and bindings; SkinCraft's view of a part's bindings left), 3 done (a
   skin's own materials: Infinito's gradient as one), 4 done (long notes and
   lifts), 5 done (explosions as instances). Infinito's taps/fakes, receptors,
@@ -388,6 +419,12 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   Song select's new song side, list and a room's players panel:
   [song-navigation.md](song-navigation.md), "The song's side", "In a
   room".
+- [The DDI estimate](../../crates/rating/README.md) (`crates/rating`,
+  2026-11-18*): no plan of its own; the crate's README is its record. The
+  game's own estimate of an imported dance-single chart's level (1 to
+  19) with a score curve and skill profiles, within the note counts it
+  is qualified for; the default chart rating since round SLB
+  (2026-11-20, `msd-ratings.md`).
 
 - [The DDI ruleset](ddi-ruleset.md) (2026-11-12): rounds 1 (the
   engine), 2 (the screens: Options' rows, the default with the move
@@ -400,8 +437,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   chains, a battle's shocks drawn by a skin's `Tap Shock`) built
   2026-11-12, and 4 (2026-11-13: one set of tier colors, white to red,
   for words and hit effects; the judgment words in the player's
-  language; shock avoidance a CPU's eighth skill axis); left: the
-  targeting choice, online attacks; a study of putting combos into the
+  language; shock avoidance a CPU's eighth skill axis); the targeting
+  choice (M8 round 3, 2026-11-12) and attacks in online rooms
+  (2026-11-13) built since, in the multiplayer progress note; a study of putting combos into the
   score (2026-11-16), then combos counted in it (2026-11-16,
   `ddi-combo-v0`: a combo part, a Combo line on the results, kept plays
   judged again); a study of counting the combo toward the percent and
@@ -481,7 +519,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   FFR's rules (`ffr`, in `rulesets.md`) where each chart is left to its
   game, timed as R^3 times them (its half frame and music start,
   2026-10-22). Left: their music against a real level's.
-- [The chart editor](editor.md) (2026-10-21): in progress. The
+- [The chart editor](editor.md) (2026-10-21): done but for two minor
+  items (its "Left": notes inside warps and overlapping holds not
+  reported before a playtest; cache-only song tags not kept). The
   `.ssc`/`.sm` writer, notes and timing with undo, the screen on both
   shells (song select's E, `#/edit`), the field in the player's skin
   (an edit and a play view), listening with the metronome, tap-to-tempo
@@ -583,7 +623,8 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   (2026-10-21): first slice done (folders with a `default.lua`, behind
   the field and as foregrounds, on the skins' sandboxed Lua host);
   StepMania 3.9's and ITG's formats drawn natively, render targets
-  (2026-10-22). Left: movies.
+  (2026-10-22); their movies since 2026-11-03 (`phase-8-gaps.md`, steps
+  2 and 3). StepMania 3.9's formats' movie layers still draw nothing.
 - [Phase 8's last gaps](phase-8-gaps.md) (2026-11-03): in progress, steps
   1 (random movies), 2 (a movie as an effect's second file) and 3 (a
   script's movie sprite) done 2026-11-03; step 4's study
@@ -609,14 +650,17 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   what the rest of the game reports values the screens word; the edges:
   the web's loader and plain pages, desktop's app menu and dialogs, the
   packages' entries, the release's gate; a Japanese draft awaiting
-  review, shipped since 2026-11-17: a Japanese system gets it). The UI in
+  review, shipped since 2026-11-17: a Japanese system gets it; reviewed
+  by agents, the last unverified messages in round JA, 2026-11-22, those
+  changed since unverified again, none by a person yet). The UI in
   Japanese as well as English, more languages later: Fluent messages
   with typed functions, every text a message or marked data (a
   pseudo-language test over every screen), every maintained language
   written with each change and unverified until a review is recorded
   against its hashes, a coverage check before releases; Noto Sans CJK JP
   and Unicode line breaking for Japanese.
-- [System errors as values](system-errors.md) (2026-11-08): planned. A
+- [System errors as values](system-errors.md) (2026-11-08): planned, not
+  started; put aside by the maintainer on 2026-11-18. A
   system's failure carried with its kind (an `io::ErrorKind`, a
   DOMException's name, an HTTP status) instead of as text the screens
   guess the kind from again; the text guess kept for stored records.
@@ -665,7 +709,8 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   sound's ("Sound is muted"), and on calibration's sound tests' cards too
   (round AD).
 - [Start menu and returning between screens](start-menu.md) (2026-10-20):
-  implemented 2026-10-21. Singleplayer entry, a future Multiplayer hint, caller-relative
+  implemented 2026-10-21. Singleplayer entry, a future Multiplayer hint (the
+  multiplayer home since 2026-11-14), caller-relative
   Options, silent return from song select and desktop Quit. Animated Dosis
   wordmark added 2026-10-25 (Vivid outlines, reduced-motion still).
 - [Our own UI core](ui-core.md) (2026-10-15): done 2026-10-16 (step 7
@@ -690,7 +735,8 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   take none and write no settings; left: the dialog seen by a person,
   Windows and Linux run.
 - [Packaging and releases](packaging.md) (2026-10-21): done; the release
-  workflow's first run waits for a tag. An ad hoc signed `.app` (zip,
+  workflow's first run waits for a tag, and the first release is on
+  hold (the maintainer, 2026-11-25). An ad hoc signed `.app` (zip,
   `.dmg`), a Linux tarball and a Windows zip, built for draft releases
   from tags; window icons, the Windows executable's icon and version, the
   console for flagged runs. Left: notarization, Intel Macs, Windows'
@@ -713,7 +759,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   by default for desktop since 2026-10-21 (never for the web or Windows);
   the build, package and integrity contract of the native helper. Left (decision 51): Windows confinement, managed-store
   durability, browser URL acquisition.
-- [Shared songs by link](shared-songs.md) (2026-10-29): planned. A
+- [Shared songs by link](shared-songs.md) (2026-10-29): built (steps 1
+  to 5: the shared song select, the hidden uploader, the Worker in the
+  private server, movies streamed, desktop's too), and the way every
+  online room's songs reach its members since M5d (2026-11-10). A
   short link loads a song or a pack from a private Cloudflare Worker to
   play without entering the library, with an expiry; a hidden,
   token-authenticated uploader in the app; the contract both repositories
