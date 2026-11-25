@@ -4303,6 +4303,11 @@ impl Screen for SelectScreen {
         if self.room_allow_chat_shown() {
             v.push(Focusable::new(super::room::ALLOW_CHAT));
         }
+        // Round RD2: the host's Twitch bans asked back of Twitch, beside
+        // the line that says their access ended.
+        if self.room_restore_bans_shown() {
+            v.push(Focusable::new(super::room::RESTORE_BANS));
+        }
         if self.following() {
             v.push(Focusable::new("Panel.Up"));
             v.push(Focusable::new("Panel.Down"));

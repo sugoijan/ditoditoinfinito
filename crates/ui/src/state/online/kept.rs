@@ -93,13 +93,15 @@ impl Kept {
 
     /// Disconnect the person's Twitch access (Data's Disconnect, A4): the
     /// server deletes it and revokes it at Twitch; the kept room whose
-    /// Twitch setting is theirs turns it off at once (nobody removed),
-    /// rather than at its next check.
+    /// Twitch setting is theirs turns its bans off at once (nobody
+    /// removed), rather than at its next check. Round RD2: its chat stays
+    /// (it needs nothing of the host's access), and nothing offers to put
+    /// the bans back: the person ended the access themselves.
     pub fn disconnect_twitch(&self) {
         if let Some((_, room)) = self.room.borrow().clone() {
             let mut r = room.borrow_mut();
-            if r.twitch().is_some_and(|t| t.by == r.me()) {
-                r.set_twitch(ddi_room::TwitchMirror::Off, ddi_room::TwitchChat::Off);
+            if let Some(t) = r.twitch().filter(|t| t.by == r.me()).cloned() {
+                r.set_twitch(ddi_room::TwitchMirror::Off, t.chat);
             }
         }
         if let Some(online) = self.online.borrow().clone() {

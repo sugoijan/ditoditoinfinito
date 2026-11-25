@@ -1696,7 +1696,14 @@ Rust and the browser are implementation details, not advertised features.
   server's fixed set, `moderation:read`), one signed in without it is
   sent through Twitch once at creation (`Online::host_trip`), joining
   asks nothing new, and the room's chat asks nothing of its host, no
-  new revision; `docs/plans/multiplayer-twitch.md`;
+  new revision; since round RD2 a trip for the bans declined, canceled
+  or failed (at creation or from Host options) saves the bans the room
+  got as the next room's choice, and the host's access ending turns
+  only the room's bans off (the chat stays), the host's device keeping
+  what was lost for the session (`ddi_ui::state::twitch::LostBans`) and
+  offering one trip that puts it back (`RoomClient::restore_bans`, the
+  status line's Allow on Twitch), no new revision;
+  `docs/plans/multiplayer-twitch.md`;
   `tests/twitch.rs`, `tests/room-revision-17.json` read with none);
   17 since 2026-11-19: an online room's own song
   list, `crate::songs` (`RoomState::songs`, behind a shared pointer and

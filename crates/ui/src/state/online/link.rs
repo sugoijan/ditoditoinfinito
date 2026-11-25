@@ -55,8 +55,16 @@ pub enum LinkNotice {
     TwitchChatOn,
     /// Round TW3: this player's Twitch access ended (refused at Twitch,
     /// disconnected elsewhere), so the room's Twitch setting, theirs,
-    /// turned off (nobody removed).
+    /// turned off (nobody removed). Round RD2: only its bans (the chat
+    /// stays), said for [`JOINED_TO_WATCH_MS`] with the button that puts
+    /// them back (`RoomClient::restore_bans`).
     TwitchEnded,
+    /// Round RD2: the room's Twitch bans, `who`'s, went off while `who`
+    /// stays (their access ended, or they turned them off): said to the
+    /// others.
+    TwitchBansOffBy {
+        who: ddi_room::ParticipantId,
+    },
     /// Round TW3: the one whose Twitch setting the room used (`who`) left
     /// it, so it turned off (B3).
     TwitchSetterLeft {
@@ -435,7 +443,10 @@ impl OnlineLink {
                 }
                 None if matches!(
                     notice,
-                    LinkNotice::Kicked { .. } | LinkNotice::ChoiceGone { .. } | LinkNotice::TwitchChatNoAccess
+                    LinkNotice::Kicked { .. }
+                        | LinkNotice::ChoiceGone { .. }
+                        | LinkNotice::TwitchChatNoAccess
+                        | LinkNotice::TwitchEnded
                 ) => {
                     self.notice_until = Some(now_ms + JOINED_TO_WATCH_MS);
                 }

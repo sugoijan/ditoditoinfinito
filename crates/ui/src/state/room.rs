@@ -1412,11 +1412,21 @@ impl Drop for RoomClient {
 /// about the content it names.
 pub struct RoomClient {
     link: Link,
-    /// The room's Twitch setting as last seen (revision 18), and whether
-    /// this player asked it off themselves: one that ends otherwise is
-    /// said on the status line (round TW3, [`RoomClient::tell_twitch_end`]).
+    /// The room's Twitch setting as last seen (revision 18), and the one
+    /// this player asked last (its bans and chat, until the room says
+    /// it): one that ends or turns down otherwise is said on the status
+    /// line (round TW3, [`RoomClient::tell_twitch_end`]).
     seen_twitch: Option<ddi_room::TwitchSetting>,
-    twitch_off_asked: bool,
+    twitch_asked: Option<(ddi_room::TwitchMirror, ddi_room::TwitchChat)>,
+    /// Round RD2: the setting asked is a choice of Host options' rows,
+    /// kept for the next room ([`RoomClient::choose_twitch`]): a refusal
+    /// keeps what the room has instead.
+    twitch_choice: bool,
+    /// Round RD2: the host's bans went off by themselves here and the
+    /// room waits for a `/me` read after this many
+    /// (`Online::me_reads`) to tell an access that ended from a change
+    /// made elsewhere, or that came back ([`RoomClient::settle_lost_bans`]).
+    lost_after: Option<u64>,
     /// Round TB: the room's Twitch setting this player asked and the room
     /// has not said yet ([`RoomClient::twitch_shown`]), and where its
     /// asking stands.
@@ -2278,7 +2288,9 @@ impl RoomClient {
             seen_twitch: None,
             chat_access_told: None,
             chat_troubles: BTreeMap::new(),
-            twitch_off_asked: false,
+            twitch_asked: None,
+            twitch_choice: false,
+            lost_after: None,
             twitch_pending: None,
             placeholder,
             clock,
@@ -2735,8 +2747,8 @@ impl RoomClient {
         if !self.may_set_twitch() {
             return;
         }
-        self.twitch_off_asked =
-            mirror == ddi_room::TwitchMirror::Off && chat == ddi_room::TwitchChat::Off;
+        self.twitch_asked = Some((mirror, chat));
+        self.twitch_choice = false;
         if let Some(l) = self.online_link_mut() {
             l.set_twitch(mirror, chat);
             self.twitch_pending = Some((mirror, chat, TwitchAsking::Sent));
@@ -2754,6 +2766,13 @@ impl RoomClient {
         }
         crate::state::twitch::remember_host_choice(crate::state::twitch::HostTwitch { mirror, chat });
         self.set_twitch(mirror, chat);
+        self.twitch_choice = true;
+        // Round RD2: Host options taken in hand: what the access's end
+        // took is no longer put back by itself.
+        if let Some(room) = self.online_link().map(|l| l.room_id().to_string()) {
+            crate::state::twitch::forget_lost_bans(&room);
+        }
+        self.lost_after = None;
     }
 
     /// The room's Twitch setting as Host options show it and build the
@@ -2785,6 +2804,7 @@ impl RoomClient {
         let said = self
             .twitch()
             .map_or((ddi_room::TwitchMirror::Off, ddi_room::TwitchChat::Off), |t| (t.mirror, t.chat));
+        let refused = answer.is_some_and(|s| s != 409 && !(200..300).contains(&s));
         let asking = match answer {
             // A trip through Twitch first: kept until it ends.
             Some(409) => TwitchAsking::Trip,
@@ -2792,6 +2812,15 @@ impl RoomClient {
             Some(_) => TwitchAsking::Taken(now),
             None => asking,
         };
+        // Round RD2: a choice the server refused: the next room starts as
+        // this one is, not as the press asked.
+        if refused && std::mem::take(&mut self.twitch_choice) {
+            self.twitch_asked = None;
+            crate::state::twitch::remember_host_choice(crate::state::twitch::HostTwitch {
+                mirror: said.0,
+                chat: said.1,
+            });
+        }
         // The trip ended without the access (canceled, failed): nothing
         // was set (one still to start keeps it).
         let trip_ended = asking == TwitchAsking::Trip
@@ -2876,17 +2905,44 @@ impl RoomClient {
         };
         if canceled {
             self.twitch_pending = None;
+            self.twitch_asked = None;
+            self.twitch_choice = false;
             self.version += 1;
             self.set_link_notice(Some(LinkNotice::TwitchNotConnected));
+            // Round RD2 (the maintainer, 2026-11-25): a trip for the bans
+            // declined, canceled or failed (a row of Host options, or the
+            // offer to put back what the access's end took) leaves the
+            // next room's "Twitch bans" as this room has them, so nothing
+            // is asked again; what the end took is not put back.
+            let (mirror, _) = self.twitch_level();
+            if wanted.mirror > mirror {
+                crate::state::twitch::remember_host_mirror(mirror);
+            }
+            crate::state::twitch::forget_lost_bans(&room);
+            self.lost_after = None;
         } else {
             self.set_twitch(wanted.mirror, wanted.chat);
         }
     }
 
-    /// The room's Twitch setting ended without this player asking (B3,
-    /// B8, A3; round TW3): said on the status line, to everyone where the
-    /// one who set it left the room, to them where their Twitch access
-    /// ended (refused at Twitch, disconnected elsewhere).
+    /// The room's Twitch bans and chat as the room has them (Off and Off
+    /// where it has none).
+    fn twitch_level(&self) -> (ddi_room::TwitchMirror, ddi_room::TwitchChat) {
+        self.twitch().map_or(
+            (ddi_room::TwitchMirror::Off, ddi_room::TwitchChat::Off),
+            |t| (t.mirror, t.chat),
+        )
+    }
+
+    /// The room's Twitch setting ended or turned down without this player
+    /// asking (B3, B8, A3; round TW3): said on the status line, to
+    /// everyone where the one who set it left the room. Round RD2: where
+    /// its bans went off with the one who set it still here, the others
+    /// are told their bans are off (`TwitchBansOffBy`), and where that one
+    /// is this player, what the room had is kept and `/me` read again
+    /// ([`RoomClient::settle_lost_bans`]): their Twitch access ended (the
+    /// server turns the bans off then and, since round RD2, leaves the
+    /// chat), or they changed it on another device.
     fn tell_twitch_end(&mut self) {
         if !self.is_online() || self.link_state() != LinkState::Connected {
             return;
@@ -2899,18 +2955,190 @@ impl RoomClient {
         let Some(was) = std::mem::replace(&mut self.seen_twitch, now.clone()) else {
             return;
         };
-        if now.is_some() {
-            return;
-        }
-        if std::mem::take(&mut self.twitch_off_asked) {
+        let level = now
+            .as_ref()
+            .map_or((ddi_room::TwitchMirror::Off, ddi_room::TwitchChat::Off), |t| {
+                (t.mirror, t.chat)
+            });
+        // What this player asked: nothing to say.
+        if self.twitch_asked == Some(level) {
+            self.twitch_asked = None;
             return;
         }
         let gone = self.state().member(was.by).is_none_or(|m| m.left);
         if gone {
-            self.set_link_notice(Some(LinkNotice::TwitchSetterLeft { who: was.by }));
-        } else if was.by == self.me {
-            self.set_link_notice(Some(LinkNotice::TwitchEnded));
+            if now.is_none() {
+                self.set_link_notice(Some(LinkNotice::TwitchSetterLeft { who: was.by }));
+            }
+            return;
         }
+        // The bans went off (or, from a server before round RD2, all of
+        // it), the same person's setting, or none.
+        let bans_off = was.mirror.on()
+            && !level.0.on()
+            && now.as_ref().is_none_or(|t| t.by == was.by);
+        if !bans_off {
+            return;
+        }
+        if was.by != self.me {
+            self.set_link_notice(Some(LinkNotice::TwitchBansOffBy { who: was.by }));
+            return;
+        }
+        let Some(link) = self.online_link() else {
+            return;
+        };
+        let room = link.room_id().to_string();
+        let online = link.online().clone();
+        crate::state::twitch::keep_lost_bans(&crate::state::twitch::LostBans {
+            room,
+            by: self.me,
+            mirror: was.mirror,
+            chat: was.chat,
+            confirmed: false,
+        });
+        let mut o = online.borrow_mut();
+        self.lost_after = Some(o.me_reads());
+        o.read_me_again();
+    }
+
+    /// Round RD2 (the maintainer, 2026-11-25: when a host's Twitch access
+    /// ends, the room's chat stays and only its bans go off, "but the host
+    /// should sign-in again while asking for the same permissions that
+    /// were shared before so the host-options can stay the same"): what
+    /// the room's bans were before they went off by themselves here
+    /// (`crate::state::twitch::LostBans`), followed each tick against
+    /// `/me` as read after that moment:
+    ///
+    /// - the access still grants them (a change made on another of the
+    ///   host's devices): forgotten, nothing said;
+    /// - it does not: the access ended. Confirmed and said once, the
+    ///   status line's `TwitchEnded` with its button, More's item
+    ///   ([`RoomClient::bans_restore_offered`],
+    ///   [`RoomClient::restore_bans`]); the bans written down as used now,
+    ///   so the next sign-in asks Twitch for them again (round TB's 30
+    ///   days);
+    /// - confirmed, and a later `/me` grants them again (the offer's trip,
+    ///   a sign-in, another device): the room's bans asked back as they
+    ///   were, with no press, and forgotten once the room has them.
+    ///
+    /// Forgotten too where the room's setting is no longer this player's
+    /// to change, or Host options' rows were pressed. Never during a
+    /// trip or a setting asked.
+    fn settle_lost_bans(&mut self) {
+        if !self.is_online() || self.link_state() != LinkState::Connected {
+            return;
+        }
+        let Some(link) = self.online_link() else {
+            return;
+        };
+        let room = link.room_id().to_string();
+        let online = link.online().clone();
+        let Some(mut lost) = crate::state::twitch::lost_bans(&room).filter(|l| l.by == self.me) else {
+            self.lost_after = None;
+            return;
+        };
+        let (mirror, chat) = self.twitch_level();
+        let theirs = self.twitch().is_none_or(|t| t.by == self.me);
+        // (Putting them back raises the setting: the owner's alone, B3.)
+        let may = self.may_set_twitch() && self.may(Capability::Twitch);
+        if !theirs || !may || mirror >= lost.mirror {
+            crate::state::twitch::forget_lost_bans(&room);
+            self.lost_after = None;
+            self.version += 1;
+            return;
+        }
+        if self.twitch_pending.is_some() || online.borrow().sign_in_state().busy() {
+            return;
+        }
+        let reads = online.borrow().me_reads();
+        let Some(after) = self.lost_after else {
+            // Kept from before this client (the web page's trip, a
+            // reload): a read from now on says.
+            self.lost_after = Some(reads);
+            online.borrow_mut().read_me_again();
+            return;
+        };
+        if reads <= after {
+            return;
+        }
+        let granted = crate::state::twitch::granted_mirror(online.borrow().twitch(), lost.mirror);
+        let back = granted >= lost.mirror;
+        match (lost.confirmed, back) {
+            (false, true) => {
+                crate::state::twitch::forget_lost_bans(&room);
+                self.lost_after = None;
+            }
+            (false, false) => {
+                lost.confirmed = true;
+                crate::state::twitch::keep_lost_bans(&lost);
+                if let Some(f) = crate::state::twitch::host_feature(lost.mirror) {
+                    crate::state::twitch::mark_used(&[f]);
+                }
+                self.lost_after = Some(reads);
+                self.set_link_notice(Some(LinkNotice::TwitchEnded));
+            }
+            (true, true) => {
+                // Asked once a read: a refusal waits for the next.
+                self.lost_after = Some(reads);
+                let chat = if self.twitch().is_some() { chat } else { lost.chat };
+                self.set_twitch(lost.mirror, chat);
+            }
+            (true, false) => self.lost_after = Some(reads),
+        }
+    }
+
+    /// Round RD2: the host's Twitch access ended here and took the room's
+    /// bans; the room offers the trip through Twitch that puts them back
+    /// (the status line's button while it says so, and More's item).
+    pub fn bans_restore_offered(&self) -> bool {
+        self.is_online()
+            && self.link_state() == LinkState::Connected
+            && self.twitch_pending.is_none()
+            && self.may_set_twitch()
+            && self.may(Capability::Twitch)
+            && self
+                .online_link()
+                .and_then(|l| crate::state::twitch::lost_bans(l.room_id()))
+                .is_some_and(|l| l.confirmed && l.by == self.me)
+    }
+
+    /// Round RD2: the trip through Twitch for the permissions the host's
+    /// ended access had (the room's bans, and those this device used
+    /// within 30 days, round TB: its own chat's among them), back to this
+    /// room, whose bans are then asked back as they were (the setting
+    /// made by itself, round TW1b). Declined, canceled or failed: the
+    /// bans stay off and the next room starts with them off. False where
+    /// the room offers none.
+    pub fn restore_bans(&mut self) -> Option<String> {
+        if !self.bans_restore_offered() {
+            return None;
+        }
+        let link = self.online_link()?;
+        let room = link.room_id().to_string();
+        let lost = crate::state::twitch::lost_bans(&room)?;
+        let feature = crate::state::twitch::host_feature(lost.mirror)?;
+        let kept = crate::state::twitch::kept_features();
+        let scopes: Vec<&str> = ["bans", "blocks", "chat"]
+            .into_iter()
+            .filter(|f| *f == feature || kept.contains(f))
+            .collect();
+        let scopes = scopes.join(",");
+        let chat = match self.twitch() {
+            Some(t) => t.chat,
+            None => lost.chat,
+        };
+        let wanted = crate::state::online::TwitchWanted {
+            room: room.clone(),
+            mirror: lost.mirror,
+            chat,
+            need: vec![feature.to_string()],
+        };
+        link.online().borrow_mut().connect_twitch_for(
+            crate::state::online::Dest::Room(room),
+            &scopes,
+            Some(wanted),
+        );
+        Some(scopes)
     }
 
     /// Round TW7: where the room shows its host's chat and this device's
@@ -3587,6 +3815,7 @@ impl RoomClient {
             self.connected_again();
         }
         self.tell_twitch_end();
+        self.settle_lost_bans();
         // The settings, read from storage at most once for the rest of
         // the tick (nothing it does changes what it reads of them).
         let settings = TickSettings::new();

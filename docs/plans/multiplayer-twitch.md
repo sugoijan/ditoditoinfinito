@@ -2283,3 +2283,141 @@ Game (`ddi-ui`): `making_a_room_signs_in_for_the_hosts_bans_and_joining_asks_not
 (`screens/room_tests.rs`: the home's dialog with its code and why,
 granted and canceled, the rows remembered, Off included, the notice),
 and the `qps-ploc` walk over the host's trip and the notice.
+
+## Round RD2 (2026-11-25): a declined trip saves the bans Off; an ended access takes the bans alone
+
+Round RD left three questions; the maintainer answered them.
+
+1. "After someone declines at Twitch, should their saved choice become
+   Off?" "Yes."
+2. "A cancelled trip from Host options currently leaves 'Bans' saved…"
+   "Yes": the saved choice follows what the room ended up with, not the
+   press.
+3. "When a host's Twitch access ends, should chat stay on and only bans
+   go off?" "I think 'yes' too, but the host should sign-in again while
+   asking for the same permissions that were shared before so the
+   host-options can stay the same." (The decision of 2026-11-22 stands:
+   "when Twitch end your access we request the last permissions again".)
+
+**1. A declined trip saves the bans Off** (`Online::settle_host_trip`).
+A sign-in from Private room that asked for the host's permissions
+(`purpose=host`) and ended without signing in (declined or canceled at
+Twitch, canceled in the game's dialog, failed: the attempt expired, too
+many wrong codes, refused) saves the device's choice for "Twitch bans"
+as Off (`state::twitch::remember_host_mirror`; the chat's choice is left
+alone: it needs no permission). Not where only `/me` could not be read
+(the server unreachable: nothing is known of Twitch's answer). The trip
+at creation (signed in without the bans) that ends without them makes
+the room with what the access allows, as round RD made it, and saves
+what the room got (`Online::declined_create`, settled with `POST
+/rooms`'s answer: Bans where Bans and blocks was asked and only the bans
+allowed; from a server before round RD, what `/me` grants). The next
+room and the next session ask nothing; Host options asks as today when
+a row is turned on. A trip that is allowed saves nothing (the choice was
+already that).
+
+**2. Host options: the saved choice follows the room.** A row's press is
+saved at once, as round RD made it; if its trip through Twitch then ends
+declined, canceled or failed (`RoomClient::finish_twitch_trip`), the
+bans the room has are saved instead (Off, or Bans where the blocks were
+asked and only the bans are allowed). A press the server refuses saves
+the room's setting as it is (`RoomClient::settle_twitch_pending`).
+
+**3. An ended access takes the bans alone, and one trip puts them back.**
+The server (`RoomCore::twitch_off`, when the setter's link is gone at a
+mirror check): the room's setting lowered to its bans off, its chat as
+it was, by the same `Command::SetTwitch` a lowering always was (the
+setter's own setting, `TwitchSetting::lowered_to`), so every revision
+reads it; the whole setting goes only where its chat was off too. The
+log says `the mirror's link is gone; its bans are off, its chat as it
+was`.
+
+The game, on the host's device (`RoomClient::tell_twitch_end`,
+`settle_lost_bans`): the host's own bans went off without this device
+asking. What the room had is kept for the session
+(`state::twitch::LostBans`, in the session's storage, so it survives the
+web page's trip through Twitch; one room's, the host's participant id
+with it) and `/me` is read again (`Online::read_me_again`; a read after
+that moment, `Online::me_reads`, decides):
+
+- the access still grants the bans: a change made on another of the
+  host's devices, not an end. Forgotten; nothing said to the host.
+- it does not: the access ended. The status line says "Twitch access
+  ended: your Twitch bans are off." with **Allow on Twitch** beside it
+  (`LinkNotice::TwitchEnded`, 12 s, as round FX's chat line), and More
+  has **Allow Twitch bans** while it is offered
+  (`RoomClient::bans_restore_offered`). Never a dialog: a stage goes on
+  untouched. The bans are written down as used now (round TB), so the
+  next sign-in on this device asks Twitch for them again.
+- the button (`RoomClient::restore_bans`): one trip through Twitch for
+  the permissions the access had (the bans, or the bans and blocks, and
+  those this device used within 30 days: its own chat's among them),
+  back to this room; the room's bans are then asked back as they were
+  (round TW1b's `TwitchWanted`), with no press in Host options. Desktop
+  shows the code's dialog over the room; the web leaves the page and
+  comes back.
+- declined, canceled or failed: decision 1. The bans stay off, the
+  next room starts with them off, nothing more is offered.
+- the access back by another way (the host signs in again after the
+  room's 4401, whose `keep` now asks for the bans; another device's
+  trip): the bans are asked back by themselves at the next `/me` read.
+- forgotten where the room's setting is no longer the host's (replaced
+  by the owner, the host gone) or the host is no longer the room's owner
+  (only the owner raises a setting, B3), or Host options' rows are
+  pressed (the host took it in hand).
+
+The other members are told once "{name}'s Twitch bans are off."
+(`LinkNotice::TwitchBansOffBy`) whenever the bans of a setter still in
+the room go off, whatever the cause (they cannot tell an end from a
+change; it is true either way). The setter leaving still says
+"{name} left: their Twitch bans and chat are off." (the whole setting
+ends with them, B3). The device's saved choice is never changed by the
+access ending by itself, only by a decline.
+
+**Each way the access ends:**
+
+| How | What happens |
+| --- | --- |
+| Twitch ended it (a use or a validation refused) | Link deleted with `ended`; the room's next mirror check (a join, a ticket, a pick, a recheck) turns its bans off, its chat stays; the host's device offers the trip. |
+| A refresh's token refused (round 2026-11-24's rule) | The same. |
+| 30 days unused | Link deleted by its alarm. A room whose bans are on uses it at every check, so it cannot lapse while the room is busy; a room left idle that long finds no link at its next check: the same as above. |
+| Disconnect in Options → Data, on this device | The game lowers the room's bans itself at once (`Kept::disconnect_twitch`), the chat kept; nothing offered (the person ended it); the saved choice untouched; the permissions forgotten for the next sign-in (round TB). |
+| Disconnect or sign-out on another device | Link deleted; this device cannot tell it from Twitch ending it: offered as above. |
+| Sign-out on this device | The account's Sign out is on the multiplayer home, which leaving an online room reaches; the room is left first. Nothing to put back. |
+| The game session ending (4401) | Not the access: the link stays, the bans with it. Signing in again asks round TB's `keep`. |
+
+**Why the device and not the room remembers.** The room model has only
+the setting it has now; carrying "wanted but not held" would need a room
+model revision (24 is live). The host's device already knows what the
+room had (it saw it) and is the only one who can make the trip; it keeps
+that for the session. What it cannot do: a device that never saw the
+bans on (a tab opened after the end, a reload after the tab was closed,
+another device) offers nothing, and the host turns the bans on in Host
+options, which asks as today.
+
+**Old and new together** (server first, then the game; no revision): an
+old game with the new server keeps the room's chat; its host is told
+nothing (its line spoke only when the whole setting went) and Host
+options shows the bans Off. A new game with an old server sees the whole
+setting go: the host's device offers the same trip and puts back the
+bans and the chat as they were.
+
+**Privacy note**: the first paragraph of "Twitch access for a room's
+features" says a declined permission stays off for the next rooms; a
+new paragraph after the list of when the access is deleted says what
+happens when it ends while hosting, the offer, and what this device
+remembers until the game is closed (both languages, page and fold).
+
+**Tests.** Server: `the_link_gone_turns_only_the_bans_off_and_the_chat_stays`
+(`room.rs`). Game (`ddi-ui`):
+`a_hosts_ended_access_takes_the_bans_alone_and_one_trip_puts_them_back`,
+`a_declined_trip_leaves_the_bans_off_and_a_change_elsewhere_is_no_end`,
+`host_options_saves_what_the_room_ended_up_with_and_disconnect_keeps_the_chat`,
+`a_twitch_setting_that_ends_by_itself_is_said` (reworded),
+and the creation tests of round RD with the saved choice
+(`state/online/tests.rs`); desktop,
+`desktops_host_puts_the_bans_back_from_the_status_line` and the saved
+choice in `desktops_private_room_asks_for_the_bans_at_creation_and_the_room_is_made_either_way`
+(`screens/room_tests.rs`); the `qps-ploc` walk over the host's line,
+its button, More and the members' line. `FakeServer::end_twitch` is
+the server's end as the fakes see it.

@@ -301,6 +301,14 @@ impl SelectScreen {
             .is_some_and(|rm| rm.side != Side::Joining && room::allow_chat_shown(&rm.room.borrow()))
     }
 
+    /// Round RD2: the status line's button that puts the host's Twitch
+    /// bans back shows.
+    pub(super) fn room_restore_bans_shown(&self) -> bool {
+        self.room
+            .as_ref()
+            .is_some_and(|rm| rm.side != Side::Joining && room::restore_bans_shown(&rm.room.borrow()))
+    }
+
     pub(super) fn room_joining(&self) -> bool {
         self.room
             .as_ref()
@@ -486,6 +494,10 @@ impl SelectScreen {
             // Round FX: the line says the Twitch access lacks chat's
             // permission: the step itself beside it.
             Some((ddi_l10n::msg::room::twitch_chat_allow(), room::ALLOW_CHAT))
+        } else if room::restore_bans_shown(&r) {
+            // Round RD2: the line says the host's Twitch access ended and
+            // took the room's bans: the step that puts them back.
+            Some((ddi_l10n::msg::room::twitch_bans_allow(), room::RESTORE_BANS))
         } else if rm.side == Side::Listed && r.may_take_pick() {
             Some((ddi_l10n::msg::room::take_pick(), room::TAKE_PICK))
         } else {
@@ -1556,6 +1568,11 @@ impl SelectScreen {
                     room::allow_chat(&self.env, &rm.room, cx);
                 }
             }
+            room::RESTORE_BANS => {
+                if let Some(rm) = &self.room {
+                    room::restore_bans(&self.env, &rm.room, cx);
+                }
+            }
             room::RETRY_LOAD => {
                 if let Some(rm) = &self.room {
                     room::retry_load(&rm.room);
@@ -1798,6 +1815,7 @@ impl SelectScreen {
                     self.room_leave(room::LeaveBy::More, cx);
                 }
                 room::MoreAction::AllowChat => room::allow_chat(&self.env, &room, cx),
+                room::MoreAction::RestoreBans => room::restore_bans(&self.env, &room, cx),
                 room::MoreAction::Done => self.refill_room(root, cx),
             }
         }

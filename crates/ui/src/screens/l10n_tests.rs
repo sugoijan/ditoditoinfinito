@@ -2073,6 +2073,41 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         found,
     );
     alice.borrow_mut().set_link_notice(None);
+    // Round RD2: Alice's Twitch access ends with her bans and chat on: her
+    // line and its button, More's item; Bob's line about her bans.
+    {
+        let her = Identity::new("dev:alice");
+        let me = alice.borrow().me();
+        server.borrow_mut().grant_twitch(&her, &["bans"]);
+        server
+            .borrow_mut()
+            .set_twitch(
+                me,
+                Some(ddi_room::TwitchSetting {
+                    by: me,
+                    mirror: ddi_room::TwitchMirror::Bans,
+                    chat: ddi_room::TwitchChat::Emotes,
+                    user_id: "1".into(),
+                    login: "alice".into(),
+                }),
+            )
+            .unwrap();
+        step(400);
+        server.borrow_mut().end_twitch(&her);
+        step(800);
+        assert!(super::room::restore_bans_shown(&alice.borrow()));
+        shown(&mut ha, found);
+        shown(&mut hb, found);
+        ha.tap(PointerKind::Mouse, "More");
+        shown(&mut ha, found);
+        ha.key("Escape", "Escape");
+        ha.run(0.3);
+        server.borrow_mut().set_twitch(me, None).unwrap();
+        step(400);
+        crate::state::twitch::forget_lost_bans("Room000001");
+        alice.borrow_mut().set_link_notice(None);
+        bob.borrow_mut().set_link_notice(None);
+    }
     // Sharing the stage's song (M5d): the upload as it goes, its failure
     // and More's retry, then the room's refusal of a share without the
     // chosen chart, then the shared song read by both.

@@ -294,6 +294,14 @@ pub struct Online {
     /// made of it (none from a server that predates it), until the room's
     /// client takes it ([`Online::take_made`]).
     made: Option<(String, crate::state::twitch::HostTwitch, Option<crate::state::twitch::HostTwitch>)>,
+    /// Round RD2: the room being made follows a host's trip (or, on the
+    /// web, a sign-in's) that ended without the bans' permission
+    /// (declined at Twitch, canceled, failed): the device's saved choice
+    /// for bans is made what the room got ([`Online::settle_host_trip`]).
+    declined_create: bool,
+    /// Round RD2: how many times `/me` was read signed in, so a reader
+    /// can wait for one read after a moment ([`Online::read_me_again`]).
+    me_reads: u64,
 }
 
 /// The shell's account of what kind of client it is, asked when a report
@@ -360,6 +368,8 @@ impl Online {
             trip: false,
             asking: None,
             made: None,
+            declined_create: false,
+            me_reads: 0,
             next_id: 1,
             pending: BTreeMap::new(),
             answers: BTreeMap::new(),
@@ -529,6 +539,25 @@ impl Online {
         }
     }
 
+    /// Round RD2: who is signed in read again (signed in, no sign-in under
+    /// way, no read already asked): a room whose host's bans went off by
+    /// themselves asks whether the host's Twitch access still grants them.
+    pub fn read_me_again(&mut self) {
+        if !matches!(self.account, Account::SignedIn(_))
+            || self.sign_in.busy()
+            || self.pending.values().any(|w| matches!(w, Want::Me))
+        {
+            return;
+        }
+        self.start(api::me(), Want::Me);
+    }
+
+    /// Round RD2: how many times `/me` was read signed in (see
+    /// [`Online::read_me_again`]).
+    pub fn me_reads(&self) -> u64 {
+        self.me_reads
+    }
+
     /// Sign in, then go on to `dest`. The web leaves for the server's page
     /// ([`Redirect::Page`]); desktop asks for an attempt and opens the
     /// system browser on it.
@@ -681,6 +710,17 @@ impl Online {
     /// what was granted, and nothing more is asked when making a room this
     /// session. A sign-in for making a room canceled is remembered the
     /// same way, so the next one asks nothing new.
+    ///
+    /// Round RD2 (the maintainer, 2026-11-25: "After someone declines at
+    /// Twitch, should their saved choice become Off?" "Yes."): either way
+    /// the device's saved choice for bans follows what was granted, so the
+    /// next room and the next session ask nothing: the trip's room made
+    /// with what the access allows ([`Online::declined_create`], settled
+    /// with the room's answer), and a sign-in that asked for the host's
+    /// permissions and ended without signing in, Off. The chat's choice is
+    /// left alone (it needs no permission). A sign-in whose `/me` could
+    /// not be read (the server unreachable) says nothing of Twitch and
+    /// changes nothing.
     fn settle_host_trip(&mut self) {
         let ended = matches!(
             self.sign_in,
@@ -693,9 +733,13 @@ impl Online {
             self.trip = false;
             self.sign_in = SignIn::Idle;
             crate::state::twitch::decline_host();
+            self.declined_create = true;
             self.create();
             self.changed();
-        } else if matches!(self.sign_in, SignIn::Canceled { .. }) {
+        } else if self.account != Account::Unreachable {
+            if crate::state::twitch::host_purpose().is_some() {
+                crate::state::twitch::remember_host_mirror(ddi_room::TwitchMirror::Off);
+            }
             crate::state::twitch::decline_host();
         }
     }
@@ -801,6 +845,7 @@ impl Online {
         if dest == Dest::Create && storage::get(Area::Session, HOST_TRIP).is_some() {
             storage::remove(Area::Session, HOST_TRIP);
             crate::state::twitch::decline_host();
+            self.declined_create = true;
             self.returned(Dest::Create);
             return;
         }
@@ -1043,6 +1088,7 @@ impl Online {
                 match api::read::<Me>(&response) {
                     Ok(me) => {
                         self.account = Account::SignedIn(me);
+                        self.me_reads += 1;
                         if let Some(dest) = dest {
                             self.sign_in = SignIn::Idle;
                             self.epoch += 1;
@@ -1158,7 +1204,23 @@ impl Online {
             Want::Create => {
                 self.creating = false;
                 let asked = self.asking.take();
-                match api::read::<api::Created>(&response) {
+                let declined = std::mem::take(&mut self.declined_create);
+                let created = api::read::<api::Created>(&response);
+                // Round RD2: the trip for the bans ended without them: the
+                // saved choice is what the room got (the server's answer;
+                // from a server before round RD, what `/me` grants).
+                if declined && let Some(asked) = asked {
+                    let got = created
+                        .as_ref()
+                        .ok()
+                        .and_then(|c| c.twitch)
+                        .map(|t| t.mirror.min(asked.mirror))
+                        .unwrap_or_else(|| {
+                            crate::state::twitch::granted_mirror(self.twitch(), asked.mirror)
+                        });
+                    crate::state::twitch::remember_host_mirror(got);
+                }
+                match created {
                     Ok(c) => {
                         if let Some(asked) = asked {
                             self.made = Some((c.room_id.clone(), asked, c.twitch));

@@ -596,7 +596,7 @@ pages-privacy-twitch =
     • keep out of the room the people that the host banned or blocked on Twitch
     • show the host's Twitch chat during play
 
-    A new room has both features on. If you turned a feature off for your last room, it stays off. This device remembers that choice. You can turn each feature on or off in the room's Host options.
+    A new room has both features on. If you turned a feature off for your last room, it stays off. If you did not allow keeping people out when Twitch asked, it also stays off. This device remembers that choice. You can turn each feature on or off in the room's Host options.
 
     When you make a room, the game asks Twitch for what keeping people out needs. It asks when you sign in to make a room. If you are already signed in, it asks when you make the room. It does not ask if you turned this feature off. If you do not allow it, the room is made with this feature off. When you only join a room, the game asks Twitch for nothing new.
 
@@ -614,6 +614,12 @@ pages-privacy-twitch =
     • when you disconnect it in Options → Data
     • after 30 days without use
     • when Twitch ends it
+
+    If the access ends while you host a room, the room stops keeping people out. It still shows your chat.
+
+    The game then offers to ask Twitch again for the permissions that you had. It does not offer this when you disconnect on this device. If you allow them, the room keeps people out again, as before. If you do not, your next rooms start with this feature off.
+
+    Until then, this device remembers that the room kept people out. It forgets this when you close the game.
 
     This device also remembers which of these permissions you used, and when. It keeps this in the game's settings on this device, never on our server. You use a permission when you:
     • host a room that keeps out people banned or blocked on Twitch

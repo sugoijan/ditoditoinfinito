@@ -417,6 +417,32 @@ impl FakeServer {
             .insert(identity.clone(), features.iter().map(|f| f.to_string()).collect());
     }
 
+    /// `identity`'s Twitch access ended (Twitch refused it, a sign-out
+    /// or Disconnect elsewhere), as the server finds it at its mirror's
+    /// next check: nothing granted any more, and where the room's Twitch
+    /// setting is theirs, its bans off and (round RD2) its chat as it was.
+    pub fn end_twitch(&mut self, identity: &Identity) {
+        self.twitch_grants.remove(identity);
+        let Some(t) = self.state().twitch.clone() else {
+            return;
+        };
+        let theirs = self
+            .state()
+            .member(t.by)
+            .is_some_and(|m| m.identity() == Some(identity));
+        if theirs && t.mirror.on() {
+            let kept = crate::TwitchSetting {
+                mirror: crate::TwitchMirror::Off,
+                ..t
+            };
+            let by = kept.by;
+            let _ = self.authority(Command::SetTwitch {
+                member: by,
+                twitch: kept.on().then_some(kept),
+            });
+        }
+    }
+
     /// What `identity`'s Twitch access grants, as `/me` says it.
     pub fn twitch_features(&self, identity: &Identity) -> Vec<String> {
         self.twitch_grants.get(identity).cloned().unwrap_or_default()

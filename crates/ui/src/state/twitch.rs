@@ -225,6 +225,83 @@ pub fn remember_host_choice(choice: HostTwitch) {
     }
 }
 
+/// Round RD2 (the maintainer, 2026-11-25: a declined trip turns the
+/// saved choice for bans Off, and in Host options "the saved choice
+/// follows what the room ended up with"): the next room's "Twitch bans"
+/// made `mirror`, its chat's choice left as it is (it needs no
+/// permission).
+pub fn remember_host_mirror(mirror: ddi_room::TwitchMirror) {
+    let s = crate::state::settings::Settings::load();
+    let chat = s.room_twitch.unwrap_or(HOST_DEFAULT).chat;
+    remember_host_choice(HostTwitch { mirror, chat });
+}
+
+/// The highest "Twitch bans" the access `access` grants, never above
+/// `up_to` (Bans and blocks needs `blocks`, Bans needs `bans`; none
+/// read: Off).
+pub fn granted_mirror(
+    access: Option<&crate::state::online::api::TwitchAccess>,
+    up_to: ddi_room::TwitchMirror,
+) -> ddi_room::TwitchMirror {
+    use ddi_room::TwitchMirror as M;
+    let has = |f| access.is_some_and(|a| a.has(f));
+    let granted = if has("blocks") {
+        M::BansAndBlocks
+    } else if has("bans") {
+        M::Bans
+    } else {
+        M::Off
+    };
+    granted.min(up_to)
+}
+
+/// Round RD2: the room's Twitch setting a host had before their Twitch
+/// access ended by itself (Twitch ended it, its refresh refused, a
+/// sign-out or Disconnect on another device), kept by this device for the
+/// session (across the web page's trip through Twitch) so the room's bans
+/// come back as they were once the access does, without Host options. No
+/// room model revision: the room has only what it has now; this is the
+/// host's device's own memory.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LostBans {
+    /// The online room's id, and the host in it (the room's own id for
+    /// them): another member's client in the same session leaves it be.
+    pub room: String,
+    pub by: ddi_room::ParticipantId,
+    /// What the room had: its bans, and its chat (which a server before
+    /// round RD2 turned off with them).
+    pub mirror: ddi_room::TwitchMirror,
+    pub chat: ddi_room::TwitchChat,
+    /// `/me`, read after the bans went off, said the access no longer
+    /// grants them: an access that ended, not a change made on another
+    /// of the host's devices. Only then is the host offered the trip.
+    #[serde(default)]
+    pub confirmed: bool,
+}
+
+/// Where [`LostBans`] is kept for the session.
+const LOST_BANS: &str = "ddi.mp.twitch.lost";
+
+/// The bans room `room` lost with its host's access, as kept.
+pub fn lost_bans(room: &str) -> Option<LostBans> {
+    ddi_platform::storage::load::<LostBans>(ddi_platform::storage::Area::Session, LOST_BANS)
+        .filter(|l| l.room == room)
+}
+
+/// Keep `lost` (one room's at a time: a host hosts one room).
+pub fn keep_lost_bans(lost: &LostBans) {
+    if let Ok(text) = serde_json::to_string(lost) {
+        let _ = ddi_platform::storage::set(ddi_platform::storage::Area::Session, LOST_BANS, &text);
+    }
+}
+
+/// Forget what room `room` lost (back, declined, or Host options used).
+pub fn forget_lost_bans(room: &str) {
+    if lost_bans(room).is_some() {
+        ddi_platform::storage::remove(ddi_platform::storage::Area::Session, LOST_BANS);
+    }
+}
+
 /// The feature a host's access needs for the mirror `mirror` (`bans`,
 /// `blocks`, as the server names them); none where it is off. The chat
 /// needs nothing of the host (round RD: each device reads the channel with

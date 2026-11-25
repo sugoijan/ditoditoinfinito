@@ -7982,6 +7982,71 @@ fn desktops_second_twitch_trip_shows_its_code_over_host_options() {
     assert!(matches!(online.borrow().sign_in_state(), SignIn::Idle));
 }
 
+/// Round RD2 (the maintainer, 2026-11-25): desktop, a host whose Twitch
+/// access ended in their room: the room's song select says so on its
+/// status line with "Allow on Twitch" beside it; the button opens the
+/// code's dialog for the permissions the access had, and once Twitch
+/// allows them the room's bans are back as they were (the chat never
+/// left), Host options untouched.
+#[test]
+fn desktops_host_puts_the_bans_back_from_the_status_line() {
+    use crate::state::online::tests::room::client;
+    use ddi_room::{Identity, TwitchChat, TwitchMirror};
+    use std::cell::Cell;
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    let t = Three::new(false);
+    let (done, attempts) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+    let online = desktop_person(&t.server, "alice", done.clone(), attempts.clone());
+    let alice: SharedRoom = Rc::new(RefCell::new(client(&t.server, online.clone(), "alice", 1_000)));
+    let her = Identity::new("dev:alice");
+    let env = env();
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(
+        sample::room_select(&env, alice.clone(), songs_of(&["Alpha One"]))
+            .with_room(alice.clone(), shell(&alice, &orders)),
+    );
+    let settle = |h: &mut Harness| {
+        for _ in 0..4 {
+            t.clock.advance(100);
+            alice.borrow_mut().tick(ddi_room::Clock::now(&t.clock).0);
+            h.run(0.2);
+        }
+    };
+    settle(&mut h);
+    t.server.borrow_mut().grant_twitch(&her, &["bans"]);
+    online.borrow_mut().read_me_again();
+    settle(&mut h);
+    alice.borrow_mut().choose_twitch(TwitchMirror::Bans, TwitchChat::Emotes);
+    settle(&mut h);
+    let level = || t.server.borrow().state().twitch.clone().map(|s| (s.mirror, s.chat));
+    assert_eq!(level(), Some((TwitchMirror::Bans, TwitchChat::Emotes)));
+    t.server.borrow_mut().end_twitch(&her);
+    settle(&mut h);
+    settle(&mut h);
+    assert_eq!(level(), Some((TwitchMirror::Off, TwitchChat::Emotes)), "the chat stays");
+    let line = String::from(ddi_l10n::msg::room::twitch_ended());
+    assert!(h.texts().iter().any(|s| s.contains(&line)), "{:?}", h.texts());
+    assert!(h.ui.actor(super::room::RESTORE_BANS).is_some_and(|a| a.visible));
+    press(&mut h, super::room::RESTORE_BANS);
+    settle(&mut h);
+    assert_eq!(top(&h), "sign-in", "{:?}", h.ui.layers());
+    assert_eq!(attempts.get(), 1);
+    let code = crate::state::online::api::grouped_code("ABC231");
+    assert!(h.texts().iter().any(|s| s.contains(&code)), "{:?}", h.texts());
+    t.server.borrow_mut().grant_twitch(&her, &["bans"]);
+    done.set(1);
+    settle(&mut h);
+    settle(&mut h);
+    assert!(!h.ui.layers().iter().any(|l| l.name == "sign-in"), "{:?}", h.ui.layers());
+    assert_eq!(level(), Some((TwitchMirror::Bans, TwitchChat::Emotes)), "back as it was");
+    assert!(!alice.borrow().bans_restore_offered());
+    assert_eq!(
+        crate::state::twitch::host_wanted(),
+        crate::state::twitch::HostTwitch { mirror: TwitchMirror::Bans, chat: TwitchChat::Emotes }
+    );
+}
+
 /// Round RD (the maintainer, 2026-11-25): desktop, a host signed in
 /// without what their new room's Twitch bans need makes a private room:
 /// the home shows the trip through Twitch with its code and why, and the
@@ -8039,6 +8104,13 @@ fn desktops_private_room_asks_for_the_bans_at_creation_and_the_room_is_made_eith
         assert_eq!(
             online.borrow_mut().take_made("Room000001"),
             Some((HOST_DEFAULT, Some(HostTwitch { mirror, chat: TwitchChat::Emotes })))
+        );
+        // Round RD2: canceled, the next room starts with the bans off
+        // (the chat's choice untouched); allowed, nothing saved.
+        assert_eq!(
+            Settings::load().room_twitch,
+            cancel.then_some(HostTwitch { mirror: TwitchMirror::Off, chat: TwitchChat::Emotes }),
+            "cancel {cancel}"
         );
     }
     // Host options' rows remembered for the next room, Off included; a

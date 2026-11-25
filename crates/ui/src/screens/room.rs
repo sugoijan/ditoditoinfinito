@@ -928,6 +928,9 @@ fn phase_status(r: &RoomClient) -> UiText {
             LinkNotice::TwitchSetterLeft { who } => m::twitch_setter_left(UiText::data(
                 r.state().member(who).map(person_name).unwrap_or_default(),
             )),
+            LinkNotice::TwitchBansOffBy { who } => m::twitch_bans_off_by(UiText::data(
+                r.state().member(who).map(person_name).unwrap_or_default(),
+            )),
             LinkNotice::ChoiceGone { why } => m::choice_gone(match why {
                 ddi_room::ChoiceGone::Host => "host",
                 ddi_room::ChoiceGone::Repeats => "repeats",
@@ -1076,6 +1079,42 @@ const MORE_ALLOW_CHAT: &str = "allowchat";
 /// the access lacks it and the room offers the trip.
 pub fn allow_chat_shown(r: &RoomClient) -> bool {
     r.link_notice() == Some(LinkNotice::TwitchChatNoAccess) && r.chat_allow_offered()
+}
+
+/// Round RD2: the name of the button at the room's status line's end
+/// while it says the host's Twitch access ended and took the room's bans,
+/// and of its item in More while the room offers it: the trip through
+/// Twitch that puts them back (`RoomClient::restore_bans`, [`restore_bans`]).
+pub const RESTORE_BANS: &str = "Room.RestoreBans";
+const MORE_RESTORE_BANS: &str = "restorebans";
+
+/// Round RD2: the status line's button that puts the host's bans back
+/// shows: the line says their access ended and the room offers the trip.
+pub fn restore_bans_shown(r: &RoomClient) -> bool {
+    r.link_notice() == Some(LinkNotice::TwitchEnded) && r.bans_restore_offered()
+}
+
+/// Round RD2: the trip through Twitch that puts the host's bans back,
+/// from the room: started (`RoomClient::restore_bans`); the web leaves the
+/// page on the room's next update, desktop's dialog with the code to type
+/// in the browser opens over the room.
+pub fn restore_bans(env: &Env, room: &SharedRoom, cx: &mut Cx) {
+    let Some(scopes) = room.borrow_mut().restore_bans() else {
+        return;
+    };
+    let r = room.borrow();
+    if let Some(link) = r.online_link()
+        && link.online().borrow().platform() == crate::state::online::Platform::Desktop
+    {
+        let dialog = super::online_home::SignInDialog::connecting(
+            env.clone(),
+            link.online().clone(),
+            crate::state::online::Dest::Room(link.room_id().to_string()),
+            &scopes,
+            None,
+        );
+        cx.overlay(dialog, true);
+    }
 }
 
 /// Round FX: the trip through Twitch for this device's chat, from the
@@ -2018,6 +2057,11 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
     if r.chat_allow_offered() {
         items.push((MORE_ALLOW_CHAT.to_string(), m::twitch_chat_allow_more().into()));
     }
+    // The host's Twitch access ended and took the room's bans (round
+    // RD2): the trip that puts them back, whenever the host asks.
+    if r.bans_restore_offered() {
+        items.push((MORE_RESTORE_BANS.to_string(), m::twitch_bans_allow_more().into()));
+    }
     // Play or Watch, the player's own, outside a stage they are in.
     if r.may_choose_intent() {
         items.push((MORE_INTENT.to_string(), intent_label(r).into()));
@@ -2461,6 +2505,9 @@ pub enum MoreAction {
     Leave,
     /// Allow Twitch chat: the trip through Twitch ([`allow_chat`]).
     AllowChat,
+    /// Allow Twitch bans: the trip through Twitch that puts the host's
+    /// bans back ([`restore_bans`]).
+    RestoreBans,
     /// Done here (or nothing): the screen redraws.
     Done,
 }
@@ -2886,6 +2933,7 @@ pub fn more_picked(id: &str, room: &SharedRoom, cx: &mut Cx) -> MoreAction {
         "rules" => return MoreAction::Rules,
         "players" => return MoreAction::Players,
         MORE_ALLOW_CHAT => return MoreAction::AllowChat,
+        MORE_RESTORE_BANS => return MoreAction::RestoreBans,
         "stop" => {
             let _ = room.borrow_mut().stop_match();
         }

@@ -1052,6 +1052,198 @@ pub(crate) mod room {
         assert!(!fan.watching());
     }
 
+    /// Round RD2 (the maintainer, 2026-11-25): a host's Twitch access
+    /// that ends takes the room's bans alone (the chat stays, told to the
+    /// others as their bans off); the host is told in one line with one
+    /// button, whose one trip asks Twitch for the permissions the access
+    /// had and puts the bans back as they were, Host options untouched;
+    /// the device's saved choice is not touched by the end.
+    #[test]
+    fn a_hosts_ended_access_takes_the_bans_alone_and_one_trip_puts_them_back() {
+        use crate::screens::room::{more_items, restore_bans_shown, status};
+        use crate::state::online::link::LinkNotice;
+        use ddi_room::{TwitchChat, TwitchMirror};
+        ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob"]);
+        let alice_online = person(&server, "alice");
+        let mut alice = client(&server, alice_online.clone(), "alice", 1_000);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        let her = Identity::new("dev:alice");
+        server.borrow_mut().grant_twitch(&her, &["bans", "chat"]);
+        alice_online.borrow_mut().read_me_again();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        alice.choose_twitch(TwitchMirror::Bans, TwitchChat::Emotes);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        let level = |r: &RoomClient| r.twitch().map(|t| (t.mirror, t.chat));
+        assert_eq!(level(&alice), Some((TwitchMirror::Bans, TwitchChat::Emotes)));
+        let saved = crate::state::settings::Settings::load().room_twitch;
+        // Twitch ends her access: the bans off, the chat as it was.
+        server.borrow_mut().end_twitch(&her);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(level(&bob), Some((TwitchMirror::Off, TwitchChat::Emotes)));
+        assert_eq!(bob.link_notice(), Some(LinkNotice::TwitchBansOffBy { who: alice.me() }));
+        assert_eq!(
+            String::from(status(&bob)),
+            String::from(ddi_l10n::msg::room::twitch_bans_off_by(ddi_l10n::UiText::data("alice")))
+        );
+        assert!(!bob.bans_restore_offered(), "never a guest's");
+        assert_eq!(alice.link_notice(), Some(LinkNotice::TwitchEnded));
+        assert!(alice.bans_restore_offered() && restore_bans_shown(&alice));
+        assert!(more_items(&alice, false).iter().any(|(id, _)| id == "restorebans"));
+        assert_eq!(crate::state::settings::Settings::load().room_twitch, saved, "not a decline");
+        // A while later the line is gone; More still offers it.
+        tick(&clock, &mut [&mut alice, &mut bob], 14_000);
+        assert!(!restore_bans_shown(&alice) && alice.bans_restore_offered());
+        // One trip: the bans and the chat she had, back to this room.
+        let scopes = alice.restore_bans().expect("offered");
+        assert_eq!(scopes, "bans");
+        let redirect = alice_online.borrow_mut().take_redirect();
+        assert_eq!(
+            redirect,
+            Some(Redirect::Page("/auth/twitch/login?return=%2Fmp%2Froom%2FRoom000001&scopes=bans".into()))
+        );
+        // Twitch allows it; the page comes back.
+        server.borrow_mut().grant_twitch(&her, &["bans", "chat"]);
+        alice_online.borrow_mut().returned(Dest::Room("Room000001".into()));
+        tick(&clock, &mut [&mut alice, &mut bob], 800);
+        assert_eq!(level(&alice), Some((TwitchMirror::Bans, TwitchChat::Emotes)), "back as it was");
+        assert!(!alice.bans_restore_offered());
+        assert_eq!(crate::state::twitch::lost_bans("Room000001"), None);
+        assert_eq!(crate::state::settings::Settings::load().room_twitch, saved);
+    }
+
+    /// Round RD2: the host declines the trip that would put the bans back:
+    /// they stay off, nothing is offered again, and (decision 1) the next
+    /// room starts with them off; a change made on another of the host's
+    /// devices (the access still granting them) is no end: nothing said to
+    /// the host, nothing kept; and an access that comes back by itself
+    /// (a sign-in again, another device) puts the bans back with no press.
+    #[test]
+    fn a_declined_trip_leaves_the_bans_off_and_a_change_elsewhere_is_no_end() {
+        use crate::state::online::link::LinkNotice;
+        use ddi_room::{TwitchChat, TwitchMirror};
+        ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob"]);
+        let alice_online = person(&server, "alice");
+        let mut alice = client(&server, alice_online.clone(), "alice", 1_000);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        let her = Identity::new("dev:alice");
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        let me = alice.me();
+        let level = |r: &RoomClient| r.twitch().map(|t| (t.mirror, t.chat));
+        let on = |mirror| ddi_room::TwitchSetting {
+            by: me,
+            mirror,
+            chat: TwitchChat::Emotes,
+            user_id: "1".into(),
+            login: "alice".into(),
+        };
+        server.borrow_mut().grant_twitch(&her, &["bans", "blocks"]);
+        server.borrow_mut().set_twitch(me, Some(on(TwitchMirror::BansAndBlocks))).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        // Turned down on another device of hers: no end.
+        server.borrow_mut().set_twitch(me, Some(on(TwitchMirror::Off))).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 800);
+        assert_eq!(alice.link_notice(), None);
+        assert!(!alice.bans_restore_offered());
+        assert_eq!(crate::state::twitch::lost_bans("Room000001"), None);
+        assert_eq!(bob.link_notice(), Some(LinkNotice::TwitchBansOffBy { who: me }));
+        // Back on; then her access ends.
+        server.borrow_mut().set_twitch(me, Some(on(TwitchMirror::BansAndBlocks))).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        server.borrow_mut().end_twitch(&her);
+        tick(&clock, &mut [&mut alice, &mut bob], 800);
+        assert!(alice.bans_restore_offered());
+        // She signs in again elsewhere (her access back): put back with
+        // no press, once a read of `/me` says so.
+        server.borrow_mut().grant_twitch(&her, &["bans", "blocks"]);
+        alice_online.borrow_mut().read_me_again();
+        tick(&clock, &mut [&mut alice, &mut bob], 800);
+        assert_eq!(level(&alice), Some((TwitchMirror::BansAndBlocks, TwitchChat::Emotes)));
+        assert_eq!(crate::state::twitch::lost_bans("Room000001"), None);
+        // Ended again; this time she declines the trip.
+        server.borrow_mut().end_twitch(&her);
+        tick(&clock, &mut [&mut alice, &mut bob], 800);
+        assert_eq!(alice.restore_bans().as_deref(), Some("blocks"));
+        let _ = alice_online.borrow_mut().take_redirect();
+        alice_online.borrow_mut().sign_in_canceled(Dest::Room("Room000001".into()));
+        tick(&clock, &mut [&mut alice, &mut bob], 800);
+        assert_eq!(alice.link_notice(), Some(LinkNotice::TwitchNotConnected));
+        assert_eq!(level(&alice), Some((TwitchMirror::Off, TwitchChat::Emotes)));
+        assert!(!alice.bans_restore_offered(), "not offered again");
+        assert_eq!(crate::state::twitch::lost_bans("Room000001"), None);
+        assert_eq!(
+            crate::state::twitch::host_wanted().mirror,
+            TwitchMirror::Off,
+            "the next room starts with them off"
+        );
+        assert_eq!(crate::state::twitch::host_wanted().chat, TwitchChat::Emotes, "the chat's untouched");
+        // Her access back now changes nothing by itself.
+        server.borrow_mut().grant_twitch(&her, &["bans"]);
+        alice_online.borrow_mut().read_me_again();
+        tick(&clock, &mut [&mut alice, &mut bob], 800);
+        assert_eq!(level(&alice), Some((TwitchMirror::Off, TwitchChat::Emotes)));
+    }
+
+    /// Round RD2 (decision 2): Host options' saved choice follows what the
+    /// room ended up with: a row pressed whose trip is canceled keeps the
+    /// room's (Off, or the bans where the blocks were asked), never the
+    /// press; Options → Data's Disconnect turns only the bans off and
+    /// offers nothing.
+    #[test]
+    fn host_options_saves_what_the_room_ended_up_with_and_disconnect_keeps_the_chat() {
+        use crate::state::online::link::LinkNotice;
+        use crate::state::twitch::host_wanted;
+        use ddi_room::{TwitchChat, TwitchMirror};
+        ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob"]);
+        let alice_online = person(&server, "alice");
+        let mut alice = client(&server, alice_online.clone(), "alice", 1_000);
+        let her = Identity::new("dev:alice");
+        let level = |r: &RoomClient| r.twitch().map(|t| (t.mirror, t.chat));
+        tick(&clock, &mut [&mut alice], 400);
+        // No access: Bans pressed, the trip canceled: Off saved.
+        alice.choose_twitch(TwitchMirror::Bans, TwitchChat::Emotes);
+        tick(&clock, &mut [&mut alice], 400);
+        assert_eq!(alice.take_twitch_trip().as_deref(), Some("bans"));
+        let _ = alice_online.borrow_mut().take_redirect();
+        alice_online.borrow_mut().sign_in_canceled(Dest::Room("Room000001".into()));
+        tick(&clock, &mut [&mut alice], 400);
+        assert_eq!(alice.link_notice(), Some(LinkNotice::TwitchNotConnected));
+        assert_eq!(level(&alice), None);
+        assert_eq!((host_wanted().mirror, host_wanted().chat), (TwitchMirror::Off, TwitchChat::Emotes));
+        // The bans allowed, the blocks asked and canceled: Bans saved.
+        server.borrow_mut().grant_twitch(&her, &["bans"]);
+        alice_online.borrow_mut().read_me_again();
+        tick(&clock, &mut [&mut alice], 400);
+        alice.choose_twitch(TwitchMirror::Bans, TwitchChat::Emotes);
+        tick(&clock, &mut [&mut alice], 400);
+        assert_eq!(level(&alice), Some((TwitchMirror::Bans, TwitchChat::Emotes)));
+        alice.choose_twitch(TwitchMirror::BansAndBlocks, TwitchChat::Emotes);
+        tick(&clock, &mut [&mut alice], 400);
+        assert_eq!(host_wanted().mirror, TwitchMirror::BansAndBlocks, "the press, until the trip ends");
+        assert_eq!(alice.take_twitch_trip().as_deref(), Some("blocks"));
+        let _ = alice_online.borrow_mut().take_redirect();
+        alice_online.borrow_mut().sign_in_canceled(Dest::Room("Room000001".into()));
+        tick(&clock, &mut [&mut alice], 400);
+        assert_eq!(level(&alice), Some((TwitchMirror::Bans, TwitchChat::Emotes)));
+        assert_eq!(host_wanted().mirror, TwitchMirror::Bans);
+        // Disconnect here (what `Kept::disconnect_twitch` asks of the
+        // room first): the bans off at once, the chat kept, nothing
+        // offered (she ended it herself).
+        alice.set_link_notice(None);
+        alice.set_twitch(TwitchMirror::Off, TwitchChat::Emotes);
+        server.borrow_mut().end_twitch(&her);
+        tick(&clock, &mut [&mut alice], 800);
+        assert_eq!(level(&alice), Some((TwitchMirror::Off, TwitchChat::Emotes)));
+        assert_eq!(alice.link_notice(), None);
+        assert!(!alice.bans_restore_offered());
+        assert_eq!(host_wanted().mirror, TwitchMirror::Bans, "Disconnect is no decline");
+    }
+
     /// Round TW3: the room's Twitch setting ending without its owner's
     /// asking is said on the status line: to them where their access
     /// ended (the server turned it off), to everyone where they left;
@@ -1059,6 +1251,7 @@ pub(crate) mod room {
     #[test]
     fn a_twitch_setting_that_ends_by_itself_is_said() {
         use crate::state::online::link::LinkNotice;
+        ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
         let clock = ManualClock::new(1_000);
         let server = room_of(&clock, &["bob"]);
         let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
@@ -1077,12 +1270,14 @@ pub(crate) mod room {
         set(Some(on()));
         tick(&clock, &mut [&mut alice, &mut bob], 400);
         assert_eq!(alice.twitch().map(|t| t.mirror), Some(ddi_room::TwitchMirror::Bans));
-        // Her access refused at Twitch: the server turned it off.
-        set(None);
+        // Her access refused at Twitch: the server turned it off (round
+        // RD2: its bans; its chat was off). Her `/me` says so: told, and
+        // the others that her bans are off.
+        server.borrow_mut().end_twitch(&ddi_room::Identity::new("dev:alice"));
         tick(&clock, &mut [&mut alice, &mut bob], 400);
         assert_eq!(alice.link_notice(), Some(LinkNotice::TwitchEnded));
-        assert_eq!(bob.link_notice(), None);
-        // Turned off by her own hand: nothing said.
+        assert_eq!(bob.link_notice(), Some(LinkNotice::TwitchBansOffBy { who: me }));
+        // Turned off by her own hand: nothing said to her.
         set(Some(on()));
         tick(&clock, &mut [&mut alice, &mut bob], 400);
         alice.set_link_notice(None);
@@ -2665,6 +2860,15 @@ fn making_a_room_signs_in_for_the_hosts_bans_and_joining_asks_nothing_new() {
         assert_eq!(o.sign_in_state(), &SignIn::Canceled { dest: Dest::Create });
     }
     assert!(crate::state::twitch::host_declined());
+    // Round RD2 (decision 1): the saved choice for bans turned Off, the
+    // chat's left as it was.
+    assert_eq!(
+        crate::state::settings::Settings::load().room_twitch,
+        Some(HostTwitch {
+            mirror: TwitchMirror::Off,
+            chat: TwitchChat::Emotes
+        })
+    );
     assert_eq!(web(&|o| o.private_room()), "/auth/twitch/login?return=%2Fmp");
 }
 
@@ -2701,7 +2905,8 @@ fn signed_in_without_the_bans_a_host_is_asked_at_creation_and_the_room_is_made_r
                 (Method::Post, "/auth/attempts") => {
                     let body: serde_json::Value =
                         serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap();
-                    assert_eq!(body["scopes"], "bans", "the trip asks for what is missing");
+                    let missing = if has.contains("bans") { "blocks" } else { "bans" };
+                    assert_eq!(body["scopes"], missing, "the trip asks for what is missing");
                     assert_eq!(body["return"], "/mp");
                     ok(r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"u","user_code":"ABC234","expires_at_ms":9}"#)
                 }
@@ -2762,8 +2967,15 @@ fn signed_in_without_the_bans_a_host_is_asked_at_creation_and_the_room_is_made_r
         ["GET /me", "POST /auth/attempts", "GET /auth/attempts/a1", "GET /me", "POST /rooms"]
     );
     assert!(!crate::state::twitch::host_declined());
+    assert_eq!(crate::state::settings::Settings::load().room_twitch, None, "granted: nothing saved");
+    let saved = || crate::state::settings::Settings::load().room_twitch;
+    let off = Some(HostTwitch {
+        mirror: TwitchMirror::Off,
+        chat: TwitchChat::Emotes,
+    });
     // Declined at Twitch, or the attempt failed: the room all the same,
-    // the bans off, and nothing more asked this session.
+    // the bans off, and nothing more asked this session; round RD2: nor
+    // in the next, the saved choice for bans Off.
     for answer in [Twitch::Declines, Twitch::Fails] {
         let r = run("[]", answer);
         r.online.borrow_mut().private_room();
@@ -2777,6 +2989,7 @@ fn signed_in_without_the_bans_a_host_is_asked_at_creation_and_the_room_is_made_r
         );
         assert_eq!(r.online.borrow().sign_in_state(), &SignIn::Idle, "{answer:?}");
         assert!(crate::state::twitch::host_declined(), "{answer:?}");
+        assert_eq!(saved(), off, "{answer:?}");
         r.online.borrow_mut().private_room();
         r.online.borrow_mut().poll(10);
         assert_eq!(
@@ -2792,6 +3005,39 @@ fn signed_in_without_the_bans_a_host_is_asked_at_creation_and_the_room_is_made_r
     r.online.borrow_mut().cancel_sign_in();
     assert!(r.online.borrow().creating());
     assert_eq!(r.online.borrow().sign_in_state(), &SignIn::Idle);
+    // Round RD2: the saved choice is what the room got (here the fake's
+    // browser had finished meanwhile: the bans).
+    let (entered, got) = made(&r);
+    assert_eq!(entered.as_deref(), Some("Room000001"));
+    assert_eq!(saved().map(|h| h.mirror), got.and_then(|(_, g)| g).map(|g| g.mirror));
+    // Round RD2: the bans granted, the blocks asked for and declined: the
+    // room made with the bans, and that saved (the level granted).
+    let r = run(r#"["bans"]"#, Twitch::Declines);
+    remember_host_choice(HostTwitch {
+        mirror: TwitchMirror::BansAndBlocks,
+        chat: TwitchChat::Emotes,
+    });
+    r.online.borrow_mut().private_room();
+    assert_eq!(
+        made(&r).1,
+        Some((
+            HostTwitch {
+                mirror: TwitchMirror::BansAndBlocks,
+                chat: TwitchChat::Emotes
+            },
+            Some(HostTwitch {
+                mirror: TwitchMirror::Bans,
+                chat: TwitchChat::Emotes
+            })
+        ))
+    );
+    assert_eq!(
+        saved(),
+        Some(HostTwitch {
+            mirror: TwitchMirror::Bans,
+            chat: TwitchChat::Emotes
+        })
+    );
     // The access has the bans already: no trip.
     let r = run(r#"["bans"]"#, Twitch::Grants);
     r.online.borrow_mut().private_room();
@@ -2873,5 +3119,15 @@ fn the_webs_host_trip_comes_back_to_a_room_made_either_way() {
         );
         assert_eq!(crate::state::twitch::host_declined(), canceled);
         assert_eq!(ddi_platform::storage::get(ddi_platform::storage::Area::Session, HOST_TRIP), None);
+        // Round RD2: canceled, the next room starts with the bans off.
+        let off = crate::state::twitch::HostTwitch {
+            mirror: ddi_room::TwitchMirror::Off,
+            chat: ddi_room::TwitchChat::Emotes,
+        };
+        assert_eq!(
+            crate::state::settings::Settings::load().room_twitch,
+            canceled.then_some(off),
+            "canceled {canceled}"
+        );
     }
 }

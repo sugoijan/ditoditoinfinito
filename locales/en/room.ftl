@@ -2481,10 +2481,28 @@ room-twitch-connect-waiting = Allow Twitch access in your browser, then come bac
 # Twitch for what the new room's Twitch bans need (the person is signed in
 # without it): why, and that the room is made either way.
 room-host-trip-why = Your new room starts with Twitch bans on. Allow the game to see who is banned or timed out in your channel. If you don't, the room is made with them off.
-# Round TW3: the status line where the room's Twitch bans and chat turned
-# off because this player's own Twitch access ended (Twitch refused it,
-# or it was disconnected on another device). Nobody was removed.
-room-twitch-ended = Twitch access ended: your bans and chat are off here.
+# Round TW3, reworded in round RD2: the status line, to the room's host,
+# where the room's Twitch bans turned off because their own Twitch access
+# ended (Twitch ended it, or they signed out or disconnected it on another
+# device). The room's chat stays on; nobody was removed. A button beside it
+# (room-twitch-bans-allow) asks Twitch again and puts the bans back. One
+# short line: the status line has room for about 45 letters beside the
+# button.
+room-twitch-ended = Twitch access ended: your Twitch bans are off.
+# Round RD2: the button beside that line (about 14 letters): the trip
+# through Twitch that asks for the same permissions again, back to the
+# room, whose Twitch bans then come back as they were.
+room-twitch-bans-allow = Allow on Twitch
+# Round RD2: the same step as an item of the room's More menu, offered
+# while the host's Twitch bans are off because their access ended.
+room-twitch-bans-allow-more = Allow Twitch bans
+# Round RD2: the status line, to the other members, where the room's
+# Twitch bans (the person named's, who is still in the room) turned off:
+# people banned on their Twitch channel are no longer kept out. Their chat
+# is not affected.
+# Variables:
+#   $name (String) - that person's name
+room-twitch-bans-off-by = { $name }'s Twitch bans are off.
 # Round TW3: the status line, to everyone, where the person whose Twitch
 # bans and chat the room used left the room, so they no longer apply.
 # Variables:
