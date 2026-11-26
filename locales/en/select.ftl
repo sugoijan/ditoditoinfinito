@@ -175,7 +175,7 @@ select-chart-notes-by = { $notes ->
 }
 
 # The chosen chart's step artist, a line of its own beside the skill
-# radar on song select (Options → Display → Skill radar On), under its
+# radar on song select (shown with every chart since round SLB), under its
 # notes.
 # Variables:
 #   $credit (String) - who made the chart's steps, as its file says
@@ -188,7 +188,7 @@ select-chart-steps-by = Steps by { $credit }
 #   $meter (Number) - the song's own number for the chart
 select-chart-song-meter = Song { $meter }
 
-# The skill radar on song select (Options → Display → Skill radar): the
+# The skill radar on song select (always shown since round SLB): the
 # seven skills of the chart's MSD, each spoke's short label (a word or
 # two, under 11 letters), and the list of numbers shown while the pointer
 # is on it ("Stream 24.1", one a line, under the overall).
@@ -222,8 +222,8 @@ select-radar-technical-full = Tricky patterns
 # overall MSD number ("MSD 24.3").
 select-radar-overall = Overall
     .advanced = MSD
-# In the skill radar's place on song select (Options → Display → Skill
-# radar On), one quiet line where the chosen chart has no radar: its
+# In the skill radar's place on song select (always shown since round
+# SLB), one quiet line where the chosen chart has no radar: its
 # rating is being made in the background (it then shows by itself).
 select-radar-rating = Rating this chart…
 # The same place: the chart is not four lanes for one player, which MSD
@@ -277,8 +277,8 @@ select-radar-groove-chaos = Off-beat
 select-radar-groove-overall = Overall
     .advanced = Song
 
-# A chart version the game makes from another (Options → Notes →
-# Simplify and Convert), marked before its notes in the ladder and after
+# A chart version the game makes from another (Options → Song list,
+# its Simplify and Convert rows), marked before its notes in the ladder and after
 # its chart in the plays' title. A short tag, about 20 letters each.
 # Without the Dancing☆Onigiri rice-ball lane's notes.
 select-version-without-onigiri = Without onigiri
@@ -815,8 +815,8 @@ select-manage-confirm-unreadable = { $platform ->
 #   $chart (String) - the chart, its difficulty (never translated) or name and level ("Hard 9")
 select-plays-title = PLAYS · { $chart }
 
-# The same for a chart version the game made (Options → Notes →
-# Simplify and Convert).
+# The same for a chart version the game made (Options → Song list, its
+# Simplify and Convert rows).
 # Variables:
 #   $chart (String) - the chart, its difficulty (never translated) or name and level ("Hard 9")
 #   $version (String) - the version, as the ladder marks it ("Without center")

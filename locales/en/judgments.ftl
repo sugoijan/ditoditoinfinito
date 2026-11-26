@@ -1,5 +1,5 @@
 # The DDI ruleset's judgment words (docs/plans/ddi-ruleset.md, "Timing
-# tiers"), shown in the player's language when Options → Rules → Judgment
+# tiers"), shown in the player's language when Options → Screen → Judgment
 # words is "In your language" (the default): over the field during a play
 # (one word, large, short-lived), in the results' rows ("Fantastic /
 # Glorious"), a stage's Standings and Options' preview. Each tier has an

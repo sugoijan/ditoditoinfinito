@@ -6448,7 +6448,8 @@ fn the_rooms_screens_draw_as_pinned() {
 /// (revision 23) moved "rules" and the two pop-ups drawn over it, "add"
 /// and "add-level": Adaptive's sentence says each player starts on their
 /// own chart. Round RD moved "host": the line under the Twitch rows
-/// saying the next room starts with them as left.
+/// saying the next room starts with them as left. Round UL3 moved
+/// "host": that Show my Twitch chat line names Options → Multiplayer.
 const PINNED: [(&str, u64); 10] = [
     ("select", 1409723276464905846),
     ("rules", 6687782191474637924),
@@ -6459,7 +6460,7 @@ const PINNED: [(&str, u64); 10] = [
     ("online-select", 6323310014290112460),
     ("online-member", 15885329307818148993),
     ("online-players", 3138793288985063061),
-    ("host", 10313864291415372187),
+    ("host", 16739444858093440584),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's

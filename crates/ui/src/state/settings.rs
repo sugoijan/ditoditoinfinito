@@ -301,7 +301,7 @@ pub struct Settings {
     /// before it starts by itself; 0: it waits for Start
     /// ([`START_COUNTDOWNS`], `docs/plans/start-prompt.md`).
     pub start_countdown: f32,
-    /// Basic or Advanced (Options → Display, "Show advanced options" Off
+    /// Basic or Advanced (Options → Interface, "Show advanced options" Off
     /// or On; `docs/plans/ui-levels.md`, stage 1): at Basic, Options and the start
     /// prompt hide the Advanced rows, which keep their effect (a section
     /// counts those changed, with Reset and Show). Basic for a new player.
@@ -336,7 +336,7 @@ pub struct Settings {
     /// lacks it: a stage then prepares no hand at all
     /// ([`Self::dancing_hand_in`]).
     pub dancing_hand_multiplayer: bool,
-    /// What a chart's number is (Options → Display): the song's own, or
+    /// What a chart's number is (Options → Song list): the song's own, or
     /// a rating of the game's (MSD for now, `docs/plans/msd-ratings.md`)
     /// where the chart has one, and the radar song select draws. The DDI
     /// estimate by default; left out of the stored settings at its
@@ -376,7 +376,7 @@ pub struct Settings {
     /// smaller or larger than standard, on this device.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub touch_size: crate::touch_controls::Size,
-    /// Options → Display, "Twitch chat in rooms" (`docs/plans/multiplayer-twitch.md`,
+    /// Options → Multiplayer, "Twitch chat in rooms" (`docs/plans/multiplayer-twitch.md`,
     /// C1): how much of a room host's Twitch chat this device shows behind
     /// the play, never above the room's ceiling. Off by default (it needs
     /// the device's own Twitch access to read chat).
@@ -410,7 +410,7 @@ pub struct Settings {
     /// study).
     pub chat_opacity: u8,
     /// How much of an online room's song list this device downloads ahead
-    /// (Options → Data, [`RoomAhead`]; `docs/plans/multiplayer-room-songs.md`,
+    /// (Options → Multiplayer, [`RoomAhead`]; `docs/plans/multiplayer-room-songs.md`,
     /// stage 2): none stored is the device's own default
     /// ([`Settings::room_ahead`]). Left out of the stored settings then.
     #[serde(
@@ -471,13 +471,13 @@ pub struct Settings {
     /// the default roster.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub practice_roster: Option<serde_json::Value>,
-    /// Options → Data → Usage statistics (the stats proposal's step 2, on
+    /// Options → Data and privacy → Send usage statistics (the stats proposal's step 2, on
     /// by default): an online room's socket sends the room's server what
     /// kind of client this is and how its previous socket fared, in fixed
     /// ranges (`ddi_room::client_stats`). Off, nothing of it is sent; what
     /// the server counts by itself goes on.
     pub usage_stats: bool,
-    /// Options → Data → Send error reports (the stats proposal's step 4,
+    /// Options → Data and privacy → Send error reports (the stats proposal's step 4,
     /// on by default; the web alone sends them): the game's own errors (a
     /// crash, a promise nobody caught, a lost or missing graphics device,
     /// the page unable to start the game) as a kind and a scrubbed message
@@ -593,7 +593,7 @@ pub fn give_hidden(rules_first: Option<bool>, watch_link: Option<bool>) {
     });
 }
 
-/// The pointer offered under Options → Display. Stored by these names;
+/// The pointer offered under Options → Interface. Stored by these names;
 /// shown as "Infinito cursor" ([`CursorStyle::PointerTip`], the default
 /// since 2026-11-17), "Infinito arrow" (the default before) and "System".
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

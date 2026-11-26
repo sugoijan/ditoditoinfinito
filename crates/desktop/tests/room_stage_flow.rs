@@ -434,7 +434,7 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
 /// the room's start, is judged on unseen to its end, and the room hears
 /// it played; shown again, the results are there. Never ready by itself:
 /// a player not ready is left alone.
-/// Round Y3: with Options → Display's "Dancing hand in multiplayer" On,
+/// Round Y3: with Options → Multiplayer's "Dancing hand in multiplayer" On,
 /// a stage's play never waits for the hand where it starts unseen (an
 /// online room's, round P1b). In CPU practice alone (round AC, the
 /// maintainer: "Wait for you") a hidden window's stage does not start at

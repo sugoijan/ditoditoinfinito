@@ -45,7 +45,7 @@ pages-calibration-order = Start guided calibration runs all three in turn: the a
 # Under the first paragraphs, in a lighter color.
 # Variables:
 #   $ms (Number) - the largest offset a test measures, in milliseconds (250)
-pages-calibration-range = A delay beyond ±{ $ms } ms cannot be measured this way. Set one that large by hand first: turn on Show advanced options (Options → Display), then Options → Timing.
+pages-calibration-range = A delay beyond ±{ $ms } ms cannot be measured this way. Set one that large by hand first: turn on Show advanced options (Options → Interface), then Options → Timing.
     .advanced = Offsets beyond ±{ $ms } ms cannot be measured this way (a press that late cannot be told apart from one on the next note); set those by hand in the options, then calibrate from there.
 
 # The first test's heading: the arrows drawn, no sound.
@@ -129,9 +129,9 @@ pages-calibration-reset = Reset the delays to 0
     .advanced = Reset offsets to 0
 
 # Near the page's end, in a lighter color. “Timing error of each hit” is
-# the name of a row in the options (Display): write it as that row is
+# the name of a row in the options (Screen): write it as that row is
 # translated.
-pages-calibration-tip = Tip: with Show advanced options On (Options → Display), Options lists each device's delays, and a play can show how early or late each press was.
+pages-calibration-tip = Tip: with Show advanced options On (Options → Interface), Options lists each device's delays, and a play can show how early or late each press was.
     .advanced = Tip: turn on “Timing error of each hit” in the options to see each hit's offset during normal play; the debug overlay shows the running mean.
 
 # The last button: opens the options. Sized to its text.
@@ -174,9 +174,9 @@ pages-calibration-run-unreliable = { $test ->
 # Variables:
 #   $test (String) - the test: "visual", "audio" or "combined"
 pages-calibration-run-out-of-range = { $test ->
-    [visual] The arrows-only test could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the arrows really show that late, set the picture's delay by hand first: turn on Show advanced options (Options → Display), then Options → Timing.
-    [audio] The sound-only test could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the clicks really sound that late, set the sound's delay by hand first: turn on Show advanced options (Options → Display), then Options → Timing.
-   *[combined] The check with both could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the clicks really sound that late, set the sound's delay by hand first: turn on Show advanced options (Options → Display), then Options → Timing.
+    [visual] The arrows-only test could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the arrows really show that late, set the picture's delay by hand first: turn on Show advanced options (Options → Interface), then Options → Timing.
+    [audio] The sound-only test could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the clicks really sound that late, set the sound's delay by hand first: turn on Show advanced options (Options → Interface), then Options → Timing.
+   *[combined] The check with both could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the clicks really sound that late, set the sound's delay by hand first: turn on Show advanced options (Options → Interface), then Options → Timing.
 }
     .advanced = { $test ->
         [visual] The arrows-only test could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the arrows really show that late, set the visual offset by hand in the options first.

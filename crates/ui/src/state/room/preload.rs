@@ -7,7 +7,7 @@
 //! the readiness window's loading wait ends by itself
 //! (`hosted-deadline-v2` ends it once everyone connected has loaded).
 //!
-//! - **What**: every listed song by default (Options → Data, "Download
+//! - **What**: every listed song by default (Options → Multiplayer, "Download
 //!   room songs ahead": Everything, Likely next, Off; a phone's or a
 //!   data-saving browser's default is Likely next,
 //!   `crate::state::settings::device_room_ahead`): its chart, music and

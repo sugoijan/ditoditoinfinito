@@ -2477,12 +2477,12 @@ room-host-twitch-messages = Emotes and messages
 room-host-twitch-whose = { $login }'s Twitch bans and chat apply.
 # Round TW7: under those rows, always: what Show my Twitch chat does, for a
 # host who has never seen it (each player still chooses on their device).
-room-host-twitch-chat-about = Show my Twitch chat: your channel's chat moves behind the fields during each stage, for the players who turn on Twitch chat in rooms on their own device (Options → Display).
+room-host-twitch-chat-about = Show my Twitch chat: your channel's chat moves behind the fields during each stage, for the players who turn on Twitch chat in rooms on their own device (Options → Multiplayer).
 # Round RD: under those rows, always: the next room this person makes
 # starts with the two rows as they leave them here.
 room-host-twitch-remembered = The next room you make starts with these two as you leave them.
 # Round TW7: the status line, once, where the room shows its host's chat
-# and this player's device has Twitch chat in rooms on (Options → Display),
+# and this player's device has Twitch chat in rooms on (Options → Multiplayer),
 # but their Twitch access does not allow reading chat (round FX: with a
 # button beside it, room-twitch-chat-allow, that asks Twitch for it). One
 # short line: the status line has room for about 45 letters beside the
@@ -2518,7 +2518,7 @@ room-twitch-not-connected = Twitch access was not connected: nothing changed.
 # again this session): they are off; Host options turns them on.
 room-twitch-bans-off = Twitch bans are off: Twitch did not allow them.
 # Round TW3: the status line after a trip through Twitch for this
-# device's "Twitch chat in rooms" (Options → Display) connected it.
+# device's "Twitch chat in rooms" (Options → Multiplayer) connected it.
 room-twitch-chat-on = Twitch chat in rooms is on for this device.
 # Desktop, the dialog of a trip through Twitch for the person's Twitch
 # access (a room's Host options, Options' Twitch chat in rooms), while it

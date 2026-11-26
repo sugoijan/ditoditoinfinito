@@ -281,7 +281,7 @@ fn multiplayer_params(hash: &str, at_load: bool) {
     // `mpfakeready=R`, she readies R seconds after she has the stage (the
     // room waiting for her meanwhile: a ready player's Ready screen).
     // TESTING ONLY (round TW2): `mpfakechat=<name or rate>`, a scripted
-    // chat beside every play where Options → Display's Twitch chat in
+    // chat beside every play where Options → Multiplayer's Twitch chat in
     // rooms is on (`crate::chat`), its images from `mpfakechatimg=<path>`
     // where given; `mpfakechat=0` stops it.
     // Kept for the tab's session (round SF): a reload, and the trips

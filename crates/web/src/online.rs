@@ -35,12 +35,12 @@ use wasm_bindgen::closure::Closure;
 /// `sessionStorage`: where signing in was going when the page left for it.
 const AFTER: &str = "ddi.mp.after";
 
-/// The person's Twitch access, for Options → Data's row (round TW1b).
+/// The person's Twitch access, for Options → Data and privacy's row (round TW1b).
 pub(crate) fn twitch_row() -> ddi_ui::screens::options_model::TwitchRow {
     KEPT.with(Kept::twitch_row)
 }
 
-/// Options → Data's Disconnect (round TW1b): deleted on the server, the
+/// Options → Data and privacy's Disconnect (round TW1b): deleted on the server, the
 /// kept room's Twitch setting off where it was this person's.
 pub(crate) fn disconnect_twitch() {
     KEPT.with(Kept::disconnect_twitch);

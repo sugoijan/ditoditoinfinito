@@ -7,7 +7,7 @@
 //! sent again, nothing if it fails). The loader (`site/boot.js`) reports
 //! its own: a wasm trap and the page unable to start the game.
 //!
-//! None is sent where Options → Data → Send error reports is Off or the
+//! None is sent where Options → Data and privacy → Send error reports is Off or the
 //! browser sends the Global Privacy Control signal; at most one a
 //! fingerprint and five a session (`ddi_room::error_report::Sent` in
 //! `sessionStorage`, shared with the loader). The desktop app sends none.
@@ -28,7 +28,7 @@ pub(crate) fn privacy_signal() -> bool {
         .is_some_and(|v| v.as_bool() == Some(true))
 }
 
-/// Options → Data → Send error reports as stored (On where nothing says
+/// Options → Data and privacy → Send error reports as stored (On where nothing says
 /// Off, as its default).
 fn row_on() -> bool {
     let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) else {

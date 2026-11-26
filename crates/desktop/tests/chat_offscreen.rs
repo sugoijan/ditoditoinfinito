@@ -3,7 +3,7 @@
 //! GPU offscreen and a fake clock with no sound device: the scripted chat
 //! (`ddi_chat::script`, TESTING ONLY) beside Beatucada's Challenge
 //! autoplayed, alone and in a practice stage with eight CPUs in
-//! miniature. With Options → Display's "Twitch chat in rooms" Off (the
+//! miniature. With Options → Multiplayer's "Twitch chat in rooms" Off (the
 //! default) nothing of the chat is built or drawn; on, it is drawn under
 //! the field in both styles, and the play judges as without it. Skipped
 //! where there is no GPU adapter (CI).

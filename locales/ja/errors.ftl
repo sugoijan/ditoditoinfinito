@@ -56,7 +56,7 @@ errors-video-bad-frame = 壊れたフレームがありました
 
 errors-share-gone = リンクが存在しないか、期限が切れています
 
-errors-share-no-token = 先にオプションの「共有」でアップロード用トークンを設定してください
+errors-share-no-token = 先にオプションの「データとプライバシー」でアップロード用トークンを設定してください
 
 errors-share-nothing = 共有するものがありません
 

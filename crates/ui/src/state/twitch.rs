@@ -346,7 +346,7 @@ pub fn host_declined() -> bool {
     ddi_platform::storage::get(ddi_platform::storage::Area::Session, HOST_DECLINED).is_some()
 }
 
-/// Options → Data's Disconnect: nothing is asked for again at the next
+/// Options → Data and privacy's Disconnect: nothing is asked for again at the next
 /// sign-in.
 pub fn forget_used() {
     let mut s = crate::state::settings::Settings::load();

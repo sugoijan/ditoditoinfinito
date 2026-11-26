@@ -248,9 +248,9 @@
   // The game's own error reports (`ddi_room::error_report`; the game's
   // are `crates/web/src/errors.rs`'s): a trap and the page unable to start
   // the game, as a kind and a fixed word, never the browser's text; none
-  // where Options → Data → Send error reports is Off or the browser sends
-  // Global Privacy Control; one of each and five in all a session, shared
-  // with the game's (sessionStorage's ddi.errors.v1).
+  // where Options → Data and privacy → Send error reports is Off or the
+  // browser sends Global Privacy Control; one of each and five in all a
+  // session, shared with the game's (sessionStorage's ddi.errors.v1).
   const report = (kind, msg) => {
     try {
       if (navigator.globalPrivacyControl === true || !navigator.sendBeacon) return;

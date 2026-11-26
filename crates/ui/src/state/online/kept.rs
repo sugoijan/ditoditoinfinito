@@ -75,7 +75,7 @@ impl Kept {
     }
 
     /// The person's Twitch access as `/me` last said it, for Options →
-    /// Data's row (round TW1b; never made for the asking).
+    /// Data and privacy's row (round TW1b; never made for the asking).
     pub fn twitch_row(&self) -> crate::screens::options_model::TwitchRow {
         let Some(online) = self.online.borrow().clone() else {
             return Default::default();

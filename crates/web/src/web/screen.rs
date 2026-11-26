@@ -304,7 +304,7 @@ fn lost(generation: u64, why: &str) {
         true
     });
     if restart == Some(true) {
-        // An error report (Options → Data → Send error reports), the
+        // An error report (Options → Data and privacy → Send error reports), the
         // browser's words scrubbed.
         crate::errors::report("gpu_lost", why);
         wasm_bindgen_futures::spawn_local(create());

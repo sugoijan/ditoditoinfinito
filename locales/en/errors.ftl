@@ -148,8 +148,8 @@ errors-video-bad-frame = a malformed frame
 errors-share-gone = the link doesn't exist or has expired
 
 # Uploading or listing shares needs the token whoever runs the sharing
-# server gave; Options has a Sharing section for it.
-errors-share-no-token = set the upload token under Options → Sharing first
+# server gave; Options' Data and privacy has Sharing's rows for it.
+errors-share-no-token = set the upload token under Options → Data and privacy first
 
 errors-share-nothing = there is nothing to share
 

@@ -277,7 +277,7 @@ pub fn recheck(room: &str, user_id: &str) -> ApiRequest {
         .json(serde_json::json!({ "user_id": user_id }))
 }
 
-/// `POST /auth/twitch/disconnect` (Options → Data's Disconnect).
+/// `POST /auth/twitch/disconnect` (Options → Data and privacy's Disconnect).
 pub fn twitch_disconnect() -> ApiRequest {
     ApiRequest::new(Method::Post, "/auth/twitch/disconnect")
 }

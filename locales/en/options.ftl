@@ -19,7 +19,7 @@ options-language-system = As the system ({ $language })
 options-language-description = The language of the menus. Scores and grades read the same in every language; judgment words are English unless chosen otherwise.
 
 # The switch between the options most players need (Off, the default)
-# and every option (On), first under the MENUS heading: a row's label,
+# and every option (On), first in Interface: a row's label,
 # its values Off and On, as the other switches' are.
 options-show-advanced = Show advanced options
 options-show-advanced-description = On, every option shows, including those for players who already know rhythm games. Off, only the options most players need; hidden ones still apply, and each section counts those changed.
@@ -559,7 +559,7 @@ options-opponent-fields-all = As many as fit
 options-opponent-fields-eight = Up to eight
 options-opponent-fields-description = In a multiplayer stage, a small field for every opponent the screen has room for, or eight at most: those attacking you or attacked by you and your nearest rivals. Up to eight is lighter for the computer in a large room.
 
-# Options → Display: how much of a room host's Twitch chat shows behind
+# Options → Multiplayer: how much of a room host's Twitch chat shows behind
 # the fields during a play on this device (Off, Emotes, Emotes and
 # messages; never more than the room's host allows). Off by default.
 options-twitch-chat = Twitch chat in rooms
@@ -568,7 +568,7 @@ options-twitch-chat-messages = Emotes and messages
 # Its description, for someone who has never seen the feature: what it
 # shows, whose chat, that the host chooses and each device chooses for
 # itself, the permission on Twitch and where it is disconnected.
-options-twitch-chat-description = In an online room whose host shows their Twitch chat, it moves behind the fields during play; never in singleplayer. Reading chat needs your Twitch permission, asked when you turn this on while signed in; Options → Data disconnects it.
+options-twitch-chat-description = In an online room whose host shows their Twitch chat, it moves behind the fields during play; never in singleplayer. Reading chat needs your Twitch permission, asked when you turn this on while signed in; Options → Data and privacy disconnects it.
 # Its description where it is on but this device's Twitch access does not
 # allow reading chat (never allowed, disconnected, or ended by Twitch).
 options-twitch-chat-no-access = Your Twitch access does not allow reading chat, so no chat shows. Turn this Off and on again to allow it on Twitch.
@@ -597,7 +597,7 @@ options-chat-emotes-from-description = Twitch's own emotes alone, or the channel
 options-chat-opacity = Chat opacity
 options-chat-opacity-description = How strongly the chat shows behind the fields. Within the lanes the field filter darkens it as it darkens the background.
 
-# Options → Data: how much of an online room's song list this device
+# Options → Multiplayer: how much of an online room's song list this device
 # downloads before the songs are picked (about 20 letters).
 options-room-ahead = Room songs ahead
 # Its choices: every song in the room's list; the likely next ones only;
@@ -707,7 +707,7 @@ options-start-countdown = Start countdown
 options-start-countdown-description = A song chosen in song select starts by itself after this long. Enter (or Start) starts it at once, any other key or a tap waits.
 
 # What a chart's number shows on song select, the start prompt and the
-# results (Options → Display, under Menus): the number the song's file
+# results (Options → Song list): the number the song's file
 # gives it, MSD, a rating the game computes from the chart's notes, or
 # the DDI estimate, the game's own estimate (DDI is the game's ruleset's
 # name), experimental. "MSD" is the rating's own name (Etterna's
@@ -718,8 +718,8 @@ options-chart-ratings-msd = MSD
 options-chart-ratings-estimate = DDI estimate
 options-chart-ratings-description = MSD rates a four-lane chart's patterns for keyboard play, after Etterna's calculator. The DDI estimate is our own, experimental, for Single charts. Both are made in the background; charts without one keep the song's number, fainter.
 
-# Song select's radar of the chart's skills (Options → Display, under
-# Menus): MSD's seven, or the DDI estimate's eight where Chart ratings
+# Song select's radar of the chart's skills (once Options → Display,
+# under Menus; no row since round SLB): MSD's seven, or the DDI estimate's eight where Chart ratings
 # shows the estimate. On, it replaces the list of the style's charts on
 # song select's left side on wide screens (not on a phone, not in a
 # multiplayer room).
@@ -1012,7 +1012,7 @@ options-privacy-description = { $platform ->
    *[desktop] What the game and its online server keep about you, and the usage totals the server counts. Opens the note on the web; it is also in the credits.
 }
 
-# Options → Data, under Privacy: a switch (Off, On; On by default). In an
+# Options → Data and privacy, under Privacy: a switch (Off, On; On by default). In an
 # online room the game sends the server what kind of client it is and how
 # its last connection to the room went, for the usage totals (the stats
 # proposal's step 2); Off, it sends none of this.
@@ -1025,7 +1025,7 @@ options-usage-stats-description = { $platform ->
    *[desktop] In an online room, the app tells our server what kind of computer this is and how its last connection went, in fixed ranges, never your name. Off, it sends none of it.
 }
 
-# Options → Data, under Send usage statistics, in the browser only: a
+# Options → Data and privacy, under Send usage statistics, in the browser only: a
 # switch (Off, On; On by default). When the game itself fails (a crash, a
 # lost graphics device, a page that cannot start it), it sends our server a
 # short report of the kind of error with a cleaned message (the stats

@@ -101,7 +101,7 @@ impl std::fmt::Display for ShareError {
         match self {
             ShareError::Gone { .. } => f.write_str("This link doesn't exist or has expired."),
             ShareError::NoToken => {
-                f.write_str("Set the upload token under Options → Sharing first.")
+                f.write_str("Set the upload token under Options → Data and privacy first.")
             }
             ShareError::Nothing => f.write_str("Nothing to share."),
             ShareError::TokenRefused => f.write_str("the upload token was refused"),

@@ -79,12 +79,12 @@ pub(crate) fn global_report() -> Option<serde_json::Value> {
 fn global(at: Option<&str>) {
     let settings = crate::settings::Settings::load();
     // Round HY (2026-11-25): only where this device shows Twitch chat
-    // (Options → Display), as the privacy note says the providers are
+    // (Options → Multiplayer), as the privacy note says the providers are
     // asked; else a link carrying `mpfakechat=global` would have any
     // visitor's browser ask them at once.
     if settings.twitch_chat == ddi_chat::Level::Off {
         web_sys::console::warn_1(
-            &"mpfakechat=global: Options → Display → Twitch chat in rooms is Off; not taken".into(),
+            &"mpfakechat=global: Options → Multiplayer → Twitch chat in rooms is Off; not taken".into(),
         );
         return;
     }
@@ -155,7 +155,7 @@ fn live(at: Option<&str>, socket: Option<&str>) {
                             login: login.clone(),
                         }));
                         format!(
-                            "{p} live chat: {login}'s own channel in solo plays and CPU practice's stages; turn on Options → Display → Twitch chat in rooms{}",
+                            "{p} live chat: {login}'s own channel in solo plays and CPU practice's stages; turn on Options → Multiplayer → Twitch chat in rooms{}",
                             if scope {
                                 ""
                             } else {
@@ -188,7 +188,7 @@ fn named(login: &str, at: Option<&str>, socket: Option<&str>) {
     let line = match ddi_ui::state::twitch::named_login(login) {
         Some(login) => {
             let line = format!(
-                "{p} live chat: {login}'s channel (the development override; our server allows it for administrators only) in solo plays, CPU practice's stages and an online room's stages on this device; turn on Options → Display → Twitch chat in rooms"
+                "{p} live chat: {login}'s channel (the development override; our server allows it for administrators only) in solo plays, CPU practice's stages and an online room's stages on this device; turn on Options → Multiplayer → Twitch chat in rooms"
             );
             ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Channel { login }));
             line

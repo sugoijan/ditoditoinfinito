@@ -8,7 +8,7 @@ pub(crate) fn install_hook() {
         Box::new(|info| {
             console_error_panic_hook::hook(info);
             let message = info.to_string();
-            // An error report (Options → Data → Send error reports), its
+            // An error report (Options → Data and privacy → Send error reports), its
             // message scrubbed, before the loader's crash page.
             crate::errors::report("panic", &message);
             crate::boot::crash(&message);

@@ -62,7 +62,7 @@ use serde::{Deserialize, Serialize};
 /// columns routed around the fields) retired.
 pub const RULES_NAME: &str = "chat-overlay-v2";
 
-/// How much of the chat a device shows (Options → Display, "Twitch chat
+/// How much of the chat a device shows (Options → Multiplayer, "Twitch chat
 /// in rooms"), and the room's ceiling over it (C1).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Level {

@@ -483,7 +483,7 @@ pub fn run() {
     // chat beside every play, as the web's `mpfakechat` (`crate::chat`,
     // `ddi_chat::script`): a script's file, or a built-in one (`demo`,
     // `emotes`, `flood`) or a rate; the room's ceiling is its own line.
-    // Shown where Options → Display's Twitch chat in rooms is on.
+    // Shown where Options → Multiplayer's Twitch chat in rooms is on.
     // Round TW5: `--mp-dev-chat global` is the global-emotes demo (the
     // providers' real global sets, read now; `--mp-dev-chat-at BASE`
     // serves their addresses from a local folder or server instead).
@@ -517,7 +517,7 @@ pub fn run() {
         match chat::own_channel(&share::base()) {
             Ok((id, login, scope)) => {
                 eprintln!(
-                    "{p} live chat: {login}'s own channel in solo plays and CPU practice's stages; turn on Options → Display → Twitch chat in rooms"
+                    "{p} live chat: {login}'s own channel in solo plays and CPU practice's stages; turn on Options → Multiplayer → Twitch chat in rooms"
                 );
                 if !scope {
                     eprintln!(
@@ -545,7 +545,7 @@ pub fn run() {
             std::process::exit(2);
         };
         eprintln!(
-            "{p} live chat: {login}'s channel (the development override; our server allows it for administrators only) in solo plays, CPU practice's stages and an online room's stages on this device; turn on Options → Display → Twitch chat in rooms"
+            "{p} live chat: {login}'s channel (the development override; our server allows it for administrators only) in solo plays, CPU practice's stages and an online room's stages on this device; turn on Options → Multiplayer → Twitch chat in rooms"
         );
         ddi_ui::state::twitch::set_dev_live(Some(ddi_ui::state::twitch::DevLive::Channel { login }));
     } else if a.value("--mp-dev-chat") == Some("global") {

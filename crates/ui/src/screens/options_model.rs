@@ -121,7 +121,7 @@ pub struct World {
     pub sections: Vec<OptionSection>,
 }
 
-/// The person's Twitch access, for Data's row: signed in or not, the
+/// The person's Twitch access, for Data and privacy's row: signed in or not, the
 /// features it grants (`bans`, `blocks`, `chat`), whose account.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TwitchRow {

@@ -1190,7 +1190,7 @@ pub(crate) mod room {
     /// Round RD2 (decision 2): Host options' saved choice follows what the
     /// room ended up with: a row pressed whose trip is canceled keeps the
     /// room's (Off, or the bans where the blocks were asked), never the
-    /// press; Options → Data's Disconnect turns only the bans off and
+    /// press; Options → Data and privacy's Disconnect turns only the bans off and
     /// offers nothing.
     #[test]
     fn host_options_saves_what_the_room_ended_up_with_and_disconnect_keeps_the_chat() {
@@ -2703,7 +2703,7 @@ fn epoch_now() -> f64 {
 /// which Twitch permissions it used and when, and a sign-in on either
 /// shell asks Twitch for those used within `TWITCH_KEEP_DAYS` in its own
 /// step (the web's `keep=`, the desktop attempt's `keep`); one unused
-/// longer is left out; Options → Data's Disconnect forgets them all.
+/// longer is left out; Options → Data and privacy's Disconnect forgets them all.
 #[test]
 fn a_sign_in_asks_again_for_the_twitch_permissions_used_lately() {
     use crate::state::twitch::{TWITCH_KEEP_DAYS, kept_features, mark_used};

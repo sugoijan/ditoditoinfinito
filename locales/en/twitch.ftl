@@ -1,12 +1,12 @@
-## Round TW1b: a person's Twitch access (Options → Data).
+## Round TW1b: a person's Twitch access (Options → Data and privacy).
 
-# Options → Data's row: Twitch access a room's features use (about 16
+# Options → Data and privacy's row: Twitch access a room's features use (about 16
 # letters).
 twitch-access = Twitch access
 # The row's note when nothing is connected, or the person is signed out.
 twitch-none = Nothing connected
 # The row's description then: what it is for, one quiet line.
-twitch-about = A room's host connects it from Host options to keep out the people they banned or blocked on Twitch or to show their chat; a player connects it to see a host's chat (Options → Display → Twitch chat in rooms).
+twitch-about = A room's host connects it from Host options to keep out the people they banned or blocked on Twitch or to show their chat; a player connects it to see a host's chat (Options → Multiplayer → Twitch chat in rooms).
 # The row's note when connected.
 # Variables:
 #   $login (String) - the Twitch account
