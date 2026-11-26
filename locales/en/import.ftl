@@ -279,6 +279,16 @@ import-zip-inflate = deflate stream is invalid: { $detail }
 #   $detail (String) - the decompressor's words (English)
 import-zip-decode = “{ $name }”: { $method } data is invalid: { $detail }
 
+# An entry the zip says is larger than the game reads at once (1 GiB).
+# Variables:
+#   $name (String) - the entry
+#   $size (Number) - bytes the zip says
+import-zip-too-large = “{ $name }” is too large to read ({ $size } bytes)
+
+# A zip whose list of files is longer than the game reads (over 262,144
+# files, or a list of over 64 MiB).
+import-zip-too-many-entries = the zip lists more files than the game reads
+
 ## StepMania simfiles (.sm, .ssc, .dwi) and their songs' files. A "tag"
 ## is a line of the simfile naming a file (#MUSIC, #BANNER…), kept as it
 ## is written.

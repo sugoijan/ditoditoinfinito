@@ -224,6 +224,8 @@ fn zip_text(e: &ZipError) -> UiText {
             method,
             message,
         } => m::zip_decode(d(name), d(method), d(message)),
+        ZipError::TooLarge { name, size } => m::zip_too_large(d(name), *size),
+        ZipError::TooManyEntries => m::zip_too_many_entries(),
     }
 }
 
@@ -435,6 +437,11 @@ pub(crate) fn every_line() -> (ImportReport, Vec<ImportStep>) {
             method: "LZMA",
             message: s("bad"),
         }),
+        Finding::Zip(ZipError::TooLarge {
+            name: s("a"),
+            size: 1 << 31,
+        }),
+        Finding::Zip(ZipError::TooManyEntries),
         Finding::Encrypted,
         Finding::NoCharts,
         Finding::NoPlayableCharts {

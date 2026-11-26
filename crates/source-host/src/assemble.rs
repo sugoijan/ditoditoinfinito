@@ -451,9 +451,6 @@ impl Source for Disk {
     }
 }
 
-/// A central directory, at most.
-const MAX_DIRECTORY: u64 = 64 << 20;
-
 /// A zip's entries as an item's files: in memory when their declared
 /// sizes fit the item's budget (movies apart), else in the cache folder.
 fn expand(
@@ -471,9 +468,7 @@ fn expand(
             zip::parse_zip64_end_record(&source.read_at(offset, len)?).map_err(bad)?
         }
     };
-    if cd.size > MAX_DIRECTORY {
-        return Err(Reject::Unreadable("a zip's directory past 64 MiB".into()));
-    }
+    // A directory past `zip::MAX_DIRECTORY` was refused by the reader.
     let directory = source.read_at(cd.offset, cd.size)?;
     let mut entries = zip::parse_central_directory(&directory, &cd).map_err(bad)?;
     ddi_library::pack::apply_legacy_names(&mut entries, legacy);

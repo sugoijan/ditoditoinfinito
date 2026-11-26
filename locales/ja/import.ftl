@@ -96,6 +96,10 @@ import-zip-inflate = deflateのデータが不正です：{ $detail }
 
 import-zip-decode = 「{ $name }」：{ $method }のデータが不正です：{ $detail }
 
+import-zip-too-large = 「{ $name }」は大きすぎて読み込めません（{ $size }バイト）
+
+import-zip-too-many-entries = このZIPには読み込める数より多くのファイルが入っています
+
 ## StepManiaの譜面ファイルと曲のファイル。
 
 import-no-charts = 譜面ファイルに譜面がありません

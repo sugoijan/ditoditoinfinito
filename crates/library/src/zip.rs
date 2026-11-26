@@ -25,9 +25,15 @@
 //!    [`extract_to`] (an entry too large to hold), or read only the start
 //!    of them for [`extract_prefix`] (a movie's header).
 //!
+//! Bounds: no entry produces more than the central directory says, every
+//! method stopped as it decompresses (and a Zstandard frame's window held
+//! to the entry's size), so what one entry holds follows its declared
+//! size; [`extract`] reads none larger than [`MAX_WHOLE`] whole; a
+//! directory is at most [`MAX_DIRECTORY`] bytes and [`MAX_ENTRIES`]
+//! entries. What a whole archive adds up to is the caller's to bound.
+//!
 //! Supported: stored, deflated, Deflate64, bzip2, LZMA and Zstandard
-//! entries (every decoder pure Rust, for the wasm build; no entry
-//! produces more than the central directory says), ZIP64 sizes and offsets, UTF-8
+//! entries (every decoder pure Rust, for the wasm build), ZIP64 sizes and offsets, UTF-8
 //! names (flag bit 11 or the Info-ZIP Unicode Path extra field) and CP437
 //! names otherwise, with the raw bytes of such legacy names kept so the
 //! caller can read them as UTF-8 or Shift-JIS instead
@@ -112,7 +118,30 @@ pub enum ZipError {
         method: &'static str,
         message: String,
     },
+    /// An entry that says it is larger than [`MAX_WHOLE`], asked for
+    /// whole ([`extract`]).
+    #[error("`{name}` is too large to read whole ({size} bytes)")]
+    TooLarge { name: String, size: u64 },
+    /// A central directory past [`MAX_DIRECTORY`] bytes or
+    /// [`MAX_ENTRIES`] entries.
+    #[error("the zip lists more files than the game reads")]
+    TooManyEntries,
 }
+
+/// The most [`extract`] gives whole, 1 GiB: past any song's file (a
+/// movie is read in pieces, [`extract_to`]), and within what a browser's
+/// 4 GiB of wasm memory can hold beside the compressed data. An entry
+/// that says more is refused before anything is decompressed: a few
+/// megabytes of honest deflate say 4 GiB, and ZIP64 sizes say more.
+pub const MAX_WHOLE: u64 = 1 << 30;
+
+/// The most a central directory may be, 64 MiB (about a million
+/// entries' headers); a larger one is refused before it is read.
+pub const MAX_DIRECTORY: u64 = 64 << 20;
+
+/// The most entries a central directory may list, 262 144 (a pack of a
+/// few thousand songs lists tens of thousands).
+pub const MAX_ENTRIES: u64 = 1 << 18;
 
 /// Where the central directory lives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -296,6 +325,9 @@ pub fn locate_central_directory(tail: &[u8], file_len: u64) -> Result<Locate, Zi
     if disk != 0 || cd_disk != 0 || entries_here != entries {
         return Err(ZipError::MultiDisk);
     }
+    if u64::from(size) > MAX_DIRECTORY {
+        return Err(ZipError::TooManyEntries);
+    }
     let eocd_abs = tail_start + pos as u64;
     let (offset, size) = (u64::from(offset), u64::from(size));
     let cd_end = offset
@@ -333,6 +365,9 @@ pub fn parse_zip64_end_record(bytes: &[u8]) -> Result<CentralDirectory, ZipError
     if disk != 0 || cd_disk != 0 || entries_here != entries {
         return Err(ZipError::MultiDisk);
     }
+    if size > MAX_DIRECTORY || entries > MAX_ENTRIES {
+        return Err(ZipError::TooManyEntries);
+    }
     offset
         .checked_add(size)
         .ok_or(ZipError::Corrupt("central directory overflows"))?;
@@ -354,12 +389,20 @@ pub fn parse_central_directory(
     cd: &CentralDirectory,
 ) -> Result<Vec<ZipEntry>, ZipError> {
     let truncated = || ZipError::Corrupt("truncated central directory");
+    if bytes.len() as u64 > MAX_DIRECTORY || cd.entries > MAX_ENTRIES {
+        return Err(ZipError::TooManyEntries);
+    }
     // Each header is at least 46 bytes, so this bounds the allocation even
     // when the entry count is garbage.
     let cap = (cd.entries as usize).min(bytes.len() / CENTRAL_HEADER_LEN);
     let mut out = Vec::with_capacity(cap);
     let mut p = 0usize;
     while p < bytes.len() {
+        // Read on past the count the end record gives (a writer's 16 bits
+        // wrap), but never past the most.
+        if out.len() as u64 >= MAX_ENTRIES {
+            return Err(ZipError::TooManyEntries);
+        }
         if le32(bytes, p) != Some(SIG_CENTRAL) {
             // Some writers pad or put the (ZIP64) end records inside the
             // announced size; stop at the first non-header once all
@@ -505,7 +548,9 @@ pub fn local_data_offset(header: &[u8], entry: &ZipEntry) -> Result<u64, ZipErro
 }
 
 /// Decompresses (or copies) an entry's `compressed_size` data bytes and
-/// checks the size and CRC-32 against the central directory.
+/// checks the size and CRC-32 against the central directory. An entry
+/// larger than [`MAX_WHOLE`] is refused unread (read it in pieces with
+/// [`extract_to`]).
 pub fn extract(entry: &ZipEntry, data: &[u8]) -> Result<Vec<u8>, ZipError> {
     if entry.encrypted {
         return Err(encrypted(entry));
@@ -515,6 +560,12 @@ pub fn extract(entry: &ZipEntry, data: &[u8]) -> Result<Vec<u8>, ZipError> {
             name: entry.name.clone(),
             expected: entry.compressed_size,
             actual: data.len() as u64,
+        });
+    }
+    if entry.uncompressed_size > MAX_WHOLE {
+        return Err(ZipError::TooLarge {
+            name: entry.name.clone(),
+            size: entry.uncompressed_size,
         });
     }
     let out = match entry.method {
@@ -709,7 +760,7 @@ fn decode_with<'a>(
         Method::Deflate64 => Box::new(deflate64::Deflate64Decoder::with_buffer(src)),
         Method::Bzip2 => Box::new(bzip2_rs::DecoderReader::new(src)),
         Method::Lzma => Box::new(lzma_reader(entry, src).map_err(invalid)?),
-        Method::Zstd => Box::new(Zstd::new(src)),
+        Method::Zstd => Box::new(Zstd::new(src, entry.uncompressed_size)),
         Method::Other(method) => return Err(unsupported(entry, method)),
         Method::Stored | Method::Deflated => {
             return Err(ZipError::Corrupt("not a decoder's method"));
@@ -770,30 +821,99 @@ fn lzma_reader<R: Read>(
 }
 
 /// Zstandard frames one after the other (skippable frames skipped) as one
-/// reader: `ruzstd`'s streaming decoder reads a single frame. A frame's
-/// window is reserved as it starts, limited to `ruzstd`'s default
-/// (128 MB), past which the frame fails.
+/// reader: `ruzstd`'s streaming decoder reads a single frame.
+///
+/// A frame keeps back its window (up to `ruzstd`'s default, 128 MB) of
+/// what it decoded before it gives any of it out, so a window larger
+/// than the entry would let a few bytes decode to the window's size
+/// before [`decode_with`] sees one: each frame's window is held to what
+/// the entry may still give (`left`, rounded up to a size a window can
+/// have), which no frame of a sound entry can reach back past, and a
+/// frame that says its content is larger than that is refused.
 struct Zstd<R> {
     src: R,
     frame: ruzstd::decoding::FrameDecoder,
     /// Inside a frame (its header read).
     open: bool,
+    /// What the entry may still give: its size less what came out.
+    left: u64,
 }
 
 impl<R: BufRead> Zstd<R> {
-    fn new(src: R) -> Self {
+    fn new(src: R, size: u64) -> Self {
         Zstd {
             src,
             frame: ruzstd::decoding::FrameDecoder::new(),
             open: false,
+            left: size,
         }
     }
+
+    /// The next frame's header from `src`, its window held to `left`
+    /// (`None`: a skippable frame, skipped).
+    fn header(&mut self) -> std::io::Result<Option<Vec<u8>>> {
+        let invalid = |what| std::io::Error::new(std::io::ErrorKind::InvalidData, what);
+        let mut head = vec![0u8; 5];
+        self.src.read_exact(&mut head[..4])?;
+        let magic = u32::from_le_bytes([head[0], head[1], head[2], head[3]]);
+        if magic & 0xFFFF_FFF0 == 0x184D_2A50 {
+            let mut len = [0u8; 4];
+            self.src.read_exact(&mut len)?;
+            let length = u64::from(u32::from_le_bytes(len));
+            let skipped = std::io::copy(&mut (&mut self.src).take(length), &mut std::io::sink())?;
+            if skipped != length {
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
+            return Ok(None);
+        }
+        if magic != 0xFD2F_B528 {
+            return Err(invalid("not a Zstandard frame"));
+        }
+        self.src.read_exact(&mut head[4..])?;
+        let descriptor = head[4];
+        let single = descriptor & 0x20 != 0;
+        let dictionary = [0, 1, 2, 4][usize::from(descriptor & 3)];
+        let content = match descriptor >> 6 {
+            0 => usize::from(single),
+            1 => 2,
+            2 => 4,
+            _ => 8,
+        };
+        let window_at = head.len();
+        head.resize(window_at + usize::from(!single) + dictionary + content, 0);
+        self.src.read_exact(&mut head[window_at..])?;
+        if content > 0 {
+            let field = &head[head.len() - content..];
+            let size = field
+                .iter()
+                .rev()
+                .fold(0u64, |n, &b| (n << 8) | u64::from(b))
+                + if content == 2 { 256 } else { 0 };
+            if size > self.left {
+                return Err(invalid("a frame larger than the entry"));
+            }
+        }
+        if !single && window_size(head[window_at]) > self.left.max(1 << 10) {
+            // The smallest window that holds what is left (a frame
+            // never reaches back further than it decoded).
+            if let Some(held) = (0..=u8::MAX).find(|&w| window_size(w) >= self.left) {
+                head[window_at] = held;
+            }
+        }
+        Ok(Some(head))
+    }
+}
+
+/// The size a Zstandard window descriptor says: a power of two from
+/// 1 KB, plus eighths of it.
+fn window_size(descriptor: u8) -> u64 {
+    let base = 1u64 << (10 + (descriptor >> 3));
+    base + base / 8 * u64::from(descriptor & 7)
 }
 
 impl<R: BufRead> Read for Zstd<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         use ruzstd::decoding::BlockDecodingStrategy;
-        use ruzstd::decoding::errors::{FrameDecoderError, ReadFrameHeaderError};
         if buf.is_empty() {
             return Ok(0);
         }
@@ -806,6 +926,7 @@ impl<R: BufRead> Read for Zstd<R> {
                 }
                 let n = self.frame.read(buf)?;
                 if n > 0 {
+                    self.left = self.left.saturating_sub(n as u64);
                     return Ok(n);
                 }
                 self.open = false;
@@ -813,21 +934,11 @@ impl<R: BufRead> Read for Zstd<R> {
             if self.src.fill_buf()?.is_empty() {
                 return Ok(0);
             }
-            match self.frame.reset(&mut self.src) {
-                Ok(()) => self.open = true,
-                Err(FrameDecoderError::ReadFrameHeaderError(ReadFrameHeaderError::SkipFrame {
-                    length,
-                    ..
-                })) => {
-                    let skipped = std::io::copy(
-                        &mut (&mut self.src).take(u64::from(length)),
-                        &mut std::io::sink(),
-                    )?;
-                    if skipped != u64::from(length) {
-                        return Err(std::io::ErrorKind::UnexpectedEof.into());
-                    }
-                }
-                Err(e) => return Err(std::io::Error::other(e)),
+            if let Some(header) = self.header()? {
+                self.frame
+                    .reset(&mut header.as_slice())
+                    .map_err(std::io::Error::other)?;
+                self.open = true;
             }
         }
     }
@@ -1265,6 +1376,62 @@ pub(crate) mod tests {
         assert_eq!(write_stored::<&str, &[u8]>(&[]).unwrap().len(), 22);
     }
 
+    /// A directory past its most is refused before it is read: from the
+    /// end record (classic or ZIP64) or as it is parsed.
+    #[test]
+    fn directories_have_a_most() {
+        // A classic end record saying its directory is 1 byte past 64 MiB.
+        let mut eocd = SIG_EOCD.to_le_bytes().to_vec();
+        eocd.extend_from_slice(&[0; 4]);
+        eocd.extend_from_slice(&[1, 0, 1, 0]);
+        eocd.extend_from_slice(&((MAX_DIRECTORY + 1) as u32).to_le_bytes());
+        eocd.extend_from_slice(&0u32.to_le_bytes());
+        eocd.extend_from_slice(&0u16.to_le_bytes());
+        let len = MAX_DIRECTORY + 1 + eocd.len() as u64;
+        assert_eq!(
+            locate_central_directory(&eocd, len),
+            Err(ZipError::TooManyEntries)
+        );
+        // A ZIP64 end record saying a directory of 2^40 bytes, or more
+        // entries than the most.
+        let record = |entries: u64, size: u64| {
+            let mut r = SIG_ZIP64_EOCD.to_le_bytes().to_vec();
+            r.extend_from_slice(&44u64.to_le_bytes());
+            r.extend_from_slice(&[45, 0, 45, 0]);
+            r.extend_from_slice(&[0; 8]);
+            r.extend_from_slice(&entries.to_le_bytes());
+            r.extend_from_slice(&entries.to_le_bytes());
+            r.extend_from_slice(&size.to_le_bytes());
+            r.extend_from_slice(&0u64.to_le_bytes());
+            r
+        };
+        assert!(parse_zip64_end_record(&record(1, 46)).is_ok());
+        for (entries, size) in [(1, 1 << 40), (MAX_ENTRIES + 1, 46)] {
+            assert_eq!(
+                parse_zip64_end_record(&record(entries, size)),
+                Err(ZipError::TooManyEntries)
+            );
+        }
+        // Headers past the count (a classic count wraps at 65 536): read
+        // on, but not past the most.
+        let zip = write_zip(&[TestFile::stored("", b"")], &WriteOpts::default());
+        let cd = match locate_central_directory(&zip, zip.len() as u64).unwrap() {
+            Locate::Found(cd) => cd,
+            other => panic!("{other:?}"),
+        };
+        let header = &zip[cd.offset as usize..][..cd.size as usize];
+        let many = header.repeat(MAX_ENTRIES as usize);
+        assert_eq!(
+            parse_central_directory(&many, &cd).map(|e| e.len() as u64),
+            Ok(MAX_ENTRIES)
+        );
+        let more = header.repeat(MAX_ENTRIES as usize + 1);
+        assert_eq!(
+            parse_central_directory(&more, &cd),
+            Err(ZipError::TooManyEntries)
+        );
+    }
+
     #[test]
     fn tail_len_never_exceeds_file() {
         assert_eq!(tail_len(10), 10);
@@ -1693,26 +1860,38 @@ pub(crate) mod tests {
                 let packed = data_of(zip, &e);
                 let mut small = e.clone();
                 small.uncompressed_size = 100;
+                // Too long for its size; or for Zstandard, a frame that
+                // says so or a block past the window held to it.
+                let too_long = |r: Result<(), ZipError>| match r {
+                    Err(ZipError::SizeMismatch { .. }) => true,
+                    Err(ZipError::Decode { .. }) => e.method == Method::Zstd,
+                    _ => false,
+                };
                 assert!(
-                    matches!(extract(&small, packed), Err(ZipError::SizeMismatch { .. })),
+                    too_long(extract(&small, packed).map(|_| ())),
                     "{file}: {}",
                     e.name
                 );
                 // Stopped as soon as it passes the size.
                 let mut count = Count(0);
+                assert!(too_long(extract_to(&small, &mut &packed[..], &mut count)));
+                assert!(count.0 <= 100, "{file}: {} wrote {}", e.name, count.0);
+                let mut large = e.clone();
+                large.uncompressed_size += 1;
                 assert!(matches!(
-                    extract_to(&small, &mut &packed[..], &mut count),
+                    extract(&large, packed),
                     Err(ZipError::SizeMismatch { .. })
                 ));
-                assert!(count.0 <= 100, "{file}: {} wrote {}", e.name, count.0);
-                for size in [e.uncompressed_size + 1, u64::MAX / 4] {
-                    let mut large = e.clone();
-                    large.uncompressed_size = size;
-                    assert!(matches!(
-                        extract(&large, packed),
-                        Err(ZipError::SizeMismatch { .. })
-                    ));
-                }
+                // Too large to read whole; in pieces, short.
+                large.uncompressed_size = u64::MAX / 4;
+                assert!(matches!(
+                    extract(&large, packed),
+                    Err(ZipError::TooLarge { .. })
+                ));
+                assert!(matches!(
+                    extract_to(&large, &mut &packed[..], &mut Count(0)),
+                    Err(ZipError::SizeMismatch { .. })
+                ));
                 let mut bad = e.clone();
                 bad.crc32 ^= 1;
                 assert!(matches!(
@@ -1819,7 +1998,9 @@ pub(crate) mod tests {
     }
 
     /// 8 MB that pack into a few kilobytes, in an entry that says 64 KB:
-    /// no method gives more than the size it was told.
+    /// no method gives more than the size it was told (Zstandard's
+    /// blocks of 128 KB do not fit the window it is held to, which the
+    /// first one says; `tests/zip_bounds.rs` counts what each holds).
     #[test]
     fn bombs_stop_at_the_size() {
         let zeros = vec![0u8; 8 << 20];
@@ -1842,16 +2023,16 @@ pub(crate) mod tests {
                 flags,
                 legacy_name: None,
             };
+            let damaged = |r: &Result<_, ZipError>| {
+                matches!(
+                    r,
+                    Err(ZipError::SizeMismatch { .. } | ZipError::Decode { .. })
+                )
+            };
             let mut count = Count(0);
-            assert!(matches!(
-                extract_to(&e, &mut &packed[..], &mut count),
-                Err(ZipError::SizeMismatch { .. })
-            ));
+            assert!(damaged(&extract_to(&e, &mut &packed[..], &mut count)));
             assert!(count.0 <= 64 << 10);
-            assert!(matches!(
-                extract(&e, packed),
-                Err(ZipError::SizeMismatch { .. })
-            ));
+            assert!(damaged(&extract(&e, packed).map(|_| ())));
         }
     }
 }

@@ -358,7 +358,11 @@ Rust and the browser are implementation details, not advertised features.
   at a time, none during a play, ended after 10 s idle;
   `__DDI_DEBUG.ratings`. Empty natively.
 - `crates/library/` song library logic shared by the app and xtask: pack scanning
-  (which file is the chart, music, banner), a sans-IO zip reader, the manifest
+  (which file is the chart, music, banner), a sans-IO zip reader (every
+  method stopped at an entry's declared size as it decompresses, a
+  Zstandard frame's window held to it; whole reads at most
+  `zip::MAX_WHOLE`, directories `MAX_DIRECTORY` and `MAX_ENTRIES`;
+  `tests/zip_bounds.rs` counts what a refusal holds), the manifest
   entry type, and the import's core (`scan.rs`: a song's entry, its files
   and the report's warnings from its folder; `works.rs`: a
   Dancing☆Onigiri work's songs, ids, music and layers; the web's import
