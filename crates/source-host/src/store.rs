@@ -226,6 +226,8 @@ pub struct Store {
     disk: u64,
     tick: u64,
     folders: u64,
+    /// Moves whenever an item comes or goes ([`Store::generation`]).
+    changes: u64,
 }
 
 impl Store {
@@ -241,7 +243,14 @@ impl Store {
             disk: 0,
             tick: 0,
             folders: 0,
+            changes: 0,
         }
+    }
+
+    /// Moves whenever an item comes or goes: what lists the store's songs
+    /// need be read again only then.
+    pub fn generation(&self) -> u64 {
+        self.changes
     }
 
     pub fn shared(self) -> SharedStore {
@@ -354,6 +363,7 @@ impl Store {
 
     fn drop_item(&mut self, key: ItemKey) {
         if let Some(item) = self.items.remove(&key) {
+            self.changes += 1;
             self.memory = self.memory.saturating_sub(item.memory);
             self.disk = self.disk.saturating_sub(item.disk);
             for dir in item.owned {
@@ -363,7 +373,8 @@ impl Store {
     }
 
     /// Puts an assembled item in (its reservations becoming its own),
-    /// replacing one of the same key.
+    /// replacing one of the same key, whose holds it keeps (the same item
+    /// fetched again: what holds it, a play or a room, holds it still).
     pub fn insert(
         &mut self,
         key: ItemKey,
@@ -371,7 +382,9 @@ impl Store {
         assembled: Assembled,
         songs: Vec<FetchedSong>,
     ) {
+        let holds = self.items.get(&key).map_or(0, |i| i.holds);
         self.drop_item(key);
+        self.changes += 1;
         let used = self.touch();
         self.items.insert(
             key,
@@ -379,7 +392,7 @@ impl Store {
                 origin,
                 files: ItemFiles(Arc::new(assembled.files)),
                 songs,
-                holds: 0,
+                holds,
                 used,
                 memory: assembled.memory,
                 disk: assembled.disk,
@@ -408,6 +421,18 @@ impl Store {
     /// Where an item came from.
     pub fn origin(&self, key: ItemKey) -> Option<&Origin> {
         self.items.get(&key).map(|i| &i.origin)
+    }
+
+    /// Every song in the store with its item's room rule, by id (stage 3:
+    /// a room's "Fetched this session"), none of their uses noted.
+    pub fn every_song(&self) -> Vec<(FetchedSong, RoomRule)> {
+        let mut out: Vec<(FetchedSong, RoomRule)> = self
+            .items
+            .values()
+            .flat_map(|i| i.songs.iter().map(|s| (s.clone(), i.origin.rooms)))
+            .collect();
+        out.sort_by(|a, b| a.0.id.cmp(&b.0.id));
+        out
     }
 
     /// A fetched song by its id, with its item's files.
@@ -669,6 +694,59 @@ mod tests {
         assert!(!s.reserve_disk(200), "past the run's cap");
         s.release_disk(200);
         assert!(s.reserve_disk(300));
+    }
+
+    #[test]
+    fn an_item_fetched_again_keeps_what_holds_it() {
+        let (store, _) = store("again", SMALL);
+        let a = item(&store, 1, 50);
+        let held = hold(&store, a).unwrap();
+        // The same item again (a fetch for an import, say).
+        let again = item(&store, 1, 50);
+        assert_eq!(again, a);
+        assert!(store.lock().unwrap().held(a), "still held");
+        assert!(!store.lock().unwrap().remove(a), "not let go while held");
+        drop(held);
+        assert!(!store.lock().unwrap().held(a));
+        assert!(store.lock().unwrap().remove(a));
+    }
+
+    #[test]
+    fn every_song_says_its_items_room_rule() {
+        let (store, _) = store("every", SMALL);
+        let key = ItemKey::of("p", "1", None);
+        let song = |n: usize| FetchedSong {
+            id: key.song_id(n),
+            key,
+            entry: serde_json::from_str(
+                r#"{"id":"x","title":"T","artist":"A","chart":"song.ssc","music":"song.wav"}"#,
+            )
+            .unwrap(),
+            pack: "Pack".into(),
+            dir: RelPathBuf::from("song"),
+            song_key: None,
+            warnings: Vec::new(),
+        };
+        store.lock().unwrap().insert(
+            key,
+            Origin {
+                plugin: "p".into(),
+                item: "1".into(),
+                revision: None,
+                rooms: RoomRule::None,
+            },
+            Assembled {
+                files: BTreeMap::new(),
+                memory: 0,
+                disk: 0,
+                owned: vec![],
+            },
+            vec![song(1), song(0)],
+        );
+        let every = store.lock().unwrap().every_song();
+        let ids: Vec<&str> = every.iter().map(|(s, _)| s.id.as_str()).collect();
+        assert_eq!(ids, [key.song_id(0), key.song_id(1)]);
+        assert!(every.iter().all(|(_, r)| *r == RoomRule::None));
     }
 
     #[test]
