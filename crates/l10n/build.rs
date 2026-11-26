@@ -264,7 +264,13 @@ fn write_face_chars(out: &mut String, languages: &Languages, locales: &Path) {
     out.push_str("];\n\n");
 }
 
+/// Areas only the desktop shows: left out of the web's build, whose
+/// bundle they would only grow (their functions there are never called,
+/// and fall back to the message's id).
+const DESKTOP_ONLY: &[&str] = &["sources.ftl"];
+
 fn write_sources(out: &mut String, languages: &Languages, locales: &Path) {
+    let web = std::env::var("CARGO_CFG_TARGET_ARCH").is_ok_and(|a| a == "wasm32");
     out.push_str("/// Each language's files, without their comments (the translators'\n");
     out.push_str("/// notes, half of English's bytes, are of no use at run time).\n");
     out.push_str("pub(crate) static SOURCES: &[(&str, &[(&str, &str)])] = &[\n");
@@ -273,6 +279,10 @@ fn write_sources(out: &mut String, languages: &Languages, locales: &Path) {
         let dir = locales.join(&l.tag);
         if dir.is_dir() {
             for path in files(&dir) {
+                let name = path.file_name().unwrap().to_string_lossy();
+                if web && DESKTOP_ONLY.contains(&name.as_ref()) {
+                    continue;
+                }
                 let text = std::fs::read_to_string(&path)
                     .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
                 // A comment starts its line; a pattern's lines are indented.

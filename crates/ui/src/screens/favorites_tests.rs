@@ -363,6 +363,7 @@ fn a_share_has_no_favorites() {
     data.shared = Some(SharedView {
         pack: "A friend's pack".into(),
         expires: None,
+        ..Default::default()
     });
     let (mut h, s, _, _) = shelled(data, [1280.0, 720.0]);
     assert_eq!(s.borrow().favorite, None);

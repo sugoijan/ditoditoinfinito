@@ -777,6 +777,11 @@ pub struct SharedView {
     pub pack: String,
     /// "expires in 3 days"; `None`: it never does.
     pub expires: Option<String>,
+    /// Songs found by a song source and played without importing them
+    /// (desktop, `docs/plans/source-plugins.md`, stage 2): `pack` is then
+    /// the source's name, and nothing expires.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub found: bool,
 }
 
 impl SharedView {
@@ -784,7 +789,22 @@ impl SharedView {
     /// at `now` (both Unix seconds).
     pub fn new(pack: String, expires_at: Option<f64>, now: f64) -> SharedView {
         let expires = expires_at.map(|at| super::options_dialogs::expires_in(Some(at), now).into());
-        SharedView { pack, expires }
+        SharedView {
+            pack,
+            expires,
+            #[cfg(not(target_arch = "wasm32"))]
+            found: false,
+        }
+    }
+
+    /// Songs found by the source `name` (desktop's song sources).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn found(name: String) -> SharedView {
+        SharedView {
+            pack: name,
+            expires: None,
+            found: true,
+        }
     }
 }
 

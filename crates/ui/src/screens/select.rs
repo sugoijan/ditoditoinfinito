@@ -162,7 +162,8 @@ pub enum SelectCall {
     /// `Selected`) or not (another screen over it, or it leaves): its
     /// preview plays or stops ([`Screen::shown`]; dialogs cover nothing).
     Shown(bool),
-    /// A link: `calibrate`, `credits`, `source` (Options is [`OpenFn`]).
+    /// A link: `calibrate`, `credits`, `source`, `find-songs` (desktop's
+    /// song sources) (Options is [`OpenFn`]).
     Open(String),
     /// Import a folder (the browser's picker, kept to read again where it
     /// can), or zips and files.
@@ -214,6 +215,17 @@ pub enum SelectCall {
         songs: Vec<String>,
         expires: String,
     },
+}
+
+/// Song select's header over a share's songs, or (desktop) over songs a
+/// source found.
+fn shared_title(v: &super::data::SharedView) -> ddi_l10n::UiText {
+    #[cfg(not(target_arch = "wasm32"))]
+    if v.found {
+        return ddi_l10n::msg::sources::select_title();
+    }
+    let _ = v;
+    msg::title_shared()
 }
 
 /// The plays kept of a song's chart, as the plays list shows them (the
@@ -929,6 +941,10 @@ pub struct SelectScreen {
     editing: bool,
     /// Share… is offered on imported songs and packs.
     sharing: bool,
+    /// More offers Find songs… (desktop, while song sources are on:
+    /// [`SelectScreen::with_finding`]).
+    #[cfg(not(target_arch = "wasm32"))]
+    finding: bool,
     /// The imported songs (ids) added to the next share, in order
     /// ("Add to share" in More; "Share N songs…" takes them).
     to_share: Vec<String>,
@@ -1062,6 +1078,8 @@ impl SelectScreen {
             plays: None,
             editing: false,
             sharing: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            finding: false,
             to_share: Vec::new(),
             import,
             share: Rc::default(),
@@ -1170,6 +1188,15 @@ impl SelectScreen {
     /// [`Self::with_sharing`] when `on`.
     pub fn with_sharing_if(self, on: bool) -> SelectScreen {
         if on { self.with_sharing() } else { self }
+    }
+
+    /// More offers Find songs… where `on` (desktop's song sources,
+    /// `docs/plans/source-plugins.md`, stage 2): it asks the shell
+    /// ([`SelectCall::Open`] `find-songs`).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_finding(mut self, on: bool) -> SelectScreen {
+        self.finding = on;
+        self
     }
 
     /// The list is fixed: a share's songs, or the library while choosing
@@ -2121,8 +2148,8 @@ impl SelectScreen {
         } else {
             let name = if let Some(rm) = &self.room {
                 super::room::heading(&rm.room.borrow())
-            } else if self.data.shared.is_some() {
-                msg::title_shared()
+            } else if let Some(v) = &self.data.shared {
+                shared_title(v)
             } else {
                 msg::title()
             };
@@ -2971,6 +2998,10 @@ impl SelectScreen {
         }
         // A share's name and its time left, where nothing else is said.
         let shared_note: Option<String> = self.data.shared.as_ref().map(|v| {
+            #[cfg(not(target_arch = "wasm32"))]
+            if v.found {
+                return ddi_l10n::msg::sources::select_note(&v.pack).into();
+            }
             match &v.expires {
                 Some(e) => msg::shared_note_expires(&v.pack, e),
                 None => msg::shared_note(&v.pack),
@@ -5068,6 +5099,13 @@ impl SelectScreen {
         if !shared {
             items.push(("Link.Add".into(), msg::more_add_songs().into()));
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.finding && !shared {
+            items.push((
+                "Link.Find".into(),
+                ddi_l10n::msg::sources::more_find().into(),
+            ));
+        }
         items.extend([
             ("Link.Options".into(), msg::more_options().into()),
             (
@@ -5191,6 +5229,8 @@ impl SelectScreen {
             }
             "ClearSearch" => self.clear_search(root, cx),
             "Link.Calibrate" => self.call(SelectCall::Open("calibrate".into()), cx),
+            #[cfg(not(target_arch = "wasm32"))]
+            "Link.Find" => self.call(SelectCall::Open("find-songs".into()), cx),
             "SearchIcon" => self.begin_search(root, cx),
             "StyleButton" => self.next_style(root),
             "Play" => self.start(root, cx),

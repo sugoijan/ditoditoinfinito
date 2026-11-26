@@ -69,6 +69,8 @@ pub mod editor_dialogs;
 pub mod editor_field;
 pub mod errors;
 pub mod failures;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod find_songs;
 pub mod folders_offer;
 pub mod import_report;
 #[cfg(test)]

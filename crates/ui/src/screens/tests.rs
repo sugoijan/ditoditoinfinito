@@ -1486,6 +1486,7 @@ fn a_share_lists_its_songs_alone_with_nothing_to_add_or_edit() {
     d.shared = Some(SharedView {
         pack: "A friend's pack".into(),
         expires: Some("expires in 3 days".into()),
+        ..Default::default()
     });
     let env = env();
     let state = env.state.clone();

@@ -525,6 +525,7 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     data.shared = Some(SharedView {
         pack: "Pack".into(),
         expires: Some("…".into()),
+        ..Default::default()
     });
     let play: super::select::PlayFn = Rc::new(|_, _, _, _| {});
     let open: super::select::OpenFn = Rc::new(|_, _| {});
@@ -2496,6 +2497,158 @@ fn audience_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<
     }
 }
 
+/// Desktop's Find songs page (`super::find_songs`) at each of its
+/// states: no source, This computer alone with no folder, two sources
+/// with folders and results, a fetch running, each problem with its
+/// details, each note.
+fn find_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<String>) {
+    use super::find_songs::*;
+    struct Fixed(FindView);
+    impl FindModel for Fixed {
+        fn version(&self) -> u64 {
+            0
+        }
+        fn view(&self) -> FindView {
+            self.0.clone()
+        }
+        fn press(&mut self, _: FindPress, _: &mut crate::screen::Cx) {}
+        fn typed(&mut self, _: String) {}
+        fn tick(&mut self, _: &mut crate::screen::Cx) {}
+        fn leave(&mut self, _: &mut crate::screen::Cx) {}
+    }
+    let this = SourceView {
+        id: "this-computer".into(),
+        name: SourceName::ThisComputer,
+        problem: None,
+    };
+    let plugin = SourceView {
+        id: "example".into(),
+        name: SourceName::Plugin("Example Songs".into()),
+        problem: Some(Problem::OffForTheRun),
+    };
+    let result = |n: usize, in_library: bool| ResultView {
+        id: format!("item-{n}"),
+        title: format!("Generated Song {n}"),
+        tags: vec![
+            ddi_l10n::UiText::data("Test Artist").into(),
+            ddi_l10n::UiText::data("Pack A").into(),
+            chart_tag("dance-single", Some(5)),
+            chart_tag("pump-double", None),
+            chart_tag("their-own", Some(3)),
+        ],
+        in_library,
+    };
+    let full = FindView {
+        sources: vec![this.clone(), plugin.clone()],
+        folders: Some(vec!["/Users/me/Songs".into()]),
+        // What the player typed is shown as typed, never wrapped as data.
+        query: String::new(),
+        searched: true,
+        results: vec![result(1, false), result(2, true)],
+        total: Some(12),
+        more: true,
+        ..FindView::default()
+    };
+    let problems = [
+        Problem::Busy,
+        Problem::InvalidInput,
+        Problem::Unsupported,
+        Problem::NotFound,
+        Problem::Refused,
+        Problem::RateLimited,
+        Problem::Unreachable,
+        Problem::TooLarge,
+        Problem::Unreadable,
+        Problem::Changed,
+        Problem::Failed,
+        Problem::Crashed,
+        Problem::TimedOut,
+        Problem::Misbehaved,
+        Problem::NotStarted,
+        Problem::NeedsNewerGame,
+        Problem::TooOld,
+        Problem::OffForTheRun,
+        Problem::SwitchedOff,
+        Problem::Stopped,
+        Problem::ImportFailed,
+    ];
+    let mut views = vec![
+        FindView::default(),
+        FindView {
+            sources: vec![this.clone()],
+            folders: Some(Vec::new()),
+            ..FindView::default()
+        },
+        FindView {
+            sources: vec![this.clone()],
+            folders: Some(vec!["/songs".into()]),
+            searched: true,
+            ..FindView::default()
+        },
+        full.clone(),
+        FindView {
+            chosen: 1,
+            folders: None,
+            ..full.clone()
+        },
+        FindView {
+            busy: Some(Busy::Searching),
+            ..full.clone()
+        },
+        FindView {
+            note: Some(Note::Imported { songs: 3 }),
+            ..full.clone()
+        },
+        FindView {
+            note: Some(Note::Partial),
+            ..full.clone()
+        },
+        FindView {
+            busy: Some(Busy::Importing {
+                title: "Generated Song 1".into(),
+            }),
+            ..full.clone()
+        },
+    ];
+    for step in [
+        None,
+        Some(Step::Resolving),
+        Some(Step::Searching),
+        Some(Step::Downloading),
+        Some(Step::Reading),
+        Some(Step::Converting),
+        Some(Step::Checking),
+    ] {
+        views.push(FindView {
+            busy: Some(Busy::Fetching {
+                title: "Generated Song 1".into(),
+                step,
+                done: Some(3),
+                total: Some(10),
+            }),
+            ..full.clone()
+        });
+    }
+    for p in problems {
+        views.push(FindView {
+            problem: Some(p),
+            details: Some("exit status 101".into()),
+            ..full.clone()
+        });
+    }
+    for view in views {
+        let mut texts = Vec::new();
+        block_texts(&doc(&view).blocks, &mut texts);
+        checked(texts, found);
+        let mut h = harness();
+        h.push(screen(
+            env.clone(),
+            Rc::new(std::cell::RefCell::new(Fixed(view))),
+        ));
+        shown(&mut h, found);
+    }
+}
+
 fn walk() -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     let env = env();
@@ -2513,6 +2666,7 @@ fn walk() -> BTreeSet<String> {
         room_walk(&env, &harness, &mut found);
         online_walk(&env, &harness, &mut found);
         audience_walk(&env, &harness, &mut found);
+        find_walk(&env, &harness, &mut found);
         // The prompt's steps, as the shells hand them in: the loading
         // screen's own word is an identifier, never shown; an error's
         // explanation is still the loader's.
