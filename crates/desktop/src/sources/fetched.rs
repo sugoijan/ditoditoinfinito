@@ -52,7 +52,12 @@ pub fn is_fetched(id: &str) -> bool {
 pub fn song(id: &str) -> Option<LibSong> {
     let store = store()?;
     let (s, _) = store.lock().ok()?.song(id)?;
-    Some(LibSong {
+    Some(lib_song(s))
+}
+
+/// A fetched song as the library lists one.
+fn lib_song(s: ddi_source_host::FetchedSong) -> LibSong {
+    LibSong {
         root: PathBuf::new(),
         zip: false,
         dir: s.dir,
@@ -63,7 +68,29 @@ pub fn song(id: &str) -> Option<LibSong> {
         notes: Vec::new(),
         work: None,
         fetched: Some(s.key.0),
-    })
+    }
+}
+
+/// The songs in the store an online room may be given (stage 3: My
+/// songs' "Fetched this session"): those whose source's rule allows
+/// rooms and whose charts name them (`song_key`), the library's own
+/// (`library`, by `song_key`) left out, by id.
+pub fn for_rooms(library: &std::collections::HashSet<String>) -> Vec<LibSong> {
+    let Some(store) = store() else {
+        return Vec::new();
+    };
+    let every = match store.lock() {
+        Ok(s) => s.every_song(),
+        Err(_) => return Vec::new(),
+    };
+    every
+        .into_iter()
+        .filter(|(s, rule)| {
+            *rule == ddi_source_host::protocol::RoomRule::Upload
+                && s.song_key.as_ref().is_some_and(|k| !library.contains(k))
+        })
+        .map(|(s, _)| lib_song(s))
+        .collect()
 }
 
 /// An item's files.

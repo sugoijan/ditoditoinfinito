@@ -4,7 +4,8 @@
 //! (`ddi_source_host`) with the plugins switched on and "This computer"
 //! ([`this_computer`], behind its own switch), the songs they fetch
 //! played without importing ([`fetched`]) or imported ([`import`]), and
-//! the Find songs page's model ([`find`]). A player with the switch off
+//! the Find songs page's model ([`find`]), and since stage 3 added to an
+//! online room without importing them ([`rooms`]). A player with the switch off
 //! and no plugin switched on gets no host at all: nothing is started,
 //! nothing shows, and the start pays reading the switches' file.
 //!
@@ -23,6 +24,7 @@
 pub mod fetched;
 pub mod find;
 pub mod import;
+pub mod rooms;
 pub mod this_computer;
 
 use std::collections::BTreeSet;
@@ -137,6 +139,20 @@ impl Sources {
             host,
             this_computer,
         }
+    }
+
+    /// Whether source `id`'s songs may be added to an online room, by its
+    /// own rule (a plugin's manifest's; This computer's, the player's own
+    /// files, always): an item's metadata may narrow it further.
+    pub fn room_rule(&self, id: &str) -> ddi_source_host::protocol::RoomRule {
+        use ddi_source_host::protocol::RoomRule;
+        if id == this_computer::ID {
+            return RoomRule::Upload;
+        }
+        self.host
+            .plugins()
+            .find(|p| p.id() == id)
+            .map_or(RoomRule::None, |p| p.manifest.rooms)
     }
 
     /// The sources a player may ask now, in the page's order: This

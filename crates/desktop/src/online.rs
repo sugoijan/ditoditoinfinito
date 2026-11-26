@@ -303,8 +303,11 @@ pub fn drive_leaving() -> bool {
     KEPT.with(Kept::leaving) && KEPT.with(|k| k.drive_leaving(crate::clock::now_ms()))
 }
 
-/// The songs room `room` downloaded on this device deleted (its store).
+/// The songs room `room` downloaded on this device deleted (its store),
+/// and those fetched from a song source for it let go.
 fn forget_store_of(room: &SharedRoom) {
+    // The songs fetched for it let go (`crate::sources::rooms`).
+    crate::sources::rooms::release_all();
     let store = match room.try_borrow() {
         Ok(r) if r.is_online() => r.store(),
         _ => return,

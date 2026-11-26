@@ -4,7 +4,8 @@
 //! checkout has none; the GPU or a skip and the picture drawn into
 //! ([`gpu`]); the theme's UI and a person's keys and taps ([`ui`]); the
 //! play host offscreen on a fake clock ([`rig`]); the practice room
-//! ([`practice`]); an online room over the fake room ([`online`]); a song
+//! ([`practice`]); an online room over the fake room ([`online`]) and
+//! the server's shares faked on a loopback port ([`shares`]); a song
 //! played offscreen ([`offscreen_play`]); and the pictures kept
 //! ([`shot`]).
 #![allow(dead_code)]
@@ -14,6 +15,7 @@ pub mod offscreen_play;
 pub mod online;
 pub mod practice;
 pub mod rig;
+pub mod shares;
 pub mod ui;
 
 use std::path::Path;

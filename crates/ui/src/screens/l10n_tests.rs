@@ -2537,6 +2537,7 @@ fn find_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             chart_tag("their-own", Some(3)),
         ],
         in_library,
+        room: RoomOffer::None,
     };
     let full = FindView {
         sources: vec![this.clone(), plugin.clone()],
@@ -2607,6 +2608,25 @@ fn find_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             busy: Some(Busy::Importing {
                 title: "Generated Song 1".into(),
             }),
+            ..full.clone()
+        },
+        // Opened from an online room (stage 3): Add to room, or why not.
+        FindView {
+            room: true,
+            results: [RoomOffer::Add, RoomOffer::InRoom, RoomOffer::NotForRooms]
+                .into_iter()
+                .enumerate()
+                .map(|(n, room)| ResultView {
+                    room,
+                    ..result(n, false)
+                })
+                .collect(),
+            note: Some(Note::AddedToRoom { songs: 2 }),
+            ..full.clone()
+        },
+        FindView {
+            room: true,
+            note: Some(Note::AddedToRoom { songs: 1 }),
             ..full.clone()
         },
     ];

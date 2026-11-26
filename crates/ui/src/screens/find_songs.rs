@@ -8,6 +8,12 @@
 //! Import (written into the library). The real Find songs screen is the
 //! plan's stage 6.
 //!
+//! Opened from an online room (stage 3: its More, "Find songs to add…"),
+//! each result has Add to room in Play's place where its source's rule
+//! and the room allow, else says why on its line; what is added goes to
+//! the room's list as a song of the library does, uploaded from here and
+//! never imported.
+//!
 //! The page is made from [`FindView`], what the shell's model shows now;
 //! a press goes to the model ([`FindPress`]), which asks the sources.
 //! Every text is a message or data: a plugin's name, a song's title, a
@@ -56,6 +62,23 @@ pub struct ResultView {
     pub tags: Vec<String>,
     /// The library has a song of the same charts already.
     pub in_library: bool,
+    /// Opened from an online room: what it offers there.
+    pub room: RoomOffer,
+}
+
+/// What a result offers an online room (stage 3).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RoomOffer {
+    /// Not opened from a room.
+    #[default]
+    None,
+    /// Add to room.
+    Add,
+    /// The room lists the same song already.
+    InRoom,
+    /// Its source (or the item itself) keeps its songs out of rooms: said
+    /// on its line, no button.
+    NotForRooms,
 }
 
 /// A chart of a result, as a tag of its line: its style's name and its
@@ -137,6 +160,9 @@ pub enum Note {
     Imported { songs: usize },
     /// Some folders were too large to read whole (their bounds).
     Partial,
+    /// A result's songs were added to the room's list (their upload
+    /// follows, as any song added).
+    AddedToRoom { songs: usize },
 }
 
 /// What the page shows now.
@@ -161,6 +187,8 @@ pub struct FindView {
     /// The source's own words on the problem, or its diagnostics (data).
     pub details: Option<String>,
     pub note: Option<Note>,
+    /// Opened from an online room: results are added to it, not played.
+    pub room: bool,
 }
 
 /// What a press asks of the model.
@@ -173,6 +201,8 @@ pub enum FindPress {
     More,
     Play(usize),
     Import(usize),
+    /// Added to the online room the page was opened from.
+    AddToRoom(usize),
     Cancel,
 }
 
@@ -243,7 +273,12 @@ fn step_text(step: Option<Step>) -> UiText {
 
 /// The page as `view` stands.
 pub fn doc(view: &FindView) -> PageDoc {
-    let mut blocks = vec![Block::Muted(m::intro().into())];
+    let intro = if view.room {
+        m::intro_room()
+    } else {
+        m::intro()
+    };
+    let mut blocks = vec![Block::Muted(intro.into())];
     if view.sources.is_empty() {
         blocks.push(Block::Note(m::no_sources().into()));
         return PageDoc {
@@ -340,6 +375,9 @@ pub fn doc(view: &FindView) -> PageDoc {
             blocks.push(Block::Note(m::imported(*songs as f64).into()));
         }
         Some(Note::Partial) => blocks.push(Block::Muted(m::partial().into())),
+        Some(Note::AddedToRoom { songs }) => {
+            blocks.push(Block::Note(m::added_to_room(*songs as f64).into()));
+        }
         None => {}
     }
     // The results.
@@ -362,14 +400,27 @@ pub fn doc(view: &FindView) -> PageDoc {
             if r.in_library {
                 tags.push(m::result_in_library().into());
             }
+            match r.room {
+                RoomOffer::InRoom => tags.push(m::result_in_room().into()),
+                RoomOffer::NotForRooms => tags.push(m::result_not_for_rooms().into()),
+                RoomOffer::None | RoomOffer::Add => {}
+            }
+            let busy = view.busy.is_some();
+            // From a room: Add to room in Play's place (nothing is played
+            // over a room), where it may be added.
+            let first = if !view.room {
+                Some(Action::new(format!("play:{i}"), m::play()).off(busy))
+            } else if r.room == RoomOffer::Add {
+                Some(Action::new(format!("add:{i}"), m::add_to_room()).off(busy))
+            } else {
+                None
+            };
+            let import =
+                Action::new(format!("import:{i}"), m::import()).off(busy || r.in_library);
             blocks.push(Block::Entry {
                 text: UiText::data(&r.title).into(),
                 detail: (!tags.is_empty()).then(|| tags.join(" · ")),
-                actions: vec![
-                    Action::new(format!("play:{i}"), m::play()).off(view.busy.is_some()),
-                    Action::new(format!("import:{i}"), m::import())
-                        .off(view.busy.is_some() || r.in_library),
-                ],
+                actions: first.into_iter().chain([import]).collect(),
             });
         }
         if view.more {
@@ -397,6 +448,7 @@ fn press_of(id: &str) -> Option<FindPress> {
         ("remove-folder", Some(i)) => FindPress::RemoveFolder(i),
         ("play", Some(i)) => FindPress::Play(i),
         ("import", Some(i)) => FindPress::Import(i),
+        ("add", Some(i)) => FindPress::AddToRoom(i),
         ("add-folder", None) => FindPress::AddFolder,
         ("search", None) => FindPress::Search,
         ("more", None) => FindPress::More,
@@ -478,6 +530,7 @@ mod tests {
                 title: "Song A".into(),
                 tags: vec!["Artist".into(), "Pack".into()],
                 in_library: true,
+                room: RoomOffer::None,
             }],
             total: Some(3),
             more: true,
@@ -536,6 +589,49 @@ mod tests {
 
     fn ids_of(d: &PageDoc) -> Vec<String> {
         ids(d)
+    }
+
+    #[test]
+    fn from_a_room_a_result_is_added_not_played_and_its_rule_said() {
+        let mut v = view();
+        v.room = true;
+        v.folders = None;
+        v.results = vec![
+            ResultView {
+                id: "a".into(),
+                title: "Song A".into(),
+                room: RoomOffer::Add,
+                ..ResultView::default()
+            },
+            ResultView {
+                id: "b".into(),
+                title: "Song B".into(),
+                room: RoomOffer::NotForRooms,
+                ..ResultView::default()
+            },
+            ResultView {
+                id: "c".into(),
+                title: "Song C".into(),
+                room: RoomOffer::InRoom,
+                ..ResultView::default()
+            },
+        ];
+        let d = doc(&v);
+        let ids = ids(&d);
+        assert!(ids.contains(&"add:0".to_string()), "{ids:?}");
+        assert!(!ids.iter().any(|i| i.starts_with("play:")), "{ids:?}");
+        assert!(!ids.contains(&"add:1".to_string()) && !ids.contains(&"add:2".to_string()));
+        assert_eq!(press_of("add:0"), Some(FindPress::AddToRoom(0)));
+        let details: Vec<String> = d
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                Block::Entry { detail, .. } => Some(detail.clone().unwrap_or_default()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(details[1], m::result_not_for_rooms().as_str());
+        assert_eq!(details[2], m::result_in_room().as_str());
     }
 
     #[test]

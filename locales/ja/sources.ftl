@@ -94,3 +94,17 @@ sources-select-note = { $source }から。ライブラリーにない曲のプ�
 
 sources-filter-style = スタイル
 sources-filter-level = レベル
+
+sources-more-find-room = 追加する曲を探す…
+
+sources-intro-room = ソースからルームに追加する曲を探します。追加した曲はライブラリーに追加されず、このコンピューターからルームに共有されます。
+
+sources-add-to-room = ルームに追加
+
+sources-result-in-room = ルームにあります
+
+sources-result-not-for-rooms = ルーム不可：ソースが許可していません
+
+sources-added-to-room = { $songs }曲をルームに追加しました。このコンピューターからアップロードされ、ライブラリーには追加されません。
+
+sources-pack-fetched = このセッションで取得した曲

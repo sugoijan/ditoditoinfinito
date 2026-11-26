@@ -1651,7 +1651,13 @@ pub fn new_song(song: &SongEntry) -> Option<ddi_room::NewSong> {
         card: ddi_room::SongCard {
             title: cut(&song.title),
             artist: cut(&song.artist),
-            pack: cut(song.pack.as_deref().unwrap_or_default()),
+            // A pack of the screen's own (desktop's fetched songs') is
+            // no pack of the song's: none said.
+            pack: cut(song
+                .pack
+                .as_deref()
+                .filter(|p| !crate::state::place::own_pack(p))
+                .unwrap_or_default()),
         },
         charts: charts
             .into_iter()
@@ -3683,6 +3689,12 @@ impl RoomClient {
             l.hurry();
         }
         let _ = self.send(Command::Leave);
+    }
+
+    /// Whether this player left the online room (whether or not the room
+    /// has read it yet).
+    pub fn has_left(&self) -> bool {
+        self.left_at.is_some()
     }
 
     /// Whether this player left the online room and the room has not
@@ -6954,6 +6966,18 @@ mod tests {
 
     fn cpus(room: &RoomClient) -> usize {
         crate::state::cpu_roster::roster_of(room.rules(), room.humans()).len()
+    }
+
+    #[test]
+    fn a_pack_of_the_screens_own_is_no_songs_pack_to_the_room() {
+        let mut s = song("a");
+        s.pack = Some("Pack A".into());
+        assert_eq!(new_song(&s).unwrap().card.pack, "Pack A");
+        // Desktop's fetched songs on My songs (source plugins, stage 3).
+        s.pack = Some(crate::state::place::FETCHED_PACK.into());
+        assert_eq!(new_song(&s).unwrap().card.pack, "");
+        s.pack = Some(crate::state::place::FAVORITES_PACK.into());
+        assert_eq!(new_song(&s).unwrap().card.pack, "");
     }
 
     #[test]

@@ -693,8 +693,23 @@ pub fn online_room_screen(
 ) -> SelectScreen {
     let room = crate::online::room(id);
     let play = songs.as_ref().map(|s| s.play.clone());
+    online_room_screen_for(env, room, songs, sound, play)
+}
+
+/// [`online_room_screen`] over room client `room` (the run's, or a
+/// test's over the room model's fake room), its stages played through
+/// `play` (the play host's request).
+pub fn online_room_screen_for(
+    env: &Env,
+    room: SharedRoom,
+    songs: Option<Rc<Songs>>,
+    sound: Option<SharedPlayer>,
+    play: Option<Rc<RefCell<Option<crate::play::Request>>>>,
+) -> SelectScreen {
     let close: CloseFn = Rc::new(|cancel, cx| {
         crate::online::discard();
+        // The songs fetched for it let go (`crate::sources::rooms`).
+        crate::sources::rooms::release_all();
         cx.close(cancel);
     });
     let shell = room_shell(room.clone(), songs.is_some(), play, close);
@@ -774,15 +789,39 @@ fn select(
     // (`ddi_ui::state::place::ROOM_KEY`): a new room starts where the last
     // one was, the first where singleplayer's is.
     let place = Rc::new(RefCell::new(MenuPlace::load_room()));
-    let data = songs.data_at(&place.borrow());
+    // An online room's: its My songs fed again as the library and the
+    // songs fetched in this run change (`crate::sources::rooms`, stage 3
+    // of `docs/plans/source-plugins.md`), and those it lists kept for it.
+    let online = room.borrow().is_online();
+    let feed = ddi_ui::screens::select::SharedFeed::default();
+    let data = if online {
+        songs.feed_room(&feed, &place);
+        crate::sources::rooms::watch(&room);
+        songs.room_data_at(&place.borrow())
+    } else {
+        songs.data_at(&place.borrow())
+    };
     // Options and Calibrate (the footer's links) over the room, as from
     // singleplayer's song select: back on it where it was.
     let open = crate::songs::open_fn(songs, sound.clone());
     let songs = songs.clone();
     let shown = env.clone();
+    let finding = online && songs.finding();
+    let finding_offered = finding;
+    let r = room.clone();
     let calls: ddi_ui::screens::select::ShellFn = Rc::new(move |call, cx| match call {
         SelectCall::Open(what) if what == "calibrate" => {
             cx.push(crate::calibrate::menu(&shown, &songs, sound.clone()));
+        }
+        // Find songs to add (the room's More, while a song source is on):
+        // what it finds added to the room's list without importing it.
+        SelectCall::Open(what) if what == "find-songs" && finding => {
+            cx.push(crate::sources::find::room_screen(
+                &shown,
+                &songs,
+                sound.clone(),
+                r.clone(),
+            ));
         }
         SelectCall::Leave => {
             if let Some(sound) = &sound {
@@ -808,6 +847,7 @@ fn select(
         Rc::new(|song, chart, _, _| ddi_ui::state::place::room_picked(&song.id, chart.index)),
         open,
     )
-    .with_shell(calls, Default::default())
+    .with_shell(calls, feed)
+    .with_finding(finding_offered)
     .with_room(room, shell)
 }

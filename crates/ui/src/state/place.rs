@@ -172,6 +172,19 @@ pub fn is_favorites(name: Option<&str>) -> bool {
     name == Some(FAVORITES_PACK)
 }
 
+/// An online room's My songs on desktop: the songs a song source fetched
+/// in this run and not imported (`docs/plans/source-plugins.md`, stage
+/// 3), a pack of the screen's own as the favorites' is, shown by its
+/// message (`sources-pack-fetched`), never a song's real pack (what the
+/// room is told of a song added from it says none, [`own_pack`]).
+pub const FETCHED_PACK: &str = "\u{1}fetched";
+
+/// Whether `name` is a pack of the screen's own (the favorites', the
+/// fetched songs'), never a library's: no folder's name holds U+0001.
+pub fn own_pack(name: &str) -> bool {
+    name.starts_with('\u{1}')
+}
+
 /// Whether `a` and `b` name the same pack: equal ignoring case, as song
 /// select groups packs (`select_view::select_data`, by `str::to_lowercase`),
 /// so "Ünïcode" and "üNÏCODE" are one pack here too.

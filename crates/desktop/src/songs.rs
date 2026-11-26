@@ -97,6 +97,23 @@ pub struct Songs {
     /// What wakes the event loop for the sources' news, once
     /// [`Songs::start`] has it (the host is made before).
     sources_wake: Arc<std::sync::Mutex<Option<Wake>>>,
+    /// An online room's song select while it is there: fed the library
+    /// and this run's fetched songs again when they change
+    /// ([`Songs::room_data_at`], `crate::sources::rooms`).
+    room_select: RefCell<Option<RoomSelect>>,
+    /// [`Songs::library_keys`] as last worked out, and the library's size
+    /// then (worked out again when it changes, or the scan reads it).
+    keys: RefCell<Option<(usize, Rc<std::collections::HashSet<String>>)>>,
+}
+
+/// An online room's song select as the library feeds it.
+struct RoomSelect {
+    feed: std::rc::Weak<RefCell<ddi_ui::screens::select::Feed>>,
+    place: std::rc::Weak<RefCell<MenuPlace>>,
+    /// The fetched songs its My songs was given last, by id, and the
+    /// store's generation and the library's size they were read at.
+    fetched: Vec<String>,
+    read_at: (u64, usize),
 }
 
 /// A share being read, or read.
@@ -166,6 +183,8 @@ impl Songs {
             download_seen: RefCell::default(),
             sources: RefCell::default(),
             sources_wake: Arc::default(),
+            room_select: RefCell::default(),
+            keys: RefCell::default(),
         })
     }
 
@@ -526,6 +545,173 @@ impl Songs {
         data
     }
 
+    /// Every song's `song_key` the library and the bundled songs have (a
+    /// room's list names a song by it): what is "In your library", and
+    /// what a room's fetched songs leave out.
+    pub fn library_keys(&self) -> Rc<std::collections::HashSet<String>> {
+        let size = self.library.borrow().as_ref().map_or(0, |l| l.songs.len());
+        if let Some((n, keys)) = self.keys.borrow().as_ref()
+            && *n == size
+        {
+            return keys.clone();
+        }
+        let keys = Rc::new(self.work_out_keys());
+        *self.keys.borrow_mut() = Some((size, keys.clone()));
+        keys
+    }
+
+    fn work_out_keys(&self) -> std::collections::HashSet<String> {
+        let library = self.library.borrow();
+        let songs: Vec<&ManifestEntry> = library
+            .as_ref()
+            .map(|l| {
+                l.songs
+                    .iter()
+                    .filter(|s| s.fetched.is_none())
+                    .map(|s| &s.entry)
+                    .collect()
+            })
+            .unwrap_or_default();
+        songs
+            .into_iter()
+            .chain(self.bundled.iter())
+            .filter_map(|e| {
+                let digests: Option<Vec<String>> = e
+                    .charts
+                    .iter()
+                    .filter(|c| c.derivation.is_none())
+                    .map(|c| c.digest.map(|d| d.to_string()))
+                    .collect();
+                digests
+                    .filter(|d| !d.is_empty())
+                    .map(|d| ddi_library::share::song_key(d.iter().map(String::as_str)))
+            })
+            .collect()
+    }
+
+    /// An online room's song select's data at `place`: the library's, and
+    /// where a song source is on the songs fetched in this run that a room
+    /// may be given (`crate::sources::fetched::for_rooms`), in a pack of
+    /// their own at the top ("Fetched this session",
+    /// `ddi_ui::state::place::FETCHED_PACK`), so that the room's client
+    /// knows them (`RoomClient::set_library`) and they can be added from
+    /// My songs (`docs/plans/source-plugins.md`, stage 3).
+    pub fn room_data_at(&self, place: &MenuPlace) -> SelectData {
+        if !self.finding() {
+            return self.data_at(place);
+        }
+        let fetched = crate::sources::fetched::for_rooms(&self.library_keys());
+        if fetched.is_empty() {
+            return self.data_at(place);
+        }
+        let settings = Settings::load();
+        let empty = ddi_ui::state::history::History::default();
+        let history = self.plays.as_ref().map(|p| p.history());
+        let mut data = self.listed(|songs| {
+            let all: Vec<Listed<'_>> = fetched
+                .iter()
+                .map(|s| Listed {
+                    pack: Some(ddi_ui::state::place::FETCHED_PACK.into()),
+                    pack_banner: None,
+                    ..s.listed(false)
+                })
+                .chain(songs.iter().cloned())
+                .collect();
+            select_view::select_data(
+                &all,
+                &|_| false,
+                &settings,
+                history.as_deref().unwrap_or(&empty),
+                place,
+            )
+        });
+        data.loading = self.library.borrow().as_ref().is_none_or(|l| l.scanning);
+        data.autoplay = self.autoplay.get();
+        data
+    }
+
+    /// An online room's song select is fed from `feed` at `place` from
+    /// now on ([`Songs::send_room`]).
+    pub fn feed_room(&self, feed: &SharedFeed, place: &Rc<RefCell<MenuPlace>>) {
+        *self.room_select.borrow_mut() = Some(RoomSelect {
+            feed: Rc::downgrade(feed),
+            place: Rc::downgrade(place),
+            fetched: self.room_fetched(),
+            read_at: self.room_read_at(),
+        });
+    }
+
+    /// The store's generation and the library's size: the fetched songs a
+    /// room is given move only with them.
+    fn room_read_at(&self) -> (u64, usize) {
+        let store = crate::sources::fetched::store()
+            .and_then(|s| s.lock().ok().map(|s| s.generation()))
+            .unwrap_or(0);
+        let size = self.library.borrow().as_ref().map_or(0, |l| l.songs.len());
+        (store, size)
+    }
+
+    /// The fetched songs a room's My songs shows now, by id.
+    fn room_fetched(&self) -> Vec<String> {
+        if !self.finding() {
+            return Vec::new();
+        }
+        crate::sources::fetched::for_rooms(&self.library_keys())
+            .into_iter()
+            .map(|s| s.entry.id)
+            .collect()
+    }
+
+    /// The room's songs kept checked (`crate::sources::rooms::sync`), and
+    /// its song select fed again where the library changed (`library`) or
+    /// the fetched songs it may be given did; whether it was.
+    fn poll_room(&self, ui: &mut Ui, library: bool) -> bool {
+        crate::sources::rooms::sync();
+        if library {
+            *self.keys.borrow_mut() = None;
+        }
+        let (feed, place) = {
+            let select = self.room_select.borrow();
+            let Some(r) = select.as_ref() else {
+                return false;
+            };
+            match (r.feed.upgrade(), r.place.upgrade()) {
+                (Some(f), Some(p)) => (f, p),
+                _ => {
+                    drop(select);
+                    *self.room_select.borrow_mut() = None;
+                    return false;
+                }
+            }
+        };
+        let read_at = self.room_read_at();
+        let unread = self
+            .room_select
+            .borrow()
+            .as_ref()
+            .is_some_and(|r| r.read_at != read_at);
+        if !unread && !library {
+            return false;
+        }
+        let fetched = self.room_fetched();
+        let moved = self
+            .room_select
+            .borrow()
+            .as_ref()
+            .is_some_and(|r| r.fetched != fetched);
+        if let Some(r) = self.room_select.borrow_mut().as_mut() {
+            r.fetched = fetched;
+            r.read_at = read_at;
+        }
+        if !moved && !library {
+            return false;
+        }
+        let data = self.room_data_at(&place.borrow());
+        feed.borrow_mut().data = Some(data);
+        ui.broadcast(Message::new(FEED));
+        true
+    }
+
     /// The chart `place` shows: its prompt's diagram's skin readied ahead
     /// (the shell's field preview, `Field::warm`).
     pub fn warm_shown(&self, place: &ddi_ui::screens::select::SelectPlace, settings: &Settings) {
@@ -688,11 +874,12 @@ impl Songs {
                 r.library_changed();
             }
         }
+        let room = self.poll_room(ui, scanned || history);
         if scanned || history {
             self.send(ui);
             return true;
         }
-        false
+        room
     }
 
     /// The library knows its songs (no scan running): the history's

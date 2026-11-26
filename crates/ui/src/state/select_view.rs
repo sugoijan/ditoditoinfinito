@@ -20,14 +20,19 @@ use crate::screens::data::{
     Best, ChartEntry, ImportView, PackEntry, SelectData, SongEntry, StyleDef,
 };
 
-/// A pack's name as the screens show it: the bundled songs' (`None`) and
-/// the favorites' ([`super::place::FAVORITES_PACK`]) by their messages
-/// (`select-pack-bundled`, `select-pack-favorites`), any other as data
+/// A pack's name as the screens show it: the bundled songs' (`None`), the
+/// favorites' ([`super::place::FAVORITES_PACK`]) and desktop's fetched
+/// songs' ([`super::place::FETCHED_PACK`]) by their messages
+/// (`select-pack-bundled`, `select-pack-favorites`,
+/// `sources-pack-fetched`), any other as data
 /// (the name its folder or its files give it).
 pub fn pack_label(name: Option<&str>) -> ddi_l10n::UiText {
     match name {
         None => ddi_l10n::msg::select::pack_bundled(),
         Some(super::place::FAVORITES_PACK) => ddi_l10n::msg::select::pack_favorites(),
+        // Desktop's alone (its message's area is not the web's).
+        #[cfg(not(target_arch = "wasm32"))]
+        Some(super::place::FETCHED_PACK) => ddi_l10n::msg::sources::pack_fetched(),
         Some(name) => ddi_l10n::UiText::data(name),
     }
 }

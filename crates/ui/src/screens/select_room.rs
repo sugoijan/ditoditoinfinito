@@ -65,6 +65,10 @@ const MORE_REMOVE: &str = "room-remove-song";
 const MORE_RETRY_UPLOAD: &str = "room-retry-upload";
 const MORE_ADD_PACK: &str = "room-add-pack";
 const MORE_FOLD: &str = "room-fold-players";
+/// Desktop's Find songs to add (`docs/plans/source-plugins.md`, stage 3):
+/// song sources' songs added to the room's list without importing them.
+#[cfg(not(target_arch = "wasm32"))]
+const MORE_FIND: &str = "room-find-songs";
 /// A listed song this device does not have, as the Room songs tab names
 /// it (its entry's id after it).
 use crate::screens::data::ROOM_SONG_ID;
@@ -1436,6 +1440,14 @@ impl SelectScreen {
                 Tab::Mine => ddi_l10n::msg::room::tab_room_songs(),
             };
             last.push((MORE_TAB.into(), label.into()));
+            // Desktop's song sources, on either tab, to who may add.
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.finding && rm.room.borrow().may_add() {
+                last.push((
+                    MORE_FIND.into(),
+                    ddi_l10n::msg::sources::more_find_room().into(),
+                ));
+            }
             // My songs: the shown song's whole pack added at once.
             if rm.tab == Tab::Mine
                 && let Some(pack) = self.song().and_then(|s| s.pack.clone())
@@ -1751,6 +1763,11 @@ impl SelectScreen {
         if crate::screens::menu_pick(msg, room::MORE) == Some(MORE_FOLD) {
             self.toggle_panel(root, cx);
             cx.focus("Wheel");
+            return;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if crate::screens::menu_pick(msg, room::MORE) == Some(MORE_FIND) {
+            self.call(SelectCall::Open("find-songs".into()), cx);
             return;
         }
         // The list's items (revision 17).

@@ -9,6 +9,13 @@
 //!
 //! A source that fails says so on the page, in the game's words (its own
 //! as Details), and the game goes on.
+//!
+//! Opened from an online room (stage 3, [`room_screen`]): a result is
+//! added to the room's list (Add to room, fetched first where the library
+//! does not have it) through the room's client as My songs adds a song,
+//! with the same checks and the same words, its item kept for the room
+//! (`super::rooms`); a source or an item whose rule keeps its songs out
+//! of rooms offers no Add to room and says so.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
@@ -20,10 +27,13 @@ use ddi_source_host::protocol::{FailCode, ItemMeta, OpId, Step as HostStep};
 use ddi_source_host::store::{FetchedSong, ItemKey};
 use ddi_ui::Cx;
 use ddi_ui::screens::Env;
+use ddi_ui::screens::data::SongEntry;
 use ddi_ui::screens::find_songs::{
-    Busy, FindModel, FindPress, FindView, Note, Problem, ResultView, SourceName, SourceView,
-    Step,
+    Busy, FindModel, FindPress, FindView, Note, Problem, ResultView, RoomOffer, SourceName,
+    SourceView, Step,
 };
+use ddi_ui::screens::room_dialogs::NoticeDialog;
+use ddi_ui::state::room::{Refusal, SharedRoom, Unsupported};
 
 use super::this_computer;
 use crate::preview::SharedPlayer;
@@ -40,6 +50,8 @@ const PAGE: u32 = 50;
 enum Purpose {
     Play,
     Import,
+    /// Added to the online room the page was opened from.
+    Room,
 }
 
 struct Fetching {
@@ -87,16 +99,27 @@ pub struct Finder {
     off: BTreeMap<String, Problem>,
     /// The library's songs' keys (`song_key`), for "In your library",
     /// and how many songs it had when they were worked out.
-    library_keys: HashSet<String>,
+    library_keys: Rc<HashSet<String>>,
     library_seen: usize,
     /// Items imported before, by source and item (the import's catalog).
     imported: HashSet<(String, String)>,
     /// A found item's songs to show over the page (the next frame).
     show: Option<(String, Vec<FetchedSong>)>,
+    /// The online room the page was opened from (stage 3), and its
+    /// version as last shown.
+    room: Option<SharedRoom>,
+    room_seen: u64,
+    /// A fetched item's songs to add to the room (the next frame).
+    add: Option<Vec<FetchedSong>>,
 }
 
 impl Finder {
-    pub fn new(env: Env, songs: Rc<Songs>, sound: Option<SharedPlayer>) -> Finder {
+    pub fn new(
+        env: Env,
+        songs: Rc<Songs>,
+        sound: Option<SharedPlayer>,
+        room: Option<SharedRoom>,
+    ) -> Finder {
         // What was read of the folders before is read again.
         if let Some(t) = songs
             .sources
@@ -126,13 +149,16 @@ impl Finder {
             details: None,
             note: None,
             off: BTreeMap::new(),
-            library_keys: HashSet::new(),
+            library_keys: Rc::default(),
             library_seen: usize::MAX,
             imported: super::import::catalog()
                 .into_iter()
                 .map(|r| (r.source, r.item))
                 .collect(),
             show: None,
+            room,
+            room_seen: 0,
+            add: None,
         };
         f.library_changed();
         // This computer with folders, or a plugin: everything listed at
@@ -192,34 +218,198 @@ impl Finder {
             .map_or(0, |l| l.songs.len());
         if n != self.library_seen {
             self.library_seen = n;
-            self.library_keys = self.library_keys();
+            self.library_keys = self.songs.library_keys();
             self.changed();
         }
     }
 
-    /// Every library song's `song_key`.
-    fn library_keys(&self) -> HashSet<String> {
-        let library = self.songs.library.borrow();
-        let Some(l) = library.as_ref() else {
-            return HashSet::new();
+    /// Whether result `r`'s songs may be added to a room by their
+    /// source's rule, narrowed by the item's own (never widened).
+    fn rooms_allow(&self, r: &ItemMeta) -> bool {
+        use ddi_source_host::protocol::RoomRule;
+        let source = self
+            .chosen_id()
+            .and_then(|id| Some(self.songs.sources.borrow().as_ref()?.room_rule(&id)))
+            .unwrap_or(RoomRule::None);
+        source == RoomRule::Upload && r.rooms != Some(RoomRule::None)
+    }
+
+    /// What result `r` offers the room the page was opened from.
+    fn room_offer(&self, r: &ItemMeta) -> RoomOffer {
+        let Some(room) = &self.room else {
+            return RoomOffer::None;
         };
-        l.songs
-            .iter()
-            .filter(|s| s.fetched.is_none())
-            .map(|s| &s.entry)
-            .chain(self.songs.bundled.iter())
-            .filter_map(|e| {
-                let digests: Option<Vec<String>> = e
-                    .charts
+        if !self.rooms_allow(r) {
+            return RoomOffer::NotForRooms;
+        }
+        // By the key its source states, else by its songs as fetched in
+        // this run (a source that states none).
+        let mut keys: Vec<String> = r.song_key.iter().cloned().collect();
+        if keys.is_empty()
+            && let Some(source) = self.chosen_id()
+            && let Some(store) = super::fetched::store()
+            && let Ok(st) = store.lock()
+        {
+            let key = ItemKey::of(&source, &r.id, r.revision.as_deref());
+            keys.extend(
+                st.songs(key)
+                    .unwrap_or_default()
                     .iter()
-                    .filter(|c| c.derivation.is_none())
-                    .map(|c| c.digest.map(|d| d.to_string()))
-                    .collect();
-                digests
-                    .filter(|d| !d.is_empty())
-                    .map(|d| ddi_library::share::song_key(d.iter().map(String::as_str)))
+                    .filter_map(|s| s.song_key.clone()),
+            );
+        }
+        let room = room.borrow();
+        let listed = keys
+            .into_iter()
+            .any(|k| room.state().songs.by_key(&ddi_room::SongKey::new(k)).is_some());
+        if listed {
+            RoomOffer::InRoom
+        } else {
+            RoomOffer::Add
+        }
+    }
+
+    /// The room's own checks before an addition, as My songs makes them
+    /// (`RoomClient::may_add`, `add_blocked`): the refusal in its words.
+    fn room_refusal(room: &SharedRoom) -> Option<Refusal> {
+        let r = room.borrow();
+        if !r.may_add() {
+            return Some(Refusal::Room(ddi_room::Rejection::Unauthorized {
+                capability: ddi_room::Capability::AddSongs,
+            }));
+        }
+        r.add_blocked().map(Refusal::Room)
+    }
+
+    /// Charts of styles `styles` the room cannot play at all (its CPUs'
+    /// four lanes, one player): refused as a library song's would be,
+    /// where none of them is playable.
+    fn unplayable<'a>(room: &SharedRoom, mut styles: impl Iterator<Item = &'a str>) -> Option<Refusal> {
+        let r = room.borrow();
+        let first = styles.next()?;
+        if r.style_playable(first) || styles.any(|s| r.style_playable(s)) {
+            return None;
+        }
+        Some(Refusal::Chart(Unsupported::Layout {
+            style: first.to_string(),
+        }))
+    }
+
+    /// Result `i` added to the room: the room's checks first; the
+    /// library's own copy where it has the song, else fetched first.
+    fn add_to_room(&mut self, i: usize, cx: &mut Cx) {
+        if self.fetching.is_some() || self.importing.is_some() {
+            return;
+        }
+        let (Some(room), Some(item)) = (self.room.clone(), self.results.get(i).cloned()) else {
+            return;
+        };
+        if !self.rooms_allow(&item) {
+            return;
+        }
+        let refused = Self::room_refusal(&room)
+            .or_else(|| Self::unplayable(&room, item.charts.iter().map(|c| c.style.as_str())));
+        if let Some(why) = refused {
+            NoticeDialog::show_refusal(self.env.clone(), &room, &why, cx);
+            return;
+        }
+        let mine = item
+            .song_key
+            .as_ref()
+            .filter(|k| self.library_keys.contains(*k))
+            .and_then(|k| {
+                self.songs
+                    .data()
+                    .songs
+                    .into_iter()
+                    .find(|s| ddi_ui::state::room::song_key(s).as_ref() == Some(k))
+            });
+        match mine {
+            Some(song) => self.add_entries(&room, vec![song], false, cx),
+            None => self.fetch(i, Purpose::Room),
+        }
+    }
+
+    /// `entries` added to `room`'s list as My songs adds songs (one, or a
+    /// pack's at once), refused in the room's words; a fetched song's item
+    /// kept for the room (`fetched`).
+    fn add_entries(&mut self, room: &SharedRoom, entries: Vec<SongEntry>, fetched: bool, cx: &mut Cx) {
+        let originals = |e: &SongEntry| -> Vec<String> {
+            e.charts
+                .iter()
+                .filter(|c| c.version.is_none())
+                .map(|c| c.style.clone())
+                .collect()
+        };
+        let playable: Vec<SongEntry> = entries
+            .iter()
+            .filter(|e| {
+                let styles = originals(e);
+                Self::unplayable(room, styles.iter().map(String::as_str)).is_none()
+                    && !styles.is_empty()
             })
-            .collect()
+            .cloned()
+            .collect();
+        if playable.is_empty() {
+            let styles: Vec<String> = entries.iter().flat_map(originals).collect();
+            let why = Self::unplayable(room, styles.iter().map(String::as_str)).unwrap_or(
+                Refusal::Chart(Unsupported::NoDigest),
+            );
+            NoticeDialog::show_refusal(self.env.clone(), room, &why, cx);
+            return;
+        }
+        let fresh: Vec<SongEntry> = {
+            let r = room.borrow();
+            playable.iter().filter(|e| r.listed(e).is_none()).cloned().collect()
+        };
+        let added = if playable.len() == 1 {
+            room.borrow_mut().add_song(&playable[0]).map(|()| 1)
+        } else {
+            room.borrow_mut().add_pack(&playable)
+        };
+        let added = match added {
+            // None of a pack's (all listed, or no room left): the room's
+            // words for the first.
+            Ok(0) => room.borrow_mut().add_song(&playable[0]).map(|()| 1),
+            other => other,
+        };
+        match added {
+            Ok(n) => {
+                if fetched {
+                    for e in &fresh {
+                        super::rooms::keep(e);
+                    }
+                }
+                self.note = Some(Note::AddedToRoom { songs: n });
+            }
+            Err(why) => NoticeDialog::show_refusal(self.env.clone(), room, &why, cx),
+        }
+        self.changed();
+    }
+
+    /// A fetched item's songs added to the room: its rule as the store
+    /// has it (the source's, narrowed by the item's), then as any song.
+    fn add_fetched(&mut self, songs: Vec<FetchedSong>, cx: &mut Cx) {
+        let Some(room) = self.room.clone() else {
+            return;
+        };
+        let allowed = songs.first().is_some_and(|s| {
+            super::fetched::store()
+                .and_then(|st| st.lock().ok()?.origin(s.key).map(|o| o.rooms))
+                .is_some_and(|r| r == ddi_source_host::protocol::RoomRule::Upload)
+        });
+        if !allowed {
+            self.problem = Some(Problem::Refused);
+            self.changed();
+            return;
+        }
+        if let Some(why) = Self::room_refusal(&room) {
+            NoticeDialog::show_refusal(self.env.clone(), &room, &why, cx);
+            return;
+        }
+        let ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
+        let entries = crate::songs::found_data(&self.songs, String::new(), &ids).songs;
+        self.add_entries(&room, entries, true, cx);
     }
 
     fn request(&mut self, source: &str, request: Request) -> Option<OpId> {
@@ -303,6 +493,20 @@ impl Finder {
         self.problem = None;
         self.details = None;
         self.note = None;
+        // For a room, an item fetched already in this run is used as it
+        // is (it may be held: a song added before, then removed).
+        if purpose == Purpose::Room {
+            let key = ItemKey::of(&source, &item.id, item.revision.as_deref());
+            let songs = super::fetched::store().and_then(|st| {
+                let mut st = st.lock().ok()?;
+                st.contains(key).then(|| st.songs(key).map(<[FetchedSong]>::to_vec))?
+            });
+            if let Some(songs) = songs.filter(|s| !s.is_empty()) {
+                self.add = Some(songs);
+                self.changed();
+                return;
+            }
+        }
         let op = self.request(
             &source,
             Request::Fetch {
@@ -526,6 +730,7 @@ impl Finder {
                 match f.purpose {
                     Purpose::Play => self.show = Some((self.chosen_name(), songs)),
                     Purpose::Import => self.import(f, key, songs),
+                    Purpose::Room => self.add = Some(songs),
                 }
                 self.changed();
             }
@@ -646,6 +851,7 @@ impl FindModel for Finder {
                     .as_ref()
                     .is_some_and(|k| self.library_keys.contains(k))
                     || self.imported.contains(&(source.clone(), r.id.clone())),
+                room: self.room_offer(r),
             })
             .collect();
         let busy = if let Some(i) = &self.importing {
@@ -677,10 +883,11 @@ impl FindModel for Finder {
             problem: self.problem,
             details: self.details.clone(),
             note: self.note.clone(),
+            room: self.room.is_some(),
         }
     }
 
-    fn press(&mut self, press: FindPress, _cx: &mut Cx) {
+    fn press(&mut self, press: FindPress, cx: &mut Cx) {
         match press {
             FindPress::Source(i) => {
                 if i != self.chosen && i < self.offered().len() {
@@ -695,6 +902,7 @@ impl FindModel for Finder {
             FindPress::More => self.more(),
             FindPress::Play(i) => self.fetch(i, Purpose::Play),
             FindPress::Import(i) => self.fetch(i, Purpose::Import),
+            FindPress::AddToRoom(i) => self.add_to_room(i, cx),
             FindPress::Cancel => {
                 if let Some((op, _)) = self.search.take() {
                     self.cancel(op);
@@ -727,6 +935,17 @@ impl FindModel for Finder {
                 Some(at) if now - at >= REST_S => self.search_now(),
                 Some(_) => {}
             }
+        }
+        // The room's list moved (an entry added, removed): "In the room".
+        if let Some(room) = &self.room {
+            let v = room.borrow().version();
+            if v != self.room_seen {
+                self.room_seen = v;
+                self.changed();
+            }
+        }
+        if let Some(songs) = self.add.take() {
+            self.add_fetched(songs, cx);
         }
         if let Some((source, songs)) = self.show.take() {
             let ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
@@ -776,6 +995,23 @@ pub fn screen(
     songs: &Rc<Songs>,
     sound: Option<SharedPlayer>,
 ) -> ddi_ui::screens::find_songs::FindScreen {
-    let model = Rc::new(RefCell::new(Finder::new(env.clone(), songs.clone(), sound)));
+    let model = Rc::new(RefCell::new(Finder::new(env.clone(), songs.clone(), sound, None)));
+    ddi_ui::screens::find_songs::screen(env.clone(), model)
+}
+
+/// The Find songs page over `songs`' sources opened from online room
+/// `room` (its More, stage 3): what it finds added to the room's list.
+pub fn room_screen(
+    env: &Env,
+    songs: &Rc<Songs>,
+    sound: Option<SharedPlayer>,
+    room: SharedRoom,
+) -> ddi_ui::screens::find_songs::FindScreen {
+    let model = Rc::new(RefCell::new(Finder::new(
+        env.clone(),
+        songs.clone(),
+        sound,
+        Some(room),
+    )));
     ddi_ui::screens::find_songs::screen(env.clone(), model)
 }

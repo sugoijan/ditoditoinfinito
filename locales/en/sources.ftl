@@ -172,3 +172,38 @@ sources-select-note = From { $source }. Plays of songs not in your library are n
 # and their level (a range of meters).
 sources-filter-style = Style
 sources-filter-level = Level
+
+# Find songs opened from an online room (stage 3): songs found added to
+# the room's song list without being added to the library.
+
+# The online room's More item that opens the page (desktop, while song
+# sources are on, for whoever may add songs to the room). A menu item.
+sources-more-find-room = Find songs to add…
+
+# The page's first line from a room, muted, wrapped: what the page does
+# there.
+sources-intro-room = Search a source for songs to add to the room. A song you add is shared with the room from here, without being added to your library.
+
+# A result's button from a room: add its songs to the room's song list.
+sources-add-to-room = Add to room
+
+# A tag of a result's line (joined by " · "): the room's list has the same
+# song already.
+sources-result-in-room = In the room
+
+# A tag of a result's line: its source (or the source for this song) does
+# not allow its songs in online rooms, so it has no Add to room button.
+sources-result-not-for-rooms = Not for rooms: its source does not allow it
+
+# After Add to room: its songs are in the room's list; each is uploaded
+# from this computer, as any song added to a room.
+# Variables:
+#   $songs (Number) - how many songs were added
+sources-added-to-room = { $songs ->
+    [one] Added to the room. It is uploaded from this computer and not added to your library.
+   *[other] Added { $songs } songs to the room. They are uploaded from this computer and not added to your library.
+}
+
+# An online room's My songs: the pack of songs found with Find songs in
+# this run and not imported (a pack's header, and the song's pack line).
+sources-pack-fetched = Fetched this session
