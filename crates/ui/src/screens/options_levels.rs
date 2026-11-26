@@ -232,7 +232,7 @@ pub fn advanced_in_effect(s: &Settings) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::rc::Rc;
 
     use ddi_platform::storage::{self, Area, MemoryStore};
@@ -254,7 +254,7 @@ mod tests {
     /// shown (devices, controllers, pump skins, an announcer's tags and
     /// parameters, sharing, song folders, the chat, the covers), under
     /// DDI and under StepMania's rules, on both shells.
-    fn fullest() -> Vec<OptionsModel> {
+    pub(crate) fn fullest() -> Vec<OptionsModel> {
         use ddi_library::announcer::Kept;
         let mut kept = Kept {
             name: "Mine".into(),

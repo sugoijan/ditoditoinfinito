@@ -90,6 +90,8 @@ pub mod options_levels;
 pub mod options_model;
 pub mod options_shell;
 #[cfg(test)]
+mod options_rows_tests;
+#[cfg(test)]
 mod options_tests;
 pub mod page;
 #[cfg(test)]

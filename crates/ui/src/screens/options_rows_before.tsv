@@ -1,0 +1,998 @@
+full-Web-ddi	Advanced	speed	Basic	Speed	40 values #7a2900995841ee9c	9	Some(9)	278ce4771de87daf	in Scroll
+full-Web-ddi	Advanced	speed_source	Advanced	Charts with their own speed	Mine|The chart's	0	Some(0)	e6cbf615c028f647	in Scroll
+full-Web-ddi	Advanced	reverse	Basic	Reverse	Off|On	0	Some(0)	009b705cf8dd119f	in Scroll
+full-Web-ddi	Advanced	scroll_action	Advanced	Scroll action	Normal|Boost|Brake|Wave	0	Some(0)	3e4efc74db4a4f78	in Scroll
+full-Web-ddi	Advanced	turn	Advanced	Turn	Off|Mirror|Left|Right|Shuffle	0	Some(0)	246f6e22de9a12be	in Notes
+full-Web-ddi	Advanced	appearance	Advanced	Appearance	Normal|Hidden|Sudden|Both|Stealth	0	Some(0)	4ede7cdb6f1316ec	in Notes
+full-Web-ddi	Advanced	lane_cover	Advanced	Lane cover	Off|Sudden+|Hidden+|Both	3	Some(0)	54753b0fcef9683e	in Notes
+full-Web-ddi	Advanced	cover_sudden	Advanced	Sudden+ height	101 values #735cc38ecf9a39e1	25	Some(25)	a2320184005ab351	in Notes
+full-Web-ddi	Advanced	cover_hidden	Advanced	Hidden+ height	101 values #735cc38ecf9a39e1	25	Some(25)	c60a99a7d79e76b5	in Notes
+full-Web-ddi	Advanced	cut	Basic	Notes	All|Quarters|Quarters and eighths	0	Some(0)	d7c8e6b10151ac9e	in Notes
+full-Web-ddi	Advanced	simplify_onigiri	Advanced	Without onigiri	Off|On	0	Some(0)	d3d9a9d772fe92c1	in Notes
+full-Web-ddi	Advanced	simplify_center	Advanced	Without center	Off|Where missing|All	1	Some(1)	67f7d466fb3f6a29	in Notes
+full-Web-ddi	Advanced	at_once	Basic	At once	Any|Up to two|One	0	Some(0)	994f5c7440d90cbe	in Notes
+full-Web-ddi	Advanced	no_stretch	Advanced	No stretch	Off|On	0	Some(0)	73d5595dd468b5f3	in Notes
+full-Web-ddi	Advanced	no_holds	Basic	No holds	Off|On	0	Some(0)	3ea69f20d6f6de79	in Notes
+full-Web-ddi	Advanced	convert_pump_single	Advanced	Pump on 5 keys	Off|On	1	Some(1)	7f9003151d15a81f	in Notes
+full-Web-ddi	Advanced	convert_five_keys	Advanced	5 keys on Pump	Off|On	1	Some(1)	df5931905fbe08e3	in Notes
+full-Web-ddi	Advanced	ruleset_mode	Advanced	Rules for each chart	The ruleset below|The chart's game|Dancing☆Onigiri	0	Some(0)	64f8185af99999c4	in Rules
+full-Web-ddi	Advanced	ruleset	Advanced	Ruleset	8 values #f178eff0b2cf1dcf	0	Some(0)	d11fc853044fa32f	in Rules
+full-Web-ddi	Advanced	ddi.difficulty	Basic	Timing difficulty	Easy|Normal|Hard	1	Some(1)	1ec6e65ebf2672e4	in Rules
+full-Web-ddi	Advanced	ddi.boos	Advanced	Boos	Off|On	0	Some(0)	900e5537f20dfb8b	in Rules
+full-Web-ddi	Advanced	ddi.practice	Basic	Practice	Off|On	0	Some(0)	ceb18cdf5bd1c18d	in Rules
+full-Web-ddi	Advanced	ddi.score	Basic	Score display	Score|Percent	0	Some(0)	b0af96808a7365a7	in Rules
+full-Web-ddi	Advanced	ddi.words	Basic	Judgment words	English|日本語|Same as game language	0	Some(0)	5169d73eedd28ff7	in Rules
+full-Web-ddi	Advanced	rejudge	Advanced	Kept plays	Judge again	0	None	-	in Rules
+full-Web-ddi	Advanced	danoni.gauge	Advanced	Gauge	10 values #d2bed868e2fc5c51	0	Some(0)	10900b66b423bb1a	in Rules
+full-Web-ddi	Advanced	danoni.range	Advanced	Judge range	Normal|Narrow|Hard|ExHard	0	Some(0)	ed1b8c20296ebf22	in Rules
+full-Web-ddi	Advanced	danoni.excessive	Advanced	Excessive	As the chart says|Off|On	0	Some(0)	1b3178759d3b55b0	in Rules
+full-Web-ddi	Advanced	calibrate	Basic	Calibration	Calibrate	0	None	-	in Timing
+full-Web-ddi	Advanced	audio_offset	Advanced	Default audio offset	1001 values #fa54cbcd20232380	500	Some(500)	8036c10aa3945d8d	in Timing
+full-Web-ddi	Advanced	visual_offset	Advanced	Default visual offset	1001 values #fa54cbcd20232380	500	Some(500)	88585bfe73de46a1	in Timing
+full-Web-ddi	Advanced	profile.audio.0	Advanced	Audio: audio:a	1001 values #fa54cbcd20232380	510	None	dccc3293478fa989	in Timing
+full-Web-ddi	Advanced	forget.audio.0	Advanced		Forget	0	None	-	in Timing
+full-Web-ddi	Advanced	profile.display.0	Advanced	Display: display:a	1001 values #fa54cbcd20232380	510	None	5f70e864e25d4405	in Timing
+full-Web-ddi	Advanced	forget.display.0	Advanced		Forget	0	None	-	in Timing
+full-Web-ddi	Advanced	volume	Basic	Volume	101 values #735cc38ecf9a39e1	69	Some(69)	7b92e3d167d0df3d	in Sound
+full-Web-ddi	Advanced	sample	Basic	Sample	Play a sample	0	None	-	in Sound
+full-Web-ddi	Advanced	assist_clap	Basic	Assist clap	Off|On	0	Some(0)	223b6d739d368ec3	in Sound
+full-Web-ddi	Advanced	mine_sound	Advanced	Mine sound	Off|On	1	Some(1)	bdb0fdc1df16c791	in Sound
+full-Web-ddi	Advanced	announcer	Basic	Announcer	Off|Mine	1	Some(2)	33a107722064002e	in Sound
+full-Web-ddi	Advanced	announcer.tag.profanity	Advanced	Profanity	Off|On	0	Some(0)	4a3d353991ab08cb	in Sound
+full-Web-ddi	Advanced	announcer.param.Mood	Advanced	Mood	Normal|Calm	0	Some(0)	124eae82a736ac13	in Sound
+full-Web-ddi	Advanced	announcer_volume	Basic	Announcer volume	101 values #735cc38ecf9a39e1	100	Some(100)	24548c67852dd8e1	in Sound
+full-Web-ddi	Advanced	announcer.remove	Basic	This announcer	Remove	0	None	-	in Sound
+full-Web-ddi	Advanced	announcer.studio	Basic	Your own announcer	Make one…	0	None	-	in Sound
+full-Web-ddi	Advanced	field_place	Advanced	Field position	Center|Left|Right|Near left|Near right	0	Some(0)	409d2b5b3ef6bd7a	in Display
+full-Web-ddi	Advanced	show_deltas	Advanced	Timing error of each hit	Off|On	0	Some(0)	874b5d47238689e5	in Display
+full-Web-ddi	Advanced	opponent_fields	Advanced	Opponents' fields	As many as fit|Up to eight	0	Some(0)	cdcb67d9d157876f	in Display
+full-Web-ddi	Advanced	twitch_chat	Basic	Twitch chat in rooms	Off|Emotes|Emotes and messages	2	Some(0)	4750939466761cf5	in Display
+full-Web-ddi	Advanced	chat_style	Advanced	Chat style	Across|Falling	0	Some(0)	e9c1e3056f548d7e	in Display
+full-Web-ddi	Advanced	chat_names	Advanced	Chatter names	Off|On	0	Some(0)	61251abc4eb207a7	in Display
+full-Web-ddi	Advanced	chat_emotes_from	Basic	Emotes from	Twitch|Twitch and others	1	Some(1)	800fe2d6745a3b38	in Display
+full-Web-ddi	Advanced	chat_opacity	Advanced	Chat opacity	20%|30%|40%|50%|60%|70%|80%|90%|100%	4	Some(4)	034d6eb28b666c65	in Display
+full-Web-ddi	Advanced	dancing_hand	Basic	Dancing hand	Off|On	1	Some(1)	574e85631f8bc869	in Display
+full-Web-ddi	Advanced	dancing_hand_multiplayer	Advanced	Dancing hand in multiplayer	Off|On	0	Some(0)	7e3d2695df5b1ab5	in Display
+full-Web-ddi	Advanced	hand_layout	Advanced	Field + hand layout	7 values #3af7a1a4adc2fd9d	0	Some(0)	89f25a4c5d4c3790	in Display
+full-Web-ddi	Advanced	hand_frame_width	Advanced	Hand frame width	30%|40%|50%|60%|70%|80%|90%|100%	2	Some(2)	40c6d1d1b61d4b83	in Display
+full-Web-ddi	Advanced	hand_frame_height	Advanced	Hand frame height	50%|60%|70%|80%|90%|100%	5	Some(5)	bb8e8fc73ee4d3de	in Display
+full-Web-ddi	Advanced	ghost	Basic	Ghost of your best	Off|On	0	Some(0)	62181b87cf29afc1	in Display
+full-Web-ddi	Advanced	receptor_snap	Advanced	Receptor snap	Off|On	1	Some(1)	438da6375fbce941	in Display
+full-Web-ddi	Advanced	lyrics	Basic	Lyrics	Off|On	1	Some(1)	6243a848a56899f7	in Display
+full-Web-ddi	Advanced	bg_brightness	Basic	Background brightness	21 values #b81ab5ea05e5154d	8	Some(8)	26b391f7219ab6a4	in Display
+full-Web-ddi	Advanced	video	Advanced	Background videos	Automatic|On|Off	0	Some(0)	48e6a26ad8d79100	in Display
+full-Web-ddi	Advanced	random_movies	Advanced	Random movies	Off|On	1	Some(1)	d908c27d6518668f	in Display
+full-Web-ddi	Advanced	generated_background	Advanced	Generated background	Off|Spectrum bars|Kaleidoscope|Field and lines|Outline rain	3	Some(3)	3796ffce384d29d0	in Display
+full-Web-ddi	Advanced	generated_over_pictures	Advanced	Over song backgrounds	Off|On	0	Some(0)	dd9f8e167afdeeff	in Display
+full-Web-ddi	Advanced	generated_palette	Advanced	Generated colors	Ink|Dusk|Moss|Ember|Mono	0	Some(0)	2a60dee5b7607133	in Display
+full-Web-ddi	Advanced	background_frame	Advanced	Background frame	Automatic|4:3|16:9|Whole screen	0	Some(0)	7f052a820f685c83	in Display
+full-Web-ddi	Advanced	field_filter	Basic	Field filter	Off|40%|60%|80%	1	Some(1)	f56f9bc5e85dc28c	in Display
+full-Web-ddi	Advanced	show_advanced	Basic	Show advanced options	Off|On	1	Some(0)	d50d9019c1ff4dae	in Display
+full-Web-ddi	Advanced	language	Basic	Language	As the system (English)|English|日本語	0	Some(0)	35ac4195e08c183a	in Display
+full-Web-ddi	Advanced	reduced_motion	Basic	Reduced motion	As the system|On|Off	0	Some(0)	d84369a3208f17a4	in Display
+full-Web-ddi	Advanced	cursor_style	Basic	Cursor	Infinito cursor|Infinito arrow|System	0	Some(0)	519774333e90de59	in Display
+full-Web-ddi	Advanced	cursor_size	Basic	Cursor size	49 values #18792ba06f224739	12	Some(12)	d2ea07bafea92c4b	in Display
+full-Web-ddi	Advanced	start_countdown	Basic	Start countdown	Off|3 s|5 s|10 s	1	Some(1)	940e34db58f30864	in Display
+full-Web-ddi	Advanced	chart_ratings	Advanced	Chart ratings	From the song|MSD|DDI estimate	2	Some(2)	a0710a861d577554	in Display
+full-Web-ddi	Advanced	graphics	Advanced	Graphics	Automatic|WebGL2	0	Some(0)	09bd761dfffb7108	in Display
+full-Web-ddi	Advanced	debug	Advanced	Debug overlay	Off|On	0	Some(0)	1b64e40f33b2ad6d	in Display
+full-Web-ddi	Advanced	demo	Advanced	Autoplay demo	Play|On WebGL2	0	None	-	in Display
+full-Web-ddi	Advanced	noteskin	Basic	Arrows	Infinito|Mine	1	Some(0)	f8b35727f09fc7aa	in Arrows
+full-Web-ddi	Advanced	noteskin.remove	Basic	This noteskin	Remove	0	None	-	in Arrows
+full-Web-ddi	Advanced	pump_noteskin	Advanced	Pump arrows	As above|cmd	1	Some(0)	802e5293fe70cb5c	in Arrows
+full-Web-ddi	Advanced	pump_noteskin.remove	Advanced	This pump noteskin	Remove	0	None	-	in Arrows
+full-Web-ddi	Advanced	bind_layout	Basic	Bindings for	Single|Solo|Double|Pump single|Pump half-double|Pump double|Techno 8-panel	0	Some(0)	3f63b76e0f5e1cde	in Controls
+full-Web-ddi	Advanced	bind.any	Basic	Any device	Bind…	0	None	-	in Controls
+full-Web-ddi	Advanced	keys	Basic	Keyboard	Bind|Reset keys	0	None	-	in Controls
+full-Web-ddi	Advanced	keys.lane.0	Basic	Left	Add key|Clear	0	None	-	in Controls
+full-Web-ddi	Advanced	keys.lane.1	Basic	Down	Add key|Clear	0	None	-	in Controls
+full-Web-ddi	Advanced	keys.lane.2	Basic	Up	Add key|Clear	0	None	-	in Controls
+full-Web-ddi	Advanced	keys.lane.3	Basic	Right	Add key|Clear	0	None	-	in Controls
+full-Web-ddi	Advanced	touch_controls	Basic	Touch controls	Buttons|Pad|Columns (old)	0	Some(0)	54b21d984f84aace	in Controls
+full-Web-ddi	Advanced	touch_hand	Basic	Extra button	Right side|Left side	0	Some(0)	335409c5c3cbb761	in Controls
+full-Web-ddi	Advanced	touch_size	Basic	Touch controls size	Smaller|Standard|Larger	1	Some(1)	78c5f3b40c11d0e0	in Controls
+full-Web-ddi	Advanced	pad.0	Basic		Bind|Clear	0	None	-	in Controls
+full-Web-ddi	Advanced	pad_style.0	Basic	Button hints	Auto (Generic)|Xbox|PlayStation|Nintendo|Generic	0	Some(0)	ec1982fd6cfd87c2	in Controls
+full-Web-ddi	Advanced	pad.0.lane.0	Basic	Left	Add button|Clear	0	None	-	in Controls
+full-Web-ddi	Advanced	pad.0.lane.1	Basic	Down	Add button|Clear	0	None	-	in Controls
+full-Web-ddi	Advanced	pad.0.lane.2	Basic	Up	Add button|Clear	0	None	-	in Controls
+full-Web-ddi	Advanced	pad.0.lane.3	Basic	Right	Add button|Clear	0	None	-	in Controls
+full-Web-ddi	Advanced	pad.0.start	Basic	Start		0	None	-	in Controls
+full-Web-ddi	Advanced	pad.0.back	Basic	Back		0	None	-	in Controls
+full-Web-ddi	Advanced	fast_pad_poll	Advanced	Poll every millisecond	Off|On	1	Some(1)	212c3c28a2cf10f9	in Controls
+full-Web-ddi	Advanced	history.export	Basic	Play history	Export|Import…|Reset	0	None	-	in Data
+full-Web-ddi	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
+full-Web-ddi	Advanced	reset.songs	Basic	Imported songs	Remove	0	None	-	in Data
+full-Web-ddi	Advanced	room_ahead	Basic	Room songs ahead	Everything|Likely next|Off	0	Some(0)	a22f8ee9227b2cb2	in Data
+full-Web-ddi	Advanced	twitch	Basic	Twitch access		0	None	-	in Data
+full-Web-ddi	Advanced	privacy	Basic	Privacy	Read	0	None	-	in Data
+full-Web-ddi	Advanced	usage_stats	Basic	Send usage statistics	Off|On	1	Some(1)	4b884f081178aed9	in Data
+full-Web-ddi	Advanced	error_reports	Basic	Send error reports	Off|On	1	Some(1)	e6cfd9e76d06c0df	in Data
+full-Web-ddi	Advanced	reset.everything	Basic	Everything	Reset	0	None	-	in Data
+full-Web-ddi	Advanced	share.token	Basic	Upload token	Set…	0	None	-	in Sharing
+full-Web-ddi	Advanced	share.shares	Basic	Shares		0	None	-	in Sharing
+full-Web-ddi	Advanced	share.server	Basic	Server		0	None	-	in Sharing
+full-Web-ddi	Advanced	share.about	Basic	What a share is		0	None	-	in Sharing
+full-Web-ddi	Basic	speed
+full-Web-ddi	Basic	reverse
+full-Web-ddi	Basic	cut
+full-Web-ddi	Basic	at_once
+full-Web-ddi	Basic	no_holds
+full-Web-ddi	Basic	ddi.difficulty
+full-Web-ddi	Basic	ddi.practice
+full-Web-ddi	Basic	ddi.score
+full-Web-ddi	Basic	ddi.words
+full-Web-ddi	Basic	calibrate
+full-Web-ddi	Basic	volume
+full-Web-ddi	Basic	sample
+full-Web-ddi	Basic	assist_clap
+full-Web-ddi	Basic	announcer
+full-Web-ddi	Basic	announcer_volume
+full-Web-ddi	Basic	announcer.remove
+full-Web-ddi	Basic	announcer.studio
+full-Web-ddi	Basic	twitch_chat
+full-Web-ddi	Basic	chat_emotes_from
+full-Web-ddi	Basic	dancing_hand
+full-Web-ddi	Basic	ghost
+full-Web-ddi	Basic	lyrics
+full-Web-ddi	Basic	bg_brightness
+full-Web-ddi	Basic	field_filter
+full-Web-ddi	Basic	show_advanced
+full-Web-ddi	Basic	language
+full-Web-ddi	Basic	reduced_motion
+full-Web-ddi	Basic	cursor_style
+full-Web-ddi	Basic	cursor_size
+full-Web-ddi	Basic	start_countdown
+full-Web-ddi	Basic	noteskin
+full-Web-ddi	Basic	noteskin.remove
+full-Web-ddi	Basic	bind_layout
+full-Web-ddi	Basic	bind.any
+full-Web-ddi	Basic	keys
+full-Web-ddi	Basic	keys.lane.0
+full-Web-ddi	Basic	keys.lane.1
+full-Web-ddi	Basic	keys.lane.2
+full-Web-ddi	Basic	keys.lane.3
+full-Web-ddi	Basic	touch_controls
+full-Web-ddi	Basic	touch_hand
+full-Web-ddi	Basic	touch_size
+full-Web-ddi	Basic	pad.0
+full-Web-ddi	Basic	pad_style.0
+full-Web-ddi	Basic	pad.0.lane.0
+full-Web-ddi	Basic	pad.0.lane.1
+full-Web-ddi	Basic	pad.0.lane.2
+full-Web-ddi	Basic	pad.0.lane.3
+full-Web-ddi	Basic	pad.0.start
+full-Web-ddi	Basic	pad.0.back
+full-Web-ddi	Basic	history.export
+full-Web-ddi	Basic	reset.settings
+full-Web-ddi	Basic	reset.songs
+full-Web-ddi	Basic	room_ahead
+full-Web-ddi	Basic	twitch
+full-Web-ddi	Basic	privacy
+full-Web-ddi	Basic	usage_stats
+full-Web-ddi	Basic	error_reports
+full-Web-ddi	Basic	reset.everything
+full-Web-ddi	Basic	share.token
+full-Web-ddi	Basic	share.shares
+full-Web-ddi	Basic	share.server
+full-Web-ddi	Basic	share.about
+full-Web-ddi	Basic	changed 2
+full-Web-itg	Advanced	speed	Basic	Speed	40 values #7a2900995841ee9c	9	Some(9)	087d06ddc77e5520	in Scroll
+full-Web-itg	Advanced	speed_source	Advanced	Charts with their own speed	Mine|The chart's	0	Some(0)	9ddb870fe8166554	in Scroll
+full-Web-itg	Advanced	reverse	Basic	Reverse	Off|On	0	Some(0)	6d9e19eea5ac2176	in Scroll
+full-Web-itg	Advanced	scroll_action	Advanced	Scroll action	Normal|Boost|Brake|Wave	0	Some(0)	a8fbbefb31c4acd7	in Scroll
+full-Web-itg	Advanced	turn	Advanced	Turn	Off|Mirror|Left|Right|Shuffle	0	Some(0)	ab409db34a743c95	in Notes
+full-Web-itg	Advanced	appearance	Advanced	Appearance	Normal|Hidden|Sudden|Both|Stealth	0	Some(0)	78bd4fb101862cf1	in Notes
+full-Web-itg	Advanced	lane_cover	Advanced	Lane cover	Off|Sudden+|Hidden+|Both	3	Some(0)	5c42577370fb100f	in Notes
+full-Web-itg	Advanced	cover_sudden	Advanced	Sudden+ height	101 values #735cc38ecf9a39e1	25	Some(25)	32e150ac7cf189c4	in Notes
+full-Web-itg	Advanced	cover_hidden	Advanced	Hidden+ height	101 values #735cc38ecf9a39e1	25	Some(25)	22d3c720fdeb6478	in Notes
+full-Web-itg	Advanced	cut	Basic	Notes	All|Quarters|Quarters and eighths	0	Some(0)	eb3437e51dbbf1a1	in Notes
+full-Web-itg	Advanced	simplify_onigiri	Advanced	Without onigiri	Off|On	0	Some(0)	3919b3d8eb5b2aa2	in Notes
+full-Web-itg	Advanced	simplify_center	Advanced	Without center	Off|Where missing|All	1	Some(1)	b1bc0b07a8ddc034	in Notes
+full-Web-itg	Advanced	at_once	Basic	At once	Any|Up to two|One	0	Some(0)	68aa8419b71cfb63	in Notes
+full-Web-itg	Advanced	no_stretch	Advanced	No stretch	Off|On	0	Some(0)	7f8382e271ea0d10	in Notes
+full-Web-itg	Advanced	no_holds	Basic	No holds	Off|On	0	Some(0)	87ae5e02aaa6d1f2	in Notes
+full-Web-itg	Advanced	convert_pump_single	Advanced	Pump on 5 keys	Off|On	1	Some(1)	ec92aca6c9e4b7f6	in Notes
+full-Web-itg	Advanced	convert_five_keys	Advanced	5 keys on Pump	Off|On	1	Some(1)	468cebd19be6efda	in Notes
+full-Web-itg	Advanced	ruleset_mode	Advanced	Rules for each chart	The ruleset below|The chart's game|Dancing☆Onigiri	0	Some(0)	c5090b81a939d665	in Rules
+full-Web-itg	Advanced	ruleset	Advanced	Ruleset	8 values #f178eff0b2cf1dcf	1	Some(0)	59f9394fb6242da8	in Rules
+full-Web-itg	Advanced	holds	Advanced	Holds	By game|Dance|Ticked	0	Some(0)	3e3ab27587d30ec7	in Rules
+full-Web-itg	Advanced	fail	Advanced	Fail	Immediate|Delayed|Fail at end|Off	0	Some(0)	a2065065b31ceace	in Rules
+full-Web-itg	Advanced	life	Advanced	Life difficulty	1|2|3|4|5|6|7	3	Some(3)	7813b4844f4e9f1e	in Rules
+full-Web-itg	Advanced	judge	Advanced	Judge difficulty	1|2|3|4|5|6|7|8|Justice	3	Some(3)	227744071ea5af78	in Rules
+full-Web-itg	Advanced	life_type	Advanced	Life	Bar|Battery	0	Some(0)	3be3f5c4ba75e743	in Rules
+full-Web-itg	Advanced	lives	Advanced	Battery lives	1|2|3|4|5|6|7|8|9|10	3	Some(3)	a53ea73cd433118e	in Rules
+full-Web-itg	Advanced	ddr_gauge	Advanced	DDR gauge	14 values #a5790714993cd637	0	Some(0)	74588c43ca6861a0	in Rules
+full-Web-itg	Advanced	rejudge	Advanced	Kept plays	Judge again	0	None	-	in Rules
+full-Web-itg	Advanced	danoni.gauge	Advanced	Gauge	10 values #d2bed868e2fc5c51	0	Some(0)	545ffa74adcd713b	in Rules
+full-Web-itg	Advanced	danoni.range	Advanced	Judge range	Normal|Narrow|Hard|ExHard	0	Some(0)	1ec638cace817883	in Rules
+full-Web-itg	Advanced	danoni.excessive	Advanced	Excessive	As the chart says|Off|On	0	Some(0)	1058c84461e5af95	in Rules
+full-Web-itg	Advanced	calibrate	Basic	Calibration	Calibrate	0	None	-	in Timing
+full-Web-itg	Advanced	audio_offset	Advanced	Default audio offset	1001 values #fa54cbcd20232380	500	Some(500)	9824c42780faa490	in Timing
+full-Web-itg	Advanced	visual_offset	Advanced	Default visual offset	1001 values #fa54cbcd20232380	500	Some(500)	54031d58628efcbc	in Timing
+full-Web-itg	Advanced	profile.audio.0	Advanced	Audio: audio:a	1001 values #fa54cbcd20232380	510	None	a797c19d4f333abc	in Timing
+full-Web-itg	Advanced	forget.audio.0	Advanced		Forget	0	None	-	in Timing
+full-Web-itg	Advanced	profile.display.0	Advanced	Display: display:a	1001 values #fa54cbcd20232380	510	None	eb032b1652ab62e8	in Timing
+full-Web-itg	Advanced	forget.display.0	Advanced		Forget	0	None	-	in Timing
+full-Web-itg	Advanced	volume	Basic	Volume	101 values #735cc38ecf9a39e1	69	Some(69)	104e1c149d36b33c	in Sound
+full-Web-itg	Advanced	sample	Basic	Sample	Play a sample	0	None	-	in Sound
+full-Web-itg	Advanced	assist_clap	Basic	Assist clap	Off|On	0	Some(0)	18233848011095ba	in Sound
+full-Web-itg	Advanced	mine_sound	Advanced	Mine sound	Off|On	1	Some(1)	fed9f86a10c0b904	in Sound
+full-Web-itg	Advanced	announcer	Basic	Announcer	Off|Mine	1	Some(2)	5460ebc8ab39685f	in Sound
+full-Web-itg	Advanced	announcer.tag.profanity	Advanced	Profanity	Off|On	0	Some(0)	73ba8fa98ef65f62	in Sound
+full-Web-itg	Advanced	announcer.param.Mood	Advanced	Mood	Normal|Calm	0	Some(0)	5e36a7350eee106a	in Sound
+full-Web-itg	Advanced	announcer_volume	Basic	Announcer volume	101 values #735cc38ecf9a39e1	100	Some(100)	4e130735d3ae3bf4	in Sound
+full-Web-itg	Advanced	announcer.remove	Basic	This announcer	Remove	0	None	-	in Sound
+full-Web-itg	Advanced	announcer.studio	Basic	Your own announcer	Make one…	0	None	-	in Sound
+full-Web-itg	Advanced	field_place	Advanced	Field position	Center|Left|Right|Near left|Near right	0	Some(0)	04c00041e8a51d1b	in Display
+full-Web-itg	Advanced	show_deltas	Advanced	Timing error of each hit	Off|On	0	Some(0)	59e2f5aaeb4942de	in Display
+full-Web-itg	Advanced	opponent_fields	Advanced	Opponents' fields	As many as fit|Up to eight	0	Some(0)	cc7c694533f4f6a6	in Display
+full-Web-itg	Advanced	twitch_chat	Basic	Twitch chat in rooms	Off|Emotes|Emotes and messages	2	Some(0)	401d770f12eb9df2	in Display
+full-Web-itg	Advanced	chat_style	Advanced	Chat style	Across|Falling	0	Some(0)	f2f933adef09224f	in Display
+full-Web-itg	Advanced	chat_names	Advanced	Chatter names	Off|On	0	Some(0)	a9994bda7f0bb4fe	in Display
+full-Web-itg	Advanced	chat_emotes_from	Basic	Emotes from	Twitch|Twitch and others	1	Some(1)	63049462c52d9add	in Display
+full-Web-itg	Advanced	chat_opacity	Advanced	Chat opacity	20%|30%|40%|50%|60%|70%|80%|90%|100%	4	Some(4)	0db6f5f3937223c8	in Display
+full-Web-itg	Advanced	dancing_hand	Basic	Dancing hand	Off|On	1	Some(1)	b63e5a7ebb39301c	in Display
+full-Web-itg	Advanced	dancing_hand_multiplayer	Advanced	Dancing hand in multiplayer	Off|On	0	Some(0)	db06540f05a80878	in Display
+full-Web-itg	Advanced	hand_layout	Advanced	Field + hand layout	7 values #3af7a1a4adc2fd9d	0	Some(0)	ab22adf7f40ecf75	in Display
+full-Web-itg	Advanced	hand_frame_width	Advanced	Hand frame width	30%|40%|50%|60%|70%|80%|90%|100%	2	Some(2)	7806e7abff570c7a	in Display
+full-Web-itg	Advanced	hand_frame_height	Advanced	Hand frame height	50%|60%|70%|80%|90%|100%	5	Some(5)	4d4aa0ac33d65a2f	in Display
+full-Web-itg	Advanced	ghost	Basic	Ghost of your best	Off|On	0	Some(0)	26a1f92b50c105d4	in Display
+full-Web-itg	Advanced	receptor_snap	Advanced	Receptor snap	Off|On	1	Some(1)	081783dae1543f54	in Display
+full-Web-itg	Advanced	lyrics	Basic	Lyrics	Off|On	1	Some(1)	9c21bc0acfe6a12e	in Display
+full-Web-itg	Advanced	bg_brightness	Basic	Background brightness	21 values #b81ab5ea05e5154d	8	Some(8)	14e680cfbed5a869	in Display
+full-Web-itg	Advanced	video	Advanced	Background videos	Automatic|On|Off	0	Some(0)	00850df35144c16d	in Display
+full-Web-itg	Advanced	random_movies	Advanced	Random movies	Off|On	1	Some(1)	c3db538491110946	in Display
+full-Web-itg	Advanced	generated_background	Advanced	Generated background	Off|Spectrum bars|Kaleidoscope|Field and lines|Outline rain	3	Some(3)	9ee4ca3c5a1b30b5	in Display
+full-Web-itg	Advanced	generated_over_pictures	Advanced	Over song backgrounds	Off|On	0	Some(0)	b34bd6c6797d4d56	in Display
+full-Web-itg	Advanced	generated_palette	Advanced	Generated colors	Ink|Dusk|Moss|Ember|Mono	0	Some(0)	7a3c7394c50b668a	in Display
+full-Web-itg	Advanced	background_frame	Advanced	Background frame	Automatic|4:3|16:9|Whole screen	0	Some(0)	b645405c58a21d7a	in Display
+full-Web-itg	Advanced	field_filter	Basic	Field filter	Off|40%|60%|80%	1	Some(1)	1a18568986836e91	in Display
+full-Web-itg	Advanced	show_advanced	Basic	Show advanced options	Off|On	1	Some(0)	f5cd74704cd4b5df	in Display
+full-Web-itg	Advanced	language	Basic	Language	As the system (English)|English|日本語	0	Some(0)	6fbfc35a2a92d7db	in Display
+full-Web-itg	Advanced	reduced_motion	Basic	Reduced motion	As the system|On|Off	0	Some(0)	c676587bbdca0969	in Display
+full-Web-itg	Advanced	cursor_style	Basic	Cursor	Infinito cursor|Infinito arrow|System	0	Some(0)	35964de0c9cbd82c	in Display
+full-Web-itg	Advanced	cursor_size	Basic	Cursor size	49 values #18792ba06f224739	12	Some(12)	fc67622afbf482e2	in Display
+full-Web-itg	Advanced	start_countdown	Basic	Start countdown	Off|3 s|5 s|10 s	1	Some(1)	fdb87a496131eb2d	in Display
+full-Web-itg	Advanced	chart_ratings	Advanced	Chart ratings	From the song|MSD|DDI estimate	2	Some(2)	b9161ecbba03af39	in Display
+full-Web-itg	Advanced	graphics	Advanced	Graphics	Automatic|WebGL2	0	Some(0)	e89a6617f9b41b0d	in Display
+full-Web-itg	Advanced	debug	Advanced	Debug overlay	Off|On	0	Some(0)	ce1342fa3f155f70	in Display
+full-Web-itg	Advanced	demo	Advanced	Autoplay demo	Play|On WebGL2	0	None	-	in Display
+full-Web-itg	Advanced	noteskin	Basic	Arrows	Infinito|Mine	1	Some(0)	fee44f1e9cc5a7eb	in Arrows
+full-Web-itg	Advanced	noteskin.remove	Basic	This noteskin	Remove	0	None	-	in Arrows
+full-Web-itg	Advanced	pump_noteskin	Advanced	Pump arrows	As above|cmd	1	Some(0)	86af514c81dd1c81	in Arrows
+full-Web-itg	Advanced	pump_noteskin.remove	Advanced	This pump noteskin	Remove	0	None	-	in Arrows
+full-Web-itg	Advanced	bind_layout	Basic	Bindings for	Single|Solo|Double|Pump single|Pump half-double|Pump double|Techno 8-panel	0	Some(0)	d11fc853044fa32f	in Controls
+full-Web-itg	Advanced	bind.any	Basic	Any device	Bind…	0	None	-	in Controls
+full-Web-itg	Advanced	keys	Basic	Keyboard	Bind|Reset keys	0	None	-	in Controls
+full-Web-itg	Advanced	keys.lane.0	Basic	Left	Add key|Clear	0	None	-	in Controls
+full-Web-itg	Advanced	keys.lane.1	Basic	Down	Add key|Clear	0	None	-	in Controls
+full-Web-itg	Advanced	keys.lane.2	Basic	Up	Add key|Clear	0	None	-	in Controls
+full-Web-itg	Advanced	keys.lane.3	Basic	Right	Add key|Clear	0	None	-	in Controls
+full-Web-itg	Advanced	touch_controls	Basic	Touch controls	Buttons|Pad|Columns (old)	0	Some(0)	7a0714615e04f083	in Controls
+full-Web-itg	Advanced	touch_hand	Basic	Extra button	Right side|Left side	0	Some(0)	296eb945d674e79a	in Controls
+full-Web-itg	Advanced	touch_size	Basic	Touch controls size	Smaller|Standard|Larger	1	Some(1)	058ffed05a251431	in Controls
+full-Web-itg	Advanced	pad.0	Basic		Bind|Clear	0	None	-	in Controls
+full-Web-itg	Advanced	pad_style.0	Basic	Button hints	Auto (Generic)|Xbox|PlayStation|Nintendo|Generic	0	Some(0)	fcc99a39e34ad223	in Controls
+full-Web-itg	Advanced	pad.0.lane.0	Basic	Left	Add button|Clear	0	None	-	in Controls
+full-Web-itg	Advanced	pad.0.lane.1	Basic	Down	Add button|Clear	0	None	-	in Controls
+full-Web-itg	Advanced	pad.0.lane.2	Basic	Up	Add button|Clear	0	None	-	in Controls
+full-Web-itg	Advanced	pad.0.lane.3	Basic	Right	Add button|Clear	0	None	-	in Controls
+full-Web-itg	Advanced	pad.0.start	Basic	Start		0	None	-	in Controls
+full-Web-itg	Advanced	pad.0.back	Basic	Back		0	None	-	in Controls
+full-Web-itg	Advanced	fast_pad_poll	Advanced	Poll every millisecond	Off|On	1	Some(1)	6b0863db1219b6cc	in Controls
+full-Web-itg	Advanced	history.export	Basic	Play history	Export|Import…|Reset	0	None	-	in Data
+full-Web-itg	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
+full-Web-itg	Advanced	reset.songs	Basic	Imported songs	Remove	0	None	-	in Data
+full-Web-itg	Advanced	room_ahead	Basic	Room songs ahead	Everything|Likely next|Off	0	Some(0)	3ca8d0744d0c53b3	in Data
+full-Web-itg	Advanced	twitch	Basic	Twitch access		0	None	-	in Data
+full-Web-itg	Advanced	privacy	Basic	Privacy	Read	0	None	-	in Data
+full-Web-itg	Advanced	usage_stats	Basic	Send usage statistics	Off|On	1	Some(1)	0f2389bc979e7352	in Data
+full-Web-itg	Advanced	error_reports	Basic	Send error reports	Off|On	1	Some(1)	b8303df04b3985b6	in Data
+full-Web-itg	Advanced	reset.everything	Basic	Everything	Reset	0	None	-	in Data
+full-Web-itg	Advanced	share.token	Basic	Upload token	Set…	0	None	-	in Sharing
+full-Web-itg	Advanced	share.shares	Basic	Shares		0	None	-	in Sharing
+full-Web-itg	Advanced	share.server	Basic	Server		0	None	-	in Sharing
+full-Web-itg	Advanced	share.about	Basic	What a share is		0	None	-	in Sharing
+full-Web-itg	Basic	speed
+full-Web-itg	Basic	reverse
+full-Web-itg	Basic	cut
+full-Web-itg	Basic	at_once
+full-Web-itg	Basic	no_holds
+full-Web-itg	Basic	calibrate
+full-Web-itg	Basic	volume
+full-Web-itg	Basic	sample
+full-Web-itg	Basic	assist_clap
+full-Web-itg	Basic	announcer
+full-Web-itg	Basic	announcer_volume
+full-Web-itg	Basic	announcer.remove
+full-Web-itg	Basic	announcer.studio
+full-Web-itg	Basic	twitch_chat
+full-Web-itg	Basic	chat_emotes_from
+full-Web-itg	Basic	dancing_hand
+full-Web-itg	Basic	ghost
+full-Web-itg	Basic	lyrics
+full-Web-itg	Basic	bg_brightness
+full-Web-itg	Basic	field_filter
+full-Web-itg	Basic	show_advanced
+full-Web-itg	Basic	language
+full-Web-itg	Basic	reduced_motion
+full-Web-itg	Basic	cursor_style
+full-Web-itg	Basic	cursor_size
+full-Web-itg	Basic	start_countdown
+full-Web-itg	Basic	noteskin
+full-Web-itg	Basic	noteskin.remove
+full-Web-itg	Basic	bind_layout
+full-Web-itg	Basic	bind.any
+full-Web-itg	Basic	keys
+full-Web-itg	Basic	keys.lane.0
+full-Web-itg	Basic	keys.lane.1
+full-Web-itg	Basic	keys.lane.2
+full-Web-itg	Basic	keys.lane.3
+full-Web-itg	Basic	touch_controls
+full-Web-itg	Basic	touch_hand
+full-Web-itg	Basic	touch_size
+full-Web-itg	Basic	pad.0
+full-Web-itg	Basic	pad_style.0
+full-Web-itg	Basic	pad.0.lane.0
+full-Web-itg	Basic	pad.0.lane.1
+full-Web-itg	Basic	pad.0.lane.2
+full-Web-itg	Basic	pad.0.lane.3
+full-Web-itg	Basic	pad.0.start
+full-Web-itg	Basic	pad.0.back
+full-Web-itg	Basic	history.export
+full-Web-itg	Basic	reset.settings
+full-Web-itg	Basic	reset.songs
+full-Web-itg	Basic	room_ahead
+full-Web-itg	Basic	twitch
+full-Web-itg	Basic	privacy
+full-Web-itg	Basic	usage_stats
+full-Web-itg	Basic	error_reports
+full-Web-itg	Basic	reset.everything
+full-Web-itg	Basic	share.token
+full-Web-itg	Basic	share.shares
+full-Web-itg	Basic	share.server
+full-Web-itg	Basic	share.about
+full-Web-itg	Basic	changed 3
+full-Desktop-ddi	Advanced	speed	Basic	Speed	40 values #7a2900995841ee9c	9	Some(9)	278ce4771de87daf	in Scroll
+full-Desktop-ddi	Advanced	speed_source	Advanced	Charts with their own speed	Mine|The chart's	0	Some(0)	e6cbf615c028f647	in Scroll
+full-Desktop-ddi	Advanced	reverse	Basic	Reverse	Off|On	0	Some(0)	009b705cf8dd119f	in Scroll
+full-Desktop-ddi	Advanced	scroll_action	Advanced	Scroll action	Normal|Boost|Brake|Wave	0	Some(0)	3e4efc74db4a4f78	in Scroll
+full-Desktop-ddi	Advanced	turn	Advanced	Turn	Off|Mirror|Left|Right|Shuffle	0	Some(0)	246f6e22de9a12be	in Notes
+full-Desktop-ddi	Advanced	appearance	Advanced	Appearance	Normal|Hidden|Sudden|Both|Stealth	0	Some(0)	4ede7cdb6f1316ec	in Notes
+full-Desktop-ddi	Advanced	lane_cover	Advanced	Lane cover	Off|Sudden+|Hidden+|Both	3	Some(0)	54753b0fcef9683e	in Notes
+full-Desktop-ddi	Advanced	cover_sudden	Advanced	Sudden+ height	101 values #735cc38ecf9a39e1	25	Some(25)	a2320184005ab351	in Notes
+full-Desktop-ddi	Advanced	cover_hidden	Advanced	Hidden+ height	101 values #735cc38ecf9a39e1	25	Some(25)	c60a99a7d79e76b5	in Notes
+full-Desktop-ddi	Advanced	cut	Basic	Notes	All|Quarters|Quarters and eighths	0	Some(0)	d7c8e6b10151ac9e	in Notes
+full-Desktop-ddi	Advanced	simplify_onigiri	Advanced	Without onigiri	Off|On	0	Some(0)	d3d9a9d772fe92c1	in Notes
+full-Desktop-ddi	Advanced	simplify_center	Advanced	Without center	Off|Where missing|All	1	Some(1)	67f7d466fb3f6a29	in Notes
+full-Desktop-ddi	Advanced	at_once	Basic	At once	Any|Up to two|One	0	Some(0)	994f5c7440d90cbe	in Notes
+full-Desktop-ddi	Advanced	no_stretch	Advanced	No stretch	Off|On	0	Some(0)	73d5595dd468b5f3	in Notes
+full-Desktop-ddi	Advanced	no_holds	Basic	No holds	Off|On	0	Some(0)	3ea69f20d6f6de79	in Notes
+full-Desktop-ddi	Advanced	convert_pump_single	Advanced	Pump on 5 keys	Off|On	1	Some(1)	7f9003151d15a81f	in Notes
+full-Desktop-ddi	Advanced	convert_five_keys	Advanced	5 keys on Pump	Off|On	1	Some(1)	df5931905fbe08e3	in Notes
+full-Desktop-ddi	Advanced	ruleset_mode	Advanced	Rules for each chart	The ruleset below|The chart's game|Dancing☆Onigiri	0	Some(0)	64f8185af99999c4	in Rules
+full-Desktop-ddi	Advanced	ruleset	Advanced	Ruleset	8 values #f178eff0b2cf1dcf	0	Some(0)	d11fc853044fa32f	in Rules
+full-Desktop-ddi	Advanced	ddi.difficulty	Basic	Timing difficulty	Easy|Normal|Hard	1	Some(1)	1ec6e65ebf2672e4	in Rules
+full-Desktop-ddi	Advanced	ddi.boos	Advanced	Boos	Off|On	0	Some(0)	900e5537f20dfb8b	in Rules
+full-Desktop-ddi	Advanced	ddi.practice	Basic	Practice	Off|On	0	Some(0)	ceb18cdf5bd1c18d	in Rules
+full-Desktop-ddi	Advanced	ddi.score	Basic	Score display	Score|Percent	0	Some(0)	b0af96808a7365a7	in Rules
+full-Desktop-ddi	Advanced	ddi.words	Basic	Judgment words	English|日本語|Same as game language	0	Some(0)	5169d73eedd28ff7	in Rules
+full-Desktop-ddi	Advanced	rejudge	Advanced	Kept plays	Judge again	0	None	-	in Rules
+full-Desktop-ddi	Advanced	danoni.gauge	Advanced	Gauge	10 values #d2bed868e2fc5c51	0	Some(0)	10900b66b423bb1a	in Rules
+full-Desktop-ddi	Advanced	danoni.range	Advanced	Judge range	Normal|Narrow|Hard|ExHard	0	Some(0)	ed1b8c20296ebf22	in Rules
+full-Desktop-ddi	Advanced	danoni.excessive	Advanced	Excessive	As the chart says|Off|On	0	Some(0)	1b3178759d3b55b0	in Rules
+full-Desktop-ddi	Advanced	calibrate	Basic	Calibration	Calibrate	0	None	-	in Timing
+full-Desktop-ddi	Advanced	audio_offset	Advanced	Default audio offset	1001 values #fa54cbcd20232380	500	Some(500)	8036c10aa3945d8d	in Timing
+full-Desktop-ddi	Advanced	visual_offset	Advanced	Default visual offset	1001 values #fa54cbcd20232380	500	Some(500)	88585bfe73de46a1	in Timing
+full-Desktop-ddi	Advanced	profile.audio.0	Advanced	Audio: audio:a	1001 values #fa54cbcd20232380	510	None	dccc3293478fa989	in Timing
+full-Desktop-ddi	Advanced	forget.audio.0	Advanced		Forget	0	None	-	in Timing
+full-Desktop-ddi	Advanced	profile.display.0	Advanced	Display: display:a	1001 values #fa54cbcd20232380	510	None	5f70e864e25d4405	in Timing
+full-Desktop-ddi	Advanced	forget.display.0	Advanced		Forget	0	None	-	in Timing
+full-Desktop-ddi	Advanced	volume	Basic	Volume	101 values #735cc38ecf9a39e1	69	Some(69)	7b92e3d167d0df3d	in Sound
+full-Desktop-ddi	Advanced	sample	Basic	Sample	Play a sample	0	None	-	in Sound
+full-Desktop-ddi	Advanced	assist_clap	Basic	Assist clap	Off|On	0	Some(0)	223b6d739d368ec3	in Sound
+full-Desktop-ddi	Advanced	mine_sound	Advanced	Mine sound	Off|On	1	Some(1)	bdb0fdc1df16c791	in Sound
+full-Desktop-ddi	Advanced	announcer	Basic	Announcer	Off|Mine	1	Some(2)	33a107722064002e	in Sound
+full-Desktop-ddi	Advanced	announcer.tag.profanity	Advanced	Profanity	Off|On	0	Some(0)	4a3d353991ab08cb	in Sound
+full-Desktop-ddi	Advanced	announcer.param.Mood	Advanced	Mood	Normal|Calm	0	Some(0)	124eae82a736ac13	in Sound
+full-Desktop-ddi	Advanced	announcer_volume	Basic	Announcer volume	101 values #735cc38ecf9a39e1	100	Some(100)	24548c67852dd8e1	in Sound
+full-Desktop-ddi	Advanced	announcer.studio	Basic	Your own announcer	Make one…	0	None	-	in Sound
+full-Desktop-ddi	Advanced	field_place	Advanced	Field position	Center|Left|Right|Near left|Near right	0	Some(0)	409d2b5b3ef6bd7a	in Display
+full-Desktop-ddi	Advanced	show_deltas	Advanced	Timing error of each hit	Off|On	0	Some(0)	874b5d47238689e5	in Display
+full-Desktop-ddi	Advanced	opponent_fields	Advanced	Opponents' fields	As many as fit|Up to eight	0	Some(0)	cdcb67d9d157876f	in Display
+full-Desktop-ddi	Advanced	twitch_chat	Basic	Twitch chat in rooms	Off|Emotes|Emotes and messages	2	Some(0)	4750939466761cf5	in Display
+full-Desktop-ddi	Advanced	chat_style	Advanced	Chat style	Across|Falling	0	Some(0)	e9c1e3056f548d7e	in Display
+full-Desktop-ddi	Advanced	chat_names	Advanced	Chatter names	Off|On	0	Some(0)	61251abc4eb207a7	in Display
+full-Desktop-ddi	Advanced	chat_emotes_from	Basic	Emotes from	Twitch|Twitch and others	1	Some(1)	800fe2d6745a3b38	in Display
+full-Desktop-ddi	Advanced	chat_opacity	Advanced	Chat opacity	20%|30%|40%|50%|60%|70%|80%|90%|100%	4	Some(4)	034d6eb28b666c65	in Display
+full-Desktop-ddi	Advanced	dancing_hand	Basic	Dancing hand	Off|On	1	Some(1)	574e85631f8bc869	in Display
+full-Desktop-ddi	Advanced	dancing_hand_multiplayer	Advanced	Dancing hand in multiplayer	Off|On	0	Some(0)	7e3d2695df5b1ab5	in Display
+full-Desktop-ddi	Advanced	hand_layout	Advanced	Field + hand layout	7 values #3af7a1a4adc2fd9d	0	Some(0)	89f25a4c5d4c3790	in Display
+full-Desktop-ddi	Advanced	hand_frame_width	Advanced	Hand frame width	30%|40%|50%|60%|70%|80%|90%|100%	2	Some(2)	40c6d1d1b61d4b83	in Display
+full-Desktop-ddi	Advanced	hand_frame_height	Advanced	Hand frame height	50%|60%|70%|80%|90%|100%	5	Some(5)	bb8e8fc73ee4d3de	in Display
+full-Desktop-ddi	Advanced	ghost	Basic	Ghost of your best	Off|On	0	Some(0)	62181b87cf29afc1	in Display
+full-Desktop-ddi	Advanced	receptor_snap	Advanced	Receptor snap	Off|On	1	Some(1)	438da6375fbce941	in Display
+full-Desktop-ddi	Advanced	lyrics	Basic	Lyrics	Off|On	1	Some(1)	6243a848a56899f7	in Display
+full-Desktop-ddi	Advanced	bg_brightness	Basic	Background brightness	21 values #b81ab5ea05e5154d	8	Some(8)	26b391f7219ab6a4	in Display
+full-Desktop-ddi	Advanced	video	Advanced	Background videos	Automatic|On|Off	0	Some(0)	48e6a26ad8d79100	in Display
+full-Desktop-ddi	Advanced	random_movies	Advanced	Random movies	Off|On	1	Some(1)	d908c27d6518668f	in Display
+full-Desktop-ddi	Advanced	generated_background	Advanced	Generated background	Off|Spectrum bars|Kaleidoscope|Field and lines|Outline rain	3	Some(3)	3796ffce384d29d0	in Display
+full-Desktop-ddi	Advanced	generated_over_pictures	Advanced	Over song backgrounds	Off|On	0	Some(0)	dd9f8e167afdeeff	in Display
+full-Desktop-ddi	Advanced	generated_palette	Advanced	Generated colors	Ink|Dusk|Moss|Ember|Mono	0	Some(0)	2a60dee5b7607133	in Display
+full-Desktop-ddi	Advanced	background_frame	Advanced	Background frame	Automatic|4:3|16:9|Whole screen	0	Some(0)	7f052a820f685c83	in Display
+full-Desktop-ddi	Advanced	field_filter	Basic	Field filter	Off|40%|60%|80%	1	Some(1)	f56f9bc5e85dc28c	in Display
+full-Desktop-ddi	Advanced	show_advanced	Basic	Show advanced options	Off|On	1	Some(0)	d50d9019c1ff4dae	in Display
+full-Desktop-ddi	Advanced	language	Basic	Language	As the system (English)|English|日本語	0	Some(0)	35ac4195e08c183a	in Display
+full-Desktop-ddi	Advanced	reduced_motion	Basic	Reduced motion	As the system|On|Off	0	Some(0)	d84369a3208f17a4	in Display
+full-Desktop-ddi	Advanced	cursor_style	Basic	Cursor	Infinito cursor|Infinito arrow|System	0	Some(0)	519774333e90de59	in Display
+full-Desktop-ddi	Advanced	cursor_size	Basic	Cursor size	49 values #18792ba06f224739	12	Some(12)	d2ea07bafea92c4b	in Display
+full-Desktop-ddi	Advanced	start_countdown	Basic	Start countdown	Off|3 s|5 s|10 s	1	Some(1)	940e34db58f30864	in Display
+full-Desktop-ddi	Advanced	chart_ratings	Advanced	Chart ratings	From the song|MSD|DDI estimate	2	Some(2)	a0710a861d577554	in Display
+full-Desktop-ddi	Advanced	graphics	Advanced	Graphics	Automatic|WebGL2	0	Some(0)	09bd761dfffb7108	in Display
+full-Desktop-ddi	Advanced	debug	Advanced	Debug overlay	Off|On	0	Some(0)	1b64e40f33b2ad6d	in Display
+full-Desktop-ddi	Advanced	demo	Advanced	Autoplay demo	Play|On WebGL2	0	None	-	in Display
+full-Desktop-ddi	Advanced	noteskin	Basic	Arrows	Infinito|Mine	1	Some(0)	f8b35727f09fc7aa	in Arrows
+full-Desktop-ddi	Advanced	pump_noteskin	Advanced	Pump arrows	As above|cmd	1	Some(0)	802e5293fe70cb5c	in Arrows
+full-Desktop-ddi	Advanced	bind_layout	Basic	Bindings for	Single|Solo|Double|Pump single|Pump half-double|Pump double|Techno 8-panel	0	Some(0)	3f63b76e0f5e1cde	in Controls
+full-Desktop-ddi	Advanced	bind.any	Basic	Any device	Bind…	0	None	-	in Controls
+full-Desktop-ddi	Advanced	keys	Basic	Keyboard	Bind|Reset keys	0	None	-	in Controls
+full-Desktop-ddi	Advanced	keys.lane.0	Basic	Left	Add key|Clear	0	None	-	in Controls
+full-Desktop-ddi	Advanced	keys.lane.1	Basic	Down	Add key|Clear	0	None	-	in Controls
+full-Desktop-ddi	Advanced	keys.lane.2	Basic	Up	Add key|Clear	0	None	-	in Controls
+full-Desktop-ddi	Advanced	keys.lane.3	Basic	Right	Add key|Clear	0	None	-	in Controls
+full-Desktop-ddi	Advanced	touch_controls	Basic	Touch controls	Buttons|Pad|Columns (old)	0	Some(0)	54b21d984f84aace	in Controls
+full-Desktop-ddi	Advanced	touch_hand	Basic	Extra button	Right side|Left side	0	Some(0)	335409c5c3cbb761	in Controls
+full-Desktop-ddi	Advanced	touch_size	Basic	Touch controls size	Smaller|Standard|Larger	1	Some(1)	78c5f3b40c11d0e0	in Controls
+full-Desktop-ddi	Advanced	pad.0	Basic		Bind|Clear	0	None	-	in Controls
+full-Desktop-ddi	Advanced	pad_style.0	Basic	Button hints	Auto (Generic)|Xbox|PlayStation|Nintendo|Generic	0	Some(0)	ec1982fd6cfd87c2	in Controls
+full-Desktop-ddi	Advanced	pad.0.lane.0	Basic	Left	Add button|Clear	0	None	-	in Controls
+full-Desktop-ddi	Advanced	pad.0.lane.1	Basic	Down	Add button|Clear	0	None	-	in Controls
+full-Desktop-ddi	Advanced	pad.0.lane.2	Basic	Up	Add button|Clear	0	None	-	in Controls
+full-Desktop-ddi	Advanced	pad.0.lane.3	Basic	Right	Add button|Clear	0	None	-	in Controls
+full-Desktop-ddi	Advanced	pad.0.start	Basic	Start		0	None	-	in Controls
+full-Desktop-ddi	Advanced	pad.0.back	Basic	Back		0	None	-	in Controls
+full-Desktop-ddi	Advanced	fast_pad_poll	Advanced	Poll every millisecond	Off|On	1	Some(1)	212c3c28a2cf10f9	in Controls
+full-Desktop-ddi	Advanced	pads.none	Basic	Controllers		0	None	-	in Controls
+full-Desktop-ddi	Advanced	history.export	Basic	Play history	Export|Import…|Reset	0	None	-	in Data
+full-Desktop-ddi	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
+full-Desktop-ddi	Advanced	reset.songs	Basic	Song folders	Forget	0	None	-	in Data
+full-Desktop-ddi	Advanced	room_ahead	Basic	Room songs ahead	Everything|Likely next|Off	0	Some(0)	a22f8ee9227b2cb2	in Data
+full-Desktop-ddi	Advanced	twitch	Basic	Twitch access		0	None	-	in Data
+full-Desktop-ddi	Advanced	privacy	Basic	Privacy	Read	0	None	-	in Data
+full-Desktop-ddi	Advanced	usage_stats	Basic	Send usage statistics	Off|On	1	Some(1)	4b884f081178aed9	in Data
+full-Desktop-ddi	Advanced	reset.everything	Basic	Everything	Reset	0	None	-	in Data
+full-Desktop-ddi	Advanced	folders.0	Basic	Songs	Remove	0	None	-	in Songs
+full-Desktop-ddi	Advanced	folders.add	Basic	Song folders	Add…|Read again	0	None	-	in Songs
+full-Desktop-ddi	Advanced	share.token	Basic	Upload token	Set…	0	None	-	in Sharing
+full-Desktop-ddi	Advanced	share.shares	Basic	Shares		0	None	-	in Sharing
+full-Desktop-ddi	Advanced	share.server	Basic	Server		0	None	-	in Sharing
+full-Desktop-ddi	Advanced	share.about	Basic	What a share is		0	None	-	in Sharing
+full-Desktop-ddi	Basic	speed
+full-Desktop-ddi	Basic	reverse
+full-Desktop-ddi	Basic	cut
+full-Desktop-ddi	Basic	at_once
+full-Desktop-ddi	Basic	no_holds
+full-Desktop-ddi	Basic	ddi.difficulty
+full-Desktop-ddi	Basic	ddi.practice
+full-Desktop-ddi	Basic	ddi.score
+full-Desktop-ddi	Basic	ddi.words
+full-Desktop-ddi	Basic	calibrate
+full-Desktop-ddi	Basic	volume
+full-Desktop-ddi	Basic	sample
+full-Desktop-ddi	Basic	assist_clap
+full-Desktop-ddi	Basic	announcer
+full-Desktop-ddi	Basic	announcer_volume
+full-Desktop-ddi	Basic	announcer.studio
+full-Desktop-ddi	Basic	twitch_chat
+full-Desktop-ddi	Basic	chat_emotes_from
+full-Desktop-ddi	Basic	dancing_hand
+full-Desktop-ddi	Basic	ghost
+full-Desktop-ddi	Basic	lyrics
+full-Desktop-ddi	Basic	bg_brightness
+full-Desktop-ddi	Basic	field_filter
+full-Desktop-ddi	Basic	show_advanced
+full-Desktop-ddi	Basic	language
+full-Desktop-ddi	Basic	reduced_motion
+full-Desktop-ddi	Basic	cursor_style
+full-Desktop-ddi	Basic	cursor_size
+full-Desktop-ddi	Basic	start_countdown
+full-Desktop-ddi	Basic	noteskin
+full-Desktop-ddi	Basic	bind_layout
+full-Desktop-ddi	Basic	bind.any
+full-Desktop-ddi	Basic	keys
+full-Desktop-ddi	Basic	keys.lane.0
+full-Desktop-ddi	Basic	keys.lane.1
+full-Desktop-ddi	Basic	keys.lane.2
+full-Desktop-ddi	Basic	keys.lane.3
+full-Desktop-ddi	Basic	touch_controls
+full-Desktop-ddi	Basic	touch_hand
+full-Desktop-ddi	Basic	touch_size
+full-Desktop-ddi	Basic	pad.0
+full-Desktop-ddi	Basic	pad_style.0
+full-Desktop-ddi	Basic	pad.0.lane.0
+full-Desktop-ddi	Basic	pad.0.lane.1
+full-Desktop-ddi	Basic	pad.0.lane.2
+full-Desktop-ddi	Basic	pad.0.lane.3
+full-Desktop-ddi	Basic	pad.0.start
+full-Desktop-ddi	Basic	pad.0.back
+full-Desktop-ddi	Basic	pads.none
+full-Desktop-ddi	Basic	history.export
+full-Desktop-ddi	Basic	reset.settings
+full-Desktop-ddi	Basic	reset.songs
+full-Desktop-ddi	Basic	room_ahead
+full-Desktop-ddi	Basic	twitch
+full-Desktop-ddi	Basic	privacy
+full-Desktop-ddi	Basic	usage_stats
+full-Desktop-ddi	Basic	reset.everything
+full-Desktop-ddi	Basic	folders.0
+full-Desktop-ddi	Basic	folders.add
+full-Desktop-ddi	Basic	share.token
+full-Desktop-ddi	Basic	share.shares
+full-Desktop-ddi	Basic	share.server
+full-Desktop-ddi	Basic	share.about
+full-Desktop-ddi	Basic	changed 2
+full-Desktop-itg	Advanced	speed	Basic	Speed	40 values #7a2900995841ee9c	9	Some(9)	087d06ddc77e5520	in Scroll
+full-Desktop-itg	Advanced	speed_source	Advanced	Charts with their own speed	Mine|The chart's	0	Some(0)	9ddb870fe8166554	in Scroll
+full-Desktop-itg	Advanced	reverse	Basic	Reverse	Off|On	0	Some(0)	6d9e19eea5ac2176	in Scroll
+full-Desktop-itg	Advanced	scroll_action	Advanced	Scroll action	Normal|Boost|Brake|Wave	0	Some(0)	a8fbbefb31c4acd7	in Scroll
+full-Desktop-itg	Advanced	turn	Advanced	Turn	Off|Mirror|Left|Right|Shuffle	0	Some(0)	ab409db34a743c95	in Notes
+full-Desktop-itg	Advanced	appearance	Advanced	Appearance	Normal|Hidden|Sudden|Both|Stealth	0	Some(0)	78bd4fb101862cf1	in Notes
+full-Desktop-itg	Advanced	lane_cover	Advanced	Lane cover	Off|Sudden+|Hidden+|Both	3	Some(0)	5c42577370fb100f	in Notes
+full-Desktop-itg	Advanced	cover_sudden	Advanced	Sudden+ height	101 values #735cc38ecf9a39e1	25	Some(25)	32e150ac7cf189c4	in Notes
+full-Desktop-itg	Advanced	cover_hidden	Advanced	Hidden+ height	101 values #735cc38ecf9a39e1	25	Some(25)	22d3c720fdeb6478	in Notes
+full-Desktop-itg	Advanced	cut	Basic	Notes	All|Quarters|Quarters and eighths	0	Some(0)	eb3437e51dbbf1a1	in Notes
+full-Desktop-itg	Advanced	simplify_onigiri	Advanced	Without onigiri	Off|On	0	Some(0)	3919b3d8eb5b2aa2	in Notes
+full-Desktop-itg	Advanced	simplify_center	Advanced	Without center	Off|Where missing|All	1	Some(1)	b1bc0b07a8ddc034	in Notes
+full-Desktop-itg	Advanced	at_once	Basic	At once	Any|Up to two|One	0	Some(0)	68aa8419b71cfb63	in Notes
+full-Desktop-itg	Advanced	no_stretch	Advanced	No stretch	Off|On	0	Some(0)	7f8382e271ea0d10	in Notes
+full-Desktop-itg	Advanced	no_holds	Basic	No holds	Off|On	0	Some(0)	87ae5e02aaa6d1f2	in Notes
+full-Desktop-itg	Advanced	convert_pump_single	Advanced	Pump on 5 keys	Off|On	1	Some(1)	ec92aca6c9e4b7f6	in Notes
+full-Desktop-itg	Advanced	convert_five_keys	Advanced	5 keys on Pump	Off|On	1	Some(1)	468cebd19be6efda	in Notes
+full-Desktop-itg	Advanced	ruleset_mode	Advanced	Rules for each chart	The ruleset below|The chart's game|Dancing☆Onigiri	0	Some(0)	c5090b81a939d665	in Rules
+full-Desktop-itg	Advanced	ruleset	Advanced	Ruleset	8 values #f178eff0b2cf1dcf	1	Some(0)	59f9394fb6242da8	in Rules
+full-Desktop-itg	Advanced	holds	Advanced	Holds	By game|Dance|Ticked	0	Some(0)	3e3ab27587d30ec7	in Rules
+full-Desktop-itg	Advanced	fail	Advanced	Fail	Immediate|Delayed|Fail at end|Off	0	Some(0)	a2065065b31ceace	in Rules
+full-Desktop-itg	Advanced	life	Advanced	Life difficulty	1|2|3|4|5|6|7	3	Some(3)	7813b4844f4e9f1e	in Rules
+full-Desktop-itg	Advanced	judge	Advanced	Judge difficulty	1|2|3|4|5|6|7|8|Justice	3	Some(3)	227744071ea5af78	in Rules
+full-Desktop-itg	Advanced	life_type	Advanced	Life	Bar|Battery	0	Some(0)	3be3f5c4ba75e743	in Rules
+full-Desktop-itg	Advanced	lives	Advanced	Battery lives	1|2|3|4|5|6|7|8|9|10	3	Some(3)	a53ea73cd433118e	in Rules
+full-Desktop-itg	Advanced	ddr_gauge	Advanced	DDR gauge	14 values #a5790714993cd637	0	Some(0)	74588c43ca6861a0	in Rules
+full-Desktop-itg	Advanced	rejudge	Advanced	Kept plays	Judge again	0	None	-	in Rules
+full-Desktop-itg	Advanced	danoni.gauge	Advanced	Gauge	10 values #d2bed868e2fc5c51	0	Some(0)	545ffa74adcd713b	in Rules
+full-Desktop-itg	Advanced	danoni.range	Advanced	Judge range	Normal|Narrow|Hard|ExHard	0	Some(0)	1ec638cace817883	in Rules
+full-Desktop-itg	Advanced	danoni.excessive	Advanced	Excessive	As the chart says|Off|On	0	Some(0)	1058c84461e5af95	in Rules
+full-Desktop-itg	Advanced	calibrate	Basic	Calibration	Calibrate	0	None	-	in Timing
+full-Desktop-itg	Advanced	audio_offset	Advanced	Default audio offset	1001 values #fa54cbcd20232380	500	Some(500)	9824c42780faa490	in Timing
+full-Desktop-itg	Advanced	visual_offset	Advanced	Default visual offset	1001 values #fa54cbcd20232380	500	Some(500)	54031d58628efcbc	in Timing
+full-Desktop-itg	Advanced	profile.audio.0	Advanced	Audio: audio:a	1001 values #fa54cbcd20232380	510	None	a797c19d4f333abc	in Timing
+full-Desktop-itg	Advanced	forget.audio.0	Advanced		Forget	0	None	-	in Timing
+full-Desktop-itg	Advanced	profile.display.0	Advanced	Display: display:a	1001 values #fa54cbcd20232380	510	None	eb032b1652ab62e8	in Timing
+full-Desktop-itg	Advanced	forget.display.0	Advanced		Forget	0	None	-	in Timing
+full-Desktop-itg	Advanced	volume	Basic	Volume	101 values #735cc38ecf9a39e1	69	Some(69)	104e1c149d36b33c	in Sound
+full-Desktop-itg	Advanced	sample	Basic	Sample	Play a sample	0	None	-	in Sound
+full-Desktop-itg	Advanced	assist_clap	Basic	Assist clap	Off|On	0	Some(0)	18233848011095ba	in Sound
+full-Desktop-itg	Advanced	mine_sound	Advanced	Mine sound	Off|On	1	Some(1)	fed9f86a10c0b904	in Sound
+full-Desktop-itg	Advanced	announcer	Basic	Announcer	Off|Mine	1	Some(2)	5460ebc8ab39685f	in Sound
+full-Desktop-itg	Advanced	announcer.tag.profanity	Advanced	Profanity	Off|On	0	Some(0)	73ba8fa98ef65f62	in Sound
+full-Desktop-itg	Advanced	announcer.param.Mood	Advanced	Mood	Normal|Calm	0	Some(0)	5e36a7350eee106a	in Sound
+full-Desktop-itg	Advanced	announcer_volume	Basic	Announcer volume	101 values #735cc38ecf9a39e1	100	Some(100)	4e130735d3ae3bf4	in Sound
+full-Desktop-itg	Advanced	announcer.studio	Basic	Your own announcer	Make one…	0	None	-	in Sound
+full-Desktop-itg	Advanced	field_place	Advanced	Field position	Center|Left|Right|Near left|Near right	0	Some(0)	04c00041e8a51d1b	in Display
+full-Desktop-itg	Advanced	show_deltas	Advanced	Timing error of each hit	Off|On	0	Some(0)	59e2f5aaeb4942de	in Display
+full-Desktop-itg	Advanced	opponent_fields	Advanced	Opponents' fields	As many as fit|Up to eight	0	Some(0)	cc7c694533f4f6a6	in Display
+full-Desktop-itg	Advanced	twitch_chat	Basic	Twitch chat in rooms	Off|Emotes|Emotes and messages	2	Some(0)	401d770f12eb9df2	in Display
+full-Desktop-itg	Advanced	chat_style	Advanced	Chat style	Across|Falling	0	Some(0)	f2f933adef09224f	in Display
+full-Desktop-itg	Advanced	chat_names	Advanced	Chatter names	Off|On	0	Some(0)	a9994bda7f0bb4fe	in Display
+full-Desktop-itg	Advanced	chat_emotes_from	Basic	Emotes from	Twitch|Twitch and others	1	Some(1)	63049462c52d9add	in Display
+full-Desktop-itg	Advanced	chat_opacity	Advanced	Chat opacity	20%|30%|40%|50%|60%|70%|80%|90%|100%	4	Some(4)	0db6f5f3937223c8	in Display
+full-Desktop-itg	Advanced	dancing_hand	Basic	Dancing hand	Off|On	1	Some(1)	b63e5a7ebb39301c	in Display
+full-Desktop-itg	Advanced	dancing_hand_multiplayer	Advanced	Dancing hand in multiplayer	Off|On	0	Some(0)	db06540f05a80878	in Display
+full-Desktop-itg	Advanced	hand_layout	Advanced	Field + hand layout	7 values #3af7a1a4adc2fd9d	0	Some(0)	ab22adf7f40ecf75	in Display
+full-Desktop-itg	Advanced	hand_frame_width	Advanced	Hand frame width	30%|40%|50%|60%|70%|80%|90%|100%	2	Some(2)	7806e7abff570c7a	in Display
+full-Desktop-itg	Advanced	hand_frame_height	Advanced	Hand frame height	50%|60%|70%|80%|90%|100%	5	Some(5)	4d4aa0ac33d65a2f	in Display
+full-Desktop-itg	Advanced	ghost	Basic	Ghost of your best	Off|On	0	Some(0)	26a1f92b50c105d4	in Display
+full-Desktop-itg	Advanced	receptor_snap	Advanced	Receptor snap	Off|On	1	Some(1)	081783dae1543f54	in Display
+full-Desktop-itg	Advanced	lyrics	Basic	Lyrics	Off|On	1	Some(1)	9c21bc0acfe6a12e	in Display
+full-Desktop-itg	Advanced	bg_brightness	Basic	Background brightness	21 values #b81ab5ea05e5154d	8	Some(8)	14e680cfbed5a869	in Display
+full-Desktop-itg	Advanced	video	Advanced	Background videos	Automatic|On|Off	0	Some(0)	00850df35144c16d	in Display
+full-Desktop-itg	Advanced	random_movies	Advanced	Random movies	Off|On	1	Some(1)	c3db538491110946	in Display
+full-Desktop-itg	Advanced	generated_background	Advanced	Generated background	Off|Spectrum bars|Kaleidoscope|Field and lines|Outline rain	3	Some(3)	9ee4ca3c5a1b30b5	in Display
+full-Desktop-itg	Advanced	generated_over_pictures	Advanced	Over song backgrounds	Off|On	0	Some(0)	b34bd6c6797d4d56	in Display
+full-Desktop-itg	Advanced	generated_palette	Advanced	Generated colors	Ink|Dusk|Moss|Ember|Mono	0	Some(0)	7a3c7394c50b668a	in Display
+full-Desktop-itg	Advanced	background_frame	Advanced	Background frame	Automatic|4:3|16:9|Whole screen	0	Some(0)	b645405c58a21d7a	in Display
+full-Desktop-itg	Advanced	field_filter	Basic	Field filter	Off|40%|60%|80%	1	Some(1)	1a18568986836e91	in Display
+full-Desktop-itg	Advanced	show_advanced	Basic	Show advanced options	Off|On	1	Some(0)	f5cd74704cd4b5df	in Display
+full-Desktop-itg	Advanced	language	Basic	Language	As the system (English)|English|日本語	0	Some(0)	6fbfc35a2a92d7db	in Display
+full-Desktop-itg	Advanced	reduced_motion	Basic	Reduced motion	As the system|On|Off	0	Some(0)	c676587bbdca0969	in Display
+full-Desktop-itg	Advanced	cursor_style	Basic	Cursor	Infinito cursor|Infinito arrow|System	0	Some(0)	35964de0c9cbd82c	in Display
+full-Desktop-itg	Advanced	cursor_size	Basic	Cursor size	49 values #18792ba06f224739	12	Some(12)	fc67622afbf482e2	in Display
+full-Desktop-itg	Advanced	start_countdown	Basic	Start countdown	Off|3 s|5 s|10 s	1	Some(1)	fdb87a496131eb2d	in Display
+full-Desktop-itg	Advanced	chart_ratings	Advanced	Chart ratings	From the song|MSD|DDI estimate	2	Some(2)	b9161ecbba03af39	in Display
+full-Desktop-itg	Advanced	graphics	Advanced	Graphics	Automatic|WebGL2	0	Some(0)	e89a6617f9b41b0d	in Display
+full-Desktop-itg	Advanced	debug	Advanced	Debug overlay	Off|On	0	Some(0)	ce1342fa3f155f70	in Display
+full-Desktop-itg	Advanced	demo	Advanced	Autoplay demo	Play|On WebGL2	0	None	-	in Display
+full-Desktop-itg	Advanced	noteskin	Basic	Arrows	Infinito|Mine	1	Some(0)	fee44f1e9cc5a7eb	in Arrows
+full-Desktop-itg	Advanced	pump_noteskin	Advanced	Pump arrows	As above|cmd	1	Some(0)	86af514c81dd1c81	in Arrows
+full-Desktop-itg	Advanced	bind_layout	Basic	Bindings for	Single|Solo|Double|Pump single|Pump half-double|Pump double|Techno 8-panel	0	Some(0)	d11fc853044fa32f	in Controls
+full-Desktop-itg	Advanced	bind.any	Basic	Any device	Bind…	0	None	-	in Controls
+full-Desktop-itg	Advanced	keys	Basic	Keyboard	Bind|Reset keys	0	None	-	in Controls
+full-Desktop-itg	Advanced	keys.lane.0	Basic	Left	Add key|Clear	0	None	-	in Controls
+full-Desktop-itg	Advanced	keys.lane.1	Basic	Down	Add key|Clear	0	None	-	in Controls
+full-Desktop-itg	Advanced	keys.lane.2	Basic	Up	Add key|Clear	0	None	-	in Controls
+full-Desktop-itg	Advanced	keys.lane.3	Basic	Right	Add key|Clear	0	None	-	in Controls
+full-Desktop-itg	Advanced	touch_controls	Basic	Touch controls	Buttons|Pad|Columns (old)	0	Some(0)	7a0714615e04f083	in Controls
+full-Desktop-itg	Advanced	touch_hand	Basic	Extra button	Right side|Left side	0	Some(0)	296eb945d674e79a	in Controls
+full-Desktop-itg	Advanced	touch_size	Basic	Touch controls size	Smaller|Standard|Larger	1	Some(1)	058ffed05a251431	in Controls
+full-Desktop-itg	Advanced	pad.0	Basic		Bind|Clear	0	None	-	in Controls
+full-Desktop-itg	Advanced	pad_style.0	Basic	Button hints	Auto (Generic)|Xbox|PlayStation|Nintendo|Generic	0	Some(0)	fcc99a39e34ad223	in Controls
+full-Desktop-itg	Advanced	pad.0.lane.0	Basic	Left	Add button|Clear	0	None	-	in Controls
+full-Desktop-itg	Advanced	pad.0.lane.1	Basic	Down	Add button|Clear	0	None	-	in Controls
+full-Desktop-itg	Advanced	pad.0.lane.2	Basic	Up	Add button|Clear	0	None	-	in Controls
+full-Desktop-itg	Advanced	pad.0.lane.3	Basic	Right	Add button|Clear	0	None	-	in Controls
+full-Desktop-itg	Advanced	pad.0.start	Basic	Start		0	None	-	in Controls
+full-Desktop-itg	Advanced	pad.0.back	Basic	Back		0	None	-	in Controls
+full-Desktop-itg	Advanced	fast_pad_poll	Advanced	Poll every millisecond	Off|On	1	Some(1)	6b0863db1219b6cc	in Controls
+full-Desktop-itg	Advanced	pads.none	Basic	Controllers		0	None	-	in Controls
+full-Desktop-itg	Advanced	history.export	Basic	Play history	Export|Import…|Reset	0	None	-	in Data
+full-Desktop-itg	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
+full-Desktop-itg	Advanced	reset.songs	Basic	Song folders	Forget	0	None	-	in Data
+full-Desktop-itg	Advanced	room_ahead	Basic	Room songs ahead	Everything|Likely next|Off	0	Some(0)	3ca8d0744d0c53b3	in Data
+full-Desktop-itg	Advanced	twitch	Basic	Twitch access		0	None	-	in Data
+full-Desktop-itg	Advanced	privacy	Basic	Privacy	Read	0	None	-	in Data
+full-Desktop-itg	Advanced	usage_stats	Basic	Send usage statistics	Off|On	1	Some(1)	0f2389bc979e7352	in Data
+full-Desktop-itg	Advanced	reset.everything	Basic	Everything	Reset	0	None	-	in Data
+full-Desktop-itg	Advanced	folders.0	Basic	Songs	Remove	0	None	-	in Songs
+full-Desktop-itg	Advanced	folders.add	Basic	Song folders	Add…|Read again	0	None	-	in Songs
+full-Desktop-itg	Advanced	share.token	Basic	Upload token	Set…	0	None	-	in Sharing
+full-Desktop-itg	Advanced	share.shares	Basic	Shares		0	None	-	in Sharing
+full-Desktop-itg	Advanced	share.server	Basic	Server		0	None	-	in Sharing
+full-Desktop-itg	Advanced	share.about	Basic	What a share is		0	None	-	in Sharing
+full-Desktop-itg	Basic	speed
+full-Desktop-itg	Basic	reverse
+full-Desktop-itg	Basic	cut
+full-Desktop-itg	Basic	at_once
+full-Desktop-itg	Basic	no_holds
+full-Desktop-itg	Basic	calibrate
+full-Desktop-itg	Basic	volume
+full-Desktop-itg	Basic	sample
+full-Desktop-itg	Basic	assist_clap
+full-Desktop-itg	Basic	announcer
+full-Desktop-itg	Basic	announcer_volume
+full-Desktop-itg	Basic	announcer.studio
+full-Desktop-itg	Basic	twitch_chat
+full-Desktop-itg	Basic	chat_emotes_from
+full-Desktop-itg	Basic	dancing_hand
+full-Desktop-itg	Basic	ghost
+full-Desktop-itg	Basic	lyrics
+full-Desktop-itg	Basic	bg_brightness
+full-Desktop-itg	Basic	field_filter
+full-Desktop-itg	Basic	show_advanced
+full-Desktop-itg	Basic	language
+full-Desktop-itg	Basic	reduced_motion
+full-Desktop-itg	Basic	cursor_style
+full-Desktop-itg	Basic	cursor_size
+full-Desktop-itg	Basic	start_countdown
+full-Desktop-itg	Basic	noteskin
+full-Desktop-itg	Basic	bind_layout
+full-Desktop-itg	Basic	bind.any
+full-Desktop-itg	Basic	keys
+full-Desktop-itg	Basic	keys.lane.0
+full-Desktop-itg	Basic	keys.lane.1
+full-Desktop-itg	Basic	keys.lane.2
+full-Desktop-itg	Basic	keys.lane.3
+full-Desktop-itg	Basic	touch_controls
+full-Desktop-itg	Basic	touch_hand
+full-Desktop-itg	Basic	touch_size
+full-Desktop-itg	Basic	pad.0
+full-Desktop-itg	Basic	pad_style.0
+full-Desktop-itg	Basic	pad.0.lane.0
+full-Desktop-itg	Basic	pad.0.lane.1
+full-Desktop-itg	Basic	pad.0.lane.2
+full-Desktop-itg	Basic	pad.0.lane.3
+full-Desktop-itg	Basic	pad.0.start
+full-Desktop-itg	Basic	pad.0.back
+full-Desktop-itg	Basic	pads.none
+full-Desktop-itg	Basic	history.export
+full-Desktop-itg	Basic	reset.settings
+full-Desktop-itg	Basic	reset.songs
+full-Desktop-itg	Basic	room_ahead
+full-Desktop-itg	Basic	twitch
+full-Desktop-itg	Basic	privacy
+full-Desktop-itg	Basic	usage_stats
+full-Desktop-itg	Basic	reset.everything
+full-Desktop-itg	Basic	folders.0
+full-Desktop-itg	Basic	folders.add
+full-Desktop-itg	Basic	share.token
+full-Desktop-itg	Basic	share.shares
+full-Desktop-itg	Basic	share.server
+full-Desktop-itg	Basic	share.about
+full-Desktop-itg	Basic	changed 3
+new-Web	Advanced	speed	Basic	Speed	40 values #7a2900995841ee9c	9	Some(9)	6b7666a907eb00b2	in Scroll
+new-Web	Advanced	speed_source	Advanced	Charts with their own speed	Mine|The chart's	0	Some(0)	c688f285a9507a3a	in Scroll
+new-Web	Advanced	reverse	Basic	Reverse	Off|On	0	Some(0)	fc4ccc3eeff8eda2	in Scroll
+new-Web	Advanced	scroll_action	Advanced	Scroll action	Normal|Boost|Brake|Wave	0	Some(0)	37b941340aac7ecf	in Scroll
+new-Web	Advanced	turn	Advanced	Turn	Off|Mirror|Left|Right|Shuffle	0	Some(0)	5f09248f1cb2fd95	in Notes
+new-Web	Advanced	appearance	Advanced	Appearance	Normal|Hidden|Sudden|Both|Stealth	0	Some(0)	1d444b503f1644bf	in Notes
+new-Web	Advanced	lane_cover	Advanced	Lane cover	Off|Sudden+|Hidden+|Both	0	Some(0)	7811d25ef0836505	in Notes
+new-Web	Advanced	cut	Basic	Notes	All|Quarters|Quarters and eighths	0	Some(0)	7678bfc2e8a2ca75	in Notes
+new-Web	Advanced	simplify_onigiri	Advanced	Without onigiri	Off|On	0	Some(0)	93792df89e02d734	in Notes
+new-Web	Advanced	simplify_center	Advanced	Without center	Off|Where missing|All	1	Some(1)	677d5289d865b3ac	in Notes
+new-Web	Advanced	at_once	Basic	At once	Any|Up to two|One	0	Some(0)	38314865abd7df95	in Notes
+new-Web	Advanced	no_stretch	Advanced	No stretch	Off|On	0	Some(0)	f58db5c5fd05f1b6	in Notes
+new-Web	Advanced	no_holds	Basic	No holds	Off|On	0	Some(0)	bb368899261e62bc	in Notes
+new-Web	Advanced	convert_pump_single	Advanced	Pump on 5 keys	Off|On	1	Some(1)	605532035763c54e	in Notes
+new-Web	Advanced	convert_five_keys	Advanced	5 keys on Pump	Off|On	1	Some(1)	c2636ba7119a1f7a	in Notes
+new-Web	Advanced	ruleset_mode	Advanced	Rules for each chart	The ruleset below|The chart's game|Dancing☆Onigiri	0	Some(0)	25a0fa33e472bd5b	in Rules
+new-Web	Advanced	ruleset	Advanced	Ruleset	8 values #f178eff0b2cf1dcf	0	Some(0)	ee0ce49aa32af7b2	in Rules
+new-Web	Advanced	ddi.difficulty	Basic	Timing difficulty	Easy|Normal|Hard	1	Some(1)	89111fbd805db097	in Rules
+new-Web	Advanced	ddi.boos	Advanced	Boos	Off|On	0	Some(0)	25cc79a53ed4a03a	in Rules
+new-Web	Advanced	ddi.practice	Basic	Practice	Off|On	0	Some(0)	2c5963e65a05d148	in Rules
+new-Web	Advanced	ddi.score	Basic	Score display	Score|Percent	0	Some(0)	25814fed1d789ee2	in Rules
+new-Web	Advanced	ddi.words	Basic	Judgment words	English|日本語|Same as game language	0	Some(0)	07074a26373b83e6	in Rules
+new-Web	Advanced	rejudge	Advanced	Kept plays		0	None	-	in Rules
+new-Web	Advanced	danoni.gauge	Advanced	Gauge	10 values #d2bed868e2fc5c51	0	Some(0)	e27c80c1cdb1a1f5	in Rules
+new-Web	Advanced	danoni.range	Advanced	Judge range	Normal|Narrow|Hard|ExHard	0	Some(0)	c4a01b334bb71b51	in Rules
+new-Web	Advanced	danoni.excessive	Advanced	Excessive	As the chart says|Off|On	0	Some(0)	c165fd182855f6d3	in Rules
+new-Web	Advanced	calibrate	Basic	Calibration	Calibrate	0	None	-	in Timing
+new-Web	Advanced	audio_offset	Advanced	Default audio offset	1001 values #fa54cbcd20232380	500	Some(500)	ba0c824526c78d34	in Timing
+new-Web	Advanced	visual_offset	Advanced	Default visual offset	1001 values #fa54cbcd20232380	500	Some(500)	e325ac70a72efaca	in Timing
+new-Web	Advanced	volume	Basic	Volume	101 values #735cc38ecf9a39e1	69	Some(69)	8611beabddaf7342	in Sound
+new-Web	Advanced	sample	Basic	Sample	Play a sample	0	None	-	in Sound
+new-Web	Advanced	assist_clap	Basic	Assist clap	Off|On	0	Some(0)	a15aed108d4ba19a	in Sound
+new-Web	Advanced	mine_sound	Advanced	Mine sound	Off|On	1	Some(1)	97a37e14e7795504	in Sound
+new-Web	Advanced	announcer	Basic	Announcer	Off|bundled:clank	1	Some(1)	60c0b6d04c96ec2f	in Sound
+new-Web	Advanced	announcer_volume	Basic	Announcer volume	101 values #735cc38ecf9a39e1	100	Some(100)	1b9c53592ffdf7f0	in Sound
+new-Web	Advanced	announcer.studio	Basic	Your own announcer	Make one…	0	None	-	in Sound
+new-Web	Advanced	field_place	Advanced	Field position	Center|Left|Right|Near left|Near right	0	Some(0)	a20833161be88121	in Display
+new-Web	Advanced	show_deltas	Advanced	Timing error of each hit	Off|On	0	Some(0)	9d86270fcc3de418	in Display
+new-Web	Advanced	opponent_fields	Advanced	Opponents' fields	As many as fit|Up to eight	0	Some(0)	4113bf9212fc3ee6	in Display
+new-Web	Advanced	twitch_chat	Basic	Twitch chat in rooms	Off|Emotes|Emotes and messages	0	Some(0)	a1168a54a730c9ef	in Display
+new-Web	Advanced	dancing_hand	Basic	Dancing hand	Off|On	1	Some(1)	401b0fbf901d81b4	in Display
+new-Web	Advanced	dancing_hand_multiplayer	Advanced	Dancing hand in multiplayer	Off|On	0	Some(0)	47c0775c8dde81e0	in Display
+new-Web	Advanced	hand_layout	Advanced	Field + hand layout	7 values #3af7a1a4adc2fd9d	0	Some(0)	5c636102ab96e2e3	in Display
+new-Web	Advanced	hand_frame_width	Advanced	Hand frame width	30%|40%|50%|60%|70%|80%|90%|100%	2	Some(2)	1b6bd71d1dbd7bc2	in Display
+new-Web	Advanced	hand_frame_height	Advanced	Hand frame height	50%|60%|70%|80%|90%|100%	5	Some(5)	f0cb3d5d82397b49	in Display
+new-Web	Advanced	ghost	Basic	Ghost of your best	Off|On	0	Some(0)	876c352a35c6d584	in Display
+new-Web	Advanced	receptor_snap	Advanced	Receptor snap	Off|On	1	Some(1)	c8661097d7f5e1b4	in Display
+new-Web	Advanced	lyrics	Basic	Lyrics	Off|On	1	Some(1)	3cecfcd1cef4c17a	in Display
+new-Web	Advanced	bg_brightness	Basic	Background brightness	21 values #b81ab5ea05e5154d	8	Some(8)	f0e8109fcb5b47a3	in Display
+new-Web	Advanced	video	Advanced	Background videos	Automatic|On|Off	0	Some(0)	38f2c04c3f6261d7	in Display
+new-Web	Advanced	random_movies	Advanced	Random movies	Off|On	1	Some(1)	d5657fdc1ba59d92	in Display
+new-Web	Advanced	generated_background	Advanced	Generated background	Off|Spectrum bars|Kaleidoscope|Field and lines|Outline rain	3	Some(3)	94bee2bbc78790b7	in Display
+new-Web	Advanced	generated_over_pictures	Advanced	Over song backgrounds	Off|On	0	Some(0)	282b733dad532562	in Display
+new-Web	Advanced	generated_palette	Advanced	Generated colors	Ink|Dusk|Moss|Ember|Mono	0	Some(0)	ca508ae383ba7aa2	in Display
+new-Web	Advanced	background_frame	Advanced	Background frame	Automatic|4:3|16:9|Whole screen	0	Some(0)	90ff3fddefc8858a	in Display
+new-Web	Advanced	field_filter	Basic	Field filter	Off|40%|60%|80%	1	Some(1)	753233710bab112b	in Display
+new-Web	Advanced	show_advanced	Basic	Show advanced options	Off|On	0	Some(0)	25a723ddd51c36a1	in Display
+new-Web	Advanced	language	Basic	Language	As the system (English)|English|日本語	0	Some(0)	ec2b495ab3096509	in Display
+new-Web	Advanced	reduced_motion	Basic	Reduced motion	As the system|On|Off	0	Some(0)	432b59a535d16bbb	in Display
+new-Web	Advanced	cursor_style	Basic	Cursor	Infinito cursor|Infinito arrow|System	0	Some(0)	7776ef860b74368c	in Display
+new-Web	Advanced	cursor_size	Basic	Cursor size	49 values #18792ba06f224739	12	Some(12)	a21dfe4be4a1dfda	in Display
+new-Web	Advanced	start_countdown	Basic	Start countdown	Off|3 s|5 s|10 s	1	Some(1)	21bb02310938527b	in Display
+new-Web	Advanced	chart_ratings	Advanced	Chart ratings	From the song|MSD|DDI estimate	2	Some(2)	967fa82000ccecff	in Display
+new-Web	Advanced	graphics	Advanced	Graphics	Automatic|WebGL2	0	Some(0)	7f184146bbc42d53	in Display
+new-Web	Advanced	debug	Advanced	Debug overlay	Off|On	0	Some(0)	e53ad7937e4dd488	in Display
+new-Web	Advanced	demo	Advanced	Autoplay demo	Play|On WebGL2	0	None	-	in Display
+new-Web	Advanced	noteskin	Basic	Arrows	Infinito	0	Some(0)	-	in Arrows
+new-Web	Advanced	skin.Colors	Advanced	Note colors	Vivid|Rainbow|Flat	0	Some(0)	8bcbaa156668ca73	in Arrows
+new-Web	Advanced	skin.NoteTimedCharge	Advanced	Charge by note timing	Off|On	1	Some(1)	baf8762e0fe48061	in Arrows
+new-Web	Advanced	skin.Onigiri	Advanced	Onigiri note	Off|On	1	Some(1)	9950d344ae665037	in Arrows
+new-Web	Advanced	skin.ShockArrows	Advanced	Shock arrows	Off|On	0	Some(0)	3518a641c98d0ad5	in Arrows
+new-Web	Advanced	skin.Explosions	Advanced	Explosions	Off|On	1	Some(1)	480f249fa08f7fd6	in Arrows
+new-Web	Advanced	skin.ReceptorFill	Advanced	Receptor interior	Off|On	1	Some(1)	695296ad324c06d1	in Arrows
+new-Web	Advanced	skin.HitVariation	Advanced	Vary bursts	Off|On	1	Some(1)	2c5964f846c80348	in Arrows
+new-Web	Advanced	bind_layout	Basic	Bindings for	Single|Solo|Double|Pump single|Pump half-double|Pump double|Techno 8-panel	0	Some(0)	3f6437a9c8ef4bb5	in Controls
+new-Web	Advanced	bind.any	Basic	Any device	Bind…	0	None	-	in Controls
+new-Web	Advanced	keys	Basic	Keyboard	Bind|Reset keys	0	None	-	in Controls
+new-Web	Advanced	keys.lane.0	Basic	Left	Add key|Clear	0	None	-	in Controls
+new-Web	Advanced	keys.lane.1	Basic	Down	Add key|Clear	0	None	-	in Controls
+new-Web	Advanced	keys.lane.2	Basic	Up	Add key|Clear	0	None	-	in Controls
+new-Web	Advanced	keys.lane.3	Basic	Right	Add key|Clear	0	None	-	in Controls
+new-Web	Advanced	touch_controls	Basic	Touch controls	Buttons|Pad|Columns (old)	0	Some(0)	80ad0d2183206e25	in Controls
+new-Web	Advanced	touch_hand	Basic	Extra button	Right side|Left side	0	Some(0)	5db034c6e9368f54	in Controls
+new-Web	Advanced	touch_size	Basic	Touch controls size	Smaller|Standard|Larger	1	Some(1)	526bda685f91f407	in Controls
+new-Web	Advanced	fast_pad_poll	Advanced	Poll every millisecond	Off|On	1	Some(1)	55bd32f8cae5958c	in Controls
+new-Web	Advanced	history.export	Basic	Play history	Import…	0	None	-	in Data
+new-Web	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
+new-Web	Advanced	reset.songs	Basic	Imported songs		0	None	-	in Data
+new-Web	Advanced	room_ahead	Basic	Room songs ahead	Everything|Likely next|Off	0	Some(0)	41e12dafae2d76b9	in Data
+new-Web	Advanced	twitch	Basic	Twitch access		0	None	-	in Data
+new-Web	Advanced	privacy	Basic	Privacy	Read	0	None	-	in Data
+new-Web	Advanced	usage_stats	Basic	Send usage statistics	Off|On	1	Some(1)	5d066ebf4ab526b0	in Data
+new-Web	Advanced	error_reports	Basic	Send error reports	Off|On	1	Some(1)	f609f3bba61be37a	in Data
+new-Web	Advanced	reset.everything	Basic	Everything	Reset	0	None	-	in Data
+new-Web	Basic	speed
+new-Web	Basic	reverse
+new-Web	Basic	cut
+new-Web	Basic	at_once
+new-Web	Basic	no_holds
+new-Web	Basic	ddi.difficulty
+new-Web	Basic	ddi.practice
+new-Web	Basic	ddi.score
+new-Web	Basic	ddi.words
+new-Web	Basic	calibrate
+new-Web	Basic	volume
+new-Web	Basic	sample
+new-Web	Basic	assist_clap
+new-Web	Basic	announcer
+new-Web	Basic	announcer_volume
+new-Web	Basic	announcer.studio
+new-Web	Basic	twitch_chat
+new-Web	Basic	dancing_hand
+new-Web	Basic	ghost
+new-Web	Basic	lyrics
+new-Web	Basic	bg_brightness
+new-Web	Basic	field_filter
+new-Web	Basic	show_advanced
+new-Web	Basic	language
+new-Web	Basic	reduced_motion
+new-Web	Basic	cursor_style
+new-Web	Basic	cursor_size
+new-Web	Basic	start_countdown
+new-Web	Basic	noteskin
+new-Web	Basic	bind_layout
+new-Web	Basic	bind.any
+new-Web	Basic	keys
+new-Web	Basic	keys.lane.0
+new-Web	Basic	keys.lane.1
+new-Web	Basic	keys.lane.2
+new-Web	Basic	keys.lane.3
+new-Web	Basic	touch_controls
+new-Web	Basic	touch_hand
+new-Web	Basic	touch_size
+new-Web	Basic	history.export
+new-Web	Basic	reset.settings
+new-Web	Basic	reset.songs
+new-Web	Basic	room_ahead
+new-Web	Basic	twitch
+new-Web	Basic	privacy
+new-Web	Basic	usage_stats
+new-Web	Basic	error_reports
+new-Web	Basic	reset.everything
+new-Web	Basic	changed 0
+new-Desktop	Advanced	speed	Basic	Speed	40 values #7a2900995841ee9c	9	Some(9)	6b7666a907eb00b2	in Scroll
+new-Desktop	Advanced	speed_source	Advanced	Charts with their own speed	Mine|The chart's	0	Some(0)	c688f285a9507a3a	in Scroll
+new-Desktop	Advanced	reverse	Basic	Reverse	Off|On	0	Some(0)	fc4ccc3eeff8eda2	in Scroll
+new-Desktop	Advanced	scroll_action	Advanced	Scroll action	Normal|Boost|Brake|Wave	0	Some(0)	37b941340aac7ecf	in Scroll
+new-Desktop	Advanced	turn	Advanced	Turn	Off|Mirror|Left|Right|Shuffle	0	Some(0)	5f09248f1cb2fd95	in Notes
+new-Desktop	Advanced	appearance	Advanced	Appearance	Normal|Hidden|Sudden|Both|Stealth	0	Some(0)	1d444b503f1644bf	in Notes
+new-Desktop	Advanced	lane_cover	Advanced	Lane cover	Off|Sudden+|Hidden+|Both	0	Some(0)	7811d25ef0836505	in Notes
+new-Desktop	Advanced	cut	Basic	Notes	All|Quarters|Quarters and eighths	0	Some(0)	7678bfc2e8a2ca75	in Notes
+new-Desktop	Advanced	simplify_onigiri	Advanced	Without onigiri	Off|On	0	Some(0)	93792df89e02d734	in Notes
+new-Desktop	Advanced	simplify_center	Advanced	Without center	Off|Where missing|All	1	Some(1)	677d5289d865b3ac	in Notes
+new-Desktop	Advanced	at_once	Basic	At once	Any|Up to two|One	0	Some(0)	38314865abd7df95	in Notes
+new-Desktop	Advanced	no_stretch	Advanced	No stretch	Off|On	0	Some(0)	f58db5c5fd05f1b6	in Notes
+new-Desktop	Advanced	no_holds	Basic	No holds	Off|On	0	Some(0)	bb368899261e62bc	in Notes
+new-Desktop	Advanced	convert_pump_single	Advanced	Pump on 5 keys	Off|On	1	Some(1)	605532035763c54e	in Notes
+new-Desktop	Advanced	convert_five_keys	Advanced	5 keys on Pump	Off|On	1	Some(1)	c2636ba7119a1f7a	in Notes
+new-Desktop	Advanced	ruleset_mode	Advanced	Rules for each chart	The ruleset below|The chart's game|Dancing☆Onigiri	0	Some(0)	25a0fa33e472bd5b	in Rules
+new-Desktop	Advanced	ruleset	Advanced	Ruleset	8 values #f178eff0b2cf1dcf	0	Some(0)	ee0ce49aa32af7b2	in Rules
+new-Desktop	Advanced	ddi.difficulty	Basic	Timing difficulty	Easy|Normal|Hard	1	Some(1)	89111fbd805db097	in Rules
+new-Desktop	Advanced	ddi.boos	Advanced	Boos	Off|On	0	Some(0)	25cc79a53ed4a03a	in Rules
+new-Desktop	Advanced	ddi.practice	Basic	Practice	Off|On	0	Some(0)	2c5963e65a05d148	in Rules
+new-Desktop	Advanced	ddi.score	Basic	Score display	Score|Percent	0	Some(0)	25814fed1d789ee2	in Rules
+new-Desktop	Advanced	ddi.words	Basic	Judgment words	English|日本語|Same as game language	0	Some(0)	07074a26373b83e6	in Rules
+new-Desktop	Advanced	rejudge	Advanced	Kept plays		0	None	-	in Rules
+new-Desktop	Advanced	danoni.gauge	Advanced	Gauge	10 values #d2bed868e2fc5c51	0	Some(0)	e27c80c1cdb1a1f5	in Rules
+new-Desktop	Advanced	danoni.range	Advanced	Judge range	Normal|Narrow|Hard|ExHard	0	Some(0)	c4a01b334bb71b51	in Rules
+new-Desktop	Advanced	danoni.excessive	Advanced	Excessive	As the chart says|Off|On	0	Some(0)	c165fd182855f6d3	in Rules
+new-Desktop	Advanced	calibrate	Basic	Calibration	Calibrate	0	None	-	in Timing
+new-Desktop	Advanced	audio_offset	Advanced	Default audio offset	1001 values #fa54cbcd20232380	500	Some(500)	ba0c824526c78d34	in Timing
+new-Desktop	Advanced	visual_offset	Advanced	Default visual offset	1001 values #fa54cbcd20232380	500	Some(500)	e325ac70a72efaca	in Timing
+new-Desktop	Advanced	volume	Basic	Volume	101 values #735cc38ecf9a39e1	69	Some(69)	8611beabddaf7342	in Sound
+new-Desktop	Advanced	sample	Basic	Sample	Play a sample	0	None	-	in Sound
+new-Desktop	Advanced	assist_clap	Basic	Assist clap	Off|On	0	Some(0)	a15aed108d4ba19a	in Sound
+new-Desktop	Advanced	mine_sound	Advanced	Mine sound	Off|On	1	Some(1)	97a37e14e7795504	in Sound
+new-Desktop	Advanced	announcer	Basic	Announcer	Off|bundled:clank	1	Some(1)	60c0b6d04c96ec2f	in Sound
+new-Desktop	Advanced	announcer_volume	Basic	Announcer volume	101 values #735cc38ecf9a39e1	100	Some(100)	1b9c53592ffdf7f0	in Sound
+new-Desktop	Advanced	announcer.studio	Basic	Your own announcer	Make one…	0	None	-	in Sound
+new-Desktop	Advanced	field_place	Advanced	Field position	Center|Left|Right|Near left|Near right	0	Some(0)	a20833161be88121	in Display
+new-Desktop	Advanced	show_deltas	Advanced	Timing error of each hit	Off|On	0	Some(0)	9d86270fcc3de418	in Display
+new-Desktop	Advanced	opponent_fields	Advanced	Opponents' fields	As many as fit|Up to eight	0	Some(0)	4113bf9212fc3ee6	in Display
+new-Desktop	Advanced	twitch_chat	Basic	Twitch chat in rooms	Off|Emotes|Emotes and messages	0	Some(0)	a1168a54a730c9ef	in Display
+new-Desktop	Advanced	dancing_hand	Basic	Dancing hand	Off|On	1	Some(1)	401b0fbf901d81b4	in Display
+new-Desktop	Advanced	dancing_hand_multiplayer	Advanced	Dancing hand in multiplayer	Off|On	0	Some(0)	47c0775c8dde81e0	in Display
+new-Desktop	Advanced	hand_layout	Advanced	Field + hand layout	7 values #3af7a1a4adc2fd9d	0	Some(0)	5c636102ab96e2e3	in Display
+new-Desktop	Advanced	hand_frame_width	Advanced	Hand frame width	30%|40%|50%|60%|70%|80%|90%|100%	2	Some(2)	1b6bd71d1dbd7bc2	in Display
+new-Desktop	Advanced	hand_frame_height	Advanced	Hand frame height	50%|60%|70%|80%|90%|100%	5	Some(5)	f0cb3d5d82397b49	in Display
+new-Desktop	Advanced	ghost	Basic	Ghost of your best	Off|On	0	Some(0)	876c352a35c6d584	in Display
+new-Desktop	Advanced	receptor_snap	Advanced	Receptor snap	Off|On	1	Some(1)	c8661097d7f5e1b4	in Display
+new-Desktop	Advanced	lyrics	Basic	Lyrics	Off|On	1	Some(1)	3cecfcd1cef4c17a	in Display
+new-Desktop	Advanced	bg_brightness	Basic	Background brightness	21 values #b81ab5ea05e5154d	8	Some(8)	f0e8109fcb5b47a3	in Display
+new-Desktop	Advanced	video	Advanced	Background videos	Automatic|On|Off	0	Some(0)	38f2c04c3f6261d7	in Display
+new-Desktop	Advanced	random_movies	Advanced	Random movies	Off|On	1	Some(1)	d5657fdc1ba59d92	in Display
+new-Desktop	Advanced	generated_background	Advanced	Generated background	Off|Spectrum bars|Kaleidoscope|Field and lines|Outline rain	3	Some(3)	94bee2bbc78790b7	in Display
+new-Desktop	Advanced	generated_over_pictures	Advanced	Over song backgrounds	Off|On	0	Some(0)	282b733dad532562	in Display
+new-Desktop	Advanced	generated_palette	Advanced	Generated colors	Ink|Dusk|Moss|Ember|Mono	0	Some(0)	ca508ae383ba7aa2	in Display
+new-Desktop	Advanced	background_frame	Advanced	Background frame	Automatic|4:3|16:9|Whole screen	0	Some(0)	90ff3fddefc8858a	in Display
+new-Desktop	Advanced	field_filter	Basic	Field filter	Off|40%|60%|80%	1	Some(1)	753233710bab112b	in Display
+new-Desktop	Advanced	show_advanced	Basic	Show advanced options	Off|On	0	Some(0)	25a723ddd51c36a1	in Display
+new-Desktop	Advanced	language	Basic	Language	As the system (English)|English|日本語	0	Some(0)	ec2b495ab3096509	in Display
+new-Desktop	Advanced	reduced_motion	Basic	Reduced motion	As the system|On|Off	0	Some(0)	432b59a535d16bbb	in Display
+new-Desktop	Advanced	cursor_style	Basic	Cursor	Infinito cursor|Infinito arrow|System	0	Some(0)	7776ef860b74368c	in Display
+new-Desktop	Advanced	cursor_size	Basic	Cursor size	49 values #18792ba06f224739	12	Some(12)	a21dfe4be4a1dfda	in Display
+new-Desktop	Advanced	start_countdown	Basic	Start countdown	Off|3 s|5 s|10 s	1	Some(1)	21bb02310938527b	in Display
+new-Desktop	Advanced	chart_ratings	Advanced	Chart ratings	From the song|MSD|DDI estimate	2	Some(2)	967fa82000ccecff	in Display
+new-Desktop	Advanced	graphics	Advanced	Graphics	Automatic|WebGL2	0	Some(0)	7f184146bbc42d53	in Display
+new-Desktop	Advanced	debug	Advanced	Debug overlay	Off|On	0	Some(0)	e53ad7937e4dd488	in Display
+new-Desktop	Advanced	demo	Advanced	Autoplay demo	Play|On WebGL2	0	None	-	in Display
+new-Desktop	Advanced	noteskin	Basic	Arrows	Infinito	0	Some(0)	-	in Arrows
+new-Desktop	Advanced	skin.Colors	Advanced	Note colors	Vivid|Rainbow|Flat	0	Some(0)	8bcbaa156668ca73	in Arrows
+new-Desktop	Advanced	skin.NoteTimedCharge	Advanced	Charge by note timing	Off|On	1	Some(1)	baf8762e0fe48061	in Arrows
+new-Desktop	Advanced	skin.Onigiri	Advanced	Onigiri note	Off|On	1	Some(1)	9950d344ae665037	in Arrows
+new-Desktop	Advanced	skin.ShockArrows	Advanced	Shock arrows	Off|On	0	Some(0)	3518a641c98d0ad5	in Arrows
+new-Desktop	Advanced	skin.Explosions	Advanced	Explosions	Off|On	1	Some(1)	480f249fa08f7fd6	in Arrows
+new-Desktop	Advanced	skin.ReceptorFill	Advanced	Receptor interior	Off|On	1	Some(1)	695296ad324c06d1	in Arrows
+new-Desktop	Advanced	skin.HitVariation	Advanced	Vary bursts	Off|On	1	Some(1)	2c5964f846c80348	in Arrows
+new-Desktop	Advanced	bind_layout	Basic	Bindings for	Single|Solo|Double|Pump single|Pump half-double|Pump double|Techno 8-panel	0	Some(0)	3f6437a9c8ef4bb5	in Controls
+new-Desktop	Advanced	bind.any	Basic	Any device	Bind…	0	None	-	in Controls
+new-Desktop	Advanced	keys	Basic	Keyboard	Bind|Reset keys	0	None	-	in Controls
+new-Desktop	Advanced	keys.lane.0	Basic	Left	Add key|Clear	0	None	-	in Controls
+new-Desktop	Advanced	keys.lane.1	Basic	Down	Add key|Clear	0	None	-	in Controls
+new-Desktop	Advanced	keys.lane.2	Basic	Up	Add key|Clear	0	None	-	in Controls
+new-Desktop	Advanced	keys.lane.3	Basic	Right	Add key|Clear	0	None	-	in Controls
+new-Desktop	Advanced	touch_controls	Basic	Touch controls	Buttons|Pad|Columns (old)	0	Some(0)	80ad0d2183206e25	in Controls
+new-Desktop	Advanced	touch_hand	Basic	Extra button	Right side|Left side	0	Some(0)	5db034c6e9368f54	in Controls
+new-Desktop	Advanced	touch_size	Basic	Touch controls size	Smaller|Standard|Larger	1	Some(1)	526bda685f91f407	in Controls
+new-Desktop	Advanced	fast_pad_poll	Advanced	Poll every millisecond	Off|On	1	Some(1)	55bd32f8cae5958c	in Controls
+new-Desktop	Advanced	history.export	Basic	Play history	Import…	0	None	-	in Data
+new-Desktop	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
+new-Desktop	Advanced	reset.songs	Basic	Song folders	Forget	0	None	-	in Data
+new-Desktop	Advanced	room_ahead	Basic	Room songs ahead	Everything|Likely next|Off	0	Some(0)	41e12dafae2d76b9	in Data
+new-Desktop	Advanced	twitch	Basic	Twitch access		0	None	-	in Data
+new-Desktop	Advanced	privacy	Basic	Privacy	Read	0	None	-	in Data
+new-Desktop	Advanced	usage_stats	Basic	Send usage statistics	Off|On	1	Some(1)	5d066ebf4ab526b0	in Data
+new-Desktop	Advanced	reset.everything	Basic	Everything	Reset	0	None	-	in Data
+new-Desktop	Advanced	folders.0	Basic	Songs	Remove	0	None	-	in Songs
+new-Desktop	Advanced	folders.add	Basic	Song folders	Add…|Read again	0	None	-	in Songs
+new-Desktop	Basic	speed
+new-Desktop	Basic	reverse
+new-Desktop	Basic	cut
+new-Desktop	Basic	at_once
+new-Desktop	Basic	no_holds
+new-Desktop	Basic	ddi.difficulty
+new-Desktop	Basic	ddi.practice
+new-Desktop	Basic	ddi.score
+new-Desktop	Basic	ddi.words
+new-Desktop	Basic	calibrate
+new-Desktop	Basic	volume
+new-Desktop	Basic	sample
+new-Desktop	Basic	assist_clap
+new-Desktop	Basic	announcer
+new-Desktop	Basic	announcer_volume
+new-Desktop	Basic	announcer.studio
+new-Desktop	Basic	twitch_chat
+new-Desktop	Basic	dancing_hand
+new-Desktop	Basic	ghost
+new-Desktop	Basic	lyrics
+new-Desktop	Basic	bg_brightness
+new-Desktop	Basic	field_filter
+new-Desktop	Basic	show_advanced
+new-Desktop	Basic	language
+new-Desktop	Basic	reduced_motion
+new-Desktop	Basic	cursor_style
+new-Desktop	Basic	cursor_size
+new-Desktop	Basic	start_countdown
+new-Desktop	Basic	noteskin
+new-Desktop	Basic	bind_layout
+new-Desktop	Basic	bind.any
+new-Desktop	Basic	keys
+new-Desktop	Basic	keys.lane.0
+new-Desktop	Basic	keys.lane.1
+new-Desktop	Basic	keys.lane.2
+new-Desktop	Basic	keys.lane.3
+new-Desktop	Basic	touch_controls
+new-Desktop	Basic	touch_hand
+new-Desktop	Basic	touch_size
+new-Desktop	Basic	history.export
+new-Desktop	Basic	reset.settings
+new-Desktop	Basic	reset.songs
+new-Desktop	Basic	room_ahead
+new-Desktop	Basic	twitch
+new-Desktop	Basic	privacy
+new-Desktop	Basic	usage_stats
+new-Desktop	Basic	reset.everything
+new-Desktop	Basic	folders.0
+new-Desktop	Basic	folders.add
+new-Desktop	Basic	changed 0
