@@ -421,6 +421,16 @@ impl Store {
         Some((song, item.files.clone()))
     }
 
+    /// Lets item `key` go (an import's fetched copy), where nothing holds
+    /// it; whether it went.
+    pub fn remove(&mut self, key: ItemKey) -> bool {
+        if self.held(key) || !self.items.contains_key(&key) {
+            return false;
+        }
+        self.drop_item(key);
+        true
+    }
+
     /// Whether something holds `key`.
     pub fn held(&self, key: ItemKey) -> bool {
         self.items.get(&key).is_some_and(|i| i.holds > 0)

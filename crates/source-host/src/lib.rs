@@ -17,11 +17,14 @@
 //!
 //! Nothing runs unless a plugin is installed and switched on
 //! ([`switches`]): a player with none pays a missing folder's check. The
+//! sources built into the app ([`builtin`], stage 2: "This computer")
+//! are asked the same way and answer the same events, in process. The
 //! crate is empty on wasm.
 
 #![cfg(not(target_arch = "wasm32"))]
 
 pub mod assemble;
+pub mod builtin;
 pub mod host;
 pub mod installed;
 mod process;
@@ -30,6 +33,7 @@ pub mod supervisor;
 pub mod switches;
 
 pub use ddi_source_protocol as protocol;
+pub use builtin::Builtin;
 pub use host::{Event, Failure, Host, HostConfig, HostFailure, Request, Stop, Timeouts};
 pub use installed::{Installed, discover};
 pub use store::{FetchedSong, Hold, ItemKey, SharedStore, Store, StoreLimits};

@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -19,6 +19,7 @@ use ddi_source_protocol::{
     Capability, FailCode, FilterValue, Input, ItemMeta, Node, OpId, RoomRule, Step, Text,
 };
 
+use crate::builtin::{self, Builtin, Running};
 use crate::installed::Installed;
 use crate::store::{FetchedSong, ItemKey, SharedStore};
 use crate::supervisor::{Command, Supervisor};
@@ -321,6 +322,13 @@ pub struct Host {
     next_op: OpId,
     /// Each running operation's plugin.
     running: HashMap<OpId, String>,
+    /// The sources built into the app, by id ([`crate::builtin`]).
+    builtins: BTreeMap<String, Running>,
+    /// The game is quiet (a play): nothing new starts, built-in work
+    /// waits ([`Host::set_quiet`]).
+    quiet: Arc<AtomicBool>,
+    /// Asked while quiet: started once it is not.
+    queued: Vec<(OpId, String, Request)>,
 }
 
 impl Host {
@@ -356,7 +364,59 @@ impl Host {
             wake,
             next_op: 0,
             running: HashMap::new(),
+            builtins: BTreeMap::new(),
+            quiet: Arc::default(),
+            queued: Vec::new(),
         }
+    }
+
+    /// Adds a source built into the app, asked as a plugin switched on
+    /// is (`id` is its own; an installed plugin of the same id is passed
+    /// over).
+    pub fn add_builtin(&mut self, source: Arc<dyn Builtin>) {
+        let id = source.id().to_string();
+        self.plugins.remove(&id);
+        self.builtins.insert(id, Running::new(source));
+    }
+
+    /// Takes the built-in source `id` out (its running operations end
+    /// as they would; nothing new is asked of it).
+    pub fn remove_builtin(&mut self, id: &str) {
+        self.builtins.remove(id);
+    }
+
+    /// The sources built into the app.
+    pub fn builtins(&self) -> impl Iterator<Item = &Arc<dyn Builtin>> {
+        self.builtins.values().map(Running::source)
+    }
+
+    /// Whether `id` is a source built into the app.
+    pub fn is_builtin(&self, id: &str) -> bool {
+        self.builtins.contains_key(id)
+    }
+
+    /// The game is quiet, or no longer (`docs/plans/source-plugins.md`,
+    /// section 3: nothing new starts in a source during a play). While
+    /// quiet, a request is kept and started once it is not; a built-in
+    /// source's operations wait at their next step; a plugin's already
+    /// running go on in its own process, at its lower priority, and what
+    /// they answer waits in the host until the game looks.
+    pub fn set_quiet(&mut self, quiet: bool) {
+        self.quiet.store(quiet, Ordering::Relaxed);
+        if !quiet {
+            for (op, plugin, request) in std::mem::take(&mut self.queued) {
+                self.dispatch(op, &plugin, request);
+            }
+        }
+    }
+
+    pub fn is_quiet(&self) -> bool {
+        self.quiet.load(Ordering::Relaxed)
+    }
+
+    /// Requests kept while quiet.
+    pub fn queued(&self) -> usize {
+        self.queued.len()
     }
 
     pub fn store(&self) -> &SharedStore {
@@ -429,8 +489,9 @@ impl Host {
         }
     }
 
-    /// Asks `plugin` for `request`: its answers and its end come as
-    /// events of the operation returned.
+    /// Asks `plugin` (or a built-in source) for `request`: its answers
+    /// and its end come as events of the operation returned. While the
+    /// game is quiet ([`Host::set_quiet`]) it waits to start.
     pub fn request(&mut self, plugin: &str, request: Request) -> OpId {
         self.next_op = self.next_op.wrapping_add(1).max(1);
         let op = self.next_op;
@@ -450,6 +511,31 @@ impl Host {
                 return op;
             }
         }
+        if self.is_quiet() {
+            self.queued.push((op, plugin.to_string(), request));
+            return op;
+        }
+        self.dispatch(op, plugin, request);
+        op
+    }
+
+    fn dispatch(&mut self, op: OpId, plugin: &str, request: Request) {
+        if let Some(running) = self.builtins.get(plugin) {
+            builtin::start(
+                running,
+                builtin::Spawn {
+                    config: self.config.clone(),
+                    store: self.store.clone(),
+                    events: self.events.clone(),
+                    wake: self.wake.clone(),
+                    quiet: self.quiet.clone(),
+                },
+                op,
+                request,
+            );
+            self.running.insert(op, plugin.to_string());
+            return;
+        }
         match self.runner(plugin) {
             Ok(tx) if tx.send(Command::Op { op, request }).is_ok() => {
                 self.running.insert(op, plugin.to_string());
@@ -457,7 +543,6 @@ impl Host {
             Ok(_) => self.fail(op, HostFailure::Stopped),
             Err(why) => self.fail(op, why),
         }
-        op
     }
 
     fn fail(&self, op: OpId, why: HostFailure) {
@@ -471,6 +556,23 @@ impl Host {
     /// Cancels `op`: it fails as cancelled at once, and its plugin is
     /// told to stop it.
     pub fn cancel(&mut self, op: OpId) {
+        if let Some(i) = self.queued.iter().position(|(o, ..)| *o == op) {
+            self.queued.remove(i);
+            self.fail(op, HostFailure::Cancelled);
+            return;
+        }
+        if let Some(running) = self
+            .running
+            .get(&op)
+            .and_then(|plugin| self.builtins.get(plugin))
+        {
+            if builtin::cancel(running, op, &self.events)
+                && let Some(w) = &self.wake
+            {
+                w();
+            }
+            return;
+        }
         if let Some(plugin) = self.running.get(&op)
             && let Some((tx, _)) = self.plugins.get(plugin).and_then(|p| p.runner.as_ref())
         {
@@ -508,6 +610,9 @@ impl Host {
     /// Every plugin shut down, each within its stop's time (then killed),
     /// and their threads ended. For the game's exit.
     pub fn shutdown(&mut self) {
+        for (op, ..) in std::mem::take(&mut self.queued) {
+            self.fail(op, HostFailure::Stopped);
+        }
         let runners: Vec<_> = self
             .plugins
             .values_mut()
