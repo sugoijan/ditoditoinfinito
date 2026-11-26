@@ -536,7 +536,7 @@ mod tests {
             "[Parameters]\nList=Colors, Boom ,Size,Tint\n\
              [Parameter Colors]\nType=Choice\nLabel=Note colors\nDescription= How. \n\
              Choices=Vivid,Flat\nChoiceLabels=Vivid!\nSkins=,X Flat\nDefault=flat\n\
-             [Parameter Boom]\nType=toggle\nDefault=1\n\
+             [Parameter Boom]\nType=toggle\nDefault=1\nLevel=basic\n\
              [Parameter Size]\nType=Number\nMin=0.5\nMax=2\nStep=0.25\nDefault=1.1\nUnit=×\n\
              [Parameter Tint]\nType=Color\nDefault=#ff8800\n",
         );
@@ -560,6 +560,9 @@ mod tests {
         );
         assert_eq!(d.get("Boom").unwrap().default, Value::Bool(true));
         assert_eq!(d.get("Boom").unwrap().label, "Boom");
+        // Options' Basic level only where declared so.
+        assert!(d.get("Boom").unwrap().basic);
+        assert!(!d.get("Colors").unwrap().basic);
         let size = d.get("Size").unwrap();
         assert_eq!(size.default, Value::Number(1.0));
         assert_eq!(size.numbers(), [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]);

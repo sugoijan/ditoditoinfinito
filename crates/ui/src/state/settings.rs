@@ -301,8 +301,8 @@ pub struct Settings {
     /// before it starts by itself; 0: it waits for Start
     /// ([`START_COUNTDOWNS`], `docs/plans/start-prompt.md`).
     pub start_countdown: f32,
-    /// Basic or Advanced (Options → Display, "Detail";
-    /// `docs/plans/ui-levels.md`, stage 1): at Basic, Options and the start
+    /// Basic or Advanced (Options → Display, "Show advanced options" Off
+    /// or On; `docs/plans/ui-levels.md`, stage 1): at Basic, Options and the start
     /// prompt hide the Advanced rows, which keep their effect (a section
     /// counts those changed, with Reset and Show). Basic for a new player.
     #[serde(deserialize_with = "ddi_engine::lenient")]
@@ -616,7 +616,8 @@ pub enum Graphics {
 }
 
 /// How much of the interface shows ([`Settings::level`],
-/// `docs/plans/ui-levels.md`): Options' Detail row. A level hides, never
+/// `docs/plans/ui-levels.md`): Options' Show advanced options row, Off
+/// for Basic and On for Advanced. A level hides, never
 /// changes what a setting does.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Level {

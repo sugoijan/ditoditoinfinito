@@ -950,14 +950,19 @@ impl OptionsScreen {
     }
 
     /// New rows: the same section and option where they still are; where
-    /// the option went (a level hid it), the nearest shown before it; a
-    /// row the data names to focus (a section's Show) first.
+    /// the option went (a level hid it), the nearest shown before it, else
+    /// after it; where the section went, the first row of the one in its
+    /// place; a row the data names to focus (a section's Show) first.
     fn set_data(&mut self, mut data: OptionsData, root: &mut Actor) {
         let mut section = self.data.sections.get(self.section).map(|s| s.id.clone());
-        // The focused row, then those above it, nearest first.
-        let mut ids: Vec<String> = self.options()[..(self.focus + 1).min(self.options().len())]
+        // The focused row, then those above it, nearest first, then those
+        // below it.
+        let rows = self.options();
+        let at = (self.focus + 1).min(rows.len());
+        let mut ids: Vec<String> = rows[..at]
             .iter()
             .rev()
+            .chain(&rows[at..])
             .map(|o| o.id.clone())
             .collect();
         if let Some((s, row)) = data.focus.take() {
@@ -969,7 +974,8 @@ impl OptionsScreen {
             self.desc_cache.set(None);
         }
         self.data = data;
-        if let Some(i) = section.and_then(|n| self.data.sections.iter().position(|s| s.id == n)) {
+        let kept = section.and_then(|n| self.data.sections.iter().position(|s| s.id == n));
+        if let Some(i) = kept {
             self.section = i;
         }
         self.section = self.section.min(self.data.sections.len().saturating_sub(1));
@@ -977,19 +983,19 @@ impl OptionsScreen {
         self.focus = ids
             .iter()
             .find_map(|id| self.options().iter().position(|o| o.id == *id))
-            .unwrap_or(self.focus)
+            .unwrap_or(if kept.is_some() { self.focus } else { 0 })
             .min(n.saturating_sub(1));
         self.refresh(root);
     }
 
-    /// Options' More's Show advanced (or basic) options: Detail flipped,
-    /// as its row would.
+    /// Options' More's Show (or Hide) advanced options: the Show advanced
+    /// options row flipped, as the row would.
     fn flip_level(&mut self, root: &mut Actor, cx: &mut Cx) {
         let to = usize::from(self.data.level == Level::Basic);
         if let Some(d) = self.shell.clone().and_then(|s| {
             s(
                 OptionsCall::Change {
-                    id: super::options_levels::DETAIL.into(),
+                    id: super::options_levels::SHOW_ADVANCED.into(),
                     index: to,
                 },
                 cx,
@@ -1021,7 +1027,7 @@ impl OptionsScreen {
                 LEVEL_ITEM.into(),
                 match self.data.level {
                     Level::Basic => m::more_show_advanced(),
-                    Level::Advanced => m::more_show_basic(),
+                    Level::Advanced => m::more_hide_advanced(),
                 }
                 .into(),
             ));

@@ -1185,26 +1185,27 @@ fn error_reports_are_a_web_row_that_says_when_the_privacy_signal_turns_them_off(
 }
 
 /// Basic and Advanced (`docs/plans/ui-levels.md`): a new player's Options
-/// at Basic; Detail and More's item flip the level in place, the focus
-/// kept on its row or the nearest shown above it; a changed Advanced row
+/// at Basic (Show advanced options Off); the row and More's item flip the
+/// level in place, the focus kept on its row or the nearest shown above
+/// it, else below it; a changed Advanced row
 /// is counted at its section's end, and Show (Start, as a controller
 /// presses it) opens Advanced on it.
 #[test]
-fn detail_flips_the_level_in_place() {
+fn show_advanced_flips_the_level_in_place() {
     use super::options_levels::CHANGED;
     let mut r = rig_at([1280.0, 720.0], DESIGN, Level::Basic);
     assert_eq!(r.state.borrow().options_level, "Basic");
     assert!(!r.state.borrow().option_rows.contains(&"speed_source".to_string()));
     r.section("Display");
-    r.row("detail");
+    r.row("show_advanced");
     let basic = r.state.borrow().option_rows.len();
     r.h.key("ArrowRight", "ArrowRight");
     r.h.run(0.05);
     assert_eq!(r.state.borrow().options_level, "Advanced");
-    assert_eq!(r.state.borrow().option_id, "detail");
+    assert_eq!(r.state.borrow().option_id, "show_advanced");
     assert!(r.state.borrow().option_rows.len() > basic);
     assert_eq!(Settings::load().level, Level::Advanced);
-    // An Advanced row changed, then More's "Show basic options".
+    // An Advanced row changed, then More's "Hide advanced options".
     r.row("show_deltas");
     r.h.key("ArrowRight", "ArrowRight");
     assert!(Settings::load().show_deltas);
@@ -1213,7 +1214,8 @@ fn detail_flips_the_level_in_place() {
     r.h.tap(PointerKind::Mouse, "Item.Level.Other");
     r.h.run(0.3);
     assert_eq!(r.state.borrow().options_level, "Basic");
-    assert_eq!(r.state.borrow().option_id, "field_place", "the nearest above");
+    // Nothing above it shows at Basic: the nearest below.
+    assert_eq!(r.state.borrow().option_id, "twitch_chat", "the nearest shown");
     assert!(Settings::load().show_deltas, "hidden, still set");
     // Counted at the section's end; Show opens Advanced on it.
     let count = format!("{CHANGED}Display");

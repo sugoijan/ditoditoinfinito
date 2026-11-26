@@ -18,39 +18,37 @@ options-language-system = As the system ({ $language })
 
 options-language-description = The language of the menus. Scores and grades read the same in every language; judgment words are English unless chosen otherwise.
 
-# The row choosing how much of the interface shows (Basic or Advanced),
-# first under the MENUS heading: a row's label.
-options-detail = Detail
+# The switch between the options most players need (Off, the default)
+# and every option (On), first under the MENUS heading: a row's label,
+# its values Off and On, as the other switches' are.
+options-show-advanced = Show advanced options
+options-show-advanced-description = On, every option shows, those for players who know rhythm games too, in StepMania's, ITGmania's and Etterna's terms. Off, only the options most players need; hidden ones still apply, and each section counts those changed.
 
-# The Detail row's choices.
-options-detail-basic = Basic
-options-detail-advanced = Advanced
-options-detail-description = Basic shows the options most players need, in plain words. Advanced shows every option and more numbers, with the terms players of StepMania, ITGmania and Etterna know. Nothing about how you play changes.
-
-# In the More menu: switches Detail to Advanced (shown at Basic).
+# In the More menu: turns Show advanced options On (shown while it is Off).
 options-more-show-advanced = Show advanced options
 
-# In the More menu: switches Detail to Basic (shown at Advanced).
-options-more-show-basic = Show basic options
+# In the More menu: turns Show advanced options Off (shown while it is On).
+options-more-hide-advanced = Hide advanced options
 
-# The last row of a section at Basic, where settings shown only at
-# Advanced are not at their defaults (they still apply): a row's label
-# with the count. Buttons follow it.
+# The last row of a section while Show advanced options is Off, where
+# options shown only when it is On are not at their defaults (they still
+# apply): a row's label with the count, about 20 letters at most so that
+# a phone keeps the count beside the two buttons that follow it.
 # Variables:
-#   $count (Number) - how many of the section's Advanced settings are changed
-options-advanced-changed = Changed in Advanced: { $count }
+#   $count (Number) - how many of the section's advanced options are changed
+options-advanced-changed = Advanced changes: { $count }
 
 # The row's button that puts them back (asks first): about 10 letters.
 options-advanced-changed-reset = Reset them
 
-# The row's button that switches Detail to Advanced and shows them: about
-# 10 letters.
+# The row's button that turns Show advanced options On and shows them:
+# about 10 letters.
 options-advanced-changed-show = Show
 # Variables:
-#   $count (Number) - how many of the section's Advanced settings are changed
+#   $count (Number) - how many of the section's advanced options are changed
 options-advanced-changed-description = { $count ->
-    [one] One setting of this section that shows at Advanced only is not at its default, and still applies. Show switches Detail to Advanced; Reset them puts it back.
-   *[other] { $count } settings of this section that show at Advanced only are not at their defaults, and still apply. Show switches Detail to Advanced; Reset them puts them back.
+    [one] One advanced option of this section is changed from its default and still applies. Show displays the advanced options; Reset them puts it back.
+   *[other] { $count } advanced options of this section are changed from their defaults and still apply. Show displays the advanced options; Reset them puts them back.
 }
 
 ## The screen: its header, the notice beside it, its footer's key hints
@@ -1130,15 +1128,15 @@ options-confirm-noteskin-body = { $skin } is removed from this browser; songs pl
 options-confirm-pump-noteskin-body = { $skin } is removed from this browser; the pump styles are drawn with the arrows above again.
 options-confirm-noteskin-button = Remove
 
-# Asked before a section's "Reset them" (the Advanced settings changed).
+# Asked before a section's "Reset them" (its advanced options changed).
 options-confirm-advanced = Reset these settings?
 
 # Variables:
 #   $count (Number) - how many settings go back to their defaults
 #   $section (String) - the section's name as its tab shows it ("Notes")
 options-confirm-advanced-body = { $count ->
-    [one] The setting of { $section } changed in Advanced goes back to its default.
-   *[other] The { $count } settings of { $section } changed in Advanced go back to their defaults.
+    [one] The changed advanced option of { $section } goes back to its default.
+   *[other] The { $count } changed advanced options of { $section } go back to their defaults.
 }
 options-confirm-advanced-button = Reset
 

@@ -1,17 +1,22 @@
 //! Basic and Advanced in Options (`docs/plans/ui-levels.md`, stage 1):
-//! the level of each row, in one table ([`LEVELS`]), where the Detail row
-//! goes ([`DETAIL_PLACE`]), and the one-time decision for settings stored
-//! before the levels existed ([`advanced_in_effect`]).
+//! the level of each row, in one table ([`LEVELS`]), where the Show
+//! advanced options row goes ([`SHOW_ADVANCED_PLACE`]), and the one-time
+//! decision for settings stored before the levels existed
+//! ([`advanced_in_effect`]).
 //!
 //! The level only hides: every setting keeps its effect at either level.
-//! At Basic, Options shows the Basic rows and ends each section with a
-//! row counting its Advanced rows changed from their defaults, with Reset
-//! and Show (`OptionsModel::data`); the start prompt keeps an Advanced row
-//! that is changed (`super::prompt_options`).
+//! At Basic (Show advanced options Off), Options shows the Basic rows and
+//! ends each section with a row counting its Advanced rows changed from
+//! their defaults, with Show and Reset (`OptionsModel::data`); the start
+//! prompt keeps an Advanced row that is changed (`super::prompt_options`).
 //!
-//! The levels follow the plan's recommendation (its open question 1, the
-//! tables of its section 1.2), not yet decided by the maintainer: change a
-//! row's level here and nowhere else.
+//! The levels follow the plan's rule as the maintainer leaned it on
+//! 2026-11-26 ("erring more towards marking a simple option as advanced
+//! than marking a complex option as basic"): a row is Basic only where a
+//! person new to rhythm games understands it, would want it and cannot
+//! quietly make their game worse with it; the table of why for each row
+//! is in the plan's section 9. Change a row's level here and nowhere
+//! else.
 
 use crate::state::settings::Level::{self, Advanced, Basic};
 use crate::state::settings::{INFINITO, Settings};
@@ -22,8 +27,8 @@ use crate::state::settings::{INFINITO, Settings};
 /// row the model makes to an entry).
 ///
 /// A skin's parameters (`skin.`) are Advanced unless the skin declares one
-/// Basic (`Level=Basic` in its metrics, our extension: Infinito's Note
-/// colors and Explosions); a pump skin's are Advanced as its row is.
+/// Basic (`Level=Basic` in its metrics, our extension; Infinito declares
+/// none since 2026-11-26); a pump skin's are Advanced as its row is.
 pub const LEVELS: &[(&str, Level)] = &[
     // Scroll.
     ("speed", Basic),
@@ -36,12 +41,12 @@ pub const LEVELS: &[(&str, Level)] = &[
     ("lane_cover", Advanced),
     ("cover_sudden", Advanced),
     ("cover_hidden", Advanced),
-    ("cut", Basic),
+    ("cut", Advanced),
     ("simplify_onigiri", Advanced),
     ("simplify_center", Advanced),
-    ("at_once", Basic),
+    ("at_once", Advanced),
     ("no_stretch", Advanced),
-    ("no_holds", Basic),
+    ("no_holds", Advanced),
     ("convert_pump_single", Advanced),
     ("convert_five_keys", Advanced),
     // Rules.
@@ -73,8 +78,8 @@ pub const LEVELS: &[(&str, Level)] = &[
     // Sound.
     ("volume", Basic),
     ("sample", Basic),
-    ("assist_clap", Basic),
-    ("mine_sound", Basic),
+    ("assist_clap", Advanced),
+    ("mine_sound", Advanced),
     ("announcer", Basic),
     ("announcer.language", Basic),
     ("announcer.tag.", Advanced),
@@ -83,31 +88,31 @@ pub const LEVELS: &[(&str, Level)] = &[
     ("announcer.remove", Basic),
     ("announcer.studio", Basic),
     // Display.
-    ("field_place", Basic),
+    ("field_place", Advanced),
     ("show_deltas", Advanced),
-    ("opponent_fields", Basic),
+    ("opponent_fields", Advanced),
     ("twitch_chat", Basic),
-    ("chat_style", Basic),
-    ("chat_names", Basic),
+    ("chat_style", Advanced),
+    ("chat_names", Advanced),
     ("chat_emotes_from", Basic),
-    ("chat_opacity", Basic),
+    ("chat_opacity", Advanced),
     ("dancing_hand", Basic),
-    ("dancing_hand_multiplayer", Basic),
+    ("dancing_hand_multiplayer", Advanced),
     ("hand_layout", Advanced),
     ("hand_frame_width", Advanced),
     ("hand_frame_height", Advanced),
-    ("ghost", Basic),
+    ("ghost", Advanced),
     ("receptor_snap", Advanced),
     ("lyrics", Basic),
     ("bg_brightness", Basic),
-    ("video", Basic),
+    ("video", Advanced),
     ("random_movies", Advanced),
-    ("generated_background", Basic),
+    ("generated_background", Advanced),
     ("generated_over_pictures", Advanced),
-    ("generated_palette", Basic),
+    ("generated_palette", Advanced),
     ("background_frame", Advanced),
-    ("field_filter", Basic),
-    (DETAIL, Basic),
+    ("field_filter", Advanced),
+    (SHOW_ADVANCED, Basic),
     ("language", Basic),
     ("reduced_motion", Basic),
     ("cursor_style", Basic),
@@ -156,16 +161,16 @@ pub const LEVELS: &[(&str, Level)] = &[
     (CHANGED, Basic),
 ];
 
-/// The Detail row's id (Basic or Advanced).
-pub const DETAIL: &str = "detail";
+/// The Show advanced options row's id (Off: Basic, On: Advanced).
+pub const SHOW_ADVANCED: &str = "show_advanced";
 
-/// Where the Detail row goes: the section, and the row it comes before,
-/// taking that row's heading (the plan's open question 2: first in an
-/// Interface section once there is one, until then under Display's MENUS
-/// heading, before Language).
-pub const DETAIL_PLACE: (&str, &str) = ("Display", "language");
+/// Where the Show advanced options row goes: the section, and the row it
+/// comes before, taking that row's heading (the plan's open question 2:
+/// first in an Interface section once there is one, until then under
+/// Display's MENUS heading, before Language).
+pub const SHOW_ADVANCED_PLACE: (&str, &str) = ("Display", "language");
 
-/// The prefix of each section's "Changed in Advanced" row's id (then the
+/// The prefix of each section's "Advanced changes" row's id (then the
 /// section's id).
 pub const CHANGED: &str = "advanced.changed.";
 
@@ -356,18 +361,18 @@ mod tests {
         m.change("turn", 1);
         m.change("lane_cover", 1);
         m.change("fast_pad_poll", 0);
-        m.change(DETAIL, 0);
+        m.change(SHOW_ADVANCED, 0);
         assert_eq!(m.settings.level, Basic);
         let d = m.data();
         assert!(rows(&d).all(|o| o.id != "turn" && o.id != "fast_pad_poll"));
         let notes = section(&d, "Notes").unwrap();
         let count = notes.options.last().unwrap();
         assert_eq!(count.id, format!("{CHANGED}Notes"));
-        assert_eq!(count.label, "Changed in Advanced: 2");
+        assert_eq!(count.label, "Advanced changes: 2");
         assert_eq!(count.values(), ["Reset them", "Show"]);
         assert_eq!(count.index, 1, "Show lit first");
         let controls = section(&d, "Controls").unwrap();
-        assert_eq!(controls.options.last().unwrap().label, "Changed in Advanced: 1");
+        assert_eq!(controls.options.last().unwrap().label, "Advanced changes: 1");
         assert!(section(&d, "Scroll").unwrap().options.iter().all(|o| !o.id.starts_with(CHANGED)));
         // Still in effect.
         assert_eq!(m.settings.transform.turn, ddi_engine::Turn::Mirror);
@@ -382,14 +387,14 @@ mod tests {
         assert_eq!(d.focus, Some(("Notes".into(), "turn".into())));
         assert_eq!(m.data().focus, None, "once");
         // Reset: asked, naming the count and the section, then done.
-        m.change(DETAIL, 0);
+        m.change(SHOW_ADVANCED, 0);
         let id = format!("{CHANGED}Notes");
         let act = m.action(&id, 0);
         assert_eq!(act, Act::Confirm(Reset::Advanced("Notes".into())));
         let Act::Confirm(reset) = act else { unreachable!() };
         let (title, body, yes) = reset.texts(&m);
         assert_eq!(title, "Reset these settings?");
-        assert_eq!(body, "The 2 settings of Notes changed in Advanced go back to their defaults.");
+        assert_eq!(body, "The 2 changed advanced options of Notes go back to their defaults.");
         assert_eq!(yes, "Reset");
         m.reset(&reset);
         assert_eq!(m.settings.transform.turn, ddi_engine::Turn::Off);
@@ -397,7 +402,8 @@ mod tests {
         assert!(!m.settings.fast_pad_poll, "another section's kept");
         assert_eq!(m.notice, "2 settings back to their defaults.");
         assert_eq!(m.settings.level, Basic);
-        assert!(section(&m.data(), "Notes").unwrap().options.iter().all(|o| !o.id.starts_with(CHANGED)));
+        // Notes has no Basic row: with nothing changed it is left out.
+        assert!(section(&m.data(), "Notes").is_none());
         let stored: Settings = storage::load(Area::Local, crate::state::settings::KEY).unwrap();
         assert_eq!(stored.transform.turn, ddi_engine::Turn::Off);
     }
@@ -435,13 +441,15 @@ mod tests {
         let controls = section(&d, "Controls").unwrap();
         let none = controls.options.iter().find(|o| o.id == "pads.none").unwrap();
         assert_eq!(none.heading.as_deref(), Some("CONTROLLERS"));
-        // The Detail row first under MENUS.
+        // The Show advanced options row first under MENUS.
         let display = section(&d, "Display").unwrap();
-        let at = display.options.iter().position(|o| o.id == DETAIL).unwrap();
+        let at = display.options.iter().position(|o| o.id == SHOW_ADVANCED).unwrap();
         assert_eq!(display.options[at].heading.as_deref(), Some("MENUS"));
         assert_eq!(display.options[at + 1].id, "language");
         assert_eq!(display.options[at + 1].heading, None);
-        assert_eq!(display.options[at].values(), ["Basic", "Advanced"]);
+        assert_eq!(display.options[at].label, "Show advanced options");
+        assert_eq!(display.options[at].values(), ["Off", "On"]);
+        assert_eq!(display.options[at].index, 0, "Off at Basic");
         assert!(section(&d, "Test").is_none());
         assert!(section(&m.data_at(Advanced), "Test").is_some());
         m.world.sections[0].options[0].index = 1;
@@ -451,8 +459,8 @@ mod tests {
         assert_eq!(test.options[0].id, format!("{CHANGED}Test"));
     }
 
-    /// Skins' parameters take the skin's level (Infinito's Note colors
-    /// and Explosions are Basic), announcers' are Advanced, each counted
+    /// Skins' parameters take the skin's level (Infinito declares none
+    /// Basic since 2026-11-26), announcers' are Advanced, each counted
     /// against its own declared default.
     #[test]
     fn parameters_take_their_declared_level_and_default() {
@@ -465,14 +473,14 @@ mod tests {
             .iter()
             .map(|o| o.id.as_str())
             .collect();
-        assert_eq!(arrows, ["noteskin", "skin.Colors", "skin.Explosions"]);
+        assert_eq!(arrows, ["noteskin"], "Infinito declares none Basic");
         m.settings
             .set_infinito_param("ReceptorFill", ParamValue::Bool(false));
         m.settings
             .set_infinito_param("Colors", ParamValue::Text("Rainbow".into()));
         let d = m.data();
         let arrows = section(&d, "Arrows").unwrap();
-        assert_eq!(arrows.options.last().unwrap().label, "Changed in Advanced: 1");
+        assert_eq!(arrows.options.last().unwrap().label, "Advanced changes: 2");
     }
 
     /// Settings stored before the levels: Advanced where an Advanced
@@ -484,9 +492,10 @@ mod tests {
         let mut basic_only = Settings {
             speed: 3.0,
             reverse: true,
+            lyrics: false,
+            dancing_hand: false,
             ..Settings::default()
         };
-        basic_only.set_infinito_param("Colors", ParamValue::Text("Rainbow".into()));
         basic_only.audio_profiles.push(OffsetProfile {
             label: "a".into(),
             id: "audio:a".into(),
@@ -496,7 +505,7 @@ mod tests {
             last_seen: 0.0,
         });
         assert!(!advanced_in_effect(&basic_only), "calibration is Basic's");
-        let changed: [fn(&mut Settings); 7] = [
+        let changed: [fn(&mut Settings); 23] = [
             |s| s.transform.turn = ddi_engine::Turn::Mirror,
             |s| s.ruleset = "itg".into(),
             |s| s.audio_offset = 0.01,
@@ -506,6 +515,26 @@ mod tests {
             |s| {
                 s.set_announcer_param("techno", "Mood", Some(ParamValue::Text("Calm".into())), None)
             },
+            // The rows Basic left on 2026-11-26 (the maintainer's lean).
+            |s| s.transform.cut = ddi_engine::TimingCut::Quarters,
+            |s| s.transform.at_once = ddi_engine::AtOnce::Two,
+            |s| s.transform.no_holds = true,
+            |s| s.assist_clap = true,
+            |s| s.mine_sound = false,
+            |s| s.field_place = ddi_engine::FieldPlace::Left,
+            |s| s.opponent_fields = crate::state::settings::OpponentFields::UpToEight,
+            |s| {
+                s.twitch_chat = ddi_chat::Level::Messages;
+                s.chat_names = true;
+            },
+            |s| s.dancing_hand_multiplayer = true,
+            |s| s.ghost = true,
+            |s| s.video = crate::state::settings::VideoMode::Off,
+            |s| s.generated_background = crate::state::settings::GeneratedBackground::Off,
+            |s| s.generated_palette = crate::state::settings::Palette::Mono,
+            |s| s.field_filter = 0.0,
+            |s| s.set_infinito_param("Colors", ParamValue::Text("Rainbow".into())),
+            |s| s.set_infinito_param("Explosions", ParamValue::Bool(false)),
         ];
         for (i, change) in changed.into_iter().enumerate() {
             let mut s = Settings::default();
@@ -517,6 +546,12 @@ mod tests {
             (r#"{"speed": 3.0}"#, Basic),
             (r#"{"transform": {"turn": "Mirror"}}"#, Advanced),
             (r#"{"show_deltas": true}"#, Advanced),
+            // Rows Basic left on 2026-11-26.
+            (r#"{"assist_clap": true}"#, Advanced),
+            (r#"{"transform": {"no_holds": true}}"#, Advanced),
+            (r#"{"ghost": true, "speed": 3.0}"#, Advanced),
+            (r#"{"skin_params": {"bundled:dance/infinito": {"Colors": "Rainbow"}}}"#, Advanced),
+            (r#"{"lyrics": false, "reverse": true}"#, Basic),
             // A choice made after the decision stays.
             (r#"{"show_deltas": true, "level": "Basic", "level_decided": true}"#, Basic),
         ] {
@@ -527,6 +562,29 @@ mod tests {
             assert!(s.level_decided);
             let stored: Settings = storage::load(Area::Local, crate::state::settings::KEY).unwrap();
             assert_eq!((stored.level, stored.level_decided), (level, true), "{blob}");
+        }
+    }
+
+    /// Every row the model makes, once, with its section, label,
+    /// description and level, as tab-separated lines: the table the
+    /// maintainer marks up (`cargo test -p ddi-ui --lib rows_table --
+    /// --ignored --nocapture`).
+    #[test]
+    #[ignore]
+    fn rows_table() {
+        storage::install(Rc::new(MemoryStore::default()));
+        let mut seen = std::collections::HashSet::new();
+        for m in fullest() {
+            let d = m.data_at(Advanced);
+            for s in &d.sections {
+                for o in &s.options {
+                    if seen.insert(o.id.clone()) {
+                        let level = level_of(&o.id).unwrap_or(Advanced);
+                        let description = o.description.replace('\n', " ");
+                        println!("{}\t{}\t{}\t{description}\t{level:?}", s.id, o.id, o.label);
+                    }
+                }
+            }
         }
     }
 

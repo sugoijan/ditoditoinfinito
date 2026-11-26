@@ -1,9 +1,10 @@
 //! Options at Basic and at Advanced (`docs/plans/ui-levels.md`, stage 1),
 //! the real screen on the player's settings drawn offscreen on this
 //! machine's GPU as the desktop window draws it, in English and Japanese
-//! (a phone's layout is the web's): Basic shows fewer rows, a section's
-//! count of what is changed at Advanced at its end, and the Detail row
-//! under MENUS. Skipped where there is no GPU adapter (CI).
+//! (a phone's layout is the web's): Basic (Show advanced options Off)
+//! shows fewer rows and a section's count of its advanced options changed
+//! at its end (Notes, with no Basic row, only that), and the switch under
+//! MENUS. Skipped where there is no GPU adapter (CI).
 //! `DDI_OFFSCREEN_PPM=<dir>` keeps the pictures
 //! (`options-<level>-<lang>-<w>x<h>-<section>.png`).
 
@@ -81,7 +82,7 @@ fn options_at_both_levels() {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                 }
                 assert_eq!(env.state.borrow().options_level, format!("{level:?}"));
-                for (section, row) in [("Notes", None), ("Display", Some("detail"))] {
+                for (section, row) in [("Notes", None), ("Display", Some("show_advanced"))] {
                     for _ in 0..12 {
                         if env.state.borrow().section == section {
                             break;

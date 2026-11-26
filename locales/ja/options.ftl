@@ -5,17 +5,15 @@ options-language = 言語（Language）
 options-language-system = システムに合わせる（{ $language }）
 
 options-language-description = メニューの言語です。スコアや評価はどの言語でも同じです。判定の言葉は、変更しない限り英語です。
-options-detail = 表示の詳しさ
-options-detail-basic = 基本
-options-detail-advanced = 上級
-options-detail-description = 基本では、多くのプレイヤーに必要なオプションだけを、わかりやすい言葉で表示します。上級では、すべてのオプションと細かい数値を、StepMania・ITGmania・Etternaのプレイヤーになじみのある用語で表示します。プレイの内容は変わりません。
-options-more-show-advanced = 上級のオプションを表示
-options-more-show-basic = 基本のオプションを表示
-options-advanced-changed = 上級で変更済み：{ $count }
+options-show-advanced = 上級オプションを表示
+options-show-advanced-description = オンにすると、リズムゲームに慣れた人向けのものも含め、すべてのオプションをStepMania・ITGmania・Etternaの用語で表示します。オフでは、多くのプレイヤーに必要なものだけを表示します。表示しないものも有効なままで、変更した数を各分類の最後に表示します。
+options-more-show-advanced = 上級オプションを表示
+options-more-hide-advanced = 上級オプションを非表示
+options-advanced-changed = 上級の変更：{ $count }件
 options-advanced-changed-reset = 元に戻す
 options-advanced-changed-show = 表示
 options-advanced-changed-description = { $count ->
-   *[other] このセクションの上級だけに表示される設定のうち、{ $count }件が既定値と違い、今も有効です。「表示」で表示の詳しさを上級にし、「元に戻す」で既定値に戻します。
+   *[other] この分類の上級オプションのうち、{ $count }件を変更しています。変更は今も有効です。「表示」を押すと上級オプションを表示します。「元に戻す」を押すと最初の設定に戻します。
 }
 
 ## The screen.
@@ -572,7 +570,7 @@ options-confirm-pump-noteskin-body = { $skin }をこのブラウザーから削�
 options-confirm-noteskin-button = 削除
 options-confirm-advanced = これらの設定をリセットしますか？
 options-confirm-advanced-body = { $count ->
-   *[other] { $section }の上級で変更した{ $count }件の設定を既定値に戻します。
+   *[other] { $section }で変更した上級オプション{ $count }件を、最初の設定に戻します。
 }
 options-confirm-advanced-button = リセット
 options-confirm-announcer = このアナウンサーを削除しますか？

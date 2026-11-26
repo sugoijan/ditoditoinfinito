@@ -27,7 +27,7 @@ use super::data::{
     OptionDef, OptionKind, OptionSection, OptionsData, Platform, lane_name, style_name, trim_number,
 };
 use super::options::CALIBRATE;
-use super::options_levels::{CHANGED, DETAIL, DETAIL_PLACE};
+use super::options_levels::{CHANGED, SHOW_ADVANCED, SHOW_ADVANCED_PLACE};
 use crate::state::bind::Bound;
 use crate::state::settings::{
     BUILT_IN_ANNOUNCER, BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, GeneratedBackground,
@@ -542,7 +542,8 @@ impl OptionsModel {
     }
 
     /// Every section and row, as Advanced shows them: the model's, then
-    /// the shell's ([`World::sections`]), the Detail row in its place.
+    /// the shell's ([`World::sections`]), the Show advanced options row in
+    /// its place.
     fn sections(&self) -> Vec<OptionSection> {
         let layouts = self.bind_layouts();
         let mut sections: Vec<OptionSection> = vec![
@@ -561,22 +562,22 @@ impl OptionsModel {
         .chain(self.sharing())
         .chain(self.world.sections.iter().cloned())
         .collect();
-        // Detail, Basic or Advanced, before the row its place names (with
-        // that row's heading).
-        let (section, before) = DETAIL_PLACE;
+        // Show advanced options, Off (Basic) or On (Advanced), before the
+        // row its place names (with that row's heading).
+        let (section, before) = SHOW_ADVANCED_PLACE;
         if let Some(sec) = sections.iter_mut().find(|s| s.id == section) {
-            let mut detail = choice(
-                DETAIL,
-                m::detail(),
-                [m::detail_basic(), m::detail_advanced()],
+            let mut switch = choice(
+                SHOW_ADVANCED,
+                m::show_advanced(),
+                on_off(),
                 usize::from(self.settings.level == Level::Advanced),
-                m::detail_description(),
+                m::show_advanced_description(),
             );
             let at = sec.options.iter().position(|o| o.id == before).unwrap_or(0);
             if let Some(o) = sec.options.get_mut(at) {
-                detail.heading = o.heading.take();
+                switch.heading = o.heading.take();
             }
-            sec.options.insert(at, detail);
+            sec.options.insert(at, switch);
         }
         sections
     }
@@ -2605,7 +2606,7 @@ impl OptionsModel {
             }
             "graphics" => s.graphics = at(&GRAPHICS, i),
             "debug" => s.debug = on,
-            DETAIL => s.level = if on { Level::Advanced } else { Level::Basic },
+            SHOW_ADVANCED => s.level = if on { Level::Advanced } else { Level::Basic },
             "fast_pad_poll" => s.fast_pad_poll = on,
             "noteskin" => {
                 s.noteskin = i.checked_sub(1).and_then(|n| {
@@ -4566,8 +4567,8 @@ mod tests {
                 m.change("announcer", 1);
             }
             // (And Advanced's rows while it is Advanced.)
-            if o.id == DETAIL {
-                m.change(DETAIL, 1);
+            if o.id == SHOW_ADVANCED {
+                m.change(SHOW_ADVANCED, 1);
             }
         }
         m.change("dancing_hand", 0);

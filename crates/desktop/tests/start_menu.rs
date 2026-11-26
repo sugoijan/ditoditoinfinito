@@ -33,8 +33,13 @@ fn the_title_is_quiet_and_options_returns_to_each_caller() {
     h.key("Enter", "Enter");
     h.run(0.5);
     assert_eq!(env.state.borrow().screen, "options");
-    for _ in 0..3 {
+    // Timing, however many sections come before it at this level.
+    for _ in 0..8 {
+        if env.state.borrow().section == "Timing" {
+            break;
+        }
         h.key("Tab", "Tab");
+        h.run(0.05);
     }
     h.run(0.2);
     assert_eq!(env.state.borrow().section, "Timing");
