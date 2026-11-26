@@ -1077,6 +1077,10 @@ named was looked at for this list.
    whether its values persist and how they reset; whether its entries
    are translated messages or data.
 
+   Items 3, 7 and 8 are designed together, with the choices left to the
+   maintainer: [Basic and Advanced, the settings' hierarchy and a hidden
+   settings screen](plans/ui-levels.md) (2026-11-26; nothing built).
+
 Below these, later:
 
 - **Browse rooms and Find match** (decision 85). Not designed past the

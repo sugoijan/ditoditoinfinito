@@ -751,6 +751,17 @@ so.
   while it enters, the prompt's fade an ordinary entrance; hover picked
   again only when something changed; the web's history state written
   only when it changes.
+- [Basic and Advanced, the settings' hierarchy and a hidden settings
+  screen](ui-levels.md) (2026-11-26): a design, nothing built; for the
+  maintainer to decide. An inventory of every option (126 kinds of row,
+  93 stored settings) and of 52 places outside Options with the genre's
+  jargon or technical detail; a rule sorting them into Basic (the
+  default) and Advanced, switched by an ordinary "Detail" row, Basic
+  hiding and never removing; two wordings in one message (a Fluent
+  `.advanced` attribute); a tree of 12 sections; a chooser showing a
+  row's choices side by side (stills from the field preview, the
+  focused one live), five specified first; an "Experimental settings"
+  screen reached by address or flag; the Plugins page at Advanced.
 - [Shell sharing](shell-sharing.md) (2026-10-30): done. One field
   preview skin state in `ddi_shell` for both shells; skin loads sharing
   their drawings and parsed components, one load of a skin at a time, so
