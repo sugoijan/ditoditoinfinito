@@ -89,6 +89,7 @@ pub mod options_dialogs;
 pub mod options_levels;
 pub mod options_model;
 pub mod options_shell;
+pub mod options_tree;
 #[cfg(test)]
 mod options_rows_tests;
 #[cfg(test)]

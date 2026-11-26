@@ -135,36 +135,49 @@ options-db = { $db } dB
 options-muted = muted
 
 ## Sections: the rail on the left (about 18 letters) or the tabs on a
-## phone.
+## phone, in this order (docs/plans/ui-levels.md, section 3.3). Help
+## elsewhere names them as "Options → Interface → Show advanced options".
 
-options-section-scroll = Scroll
-options-section-notes = Notes
+# Per play: speed, reverse, the modifiers, the easier notes.
+options-section-play = Play
+options-section-arrows = Arrows
+# What a play draws around the notes: the judgment words, the score, the
+# dancing hand.
+options-section-screen = Screen
+options-section-backgrounds = Backgrounds
 options-section-rules = Rules
 options-section-timing = Timing
 options-section-sound = Sound
-options-section-display = Display
-options-section-arrows = Arrows
 options-section-controls = Controls
-options-section-data = Data
-
-# Desktop: the song folders the game reads.
-options-section-songs = Songs
-
-# Sharing songs by link (a hidden feature).
-options-section-sharing = Sharing
+# What song select offers: its countdown, the charts' ratings and the
+# versions it adds, and desktop's song folders.
+options-section-song-list = Song list
+# Opponents' fields, a room's songs ahead and a host's Twitch chat.
+options-section-multiplayer = Multiplayer
+# The menus: Show advanced options, the language, motion, the pointer.
+options-section-interface = Interface
+# The play history, Twitch access, the privacy note and what is sent,
+# and the resets.
+options-section-data = Data and privacy
 
 ## Headings over groups of rows, in small capitals.
 
+options-heading-easier = EASIER
 options-heading-simplify = SIMPLIFY
 options-heading-convert = CONVERT
 options-heading-danoni = DANCING☆ONIGIRI RULES
 options-heading-known-devices = KNOWN DEVICES
-options-heading-backgrounds = BACKGROUNDS
-options-heading-menus = MENUS
-options-heading-diagnostics = DIAGNOSTICS
+options-heading-dancing-hand = DANCING HAND
 options-heading-keyboard = KEYBOARD
 options-heading-controllers = CONTROLLERS
 options-heading-touch = TOUCH SCREENS
+# Desktop: the folders the game reads songs from, in place.
+options-heading-song-folders = SONG FOLDERS
+# The graphics, the debug overlay and the autoplay demo: for when
+# something does not work.
+options-heading-troubleshooting = TROUBLESHOOTING
+# Sharing songs by link (a hidden feature).
+options-heading-sharing = SHARING
 
 ## Scroll.
 

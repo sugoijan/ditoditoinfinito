@@ -27,7 +27,7 @@ use super::data::{
     OptionDef, OptionKind, OptionSection, OptionsData, Platform, lane_name, style_name, trim_number,
 };
 use super::options::CALIBRATE;
-use super::options_levels::{CHANGED, SHOW_ADVANCED, SHOW_ADVANCED_PLACE};
+use super::options_levels::{CHANGED, SHOW_ADVANCED};
 use crate::state::bind::Bound;
 use crate::state::settings::{
     BUILT_IN_ANNOUNCER, BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, GeneratedBackground,
@@ -547,12 +547,13 @@ impl OptionsModel {
         }
     }
 
-    /// Every section and row, as Advanced shows them: the model's, then
-    /// the shell's ([`World::sections`]), the Show advanced options row in
-    /// its place.
+    /// Every section and row, as Advanced shows them: the model's rows,
+    /// made in parts by topic, put where Options' tree places them
+    /// (`super::options_tree`), then the shell's sections
+    /// ([`World::sections`]).
     fn sections(&self) -> Vec<OptionSection> {
         let layouts = self.bind_layouts();
-        let mut sections: Vec<OptionSection> = vec![
+        let mut parts: Vec<OptionSection> = vec![
             self.scroll(),
             self.notes(),
             self.rules(),
@@ -562,30 +563,25 @@ impl OptionsModel {
             self.arrows(),
             self.controls(&layouts),
             self.data_section(),
-        ]
-        .into_iter()
-        .chain(self.folders())
-        .chain(self.sharing())
-        .chain(self.world.sections.iter().cloned())
-        .collect();
-        // Show advanced options, Off (Basic) or On (Advanced), before the
-        // row its place names (with that row's heading).
-        let (section, before) = SHOW_ADVANCED_PLACE;
-        if let Some(sec) = sections.iter_mut().find(|s| s.id == section) {
-            let mut switch = choice(
+        ];
+        parts.extend(self.folders());
+        parts.extend(self.sharing());
+        // Show advanced options, Off (Basic) or On (Advanced): the tree
+        // gives its place.
+        parts.push(part(
+            "Level",
+            vec![choice(
                 SHOW_ADVANCED,
                 m::show_advanced(),
                 on_off(),
                 usize::from(self.settings.level == Level::Advanced),
                 m::show_advanced_description(),
-            );
-            let at = sec.options.iter().position(|o| o.id == before).unwrap_or(0);
-            if let Some(o) = sec.options.get_mut(at) {
-                switch.heading = o.heading.take();
-            }
-            sec.options.insert(at, switch);
-        }
-        sections
+            )],
+        ));
+        super::options_tree::arrange(parts)
+            .into_iter()
+            .chain(self.world.sections.iter().cloned())
+            .collect()
     }
 
     /// [`Self::sections`], each row that has a value given its default
@@ -651,18 +647,14 @@ impl OptionsModel {
             .collect()
     }
 
-    /// The rows a play's start prompt picks from, as Options shows them at
-    /// Advanced (with their levels and defaults): its Scroll, Notes and
-    /// Arrows sections' and the touch controls'.
-    pub fn prompt_rows(&self) -> impl Iterator<Item = OptionDef> {
-        let touch: Vec<String> = self.touch_rows().into_iter().map(|o| o.id).collect();
+    /// The rows with these ids (a play's start prompt's), as Options shows
+    /// them at Advanced (with their levels and defaults), in Options'
+    /// order; their headings are Options' own.
+    pub fn rows_by_id<'a>(&self, ids: &'a [&'a str]) -> impl Iterator<Item = OptionDef> + 'a {
         self.sections_with_defaults()
             .into_iter()
-            .flat_map(|s| s.options.into_iter().map(move |o| (s.id.clone(), o)))
-            .filter(move |(section, o)| {
-                matches!(section.as_str(), "Scroll" | "Notes" | "Arrows") || touch.contains(&o.id)
-            })
-            .map(|(_, o)| o)
+            .flat_map(|s| s.options)
+            .filter(move |o| ids.contains(&o.id.as_str()))
     }
 
     /// Section `id`'s name as it shows (its id where there is none).
@@ -677,14 +669,13 @@ impl OptionsModel {
     /// the style, the extra button's side, then the size (round DE).
     fn touch_rows(&self) -> [OptionDef; 3] {
         let s = &self.settings;
-        let mut style = choice(
+        let style = choice(
             "touch_controls",
             m::touch_controls(),
             labels(&TOUCH_STYLES),
             pos(&TOUCH_STYLES, s.touch_controls),
             m::touch_controls_description(),
         );
-        style.heading = Some(m::heading_touch().into());
         [
             style,
             choice(
@@ -738,9 +729,8 @@ impl OptionsModel {
             .iter()
             .position(|v| (v - s.speed).abs() < 1e-6)
             .unwrap_or(0);
-        section(
+        part(
             "Scroll",
-            m::section_scroll(),
             vec![
                 row(
                     "speed",
@@ -790,14 +780,13 @@ impl OptionsModel {
     fn notes(&self) -> OptionSection {
         let s = &self.settings;
         let t = &s.transform;
-        let mut cut = choice(
+        let cut = choice(
             "cut",
             m::cut(),
             labels(&CUTS),
             pos(&CUTS, t.cut),
             m::cut_description(),
         );
-        cut.heading = Some(m::heading_simplify().into());
         let cover = s.lane_cover;
         let mut rows = vec![
             choice(
@@ -876,14 +865,13 @@ impl OptionsModel {
                 m::no_holds_description(),
             ),
         ]);
-        let mut pump_single = choice(
+        let pump_single = choice(
             "convert_pump_single",
             m::convert_pump_single(),
             on_off(),
             s.convert_pump_single as usize,
             m::convert_pump_single_description(),
         );
-        pump_single.heading = Some(m::heading_convert().into());
         rows.extend([
             pump_single,
             choice(
@@ -894,7 +882,7 @@ impl OptionsModel {
                 m::convert_five_keys_description(),
             ),
         ]);
-        section("Notes", m::section_notes(), rows)
+        part("Notes", rows)
     }
 
     fn rules(&self) -> OptionSection {
@@ -923,14 +911,13 @@ impl OptionsModel {
             (Some(g), true) => m::danoni_gauge_border(g),
             (Some(g), false) => UiText::data(g),
         });
-        let mut gauge = choice(
+        let gauge = choice(
             "danoni.gauge",
             m::danoni_gauge(),
             gauges,
             gauge_at,
             m::danoni_gauge_description(),
         );
-        gauge.heading = Some(m::heading_danoni().into());
         // DDI's own rows under DDI; StepMania's under the presets that
         // take them (DDI has its own difficulty, life and holds).
         let ddi = s.ruleset == ddi_engine::rules::ddi::ID;
@@ -1099,7 +1086,7 @@ impl OptionsModel {
                 m::danoni_excessive_description(),
             ),
         ]);
-        section("Rules", m::section_rules(), rows)
+        part("Rules", rows)
     }
 
     fn timing(&self) -> OptionSection {
@@ -1127,13 +1114,12 @@ impl OptionsModel {
                 m::visual_offset_description(),
             ),
         ];
-        let mut first = true;
         for (kind, list) in [
             ("audio", &s.audio_profiles),
             ("display", &s.display_profiles),
         ] {
             for (i, p) in list.iter().enumerate() {
-                let mut r = offset(
+                rows.push(offset(
                     &format!("profile.{kind}.{i}"),
                     if kind == "audio" {
                         m::profile_audio(device_name(p))
@@ -1147,12 +1133,7 @@ impl OptionsModel {
                         m::profile_default()
                     },
                     m::profile_description(),
-                );
-                if first {
-                    r.heading = Some(m::heading_known_devices().into());
-                    first = false;
-                }
-                rows.push(r);
+                ));
                 rows.push(actions(
                     &format!("forget.{kind}.{i}"),
                     "",
@@ -1162,7 +1143,7 @@ impl OptionsModel {
                 ));
             }
         }
-        section("Timing", m::section_timing(), rows)
+        part("Timing", rows)
     }
 
     fn sound(&self) -> OptionSection {
@@ -1206,7 +1187,7 @@ impl OptionsModel {
             m::mine_sound_description(),
         ));
         v.extend(self.announcer_rows());
-        section("Sound", m::section_sound(), v)
+        part("Sound", v)
     }
 
     /// The announcer, its volume, and removing it (the web's, imported).
@@ -1394,15 +1375,14 @@ impl OptionsModel {
             .iter()
             .position(|f| (f - s.field_filter).abs() < 0.01)
             .unwrap_or(0);
-        let mut demo = actions(
+        let demo = actions(
             "demo",
             m::demo(),
             [m::demo_play(), m::demo_webgl2()],
             "",
             m::demo_description(),
         );
-        demo.heading = Some(m::heading_diagnostics().into());
-        let mut brightness = row(
+        let brightness = row(
             "bg_brightness",
             m::bg_brightness(),
             OptionKind::Stepper(
@@ -1419,9 +1399,7 @@ impl OptionsModel {
             bg.min(20),
             m::bg_brightness_description(),
         );
-        brightness.heading = Some(m::heading_backgrounds().into());
-        let mut menus = self.language_row();
-        menus.heading = Some(m::heading_menus().into());
+        let menus = self.language_row();
         let motion = choice(
             "reduced_motion",
             m::reduced_motion(),
@@ -1685,7 +1663,7 @@ impl OptionsModel {
                 ),
             );
         }
-        section("Display", m::section_display(), rows)
+        part("Display", rows)
     }
 
     fn arrows(&self) -> OptionSection {
@@ -1766,7 +1744,7 @@ impl OptionsModel {
                 rows.extend(self.param_rows(PUMP_SKIN_ROW, k));
             }
         }
-        section("Arrows", m::section_arrows(), rows)
+        part("Arrows", rows)
     }
 
     /// What skin `key` declares (Infinito's built in).
@@ -1871,7 +1849,7 @@ impl OptionsModel {
                 m::bind_any_description(),
             ),
         ];
-        let mut keyboard = actions(
+        let keyboard = actions(
             "keys",
             m::keyboard(),
             [m::keyboard_bind(), m::keyboard_reset()],
@@ -1882,7 +1860,6 @@ impl OptionsModel {
             },
             m::keyboard_description(),
         );
-        keyboard.heading = Some(m::heading_keyboard().into());
         rows.push(keyboard);
         let keys = s.controls.keyboard(layout);
         for lane in 0..layout.lanes.len() {
@@ -1906,14 +1883,13 @@ impl OptionsModel {
         for (j, (id, standard, count)) in self.pads().into_iter().enumerate() {
             rows.extend(self.pad_rows(j, &id, standard, count, one_pad));
         }
-        let mut poll = choice(
+        let poll = choice(
             "fast_pad_poll",
             m::fast_pad_poll(),
             on_off(),
             s.fast_pad_poll as usize,
             m::fast_pad_poll_description(),
         );
-        poll.heading = Some(m::heading_controllers().into());
         rows.push(poll);
         if !self.world.pads_supported {
             rows.push(actions(
@@ -1924,7 +1900,7 @@ impl OptionsModel {
                 m::pads_none_description(self.world.platform.l10n()),
             ));
         }
-        section("Controls", m::section_controls(), rows)
+        part("Controls", rows)
     }
 
     /// The controllers connected and, with `count` of them connected
@@ -2162,7 +2138,7 @@ impl OptionsModel {
             self.world.library_note.as_str(),
             m::folders_description(),
         ));
-        Some(section("Songs", m::section_songs(), rows))
+        Some(part("Songs", rows))
     }
 
     /// Sharing songs by link (`docs/plans/shared-songs.md`), while the
@@ -2215,7 +2191,7 @@ impl OptionsModel {
                 m::share_about_description(),
             ),
         ];
-        Some(section("Sharing", m::section_sharing(), rows))
+        Some(part("Sharing", rows))
     }
 
     /// Data's "Twitch access" (round TW1b, A4): what is connected, in
@@ -2278,9 +2254,8 @@ impl OptionsModel {
         };
         let plays = self.world.plays;
         let wording = self.songs_wording();
-        let mut data = section(
+        let mut data = part(
             "Data",
-            m::section_data(),
             vec![
                 actions(
                     "history.export",
@@ -3308,12 +3283,12 @@ fn basic_view(s: OptionSection) -> Option<OptionSection> {
     })
 }
 
-/// A section: `id` what the shell and the tests know it by (its English
-/// name), `name` as it shows.
-fn section(id: &str, name: UiText, options: Vec<OptionDef>) -> OptionSection {
+/// A part of the rows, by topic (`id`, the section it was before the
+/// tree; `super::options_tree` puts its rows in their sections).
+fn part(id: &str, options: Vec<OptionDef>) -> OptionSection {
     OptionSection {
         id: id.into(),
-        name: name.into(),
+        name: String::new(),
         options,
     }
 }
@@ -3989,7 +3964,8 @@ mod tests {
         assert!(ids(&m).iter().any(|i| i == "twitch_chat"));
     }
 
-    /// The hand in multiplayer is a row under the hand's, while it is on.
+    /// The hand in multiplayer is a row of Multiplayer's (after the
+    /// opponents' fields), while the hand is on.
     #[test]
     fn the_hand_in_multiplayer_shows_under_the_hand_while_it_is_on() {
         let mut m = model();
@@ -4001,7 +3977,7 @@ mod tests {
                 .collect()
         };
         let shown = ids(&m);
-        let at = shown.iter().position(|i| i == "dancing_hand").unwrap();
+        let at = shown.iter().position(|i| i == "opponent_fields").unwrap();
         assert_eq!(shown[at + 1], "dancing_hand_multiplayer");
         assert_eq!(find(&m.data(), "dancing_hand_multiplayer").value(), "Off");
         m.change("dancing_hand_multiplayer", 1);

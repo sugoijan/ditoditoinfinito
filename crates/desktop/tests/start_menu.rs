@@ -34,7 +34,7 @@ fn the_title_is_quiet_and_options_returns_to_each_caller() {
     h.run(0.5);
     assert_eq!(env.state.borrow().screen, "options");
     // Timing, however many sections come before it at this level.
-    for _ in 0..8 {
+    for _ in 0..16 {
         if env.state.borrow().section == "Timing" {
             break;
         }

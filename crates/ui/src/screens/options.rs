@@ -155,21 +155,27 @@ impl OptionsScreen {
         self
     }
 
-    /// Restore the caller's view after a route detour; unknown rows fall back.
+    /// Restore the caller's view after a route detour: the row where it
+    /// shows now (a position saved before the sections were regrouped,
+    /// `super::options_tree`, finds its row in its new section), else the
+    /// first row of its section, or of the section that took its rows,
+    /// else the first section's. The scroll is kept only in the same
+    /// section; elsewhere the focused row is scrolled into view.
     pub fn with_position(mut self, position: Option<(String, String, f32)>) -> Self {
         if let Some((section, option, scroll)) = position {
-            self.section = self
-                .data
-                .sections
-                .iter()
-                .position(|s| s.id == section)
-                .unwrap_or(0);
-            self.focus = self
-                .options()
-                .iter()
-                .position(|o| o.id == option)
-                .unwrap_or(0);
-            self.scroll = scroll.max(0.0);
+            let sections = &self.data.sections;
+            let by_id = |id: &str| sections.iter().position(|s| s.id == id);
+            let row_in = |i: usize| sections[i].options.iter().position(|o| o.id == option);
+            let named = by_id(&section)
+                .or_else(|| super::options_tree::section_for(&section).and_then(by_id));
+            let found = named
+                .and_then(|i| row_in(i).map(|r| (i, r)))
+                .or_else(|| (0..sections.len()).find_map(|i| row_in(i).map(|r| (i, r))));
+            let (at, focus) = found.unwrap_or((named.unwrap_or(0), 0));
+            let same = sections.get(at).is_some_and(|s| s.id == section);
+            self.section = at;
+            self.focus = focus;
+            self.scroll = if same { scroll.max(0.0) } else { 0.0 };
         }
         self
     }

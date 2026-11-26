@@ -2539,7 +2539,8 @@ fn publish_now(h: &Host) {
                 ]
                 .map(String::from),
             );
-            names.extend((0..12).map(|i| format!("Section{i}")));
+            // The tree's twelve sections and those a shell adds.
+            names.extend((0..16).map(|i| format!("Section{i}")));
             for i in 0..st.option_rows.len() {
                 names.push(format!("Option{i}"));
                 names.push(format!("Option{i}.Down"));

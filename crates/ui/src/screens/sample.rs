@@ -1122,6 +1122,6 @@ mod tests {
             (mean + 2.1).abs() < 1.5 && (sd - 9.8).abs() < 1.5,
             "{mean} {sd}"
         );
-        assert_eq!(options(0).sections.len(), 9);
+        assert_eq!(options(0).sections.len(), 12);
     }
 }

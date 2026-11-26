@@ -2850,8 +2850,8 @@ fn walk() -> BTreeSet<String> {
             Reset::Songs,
             Reset::Everything,
             Reset::History,
-            Reset::Advanced("Notes".into()),
-            Reset::Advanced("Display".into()),
+            Reset::Advanced("Play".into()),
+            Reset::Advanced("Screen".into()),
         ] {
             let (title, body, yes) = r.texts(&model);
             for t in [title, body, yes] {

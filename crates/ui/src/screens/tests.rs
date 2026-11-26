@@ -427,12 +427,11 @@ fn results_and_options_come_and_go() {
     h.key("ArrowRight", "ArrowRight");
     assert_eq!(s.borrow().value, "×2.75");
     h.key("ArrowDown", "ArrowDown");
-    h.key("ArrowDown", "ArrowDown");
     assert_eq!(s.borrow().option, "Reverse");
     h.key("ArrowRight", "ArrowRight");
     assert_eq!(s.borrow().value, "On");
     h.key("Tab", "Tab");
-    assert_eq!(s.borrow().section, "Notes");
+    assert_eq!(s.borrow().section, "Arrows");
     h.key("Escape", "Escape");
     h.run(0.5);
     assert_eq!(s.borrow().screen, "select");

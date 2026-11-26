@@ -41,30 +41,33 @@ options-muted = ミュート
 
 ## Sections.
 
-options-section-scroll = スクロール
-options-section-notes = ノーツ
+options-section-play = プレイ
+options-section-arrows = 矢印
+options-section-screen = プレイ画面
+options-section-backgrounds = 背景
 options-section-rules = ルール
 options-section-timing = タイミング
 options-section-sound = サウンド
-options-section-display = 表示
-options-section-arrows = 矢印
 options-section-controls = 操作
-options-section-data = データ
-options-section-songs = 曲
-options-section-sharing = 共有
+options-section-song-list = 選曲
+options-section-multiplayer = マルチプレイ
+options-section-interface = インターフェース
+options-section-data = データとプライバシー
 
 ## Headings.
 
+options-heading-easier = やさしくする
 options-heading-simplify = 簡略化
 options-heading-convert = 変換
 options-heading-danoni = Dancing☆Onigiriのルール
 options-heading-known-devices = 記録済みのデバイス
-options-heading-backgrounds = 背景
-options-heading-menus = メニュー
-options-heading-diagnostics = 診断
+options-heading-dancing-hand = 踊る手
 options-heading-keyboard = キーボード
 options-heading-controllers = コントローラー
 options-heading-touch = タッチスクリーン
+options-heading-song-folders = 曲フォルダー
+options-heading-troubleshooting = トラブルシューティング
+options-heading-sharing = 共有
 
 ## Scroll.
 

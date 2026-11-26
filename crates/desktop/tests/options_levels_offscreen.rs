@@ -3,8 +3,9 @@
 //! machine's GPU as the desktop window draws it, in English and Japanese
 //! (a phone's layout is the web's): Basic (Show advanced options Off)
 //! shows fewer rows and a section's count of its advanced options changed
-//! at its end (Notes: its plain assists, then that count; stage 2), and the switch under
-//! MENUS. Skipped where there is no GPU adapter (CI).
+//! at its end (Play: Speed, Reverse and its plain assists, then that
+//! count), every section of the tree drawn at both (stage 3), the switch
+//! first in Interface. Skipped where there is no GPU adapter (CI).
 //! `DDI_OFFSCREEN_PPM=<dir>` keeps the pictures
 //! (`options-<level>-<lang>-<w>x<h>-<section>.png`).
 
@@ -29,7 +30,7 @@ fn options_at_both_levels() {
     for lang in ["en", "ja"] {
         assert!(ddi_l10n::set_language(lang));
         for size in [[1280, 720]] {
-            let mut shown: Vec<(Level, &str, usize, Option<String>)> = Vec::new();
+            let mut shown: Vec<(Level, String, usize, Option<String>)> = Vec::new();
             for level in [Level::Basic, Level::Advanced] {
                 // Changed at Advanced: a turn and the hits' timing.
                 ddi_platform::storage::install(Rc::new(
@@ -82,37 +83,38 @@ fn options_at_both_levels() {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                 }
                 assert_eq!(env.state.borrow().options_level, format!("{level:?}"));
-                for (section, row) in [("Notes", None), ("Display", Some("show_advanced"))] {
-                    for _ in 0..12 {
-                        if env.state.borrow().section == section {
-                            break;
-                        }
+                // Every section the level shows, from the first, by Tab.
+                let sections = env.state.borrow().option_sections.clone();
+                assert_eq!(env.state.borrow().section, sections[0]);
+                for (i, section) in sections.iter().enumerate() {
+                    if i > 0 {
                         key(&mut ui, &mut gpu, "Tab");
                     }
-                    assert_eq!(env.state.borrow().section, section);
-                    if let Some(row) = row {
-                        for _ in 0..60 {
-                            if env.state.borrow().option_id == row {
-                                break;
-                            }
-                            key(&mut ui, &mut gpu, "ArrowDown");
-                        }
-                        assert_eq!(env.state.borrow().option_id, row);
-                    }
+                    assert_eq!(&env.state.borrow().section, section);
                     for _ in 0..30 {
                         tick(&mut ui, &mut gpu);
                     }
                     let pixels = tick(&mut ui, &mut gpu);
                     let name = format!(
-                        "options-{}-{lang}-{}x{}-{}.png",
+                        "options-{}-{lang}-{}x{}-{:02}-{}.png",
                         format!("{level:?}").to_lowercase(),
                         size[0],
                         size[1],
-                        section.to_lowercase()
+                        i,
+                        section.to_lowercase().replace(' ', "-")
                     );
                     common::shot(&name, &pixels, size);
                     let rows = env.state.borrow().option_rows.clone();
-                    shown.push((level, section, rows.len(), rows.last().cloned()));
+                    shown.push((level, section.clone(), rows.len(), rows.last().cloned()));
+                }
+                // The switch first in Interface.
+                if let Some(at) = sections.iter().position(|s| s == "Interface") {
+                    // Tab past the last section comes back to the first.
+                    for _ in 0..=at {
+                        key(&mut ui, &mut gpu, "Tab");
+                    }
+                    assert_eq!(env.state.borrow().section, "Interface");
+                    assert_eq!(env.state.borrow().option_id, "show_advanced");
                 }
             }
             eprintln!("{lang} {size:?}: {shown:?}");
@@ -123,7 +125,7 @@ fn options_at_both_levels() {
                     .unwrap()
                     .clone()
             };
-            for section in ["Notes", "Display"] {
+            for section in ["Play", "Screen"] {
                 assert!(count(Level::Basic, section).2 < count(Level::Advanced, section).2);
                 assert_eq!(
                     count(Level::Basic, section).3,

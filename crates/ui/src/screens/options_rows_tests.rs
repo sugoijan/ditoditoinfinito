@@ -142,9 +142,19 @@ fn every_row_is_kept_with_its_key_value_and_effect() {
     assert!(
         lost.is_empty() && new.is_empty(),
         "rows lost or changed:\n{}\nrows new or changed:\n{}",
-        lost.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n"),
-        new.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n"),
+        lost.iter()
+            .map(|l| l.to_string())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        new.iter()
+            .map(|l| l.to_string())
+            .collect::<Vec<_>>()
+            .join("\n"),
     );
-    assert_eq!(before.len(), BEFORE.lines().count(), "no row twice in a world");
+    assert_eq!(
+        before.len(),
+        BEFORE.lines().count(),
+        "no row twice in a world"
+    );
     assert_eq!(after.len(), now.len(), "no row twice in a world");
 }

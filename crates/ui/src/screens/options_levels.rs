@@ -1,8 +1,8 @@
 //! Basic and Advanced in Options (`docs/plans/ui-levels.md`, stage 1):
-//! the level of each row, in one table ([`LEVELS`]), where the Show
-//! advanced options row goes ([`SHOW_ADVANCED_PLACE`]), and the one-time
+//! the level of each row, in one table ([`LEVELS`]), and the one-time
 //! decision for settings stored before the levels existed
-//! ([`advanced_in_effect`]).
+//! ([`advanced_in_effect`]). Where each row shows, the Show advanced
+//! options row first in Interface, is `super::options_tree`'s table.
 //!
 //! The level only hides: every setting keeps its effect at either level.
 //! At Basic (Show advanced options Off), Options shows the Basic rows and
@@ -31,6 +31,9 @@ use crate::state::settings::{INFINITO, Settings};
 /// ending in `.`: a device's rows, a lane's, a skin's parameters). An id
 /// not here shows at Advanced only (in doubt, Advanced; a test holds every
 /// row the model makes to an entry).
+///
+/// The entries are grouped by the parts the model makes its rows in (the
+/// sections before stage 3); where each shows is `super::options_tree`.
 ///
 /// A skin's parameters (`skin.`) are Advanced unless the skin declares one
 /// Basic (`Level=Basic` in its metrics, our extension; Infinito declares
@@ -169,12 +172,6 @@ pub const LEVELS: &[(&str, Level)] = &[
 
 /// The Show advanced options row's id (Off: Basic, On: Advanced).
 pub const SHOW_ADVANCED: &str = "show_advanced";
-
-/// Where the Show advanced options row goes: the section, and the row it
-/// comes before, taking that row's heading (the plan's open question 2:
-/// first in an Interface section once there is one, until then under
-/// Display's MENUS heading, before Language).
-pub const SHOW_ADVANCED_PLACE: (&str, &str) = ("Display", "language");
 
 /// The prefix of each section's "Advanced changes" row's id (then the
 /// section's id).
@@ -371,15 +368,15 @@ pub(crate) mod tests {
         assert_eq!(m.settings.level, Basic);
         let d = m.data();
         assert!(rows(&d).all(|o| o.id != "turn" && o.id != "fast_pad_poll"));
-        let notes = section(&d, "Notes").unwrap();
+        let notes = section(&d, "Play").unwrap();
         let count = notes.options.last().unwrap();
-        assert_eq!(count.id, format!("{CHANGED}Notes"));
+        assert_eq!(count.id, format!("{CHANGED}Play"));
         assert_eq!(count.label, "Advanced changes: 2");
         assert_eq!(count.values(), ["Reset them", "Show"]);
         assert_eq!(count.index, 1, "Show lit first");
         let controls = section(&d, "Controls").unwrap();
         assert_eq!(controls.options.last().unwrap().label, "Advanced changes: 1");
-        assert!(section(&d, "Scroll").unwrap().options.iter().all(|o| !o.id.starts_with(CHANGED)));
+        assert!(section(&d, "Screen").unwrap().options.iter().all(|o| !o.id.starts_with(CHANGED)));
         // Still in effect.
         assert_eq!(m.settings.transform.turn, ddi_engine::Turn::Mirror);
         assert_eq!(m.preview_settings().transform.turn, ddi_engine::Turn::Mirror);
@@ -387,20 +384,20 @@ pub(crate) mod tests {
         let stored: Settings = storage::load(Area::Local, crate::state::settings::KEY).unwrap();
         assert_eq!(stored.transform.turn, ddi_engine::Turn::Mirror);
         // Show: Advanced, on the first of them.
-        assert_eq!(m.action(&format!("{CHANGED}Notes"), 1), Act::Done);
+        assert_eq!(m.action(&format!("{CHANGED}Play"), 1), Act::Done);
         let d = m.data();
         assert_eq!(d.level, Advanced);
-        assert_eq!(d.focus, Some(("Notes".into(), "turn".into())));
+        assert_eq!(d.focus, Some(("Play".into(), "turn".into())));
         assert_eq!(m.data().focus, None, "once");
         // Reset: asked, naming the count and the section, then done.
         m.change(SHOW_ADVANCED, 0);
-        let id = format!("{CHANGED}Notes");
+        let id = format!("{CHANGED}Play");
         let act = m.action(&id, 0);
-        assert_eq!(act, Act::Confirm(Reset::Advanced("Notes".into())));
+        assert_eq!(act, Act::Confirm(Reset::Advanced("Play".into())));
         let Act::Confirm(reset) = act else { unreachable!() };
         let (title, body, yes) = reset.texts(&m);
         assert_eq!(title, "Reset these settings?");
-        assert_eq!(body, "The 2 changed advanced options of Notes go back to their defaults.");
+        assert_eq!(body, "The 2 changed advanced options of Play go back to their defaults.");
         assert_eq!(yes, "Reset");
         m.reset(&reset);
         assert_eq!(m.settings.transform.turn, ddi_engine::Turn::Off);
@@ -408,15 +405,15 @@ pub(crate) mod tests {
         assert!(!m.settings.fast_pad_poll, "another section's kept");
         assert_eq!(m.notice, "2 settings back to their defaults.");
         assert_eq!(m.settings.level, Basic);
-        // Notes at Basic: its plain assists alone (stage 2), with
-        // nothing changed no count.
-        let notes: Vec<String> = section(&m.data(), "Notes")
+        // Play at Basic: Speed, Reverse and the plain assists (stage 2),
+        // with nothing changed no count.
+        let notes: Vec<String> = section(&m.data(), "Play")
             .unwrap()
             .options
             .iter()
             .map(|o| o.id.clone())
             .collect();
-        assert_eq!(notes, ["cut", "at_once", "no_holds"]);
+        assert_eq!(notes, ["speed", "reverse", "cut", "at_once", "no_holds"]);
         let stored: Settings = storage::load(Area::Local, crate::state::settings::KEY).unwrap();
         assert_eq!(stored.transform.turn, ddi_engine::Turn::Off);
     }
@@ -454,10 +451,11 @@ pub(crate) mod tests {
         let controls = section(&d, "Controls").unwrap();
         let none = controls.options.iter().find(|o| o.id == "pads.none").unwrap();
         assert_eq!(none.heading.as_deref(), Some("CONTROLLERS"));
-        // The Show advanced options row first under MENUS.
-        let display = section(&d, "Display").unwrap();
+        // The Show advanced options row first in Interface.
+        let display = section(&d, "Interface").unwrap();
         let at = display.options.iter().position(|o| o.id == SHOW_ADVANCED).unwrap();
-        assert_eq!(display.options[at].heading.as_deref(), Some("MENUS"));
+        assert_eq!(at, 0);
+        assert_eq!(display.options[at].heading, None);
         assert_eq!(display.options[at + 1].id, "language");
         assert_eq!(display.options[at + 1].heading, None);
         assert_eq!(display.options[at].label, "Show advanced options");

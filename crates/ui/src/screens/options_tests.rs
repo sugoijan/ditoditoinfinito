@@ -152,7 +152,7 @@ fn rig_at(size: [f32; 2], design: [f32; 2], level: Level) -> Rig {
 
 impl Rig {
     fn section(&mut self, name: &str) {
-        for _ in 0..12 {
+        for _ in 0..16 {
             if self.state.borrow().section == name {
                 return;
             }
@@ -247,7 +247,7 @@ fn rows_change_the_settings_and_save_them() {
     r.h.key("Enter", "Enter");
     assert!(r.logged("export"));
     // Reduced motion and the rest, by pad.
-    r.section("Display");
+    r.section("Interface");
     r.row("debug");
     r.h.pad(MenuAction::Right, true);
     r.h.pad(MenuAction::Right, false);
@@ -573,7 +573,7 @@ fn rows_scroll_to_the_focused_one_and_by_wheel_and_drag() {
 #[test]
 fn a_tap_on_a_section_opens_it() {
     let mut r = rig([1280.0, 720.0], DESIGN);
-    r.h.tap(PointerKind::Mouse, "Section3");
+    r.h.tap(PointerKind::Mouse, "Section5");
     r.h.run(0.1);
     assert_eq!(r.state.borrow().section, "Timing");
     // Keys still move through its rows.
@@ -991,35 +991,44 @@ fn controller_capture_can_bind_face_buttons_skip_and_redo() {
 fn the_sharing_section_shows_only_with_the_switch_and_keeps_the_token() {
     use super::options_model::Act;
     let mut m = OptionsModel::new(Settings::default(), World::default());
-    assert!(m.data().sections.iter().all(|s| s.name != "Sharing"));
+    let shared = |d: &super::data::OptionsData| -> Vec<super::data::OptionDef> {
+        d.sections
+            .iter()
+            .flat_map(|s| s.options.iter().map(move |o| (s, o)))
+            .filter(|(_, o)| o.id.starts_with("share."))
+            .map(|(s, o)| {
+                // In Data and privacy, at its end (`options_tree`).
+                assert_eq!(s.id, "Data");
+                o.clone()
+            })
+            .collect()
+    };
+    assert!(shared(&m.data()).is_empty());
     m.world.sharing = true;
     m.world.share_url = "https://w/share".into();
     let data = m.data();
-    let sharing = data
+    let sharing = shared(&data);
+    assert_eq!(sharing[0].heading.as_deref(), Some("SHARING"));
+    let data_rows = &data
         .sections
         .iter()
-        .find(|s| s.name == "Sharing")
-        .expect("the section");
-    let token = &sharing.options[0];
+        .find(|s| s.id == "Data")
+        .unwrap()
+        .options;
+    assert_eq!(data_rows.last().map(|o| o.id.as_str()), Some("share.about"));
+    let token = &sharing[0];
     assert_eq!(token.id, "share.token");
     assert_eq!(token.note, "not set");
     assert_eq!(token.values(), ["Set…"]);
-    assert_eq!(sharing.options[1].note, "a token first");
-    assert_eq!(sharing.options[2].note, "https://w/share");
+    assert_eq!(sharing[1].note, "a token first");
+    assert_eq!(sharing[2].note, "https://w/share");
     assert!(matches!(m.action("share.token", 0), Act::ShareToken));
     m.set_share_token("  secret  ");
     assert_eq!(m.settings.share_token, "secret");
     // Round HY: a token set keeps sharing on (the web's address gives it
     // for the page alone), a token cleared keeps it off.
     assert!(m.settings.sharing, "kept on with its token");
-    let token = m
-        .data()
-        .sections
-        .iter()
-        .find(|s| s.name == "Sharing")
-        .unwrap()
-        .options[0]
-        .clone();
+    let token = shared(&m.data())[0].clone();
     assert_eq!(token.note, "set");
     assert_eq!(token.values(), ["Change…", "Clear"]);
     assert!(matches!(m.action("share.token", 1), Act::Done));
@@ -1060,25 +1069,15 @@ fn the_shares_dialog_lists_copies_and_deletes() {
         m.settings.share_token = "secret".into();
     }
     let data = rig.model.borrow().data();
-    let sharing = data
-        .sections
-        .iter()
-        .position(|s| s.name == "Sharing")
-        .expect("the section");
     *rig.feed.borrow_mut() = Some(data);
     rig.h
         .ui
         .broadcast(crate::Message::new(super::options::OPTIONS_CHANGED));
     rig.h.run(0.2);
-    for _ in 0..sharing {
-        rig.h.key("Tab", "Tab");
-        rig.h.run(0.1);
-    }
-    assert_eq!(rig.state.borrow().section, "Sharing");
-    assert_eq!(rig.state.borrow().option_rows[1], "share.shares");
+    // Sharing's rows at the end of Data and privacy.
+    rig.section("Data");
+    rig.row("share.shares");
     // The row's List… opens the dialog, filled by the platform.
-    rig.h.key("ArrowDown", "ArrowDown");
-    rig.h.run(0.1);
     rig.h.key("Enter", "Enter");
     rig.h.run(0.3);
     assert!(rig.fake.log.borrow().iter().any(|l| l == "list shares"));
@@ -1196,7 +1195,7 @@ fn show_advanced_flips_the_level_in_place() {
     let mut r = rig_at([1280.0, 720.0], DESIGN, Level::Basic);
     assert_eq!(r.state.borrow().options_level, "Basic");
     assert!(!r.state.borrow().option_rows.contains(&"speed_source".to_string()));
-    r.section("Display");
+    r.section("Interface");
     r.row("show_advanced");
     let basic = r.state.borrow().option_rows.len();
     r.h.key("ArrowRight", "ArrowRight");
@@ -1208,6 +1207,7 @@ fn show_advanced_flips_the_level_in_place() {
     // The messages follow (stage 2): the genre's words at Advanced.
     assert!(ddi_l10n::advanced());
     // An Advanced row changed, then More's "Hide advanced options".
+    r.section("Screen");
     r.row("show_deltas");
     r.h.key("ArrowRight", "ArrowRight");
     assert!(Settings::load().show_deltas);
@@ -1217,17 +1217,71 @@ fn show_advanced_flips_the_level_in_place() {
     r.h.run(0.3);
     assert_eq!(r.state.borrow().options_level, "Basic");
     assert!(!ddi_l10n::advanced(), "the plain words at Basic");
-    // Nothing above it shows at Basic: the nearest below.
-    assert_eq!(r.state.borrow().option_id, "twitch_chat", "the nearest shown");
+    // The nearest row above it shown at Basic.
+    assert_eq!(r.state.borrow().option_id, "lyrics", "the nearest shown");
     assert!(Settings::load().show_deltas, "hidden, still set");
     // Counted at the section's end; Show opens Advanced on it.
-    let count = format!("{CHANGED}Display");
+    let count = format!("{CHANGED}Screen");
     assert_eq!(r.state.borrow().option_rows.last(), Some(&count));
     r.row(&count);
     r.h.key("Enter", "Enter");
     r.h.run(0.05);
     assert_eq!(r.state.borrow().options_level, "Advanced");
-    assert_eq!(r.state.borrow().section, "Display");
+    assert_eq!(r.state.borrow().section, "Screen");
     assert_eq!(r.state.borrow().option_id, "show_deltas");
     assert!(ddi_l10n::advanced(), "Show: the genre's words again");
+}
+
+/// A place in Options saved before its sections were regrouped (the web's
+/// history entry, `docs/plans/ui-levels.md`, stage 3) lands on its row in
+/// the section that has it now; a row the level hides, on the first row of
+/// the section that took its old section's rows; the scroll kept only in
+/// the same section.
+#[test]
+fn a_place_saved_before_the_regrouping_finds_its_row() {
+    for (level, saved, section, option, scroll) in [
+        (Level::Advanced, ("Display", "language", 300.0), "Interface", "language", 0.0),
+        (Level::Advanced, ("Display", "show_deltas", 300.0), "Screen", "show_deltas", 0.0),
+        (Level::Advanced, ("Notes", "cut", 0.0), "Play", "cut", 0.0),
+        (Level::Advanced, ("Data", "room_ahead", 0.0), "Multiplayer", "room_ahead", 0.0),
+        (Level::Advanced, ("Scroll", "gone", 0.0), "Play", "speed", 0.0),
+        (Level::Basic, ("Notes", "turn", 0.0), "Play", "speed", 0.0),
+        (Level::Basic, ("Display", "receptor_snap", 0.0), "Screen", "ddi.words", 0.0),
+        (Level::Advanced, ("Sound", "volume", 0.0), "Sound", "volume", 0.0),
+        (Level::Advanced, ("Nowhere", "nothing", 0.0), "Play", "speed", 0.0),
+    ] {
+        let r = rig_at([1280.0, 720.0], DESIGN, level);
+        let (old, row, kept) = saved;
+        let data = r.model.borrow().data();
+        let env = Env::new(Rc::new(Plain), Rc::new(|s: &str| s.to_string()));
+        let state = env.state.clone();
+        let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+        h.push(OptionsScreen::new(env, data, None).with_position(Some((
+            old.into(),
+            row.into(),
+            kept,
+        ))));
+        h.run(0.3);
+        let st = state.borrow();
+        assert_eq!(
+            (st.section.as_str(), st.option_id.as_str()),
+            (section, option),
+            "{saved:?}"
+        );
+        assert_eq!(st.scroll, scroll, "{saved:?}");
+    }
+    // The same section keeps its scroll.
+    let r = rig_at([1280.0, 720.0], DESIGN, Level::Advanced);
+    let env = Env::new(Rc::new(Plain), Rc::new(|s: &str| s.to_string()));
+    let state = env.state.clone();
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    let data = r.model.borrow().data();
+    h.push(OptionsScreen::new(env, data, None).with_position(Some((
+        "Controls".into(),
+        "fast_pad_poll".into(),
+        200.0,
+    ))));
+    h.run(0.3);
+    assert_eq!(state.borrow().option_id, "fast_pad_poll");
+    assert!(state.borrow().scroll > 0.0);
 }

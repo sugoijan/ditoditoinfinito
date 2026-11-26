@@ -1118,12 +1118,12 @@ fn options_fit_every_size() {
         }
         // The compact tab strip: the chosen tab shows.
         let s = state.borrow().section.clone();
-        let names: Vec<String> = sample::options(0)
+        let ids: Vec<String> = sample::options(0)
             .sections
             .iter()
-            .map(|x| x.name.clone())
+            .map(|x| x.id.clone())
             .collect();
-        let i = names.iter().position(|n| *n == s).unwrap();
+        let i = ids.iter().position(|n| *n == s).unwrap();
         let tab = h.ui.bounds(&format!("Section{i}")).unwrap();
         inside(tab, screen, "the chosen section");
         assert!(state.borrow().preview.is_some(), "{size:?}");
@@ -1197,13 +1197,13 @@ fn options_sections_take_taps() {
     let mut h = harness([1280.0, 720.0], DESIGN);
     h.push(sample::options_screen(&env, None));
     h.run(0.5);
-    h.tap(PointerKind::Mouse, "Section3");
+    h.tap(PointerKind::Mouse, "Section5");
     h.run(0.1);
     assert_eq!(
         state.borrow().section,
         "Timing",
         "{:?}",
-        h.ui.bounds("Section3")
+        h.ui.bounds("Section5")
     );
 }
 

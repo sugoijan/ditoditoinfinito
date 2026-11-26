@@ -30,6 +30,20 @@ const ROWS: [&str; 8] = [
 /// The rows shown on a touch screen alone.
 const TOUCH_ROWS: [&str; 2] = ["touch_controls", "touch_size"];
 
+/// Options' rows the prompt takes, by id (`docs/plans/ui-levels.md`, 3.5:
+/// by id, wherever Options shows them): its rows and the pump skins'.
+const TAKEN: [&str; 9] = [
+    "speed",
+    "reverse",
+    "turn",
+    "appearance",
+    "lane_cover",
+    "noteskin",
+    "pump_noteskin",
+    "touch_controls",
+    "touch_size",
+];
+
 /// What a play runs with beyond the stored settings: the prompt's rows
 /// the player changed, field by field.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -223,11 +237,11 @@ impl PlayOptions {
     }
 
     fn rows_worded(&self) -> Vec<OptionDef> {
-        let all: Vec<OptionDef> = self.model.prompt_rows().collect();
+        let all: Vec<OptionDef> = self.model.rows_by_id(&TAKEN).collect();
         let basic = self.model.settings.level == Level::Basic;
         let stored: Vec<OptionDef> = if basic {
             OptionsModel::new(self.stored.clone(), self.model.world.clone())
-                .prompt_rows()
+                .rows_by_id(&TAKEN)
                 .filter(OptionDef::changed)
                 .collect()
         } else {
