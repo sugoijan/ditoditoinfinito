@@ -1205,6 +1205,8 @@ fn show_advanced_flips_the_level_in_place() {
     assert_eq!(r.state.borrow().option_id, "show_advanced");
     assert!(r.state.borrow().option_rows.len() > basic);
     assert_eq!(Settings::load().level, Level::Advanced);
+    // The messages follow (stage 2): the genre's words at Advanced.
+    assert!(ddi_l10n::advanced());
     // An Advanced row changed, then More's "Hide advanced options".
     r.row("show_deltas");
     r.h.key("ArrowRight", "ArrowRight");
@@ -1214,6 +1216,7 @@ fn show_advanced_flips_the_level_in_place() {
     r.h.tap(PointerKind::Mouse, "Item.Level.Other");
     r.h.run(0.3);
     assert_eq!(r.state.borrow().options_level, "Basic");
+    assert!(!ddi_l10n::advanced(), "the plain words at Basic");
     // Nothing above it shows at Basic: the nearest below.
     assert_eq!(r.state.borrow().option_id, "twitch_chat", "the nearest shown");
     assert!(Settings::load().show_deltas, "hidden, still set");
@@ -1226,4 +1229,5 @@ fn show_advanced_flips_the_level_in_place() {
     assert_eq!(r.state.borrow().options_level, "Advanced");
     assert_eq!(r.state.borrow().section, "Display");
     assert_eq!(r.state.borrow().option_id, "show_deltas");
+    assert!(ddi_l10n::advanced(), "Show: the genre's words again");
 }

@@ -187,6 +187,44 @@ fn the_radar_shows_for_a_rated_chart_with_its_option_on() {
     assert!(h.ui.actor("Ladder.Row0").is_none(), "no ladder");
 }
 
+/// At the Basic level (Show advanced options Off; `docs/plans/
+/// ui-levels.md`, stage 2) the radar keeps its shape with plain names and
+/// no spoke's number, its caption "Overall" with the chart's number as
+/// its row shows it (MSD whole); Advanced shows the skillsets' names and
+/// numbers, as before.
+#[test]
+fn the_radar_at_basic_has_plain_names_and_no_numbers() {
+    let _store = fresh();
+    ratings::set_mode(crate::state::ratings::Source::Msd);
+    ratings::done(
+        "s0",
+        vec![ratings::Rated {
+            index: 1,
+            digest: ddi_chart::ChartDigest(1),
+            values: Some([20.4, 20.0, 15.0, 14.0, 18.0, 12.0, 13.0, 18.0]),
+            ..Default::default()
+        }],
+    );
+    let texts = |advanced: bool| {
+        ddi_l10n::at_level(advanced, || {
+            let (mut h, _e) = select_at(songs(), [1280.0, 720.0]);
+            h.run(0.3);
+            h.texts()
+        })
+    };
+    let advanced = texts(true);
+    assert!(advanced.iter().any(|t| t == "MSD"), "{advanced:?}");
+    assert!(advanced.iter().any(|t| t == "18.0"), "{advanced:?}");
+    let basic = texts(false);
+    for word in ["Overall", "Runs", "Repeats"] {
+        assert!(basic.iter().any(|t| t == word), "{word}: {basic:?}");
+    }
+    for gone in ["MSD", "Jacks", "18.0", "20.0", "20.4"] {
+        assert!(!basic.iter().any(|t| t == gone), "{gone}: {basic:?}");
+    }
+    assert!(basic.iter().any(|t| t == "20"), "the caption's whole number: {basic:?}");
+}
+
 /// What the debug view says of the radar.
 fn radar_said(e: &Env) -> String {
     e.state.borrow().radar.clone()

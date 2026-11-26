@@ -2,7 +2,9 @@
 //!
 //! - `check`: every language has every English message and nothing else,
 //!   each parses, uses only English's variables and the terms it defines,
-//!   and gives its plural selectors every category CLDR has for it; no
+//!   gives its plural selectors every category CLDR has for it, and gives
+//!   an `.advanced` wording (the Advanced level's, `locales/README.md`)
+//!   exactly where English does and no other attribute; no
 //!   string literal is handed to `UiText::data`; then how many messages
 //!   each language has reviewed by a person, by an agent, or unverified.
 //! - `report <tag>`: each message with its English, translation, comment
@@ -125,6 +127,8 @@ struct Message {
     /// Each selector's keys, where they are all plural categories or
     /// numbers.
     plurals: Vec<(BTreeSet<String>, bool)>,
+    /// Its attributes' names (`advanced`: its Advanced level's wording).
+    attributes: BTreeSet<String>,
 }
 
 /// A language's messages and terms, and what is wrong with its files.
@@ -226,6 +230,11 @@ fn catalog(root: &Path, tag: &str) -> Result<Catalog> {
                             variables: found.variables,
                             terms: found.terms,
                             plurals: found.plurals,
+                            attributes: m
+                                .attributes
+                                .iter()
+                                .map(|a| a.id.name.to_string())
+                                .collect(),
                         },
                     );
                 }
@@ -378,6 +387,24 @@ fn checked(root: &Path) -> Result<Vec<Row>> {
                     m.area, source.area
                 ));
             }
+            // The Advanced level's wording exactly where English has one:
+            // a language without it would show its plain words at
+            // Advanced, one with it alone would say what English does not.
+            if m.attributes != source.attributes {
+                let wording = |a: &BTreeSet<String>| {
+                    if a.is_empty() {
+                        "none".to_string()
+                    } else {
+                        a.iter().map(|n| format!(".{n}")).collect::<Vec<_>>().join(", ")
+                    }
+                };
+                problems.push(format!(
+                    "{tag}: {id} has {}, English {} (locales/README.md, \
+                     \"Two wordings\")",
+                    wording(&m.attributes),
+                    wording(&source.attributes)
+                ));
+            }
             for v in m.variables.difference(&source.variables) {
                 problems.push(format!(
                     "{tag}: {id} uses ${v}, which English does not pass"
@@ -506,7 +533,18 @@ fn notes_text(rows: &[Row]) -> String {
 /// The web page's loader's messages (`boot.ftl`) are formatted when the
 /// page is built, with nothing to pass: none may take a variable.
 fn boot_problems(en: &Catalog) -> Vec<String> {
-    en.messages
+    let worded = en
+        .messages
+        .iter()
+        .filter(|(_, m)| m.area == "boot" && !m.attributes.is_empty())
+        .map(|(id, _)| {
+            format!(
+                "en: {id} has two wordings: the page's loader shows its lines before \
+                 the settings are read (boot.ftl), at no level"
+            )
+        });
+    let mut out: Vec<String> = worded.collect();
+    out.extend(en.messages
         .iter()
         .filter(|(_, m)| m.area == "boot" && !m.variables.is_empty())
         .map(|(id, m)| {
@@ -519,8 +557,8 @@ fn boot_problems(en: &Catalog) -> Vec<String> {
                     .collect::<Vec<_>>()
                     .join(", ")
             )
-        })
-        .collect()
+        }));
+    out
 }
 
 /// The web page's loader's lines (`site/boot.js`; `xtask minify-boot`
@@ -900,6 +938,79 @@ mod tests {
                 .any(|p| p.contains(":7: a literal given to a window's title")),
             "{found:#?}"
         );
+    }
+
+    /// Every language's messages as a copy of `locales/` from before a
+    /// change (`DDI_L10N_BEFORE=<dir>`, the folder holding that
+    /// `locales/`) wrote them: where a message has an `.advanced` wording
+    /// now, it is exactly the text it had (Show advanced options On reads
+    /// as before, `docs/plans/ui-levels.md`, stage 2); elsewhere the
+    /// message is exactly as it was, unless `DDI_L10N_CHANGED` names it
+    /// (ids, comma-separated). Run with `cargo test -p xtask --
+    /// --ignored advanced_wordings_keep_the_text_before`.
+    #[test]
+    #[ignore]
+    fn advanced_wordings_keep_the_text_before() {
+        let Ok(before) = std::env::var("DDI_L10N_BEFORE") else {
+            return;
+        };
+        let changed: BTreeSet<String> = std::env::var("DDI_L10N_CHANGED")
+            .unwrap_or_default()
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect();
+        let read = |root: &Path, tag: &str| {
+            let mut out = BTreeMap::new();
+            for path in ftl_files(&root.join("locales").join(tag)).unwrap() {
+                let text = fs::read_to_string(&path).unwrap();
+                let resource = fluent_syntax::parser::parse(text.as_str()).unwrap();
+                for entry in resource.body {
+                    if let ast::Entry::Message(m) = entry {
+                        let advanced = m
+                            .attributes
+                            .iter()
+                            .find(|a| a.id.name == "advanced")
+                            .map(|a| format!("{:?}", a.value));
+                        out.insert(
+                            m.id.name.to_string(),
+                            (
+                                m.value.as_ref().map(|v| format!("{v:?}")),
+                                advanced,
+                                m.attributes.len(),
+                            ),
+                        );
+                    }
+                }
+            }
+            out
+        };
+        let mut worded = 0;
+        for tag in ["en", "ja"] {
+            let was = read(Path::new(&before), tag);
+            let now = read(&root(), tag);
+            for (id, (value, _, _)) in &was {
+                let Some((new_value, advanced, attributes)) = now.get(id) else {
+                    panic!("{tag}: {id} is gone");
+                };
+                match advanced {
+                    Some(a) => {
+                        assert_eq!(
+                            Some(a),
+                            value.as_ref(),
+                            "{tag}: {id}'s .advanced is not its text before"
+                        );
+                        worded += 1;
+                    }
+                    None if changed.contains(id) => {}
+                    None => {
+                        assert_eq!(new_value, value, "{tag}: {id} changed");
+                        assert_eq!(*attributes, 0, "{tag}: {id}");
+                    }
+                }
+            }
+        }
+        println!("{worded} wordings checked against the text before");
     }
 
     #[test]

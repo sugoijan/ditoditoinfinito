@@ -13,6 +13,13 @@
 //! and screens built after it speak it. Two pseudo-languages show what
 //! passes through here: `qps-ploc` writes each message accented, longer
 //! and in « », data in ‹ ›; `qps-wide` in full-width letters.
+//!
+//! The level is the thread's too (`docs/plans/ui-levels.md`, stage 2):
+//! a message whose words differ between the levels gives its Advanced
+//! wording, the genre's terms, as its `.advanced` attribute, its value
+//! being the plain wording of the Basic level; [`set_advanced`] chooses,
+//! as the settings' Show advanced options does, and every function of
+//! [`msg`] returns the wording chosen.
 
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
@@ -339,6 +346,41 @@ thread_local! {
     });
     /// The language a number is being formatted for ([`number::format`]).
     static FORMATTING: Cell<&'static Language> = Cell::new(&LANGUAGES[0]);
+    /// Whether messages give their Advanced wording ([`set_advanced`]).
+    static ADVANCED_WORDS: Cell<bool> = const { Cell::new(true) };
+}
+
+/// Messages give their Advanced wording (`advanced`: the genre's terms,
+/// each message's `.advanced` attribute where it has one) or their plain
+/// one (the Basic level: each message's value), from here on: the
+/// settings' level (Show advanced options), set with the language.
+///
+/// Until it is set, the Advanced wording: what each message said before
+/// it had two, so a test or a tool that never sets a level reads the
+/// game's words as they were; the shells set it from the settings
+/// before the first screen.
+pub fn set_advanced(advanced: bool) {
+    ADVANCED_WORDS.set(advanced);
+}
+
+/// Whether messages give their Advanced wording now ([`set_advanced`]).
+pub fn advanced() -> bool {
+    ADVANCED_WORDS.get()
+}
+
+/// `f`'s messages at the level `advanced` says, whatever the thread's
+/// ([`set_advanced`]): a screen made for one level (Options' rows at the
+/// level they show at); the thread's level is back after, even should
+/// `f` panic.
+pub fn at_level<T>(advanced: bool, f: impl FnOnce() -> T) -> T {
+    struct Back(bool);
+    impl Drop for Back {
+        fn drop(&mut self) {
+            ADVANCED_WORDS.set(self.0);
+        }
+    }
+    let _back = Back(ADVANCED_WORDS.replace(advanced));
+    f()
 }
 
 /// Every language there is: [`LANGUAGES`] and then [`PSEUDO`].
@@ -546,6 +588,9 @@ fn chain(language: &'static Language) -> Vec<&'static Language> {
     chain
 }
 
+/// The attribute that gives a message's Advanced wording.
+const ADVANCED_ATTRIBUTE: &str = "advanced";
+
 /// Message `id` in the current language, with `args`.
 #[doc(hidden)]
 pub fn format(id: &str, args: &[(&str, Arg)]) -> UiText {
@@ -563,9 +608,20 @@ pub fn format(id: &str, args: &[(&str, Arg)]) -> UiText {
             .or_insert_with(|| chain(language).into())
             .clone()
     });
+    let advanced = advanced();
     for &l in chain.iter() {
         let b = bundle(l);
-        let Some(pattern) = b.get_message(id).and_then(|m| m.value()) else {
+        let Some(message) = b.get_message(id) else {
+            continue;
+        };
+        // The Advanced wording where the level asks for it and the message
+        // has one (`xtask l10n check` holds every language to English's).
+        let Some(pattern) = advanced
+            .then(|| message.get_attribute(ADVANCED_ATTRIBUTE))
+            .flatten()
+            .map(|a| a.value())
+            .or_else(|| message.value())
+        else {
             continue;
         };
         FORMATTING.set(l);

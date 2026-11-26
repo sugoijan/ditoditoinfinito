@@ -114,6 +114,7 @@ pub fn shell(
         follow_hints(&model, cx);
         let data = call_with(&env, &model, &feed, &platform, call, cx);
         follow_hints(&model, cx);
+        follow_level(&model, cx);
         data
     })
 }
@@ -121,6 +122,7 @@ pub fn shell(
 /// The rows, now, to the screen from a dialog.
 fn send(model: &Rc<RefCell<OptionsModel>>, feed: &OptionsFeed, cx: &mut Cx) {
     follow_hints(model, cx);
+    follow_level(model, cx);
     *feed.borrow_mut() = Some(model.borrow().data());
     cx.broadcast(Message::new(OPTIONS_CHANGED));
 }
@@ -136,6 +138,21 @@ fn follow_hints(model: &Rc<RefCell<OptionsModel>>, cx: &mut Cx) {
     }
     if *m.world.hints != *cx.hints() {
         m.world.hints = cx.hints_rc();
+    }
+}
+
+/// The messages follow the level as it changed (Show advanced options,
+/// its More item, a section's Show, a reset of the settings: the plain
+/// wordings at Basic, the Advanced ones at Advanced;
+/// `docs/plans/ui-levels.md`, stage 2), and every screen is built again
+/// in them, as for a change of language (the rows themselves are made at
+/// their level, `OptionsModel::data_at`).
+fn follow_level(model: &Rc<RefCell<OptionsModel>>, cx: &mut Cx) {
+    let m = model.borrow();
+    let advanced = m.settings.level == crate::state::settings::Level::Advanced;
+    if !m.transient && ddi_l10n::advanced() != advanced {
+        ddi_l10n::set_advanced(advanced);
+        cx.rebuild_screens();
     }
 }
 

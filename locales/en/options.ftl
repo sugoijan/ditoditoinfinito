@@ -169,7 +169,8 @@ options-heading-touch = TOUCH SCREENS
 ## Scroll.
 
 options-speed = Speed
-options-speed-description = How fast the arrows scroll: the chart's tempo times this.
+options-speed-description = How fast the arrows move. Faster spreads them further apart, which can make busy songs easier to read.
+    .advanced = How fast the arrows scroll: the chart's tempo times this.
 
 options-speed-source = Charts with their own speed
 
@@ -182,7 +183,8 @@ options-speed-source-chart = The chart's
 options-speed-source-description = Some charts set their own scroll speed (Dancing☆Onigiri works): play them at the speed above, or at theirs.
 
 options-reverse = Reverse
-options-reverse-description = Arrows scroll down to receptors at the bottom.
+options-reverse-description = Arrows move down to the targets at the bottom.
+    .advanced = Arrows scroll down to receptors at the bottom.
 
 options-scroll-action = Scroll action
 options-scroll-action-normal = Normal
@@ -235,11 +237,16 @@ options-cover-hidden-height = Hidden+ height
 options-cover-hidden-description = How much of the lane Hidden+ covers. A play keeps the height you leave it at.
 
 # Under SIMPLIFY: which notes are kept.
-options-cut = Notes
-options-cut-all = All
-options-cut-quarters = Quarters
-options-cut-eighths = Quarters and eighths
-options-cut-description = Leaves out the faster notes. Simplified plays are marked as assisted on the results.
+options-cut = Fewer notes
+    .advanced = Notes
+options-cut-all = Off
+    .advanced = All
+options-cut-quarters = Beats only
+    .advanced = Quarters
+options-cut-eighths = Beats and half-beats
+    .advanced = Quarters and eighths
+options-cut-description = Leaves out the quicker notes: Beats only keeps the notes on the beat, Beats and half-beats those halfway between too. A play with fewer notes shows ASSIST on its results, and its best is kept apart.
+    .advanced = Leaves out the faster notes. Simplified plays are marked as assisted on the results.
 
 # Dancing☆Onigiri charts offered without their onigiri (the middle lane's
 # notes).
@@ -255,18 +262,24 @@ options-simplify-center-all = All
 options-simplify-center-description = Adds Pump charts to Single and Double without the center notes, each pad turned an eighth clockwise, marked as assisted. Where missing: only at difficulties the song has no chart of there.
 
 # The most panels pressed at once.
-options-at-once = At once
+options-at-once = Notes together
+    .advanced = At once
 options-at-once-any = Any
-options-at-once-two = Up to two
-options-at-once-one = One
-options-at-once-description = The most panels pressed at once, holds included: Up to two keeps jumps but leaves out arrows meant for a hand or a keyboard, One leaves out jumps too. The leftmost arrows go first.
+options-at-once-two = Two at most
+    .advanced = Up to two
+options-at-once-one = One at a time
+    .advanced = One
+options-at-once-description = The most notes you press at the same time; the rest of each group is left out. A play with notes left out shows ASSIST on its results, and its best is kept apart.
+    .advanced = The most panels pressed at once, holds included: Up to two keeps jumps but leaves out arrows meant for a hand or a keyboard, One leaves out jumps too. The leftmost arrows go first.
 
 # Leaves out combinations too wide to reach.
 options-no-stretch = No stretch
 options-no-stretch-description = Leaves out wide combinations on Double, Pump half-double/double and DanOni 9A. Existing holds stay; new leftmost notes go first. Marks the play assisted.
 
-options-no-holds = No holds
-options-no-holds-description = Holds and rolls become single taps.
+options-no-holds = No long notes
+    .advanced = No holds
+options-no-holds-description = Notes you would hold down become single presses. A play without long notes shows ASSIST on its results, and its best is kept apart.
+    .advanced = Holds and rolls become single taps.
 
 # Pump single charts converted to Dancing☆Onigiri's 5 keys.
 options-convert-pump-single = Pump on 5 keys
@@ -302,7 +315,8 @@ options-ddi-difficulty = Timing difficulty
 options-ddi-easy = Easy
 options-ddi-normal = Normal
 options-ddi-hard = Hard
-options-ddi-difficulty-description = Easy widens every timing window and takes a fifth of the life for a mistake; Hard narrows them and takes twice as much. Bests are kept apart for each.
+options-ddi-difficulty-description = Easy gives more room to press early or late and takes a fifth of the life for a mistake; Hard gives less room and takes twice as much. Bests are kept apart for each.
+    .advanced = Easy widens every timing window and takes a fifth of the life for a mistake; Hard narrows them and takes twice as much. Bests are kept apart for each.
 
 # Boo: DDI's name for a press that hits no note (a judgment's name, the
 # same in every language).
@@ -402,7 +416,8 @@ options-danoni-excessive-description = Early stray presses cost life.
 ## Timing: offsets.
 
 options-calibration = Calibration
-options-calibration-description = Measures your audio and display offsets by playing along.
+options-calibration-description = Finds how late this device's sound and picture are, by playing along, so presses are judged as you meant them.
+    .advanced = Measures your audio and display offsets by playing along.
 
 options-audio-offset = Default audio offset
 options-audio-offset-description = For audio without a profile. Positive: you hear the music later than the clock says (typical for Bluetooth).
@@ -444,8 +459,10 @@ options-sample-play = Play a sample
 options-sample-stop = Stop
 options-sample-description = Plays a song's preview at this volume.
 
-options-assist-clap = Assist clap
-options-assist-clap-description = A clap on every row of notes, right on the beat: to hear where the steps fall.
+options-assist-clap = Clap on each note
+    .advanced = Assist clap
+options-assist-clap-description = A clap sounds right on time with every note, so you hear where the steps fall.
+    .advanced = A clap on every row of notes, right on the beat: to hear where the steps fall.
 
 options-mine-sound = Mine sound
 options-mine-sound-description = A sound when you step on a mine or a shock arrow.
@@ -597,7 +614,8 @@ options-hand-frame-width-description = Width of the hand's camera frame as a sha
 options-hand-frame-height = Hand frame height
 options-hand-frame-height-description = Height of the hand's camera frame, aligned to the bottom with a small margin.
 
-options-ghost = Ghost of your best
+options-ghost = Compare with your best
+    .advanced = Ghost of your best
 options-ghost-description = Shows, under the score, how far ahead of your best play of the chart you are, or behind it.
 
 options-receptor-snap = Receptor snap
@@ -607,7 +625,8 @@ options-lyrics = Lyrics
 options-lyrics-description = Shows the lyrics of songs that have them (Dancing☆Onigiri works, songs with a lyrics file).
 
 options-bg-brightness = Background brightness
-options-bg-brightness-description = How bright songs' backgrounds are behind the field; off shows none.
+options-bg-brightness-description = How bright songs' backgrounds are behind the arrows; off shows none.
+    .advanced = How bright songs' backgrounds are behind the field; off shows none.
 
 options-video = Background videos
 options-video-auto = Automatic
@@ -644,8 +663,10 @@ options-background-frame-screen = Whole screen
 options-background-frame-description = Backgrounds and videos fill this shape, as on the screen they were made for (automatic: the song's video, else its background); the rest shows a blur of them.
 
 # Darkens the background behind the lanes.
-options-field-filter = Field filter
-options-field-filter-description = Dims the song's background behind the lanes.
+options-field-filter = Darken behind the arrows
+    .advanced = Field filter
+options-field-filter-description = Dims the song's background behind the arrows, so they stand out.
+    .advanced = Dims the song's background behind the lanes.
 
 options-reduced-motion = Reduced motion
 
@@ -722,9 +743,13 @@ options-noteskin-lua-off = { $skin } (its Lua is off)
 # Variables:
 #   $platform (String) - web or desktop
 options-noteskin-description = { $platform ->
-    [web] Infinito: the game's own arrows, its options below. Or a bundled or an imported noteskin.
-   *[desktop] Infinito: the game's own arrows, its options below. Or a bundled noteskin, or one from the song folders.
+    [web] How the arrows look: Infinito, the game's own, another that comes with the game, or one you imported.
+   *[desktop] How the arrows look: Infinito, the game's own, another that comes with the game, or one in your song folders.
 }
+    .advanced = { $platform ->
+        [web] Infinito: the game's own arrows, its options below. Or a bundled or an imported noteskin.
+       *[desktop] Infinito: the game's own arrows, its options below. Or a bundled noteskin, or one from the song folders.
+    }
 
 # The web: the imported noteskin chosen, to remove.
 options-noteskin-remove = This noteskin

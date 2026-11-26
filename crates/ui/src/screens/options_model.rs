@@ -507,6 +507,12 @@ impl OptionsModel {
     /// Show), and a section with neither left out. Hidden rows keep their
     /// effect.
     pub fn data_at(&self, level: Level) -> OptionsData {
+        // Worded at the level shown: each message's plain wording at
+        // Basic, its Advanced one at Advanced (stage 2).
+        ddi_l10n::at_level(level == Level::Advanced, || self.data_worded(level))
+    }
+
+    fn data_worded(&self, level: Level) -> OptionsData {
         let s = &self.settings;
         let shown = self.preview_layout.as_deref().unwrap_or(&s.style);
         let layouts = self.bind_layouts();

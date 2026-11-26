@@ -136,7 +136,8 @@ room-rules-level = レベル
 room-rules-points = ポイント
 
 room-rules-difficulty = タイミング難易度
-room-rules-boos = Boo
+room-rules-boos = 空打ち
+    .advanced = Boo
 room-rules-attacks = 攻撃
 
 room-rules-at-once = 同時攻撃数
@@ -242,9 +243,13 @@ room-rules-change-timing = { $difficulty ->
    *[normal] ノーマルタイミング
 }
 room-rules-change-boos = { $boos ->
-    [on] Booあり
-   *[off] Booなし
+    [on] 空打ちあり
+   *[off] 空打ちなし
 }
+    .advanced = { $boos ->
+        [on] Booあり
+       *[off] Booなし
+    }
 room-rules-change-attacks = { $attacks ->
     [on] 攻撃あり
    *[off] 攻撃なし
@@ -370,7 +375,7 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [hard] {" "}· ハードタイミング
    *[normal] {""}
 }{ $boos ->
-    [on] {" "}· Booあり
+    [on] {" "}· 空打ちあり
    *[off] {""}
 }{ $attacks ->
     [off] {" "}· 攻撃なし
@@ -409,6 +414,50 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [not_in_a_match] {" "}· 対戦中の繰り返し不可
    *[allowed] {""}
 }
+    .advanced = { $ruleset }{ $difficulty ->
+        [easy] {" "}· イージータイミング
+        [hard] {" "}· ハードタイミング
+       *[normal] {""}
+    }{ $boos ->
+        [on] {" "}· Booあり
+       *[off] {""}
+    }{ $attacks ->
+        [off] {" "}· 攻撃なし
+       *[on] {""}
+    }{ $points ->
+        [medium] {" "}· ポイント中くらい
+        [mild] {" "}· ポイント弱め
+       *[strong] {""}
+    }{ $charts ->
+        [as_picked] {" "}· 選んだ譜面のまま
+       *[adaptive] {""}
+    }{ $life_out ->
+        [out] {" "}· ライフ切れでアウト
+       *[play_on] {""}
+    }{ $at_once ->
+        [one] {" "}· 同時攻撃 1
+        [two] {" "}· 同時攻撃 2
+        [no_limit] {" "}· 同時攻撃 制限なし
+       *[three] {""}
+    }{ $shocks ->
+        [two] {" "}· 攻撃ごとのショック 2
+        [six] {" "}· 攻撃ごとのショック 6
+        [eight] {" "}· 攻撃ごとのショック 8
+       *[four] {""}
+    }{ $stages ->
+        [open] {" "}· ステージ数オープン
+       *[counted] {""}
+    }{ $joining ->
+        [off] {" "}· 対戦途中の参加なし
+       *[on] {""}
+    }{ $choice ->
+        [group] {" "}· グループで曲を決める
+       *[host] {""}
+    }{ $repeats ->
+        [not_in_a_row] {" "}· 連続の繰り返し不可
+        [not_in_a_match] {" "}· 対戦中の繰り返し不可
+       *[allowed] {""}
+    }
 
 room-mark-survived = ステージ{ $number }：{ $field }人中{ $place }位 · +{ $points }pt
 

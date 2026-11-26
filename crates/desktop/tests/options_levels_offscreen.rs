@@ -3,7 +3,7 @@
 //! machine's GPU as the desktop window draws it, in English and Japanese
 //! (a phone's layout is the web's): Basic (Show advanced options Off)
 //! shows fewer rows and a section's count of its advanced options changed
-//! at its end (Notes, with no Basic row, only that), and the switch under
+//! at its end (Notes: its plain assists, then that count; stage 2), and the switch under
 //! MENUS. Skipped where there is no GPU adapter (CI).
 //! `DDI_OFFSCREEN_PPM=<dir>` keeps the pictures
 //! (`options-<level>-<lang>-<w>x<h>-<section>.png`).

@@ -125,11 +125,13 @@ fn a_test_from_the_menu_to_its_result_and_the_next() {
     );
     let visual = Settings::load().visual_offset;
     assert!((visual - 0.030).abs() < 0.004, "{visual}");
+    // Said in a new player's plain words (Basic, `docs/plans/ui-levels.md`,
+    // stage 2; at Advanced "the visual offset").
     let lines = ddi_ui::screens::calibration::last_runs();
     assert!(
         lines
             .iter()
-            .any(|l| l.starts_with("The arrows-only test set the visual offset to +3")),
+            .any(|l| l.starts_with("The arrows-only test set the picture's delay to +3")),
         "{lines:?}"
     );
     host.poll(&mut ui, &env, Some(dev()), 48_000);

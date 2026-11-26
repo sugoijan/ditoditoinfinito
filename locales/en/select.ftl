@@ -192,23 +192,36 @@ select-chart-song-meter = Song { $meter }
 # seven skills of the chart's MSD, each spoke's short label (a word or
 # two, under 11 letters), and the list of numbers shown while the pointer
 # is on it ("Stream 24.1", one a line, under the overall).
-select-radar-stream = Stream
-select-radar-jumpstream = Jumps
-select-radar-handstream = Hands
+select-radar-stream = Runs
+    .advanced = Stream
+select-radar-jumpstream = Pairs
+    .advanced = Jumps
+select-radar-handstream = Threes
+    .advanced = Hands
 select-radar-stamina = Stamina
-select-radar-jackspeed = Jacks
-select-radar-chordjack = Chordjacks
-select-radar-technical = Tech
-select-radar-stream-full = Stream
-select-radar-jumpstream-full = Jumpstream
-select-radar-handstream-full = Handstream
+select-radar-jackspeed = Repeats
+    .advanced = Jacks
+select-radar-chordjack = Chord repeats
+    .advanced = Chordjacks
+select-radar-technical = Tricky
+    .advanced = Tech
+select-radar-stream-full = Runs of notes
+    .advanced = Stream
+select-radar-jumpstream-full = Runs with pairs
+    .advanced = Jumpstream
+select-radar-handstream-full = Runs with threes
+    .advanced = Handstream
 select-radar-stamina-full = Stamina
-select-radar-jackspeed-full = Jack speed
-select-radar-chordjack-full = Chordjack
-select-radar-technical-full = Technical
+select-radar-jackspeed-full = Repeated notes
+    .advanced = Jack speed
+select-radar-chordjack-full = Repeated chords
+    .advanced = Chordjack
+select-radar-technical-full = Tricky patterns
+    .advanced = Technical
 # The radar's caption in its upper left corner, before the chart's
 # overall MSD number ("MSD 24.3").
-select-radar-overall = MSD
+select-radar-overall = Overall
+    .advanced = MSD
 # In the skill radar's place on song select (Options → Display → Skill
 # radar On), one quiet line where the chosen chart has no radar: its
 # rating is being made in the background (it then shows by itself).
@@ -225,7 +238,8 @@ select-radar-evasion = Evasion
 select-radar-evasion-full = Evasion
 # Its caption's word, before the chart's estimate ("DDI 14.3"; DDI is the
 # game's ruleset's name: keep it).
-select-radar-estimate-overall = DDI
+select-radar-estimate-overall = Overall
+    .advanced = DDI
 # A line beside the radar, under the chart's lines: each spoke's number
 # is the skill's level on the chart's difficulty scale, compared with
 # charts about as hard (as demanding as usual: the chart's own rating;
@@ -248,14 +262,20 @@ select-radar-estimate-none = No estimate for this chart
 # five spokes, the chart's values as StepMania computes its radar values
 # (how dense its notes are on the whole, at its densest, its jumps, its
 # holds, its notes off the beat's eighths). Short, a word each.
-select-radar-groove-stream = Stream
-select-radar-groove-voltage = Voltage
-select-radar-groove-air = Air
-select-radar-groove-freeze = Freeze
-select-radar-groove-chaos = Chaos
+select-radar-groove-stream = Density
+    .advanced = Stream
+select-radar-groove-voltage = Peak
+    .advanced = Voltage
+select-radar-groove-air = Pairs
+    .advanced = Air
+select-radar-groove-freeze = Long notes
+    .advanced = Freeze
+select-radar-groove-chaos = Off-beat
+    .advanced = Chaos
 # Its caption's word, before the chart's own number from the song
 # ("Song 9", as the chart's line says it).
-select-radar-groove-overall = Song
+select-radar-groove-overall = Overall
+    .advanced = Song
 
 # A chart version the game makes from another (Options → Notes →
 # Simplify and Convert), marked before its notes in the ladder and after

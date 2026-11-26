@@ -2,6 +2,12 @@
 //! [`PageDoc`]: what the three tests do and a button to start each (the
 //! run itself is the play route's, `#/calibrate/run?mode=…`), the default
 //! offsets and every device's, and resetting them.
+//!
+//! At the Basic level (`docs/plans/ui-levels.md`, stage 2: Show advanced
+//! options Off, `ddi_l10n::advanced`) its words are plain ("delays", no
+//! confidence or audio path), this device's delays are one sentence in
+//! place of the defaults and every device's list, and where it sends the
+//! player to rows Basic hides it says how to show them.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -120,25 +126,50 @@ pub fn doc(settings: &Settings, max_ms: f64, last: &[String]) -> PageDoc {
             primary: false,
         },
         Block::Heading(pm::calibration_offsets().into()),
-        Block::Text(pm::calibration_defaults(ms(s.audio_offset), ms(s.visual_offset)).into()),
     ]);
-    if s.audio_profiles.is_empty() && s.display_profiles.is_empty() {
-        b.push(Block::Muted(pm::calibration_no_device().into()));
+    if ddi_l10n::advanced() {
+        b.push(Block::Text(
+            pm::calibration_defaults(ms(s.audio_offset), ms(s.visual_offset)).into(),
+        ));
+        if s.audio_profiles.is_empty() && s.display_profiles.is_empty() {
+            b.push(Block::Muted(pm::calibration_no_device().into()));
+        } else {
+            b.push(Block::Muted(pm::calibration_per_device().into()));
+            let yes_no = |calibrated: bool| if calibrated { "yes" } else { "no" };
+            for p in &s.audio_profiles {
+                b.push(Block::Text(
+                    pm::calibration_audio_device(device_name(p), ms(p.offset), yes_no(p.calibrated))
+                        .into(),
+                ));
+            }
+            for p in &s.display_profiles {
+                b.push(Block::Text(
+                    pm::calibration_display_device(
+                        device_name(p),
+                        ms(p.offset),
+                        yes_no(p.calibrated),
+                    )
+                    .into(),
+                ));
+            }
+        }
     } else {
-        b.push(Block::Muted(pm::calibration_per_device().into()));
-        let yes_no = |calibrated: bool| if calibrated { "yes" } else { "no" };
-        for p in &s.audio_profiles {
-            b.push(Block::Text(
-                pm::calibration_audio_device(device_name(p), ms(p.offset), yes_no(p.calibrated))
-                    .into(),
-            ));
-        }
-        for p in &s.display_profiles {
-            b.push(Block::Text(
-                pm::calibration_display_device(device_name(p), ms(p.offset), yes_no(p.calibrated))
-                    .into(),
-            ));
-        }
+        // Basic (`docs/plans/ui-levels.md`, stage 2): this device's
+        // delays in a sentence (the sound output and the display seen
+        // last, else the defaults); the defaults and every device's list
+        // are the Advanced level's, as their rows in Options are.
+        let latest = |list: &[crate::state::settings::OffsetProfile], default: f64| {
+            list.iter()
+                .max_by(|a, b| a.last_seen.total_cmp(&b.last_seen))
+                .map_or(default, |p| p.offset)
+        };
+        b.push(Block::Text(
+            pm::calibration_this_device(
+                ms(latest(&s.audio_profiles, s.audio_offset)),
+                ms(latest(&s.display_profiles, s.visual_offset)),
+            )
+            .into(),
+        ));
     }
     b.push(Block::Button {
         id: "reset".into(),
@@ -263,6 +294,27 @@ mod tests {
                 .iter()
                 .any(|t| t == "Audio: Headphones — -20 ms (calibrated)"),
             "{texts:?}"
+        );
+        // Basic: this device's delays in a sentence, no list; the words
+        // plain (stage 2).
+        let basic = ddi_l10n::at_level(false, || doc(&s, 250.0, &[]));
+        let texts: Vec<String> = basic
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                Block::Text(t) | Block::Muted(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            texts.contains(&"This device: sound -20 ms, picture +0 ms.".to_string()),
+            "{texts:?}"
+        );
+        assert!(texts.iter().all(|t| !t.contains("Headphones")), "{texts:?}");
+        assert!(texts.iter().all(|t| !t.contains("offset")), "{texts:?}");
+        assert!(
+            texts.iter().any(|t| t.contains("Show advanced options")),
+            "the hidden rows are said where they are: {texts:?}"
         );
         assert_eq!(button("run:audio"), CalAct::Run("audio".into()));
         assert_eq!(button("run:nope"), CalAct::Nothing);

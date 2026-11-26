@@ -2972,6 +2972,29 @@ fn every_text_shown_is_a_message_or_data() {
     );
 }
 
+/// The same walk with each message in its plain wording (the Basic
+/// level, Show advanced options Off; `docs/plans/ui-levels.md`, stage
+/// 2): song select's radar, the results, calibration's page and the rest
+/// shown as a new player sees them.
+#[test]
+fn every_text_shown_at_basic_is_a_message_or_data() {
+    storage::install(Rc::new(MemoryStore::default()));
+    assert!(ddi_l10n::set_language("qps-ploc"));
+    ddi_l10n::set_advanced(false);
+    let found = walk();
+    ddi_l10n::set_language("en");
+    ddi_l10n::set_advanced(true);
+    assert!(
+        found.is_empty(),
+        "shown at Basic as written in code, not through a message:\n  {}",
+        found
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
+}
+
 #[test]
 fn moved_screens_show_no_text_written_in_code() {
     storage::install(Rc::new(MemoryStore::default()));

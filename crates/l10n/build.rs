@@ -13,9 +13,16 @@
 //! select-songs-match = { $count -> … }
 //! ```
 //!
+//! A message may carry one attribute, `.advanced`: its wording at the
+//! Advanced level (`docs/plans/ui-levels.md`, stage 2; Show advanced
+//! options On), the genre's terms, while the message's value is the plain
+//! wording the Basic level shows. Its function returns whichever the
+//! level asks for (`ddi_l10n::set_advanced`); no call site knows.
+//!
 //! An English message that does not parse, is not named for its file,
-//! uses a variable its comment does not declare (or declares one it does
-//! not use) fails the build. The other languages are checked by
+//! uses a variable its comment does not declare (or declares one neither
+//! wording uses), or has an attribute other than `.advanced`, fails the
+//! build. The other languages are checked by
 //! `cargo run -p xtask -- l10n check`, not here: a missing translation
 //! falls back to English at run time.
 
@@ -233,6 +240,9 @@ fn write_face_chars(out: &mut String, languages: &Languages, locales: &Path) {
                             if let Some(v) = &m.value {
                                 found.pattern(v);
                             }
+                            for a in &m.attributes {
+                                found.pattern(&a.value);
+                            }
                         }
                         ast::Entry::Term(t) => found.pattern(&t.value),
                         _ => {}
@@ -290,7 +300,12 @@ struct Msg {
     variables: Vec<(String, Kind)>,
     doc: Vec<String>,
     english: String,
+    /// It has an `.advanced` wording.
+    advanced: bool,
 }
+
+/// The one attribute a message may have: its wording at the Advanced level.
+const ADVANCED: &str = "advanced";
 
 fn english(area: &str, text: &str, problems: &mut Vec<String>) -> Vec<Msg> {
     let at = |offset: usize| text[..offset.min(text.len())].lines().count().max(1);
@@ -335,13 +350,21 @@ fn english(area: &str, text: &str, problems: &mut Vec<String>) -> Vec<Msg> {
             problems.push(format!("{file}: {id} has no value"));
             continue;
         };
-        if !m.attributes.is_empty() {
-            problems.push(format!(
-                "{file}: {id} has attributes, which the generated functions do not take yet"
-            ));
+        for a in &m.attributes {
+            if a.id.name != ADVANCED {
+                problems.push(format!(
+                    "{file}: {id} has the attribute .{}; the only one is .{ADVANCED}, \
+                     its wording at the Advanced level (locales/README.md)",
+                    a.id.name
+                ));
+            }
         }
+        let advanced = m.attributes.iter().any(|a| a.id.name == ADVANCED);
         let mut found = Found::default();
         found.pattern(value);
+        for a in &m.attributes {
+            found.pattern(&a.value);
+        }
         let used = found.variables;
         for r in found.messages {
             problems.push(format!(
@@ -382,6 +405,7 @@ fn english(area: &str, text: &str, problems: &mut Vec<String>) -> Vec<Msg> {
             variables: declared,
             doc,
             english: english.trim_end().to_string(),
+            advanced,
         });
     }
     messages
@@ -501,6 +525,16 @@ fn write_messages(out: &mut String, areas: &BTreeMap<String, Vec<Msg>>) {
                 })
                 .collect();
             let _ = writeln!(out, "    ({:?}, &[{}]),", m.id, vars.join(", "));
+        }
+    }
+    out.push_str("];\n\n");
+    out.push_str(
+        "/// The English messages with an `.advanced` wording, for the checks of the two levels.\n",
+    );
+    out.push_str("pub static ADVANCED_WORDED: &[&str] = &[\n");
+    for messages in areas.values() {
+        for m in messages.iter().filter(|m| m.advanced) {
+            let _ = writeln!(out, "    {:?},", m.id);
         }
     }
     out.push_str("];\n");

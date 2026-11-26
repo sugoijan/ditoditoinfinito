@@ -172,11 +172,12 @@ impl ChartEntry {
     }
 
     /// Its meter as its row shows it: MSD to a tenth, the estimate's
-    /// level, where shown.
+    /// level, where shown; at the Basic level (`docs/plans/ui-levels.md`,
+    /// stage 2) as [`Self::meter_text`], MSD whole.
     pub fn meter_text_fine(&self) -> String {
         match self.shown_rating() {
-            Some(r) => r.fine(),
-            None => self.meter_text(),
+            Some(r) if ddi_l10n::advanced() => r.fine(),
+            _ => self.meter_text(),
         }
     }
 

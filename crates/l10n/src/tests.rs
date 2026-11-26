@@ -24,7 +24,7 @@ fn every_message_formats_in_every_language() {
                 .find(|l| bundle(l).has_message(id))
                 .unwrap_or_else(|| panic!("{id} is in no bundle for {}", language.tag));
             let b = bundle(l);
-            let pattern = b.get_message(id).and_then(|m| m.value()).unwrap();
+            let message = b.get_message(id).unwrap();
             let mut fluent = FluentArgs::new();
             for (name, value) in &args {
                 match value {
@@ -32,24 +32,100 @@ fn every_message_formats_in_every_language() {
                     Arg::Str(s) => fluent.set(*name, *s),
                 }
             }
-            let mut errors = Vec::new();
-            let text = b.format_pattern(pattern, Some(&fluent), &mut errors);
-            assert!(errors.is_empty(), "{id} in {}: {errors:?}", language.tag);
-            assert!(!text.trim().is_empty(), "{id} in {} is empty", language.tag);
-            for (name, kind) in *variables {
-                // One only selected on (`$platform`, the shells' wording,
-                // `locales/README.md`; an editor's view) is never written.
-                if *kind == ArgKind::String && writes(pattern, name) {
-                    assert!(
-                        text.contains("⟨value⟩"),
-                        "{id} in {} leaves out ${name}: {text}",
-                        language.tag
-                    );
+            // Both wordings where it has two (each writes what it is given
+            // where it writes it: a wording may leave a variable out).
+            let wordings = std::iter::once(message.value().unwrap())
+                .chain(message.attributes().map(|a| a.value()));
+            for pattern in wordings {
+                let mut errors = Vec::new();
+                let text = b.format_pattern(pattern, Some(&fluent), &mut errors);
+                assert!(errors.is_empty(), "{id} in {}: {errors:?}", language.tag);
+                assert!(!text.trim().is_empty(), "{id} in {} is empty", language.tag);
+                for (name, kind) in *variables {
+                    // One only selected on (`$platform`, the shells' wording,
+                    // `locales/README.md`; an editor's view) is never written.
+                    if *kind == ArgKind::String && writes(pattern, name) {
+                        assert!(
+                            text.contains("⟨value⟩"),
+                            "{id} in {} leaves out ${name}: {text}",
+                            language.tag
+                        );
+                    }
                 }
             }
         }
     }
     set_language("en");
+}
+
+/// A message with two wordings gives the plain one at Basic and its
+/// `.advanced` one at Advanced; one with a single wording gives it at
+/// both; the level is Advanced until set, and `at_level` puts it back.
+#[test]
+fn the_level_chooses_a_message_s_wording() {
+    set_language("en");
+    assert!(advanced(), "Advanced until the settings say");
+    assert!(!ADVANCED_WORDED.is_empty());
+    let en = bundle(&LANGUAGES[0]);
+    for id in ADVANCED_WORDED {
+        let message = en.get_message(id).unwrap();
+        assert_eq!(message.attributes().count(), 1, "{id}");
+        assert!(message.get_attribute("advanced").is_some(), "{id}");
+        if MESSAGES.iter().any(|(m, vars)| m == id && vars.is_empty()) {
+            let mut errors = Vec::new();
+            let attribute = en.format_pattern(
+                message.get_attribute("advanced").unwrap().value(),
+                None,
+                &mut errors,
+            );
+            let value = en.format_pattern(message.value().unwrap(), None, &mut errors);
+            assert_eq!(&*at_level(true, || format(id, &[])), &*attribute, "{id}");
+            assert_eq!(&*at_level(false, || format(id, &[])), &*value, "{id}");
+            assert_ne!(attribute, value, "{id}: the two wordings differ in English");
+        }
+    }
+    // One with variables, both ways.
+    let id = "options-reverse-description";
+    assert!(ADVANCED_WORDED.contains(&id));
+    let advanced_words = format(id, &[]);
+    set_advanced(false);
+    let plain = format(id, &[]);
+    assert_ne!(plain, advanced_words);
+    assert_eq!(&*plain, "Arrows move down to the targets at the bottom.");
+    assert_eq!(&*advanced_words, "Arrows scroll down to receptors at the bottom.");
+    assert_eq!(&*at_level(true, || format(id, &[])), &*advanced_words);
+    assert!(!advanced(), "at_level puts the level back");
+    // A message with one wording reads the same at both.
+    let one = "start-quit";
+    assert!(!ADVANCED_WORDED.contains(&one));
+    assert_eq!(format(one, &[]), at_level(true, || format(one, &[])));
+    // In every language, and through the pseudo-languages.
+    for language in all() {
+        set_language(language.tag);
+        for id in ADVANCED_WORDED {
+            let args: Vec<(&str, Arg)> = MESSAGES
+                .iter()
+                .find(|(m, _)| m == id)
+                .unwrap()
+                .1
+                .iter()
+                .map(|(name, kind)| {
+                    (
+                        *name,
+                        match kind {
+                            ArgKind::Number => Arg::Number(3.0),
+                            ArgKind::String => Arg::Str("x"),
+                        },
+                    )
+                })
+                .collect();
+            let basic = at_level(false, || format(id, &args));
+            let adv = at_level(true, || format(id, &args));
+            assert!(!basic.trim().is_empty() && !adv.trim().is_empty(), "{id}");
+        }
+    }
+    set_language("en");
+    set_advanced(true);
 }
 
 /// Whether `pattern` writes variable `name` out (as a placeable, in any

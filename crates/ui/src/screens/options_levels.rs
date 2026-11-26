@@ -17,6 +17,12 @@
 //! quietly make their game worse with it; the table of why for each row
 //! is in the plan's section 9. Change a row's level here and nowhere
 //! else.
+//!
+//! Stage 2 brought six rows back to Basic under plain words (each
+//! message's value; its `.advanced` the genre's words, Show advanced
+//! options On): Fewer notes, Notes together and No long notes (Notes),
+//! Clap on each note (Sound), Compare with your best and Darken behind
+//! the arrows (Display); the plan's section 10.
 
 use crate::state::settings::Level::{self, Advanced, Basic};
 use crate::state::settings::{INFINITO, Settings};
@@ -41,12 +47,12 @@ pub const LEVELS: &[(&str, Level)] = &[
     ("lane_cover", Advanced),
     ("cover_sudden", Advanced),
     ("cover_hidden", Advanced),
-    ("cut", Advanced),
+    ("cut", Basic),
     ("simplify_onigiri", Advanced),
     ("simplify_center", Advanced),
-    ("at_once", Advanced),
+    ("at_once", Basic),
     ("no_stretch", Advanced),
-    ("no_holds", Advanced),
+    ("no_holds", Basic),
     ("convert_pump_single", Advanced),
     ("convert_five_keys", Advanced),
     // Rules.
@@ -78,7 +84,7 @@ pub const LEVELS: &[(&str, Level)] = &[
     // Sound.
     ("volume", Basic),
     ("sample", Basic),
-    ("assist_clap", Advanced),
+    ("assist_clap", Basic),
     ("mine_sound", Advanced),
     ("announcer", Basic),
     ("announcer.language", Basic),
@@ -101,7 +107,7 @@ pub const LEVELS: &[(&str, Level)] = &[
     ("hand_layout", Advanced),
     ("hand_frame_width", Advanced),
     ("hand_frame_height", Advanced),
-    ("ghost", Advanced),
+    ("ghost", Basic),
     ("receptor_snap", Advanced),
     ("lyrics", Basic),
     ("bg_brightness", Basic),
@@ -111,7 +117,7 @@ pub const LEVELS: &[(&str, Level)] = &[
     ("generated_over_pictures", Advanced),
     ("generated_palette", Advanced),
     ("background_frame", Advanced),
-    ("field_filter", Advanced),
+    ("field_filter", Basic),
     (SHOW_ADVANCED, Basic),
     ("language", Basic),
     ("reduced_motion", Basic),
@@ -402,8 +408,15 @@ mod tests {
         assert!(!m.settings.fast_pad_poll, "another section's kept");
         assert_eq!(m.notice, "2 settings back to their defaults.");
         assert_eq!(m.settings.level, Basic);
-        // Notes has no Basic row: with nothing changed it is left out.
-        assert!(section(&m.data(), "Notes").is_none());
+        // Notes at Basic: its plain assists alone (stage 2), with
+        // nothing changed no count.
+        let notes: Vec<String> = section(&m.data(), "Notes")
+            .unwrap()
+            .options
+            .iter()
+            .map(|o| o.id.clone())
+            .collect();
+        assert_eq!(notes, ["cut", "at_once", "no_holds"]);
         let stored: Settings = storage::load(Area::Local, crate::state::settings::KEY).unwrap();
         assert_eq!(stored.transform.turn, ddi_engine::Turn::Off);
     }
@@ -505,7 +518,7 @@ mod tests {
             last_seen: 0.0,
         });
         assert!(!advanced_in_effect(&basic_only), "calibration is Basic's");
-        let changed: [fn(&mut Settings); 23] = [
+        let changed: [fn(&mut Settings); 17] = [
             |s| s.transform.turn = ddi_engine::Turn::Mirror,
             |s| s.ruleset = "itg".into(),
             |s| s.audio_offset = 0.01,
@@ -515,11 +528,8 @@ mod tests {
             |s| {
                 s.set_announcer_param("techno", "Mood", Some(ParamValue::Text("Calm".into())), None)
             },
-            // The rows Basic left on 2026-11-26 (the maintainer's lean).
-            |s| s.transform.cut = ddi_engine::TimingCut::Quarters,
-            |s| s.transform.at_once = ddi_engine::AtOnce::Two,
-            |s| s.transform.no_holds = true,
-            |s| s.assist_clap = true,
+            // The rows Basic left on 2026-11-26 (the maintainer's lean)
+            // and stage 2 did not bring back.
             |s| s.mine_sound = false,
             |s| s.field_place = ddi_engine::FieldPlace::Left,
             |s| s.opponent_fields = crate::state::settings::OpponentFields::UpToEight,
@@ -528,11 +538,9 @@ mod tests {
                 s.chat_names = true;
             },
             |s| s.dancing_hand_multiplayer = true,
-            |s| s.ghost = true,
             |s| s.video = crate::state::settings::VideoMode::Off,
             |s| s.generated_background = crate::state::settings::GeneratedBackground::Off,
             |s| s.generated_palette = crate::state::settings::Palette::Mono,
-            |s| s.field_filter = 0.0,
             |s| s.set_infinito_param("Colors", ParamValue::Text("Rainbow".into())),
             |s| s.set_infinito_param("Explosions", ParamValue::Bool(false)),
         ];
@@ -541,19 +549,43 @@ mod tests {
             change(&mut s);
             assert!(advanced_in_effect(&s), "change {i}");
         }
+        // The rows stage 2 brought back to Basic under plain words no
+        // longer count (`docs/plans/ui-levels.md`, section 10).
+        let back: [fn(&mut Settings); 6] = [
+            |s| s.transform.cut = ddi_engine::TimingCut::Quarters,
+            |s| s.transform.at_once = ddi_engine::AtOnce::Two,
+            |s| s.transform.no_holds = true,
+            |s| s.assist_clap = true,
+            |s| s.ghost = true,
+            |s| s.field_filter = 0.0,
+        ];
+        for (i, change) in back.into_iter().enumerate() {
+            let mut s = Settings::default();
+            change(&mut s);
+            assert!(!advanced_in_effect(&s), "brought back {i}");
+        }
         // As stored: no mark, decided at load and kept.
         for (blob, level) in [
             (r#"{"speed": 3.0}"#, Basic),
             (r#"{"transform": {"turn": "Mirror"}}"#, Advanced),
             (r#"{"show_deltas": true}"#, Advanced),
-            // Rows Basic left on 2026-11-26.
-            (r#"{"assist_clap": true}"#, Advanced),
-            (r#"{"transform": {"no_holds": true}}"#, Advanced),
-            (r#"{"ghost": true, "speed": 3.0}"#, Advanced),
+            // Rows Basic left on 2026-11-26 and kept at Advanced.
+            (r#"{"mine_sound": false}"#, Advanced),
             (r#"{"skin_params": {"bundled:dance/infinito": {"Colors": "Rainbow"}}}"#, Advanced),
             (r#"{"lyrics": false, "reverse": true}"#, Basic),
-            // A choice made after the decision stays.
+            // Rows stage 2 brought back: Basic where not yet placed.
+            (r#"{"assist_clap": true}"#, Basic),
+            (r#"{"transform": {"no_holds": true}}"#, Basic),
+            (r#"{"ghost": true, "speed": 3.0}"#, Basic),
+            // A choice made after the decision stays, and those placed
+            // before stage 2 for a row it brought back stay where they
+            // were placed: nobody moves.
             (r#"{"show_deltas": true, "level": "Basic", "level_decided": true}"#, Basic),
+            (r#"{"assist_clap": true, "level": "Advanced", "level_decided": true}"#, Advanced),
+            (
+                r#"{"transform": {"cut": "Quarters"}, "level": "Advanced", "level_decided": true}"#,
+                Advanced,
+            ),
         ] {
             storage::install(Rc::new(MemoryStore::default()));
             storage::set(Area::Local, crate::state::settings::KEY, blob).unwrap();

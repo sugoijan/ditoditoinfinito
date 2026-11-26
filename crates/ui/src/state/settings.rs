@@ -1611,9 +1611,12 @@ impl Settings {
     }
 
     /// The rules chosen, apart from the rest of the settings.
-    /// Speaks the settings' language (`ddi_l10n::choose`) and shows DDI's
+    /// Speaks the settings' language (`ddi_l10n::choose`) at their level
+    /// (`ddi_l10n::set_advanced`: each message's plain wording at Basic,
+    /// its Advanced one with Show advanced options On), and shows DDI's
     /// judgment words as they choose ([`Settings::judgment_words`]).
     pub fn choose_language(&self) -> &'static ddi_l10n::Language {
+        ddi_l10n::set_advanced(self.level == Level::Advanced);
         ddi_l10n::judgments::set_words(self.judgment_words.words());
         self.show_ratings();
         ddi_l10n::choose(self.language.as_deref())

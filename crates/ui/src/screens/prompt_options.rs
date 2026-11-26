@@ -217,6 +217,12 @@ impl PlayOptions {
     /// player's hands. The skin's row is the pump one on a pump layout
     /// when pump skins can be chosen (and it shows).
     pub fn rows(&self) -> Vec<OptionDef> {
+        // Worded at the level shown, as Options' rows are.
+        let advanced = self.model.settings.level == Level::Advanced;
+        ddi_l10n::at_level(advanced, || self.rows_worded())
+    }
+
+    fn rows_worded(&self) -> Vec<OptionDef> {
         let all: Vec<OptionDef> = self.model.prompt_rows().collect();
         let basic = self.model.settings.level == Level::Basic;
         let stored: Vec<OptionDef> = if basic {

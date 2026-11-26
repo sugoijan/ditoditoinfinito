@@ -1711,6 +1711,28 @@ impl SelectScreen {
             }
             _ => None,
         };
+        // At the Basic level (`docs/plans/ui-levels.md`, stage 2) the
+        // shape and plain names without the spokes' numbers; the caption
+        // keeps the chart's number, whole as its row shows it.
+        let shape = shape.map(|(mut numbers, to, overall)| {
+            if !ddi_l10n::advanced() {
+                let numeric = |k: usize| {
+                    profile.is_none_or(|p| matches!(p.get(k), Some(ProfileSpoke::Numeric(_))))
+                };
+                for (k, n) in numbers.iter_mut().enumerate().skip(1) {
+                    if numeric(k - 1) {
+                        n.clear();
+                    }
+                }
+                let (charts, pick) = self.charts();
+                if let Some(c) = pick.and_then(|p| charts.get(p))
+                    && c.shown_rating().is_some()
+                {
+                    numbers[0] = c.meter_text_fine();
+                }
+            }
+            (numbers, to, overall)
+        });
         let radar = match (standing, shape) {
             (_, Some((numbers, to, overall))) => {
                 let current = self.radar_shape_now().filter(|c| c.len() == to.len());

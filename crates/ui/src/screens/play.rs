@@ -212,6 +212,46 @@ pub fn panel_sets() -> Vec<PanelSet> {
     ]
 }
 
+/// The panel sets as the level shows them: every panel at Advanced; at
+/// Basic (`docs/plans/ui-levels.md`, stage 2) the timing's histogram and
+/// the life alone, the offsets over the song, by beat and by lane being
+/// the Advanced level's.
+pub fn panel_sets_shown() -> Vec<PanelSet> {
+    let mut sets = panel_sets();
+    if !ddi_l10n::advanced() {
+        for set in &mut sets {
+            set.panels
+                .retain(|p| matches!(p, PanelKind::Timing | PanelKind::Life));
+        }
+    }
+    sets
+}
+
+/// The song's timing editor at the results: always at Advanced; at Basic
+/// (`docs/plans/ui-levels.md`, stage 2, the plan's open question 7) only
+/// where the song has an offset already or this play suggests one 15 ms
+/// or more away from it.
+fn offset_shown(o: &SongOffset) -> bool {
+    ddi_l10n::advanced()
+        || o.current != 0.0
+        || o.suggested.is_some_and(|s| (s - o.current).abs() >= 0.015)
+}
+
+/// The results' average timing at the Basic level: how early or late, in
+/// words ("2.1 ms early"; on time where it rounds to 0.0).
+fn average_timing(mean: f64) -> String {
+    let ms = (mean * 1000.0).abs();
+    let text = format!("{ms:.1}");
+    let when = if text == "0.0" {
+        "on_time"
+    } else if mean < 0.0 {
+        "early"
+    } else {
+        "late"
+    };
+    rm::average_timing(when, text).into()
+}
+
 /// The options a play was played with, as the start prompt says them
 /// ("×2 · reverse · mirror"; a constant speed "C400").
 pub fn options_line(o: &ddi_engine::player::PlayOptions) -> String {
@@ -417,13 +457,19 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
     ));
     stats.push((
         rm::mean_offset().into(),
-        // A readout: the same in every language.
-        UiText::data(format!(
-            "{} ms (σ {:.1})",
-            super::results::signed(r.mean_delta * 1000.0, 1),
-            r.stddev_delta * 1000.0
-        ))
-        .into(),
+        if ddi_l10n::advanced() {
+            // A readout: the same in every language.
+            UiText::data(format!(
+                "{} ms (σ {:.1})",
+                super::results::signed(r.mean_delta * 1000.0, 1),
+                r.stddev_delta * 1000.0
+            ))
+            .into()
+        } else {
+            // Basic (`docs/plans/ui-levels.md`, stage 2): early or late
+            // in words, no spread.
+            average_timing(r.mean_delta)
+        },
     ));
     let hits = r
         .timeline
@@ -482,7 +528,7 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         Some((r.lane_map.as_slice(), p.layout)),
     ));
     mods.extend(ruleset_summary(&p.ruleset.key()));
-    let panel_sets = panel_sets();
+    let panel_sets = panel_sets_shown();
     // The main set, whatever the setting says: the others wait for a
     // picker (the tabs went; `Settings::results_panels` stays for it).
     let panel_set = 0;
@@ -532,11 +578,14 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         life: r.life.iter().map(|l| (l[0], l[1])).collect(),
         danger: p.ruleset.gauge.danger_line(),
         lanes: lanes(p.layout),
-        offset: p.offset.map(|(played, current)| SongOffset {
-            played,
-            current,
-            suggested: suggested_offset(r, played),
-        }),
+        offset: p
+            .offset
+            .map(|(played, current)| SongOffset {
+                played,
+                current,
+                suggested: suggested_offset(r, played),
+            })
+            .filter(offset_shown),
         panel_sets,
         panel_set,
         song: p.song.clone(),
@@ -1332,6 +1381,45 @@ mod tests {
         );
         assert!(d.stats.contains(&("Stray presses".into(), "3".into())));
         assert!(d.stats.contains(&("Fast / slow".into(), "4 / 5".into())));
+    }
+
+    /// At the Basic level (Show advanced options Off; `docs/plans/
+    /// ui-levels.md`, stage 2) the results show the timing's histogram and
+    /// the life alone, the average timing in words without its spread, and
+    /// the song's timing editor only where the song has an offset or this
+    /// play suggests one 15 ms or more away; at Advanced all of it, as
+    /// before.
+    #[test]
+    fn basic_results_show_less_in_plain_words() {
+        let mut r = results([10, 0, 0, 0, 0, 0]);
+        let layout = single();
+        let itg = presets::itg();
+        let advanced = results_data(&info(&r, &itg, &layout));
+        assert_eq!(
+            advanced.panels(),
+            [PanelKind::Timing, PanelKind::Life, PanelKind::Offsets, PanelKind::Beats]
+        );
+        assert_eq!(advanced.stats.last().unwrap(), &("Mean offset".into(), "−2.1 ms (σ 9.8)".into()));
+        assert!(advanced.offset.is_some());
+        let basic = ddi_l10n::at_level(false, || results_data(&info(&r, &itg, &layout)));
+        assert_eq!(basic.panels(), [PanelKind::Timing, PanelKind::Life]);
+        assert_eq!(basic.stats.last().unwrap(), &("Average timing".into(), "2.1 ms early".into()));
+        assert!(basic.offset.is_none(), "no offset, a small suggestion");
+        // Late, on time; an offset set, a large suggestion.
+        r.mean_delta = 0.0184;
+        r.hits = 200;
+        let basic = ddi_l10n::at_level(false, || results_data(&info(&r, &itg, &layout)));
+        assert_eq!(basic.stats.last().unwrap().1, "18.4 ms late");
+        assert!(basic.offset.is_some(), "a suggestion 18 ms away");
+        r.mean_delta = 0.00004;
+        let basic = ddi_l10n::at_level(false, || results_data(&info(&r, &itg, &layout)));
+        assert_eq!(basic.stats.last().unwrap().1, "on time");
+        assert!(basic.offset.is_none());
+        let set = PlayInfo {
+            offset: Some((0.01, 0.01)),
+            ..info(&r, &itg, &layout)
+        };
+        assert!(ddi_l10n::at_level(false, || results_data(&set)).offset.is_some());
     }
 
     #[test]

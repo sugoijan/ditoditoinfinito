@@ -488,7 +488,11 @@ impl SelectScreen {
         out.push(p);
         let [x, y, w, _h] = [x0 + pad, y0 + pad, w0 - 2.0 * pad, h0 - 2.0 * pad];
         let color = format!("Difficulty.{}", c.difficulty.name());
-        let detail = c.shown_rating().map_or_else(|| c.meter_text_fine(), |r| r.detail());
+        // MSD to a tenth at Advanced; whole at Basic (stage 2).
+        let detail = c
+            .shown_rating()
+            .filter(|_| ddi_l10n::advanced())
+            .map_or_else(|| c.meter_text_fine(), |r| r.detail());
         let mut first: Vec<String> = Vec::new();
         if c.shown_rating().is_some() {
             first.push(msg::chart_song_meter(c.meter).into());

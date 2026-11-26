@@ -10,19 +10,26 @@ results-watch-replay = リプレイを見る
 
 results-activate = 決定
 
-results-more-offset-down = オフセット −1 ms
-results-more-offset-up = オフセット +1 ms
-results-more-reset-offset = オフセットをリセット
+results-more-offset-down = 曲のタイミング −1 ms
+    .advanced = オフセット −1 ms
+results-more-offset-up = 曲のタイミング +1 ms
+    .advanced = オフセット +1 ms
+results-more-reset-offset = 曲のタイミングをリセット
+    .advanced = オフセットをリセット
 
-results-more-use-mean = 平均のずれを使う
+results-more-use-mean = このプレイのタイミングに合わせる
+    .advanced = 平均のずれを使う
 
-results-song-offset = 曲のオフセット
+results-song-offset = 曲のタイミング
+    .advanced = 曲のオフセット
 
-results-offset = オフセット
+results-offset = タイミング
+    .advanced = オフセット
 
 results-offset-value = { $ms } ms
 
-results-use-mean = { $ms } msにする
+results-use-mean = このプレイに合わせる（{ $ms } ms）
+    .advanced = { $ms } msにする
 
 results-ticks = ティック 成功／ミス
 
@@ -43,7 +50,14 @@ results-ddi-accuracy = 精度
 results-ddi-next-hits = { $grade }：{ $word }以上が{ $needed }回必要（今回は{ $had }回）
 results-ddi-next-full-combo = { $grade }にはフルコンボが必要です
 
-results-mean-offset = 平均のずれ
+results-mean-offset = 平均のタイミング
+    .advanced = 平均のずれ
+
+results-average-timing = { $when ->
+    [early] { $ms } ms早い
+    [on_time] ぴったり
+   *[late] { $ms } ms遅い
+}
 
 results-flare-skill = FLARE SKILL
 
@@ -139,7 +153,8 @@ results-replay-missing-song = このプレイの曲はライブラリーにあ�
 
 results-panel-timing = タイミング
 
-results-timing-note = 平均 { $mean } ms · σ { $sd }
+results-timing-note = 平均 { $mean } ms
+    .advanced = 平均 { $mean } ms · σ { $sd }
 
 results-timing-early = −{ $ms } ms 早い
 

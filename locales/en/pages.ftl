@@ -34,22 +34,26 @@ pages-calibration-heading = CALIBRATION
 pages-calibration-last-test = Last test
 
 # The first paragraph: how a test works.
-pages-calibration-about = Each test plays a generated chart (100 BPM, three clicks and a rest, a click on every note) exactly like a song. While you play, the test measures how early or late your hits are, applies the correction on the fly and keeps measuring until the remaining error is within noise (95% confidence), then stops. Saving adds the correction to the setting.
+pages-calibration-about = Each test plays a short song of clicks. Play along: the test measures how early or late your presses are, corrects for it as you play, and stops by itself once it is sure. Saving keeps the correction.
+    .advanced = Each test plays a generated chart (100 BPM, three clicks and a rest, a click on every note) exactly like a song. While you play, the test measures how early or late your hits are, applies the correction on the fly and keeps measuring until the remaining error is within noise (95% confidence), then stops. Saving adds the correction to the setting.
 
 # The second paragraph: the order the guided calibration runs the tests
 # in. "Arrows only", "sound only" and "both" are the three tests below.
-pages-calibration-order = The two offsets are independent, so the guided order is: arrows only (display), then sound only (audio path), then a check with both that should read close to zero.
+pages-calibration-order = Start guided calibration runs all three in turn: the arrows alone (how late your screen shows them), the sound alone (how late you hear it), then both, which should come out close to right.
+    .advanced = The two offsets are independent, so the guided order is: arrows only (display), then sound only (audio path), then a check with both that should read close to zero.
 
 # Under the first paragraphs, in a lighter color.
 # Variables:
 #   $ms (Number) - the largest offset a test measures, in milliseconds (250)
-pages-calibration-range = Offsets beyond ±{ $ms } ms cannot be measured this way (a press that late cannot be told apart from one on the next note); set those by hand in the options, then calibrate from there.
+pages-calibration-range = A delay beyond ±{ $ms } ms cannot be measured this way. Set one that large by hand first: turn on Show advanced options (Options → Display), then Options → Timing.
+    .advanced = Offsets beyond ±{ $ms } ms cannot be measured this way (a press that late cannot be told apart from one on the next note); set those by hand in the options, then calibrate from there.
 
 # The first test's heading: the arrows drawn, no sound.
 pages-calibration-visual = 1. Arrows only
 
 # Under it: what the first test does.
-pages-calibration-visual-about = Muted. Hit each arrow at the receptor. Measures display lag; saves to the visual offset (only moves what is drawn).
+pages-calibration-visual-about = No sound. Press each arrow as it reaches its target. Measures how late your screen shows the arrows.
+    .advanced = Muted. Hit each arrow at the receptor. Measures display lag; saves to the visual offset (only moves what is drawn).
 
 # The large button under the first test: runs the three tests in turn,
 # starting with the first. Sized to its text.
@@ -59,7 +63,8 @@ pages-calibration-start-guided = Start guided calibration
 pages-calibration-audio = 2. Sound only
 
 # Under it: what the second test does.
-pages-calibration-audio-about = Arrows hidden; press any arrow key on each click. Measures the audio path; saves to the audio offset (the judged timeline).
+pages-calibration-audio-about = No arrows. Press any arrow key on each click. Measures how late you hear the sound.
+    .advanced = Arrows hidden; press any arrow key on each click. Measures the audio path; saves to the audio offset (the judged timeline).
 
 # A button under the second and the third test: runs that test alone.
 # Sized to its text.
@@ -69,10 +74,12 @@ pages-calibration-start = Start
 pages-calibration-combined = 3. Check: both
 
 # Under it: what the third test does.
-pages-calibration-combined-about = Play normally. Should read near zero after 1 and 2; a significant remainder can be saved as a fine-tune to the audio offset.
+pages-calibration-combined-about = Play normally. After 1 and 2 it should find little left to correct; what it finds is saved to the sound's delay.
+    .advanced = Play normally. Should read near zero after 1 and 2; a significant remainder can be saved as a fine-tune to the audio offset.
 
 # A heading over the offsets kept.
-pages-calibration-offsets = Offsets
+pages-calibration-offsets = Delays
+    .advanced = Offsets
 
 # The offsets used for a sound output or a display the game has not seen
 # before.
@@ -83,6 +90,15 @@ pages-calibration-defaults = Defaults, for devices without a profile: audio { $a
 
 # In place of the devices' list when there is none.
 pages-calibration-no-device = No device calibrated yet.
+
+# Under "Delays" while advanced options are hidden, in place of the
+# defaults and every device's list: this device's sound and picture
+# delays as the tests left them (the last sound output and display the
+# game saw).
+# Variables:
+#   $audio (String) - the sound's delay in milliseconds, signed ("+12", "+0")
+#   $visual (String) - the picture's delay in milliseconds, signed
+pages-calibration-this-device = This device: sound { $audio } ms, picture { $visual } ms.
 
 # Over the devices' list.
 pages-calibration-per-device = Offsets are kept per audio path and per display; the game picks the matching one when a song starts.
@@ -109,21 +125,25 @@ pages-calibration-display-device = { $calibrated ->
 }
 
 # A button: sets every offset back to 0 (asked first). Sized to its text.
-pages-calibration-reset = Reset offsets to 0
+pages-calibration-reset = Reset the delays to 0
+    .advanced = Reset offsets to 0
 
 # Near the page's end, in a lighter color. “Timing error of each hit” is
 # the name of a row in the options (Display): write it as that row is
 # translated.
-pages-calibration-tip = Tip: turn on “Timing error of each hit” in the options to see each hit's offset during normal play; the debug overlay shows the running mean.
+pages-calibration-tip = Tip: with Show advanced options On (Options → Display), Options lists each device's delays, and a play can show how early or late each press was.
+    .advanced = Tip: turn on “Timing error of each hit” in the options to see each hit's offset during normal play; the debug overlay shows the running mean.
 
 # The last button: opens the options. Sized to its text.
 pages-calibration-options = Options
 
 # The question before the offsets are reset (a dialog's title).
-pages-calibration-reset-title = Reset the offsets?
+pages-calibration-reset-title = Reset the delays?
+    .advanced = Reset the offsets?
 
 # The question's text, under its title.
-pages-calibration-reset-body = The default audio and visual offsets and every device's go back to 0 ms; the devices stay known, as not calibrated.
+pages-calibration-reset-body = The sound and picture delays of this device and every other go back to 0 ms.
+    .advanced = The default audio and visual offsets and every device's go back to 0 ms; the devices stay known, as not calibrated.
 
 ## What a test run came to: a line each under "Last test". The tests are
 ## named as their headings: "the arrows-only test" (1), "the sound-only
@@ -154,30 +174,45 @@ pages-calibration-run-unreliable = { $test ->
 # Variables:
 #   $test (String) - the test: "visual", "audio" or "combined"
 pages-calibration-run-out-of-range = { $test ->
-    [visual] The arrows-only test could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the arrows really show that late, set the visual offset by hand in the options first.
-    [audio] The sound-only test could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the clicks really sound that late, set the audio offset by hand in the options first.
-   *[combined] The check with both could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the clicks really sound that late, set the audio offset by hand in the options first.
+    [visual] The arrows-only test could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the arrows really show that late, set the picture's delay by hand first: turn on Show advanced options (Options → Display), then Options → Timing.
+    [audio] The sound-only test could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the clicks really sound that late, set the sound's delay by hand first: turn on Show advanced options (Options → Display), then Options → Timing.
+   *[combined] The check with both could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the clicks really sound that late, set the sound's delay by hand first: turn on Show advanced options (Options → Display), then Options → Timing.
 }
+    .advanced = { $test ->
+        [visual] The arrows-only test could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the arrows really show that late, set the visual offset by hand in the options first.
+        [audio] The sound-only test could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the clicks really sound that late, set the audio offset by hand in the options first.
+       *[combined] The check with both could not measure reliably, so nothing changed. Run it again, hitting every note with a steady rhythm. If the clicks really sound that late, set the audio offset by hand in the options first.
+    }
 
 # The test measured no meaningful error: the offset stays. The arrows-only
 # test measures the visual offset, the others the audio offset.
 # Variables:
 #   $test (String) - the test: "visual", "audio" or "combined"
 pages-calibration-run-right = { $test ->
-    [visual] The arrows-only test found the visual offset right as it is.
-    [audio] The sound-only test found the audio offset right as it is.
-   *[combined] The check with both found the audio offset right as it is.
+    [visual] The arrows-only test found the picture's delay right as it is.
+    [audio] The sound-only test found the sound's delay right as it is.
+   *[combined] The check with both found the sound's delay right as it is.
 }
+    .advanced = { $test ->
+        [visual] The arrows-only test found the visual offset right as it is.
+        [audio] The sound-only test found the audio offset right as it is.
+       *[combined] The check with both found the audio offset right as it is.
+    }
 
 # The test changed the offset.
 # Variables:
 #   $test (String) - the test: "visual", "audio" or "combined"
 #   $ms (String) - the offset now, in milliseconds, signed ("+12", "-3")
 pages-calibration-run-set = { $test ->
-    [visual] The arrows-only test set the visual offset to { $ms } ms.
-    [audio] The sound-only test set the audio offset to { $ms } ms.
-   *[combined] The check with both set the audio offset to { $ms } ms.
+    [visual] The arrows-only test set the picture's delay to { $ms } ms.
+    [audio] The sound-only test set the sound's delay to { $ms } ms.
+   *[combined] The check with both set the sound's delay to { $ms } ms.
 }
+    .advanced = { $test ->
+        [visual] The arrows-only test set the visual offset to { $ms } ms.
+        [audio] The sound-only test set the audio offset to { $ms } ms.
+       *[combined] The check with both set the audio offset to { $ms } ms.
+    }
 
 ## The credits: who made the bundled songs, noteskins, announcers, fonts,
 ## the video decoder and the code from other projects, and their licenses.
@@ -932,10 +967,13 @@ pages-calibration-run-audio-title = Calibration 2/3: sound only
 pages-calibration-run-combined-title = Calibration check: sound and arrows
 
 # The arrows-only test: the sound is muted; the player hits what they see.
-pages-calibration-run-visual-hint = hit each arrow as it reaches the receptor; the test adjusts itself and stops once it converges
+pages-calibration-run-visual-hint = hit each arrow as it reaches its target; the test adjusts itself and stops once it is sure
+    .advanced = hit each arrow as it reaches the receptor; the test adjusts itself and stops once it converges
 
 # The sound-only test: a click to press along with, nothing to see.
-pages-calibration-run-audio-hint = press ANY arrow key on each click; the test adjusts itself and stops once it converges
+pages-calibration-run-audio-hint = press ANY arrow key on each click; the test adjusts itself and stops once it is sure
+    .advanced = press ANY arrow key on each click; the test adjusts itself and stops once it converges
 
 # The check of both together, on a chart played normally.
-pages-calibration-run-combined-hint = play normally; the test adjusts itself and stops once it converges
+pages-calibration-run-combined-hint = play normally; the test adjusts itself and stops once it is sure
+    .advanced = play normally; the test adjusts itself and stops once it converges

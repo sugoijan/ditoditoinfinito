@@ -292,7 +292,8 @@ room-rules-points = Points
 # them), Boos (a Boo is DDI's name for a press that hits no note, a
 # judgment's name, kept in English) and attacks, each Off or On.
 room-rules-difficulty = Timing difficulty
-room-rules-boos = Boos
+room-rules-boos = Stray presses
+    .advanced = Boos
 room-rules-attacks = Attacks
 
 # The row under Attacks (shown while attacks are on) saying how many
@@ -516,9 +517,13 @@ room-rules-change-timing = { $difficulty ->
 # Variables:
 #   $boos (String) - "on" or "off"
 room-rules-change-boos = { $boos ->
-    [on] Boos
-   *[off] No Boos
+    [on] Stray presses count
+   *[off] Stray presses don't count
 }
+    .advanced = { $boos ->
+        [on] Boos
+       *[off] No Boos
+    }
 # Variables:
 #   $attacks (String) - "on" or "off"
 room-rules-change-attacks = { $attacks ->
@@ -967,7 +972,7 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [hard] {" "}· Hard timing
    *[normal] {""}
 }{ $boos ->
-    [on] {" "}· Boos
+    [on] {" "}· Stray presses count
    *[off] {""}
 }{ $attacks ->
     [off] {" "}· No attacks
@@ -1006,6 +1011,50 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [not_in_a_match] {" "}· No repeats in a match
    *[allowed] {""}
 }
+    .advanced = { $ruleset }{ $difficulty ->
+        [easy] {" "}· Easy timing
+        [hard] {" "}· Hard timing
+       *[normal] {""}
+    }{ $boos ->
+        [on] {" "}· Boos
+       *[off] {""}
+    }{ $attacks ->
+        [off] {" "}· No attacks
+       *[on] {""}
+    }{ $points ->
+        [medium] {" "}· Medium points
+        [mild] {" "}· Mild points
+       *[strong] {""}
+    }{ $charts ->
+        [as_picked] {" "}· Charts as picked
+       *[adaptive] {""}
+    }{ $life_out ->
+        [out] {" "}· Out when life runs out
+       *[play_on] {""}
+    }{ $at_once ->
+        [one] {" "}· One attack at once
+        [two] {" "}· Two attacks at once
+        [no_limit] {" "}· No limit on attacks at once
+       *[three] {""}
+    }{ $shocks ->
+        [two] {" "}· Two shocks per attack
+        [six] {" "}· Six shocks per attack
+        [eight] {" "}· Eight shocks per attack
+       *[four] {""}
+    }{ $stages ->
+        [open] {" "}· Open stages
+       *[counted] {""}
+    }{ $joining ->
+        [off] {" "}· No joining during a match
+       *[on] {""}
+    }{ $choice ->
+        [group] {" "}· Group song choice
+       *[host] {""}
+    }{ $repeats ->
+        [not_in_a_row] {" "}· No repeats in a row
+        [not_in_a_match] {" "}· No repeats in a match
+       *[allowed] {""}
+    }
 
 # A note on a stage's results and under the song in the room: how the
 # player did, by how the stage ended for them.

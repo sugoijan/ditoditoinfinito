@@ -22,6 +22,10 @@ const SIZE: [u32; 2] = [960, 540];
 fn a_failed_play_unkept_and_a_quit_say_so_on_their_results() {
     common::indexes();
     let (mut ui, env) = common::ui::theme("select", common::ui::lowercase(), SIZE, false);
+    // At the Advanced level, where the results always offer the song's
+    // offset editor (at Basic only where the song has an offset or a
+    // large suggestion: `docs/plans/ui-levels.md`, stage 2).
+    ddi_l10n::set_advanced(true);
     ui.update(0.5);
     let store = Rc::new(MemoryPlayStore::default());
     store.failing.set(true);
@@ -115,6 +119,10 @@ fn a_failed_play_unkept_and_a_quit_say_so_on_their_results() {
 fn a_room_song_downloaded_ahead_shows_its_banner_on_its_results() {
     common::indexes();
     let (mut ui, env) = common::ui::theme("select", common::ui::lowercase(), SIZE, false);
+    // At the Advanced level, where the results always offer the song's
+    // offset editor (at Basic only where the song has an offset or a
+    // large suggestion: `docs/plans/ui-levels.md`, stage 2).
+    ddi_l10n::set_advanced(true);
     ui.update(0.5);
     // The song's files as the room's store keeps them.
     let share = "fxbanner1";

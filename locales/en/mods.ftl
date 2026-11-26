@@ -32,14 +32,19 @@ mods-brake = brake
 mods-wave = wave
 
 # Notes cut to the quarter notes only, or to quarters and eighths.
-mods-quarters = quarter notes
-mods-eighths = quarters and eighths
+mods-quarters = fewer notes: beats only
+    .advanced = quarter notes
+mods-eighths = fewer notes: beats and half-beats
+    .advanced = quarters and eighths
 
 # No more than two notes at once; no jumps (two at once) at all.
-mods-up-to-two = up to two at once
-mods-no-jumps = no jumps
+mods-up-to-two = two notes together at most
+    .advanced = up to two at once
+mods-no-jumps = one note at a time
+    .advanced = no jumps
 
-mods-no-holds = no holds
+mods-no-holds = no long notes
+    .advanced = no holds
 
 # No two notes far apart at once (wide "stretch" jumps left out).
 mods-no-stretch = no stretch
@@ -48,15 +53,18 @@ mods-no-stretch = no stretch
 # much of the lanes it covers.
 # Variables:
 #   $percent (Number) - the share covered, 0 to 100
-mods-cover-sudden = sudden+ { $percent }%
+mods-cover-sudden = cover (incoming) { $percent }%
+    .advanced = sudden+ { $percent }%
 # Variables:
 #   $percent (Number) - the share covered, 0 to 100
-mods-cover-hidden = hidden+ { $percent }%
+mods-cover-hidden = cover (near the targets) { $percent }%
+    .advanced = hidden+ { $percent }%
 # Both covers at once.
 # Variables:
 #   $hidden (Number) - hidden+'s share, 0 to 100
 #   $sudden (Number) - sudden+'s share, 0 to 100
-mods-cover-both = hidden+ { $hidden }% sudden+ { $sudden }%
+mods-cover-both = cover (near the targets) { $hidden }% (incoming) { $sudden }%
+    .advanced = hidden+ { $hidden }% sudden+ { $sudden }%
 
 # StepMania's fail options other than failing at once: the play goes on
 # after the life bar empties (fail delayed), fails only if it is empty at
@@ -79,7 +87,8 @@ mods-battery = { $lives ->
 # translated), and Practice (an empty life does not end the play).
 mods-ddi-easy = easy timing
 mods-ddi-hard = hard timing
-mods-ddi-boos = Boos
+mods-ddi-boos = stray presses count
+    .advanced = Boos
 mods-ddi-practice = practice
 
 # StepMania's life difficulty level (1 to 7; 4 by default).

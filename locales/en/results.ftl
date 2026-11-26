@@ -28,21 +28,27 @@ results-activate = Activate
 ## The More menu's items (a list, about 24 letters each): what the bar
 ## and the offset editor do, for a controller or a phone.
 
-results-more-offset-down = Offset −1 ms
-results-more-offset-up = Offset +1 ms
-results-more-reset-offset = Reset offset
+results-more-offset-down = Song timing −1 ms
+    .advanced = Offset −1 ms
+results-more-offset-up = Song timing +1 ms
+    .advanced = Offset +1 ms
+results-more-reset-offset = Reset song timing
+    .advanced = Reset offset
 
 # Sets the song's offset to what this play's hits say (their mean error).
-results-more-use-mean = Use mean offset
+results-more-use-mean = Match this play's timing
+    .advanced = Use mean offset
 
 ## The song's offset editor, in the bar beside the buttons: a label, −1
 ## and +1 buttons around the value, then buttons to take this play's mean.
 
 # Its label on a wide screen.
-results-song-offset = Song offset
+results-song-offset = Song timing
+    .advanced = Song offset
 
 # Its label on a phone: about 8 letters.
-results-offset = Offset
+results-offset = Timing
+    .advanced = Offset
 
 # The offset as set now, between the −1 and +1 buttons.
 # Variables:
@@ -52,7 +58,8 @@ results-offset-value = { $ms } ms
 # Sets the song's offset to what this play's hits say (their mean error).
 # Variables:
 #   $ms (String) - that offset in milliseconds, signed ("+12")
-results-use-mean = Use { $ms } ms
+results-use-mean = Match this play ({ $ms } ms)
+    .advanced = Use { $ms } ms
 
 ## The score column's stats: two a row, a label at the left (about 20
 ## letters) and its value at the right.
@@ -108,8 +115,22 @@ results-ddi-next-hits = { $grade }: at least { $needed } { $word } or better (yo
 #   $grade (String) - the next letter ("SS"), data
 results-ddi-next-full-combo = { $grade } needs a full combo here
 
-# The average of the hits' errors, then their spread: "−2.1 ms (σ 9.8)".
-results-mean-offset = Mean offset
+# A line of the results' stats: the average of the hits' errors. With
+# advanced options shown (.advanced) its value is "−2.1 ms (σ 9.8)";
+# otherwise results-average-timing says it.
+results-mean-offset = Average timing
+    .advanced = Mean offset
+
+# The value of the line above while advanced options are hidden: whether
+# this play's presses came early or late on average, and by how much.
+# Variables:
+#   $when (String) - "early", "late" or "on_time"
+#   $ms (String) - how far, in milliseconds, to a tenth ("2.1")
+results-average-timing = { $when ->
+    [early] { $ms } ms early
+    [on_time] on time
+   *[late] { $ms } ms late
+}
 
 # DDR A's FLARE SKILL: the rank kept and its points ("FLARE VII · 944
 # points").
@@ -316,7 +337,8 @@ results-panel-timing = Timing
 # Variables:
 #   $mean (String) - the mean in milliseconds, signed ("−2.1")
 #   $sd (String) - the standard deviation in milliseconds ("9.8")
-results-timing-note = mean { $mean } ms · σ { $sd }
+results-timing-note = average { $mean } ms
+    .advanced = mean { $mean } ms · σ { $sd }
 
 # Under the histogram's left end.
 # Variables:

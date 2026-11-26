@@ -34,6 +34,10 @@ fn a_play_its_replay_its_kept_results_a_quit_and_a_refusal() {
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
     let (mut ui, env) = common::ui::theme("select", common::ui::lowercase(), SIZE, false);
+    // At the Advanced level, where the results always offer the song's
+    // offset editor (at Basic only where the song has an offset or a
+    // large suggestion: `docs/plans/ui-levels.md`, stage 2).
+    ddi_l10n::set_advanced(true);
     ui.update(0.5);
     let store = Rc::new(MemoryPlayStore::default());
     let plays = Plays::new(store.clone());
