@@ -796,7 +796,11 @@ so.
   keep (one crate since 2026-11-10, `crates/share-protocol`), and online
   rooms' shares made under a room's upload grant (M5d).
 - [Song sources: native plugins](source-plugins.md) (2026-11-25,
-  revised 2026-11-26): stages 1 and 2 built (2026-11-26). Stage 2, the
+  revised 2026-11-26): stages 1 to 3 built (2026-11-26). Stage 3: a found
+  song added to an online room without importing it (the room's More,
+  "Find songs to add…"; My songs' "Fetched this session"), through the
+  room's own adding and upload, no room model change; a source's room
+  rule honored. Stage 2, the
   first a player can try (desktop, `--sources on`, tentative): "This
   computer" built in behind a switch of its own, searching folders
   without adding them to the library; Find songs in a first form from

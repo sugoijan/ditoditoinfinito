@@ -1,6 +1,8 @@
 # Song sources: native plugins for the desktop app (2026-11-25)
 
-Status: stages 1 and 2 built (2026-11-26). Stage 1: the protocol, the
+Status: stages 1 to 3 built (2026-11-26). Stage 3: a found song added
+to an online room without importing it ("Stage 3 as built", below).
+Stage 1: the protocol, the
 host, the store for fetched songs, synthetic test plugins,
 `--source-check` and the start of the SDK ("Stage 1 as built", below).
 Stage 2, the first a player can try, on desktop: "This computer" built
@@ -914,7 +916,7 @@ joining the `qps-ploc` walk. Plugin text never enters them.
 |---|---|---|---|
 | 1 (built 2026-11-26) | `ddi-source-protocol`; the host: finding plugins in `plugins/`, manifests, spawning, framing, operations, streamed files into memory, timeouts, kills and crash counting; synthetic plugins in tests (well-behaved, hanging, crashing, flooding); `--source-check`; the SDK's start. | Medium. | Yes. |
 | 2 (built 2026-11-26) | "This computer" built in, behind the in-process `Source` trait; Find songs in a first form; fetched songs in memory (`MemReader`, `Files::Memory`, `mem:` pictures, the preview from bytes, the budget, the cache for what memory cannot hold); play without importing; the import store. Useful with no plugin at all. | Medium to large. | Yes: folders written by tests, offscreen plays. |
-| 3 | Add to a room without importing; the room rule. No room model change. | Small to medium. | Yes: `FakeServer`, a local server and bots. |
+| 3 (built 2026-11-26) | Add to a room without importing; the room rule. No room model change. | Small to medium. | Yes: `FakeServer` and the shares faked on a loopback port; no local server run. |
 | 4 | Plugins in Options (Advanced), on/off, "Add plugin…", details with the digest, Remove; plugin sources in Find songs; `--plugin-check`; the systems' checks verified on macOS, Linux and Windows. | Small to medium. | Yes: synthetic plugins. |
 | 5 | The SDK's repository: SDK, harness, the folder and catalog examples, the template; the protocol crate published. | Medium. | Yes. |
 | 6 | Find songs complete: filters drawn from schemas, browse, the item's side. | Medium. | Yes: offscreen pictures. |
@@ -1225,6 +1227,133 @@ nothing runs: the window's start reads the switches and makes no host.
   to room offered on Find songs' results and the found list where
   `store::Origin::rooms` allows, and a "Fetched this session" pack in
   the room's My songs.
+
+## Stage 3 as built (2026-11-26)
+
+**How to try it with two devices**: on the first, a desktop app with a
+source on (`cargo run -- --sources on`, or a plugin switched on), signed
+in: Multiplayer → Private room, then the room's More → **Find songs to
+add…**, Add folder… (This computer) or a plugin, a search, and **Add to
+room** on a result. The second device (the web, or a desktop app with
+another `DDI_HOME`) joins by the invite link: the song is in Room songs
+at once, downloaded ahead from the room's share as any listed song, and
+plays when picked. The first device plays it from its own copy.
+
+**What exists**
+
+- **The way in**: the room's More offers "Find songs to add…" on either
+  tab, on desktop, while a song source is on and this player may add
+  songs (`RoomClient::may_add`). It opens Find songs over the room
+  (`sources::find::room_screen`).
+- **The page from a room** (`FindView::room`): each result has **Add to
+  room** in Play's place (nothing is played alone over a room) and
+  Import as before; a result the room lists says "In the room" (by the
+  `song_key` its source states, else by its songs as fetched in this
+  run); one its rule keeps out says "Not for rooms: its source does not
+  allow it" on its line and has no Add to room (`RoomOffer`).
+- **The same checks and words as My songs**, at the press, before
+  anything is fetched: who may add, the person's half of the list, a
+  full list that refuses or has nothing to remove
+  (`RoomClient::add_blocked`), and charts of no style the room can play
+  (`RoomClient::style_playable`, which My songs' styles follow), each
+  refusal in the room's own notice (`NoticeDialog::show_refusal`); after
+  the fetch the songs go through `RoomClient::add_song` (one) or
+  `add_pack` (an item of several), which ask the room's reducer again.
+- **What is added**: a result the library has (by `song_key`) is the
+  library's song, nothing fetched; else the item is fetched (one fetched
+  already in this run is used as it is) and its songs added as
+  `SongEntry`s of their `src:` ids. The room is told what it is told of
+  any song: the card and the original charts' digests, named by their
+  `song_key`. **No room model revision, nothing new for the server**, and
+  nothing new for the other devices, which load it from the room's share
+  as any listed song (the web included).
+- **The room rule** (`Sources::room_rule`): This computer's songs always
+  (the player's own files: section 4); a plugin's manifest's `rooms`
+  (allowed when it says nothing, decided), narrowed by the item's own
+  `rooms`; after the fetch the store's `Origin::rooms` (the same rule, as
+  the host worked it out) is checked again.
+- **The upload** is the room's own (the entry's grant, progress, Upload
+  again, its failures' words): `share::upload_room` reads the song
+  through `play::load::Files`, whose `Memory` kind reads the item's files
+  from memory or from the cache folder.
+- **What is kept, and for how long** (`sources/rooms.rs`): the item is
+  held in the store (`store::hold`: in memory, moved to the cache folder
+  under pressure, never dropped) from Add to room until the room lists
+  it (at most 30 s, `LISTING_WAIT`: a song the room refused after the
+  press), then while the room lists it: its upload, and this device's
+  own loads and plays of it, which read the kept copy (the room's client
+  maps the entry to the `src:` song, as to a library song) and never
+  download its own upload. It is let go when its entry leaves the list,
+  when the library has the same song (imported since: the fetched copy
+  then removed from the store once its upload is done), and when the
+  room is left, closed, or this device removed from it (a sign-in or
+  "Use this device" to mend keeps it). Each loop checks it
+  (`rooms::sync`, from `Songs::poll`); a listed song whose copy here is a
+  fetched one is kept however it was added.
+- **My songs' "Fetched this session"**: the room's song select is given
+  the songs fetched in this run that a room may have (their rule allows
+  it, their charts make a `song_key`, the library has no song of that
+  key) in a pack of the screen's own (`ddi_ui::state::place::FETCHED_PACK`,
+  shown by its message, after the bundled songs), so they are added from
+  the usual place (Enter, Add this pack) and the room's client knows
+  them (`RoomClient::set_library`). The select is fed again when the
+  store's items or the library change (`Songs::feed_room`,
+  `Songs::room_data_at`; `Store::generation`). What the room is told of a
+  song added from that pack names no pack (`new_song` leaves a screen's
+  own pack out).
+- **Added, then imported**: one entry still; once the library has read
+  the import, the room's client reads the library's copy and the fetched
+  one is let go and removed. **A fetched song of a library song** is the
+  library's (the fetched pack leaves it out; Find songs adds the
+  library's).
+- **The store**: an item fetched again keeps what holds it
+  (`Store::insert`; before, a fetch of an item held for a room replaced it
+  with a copy nothing held).
+- Tests: `crates/desktop/tests/room_find_songs.rs` (its own `main`, the
+  example plugin under two names): the desktop's own room screen over the
+  room model's fake room with a second member, the server's shares faked
+  on a loopback port (`tests/common/shares.rs`): the More item, This
+  computer's song added, listed, uploaded (the share's bytes are the
+  song's files) and held; the example plugin's song added; its item that
+  keeps out of rooms and a plugin whose manifest says `rooms = "none"`
+  with no Add to room; a full list and a member who may not add refused
+  at the press in the room's words; the second member's device
+  downloading the song from the share and playing it, the adder's
+  playing it from the copy kept (nothing downloaded of its own); a song
+  removed let go, then added again from "Fetched this session" and held
+  again; a song imported while listed (one entry, the library's copy, the
+  fetched copy gone); the room left, everything let go. Unit tests: the
+  page from a room (`find_songs.rs`), the qps-ploc walk, `new_song`, the
+  store's `every_song` and holds kept across a fetch.
+
+**What changed from the plan, and why**
+
+- The room's More offers Find songs on both tabs, not My songs' alone: a
+  host opens the room on Room songs, and adding is what the item is for.
+- Find songs from a room offers no Play: a solo play over a room whose
+  stage may start is not offered anywhere else either.
+- "Fetched this session" comes after the bundled songs, as song select
+  orders packs (the plan said "at the top").
+- Not done: the rule **after an import** (section 4: "including after an
+  import, through the import catalog"). An imported song is an ordinary
+  library song, offered by My songs whatever its source said; the
+  catalog does not record the rule. A question below.
+- Not done: no test of a chart the room cannot play from Find songs (a
+  room that seats CPUs over the fake room); the check is
+  `RoomClient::style_playable`, the one My songs' styles follow.
+- Not run: a local server (the fake room and the faked shares cover the
+  contract; nothing of the server or the model changed).
+
+**Questions for the maintainer**
+
+1. Should a plugin's "not for rooms" follow its songs into the library
+   after an import (the catalog would record it and My songs would refuse
+   them), or does an import make them the player's like any song?
+2. Find songs from a room: should Play be offered there too (a solo play
+   while the room waits), or Import be left out?
+3. "Fetched this session" lists everything fetched in this run (for Play
+   too), not only what was fetched for the room: is that the wanted
+   reach?
 
 ## 9. The maintainer's decisions
 

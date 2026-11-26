@@ -567,6 +567,18 @@ because the picker's was; a CPU on the chart its level is at home on
 (`cpu-start-v0`). Under As picked nothing changes. See
 `multiplayer-prototype-progress.md`, "Round OC".
 
+## Songs from a song source (desktop, 2026-11-26)
+
+`docs/plans/source-plugins.md`, "Stage 3 as built": on desktop, a song a
+song source finds (This computer, a plugin) is added to the room's list
+without importing it, from the room's More ("Find songs to add…") or My
+songs' "Fetched this session" pack, through `RoomClient::add_song` and
+the list's upload as any song of the library: the same checks, refusals
+and words, its `song_key` naming it. No room model revision and nothing
+new for the server or the other devices (the web included), which load
+it from the room's share. The adder's device keeps the fetched copy while
+the room lists it and loads and plays it from there.
+
 ## Not in stage 1
 
 Bests on songs not in one's library (a downloaded song's row has none,

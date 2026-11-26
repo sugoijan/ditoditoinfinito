@@ -461,7 +461,9 @@ Rust and the browser are implementation details, not advertised features.
   `studio_shell.rs`), desktop's Find songs page (`find_songs.rs`, absent
   from the web's build: a page over a `FindModel`, its sources, This
   computer's folders, a field searched as it rests, results with Play and
-  Import; `docs/plans/source-plugins.md`, stage 2) and the
+  Import; `docs/plans/source-plugins.md`, stage 2; opened from an online
+  room, Add to room in Play's place where the source's room rule allows,
+  else why on the result's line, `RoomOffer`, stage 3) and the
   frame its scenes are shown in (`stage.rs`: a chrome drawing the
   screens under it smaller, `Screen::stage`; `Ui::mark` rings what a
   screen names, `Screen::spot`), the app's notices as the UI's
@@ -1344,7 +1346,19 @@ Rust and the browser are implementation details, not advertised features.
   the library's song of the same chart, `fetched::keeps_as`, else not at
   all) and imports (`sources/import.rs`: the data folder's
   `sources/library/<source>/`, read as one more folder,
-  `Songs::scanned`; `sources/catalog.json`). Settings in
+  `Songs::scanned`; `sources/catalog.json`); since stage 3 added to an
+  online room without importing them (the room's More, "Find songs to
+  add…", while a source is on and the player may add:
+  `sources::find::room_screen`; through `RoomClient::add_song` as My
+  songs adds a song, the same checks, refusals and upload, no room model
+  change; `Sources::room_rule`, a plugin's manifest's narrowed by the
+  item's; the room's My songs given this run's fetched songs a room may
+  have in a pack of the screen's own, "Fetched this session",
+  `ddi_ui::state::place::FETCHED_PACK`, `Songs::room_data_at`, fed again
+  as they change, `Songs::feed_room`; an item kept for the room from Add
+  to room while the room lists it, let go when its entry goes, the
+  library has the song or the room is left, `sources/rooms.rs`).
+  Settings in
   `storage.json` in the config folder; `DDI_HOME` moves the config, data
   and cache folders under it (`paths.rs`). One app a data folder
   (`instance.rs`; `docs/plans/desktop.md`, "One app a data folder"): a
@@ -1526,7 +1540,10 @@ Rust and the browser are implementation details, not advertised features.
   real processes are `tools/source-test-plugins/tests/host.rs`; desktop's
   Find songs over the example plugin as a real process is
   `crates/desktop/tests/find_songs_plugins.rs` (no harness: its own
-  executable, linked under a plugin's name, is that plugin).
+  executable, linked under a plugin's name, is that plugin), and added to
+  an online room over the fake room, with the server's shares faked on a
+  loopback port (`tests/common/shares.rs`, TESTING ONLY),
+  `crates/desktop/tests/room_find_songs.rs` (the same way).
 - `crates/room/` the multiplayer room, match and stage model (`ddi-room`,
   `docs/plans/multiplayer-prototype-progress.md`): serde and JSON only, no
   chart/engine/library or I/O, so the private server can run it too;
