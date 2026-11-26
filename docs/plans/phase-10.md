@@ -46,7 +46,7 @@ after it.
   100 (desktop) at a time, so neither the file nor its plays are ever in
   memory whole. A byte-order mark, Windows line breaks and blank lines
   are read through.
-- **Where it is offered:** Options → Data → Play history, a button
+- **Where it is offered:** Options → Data and privacy → Play history, a button
   "Import…" between Export and Reset (alone while nothing is kept), and
   on the web an export dropped anywhere on Options. While an import runs
   the row says "importing plays…" and offers only Export.

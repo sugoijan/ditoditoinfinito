@@ -61,7 +61,7 @@ so.
   added kept while the room lives, Room songs and My songs tabs, picks
   from the list; stage 2 built (still revision 17, released with stage
   1): every listed song downloaded ahead by default into a store of the
-  room's own (Options → Data's Room songs ahead), the rows filled in, who
+  room's own (Options → Multiplayer's Room songs ahead), the rows filled in, who
   has what over the live side; stage 3 built (revision 21): the owner's
   Who can add songs (Hosts or Everyone), a person's own songs added up to
   half the list and removed by them; stage 4 built (revision 22): the
@@ -764,7 +764,12 @@ so.
   wordings, the plain one at Basic and today's as its `.advanced`
   attribute at Advanced; six assists and aids back at Basic under plain
   names; song select's radar, the results and calibration's page
-  showing less and plainer at Basic), the other open questions waiting.
+  showing less and plainer at Basic), and its stage 3 (section 11,
+  2026-11-27: Options regrouped into the plan's tree of twelve
+  sections, from one table, every row kept with its id, values and
+  effect, a place saved before finding its row; Fewer notes on the
+  start prompt), on the plan's recommendation for open question 9; the
+  other open questions waiting.
   An inventory of every option (126 kinds of row,
   93 stored settings) and of 52 places outside Options with the genre's
   jargon or technical detail; a rule sorting them into Basic (the

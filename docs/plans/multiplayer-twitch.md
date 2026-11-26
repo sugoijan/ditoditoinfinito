@@ -170,7 +170,7 @@ device if it was a viewer's. The person is told once.
   TB the device remembers which permissions it used and asks Twitch for
   those used within 30 days again at its next sign-in, in the same step
   ("Round TB" below).
-- Options → Data has "Twitch access: Disconnect" for a person who wants
+- Options → Data and privacy has "Twitch access: Disconnect" for a person who wants
   to stay signed in.
 - A link unused for 30 days is deleted (answer 1; the same horizon as a
   session's longest life).
@@ -331,7 +331,7 @@ Room model revision 18, server first:
   changed hands, and the new host may turn it off or replace it with
   their own channel (answer 13). A replacement makes every device
   subscribe again, to the new channel.
-- Each member chooses for their device, Options → Display: "Twitch chat
+- Each member chooses for their device, Options → Multiplayer: "Twitch chat
   in rooms: Off / Emotes / Emotes and messages" (never above the room's
   ceiling), "Chat style: Across / Falling" and "Chatter names: Off / On"
   (C11). Off by default, since it needs the scope; a player who never
@@ -438,7 +438,7 @@ work's back layers) and the dancing hand (since 2026-11-21), before the
 field filter, the attack links, the miniatures, the field and the HUD. In the lane band the filter darkens
 it with the background, so notes keep their contrast.
 
-An opacity of its own (Options → Display, about 60% to start; tuned in a
+An opacity of its own (Options → Multiplayer, about 60% to start; tuned in a
 study on a busy chart).
 
 Emotes go into one atlas, so the overlay adds a batch, not one per
@@ -701,7 +701,7 @@ nothing in it reaches Twitch or an emote provider.
   images kept, four fetched at once, the proxy once after a failure, a
   host through it for the session, and their cells in one atlas of
   2048 × 1024 (`cache.rs`); the scripted chat (`script.rs`).
-- **The settings** (Options → Display): Twitch chat in rooms (Off by
+- **The settings** (Options → Multiplayer): Twitch chat in rooms (Off by
   default), and under it while it is on: Chat style, Chatter names,
   Emotes from, Chat opacity (60%). The Twitch trip's integration point
   is `ddi_ui::state::twitch::want_chat_scope`, which the option calls
@@ -779,10 +779,10 @@ alone there (or none).
   shows the trip's dialog over Options or Host options (the attempt's
   code to type, which no screen showed before: a Host options trip on
   desktop could not be finished), and a canceled trip changes nothing and
-  says so. Its description says Options → Data disconnects it.
+  says so. Its description says Options → Data and privacy disconnects it.
 - **The testing switch** (`ddi_ui::state::twitch::chat_testing`): the
   scripted chat (`mpfakechat`, `--mp-dev-chat`) turns it on. Until the
-  transports exist, Options → Display's chat rows and Host options' "Show
+  transports exist, Options → Multiplayer's chat rows and Host options' "Show
   my Twitch chat" show only under it.
 
 **What a player sees after this round** (nothing of it is deployed: the
@@ -793,7 +793,7 @@ whose first step takes them through Twitch and back, the setting made by
 itself; the status lines for a kick, for a refused or canceled trip, and,
 new here, for the setting ending by itself (the owner's access ended, or
 the one who set it left); a person kept out sees "You can't join this
-room." on the invite page and nothing else of why; Options → Data's
+room." on the invite page and nothing else of why; Options → Data and privacy's
 "Twitch access" row with Disconnect. Nothing of the chat: its rows are
 hidden, and no room has a chat to show.
 
@@ -809,7 +809,7 @@ nobody removed, the host told; a co-host's kick of the host or of another
 co-host refused by the room), Chrome and Firefox (Host options' rows, the
 trips and a canceled one, Moderate and Kick as host and co-host, the
 kicked person's notice and way back, the refused newcomer's page,
-Options → Data's Disconnect turning the room's mirror off at once), the
+Options → Data and privacy's Disconnect turning the room's mirror off at once), the
 chat in a practice stage of eight CPUs and in an online stage, both
 styles, at Emotes and at Emotes and messages, a device at Off drawing
 nothing, on both browsers and desktop offscreen; and the singleplayer
@@ -1390,7 +1390,7 @@ plays", then "For testing and under a flag it's fine. But singleplayer
 should never require online connectivity, the chat/emotes background
 should be purely an optional multiplayer feature."
 
-**What a player has now.** Options → Display's "Twitch chat in rooms"
+**What a player has now.** Options → Multiplayer's "Twitch chat in rooms"
 (and under it, while on, Chat style, Chatter names, Emotes from, Chat
 opacity) and Host options' "Show my Twitch chat" show to everyone, both
 Off by default; the testing switch (`chat_rows_shown`, `chat_testing`)
@@ -1409,7 +1409,7 @@ before (C1, round TW3). The words: the option's description says what it
 shows, whose chat, that the host chooses, never in singleplayer, the
 permission and where it is disconnected; Host options has a line under
 its Twitch rows saying what "Show my Twitch chat" does and that each
-player turns it on for their own device; Options → Data's Twitch access
+player turns it on for their own device; Options → Data and privacy's Twitch access
 says a player connects it to see a host's chat. (C14 and step 4, a
 streamer's own chat in singleplayer, are set aside by the maintainer's
 rule: singleplayer never needs the network for this.)
@@ -1613,9 +1613,9 @@ plain sign-in, on any device, leaves it as it is. Now:
   their link with those scopes, unless the link they have already grants
   them all (another device's): then it stays and the new token is
   revoked. Signing out still deletes the link on the server.
-- Disconnect in Options → Data forgets them on that device: nothing is
+- Disconnect in Options → Data and privacy forgets them on that device: nothing is
   asked at the next sign-in. Resetting the settings does too.
-- Nothing new is shown when it works; Options → Data's row says what is
+- Nothing new is shown when it works; Options → Data and privacy's row says what is
   connected, as before.
 
 ## Round DE (2026-11-22): the connection kept for the room, and larger limits
@@ -2381,7 +2381,7 @@ access ending by itself, only by a decline.
 | Twitch ended it (a use or a validation refused) | Link deleted with `ended`; the room's next mirror check (a join, a ticket, a pick, a recheck) turns its bans off, its chat stays; the host's device offers the trip. |
 | A refresh's token refused (round 2026-11-24's rule) | The same. |
 | 30 days unused | Link deleted by its alarm. A room whose bans are on uses it at every check, so it cannot lapse while the room is busy; a room left idle that long finds no link at its next check: the same as above. |
-| Disconnect in Options → Data, on this device | The game lowers the room's bans itself at once (`Kept::disconnect_twitch`), the chat kept; nothing offered (the person ended it); the saved choice untouched; the permissions forgotten for the next sign-in (round TB). |
+| Disconnect in Options → Data and privacy, on this device | The game lowers the room's bans itself at once (`Kept::disconnect_twitch`), the chat kept; nothing offered (the person ended it); the saved choice untouched; the permissions forgotten for the next sign-in (round TB). |
 | Disconnect or sign-out on another device | Link deleted; this device cannot tell it from Twitch ending it: offered as above. |
 | Sign-out on this device | The account's Sign out is on the multiplayer home, which leaving an online room reaches; the room is left first. Nothing to put back. |
 | The game session ending (4401) | Not the access: the link stays, the bans with it. Signing in again asks round TB's `keep`. |

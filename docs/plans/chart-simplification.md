@@ -10,7 +10,7 @@ the same way.
 
 ## Without onigiri
 
-Options → Notes → Simplify → **Without onigiri** exposes additional
+Options → Song list → Simplify → **Without onigiri** exposes additional
 versions of Dancing☆Onigiri charts. Off by default. Originals stay in
 their original layouts and are unaffected by this setting. Existing
 timing cut, At once and No holds options retain their behavior.
@@ -259,7 +259,7 @@ to songs stored before.
 
 The maintainer's request: a jump is fine, but not more than two notes at
 once, for charts written for a keyboard or for a hand beside both feet.
-Options → Notes → **At once** (`TransformOptions::at_once`) replaces No
+Options → Play → **At once** (`TransformOptions::at_once`) replaces No
 jumps with three values:
 
 | Value | Keeps | StepMania |
@@ -291,7 +291,7 @@ again as played.
 
 ## No stretch (2026-11-07)
 
-Implemented as **Options → Notes → No stretch**, Off by default, independent of
+Implemented as **Options → Play → No stretch**, Off by default, independent of
 At once. `TransformOptions::no_stretch` is stored in settings and kept play
 options, shown among the play's modifiers and marks it assisted like the other
 cuts. Legacy settings/replays missing the field read Off; replay restores the

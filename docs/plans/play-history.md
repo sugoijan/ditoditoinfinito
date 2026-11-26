@@ -540,7 +540,7 @@ noteskin no longer installed.
 - **Summaries keep the options** (`PlaySummary::options`, optional;
   none in older summaries, whose rows then show no options), so the list
   needs no records.
-- **The ghost** (off by default; Options → Display → "Ghost of your
+- **The ghost** (off by default; Options → Screen → "Ghost of your
   best"): during a play, under the score, how far ahead of the chart's
   best play (under the rules it is played by, assist apart) the play is
   at the same point, in the ruleset's terms (percentage points, or

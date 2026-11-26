@@ -108,6 +108,13 @@ its kind in the player's language, its words after it.
   мс).
 - **Identifiers stay in code**: actor names (`"Button.Back"`), setting
   values, rows' ids, what tests and `__DDI_DEBUG` read.
+- **A place in Options** is written as its section's and row's names
+  show: "Options → Multiplayer → Twitch chat in rooms", in Japanese
+  「オプション → マルチプレイ → ルームでのTwitchチャット」. The sections are
+  `crates/ui/src/screens/options_tree.rs`'s table; a row that moves
+  there takes every message naming it along (search both languages for
+  its section's name), and the privacy note's (`pages-privacy-*`,
+  `site/privacy.html`) only with the maintainer's approval.
 - **Japanese**: read `ja/GLOSSARY.md` first. Buttons and labels short;
   a Japanese character is as wide as two Latin letters in the theme's
   face, so a label of the same letters' count needs twice the room:
@@ -122,13 +129,13 @@ its kind in the player's language, its words after it.
 ## Two wordings: Basic and Advanced
 
 The game shows its words at two levels (`docs/plans/ui-levels.md`):
-Basic, a new player's, in plain words, and Advanced (Options → Display →
+Basic, a new player's, in plain words, and Advanced (Options → Interface →
 Show advanced options On), in the terms players of the genre know. A
 message whose words differ between them has two wordings in one entry:
 its value is the plain one, its `.advanced` attribute the genre's.
 
 ```ftl
-# Options → Scroll, Reverse's sentence.
+# Options → Play, Reverse's sentence.
 options-reverse-description = Arrows move down to the targets at the bottom.
     .advanced = Arrows scroll down to receptors at the bottom.
 ```

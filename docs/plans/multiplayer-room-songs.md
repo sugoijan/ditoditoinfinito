@@ -165,7 +165,7 @@ wire (two live messages) stay in it; peers that both speak 17 agree.
 
 ### The option
 
-Options → Data, "Room songs ahead": Everything (the default), Likely next
+Options → Multiplayer, "Room songs ahead": Everything (the default), Likely next
 (the picked song, the picker's, and the newest up to eight songs and
 128 MB, `room-preload-v1`; round DB, 2026-11-20, the maintainer; four and
 64 MB before, `room-preload-v0`), Off (a song is fetched when picked, as in stage 1). Per device

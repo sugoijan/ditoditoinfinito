@@ -305,7 +305,7 @@ phone, English and Japanese).
 
 ## The skill radar's side (2026-11-18, round Z1)
 
-With Options → Display → Skill radar On, the wide layout's song side has
+With Options → Song list → Skill radar On, the wide layout's song side has
 no chart ladder: a row of chart buttons in its place (the multiplayer
 host's, `chart_buttons`: a place for each of the style's charts, five
 at least and eight at most, a window round the chosen one past eight),

@@ -95,7 +95,7 @@ moves. Escape (or a pad's Back) still leaves.
 
 ## The countdown
 
-`Settings::start_countdown` (seconds, 0 off), Options → Display → Menus →
+`Settings::start_countdown` (seconds, 0 off), Options → Song list →
 Start countdown: Off, 3 s (default, also for settings stored before it),
 5 s, 10 s. There is no switch on song select or the prompt.
 

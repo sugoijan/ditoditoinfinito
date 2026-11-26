@@ -110,7 +110,7 @@ not copied.
 
 1. **Random movies follow 5.1, on by default.** This changes nothing
    for a player without a `RandomMovies` folder.
-   - **The setting:** Options → Display → Random movies, On or Off,
+   - **The setting:** Options → Backgrounds → Random movies, On or Off,
      5.1's RandomMovies mode against Off. Its Animations mode is left
      out: stock `BGAnimations` holds four flashes.
    - **The other settings:** Background videos Off turns them off too,
@@ -205,7 +205,7 @@ not copied.
   - **The schedule:** `backgrounds::layers` takes the pool. The first
     layer plays it in StepMania's order: missing files first, then each
     `-random-` change; for a song without changes, its whole span.
-  - **The setting:** Options → Display → Random movies
+  - **The setting:** Options → Backgrounds → Random movies
     (`Settings::random_movies`, on).
   - **The web:** the import keeps a pack's `BackgroundMapping.ini`, and
     a song's load finds its pool (`songs::random_found`).
@@ -483,7 +483,7 @@ supports.
   there (decision 4), never for a work (decision 5).
 - **The pass:** in `ddi-render`, drawn in the background frame. The
   field filter treats it as a background.
-- **Settings and screens:** Options → Display. The generative
+- **Settings and screens:** Options → Backgrounds. The generative
   background is on by default where a song has none; the visualizer
   over a song's picture is off by default; there is a choice of
   visualization if step 4 keeps several. Also reduced motion, and the
@@ -527,7 +527,7 @@ kept; the field and lines is the default, Ink the default palette).
   the generated texture is the song background's last resort, or its
   first over a picture. Never for a work, in calibration, the editor or
   Options' preview.
-- **Settings:** Options → Display → Generated background (Off, Spectrum
+- **Settings:** Options → Backgrounds → Generated background (Off, Spectrum
   bars, Kaleidoscope, Field and lines, Outline rain), Over song
   backgrounds (off), Generated colors (the study's quiet palettes).
 - **Size and cost:** the background frame's size, within the device's

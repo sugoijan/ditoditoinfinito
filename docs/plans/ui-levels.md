@@ -4,8 +4,9 @@ A design for the maintainer to decide; its stage 1 is built (section 9,
 2026-11-26) on the plan's own recommendations, then on the maintainer's
 answers to open questions 1 and 2 the same day (the switch's words, and
 the rows leaned toward Advanced), and its stage 2, the words (section
-10, 2026-11-26), on the recommendations for questions 6 to 8; the other
-open questions of section 8 still open. It covers items 3,
+10, 2026-11-26), on the recommendations for questions 6 to 8, and its
+stage 3, the hierarchy (section 11, 2026-11-27), on the recommendation
+for question 9; the other open questions of section 8 still open. It covers items 3,
 7 and 8 of `docs/PLAN.md`'s "What comes next" together, since they
 decide the same screen: two levels of the interface, a better hierarchy
 for Options with choices shown side by side where the look matters, and
@@ -1182,6 +1183,8 @@ In the order they block work.
 9. **The tree** (blocks stage 3).
    - **Recommended**: section 3.3; with "Fewer notes" added to the
      prompt.
+   - **Built on the recommendation, 2026-11-27** (section 11), the
+     maintainer's answer still to come.
 10. **How the hidden screen is reached** (blocks stage 4).
     - **Recommended**: `#/experimental` and `--screen experimental`, and
       a row in Advanced's Troubleshooting once used.
@@ -1217,7 +1220,7 @@ answers to questions 1 and 2 came the same day and are applied (below,
 | Question | What was built | Where to change it |
 |---|---|---|
 | 1, the rule and each row's level | the levels of section 1.2's tables leaned toward Advanced by the maintainer's answer: Turn, Appearance and Lane cover Advanced, and since the answer Notes, At once and No holds too, with 15 other rows (below) | `crates/ui/src/screens/options_levels.rs`, `LEVELS`: one entry a row or a family of rows (an id ending in `.`); a row not in it is Advanced, and a test holds every row the model makes to an entry |
-| 2, the toggle's name and place | by the maintainer's answer, a switch: "Show advanced options: Off / On" (「上級オプションを表示：オフ／オン」, a draft), Off by default, under Display's MENUS heading before Language until stage 3 makes Interface; and Options' More, "Show advanced options" / "Hide advanced options" | `SHOW_ADVANCED_PLACE` (the section and the row it comes before); the words are `options-show-advanced*`, `options-more-show-advanced`, `options-more-hide-advanced`, `options-advanced-changed*` |
+| 2, the toggle's name and place | by the maintainer's answer, a switch: "Show advanced options: Off / On" (「上級オプションを表示：オフ／オン」, a draft), Off by default, under Display's MENUS heading before Language until stage 3 makes Interface; and Options' More, "Show advanced options" / "Hide advanced options" | `SHOW_ADVANCED_PLACE` (the section and the row it comes before; since stage 3 the tree's table, `options_tree::TREE`, first in Interface); the words are `options-show-advanced*`, `options-more-show-advanced`, `options-more-hide-advanced`, `options-advanced-changed*` |
 | 3, those who play already | settings stored before the level start at Advanced where an Advanced row differs from its default, else Basic; decided once at load, marked `level_decided` | `options_levels::advanced_in_effect`, called by `Settings::load` |
 | 4, the first run | Basic, nothing asked | `Settings::default().level` |
 | 5, Basic's view of Advanced settings in effect | each section at Basic ends with "Advanced changes: N", Reset them (asked once, naming the count and the section) and Show (Show advanced options On, focused on the first of them; lit first, so a press of Start shows rather than resets); a changed Advanced row stays on the start prompt | `options_model::basic_view`; `prompt_options::PlayOptions::rows` |
@@ -1470,3 +1473,123 @@ modifiers (Advanced rows, shown at Basic only where changed), the
 results' notes and the editor (both levels alike, as 2.6 says), the
 messages naming places in Options (stage 3), the hidden screen, the
 choosers.
+
+## 11. Stage 3 as built (2026-11-27)
+
+The hierarchy, on the plan's recommendation for open question 9
+(section 3.3, with Fewer notes on the start prompt); the maintainer
+said on 2026-11-27 to start it, and the question itself is still
+theirs. Nothing is lost or renamed: every row is there as before, with
+the same id, stored key, words, values, level and effect; only its
+section, its place in it and the heading over it changed.
+
+**One table.** `crates/ui/src/screens/options_tree.rs`'s `TREE` lists
+the sections in their order, each with its id (its English name, which
+the saved position, a section's count row and the tests know it by),
+its name's message, the old sections whose rows it took (`was`) and its
+entries: a heading, a row by id, or a family of rows by their ids'
+prefixes (a device's offset and its Forget, a controller's rows). The
+model still makes its rows in parts by topic (the sections before);
+`options_tree::arrange` takes each row out and puts it where the table
+says, with the table's heading (a controller keeps its name as its
+own). A row the table does not place would go to the end of the
+section that took its part, never lost; a test holds every row the
+model makes to exactly one entry. Changing where a row shows is one
+line of that table.
+
+**The tree as built.** The same twelve sections at both levels (a path
+in instructions stays true at either), then any a shell adds
+(`World::sections`, desktop's Plugins page, section 6):
+
+| # | Section (id) | Took from | Basic (web, desktop) | Advanced (web, desktop) |
+|---|---|---|---|---|
+| 1 | Play | Scroll; Notes' modifiers and assists | 5 | 11 |
+| 2 | Arrows | Arrows | 1 | 8 |
+| 3 | Screen | Display's play rows and the hand; Rules' Judgment words and Score display | 5 | 11 |
+| 4 | Backgrounds | Display's backgrounds | 2 | 8 |
+| 5 | Rules | Rules | 2 | 9 under DDI |
+| 6 | Timing | Timing | 1 | 3, and 2 a known device |
+| 7 | Sound | Sound | 6 | 7 |
+| 8 | Controls | Controls | 10 | 11, with each controller's rows |
+| 9 | Song list | Display's countdown and ratings; Notes' versions; desktop's Songs | 1, 3 | 6, 8 |
+| 10 | Multiplayer | Display's opponents, chat and hand in multiplayer; Data's Room songs ahead | 2 | 4 (8 with the chat on) |
+| 11 | Interface | Display's menus and diagnostics, the switch | 5 | 8 |
+| 12 | Data and privacy (Data) | Data; Sharing's four at its end | 8, 7 | 8, 7 |
+| | Total | | 48, 49 | 94, 95 |
+
+A fresh profile, as stage 2 counted it: the same totals as before (48
+and 94 on the web, 49 and 95 on desktop); `cargo test -p ddi-ui --lib
+tree_map -- --ignored --nocapture` prints the tree at both levels for
+six worlds.
+
+**Where each choice rests.**
+
+| Choice | Rests on |
+|---|---|
+| The twelve sections, their names and order | open question 9: section 3.3 |
+| Show advanced options first in Interface, with no heading | open question 2's place: "first in Interface" (its words the maintainer's answer) |
+| Play's order: Speed, Reverse, then the Advanced modifiers; EASIER over Fewer notes, Notes together, No long notes, No stretch | 3.3's Play |
+| Fewer notes on the start prompt (after Lane cover, before the arrows) | open question 9: "with Fewer notes added to the prompt"; 3.2 |
+| Screen: Field position, Judgment words, Score display, Compare with your best, Lyrics, Timing error, Receptor snap; DANCING HAND over the hand's four | 3.3's Screen; 3.4 (`ddi.words`, `ddi.score` from Rules) |
+| Backgrounds: Background brightness, Darken behind the arrows, Background videos, Random movies, Generated background, Over song backgrounds, Generated colors, Background frame | 3.3's Backgrounds; a finer row kept right under the row it refines (as the model already puts the covers' heights and the chat's rows) |
+| Rules: Timing difficulty, Practice, Boos, then Rules for each chart and Ruleset, StepMania's rows, Kept plays, DANCING☆ONIGIRI RULES | 3.3's Rules (Kept plays kept before Dancing☆Onigiri's heading, so it does not read as theirs) |
+| Timing, Sound and Controls as before | 3.3 ("as today"); Timing's sentence for this device (new, 3.3) not built: it would add a row |
+| Song list: Start countdown, Chart ratings, SIMPLIFY (Without onigiri, Without center), CONVERT, SONG FOLDERS (desktop) | 3.3's Song list; 3.4 |
+| Multiplayer: Opponents' fields, Dancing hand in multiplayer, Room songs ahead, Twitch chat in rooms and its four | 3.3's Multiplayer; 3.4 |
+| Interface: the switch, Language, Reduced motion, Cursor, Cursor size; TROUBLESHOOTING over Graphics, Debug overlay, Autoplay demo | 3.3's Interface; Experimental settings waits for stage 4 |
+| Data and privacy: Play history, Twitch access, Privacy note, Send usage statistics, Send error reports, Settings, Imported songs (Song folders), Everything; SHARING over Sharing's four at its end | 3.3's Data and privacy; Sharing's rows still at both levels behind their switch, as stage 1 left them, until stage 4 |
+| Section ids: the English names; Data kept as Data (named "Data and privacy"); Scroll, Notes, Display, Songs and Sharing gone, kept as `was` | 3.4 and 3.5, point 5 |
+| The prompt's rows taken by id | 3.5, point 4 |
+| The levels unchanged | section 9's lean (open question 1's answer): the tree's B and A marks in 3.3 predate it |
+
+**Under an existing player's hands.** A row is where 3.4 moves it, and
+the game helps a player find it:
+
+- *A place Options remembered* (the web's history entry, `ddiOptions`:
+  a section and a row, written as the player moves): the row is looked
+  for where it is now, so a place saved in Display on Language opens
+  Interface on Language; a row the level hides opens the first row of
+  the section that took its old section's rows (`options_tree::
+  section_for`: Scroll and Notes to Play, Display to Screen, Songs to
+  Song list, Sharing to Data and privacy); the scroll is kept only in
+  the same section, else the row is scrolled into view
+  (`OptionsScreen::with_position`). Desktop keeps Options on its stack
+  for the run and saves no place.
+- *Keys, pads and taps*: Tab and the shoulders go through the twelve in
+  their order and wrap; a tap's targets are `Section0` to `Section11`
+  (Timing `Section5`, Controls `Section7`); the web's rectangles list
+  sixteen, room for a shell's own.
+- *Every pointer in the game's messages*: both wordings, both
+  languages, "Options → Interface" for Show advanced options,
+  "Options → Multiplayer → Twitch chat in rooms", "Options → Data and
+  privacy" for Twitch access and the upload token. The privacy note's
+  sentences (`pages-privacy-*` and `site/privacy.html`) wait for the
+  maintainer: the proposed change is a patch outside the repository.
+- *A section's count at Basic* counts the same settings as before, in
+  the sections that now hold them (the record's sum, below).
+
+**Tests.** `options_rows_tests.rs` holds the rows to
+`options_rows_before.tsv`, written by the code before the regrouping:
+six worlds (both shells, under DDI and StepMania's rules, Options as
+full as the model makes them, and a new player's), at Advanced each
+row's id, level, label, values, value, default and the settings stored
+after a change to its next value (a digest), at Basic each row's id and
+the sum of the sections' counts; the sets are equal, only the section
+differs. `options_tree::tests`: every row placed once, the twelve in
+order, the saved places' successors. `options_tests::
+a_place_saved_before_the_regrouping_finds_its_row`; the levels', the
+prompt's and the screens' tests on the new places; the desktop's
+`options_levels_offscreen` draws every section at both levels in
+English and Japanese.
+
+**Pins.** `room_tests::the_rooms_screens_draw_as_pinned`'s "host":
+Host options' line under Show my Twitch chat names Options →
+Multiplayer. No other drawn pin moved (the theme's Options pictures
+are checked by layout, not by hash).
+
+**Not done in stage 3**: Timing's sentence for this device (a new row);
+the Experimental settings row (stage 4); the privacy note's sentences
+(the maintainer's); the Plugins page (source plugins' stage 4). A
+thirteenth section (desktop's Plugins) will not fit the 1280×720 rail
+as it is (twelve reach its foot): it will need the rail to scroll or
+its items closer.

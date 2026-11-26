@@ -21,7 +21,7 @@ and 12 headless WASM Double studies pass. The full audit has not been rerun.
 
 ## Preparation status (2026-11-07)
 
-The general **Options → Notes → No stretch** toggle and automatic hand-copy
+The general **Options → Play → No stretch** toggle and automatic hand-copy
 simplification are implemented; see [the policy and verification contract](chart-simplification.md#no-stretch-2026-11-07).
 The source regions are StepMania's dance/Pump masks, with ongoing-hold checking,
 the Pump half-double subset and 9A's Oni allowed via either center. The two-pad

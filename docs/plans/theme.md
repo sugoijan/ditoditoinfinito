@@ -574,7 +574,7 @@ start unfocused. This opt-in policy leaves other screens' navigation unchanged.
 
 ### Infinito cursor
 
-Options → Display offers **Infinito cursor** (the default since 2026-11-17,
+Options → Interface offers **Infinito cursor** (the default since 2026-11-17,
 when it was renamed from Pointer tip; stored as `PointerTip`), **Infinito
 arrow** (the default before; settings stored before then were put back to
 the Infinito cursor once, `Settings::defaults_reset_2026_11_17`) and

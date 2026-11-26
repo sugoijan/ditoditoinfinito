@@ -204,7 +204,7 @@ Rust and the browser are implementation details, not advertised features.
 - `crates/character/`, `crates/hand-plan/` and `crates/hand-pose/` supply the
   dancing hand (`docs/plans/dancing-hand.md`). Both default builds include it;
   settings retain saved Off choices. In a multiplayer stage it plays only
-  where Options → Display's "Dancing hand in multiplayer" is On (Off by
+  where Options → Multiplayer's "Dancing hand in multiplayer" is On (Off by
   default, `Settings::dancing_hand_in`): Off, a stage prepares no hand at
   all (`dance::Preview::preload`). Shared At once Two trims excess simultaneous
   lifts after taps/new hold heads, preserving retained timing and metadata;
@@ -213,7 +213,7 @@ Rust and the browser are implementation details, not advertised features.
   two`, ongoing holds included), while the play judges every note with the
   player's options, never an assist because of the hand (`RuntimePreview::
   for_player`). `ddi_hand_plan::prepare_notes` applies At once Two and No stretch
-  to that copy. General No stretch is a separate saved Options → Notes cut in
+  to that copy. General No stretch is a separate saved Options → Play cut in
   `TransformOptions`, assisted when selected, checking final turned lanes and
   ongoing holds for dance-double, Pump half-double/double and DanOni 9A. Oni may
   use either center in the logical span policy. Dance-double maps
@@ -511,7 +511,17 @@ Rust and the browser are implementation details, not advertised features.
   numbers, the results' Timing and Life panels alone and their song
   timing editor only where the song has an offset or a large suggestion,
   `play::panel_sets_shown`, `offset_shown`, calibration's page in plain
-  words with this device's delays in a sentence). Controller menus use shared
+  words with this device's delays in a sentence; stage 3: the sections,
+  their order and headings in one table, `options_tree.rs`'s `TREE`, the
+  same twelve at both levels, Play, Arrows, Screen, Backgrounds, Rules,
+  Timing, Sound, Controls, Song list, Multiplayer, Interface (Show
+  advanced options first), Data and privacy, then a shell's own; the
+  model makes its rows in parts by topic and `options_tree::arrange`
+  places each by id, so a row keeps its id, words, values and effect
+  wherever it shows, which `options_rows_tests.rs` holds to a record of
+  every row from before; a place saved before, `options_tree::section_for`;
+  the start prompt takes Options' rows by id, `OptionsModel::rows_by_id`,
+  Fewer notes among them). Controller menus use shared
   `ControlBindings::menu_control`: West opens visible More actions, shoulders
   change charts/sections/panels (editor: lanes), and dedicated Start stays
   distinct until the screen resolves it. Standard-controller binding has
@@ -708,7 +718,7 @@ Rust and the browser are implementation details, not advertised features.
   excludes visual adornments from bounds and hit-testing. The field stays
   viewport-anchored, and `Vivid::clock` keeps palette/evolution independent. The
   menu pointer is a shared UI overlay (`ui::cursor`, `theme::cursor`,
-  `assets/ui/cursors.svg`): Options → Display chooses Infinito cursor
+  `assets/ui/cursors.svg`): Options → Interface chooses Infinito cursor
   (the default since 2026-11-17, stored as `PointerTip`, once named
   Pointer tip), Infinito arrow or System and a logical-pixel size. Enabled targets charge at
   120 BPM; mouse-down shines at the hotspot without changing activation.
@@ -1010,7 +1020,7 @@ Rust and the browser are implementation details, not advertised features.
   through `LiveIo::report`, and why it could not show,
   `ChatLayer::trouble`, `ddi_chat::live::Trouble`, one quiet line on
   the stage's results, `StageOutcome::chat`), where Options →
-  Display's "Twitch chat in rooms" is on; `chat::room_ceiling` the one
+  Multiplayer's "Twitch chat in rooms" is on; `chat::room_ceiling` the one
   answer to the room's ceiling: in a room's stage the room's own
   (`RoomState::twitch`'s chat, carried by `StageSetup::chat`, a
   `ddi_ui::state::twitch::RoomChat`; none, no layer at all; and since
@@ -1181,7 +1191,7 @@ Rust and the browser are implementation details, not advertised features.
   first, then the nearest rivals by standing, changing hands rarely
   (`crate::rivals`); under the left side's the ladder: the player's
   place and, where not everyone is shown, a strip of everyone's life;
-  Options → Display's "Opponents' fields: Up to eight"
+  Options → Multiplayer's "Opponents' fields: Up to eight"
   (`Settings::opponent_fields`, `RenderOptions::opponents_up_to_eight`)
   keeps the eight slots (a watcher's grid in pages of eight); a
   spectator's grid shows every field at the same least lane, in pages
@@ -1253,7 +1263,7 @@ Rust and the browser are implementation details, not advertised features.
   `SelectData::shared`: headed "SHARED SONGS", nothing added, managed
   or edited, or the page saying the link is gone; the uploader hidden
   behind `#/?share=1` (for the page alone; `Settings::sharing` stored
-  on with a token set): Options' Sharing section
+  on with a token set): Options' Sharing rows, at the end of Data and privacy,
   with the token, Share… in song select's More on imported songs and
   packs, the upload in `share.rs`; a shared song's movies streamed,
   `web/movie_source.rs` and the decoder worker's download of the whole
@@ -2109,7 +2119,7 @@ Rust and the browser are implementation details, not advertised features.
   `room-preload-v1`: listings and banners first, a stage's song, the
   picker's, the newest; never a movie; none from a stage's countdown to
   its end; `PreloadJob`, `RoomCall::Preload`, `RoomClient::store`,
-  `ahead_song`, `have_count`; Options → Data's Room songs ahead,
+  `ahead_song`, `have_count`; Options → Multiplayer's Room songs ahead,
   `Settings::room_ahead`, a phone's or a data-saving browser's default
   Likely next, the newest up to eight songs and 128 MB besides those), the web's in the library's IndexedDB under `room/<store>/`
   (`crates/web/src/room_store.rs`), desktop's in the cache folder's
@@ -2546,7 +2556,7 @@ Rust and the browser are implementation details, not advertised features.
   `--mp-dev-mines BEAT`, a section of battle shocks in each stage's play
   from that beat, as `mpdevmines=BEAT`; TESTING ONLY, `--mp-dev-chat
   FILE|NAME`, a scripted chat beside every play where Options →
-  Display's Twitch chat in rooms is on, as the web's `mpfakechat`,
+  Multiplayer's Twitch chat in rooms is on, as the web's `mpfakechat`,
   `ddi_chat::script`; CPU practice's stages take its line as their
   room's ceiling (the chat's rows show to everyone since round TW7);
   `--mp-dev-chat live`, round TW6, the live chat's development script:
@@ -2889,7 +2899,7 @@ song select's context, running from that press (or an earlier one), and
 its start prompt decodes the music on it, so Start only starts the sound
 (`select_preview::hand_over`, `web::audio::keep_for_play`); a play opened
 any other way makes its context at Start, as before. That prompt counts
-down to Start (Options → Display → Start countdown, 3 s by default): its
+down to Start (Options → Song list → Start countdown, 3 s by default): its
 automatic Start is no gesture, so it runs only where song select handed
 over a running context (never on a direct `#/play?…`, a replay, a
 playtest or calibration), and where that context does not run any more
@@ -3065,7 +3075,7 @@ to the theme as `Judgement.Ddi.*` and to skins' Lua as
 
 ## Additional chart versions
 
-- Options → Notes → Simplify → Without onigiri (`simplify_onigiri`)
+- Options → Song list → Simplify → Without onigiri (`simplify_onigiri`)
   exposes additional versions of DanOni 5/7/9A/9B charts in Single,
   Solo, Double and Techno 8-panel (`techno-single8`); Without center
   (`simplify_center`: Off, Where missing, the default, listing one only
@@ -3073,7 +3083,7 @@ to the theme as `Judgement.Ddi.*` and to skins' Lua as
   All) versions of pump single and half-double charts in Single and
   pump double in Double, the center removed and each pad turned an
   eighth clockwise, their holds still ticked as pump's
-  (`Chart::pump_game`). Notes → Convert (`convert_pump_single`,
+  (`Chart::pump_game`). Song list → Convert (`convert_pump_single`,
   `convert_five_keys`, on by default) converts pump single and 5 keys
   to each other, every lane kept (the center on the onigiri), not
   assisted (`Derivation::assisted`), each played by its original's
@@ -3108,7 +3118,7 @@ filter darkens only a drawn background (`Renderer::render`'s
 `filter_path`, `Backdrop::shows`). Where the song background would show
 and there is none (no `#BACKGROUND`, a picture that never loaded, the
 time before a first change), a generated background drawn from the
-music stands in, darkened as a picture (Options → Display → Generated
+music stands in, darkened as a picture (Options → Backgrounds → Generated
 background, the field and lines by default, `ddi_shell::generative`;
 over a song's own picture too with Over song backgrounds; the
 kaleidoscope folds the song's jacket, else its banner, else glass), and
@@ -3202,7 +3212,7 @@ dependency's licence before adding it.
   game (English, then Japanese at `#ja`; no script, nothing fetched),
   copied by Trunk; the Credits' fold "Privacy" says the same in the UI's
   language (`ddi_ui::screens::credits::privacy`, `pages-privacy-*`), and
-  the multiplayer home's footer and Options' Data section open the page
+  the multiplayer home's footer and Options' Data and privacy section open the page
   (`credits::privacy_url`). Keep the three in step with what the game
   and the private server keep (its README's "Usage statistics").
 - GitHub Pages from the `main` branch via the workflow in `.github/`. The

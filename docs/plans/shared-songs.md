@@ -304,7 +304,7 @@ IDS|pack:NAME [--expires W]`, streaming each file at its length.
 Checked against `wrangler dev`: a pack shared from the command line,
 listed and autoplayed on desktop, and opened in the web app. Desktop
 plays a share's movies from the cache, downloaded whole before the
-play, not by ranges. Managing shares: Options → Sharing → Shares →
+play, not by ranges. Managing shares: Options → Data and privacy → Shares →
 List… opens the shares dialog (`SharesDialog`, `SharesFeed`,
 `OptionsPlatform::list_shares` and `delete_share` on both shells): the
 shares the token may see with their pack, songs, size and time left,

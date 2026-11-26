@@ -429,4 +429,50 @@ mod tests {
         assert_eq!(section_for("Data"), Some("Data"));
         assert_eq!(section_for("Plugins"), None);
     }
+
+    /// The tree as it shows, for the maintainer's map (`cargo test -p
+    /// ddi-ui --lib tree_map -- --ignored --nocapture`): each world's
+    /// sections at each level, a line a heading and a row (id, label,
+    /// level), tab-separated.
+    #[test]
+    #[ignore]
+    fn tree_map() {
+        storage::install(Rc::new(MemoryStore::default()));
+        use super::super::data::Platform;
+        use super::super::options_model::{OptionsModel, Sample, World};
+        use crate::state::settings::Settings;
+        let mut worlds: Vec<(String, OptionsModel)> = Vec::new();
+        for platform in [Platform::Web, Platform::Desktop] {
+            let world = World {
+                platform,
+                pads_supported: true,
+                sample: Sample::Ready,
+                folders: (platform == Platform::Desktop).then(|| vec!["/Songs".into()]),
+                ..World::default()
+            };
+            worlds.push((
+                format!("new-{platform:?}"),
+                OptionsModel::new(Settings::default(), world),
+            ));
+        }
+        for m in super::super::options_levels::tests::fullest() {
+            let name = format!("full-{:?}-{}", m.world.platform, m.settings.ruleset);
+            worlds.push((name, m));
+        }
+        for (name, m) in &worlds {
+            for level in [Level::Basic, Level::Advanced] {
+                for s in &m.data_at(level).sections {
+                    for o in &s.options {
+                        if let Some(h) = &o.heading {
+                            println!("{name}\t{level:?}\t{}\t{}\theading\t{h}", s.id, s.name);
+                        }
+                        println!(
+                            "{name}\t{level:?}\t{}\t{}\trow\t{}\t{}\t{:?}",
+                            s.id, s.name, o.id, o.label, o.level
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

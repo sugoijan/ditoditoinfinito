@@ -97,7 +97,7 @@ Normal timing, Attacks on, four shocks an attack, four stages).
 
 As the scenario gives them: speed 2.5, Vivid notes, the background at
 0.55 and the field filter at 0.6, no announcer (the animation is silent).
-From the second shot on, Options → Display's generated background is
+From the second shot on, Options → Backgrounds' generated background is
 **Bars, over song backgrounds**: the multiplayer part shows the music's
 bars over Beatucada's picture, the solo part the picture alone. Bars was
 chosen from the four looks by stills of each in the stage at beat 91: it

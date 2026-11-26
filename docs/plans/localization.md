@@ -228,7 +228,7 @@ draft release's notes.
   loader takes the stored language only from marked settings, so on a
   returning player's first load after the change it speaks the system's
   language as the game will.
-- Options → Display → Menus, Language lists the system's ("As the system
+- Options → Interface, Language lists the system's ("As the system
   (English)") then each language in itself ("English", "日本語"), the
   previews too; pseudo-languages with the debug overlay on, and the one
   chosen whatever it is.

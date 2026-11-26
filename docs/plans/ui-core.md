@@ -514,7 +514,7 @@ window follow):
   it; a list (`Focusable::new_list`: Options' rows, a page's column, the
   wheel), whose focus is on one of its own items, is only focused by a
   tap on its empty space (since 2026-10-25: such a tap had pressed the
-  focused row's button, Export in Options → Data).
+  focused row's button, Export in Options → Data and privacy).
 - **The pointer's look (since 2026-10-25).** Over what a tap acts on the
   mouse shows a pointer, over a text field a text cursor
   (`UiRequest::SetCursor`, sent when it changes: the web's canvas

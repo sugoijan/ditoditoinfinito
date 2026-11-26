@@ -38,7 +38,7 @@ a score goal; the listing is rate 1.0, goal 93%.
 
 ## Stage B: the feature (built, 2026-11-18)
 
-- **Options** (Options → Display, under Menus: they change what song
+- **Options** (Options → Song list: they change what song
   select, the prompt and the results show, not the notes played, which is
   Notes'): "Chart ratings: From the song / MSD"
   (`Settings::chart_ratings`, `ChartRatings`) and "Skill radar: Off / On"
@@ -155,7 +155,7 @@ and Firefox, and desktop's library through `tests/ratings_library.rs`):
   in Options** (a defect, fixed): the rating worker's loop was started
   only at the page's load (`ratings::kick`) and when `lang=` was cleared,
   never on a route, though this plan said "on every web route". A fresh
-  profile, a scratch pack of ten songs imported, Options → Display → Skill
+  profile, a scratch pack of ten songs imported, Options → Song list → Skill
   radar On, back to song select: `wanted` true, `pending` 10, `rated` 0
   and no worker for as long as the page stayed (12 s watched), so no
   imported song ever had a radar until a reload (after which all 30
@@ -274,7 +274,7 @@ The maintainer, after cherry-picking the single-pass estimator
 try to use that for the ratings and skill radar." A try: MSD stays as it
 is and nothing is removed.
 
-- **Options → Display → Chart ratings** has a third choice, "DDI
+- **Options → Song list → Chart ratings** has a third choice, "DDI
   estimate" (`ChartRatings::Estimate`, stored `"Estimate"`; a build
   before it reads that as an unknown value, `ddi_engine::lenient`'s
   default, the song's numbers, and keeps that once it saves the
