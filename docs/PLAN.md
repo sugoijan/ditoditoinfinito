@@ -749,7 +749,7 @@ skills at the chart's displayed level, marks structurally inactive skills, and
 leaves gaps for unavailable estimates. Stream at 1,201–3,200 source notes is
 shown when its pattern and display-sensitivity checks pass. Jumpstream in that band
 requires a two-head row. It uses a corrected cost through 1 Accuracy pp and shows
-higher costs uncorrected only at an exact scalar of 19.
+higher costs uncorrected only at an unrounded chart level of 16 or higher.
 
 Additional onigiri-free charts (2026-10-18): Options can expose 5-key →
 Single, 7-key → Solo, 9A → Double and 9B → Techno 8-panel versions alongside

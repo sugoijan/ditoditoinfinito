@@ -1442,7 +1442,7 @@ Rust and the browser are implementation details, not advertised features.
   1,201–3,200 notes Stream also checks chart patterns and the sensitivity of
   the shared numeric display in `ddi_rating::radar`. In that band Jumpstream
   requires a two-head row. It corrects the matched cost through 1 Accuracy pp
-  and shows higher raw costs only at an exact scalar of 19 (`ddi_rating`’s `jumpstream` module). See the crate's
+  and shows higher raw costs only at an unrounded chart level of 16 or higher (`ddi_rating`’s `jumpstream` module). See the crate's
   README for the JSON command, model identity and qualification limits.
 - `crates/msd/` MSD (`ddi-msd`, `docs/plans/msd-ratings.md`): Etterna's
   chart difficulty calculator, MinaCalc version 527 (etternagame/etterna

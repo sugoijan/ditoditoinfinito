@@ -492,7 +492,7 @@ count and the scalar's full-precision eligibility decision.
 |---|---|
 | Up to 900, or through 1,200 without playable mines | All eight |
 | 901–1,200 with playable mines | None |
-| 1,201–3,200 | Handstream, Stream where its pattern and display-sensitivity checks pass, and Jumpstream with a two-head row and either raw cost ≤1 Accuracy pp or an exact scalar of 19 |
+| 1,201–3,200 | Handstream, Stream where its pattern and display-sensitivity checks pass, and Jumpstream with a two-head row and either raw cost ≤1 Accuracy pp or a full-precision scalar of at least 16 |
 | 3,201–4,800 | Stream, Handstream, Stamina |
 | 4,801–8,000 with an exact 19.0 | Stream, Jumpstream, Handstream, Stamina, JackSpeed |
 
@@ -505,8 +505,8 @@ either direction. On the fresh screen, 458 of 800 scalar-qualified families
 passed both checks. All 88 judged families cleared the displayed-error checks.
 
 For Jumpstream in the 1,201–3,200 band, the cutoff uses the signed raw cost
-at the full-precision matched level. Above 1 Accuracy pp, only an exact scalar
-of 19 qualifies and the display uses the raw cost. Through 1 pp, the correction
+at the full-precision matched level. Above 1 Accuracy pp, the display uses the raw cost
+when the unrounded chart level is at least 16. Through 1 pp, the correction
 uses that cost, two-head row share, log head density, and the head-weighted changes in timing
 spread and omission probability when Jumpstream is weakened to 0.75. The
 adjustment is capped at ±0.10 Accuracy pp before the usual cost flooring,

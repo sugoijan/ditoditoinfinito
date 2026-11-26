@@ -6,7 +6,7 @@ pub(super) fn display_cost(chart: &Chart, decimal: f64, means: &[[f64; 9]; 10]) 
     let (i, j, f) = matched_levels(decimal);
     let cost = (1.0 - f) * means[i][2] + f * means[j][2];
     if cost > 1.0 {
-        return (decimal == 19.0).then_some(cost);
+        return (decimal >= 16.0).then_some(cost);
     }
 
     let balanced = Skills::default();

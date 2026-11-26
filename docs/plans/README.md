@@ -415,7 +415,7 @@ so.
   qualified skill in the validated note bands and mark inactive and unavailable skills.
   Stream at 1,201–3,200 notes also checks pattern demands and display sensitivity.
   Jumpstream in that band requires a two-head row, with a correction through 1 Accuracy pp
-  and higher raw costs shown only at an exact scalar of 19.
+  and higher raw costs shown only at an unrounded chart level of 16 or higher.
   Round AD (2026-11-19): the estimate to a tenth everywhere it shows.
   Round SLB (2026-11-20): the radar always there (no option), the DDI
   estimate the default, rated for everyone; From the song draws the

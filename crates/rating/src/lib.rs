@@ -381,14 +381,19 @@ mod tests {
         assert_eq!(above.numeric & 2, 0);
         assert!(above.jumpstream_cost_pp.is_none());
 
-        means[8][2] = 1.00001;
-        means[9][2] = 1.00001;
-        let near_ceiling = MatchedSpokes::for_chart(&chart, opportunity, 18.999, &means);
-        assert_eq!(near_ceiling.numeric & 2, 0);
-        assert!(near_ceiling.jumpstream_cost_pp.is_none());
-        let ceiling = MatchedSpokes::for_chart(&chart, opportunity, 19.0, &means);
-        assert_ne!(ceiling.numeric & 2, 0);
-        assert_eq!(ceiling.jumpstream_cost_pp, Some(means[9][2]));
+        // Both sides of the lower level cutoff display as 16.0.
+        means[7][2] = 1.5;
+        means[8][2] = 2.5;
+        means[9][2] = 3.5;
+        let below = MatchedSpokes::for_chart(&chart, opportunity, 15.999, &means);
+        assert_eq!(below.numeric & 2, 0);
+        assert!(below.jumpstream_cost_pp.is_none());
+        for decimal in [16.0, 17.5, 19.0] {
+            let spokes = MatchedSpokes::for_chart(&chart, opportunity, decimal, &means);
+            let raw = ddi_library::manifest::matched_profile(decimal, &means)[1];
+            assert_ne!(spokes.numeric & 2, 0);
+            assert_eq!(spokes.jumpstream_cost_pp, Some(raw));
+        }
     }
 
     #[test]
