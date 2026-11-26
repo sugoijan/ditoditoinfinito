@@ -247,7 +247,8 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// practice room; `--join LINK|INVITE` an online room's invite page), and `--share
 /// ID[,ID…]|pack:NAME [--expires 1h|1d|1w|1m|never] [--pack NAME]`
 /// uploads the library's songs as a share without a window and prints
-/// its link (the token from the settings, or `DDI_SHARE_TOKEN`; the
+/// its link (`never` an administrator's token alone: the server refuses
+/// it from an uploader's, and the refusal is printed) (the token from the settings, or `DDI_SHARE_TOKEN`; the
 /// server from `DDI_API_URL`, else the production one).
 /// `--cpu FILE [--cpu-strength relaxed|easy|normal|strong|expert]
 /// [--cpu-seed N]` plays a prepared tap-only keyboard CPU through the judge;
@@ -938,7 +939,7 @@ fn shares_from_command_line(delete: Option<&str>) -> i32 {
 fn share_from_command_line(a: args::Args, ids: &str) -> i32 {
     let expires = a.value("--expires").unwrap_or("1w");
     if !ddi_library::share::EXPIRIES.contains(&expires) {
-        eprintln!("--expires takes 1h, 1d, 1w, 1m or never");
+        eprintln!("--expires takes 1h, 1d, 1w, 1m or never (never: an administrator's token)");
         return 2;
     }
     let pack = a.value("--pack").map(str::to_string);

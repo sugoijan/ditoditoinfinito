@@ -22,7 +22,8 @@ maintainer:
   with the list; movies are served with range requests so a decoder can
   read as it goes (a later step on the app's side, below).
 - Expiry: one of 1 hour, 1 day, 1 week, 1 month or forever, chosen at
-  the upload.
+  the upload; forever with the administrator's key alone (2026-11-26:
+  shares are temporary for anyone else, a month at most).
 - The link is short, as a link shortener's: `#/s/<id>` with an id of 8
   characters from `[0-9A-Za-z]` (about 48 bits of randomness; the Worker
   never lists shares, so an id is found only by having it).
@@ -63,7 +64,16 @@ for the app's origins only: the Pages site and `localhost`):
 - `POST <base>/s` with `{ "pack": "<name>", "expires": "1h" | "1d" | "1w"
   | "1m" | "never", "songs": [ { "record": …, "files": [ { "path", "bytes"
   } ] } ], "pack_art": <bool> }` → `201 { "id": "<id>" }`. Limits refused
-  with `413`: 2 GB a share, 512 MB a file, 200 songs.
+  with `413`: 2 GB a share, 512 MB a file, 200 songs. `"never"` with an
+  uploader's token is refused with `400 expiry_admin_only`
+  (`ddi_share_protocol::expiry_allowed`, `UPLOAD_EXPIRIES`; since
+  2026-11-26), which the game words ("only an administrator's key can
+  share forever"); a game from before shows it as the server's answer.
+- `POST <base>/s/<id>/expires` with an expiry word as its body (an
+  admin token's alone, `403 admin_token_required` otherwise) sets a
+  token's share's expiry from now (`409` for a room's share) →
+  `{id, expires_at}`: shares made before the rule keep their expiry
+  until the administrator changes it this way.
 - `PUT <base>/s/<id>/f/<song index>/<path>` with the file's bytes (the
   same token): streamed into R2 under `<id>/<song index>/<path>`;
   `PUT <base>/s/<id>/art` the pack's art.
@@ -162,7 +172,9 @@ read grant on the share's URLs).
   server it uploads to (read-only, the API's base), and a note
   on what sharing publishes. In song select, an imported pack's More
   actions (and a song's) get "Share…": a dialog with the expiry choice
-  (1 hour, 1 day, 1 week, 1 month, forever), then the upload with a
+  (1 hour, 1 day, 1 week, 1 month, "Forever (admin)": the game does not
+  know a token's role without asking, so the choice is shown, named for
+  whom it is, and the server's refusal worded), then the upload with a
   progress line (songs and bytes), then the link to copy
   (`<site>/#/s/<id>`, the clipboard where allowed, selectable text
   always) and "Open" to see it as a player would. Bundled songs cannot

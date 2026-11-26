@@ -232,7 +232,7 @@ select-share-expiry-day = 1日
 select-share-expiry-week = 1週間
 select-share-expiry-month = 1か月
 
-select-share-expiry-never = 無期限
+select-share-expiry-never = 無期限（管理者）
 
 select-share-copy-link = リンクをコピー
 

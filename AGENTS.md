@@ -1440,7 +1440,9 @@ Rust and the browser are implementation details, not advertised features.
   and plain data only; no SDK/networking or filesystem).
 - `crates/share-protocol/` songs shared by link's wire contract
   (`ddi-share-protocol`, serde only, as `crates/importer-protocol` is): ids,
-  limits, expiry words, the share's JSON as made, answered and listed,
+  limits, expiry words (`never` an admin token's alone since 2026-11-26,
+  `expiry_allowed`, `UPLOAD_EXPIRIES`, refused `400 expiry_admin_only`),
+  the share's JSON as made, answered and listed,
   path checks, file paths and routes, and an online room's upload grant
   (its claims, `Authorization: Grant`, its answer; one share a grant
   since 2026-11-15, by the claims' `grant_id`, which the shells pass on

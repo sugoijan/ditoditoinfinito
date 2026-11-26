@@ -158,6 +158,10 @@ errors-share-token-refused = the upload token was refused
 # The server's limits.
 errors-share-too-large = too large to share (2 GB a share, 512 MB a file, 200 songs)
 
+# The share was to last forever, which only the server's administrator
+# may choose; anyone else's token chooses 1 month at most.
+errors-share-forever-admin-only = only an administrator's token can share forever (choose 1 month or less)
+
 # Variables:
 #   $status (String) - the HTTP status code ("500")
 errors-share-status = the server answered HTTP { $status }

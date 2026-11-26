@@ -72,8 +72,26 @@ pub const MAX_ART_BYTES: u64 = 16 * 1024 * 1024;
 /// A share never finished is deleted after this long (seconds).
 pub const UNFINISHED_LIFE: i64 = 86_400;
 
-/// The words for how long a share lasts.
+/// The words for how long a share lasts: every one an admin token may
+/// choose.
 pub const EXPIRIES: [&str; 5] = ["1h", "1d", "1w", "1m", "never"];
+
+/// The words an uploader's token may choose: a month at most. `never` is
+/// the administrator's alone (2026-11-26): anyone else's share is
+/// temporary.
+pub const UPLOAD_EXPIRIES: [&str; 4] = ["1h", "1d", "1w", "1m"];
+
+/// Whether a token may make a share that lasts `word`: an admin's any of
+/// [`EXPIRIES`], an uploader's [`UPLOAD_EXPIRIES`] (refused with `400`
+/// and [`refusals::EXPIRY_ADMIN_ONLY`]). A share made under an upload
+/// grant lasts as its room does, whatever it asks.
+pub fn expiry_allowed(word: &str, admin: bool) -> bool {
+    if admin {
+        EXPIRIES.contains(&word)
+    } else {
+        UPLOAD_EXPIRIES.contains(&word)
+    }
+}
 
 /// How long an expiry word gives, in seconds; `Some(None)`: never;
 /// `None`: not one of [`EXPIRIES`].
@@ -346,6 +364,8 @@ pub enum Route {
     Share(String),
     /// `/s/<id>/finish`.
     Finish(String),
+    /// `/s/<id>/expires`: an admin token's change of a share's expiry.
+    Expires(String),
     /// `/s/<id>/art`.
     Art(String),
     /// `/s/<id>/f/<n>/<path>` (the path decoded).
@@ -376,6 +396,7 @@ impl Route {
         match tail {
             "" => Route::Share(id),
             "finish" => Route::Finish(id),
+            "expires" => Route::Expires(id),
             "art" => Route::Art(id),
             t => {
                 let Some(t) = t.strip_prefix("f/") else {
@@ -617,6 +638,9 @@ pub mod refusals {
     pub const GRANT_LIMITS: &str = "grant_limits";
     /// The grant already made its share (`409`): one share a grant.
     pub const GRANT_USED: &str = "grant_used";
+    /// `never` asked with an uploader's token (`400`): the
+    /// administrator's alone ([`super::expiry_allowed`]).
+    pub const EXPIRY_ADMIN_ONLY: &str = "expiry_admin_only";
 }
 
 #[cfg(test)]
@@ -732,6 +756,16 @@ mod tests {
         assert_eq!(expiry_seconds("never"), Some(None));
         assert_eq!(expiry_seconds("2w"), None);
         assert!(EXPIRIES.iter().all(|w| expiry_seconds(w).is_some()));
+        // An uploader's a month at most; never the administrator's alone.
+        assert!(UPLOAD_EXPIRIES.iter().all(|w| expiry_allowed(w, false)));
+        assert!(EXPIRIES.iter().all(|w| expiry_allowed(w, true)));
+        assert!(!expiry_allowed("never", false));
+        assert!(!expiry_allowed("2w", true));
+        let longest = UPLOAD_EXPIRIES
+            .iter()
+            .filter_map(|w| expiry_seconds(w).flatten())
+            .max();
+        assert_eq!(longest, Some(30 * 86_400));
     }
 
     #[test]
@@ -820,6 +854,10 @@ mod tests {
         assert_eq!(
             Route::parse("/s/abc12345/finish"),
             Route::Finish("abc12345".into())
+        );
+        assert_eq!(
+            Route::parse("/s/abc12345/expires"),
+            Route::Expires("abc12345".into())
         );
         assert_eq!(
             Route::parse("/s/abc12345/art"),

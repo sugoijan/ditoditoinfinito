@@ -45,6 +45,9 @@ pub enum ShareError {
     TokenRefused,
     /// Too large to share (413).
     TooLarge,
+    /// Forever asked with an uploader's token: the administrator's alone
+    /// (`400 expiry_admin_only`, since 2026-11-26).
+    ForeverAdminOnly,
     /// Another answer the server gave: its status, and its body when it
     /// is short.
     Status { status: u16, body: Option<String> },
@@ -105,6 +108,9 @@ impl std::fmt::Display for ShareError {
             ShareError::TooLarge => {
                 f.write_str("too large to share (2 GB a share, 512 MB a file, 200 songs)")
             }
+            ShareError::ForeverAdminOnly => f.write_str(
+                "only an administrator's token can share forever (choose 1 month or less)",
+            ),
             ShareError::Status { status, body } => match body {
                 Some(b) => write!(f, "HTTP {status}: {b}"),
                 None => write!(f, "HTTP {status}"),
@@ -134,6 +140,9 @@ pub fn refusal(status: u16, body: Option<&str>) -> ShareError {
     match status {
         401 | 403 => ShareError::TokenRefused,
         413 => ShareError::TooLarge,
+        400 if body.map(str::trim) == Some(refusals::EXPIRY_ADMIN_ONLY) => {
+            ShareError::ForeverAdminOnly
+        }
         status => ShareError::Status {
             status,
             body: body
@@ -584,6 +593,24 @@ mod tests {
                 body: Some("grant_limits".into())
             }
         );
+    }
+
+    /// Forever asked with an uploader's token (2026-11-26): its own
+    /// refusal, not the token refused; any other `400` as it came.
+    #[test]
+    fn forever_is_refused_by_its_own_code() {
+        assert_eq!(
+            refusal(400, Some("expiry_admin_only\n")),
+            ShareError::ForeverAdminOnly
+        );
+        assert_eq!(
+            refusal(400, Some("bad request: x")),
+            ShareError::Status {
+                status: 400,
+                body: Some("bad request: x".into())
+            }
+        );
+        assert!(ShareError::ForeverAdminOnly.to_string().contains("1 month"));
     }
 
     #[test]

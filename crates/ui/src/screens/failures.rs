@@ -193,6 +193,7 @@ pub fn share_text(e: &ShareError) -> UiText {
         ShareError::Nothing => m::share_nothing(),
         ShareError::TokenRefused => m::share_token_refused(),
         ShareError::TooLarge => m::share_too_large(),
+        ShareError::ForeverAdminOnly => m::share_forever_admin_only(),
         ShareError::Status { status, body } => match body {
             Some(body) => m::share_status_body(status.to_string(), UiText::data(body)),
             None => m::share_status(status.to_string()),

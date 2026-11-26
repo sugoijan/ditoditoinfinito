@@ -64,6 +64,8 @@ errors-share-token-refused = アップロード用トークンが拒否されま
 
 errors-share-too-large = 大きすぎて共有できません（共有ごとに2 GB、ファイルごとに512 MB、200曲まで）
 
+errors-share-forever-admin-only = 無期限で共有できるのは管理者のトークンだけです（1か月以内を選んでください）
+
 errors-share-status = サーバーがHTTP { $status }を返しました
 
 errors-share-status-body = サーバーがHTTP { $status }を返しました：{ $body }
