@@ -22,7 +22,7 @@ options-language-description = The language of the menus. Scores and grades read
 # and every option (On), first under the MENUS heading: a row's label,
 # its values Off and On, as the other switches' are.
 options-show-advanced = Show advanced options
-options-show-advanced-description = On, every option shows, those for players who know rhythm games too, in StepMania's, ITGmania's and Etterna's terms. Off, only the options most players need; hidden ones still apply, and each section counts those changed.
+options-show-advanced-description = On, every option shows, including those for players who already know rhythm games. Off, only the options most players need; hidden ones still apply, and each section counts those changed.
 
 # In the More menu: turns Show advanced options On (shown while it is Off).
 options-more-show-advanced = Show advanced options

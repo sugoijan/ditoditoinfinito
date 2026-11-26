@@ -1310,8 +1310,8 @@ settings needed moving again):
   says "Enable". A thing's name would read "Advanced options: Off",
   which says they are off, while they still apply; so the row says what
   On does: **"Show advanced options: Off / On"**, Off by default; its
-  sentence "On, every option shows, those for players who know rhythm
-  games too, in StepMania's, ITGmania's and Etterna's terms. Off, only
+  sentence "On, every option shows, including those for players who already know rhythm
+  games. Off, only
   the options most players need; hidden ones still apply, and each
   section counts those changed."
   More's item says "Show advanced options" or "Hide advanced options";

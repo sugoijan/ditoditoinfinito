@@ -6,7 +6,7 @@ options-language-system = システムに合わせる（{ $language }）
 
 options-language-description = メニューの言語です。スコアや評価はどの言語でも同じです。判定の言葉は、変更しない限り英語です。
 options-show-advanced = 上級オプションを表示
-options-show-advanced-description = オンにすると、リズムゲームに慣れた人向けのものも含め、すべてのオプションをStepMania・ITGmania・Etternaの用語で表示します。オフでは、多くのプレイヤーに必要なものだけを表示します。表示しないものも有効なままで、変更した数を各分類の最後に表示します。
+options-show-advanced-description = オンにすると、リズムゲームに慣れた人向けのものも含め、すべてのオプションを表示します。オフでは、多くのプレイヤーに必要なものだけを表示します。表示しないものも有効なままで、変更した数を各分類の最後に表示します。
 options-more-show-advanced = 上級オプションを表示
 options-more-hide-advanced = 上級オプションを非表示
 options-advanced-changed = 上級の変更：{ $count }件
