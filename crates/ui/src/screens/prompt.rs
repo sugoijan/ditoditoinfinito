@@ -3721,6 +3721,7 @@ mod tests {
                 "turn=Off",
                 "appearance=Normal",
                 "lane_cover=Off",
+                "cut=All",
                 "noteskin=Infinito"
             ]
         );
@@ -3730,7 +3731,7 @@ mod tests {
         assert_eq!(h.ui.focused(), Some("Opt.noteskin"));
         // Navigating stopped the countdown.
         assert_eq!(view().countdown_state, "cancelled");
-        for _ in 0..5 {
+        for _ in 0..6 {
             h.key("ArrowUp", "ArrowUp");
         }
         assert_eq!(h.ui.focused(), Some("Opt.speed"));
@@ -3739,14 +3740,14 @@ mod tests {
         assert_eq!(h.ui.focused(), Some(VOLUME));
         h.key("Escape", "Escape");
         assert_eq!(h.ui.focused(), Some("Start"), "Back from the volume: to Start");
-        for _ in 0..7 {
+        for _ in 0..8 {
             h.key("ArrowUp", "ArrowUp");
         }
         assert_eq!(h.ui.focused(), Some(VOLUME));
         assert!(seen.borrow().is_empty(), "{:?}", seen.borrow());
         // (Down steps it there; Back leaves it.)
         h.key("Escape", "Escape");
-        for _ in 0..6 {
+        for _ in 0..7 {
             h.key("ArrowUp", "ArrowUp");
         }
         assert_eq!(h.ui.focused(), Some("Opt.speed"));
@@ -3776,10 +3777,9 @@ mod tests {
         // Not saved: the stored settings are as they were.
         assert_eq!(crate::state::settings::Settings::load().speed, 2.5);
         // Save as default: under the rows, Enter there saves, not starts.
-        h.key("ArrowDown", "ArrowDown");
-        h.key("ArrowDown", "ArrowDown");
-        h.key("ArrowDown", "ArrowDown");
-        h.key("ArrowDown", "ArrowDown");
+        for _ in 0..5 {
+            h.key("ArrowDown", "ArrowDown");
+        }
         assert_eq!(h.ui.focused(), Some("SaveOptions"));
         h.key("Enter", "Enter");
         h.run(0.05);

@@ -76,7 +76,7 @@ fn play_options_are_this_plays_kept_with_it_and_saved_when_asked() {
     until_ready(&mut host, &mut ui);
     assert_eq!(options(&env)[1], "reverse=Off");
     // Modifiers sit below the bindings; Up from Start reaches the last row.
-    for _ in 0..5 {
+    for _ in 0..6 {
         key(&mut ui, "ArrowUp", "ArrowUp");
     }
     assert_eq!(ui.focused(), Some("Opt.reverse"));

@@ -1,14 +1,15 @@
 //! The start prompt's play options (`docs/plans/start-prompt.md`): the
 //! few options a player changes between songs, as StepMania's player
 //! options come before each song (`ScreenPlayerOptions`): Speed, Reverse,
-//! Turn, Appearance, Lane cover and the noteskin, and on a touch screen
-//! the touch controls (`docs/plans/touch-controls.md`). Their rows are Options'
+//! Turn, Appearance, Lane cover, Fewer notes (an assist chosen song by
+//! song, `docs/plans/ui-levels.md`, 3.2) and the noteskin, and on a touch
+//! screen the touch controls (`docs/plans/touch-controls.md`). Their rows are Options'
 //! own ([`OptionsModel`], never saving), so names, choices and ranges
 //! match; a change applies to this play and its retry only
 //! ([`PlayOverrides`] over the stored settings), and "Save as default"
 //! writes those rows, and only those, to the settings.
 
-use ddi_engine::{Appearance, CoverMode, Turn};
+use ddi_engine::{Appearance, CoverMode, TimingCut, Turn};
 
 use super::data::{OptionDef, Platform};
 use super::options_model::{OptionsModel, World};
@@ -16,12 +17,13 @@ use crate::state::settings::{Level, Settings};
 
 /// The rows, in their order; `noteskin` is `pump_noteskin` on a pump
 /// layout when pump skins can be chosen.
-const ROWS: [&str; 8] = [
+const ROWS: [&str; 9] = [
     "speed",
     "reverse",
     "turn",
     "appearance",
     "lane_cover",
+    "cut",
     "noteskin",
     "touch_controls",
     "touch_size",
@@ -32,12 +34,13 @@ const TOUCH_ROWS: [&str; 2] = ["touch_controls", "touch_size"];
 
 /// Options' rows the prompt takes, by id (`docs/plans/ui-levels.md`, 3.5:
 /// by id, wherever Options shows them): its rows and the pump skins'.
-const TAKEN: [&str; 9] = [
+const TAKEN: [&str; 10] = [
     "speed",
     "reverse",
     "turn",
     "appearance",
     "lane_cover",
+    "cut",
     "noteskin",
     "pump_noteskin",
     "touch_controls",
@@ -53,6 +56,7 @@ pub struct PlayOverrides {
     pub turn: Option<Turn>,
     pub appearance: Option<Appearance>,
     pub cover: Option<CoverMode>,
+    pub cut: Option<TimingCut>,
     pub noteskin: Option<Option<String>>,
     pub pump_noteskin: Option<Option<String>>,
     pub touch_controls: Option<crate::touch_controls::Style>,
@@ -71,6 +75,7 @@ impl PlayOverrides {
             turn: differs(&stored.transform.turn, &played.transform.turn),
             appearance: differs(&stored.appearance, &played.appearance),
             cover: differs(&stored.lane_cover.mode, &played.lane_cover.mode),
+            cut: differs(&stored.transform.cut, &played.transform.cut),
             noteskin: differs(&stored.noteskin, &played.noteskin),
             pump_noteskin: differs(&stored.pump_noteskin, &played.pump_noteskin),
             touch_controls: differs(&stored.touch_controls, &played.touch_controls),
@@ -104,6 +109,9 @@ impl PlayOverrides {
         }
         if let Some(v) = self.cover {
             s.lane_cover.mode = v;
+        }
+        if let Some(v) = self.cut {
+            s.transform.cut = v;
         }
         if let Some(v) = &self.noteskin {
             s.noteskin = v.clone();
@@ -166,6 +174,9 @@ impl PlayOverrides {
         }
         if let Some(x) = self.cover {
             within("lane_cover", "mode", json(&x));
+        }
+        if let Some(x) = self.cut {
+            within("transform", "cut", json(&x));
         }
     }
 }
@@ -358,6 +369,7 @@ mod tests {
                 "turn",
                 "appearance",
                 "lane_cover",
+                "cut",
                 "noteskin"
             ]
         );
@@ -365,7 +377,7 @@ mod tests {
         // A pump chart: the pump skins' row.
         let mut p = options();
         p.set_layout("pump-single");
-        assert_eq!(p.rows()[5].id, "pump_noteskin");
+        assert_eq!(p.rows()[6].id, "pump_noteskin");
         // Each as Options shows it, without its heading.
         for o in [o, p] {
             let all: Vec<OptionDef> = o
@@ -390,7 +402,7 @@ mod tests {
             "dance-single",
             Platform::Web,
         );
-        assert_eq!(o.rows().len(), 5);
+        assert_eq!(o.rows().len(), 6);
     }
 
     #[test]
@@ -450,11 +462,11 @@ mod tests {
         ));
         let ids = |o: &PlayOptions| -> Vec<String> { o.rows().into_iter().map(|r| r.id).collect() };
         let o = options_at(Level::Basic, Settings::default());
-        assert_eq!(ids(&o), ["speed", "reverse", "noteskin"]);
+        assert_eq!(ids(&o), ["speed", "reverse", "cut", "noteskin"]);
         let mut mirror = Settings::default();
         mirror.transform.turn = Turn::Mirror;
         let mut o = options_at(Level::Basic, mirror);
-        assert_eq!(ids(&o), ["speed", "reverse", "turn", "noteskin"]);
+        assert_eq!(ids(&o), ["speed", "reverse", "turn", "cut", "noteskin"]);
         o.change("turn", 0);
         let turn = o.rows().into_iter().find(|r| r.id == "turn").unwrap();
         assert_eq!(turn.index, 0, "put back for this play, still shown");
@@ -474,6 +486,33 @@ mod tests {
         assert_eq!(ids(&o).last().map(String::as_str), Some("noteskin"));
     }
 
+    /// Fewer notes on the prompt (`docs/plans/ui-levels.md`, 3.2): a
+    /// Basic row, chosen for this play alone, kept in its record's
+    /// snapshot (the play marked assisted as Options' row marks it), and
+    /// saved only when asked.
+    #[test]
+    fn fewer_notes_is_this_plays_until_saved() {
+        ddi_platform::storage::install(std::rc::Rc::new(
+            ddi_platform::storage::MemoryStore::default(),
+        ));
+        let mut o = options_at(Level::Basic, Settings::default());
+        let cut = o.rows().into_iter().find(|r| r.id == "cut").unwrap();
+        assert_eq!((cut.index, cut.level), (0, Level::Basic));
+        let changed = o.change("cut", 1).unwrap();
+        assert_eq!(changed.cut, Some(TimingCut::Quarters));
+        assert!(!changed.skin());
+        let mut s = Settings::load();
+        o.over(&mut s);
+        assert_eq!(s.transform.cut, TimingCut::Quarters);
+        let mut v = serde_json::json!({"transform": {"turn": "Mirror"}});
+        o.overrides().apply_json(&mut v);
+        assert_eq!(v["transform"]["cut"], "Quarters");
+        assert_eq!(v["transform"]["turn"], "Mirror");
+        assert_eq!(Settings::load().transform.cut, TimingCut::Off, "not saved");
+        o.save();
+        assert_eq!(Settings::load().transform.cut, TimingCut::Quarters);
+    }
+
     /// On a touch screen the prompt offers the touch controls and, since
     /// round DE, their size, Options' own rows; a size changed is this
     /// play's, in its record's snapshot, and saved when asked.
@@ -486,7 +525,7 @@ mod tests {
         assert!(o.rows().iter().all(|r| !r.id.starts_with("touch")));
         o.set_touch(true);
         let ids: Vec<String> = o.rows().into_iter().map(|r| r.id).collect();
-        assert_eq!(ids[6..], ["touch_controls", "touch_size"]);
+        assert_eq!(ids[7..], ["touch_controls", "touch_size"]);
         let size = o.rows().into_iter().find(|r| r.id == "touch_size").unwrap();
         assert_eq!(size.index, 1, "Standard");
         let changed = o.change("touch_size", 2).unwrap();
