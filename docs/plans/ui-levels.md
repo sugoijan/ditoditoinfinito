@@ -3,8 +3,9 @@
 A design for the maintainer to decide; its stage 1 is built (section 9,
 2026-11-26) on the plan's own recommendations, then on the maintainer's
 answers to open questions 1 and 2 the same day (the switch's words, and
-the rows leaned toward Advanced); the other open questions of section 8
-still open. It covers items 3,
+the rows leaned toward Advanced), and its stage 2, the words (section
+10, 2026-11-26), on the recommendations for questions 6 to 8; the other
+open questions of section 8 still open. It covers items 3,
 7 and 8 of `docs/PLAN.md`'s "What comes next" together, since they
 decide the same screen: two levels of the interface, a better hierarchy
 for Options with choices shown side by side where the look matters, and
@@ -1362,3 +1363,110 @@ settings screen (stage 4), no choosers (stage 5). The import dialog's
 "Details for pack authors" and a song's offset (the results) are
 Advanced settings outside Options and are not counted.
 
+## 10. Stage 2 as built (2026-11-26)
+
+The words, on the plan's recommendations for its open questions 6
+(the mechanism), 7 (Basic's results) and 8 (calibration's Basic form,
+rooms' words only), with the maintainer's lean still applied.
+
+**The mechanism (way C of 2.4).** A message whose words differ between
+the levels gives its Advanced wording, the genre's terms, as its
+`.advanced` attribute; its value is the plain wording of the Basic
+level. `ddi_l10n::set_advanced` chooses, beside the language
+(`Settings::choose_language` sets both; Options sets it again and
+rebuilds every screen in place when the level flips, by its row,
+More's item, a section's Show or a reset of the settings:
+`options_shell::follow_level`), and every function of `ddi_l10n::msg`
+returns the wording chosen; no call site knows. Until it is set the
+Advanced wording (what every message said before), so tests and tools
+that never set a level read the game's words as they were. Options'
+rows and the start prompt's are made at the level they show at
+(`ddi_l10n::at_level` in `OptionsModel::data_at` and
+`PlayOptions::rows`). `crates/l10n/build.rs` takes the attribute (no
+other) and the variables of both wordings; `xtask l10n check` holds
+every language to giving `.advanced` exactly where English does (Japanese
+may make the two equal) and none in `boot.ftl`; the faces' cut reads
+both wordings. **Advanced is today's text, byte for byte**: `xtask`'s
+ignored `advanced_wordings_keep_the_text_before`
+(`DDI_L10N_BEFORE=<a copy of locales/ from before>`) compares every
+message of English and Japanese with its text before: an `.advanced`
+must be it exactly, any other message unchanged (160 wordings checked).
+How to write one: `locales/README.md`, "Two wordings".
+
+**The words.** 79 messages have two wordings (the maintainer's table to
+mark up: the round's `words.md`): the plan's ten pairs (pair 2 with
+today's text as its Advanced wording rather than a new one, which would
+have changed Advanced), the rows brought back, the Basic rows'
+sentences that used the genre's terms (Speed, Reverse, Timing
+difficulty, Calibration, Background brightness, Arrows, whose sentence
+pointed at "its options below", which Basic hides), the modifiers line,
+the results' timing words, song select's radar names and captions,
+calibration's page and its runs' lines and hints, and a room's Boos
+(its row, a change's words, the summary). Two new messages are Basic's
+alone: `results-average-timing` ("2.1 ms early") and
+`pages-calibration-this-device`.
+
+**Rows brought back to Basic** (`options_levels::LEVELS`), each for its
+words alone, each passing the lean once plainly named: Fewer notes
+(`cut`), Notes together (`at_once`) and No long notes (`no_holds`),
+whose sentences say the play is marked ASSIST on the results and its
+best kept apart; Clap on each note (`assist_clap`); Compare with your
+best (`ghost`); Darken behind the arrows (`field_filter`). Notes shows
+at Basic again (its three assists under SIMPLIFY).
+
+| Section | Basic, stage 1 as leaned | Basic, stage 2 | Advanced |
+|---|---|---|---|
+| Scroll | 2 | 2 | 4 |
+| Notes | 0 (left out) | 3 | 11 |
+| Rules | 4 | 4 | 11 |
+| Timing | 1 | 1 | 3 |
+| Sound | 5 | 6 | 7 |
+| Display | 10 | 12 | 30 |
+| Arrows | 1 | 1 | 8 |
+| Controls | 10 | 10 | 11 |
+| Data | 9 (8 on desktop) | 9 (8) | 9 (8) |
+| Songs (desktop) | 2 | 2 | 2 |
+| Total | 42 (43 on desktop) | 48 (49) | 94 (95) |
+
+The one-time placement of those who play already reads the same
+table, so a changed row brought back no longer counts as an Advanced
+setting changed; everyone placed since stage 1 keeps the level the mark
+holds (nobody moves), and settings not opened since then with only such
+a row changed are placed at Basic, where the row now shows
+(`options_levels::tests::those_who_play_already_keep_what_they_see`).
+
+**Outside Options** (the level the messages are spoken at,
+`ddi_l10n::advanced`; Advanced as before):
+
+- *Song select*: a chart's number whole at Basic (`meter_text_fine`; MSD
+  whole, the DDI estimate's tenth kept, round AD); the radar's shape
+  with plain names and no spoke's number, its caption "Overall" with
+  the chart's number as its row shows it.
+- *The results*: the Timing and Life panels alone (`panel_sets_shown`),
+  "Average timing" in words without σ, the Timing panel's note without
+  σ, and the song's timing editor only where the song has an offset or
+  this play suggests one 15 ms or more away (`offset_shown`; open
+  question 7 as recommended), in plain words.
+- *Calibration's page*: plain words; this device's delays in one
+  sentence (the sound output and display seen last) in place of the
+  defaults and every device's list; where it sent the player to rows
+  Basic hides ("by hand in the options", "Timing error of each hit") it
+  says how to show them (Show advanced options, Options → Display, then
+  Options → Timing); Reset stays, a way out of a bad calibration.
+- *The start prompt*: its rows' words and the modifiers line.
+- *A room*: "Stray presses" for Boos (pair 10); nothing else of rooms.
+
+**Tests.** `ddi_l10n`'s `the_level_chooses_a_message_s_wording` and
+every message formatted at both wordings in every language; the walk in
+`qps-ploc` again at Basic (`every_text_shown_at_basic_is_a_message_or_data`);
+`play::tests::basic_results_show_less_in_plain_words`;
+`ratings_tests::the_radar_at_basic_has_plain_names_and_no_numbers`;
+calibration's `the_menu_lists_the_offsets_and_resets_them` at both
+levels; the levels' tests for the rows brought back. No drawn pin moved:
+the pins draw at the Advanced wording, unset.
+
+**Not done in stage 2**: Turn and Appearance's words and their
+modifiers (Advanced rows, shown at Basic only where changed), the
+results' notes and the editor (both levels alike, as 2.6 says), the
+messages naming places in Options (stage 3), the hidden screen, the
+choosers.

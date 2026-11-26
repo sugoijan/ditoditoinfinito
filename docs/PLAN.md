@@ -1085,8 +1085,9 @@ named was looked at for this list.
    level and Basic hiding Options' Advanced rows, built the same day on
    the plan's recommendations; on 2026-11-26 the maintainer chose the
    switch's words, "Show advanced options: Off / On", and leaned the
-   rows toward Advanced; the other open questions still the
-   maintainer's).
+   rows toward Advanced; its stage 2, the plain words at Basic and
+   today's at Advanced, built the same day; the other open questions
+   still the maintainer's).
 
 Below these, later:
 

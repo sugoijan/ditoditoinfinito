@@ -119,6 +119,41 @@ its kind in the player's language, its words after it.
   translation's accuracy decides the word, not the faces; only avoid
   words obscure in themselves).
 
+## Two wordings: Basic and Advanced
+
+The game shows its words at two levels (`docs/plans/ui-levels.md`):
+Basic, a new player's, in plain words, and Advanced (Options → Display →
+Show advanced options On), in the terms players of the genre know. A
+message whose words differ between them has two wordings in one entry:
+its value is the plain one, its `.advanced` attribute the genre's.
+
+```ftl
+# Options → Scroll, Reverse's sentence.
+options-reverse-description = Arrows move down to the targets at the bottom.
+    .advanced = Arrows scroll down to receptors at the bottom.
+```
+
+- Give a message `.advanced` only where the words really differ; most
+  messages have one wording, read at both levels. No other attribute is
+  taken, and none in `boot.ftl` (the page's loader shows its lines
+  before the settings are read).
+- The plain wording names no term of the genre or of another game
+  (X-mod, receptor, hold, jump, jack, Boo, MSD, offset, σ) and no other
+  game, except a ruleset, a layout or a file format by its own name;
+  "long notes", "the targets", "delay" are its words. The Advanced
+  wording is what such players expect, as the message said before it
+  had two.
+- Both wordings are whole sentences and may use different variables of
+  the message's declared ones (each declared variable used by one of
+  them at least).
+- Every language gives `.advanced` exactly where English does
+  (`just l10n-check` fails it otherwise); a translation may make the
+  two equal where its words say both.
+- The code never chooses: `ddi_l10n::set_advanced` does, with the
+  language, and every `msg` function returns the wording chosen.
+  Something shown only at one level (a number, a panel) is the screen's
+  choice by `ddi_l10n::advanced`, not a wording.
+
 ## The privacy note: plain language
 
 The privacy note (`pages-privacy-*` in `pages.ftl`, the Credits'

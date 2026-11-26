@@ -759,8 +759,12 @@ so.
   hiding Options' and the start prompt's Advanced rows with each
   section's count of those changed, Reset and Show), on the plan's own
   recommendations; the switch's words and a stricter sorting of the
-  rows toward Advanced the maintainer's answers of 2026-11-26, the
-  other open questions waiting.
+  rows toward Advanced the maintainer's answers of 2026-11-26; its
+  stage 2 built the same day (section 10: one message with two
+  wordings, the plain one at Basic and today's as its `.advanced`
+  attribute at Advanced; six assists and aids back at Basic under plain
+  names; song select's radar, the results and calibration's page
+  showing less and plainer at Basic), the other open questions waiting.
   An inventory of every option (126 kinds of row,
   93 stored settings) and of 52 places outside Options with the genre's
   jargon or technical detail; a rule sorting them into Basic (the

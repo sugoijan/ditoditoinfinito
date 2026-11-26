@@ -500,7 +500,13 @@ Rust and the browser are implementation details, not advertised features.
   make the game worse with it; Basic hides Options' and the start prompt's
   Advanced rows and never their effect, each section ending with a
   count of those changed, Reset and Show; a section a shell adds,
-  `World::sections`, may be Advanced alone). Controller menus use shared
+  `World::sections`, may be Advanced alone; stage 2: the words at the
+  level, `ddi_l10n`'s two wordings, the flip rebuilding every screen,
+  `options_shell::follow_level`; at Basic song select's radar without
+  numbers, the results' Timing and Life panels alone and their song
+  timing editor only where the song has an offset or a large suggestion,
+  `play::panel_sets_shown`, `offset_shown`, calibration's page in plain
+  words with this device's delays in a sentence). Controller menus use shared
   `ControlBindings::menu_control`: West opens visible More actions, shoulders
   change charts/sections/panels (editor: lanes), and dedicated Start stays
   distinct until the screen resolves it. Standard-controller binding has
@@ -625,7 +631,12 @@ Rust and the browser are implementation details, not advertised features.
   2026-11-17; `force` for `--lang` and the web's `?lang=`; the web
   page's loader chooses alike, both held to
   `locales/system-language-cases.txt`), missing messages from the fallback then English, numbers in
-  the language's marks; `UiText::data` for what is not ours to translate;
+  the language's marks; at the thread's level a message's plain wording
+  (its value, the Basic level's) or its `.advanced` attribute (the
+  genre's terms, Show advanced options On; `set_advanced`, set with the
+  language by `Settings::choose_language`, Advanced until set;
+  `at_level`; `docs/plans/ui-levels.md`, stage 2; `locales/README.md`,
+  "Two wordings"); `UiText::data` for what is not ours to translate;
   the pseudo-languages `qps-ploc` (accented, 40% longer, « », data ‹ ›)
   and `qps-wide`. A change of language rebuilds every screen in place
   (`Cx::rebuild_screens`, `Ui::rebuild_all`). A language's script beyond
@@ -3280,7 +3291,11 @@ dependency's licence before adding it.
   `docs/plans/README.md`, current when scope changes.
 - UI text avoids jargon from specific games except where naming a ruleset
   or a layout by StepMania's own name for its game ("Pump single", from
-  StepMania's `pump` game, `docs/plans/pump.md`).
+  StepMania's `pump` game, `docs/plans/pump.md`). At the Basic level it
+  uses no term of the genre's community or of other games (X-mod,
+  Sudden+, MSD, jacks, Boos, offset) and no technical number; such terms
+  are the Advanced level's: on a row shown at Advanced only, or as a
+  message's `.advanced` wording (`locales/README.md`, "Two wordings").
 - UI text is a message (`docs/plans/localization.md`, `locales/README.md`):
   write it in `locales/en/<area>.ftl` with a comment for the translator
   (where it shows, its room, each variable declared `$name (Number|String)`)
