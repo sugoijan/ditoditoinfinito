@@ -29,6 +29,13 @@ pub enum Files {
         reader: Arc<ZipReader>,
         dir: RelPathBuf,
     },
+    /// A song fetched from a source and not imported: its item's files in
+    /// the store (`crate::sources::fetched`), by the key `key`.
+    Memory {
+        key: u64,
+        files: ddi_source_host::store::ItemFiles,
+        dir: RelPathBuf,
+    },
 }
 
 impl Files {
@@ -49,6 +56,13 @@ impl Files {
     }
 
     fn lib(s: &LibSong) -> Result<Files, String> {
+        if let Some(key) = s.fetched {
+            return Ok(Files::Memory {
+                key,
+                files: crate::sources::fetched::files(key).ok_or("no longer fetched")?,
+                dir: s.dir.clone(),
+            });
+        }
         Ok(if s.zip {
             Files::Zip {
                 zip: s.root.clone(),
@@ -67,7 +81,7 @@ impl Files {
     /// root.
     fn rooted(&self, file: &str) -> RelPathBuf {
         let dir = match self {
-            Files::Dir { dir, .. } | Files::Zip { dir, .. } => dir,
+            Files::Dir { dir, .. } | Files::Zip { dir, .. } | Files::Memory { dir, .. } => dir,
         };
         let path = dir.join(file);
         path.normalize().unwrap_or(path)
@@ -76,7 +90,7 @@ impl Files {
     /// The song's folder, relative to the root.
     pub fn dir(&self) -> &ddi_library::path::RelPath {
         match self {
-            Files::Dir { dir, .. } | Files::Zip { dir, .. } => dir,
+            Files::Dir { dir, .. } | Files::Zip { dir, .. } | Files::Memory { dir, .. } => dir,
         }
     }
 
@@ -86,6 +100,7 @@ impl Files {
         match self {
             Files::Dir { root, .. } => DirReader { root: root.clone() }.read(&self.rooted(file)),
             Files::Zip { reader, .. } => reader.read(&self.rooted(file)),
+            Files::Memory { files, .. } => files.read(&self.rooted(file)),
         }
     }
 
@@ -97,6 +112,7 @@ impl Files {
                 DirReader { root: root.clone() }.read_at(&self.rooted(file), 0, len)
             }
             Files::Zip { reader, .. } => reader.read_at(&self.rooted(file), 0, len),
+            Files::Memory { files, .. } => files.read_at(&self.rooted(file), 0, len),
         }
     }
 
@@ -123,6 +139,13 @@ impl Files {
                     .ok_or("path leaves its root")?,
                 None,
             )),
+            // Movies are kept on disk (the store's cache folder, or where
+            // This computer found them): the decoders open a path.
+            Files::Memory { key, .. } => {
+                crate::sources::fetched::disk_path(*key, &self.rooted(name))
+                    .map(|p| (p, None))
+                    .ok_or_else(|| format!("{name}: not fetched"))
+            }
             Files::Zip { zip, reader, .. } => {
                 let entry = self.rooted(name);
                 if let Some(range) = reader.stored_range(&entry)? {
@@ -197,6 +220,7 @@ impl Files {
         match self {
             Files::Dir { root, .. } => DirReader { root: root.clone() }.read(path),
             Files::Zip { reader, .. } => reader.read(path),
+            Files::Memory { files, .. } => files.read(path),
         }
     }
 
@@ -211,6 +235,7 @@ impl Files {
                 .map(|p| p.display().to_string())
                 .unwrap_or_default(),
             Files::Zip { zip, .. } => format!("zip:{}!{path}", zip.display()),
+            Files::Memory { key, .. } => crate::sources::fetched::source(*key, &path),
         }
     }
 
@@ -224,6 +249,9 @@ impl Files {
                 .map(|p| p.display().to_string())
                 .unwrap_or_default(),
             Files::Zip { zip, .. } => format!("zip:{}!{}", zip.display(), self.rooted(file)),
+            Files::Memory { key, .. } => {
+                crate::sources::fetched::source(*key, &self.rooted(file))
+            }
         }
     }
 }

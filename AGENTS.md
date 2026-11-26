@@ -458,7 +458,10 @@ Rust and the browser are implementation details, not advertised features.
   shell finds under a drop, `Zone.<id>`, lit by `PAGE_TARGET`), the
   announcer studio's page made from its draft (`studio.rs`; what each
   press does, the same for both shells over each one's `StudioHost`,
-  `studio_shell.rs`) and the
+  `studio_shell.rs`), desktop's Find songs page (`find_songs.rs`, absent
+  from the web's build: a page over a `FindModel`, its sources, This
+  computer's folders, a field searched as it rests, results with Play and
+  Import; `docs/plans/source-plugins.md`, stage 2) and the
   frame its scenes are shown in (`stage.rs`: a chrome drawing the
   screens under it smaller, `Screen::stage`; `Ui::mark` rings what a
   screen names, `Screen::spot`), the app's notices as the UI's
@@ -637,6 +640,8 @@ Rust and the browser are implementation details, not advertised features.
   language by `Settings::choose_language`, Advanced until set;
   `at_level`; `docs/plans/ui-levels.md`, stage 2; `locales/README.md`,
   "Two wordings"); `UiText::data` for what is not ours to translate;
+  areas only the desktop shows (`sources.ftl`, `DESKTOP_ONLY` in the
+  build script) left out of the web's build;
   the pseudo-languages `qps-ploc` (accented, 40% longer, « », data ‹ ›)
   and `qps-wide`. A change of language rebuilds every screen in place
   (`Cx::rebuild_screens`, `Ui::rebuild_all`). A language's script beyond
@@ -1318,9 +1323,28 @@ Rust and the browser are implementation details, not advertised features.
   (`editor.rs`: song select's E, saving into the song's folder, its
   playtests; new songs from a music file, `editor/new_song.rs`, made
   only once the music decodes, as on the web); the
-  devices' fingerprints and notices (`devices.rs`); song source plugins'
-  folders and `--source-check` (`sources.rs`, over `ddi-source-host`;
-  the cache folder's `sources/` emptied at the window's start). Settings in
+  devices' fingerprints and notices (`devices.rs`); song sources
+  (`sources/`, over `ddi-source-host`; `docs/plans/source-plugins.md`):
+  the plugins' folders and `--source-check` (`sources/mod.rs`; the cache
+  folder's `sources/` emptied at the window's start), and since stage 2
+  the sources the window's run holds (`Sources`, `Songs::with_sources`:
+  none, nothing read but the switches, where This computer is off and no
+  plugin is switched on; quiet during a play, `Songs::sources_quiet`):
+  "This computer" (`sources/this_computer.rs`, TENTATIVE, its own switch
+  `--sources on|off` in the desktop's setting `ddi.desktop.sources.v1`
+  with its folders, off by default, apart from Add songs: song folders
+  and zips searched in place without adding them to the library, bounded
+  in depth, entries, songs and time, links never followed, found songs
+  kept in memory until the page opens again), Find songs
+  (`sources/find.rs`, the model of `ddi_ui::screens::find_songs`, from
+  song select's More while a source is on), songs fetched and not
+  imported (`sources/fetched.rs`: `src:` ids found by `library::song`,
+  `LibSong::fetched`, `play::load::Files::Memory`, `mem:` pictures, a
+  play holding its item, `play::Request::held`; such a play kept only as
+  the library's song of the same chart, `fetched::keeps_as`, else not at
+  all) and imports (`sources/import.rs`: the data folder's
+  `sources/library/<source>/`, read as one more folder,
+  `Songs::scanned`; `sources/catalog.json`). Settings in
   `storage.json` in the config folder; `DDI_HOME` moves the config, data
   and cache folders under it (`paths.rs`). One app a data folder
   (`instance.rs`; `docs/plans/desktop.md`, "One app a data folder"): a
@@ -1493,9 +1517,16 @@ Rust and the browser are implementation details, not advertised features.
   cache folder's `sources/`, 2 GiB a run, movies always there, held
   items (`store::hold`) moved there rather than dropped (`store`), read
   by the library's own scanner and zip reader into songs with ids
-  `src:<16 hex>:<n>` and their `song_key` (`assemble`). Nothing starts a
-  plugin from the game's screens yet (stages 2 to 4). Its tests over
-  real processes are `tools/source-test-plugins/tests/host.rs`.
+  `src:<16 hex>:<n>` and their `song_key` (`assemble`); sources built
+  into the app asked the same way, in process on a thread an operation
+  (`builtin`, `Host::add_builtin`: desktop's "This computer"); nothing
+  new started while the game is quiet (`Host::set_quiet`, a play: a
+  request kept until it is not, built-in work waiting at its next step,
+  a plugin's running operation going on in its process). Its tests over
+  real processes are `tools/source-test-plugins/tests/host.rs`; desktop's
+  Find songs over the example plugin as a real process is
+  `crates/desktop/tests/find_songs_plugins.rs` (no harness: its own
+  executable, linked under a plugin's name, is that plugin).
 - `crates/room/` the multiplayer room, match and stage model (`ddi-room`,
   `docs/plans/multiplayer-prototype-progress.md`): serde and JSON only, no
   chart/engine/library or I/O, so the private server can run it too;
@@ -2517,7 +2548,10 @@ Rust and the browser are implementation details, not advertised features.
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--source-check` (no window: the song source plugins installed in the
   data folder's `plugins/`, their manifests and SHA-256, each started,
-  switched on or not, and what it declared, as JSON; `sources.rs`),
+  switched on or not, and what it declared, as JSON; `sources/mod.rs`),
+  `--sources on|off` ("This computer", the tentative song source built
+  in, saved; song select's More offers Find songs while it or a plugin
+  is on),
   `--mp-bots --api URL [--host] [--join LINK] [--guests N] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
   [--pick ID[:N],…] [--add ID[:N],…] [--everyone] [--group]

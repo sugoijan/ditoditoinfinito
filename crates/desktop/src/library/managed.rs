@@ -52,6 +52,7 @@ pub fn songs(snapshot: PlaybackSnapshot) -> Result<Vec<LibSong>, String> {
                 warnings: Vec::new(),
                 notes: Vec::new(),
                 work: None,
+                fetched: None,
             })
         })
         .collect()

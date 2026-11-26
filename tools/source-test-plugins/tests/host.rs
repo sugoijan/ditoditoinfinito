@@ -428,6 +428,31 @@ fn fetched_songs_land_in_memory_in_the_cache_folder_or_in_place() {
     assert_eq!(h.strikes("example"), 0);
 }
 
+/// While the game is quiet (a play: `Host::set_quiet`) nothing new
+/// starts: a request waits in the host. A fetch already running when
+/// the play started goes on in the plugin's own process, at its lower
+/// priority, and ends as it would; what it answers waits for the game.
+#[test]
+fn while_quiet_a_running_fetch_goes_on_and_nothing_new_starts() {
+    let mut r = plain("quiet", &[]);
+    let h = &mut r.host;
+    let fetching = h.request("example", fetch("slow-song", None));
+    std::thread::sleep(Duration::from_millis(300));
+    h.set_quiet(true);
+    let asked = h.request("example", search("song 1", 5));
+    assert_eq!(h.queued(), 1);
+    let events = until_end(h, fetching, LONG);
+    assert!(matches!(events.last(), Some(Event::Fetched { .. })), "{events:#?}");
+    assert!(
+        !events.iter().any(|e| e.ends() == Some(asked)),
+        "the search waits while quiet"
+    );
+    assert!(h.wait_event(Duration::from_millis(300)).is_none());
+    h.set_quiet(false);
+    assert!(matches!(until_end(h, asked, LONG).last(), Some(Event::Done { .. })));
+    assert_eq!(h.strikes("example"), 0);
+}
+
 #[test]
 fn plugins_are_off_until_switched_on_and_unknown_ones_are_not_installed() {
     let mut r = rig("off", &[], &[], StoreLimits::default(), timeouts());

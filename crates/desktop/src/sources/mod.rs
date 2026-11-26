@@ -1,8 +1,12 @@
-//! Song source plugins on desktop (`docs/plans/source-plugins.md`, stage
-//! 1): where they and what they keep live, and `--source-check`. The host
-//! itself is `ddi_source_host`; nothing in the game starts a plugin yet
-//! (stages 2 to 4 add Find songs and the Plugins page), and a player with
-//! no plugins pays a missing folder's check at most.
+//! Song sources on desktop (`docs/plans/source-plugins.md`): where
+//! plugins and what they keep live, `--source-check` (stage 1), and since
+//! stage 2 the sources the game holds ([`Sources`]): the host
+//! (`ddi_source_host`) with the plugins switched on and "This computer"
+//! ([`this_computer`], behind its own switch), the songs they fetch
+//! played without importing ([`fetched`]) or imported ([`import`]), and
+//! the Find songs page's model ([`find`]). A player with the switch off
+//! and no plugin switched on gets no host at all: nothing is started,
+//! nothing shows, and the start pays reading the switches' file.
 //!
 //! - the plugins: the data folder's `plugins/<id>/`;
 //! - which are switched on: the configuration folder's `plugins.json`
@@ -11,16 +15,149 @@
 //!   `plugins/<id>/` and the data folder's `plugin-data/<id>/`;
 //! - songs fetched without importing, where memory will not do: the
 //!   cache folder's `sources/`, emptied at each start of the window's run
-//!   ([`clear_store`]) and when the store is dropped.
+//!   ([`clear_store`]) and when the store is dropped;
+//! - songs imported: the data folder's `sources/library/` ([`import`]);
+//! - This computer's switch and folders: the desktop's own setting
+//!   [`SETTING_KEY`] (never the settings the web shares).
+
+pub mod fetched;
+pub mod find;
+pub mod import;
+pub mod this_computer;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use ddi_platform::storage::{self, Area};
+use serde::{Deserialize, Serialize};
 
 use ddi_source_host::installed::Found;
 use ddi_source_host::store::{Store, StoreLimits};
 use ddi_source_host::switches::Switches;
 use ddi_source_host::{Event, Host, HostConfig};
+
+/// This computer's switch and folders, the desktop's own setting.
+pub const SETTING_KEY: &str = "ddi.desktop.sources.v1";
+
+/// "This computer": on (off by default, `--sources on|off`) and the
+/// folders it searches (chosen on the Find songs page).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Setting {
+    #[serde(default)]
+    pub this_computer: bool,
+    #[serde(default)]
+    pub folders: Vec<PathBuf>,
+}
+
+impl Setting {
+    pub fn load() -> Setting {
+        storage::load(Area::Local, SETTING_KEY).unwrap_or_default()
+    }
+
+    pub fn save(&self) {
+        let _ = storage::save(Area::Local, SETTING_KEY, self);
+    }
+}
+
+/// `--sources on|off`: This computer's switch, written at once.
+pub fn save_switch(on: bool) {
+    let mut s = Setting::load();
+    if s.this_computer != on {
+        s.this_computer = on;
+        s.save();
+        let _ = storage::flush();
+    }
+}
+
+/// The song sources the game holds: the host with This computer (where
+/// it is on) and the plugins switched on.
+pub struct Sources {
+    pub host: Host,
+    pub this_computer: Option<Arc<this_computer::ThisComputer>>,
+}
+
+impl Sources {
+    /// The sources at the window's start: none where This computer is
+    /// off and no plugin is switched on (nothing else is read then).
+    /// `wake` wakes the event loop with their news.
+    pub fn start(wake: Option<Arc<dyn Fn() + Send + Sync>>) -> Option<Sources> {
+        let setting = Setting::load();
+        let on = switches_path()
+            .map(|p| Switches::read(&p).on)
+            .unwrap_or_default();
+        if !setting.this_computer && on.is_empty() {
+            return None;
+        }
+        let installed: Vec<_> = plugins_dir()
+            .map(|d| ddi_source_host::discover(&d))
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|f| match f {
+                Found::Plugin(p) => Some(p),
+                Found::Refused { dir, problem } => {
+                    eprintln!("sources: {} not taken: {problem:?}", dir.display());
+                    None
+                }
+            })
+            .collect();
+        let plugin_on = installed.iter().any(|p| on.contains(p.id()));
+        if !setting.this_computer && !plugin_on {
+            return None;
+        }
+        let store = Store::open(store_dir()?, StoreLimits::default()).shared();
+        Some(Sources::with(
+            host_config()?,
+            installed,
+            &on,
+            store,
+            wake,
+            setting.this_computer.then_some(setting.folders),
+        ))
+    }
+
+    /// The sources of `installed` (those in `on` switched on), This
+    /// computer on `folders` where given.
+    pub fn with(
+        config: HostConfig,
+        installed: Vec<ddi_source_host::Installed>,
+        on: &BTreeSet<String>,
+        store: ddi_source_host::SharedStore,
+        wake: Option<Arc<dyn Fn() + Send + Sync>>,
+        folders: Option<Vec<PathBuf>>,
+    ) -> Sources {
+        fetched::set_store(Some(store.clone()));
+        let mut host = Host::new(config, installed, on, store, wake);
+        let this_computer = folders.map(|f| Arc::new(this_computer::ThisComputer::new(f)));
+        if let Some(t) = &this_computer {
+            host.add_builtin(t.clone());
+        }
+        Sources {
+            host,
+            this_computer,
+        }
+    }
+
+    /// The sources a player may ask now, in the page's order: This
+    /// computer first, then the plugins switched on (by their names).
+    pub fn offered(&self) -> Vec<(String, Option<String>)> {
+        let mut out = Vec::new();
+        if self.this_computer.is_some() {
+            out.push((this_computer::ID.to_string(), None));
+        }
+        for p in self.host.plugins() {
+            if self.host.is_on(p.id()) {
+                let language = ddi_l10n::current().tag;
+                out.push((
+                    p.id().to_string(),
+                    Some(p.manifest.name.get(language).to_string()),
+                ));
+            }
+        }
+        out
+    }
+}
 
 /// The plugins' folder, in the data folder.
 pub fn plugins_dir() -> Option<PathBuf> {

@@ -139,7 +139,7 @@ const MAX_SIDE: u32 = 8192;
 const MAX_ALLOC: u64 = 96 * 1024 * 1024;
 /// The largest image file read: anything larger is not a banner or a
 /// background, and is not read whole to find out.
-const MAX_FILE: u64 = 48 * 1024 * 1024;
+pub(crate) const MAX_FILE: u64 = 48 * 1024 * 1024;
 
 /// Where `songs/…` and the rest are read from (found once a run).
 pub fn assets() -> PathBuf {
@@ -256,6 +256,11 @@ pub fn load_sized(source: &str, max_side: u32) -> Option<Sized> {
     let bytes = match zip_source(source) {
         // A zip's entry, read in place (`crate::library`).
         Some((zip, entry)) => zip_entry(&zip, &entry)?,
+        // A fetched song's file, from the store
+        // (`crate::sources::fetched`).
+        None if source.starts_with("mem:") => {
+            crate::sources::fetched::read_source(&source["mem:".len()..])?
+        }
         None => {
             let path = path(source)?;
             if std::fs::metadata(&path).ok()?.len() > MAX_FILE {

@@ -231,6 +231,11 @@ pub struct LibSong {
     /// chart is the page or the dump's manifest).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work: Option<WorkRef>,
+    /// A song fetched from a source and not imported (`src:` ids,
+    /// `crate::sources::fetched`): its item in the store, whose files its
+    /// paths name (`root` is then empty). Never in the cache.
+    #[serde(skip)]
+    pub fetched: Option<u64>,
 }
 
 /// Where a work's song is, every path relative to the root: read again
@@ -265,6 +270,9 @@ impl LibSong {
 
     /// A file already relative to the library root, such as a pack cover.
     pub fn root_source(&self, file: &RelPath) -> String {
+        if let Some(key) = self.fetched {
+            return crate::sources::fetched::source(key, file);
+        }
         if self.zip {
             format!("zip:{}!{}", self.root.display(), file)
         } else {
@@ -837,6 +845,7 @@ fn scan_works(
                             .map(|(name, path)| (name.clone(), real(path).into()))
                             .collect(),
                     }),
+                    fetched: None,
                 },
             });
         }
@@ -938,6 +947,7 @@ fn scan_levels(
                 warnings: Vec::new(),
                 notes: Vec::new(),
                 work: None,
+                fetched: None,
             },
         });
     }
@@ -1053,6 +1063,7 @@ fn lib_song(root: &Root, s: scan::Scanned) -> LibSong {
         warnings: s.warnings,
         notes: s.notes,
         work: None,
+        fetched: None,
     }
 }
 
@@ -1446,8 +1457,13 @@ pub fn register_room_songs(songs: &[LibSong]) {
     }
 }
 
-/// The library's song `id` (a test's first, then a room's shared one).
+/// The library's song `id` (a test's first, then a room's shared one);
+/// a song fetched from a source and not imported by its `src:` id
+/// (`crate::sources::fetched`).
 pub fn song(id: &str) -> Option<LibSong> {
+    if crate::sources::fetched::is_fetched(id) {
+        return crate::sources::fetched::song(id);
+    }
     let tests = test_songs().read().ok().and_then(|r| r.get(id).cloned());
     tests
         .or_else(|| room_songs().read().ok()?.get(id).cloned())
@@ -1704,6 +1720,9 @@ fn prepare_preview(s: &LibSong) -> Option<Prepared> {
     if let Some(w) = &s.work {
         return prepare_work_preview(s, w);
     }
+    if let Some(key) = s.fetched {
+        return prepare_fetched_preview(s, key);
+    }
     let reader: Box<dyn Reader> = if s.zip {
         Box::new(ZipReader::open(&s.root, &legacy_text).ok()?)
     } else {
@@ -1800,6 +1819,45 @@ fn prepare_work_preview(s: &LibSong, w: &WorkRef) -> Option<Prepared> {
     })
 }
 
+/// A fetched song's preview: its music where it is on disk (This
+/// computer's songs, or the cache's), else written once into the
+/// previews folder as a zip's is (the preview player opens a file).
+fn prepare_fetched_preview(s: &LibSong, key: u64) -> Option<Prepared> {
+    let file = s.entry.preview.as_ref().unwrap_or(&s.entry.music);
+    let path = s.rooted(file);
+    let music = match crate::sources::fetched::disk_path(key, &path) {
+        Some(p) => p,
+        None => {
+            let files = crate::sources::fetched::files(key)?;
+            let bytes = files.read(&path).ok()?;
+            let dir = cache_dir()?.join("previews");
+            let ext = path
+                .as_str()
+                .rsplit_once('.')
+                .map_or("ogg", |(_, e)| e)
+                .to_ascii_lowercase();
+            let id = s.entry.id.replace(':', "-");
+            let key = format!("{id}-");
+            let out = dir.join(format!("{key}{}.{ext}", bytes.len()));
+            if !out.is_file() {
+                cache_preview(&dir, &key, &out, &bytes)?;
+            }
+            out
+        }
+    };
+    Some(Prepared {
+        music,
+        from: if s.entry.preview.is_some() {
+            0.0
+        } else {
+            s.entry.preview_start
+        },
+        length: s.entry.preview_length,
+        separate: s.entry.preview.is_some(),
+        target: Default::default(),
+    })
+}
+
 /// Writes `bytes` as the preview `out` in `dir` (whole, then renamed)
 /// and cleans the folder ([`clean_previews`]).
 fn cache_preview(dir: &Path, key: &str, out: &Path, bytes: &[u8]) -> Option<()> {
@@ -1862,6 +1920,7 @@ mod managed_merge_tests {
             warnings: Vec::new(),
             notes: Vec::new(),
             work: None,
+            fetched: None,
         }
     }
 

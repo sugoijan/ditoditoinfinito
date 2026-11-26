@@ -1120,6 +1120,8 @@ impl Shell {
             // Stale plays worked out again (song select's bests follow
             // in the poll), never during a play.
             songs.rework(self.play.playing(), !self.play.idle());
+            // Nothing new starts in a song source during a play.
+            songs.sources_quiet(self.play.playing());
             // Chart ratings, never started during a play.
             self.ratings
                 .poll(self.play.playing(), songs.wake.borrow().as_ref());

@@ -160,6 +160,16 @@ ddi-icon.workspace = true
 ddi-desktop = { path = ".", default-features = false, features = ["sim"] }
 # The DanOni skin's test draws the upstream art as it is.
 resvg = { workspace = true, features = ["raster-images"] }
+# Find songs' test with plugins (`tests/find_songs_plugins.rs`): the
+# example plugin, run as a real process by the test's own executable.
+ddi-source-sdk.workspace = true
+ddi-source-test-plugins = { path = "../../tools/source-test-plugins" }
+
+# Its own `main`: run under a plugin's name, the test binary is that
+# plugin.
+[[test]]
+name = "find_songs_plugins"
+harness = false
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 ddi-importer-protocol = { workspace = true, optional = true }

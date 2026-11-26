@@ -1207,6 +1207,8 @@ dependencies = [
  "ddi-session",
  "ddi-shell",
  "ddi-source-host",
+ "ddi-source-sdk",
+ "ddi-source-test-plugins",
  "ddi-theme",
  "ddi-ui",
  "ddi-video-protocol",

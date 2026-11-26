@@ -390,6 +390,7 @@ pub fn load_with(
             warnings: Vec::new(),
             notes: Vec::new(),
             work: None,
+            fetched: None,
         });
     }
     download_over(id);
@@ -593,6 +594,7 @@ pub fn listing_in(store: &str, id: &str) -> Result<ddi_ui::state::room::Listing,
         warnings: Vec::new(),
         notes: Vec::new(),
         work: None,
+        fetched: None,
     };
     let banner = match entry.banner.as_deref() {
         Some(b) => {
@@ -830,7 +832,8 @@ fn send_share(
 }
 
 /// The bytes of a song's file `named`: a folder's file by its path, a
-/// zip's entry read; `None` when it is not there.
+/// zip's entry or a fetched song's file read; `None` when it is not
+/// there.
 fn source_of(files: &Files, named: &str) -> Option<Source> {
     match files {
         Files::Dir { root, dir } => {
@@ -840,7 +843,8 @@ fn source_of(files: &Files, named: &str) -> Option<Source> {
             let meta = std::fs::metadata(&path).ok()?;
             meta.is_file().then_some(Source::File(path, meta.len()))
         }
-        Files::Zip { .. } => files.read(named).ok().map(Source::Bytes),
+        // A zip's entry, or a fetched song's file (from the store).
+        Files::Zip { .. } | Files::Memory { .. } => files.read(named).ok().map(Source::Bytes),
     }
 }
 

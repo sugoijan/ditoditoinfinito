@@ -2,6 +2,8 @@
 //! a quarter second of silence), and a stored zip of files. No song here
 //! is anyone's: everything is made by code.
 
+pub mod example;
+
 /// The simfile of generated song `n`: a dance-single chart (and a
 /// dance-double one for even `n`), its meter from `n`.
 pub fn simfile(n: u32) -> String {

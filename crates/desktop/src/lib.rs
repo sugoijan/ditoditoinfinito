@@ -260,7 +260,10 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// named), or `--cpu-strength relaxed|easy|normal|strong|expert`, levels 6
 /// to 10 of it. `--source-check` lists the song source plugins installed
 /// in the data folder's `plugins/` and starts each, printing what each
-/// declared as JSON ([`sources`]).
+/// declared as JSON ([`sources`]). `--sources on|off` switches "This
+/// computer" on or off, the tentative song source built in that searches
+/// folders without adding them to the library (saved; song select's More
+/// offers Find songs while it, or a plugin, is on).
 ///
 /// A run that opens the window takes its data folder's lock first and
 /// does not start where another app has it; the runs that open none
@@ -347,7 +350,7 @@ pub fn run() {
     match utility {
         Some(utility) => {
             store::install_reading();
-            for flag in ["--sharing", "--mp-rules-first", "--mp-watch-link"] {
+            for flag in ["--sharing", "--sources", "--mp-rules-first", "--mp-watch-link"] {
                 if a.has(flag) {
                     eprintln!(
                         "{flag} is not saved by a run that opens no window ({utility}): start the game with it"
@@ -421,6 +424,12 @@ pub fn run() {
     // web's `#/?share=1` (`docs/plans/shared-songs.md`).
     if let Some(on) = a.on_off("--sharing") {
         args::save_switch(on, |s| &mut s.sharing);
+    }
+    // `--sources on|off`: "This computer", the song source built in
+    // (tentative, off by default; `docs/plans/source-plugins.md`, stage
+    // 2), and with it song select's Find songs (`sources`).
+    if let Some(on) = a.on_off("--sources") {
+        sources::save_switch(on);
     }
     // `--multiplayer on|off`: once the multiplayer prototype's hidden
     // switch; multiplayer is always there now (2026-11-14), so the flag
@@ -592,6 +601,8 @@ pub fn run() {
     // asks for the sample data; `--songs <dir>` adds a folder for this run.
     let songs = shell::opens_on_library(&screen, a.has("--sample")).then(|| {
         songs::Songs::new(a.values("--songs").map(std::path::PathBuf::from).collect())
+            // The song sources, where any is on (`sources`).
+            .with_sources()
     });
     // A play or a test opened from here: no first start's offer over it.
     if let Some(s) = &songs

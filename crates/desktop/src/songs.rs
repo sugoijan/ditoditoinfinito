@@ -29,6 +29,9 @@ use ddi_ui::{Cx, Ui};
 use crate::library::{Hidden, LibSong, Library};
 use crate::preview::SharedPlayer;
 
+/// What wakes the event loop (news from a thread).
+type Wake = Arc<dyn Fn() + Send + Sync>;
+
 /// How often song select gets the history's bests while it keeps changing.
 const HISTORY_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 
@@ -88,6 +91,12 @@ pub struct Songs {
     share_upload: RefCell<Option<std::sync::mpsc::Receiver<ShareView>>>,
     /// The share's download as last sent to the list.
     download_seen: RefCell<Option<crate::share::Download>>,
+    /// The song sources the game holds (`crate::sources`): none where
+    /// This computer is off and no plugin is switched on.
+    pub sources: RefCell<Option<crate::sources::Sources>>,
+    /// What wakes the event loop for the sources' news, once
+    /// [`Songs::start`] has it (the host is made before).
+    sources_wake: Arc<std::sync::Mutex<Option<Wake>>>,
 }
 
 /// A share being read, or read.
@@ -107,7 +116,7 @@ struct ShareHost {
 
 impl LibSong {
     /// As song select lists it.
-    fn listed(&self, removable: bool) -> Listed<'_> {
+    pub(crate) fn listed(&self, removable: bool) -> Listed<'_> {
         Listed {
             entry: &self.entry,
             pack: Some(self.pack.clone()),
@@ -155,7 +164,40 @@ impl Songs {
             share_feed: SharedFeed::default(),
             share_upload: RefCell::default(),
             download_seen: RefCell::default(),
+            sources: RefCell::default(),
+            sources_wake: Arc::default(),
         })
+    }
+
+    /// The song sources made, where any is on (`crate::sources`), woken
+    /// through the loop's wake once [`Songs::start`] has it: the window's
+    /// run alone (a run without a window, beside an open app, must not
+    /// empty the app's store of fetched songs).
+    pub fn with_sources(self: Rc<Self>) -> Rc<Self> {
+        let relay = self.sources_wake.clone();
+        let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+            let w = relay.lock().ok().and_then(|w| w.clone());
+            if let Some(w) = w {
+                w();
+            }
+        });
+        *self.sources.borrow_mut() = crate::sources::Sources::start(Some(wake));
+        self
+    }
+
+    /// Whether song select offers Find songs (a source is on).
+    pub fn finding(&self) -> bool {
+        self.sources.borrow().is_some()
+    }
+
+    /// Nothing new starts in a source while a play runs, and This
+    /// computer's work waits (`ddi_source_host::Host::set_quiet`).
+    pub fn sources_quiet(&self, playing: bool) {
+        if let Some(s) = self.sources.borrow_mut().as_mut()
+            && s.host.is_quiet() != playing
+        {
+            s.host.set_quiet(playing);
+        }
     }
 
     /// Song select on share `id`'s songs alone: read on a thread, listed
@@ -303,6 +345,9 @@ impl Songs {
 
     /// Cancel and drain native jobs without joining a live worker on the UI thread.
     pub fn shutdown(&self) -> bool {
+        if let Some(s) = self.sources.borrow_mut().as_mut() {
+            s.host.shutdown();
+        }
         #[cfg(danoni_importer)]
         {
             self.imports.borrow_mut().shutdown()
@@ -344,14 +389,30 @@ impl Songs {
         f
     }
 
+    /// Every folder the library reads: [`Songs::folders`], then the
+    /// songs imported from sources (`crate::sources::import`), which
+    /// Options does not list.
+    pub fn scanned(&self) -> Vec<PathBuf> {
+        let mut f = self.folders();
+        for r in crate::sources::import::roots() {
+            if !f.contains(&r) {
+                f.push(r);
+            }
+        }
+        f
+    }
+
     /// Starts the scan (the cache's list first); `wake` wakes the loop.
     pub fn start(&self, wake: Arc<dyn Fn() + Send + Sync>) {
         *self.wake.borrow_mut() = Some(wake.clone());
+        if let Ok(mut w) = self.sources_wake.lock() {
+            *w = Some(wake.clone());
+        }
         #[cfg(danoni_importer)]
         self.imports.borrow_mut().load(wake.clone());
         crate::library::set_preview_wake(wake.clone());
         let library = Library::start(
-            self.folders(),
+            self.scanned(),
             crate::library::cache_dir().map(|d| d.join(crate::library::CACHE_FILE)),
             wake,
         );
@@ -383,7 +444,7 @@ impl Songs {
 
     /// Scans again (`force`: these folders whole).
     pub fn rescan(&self, force: Vec<PathBuf>) {
-        let folders = self.folders();
+        let folders = self.scanned();
         if let Some(l) = self.library.borrow_mut().as_mut() {
             l.scan(folders, force, false);
         }
@@ -896,7 +957,7 @@ impl Songs {
             SelectCall::Reread(pack) => {
                 // That pack read whole, the rest from the cache; hidden
                 // songs of it come back.
-                let folders = self.folders();
+                let folders = self.scanned();
                 if let Some(l) = self.library.borrow_mut().as_mut() {
                     if self.hidden.borrow_mut().show_pack(&l.songs, &pack) {
                         self.hidden.borrow().save();
@@ -1023,6 +1084,13 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
                 cx.push(crate::calibrate::menu(&env, &songs, sound.clone()));
                 return;
             }
+            // Find songs (`crate::sources`), while a source is on.
+            if matches!(&call, SelectCall::Open(what) if what == "find-songs") {
+                if songs.finding() {
+                    cx.push(crate::sources::find::screen(&env, &songs, sound.clone()));
+                }
+                return;
+            }
             // The chart editor (`docs/plans/editor.md`).
             if let SelectCall::Edit { song, chart } = &call {
                 match crate::editor::screen(&env, &songs, song, *chart) {
@@ -1083,7 +1151,9 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
         .with_shell(calls, songs.feed.clone())
         .with_editing()
         // Share… while the hidden switch is on (`crate::share`).
-        .with_sharing_if(Settings::load().sharing);
+        .with_sharing_if(Settings::load().sharing)
+        // Find songs… while a song source is on (`crate::sources`).
+        .with_finding(songs.finding());
     with_plays(screen, songs)
 }
 
@@ -1140,4 +1210,83 @@ pub fn shared_screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) 
     let screen = SelectScreen::new(env.clone(), data, None, play, open)
         .with_shell(calls, songs.share_feed.clone());
     with_plays(screen, songs)
+}
+
+/// Song select on songs a source fetched (`crate::sources::find`): `ids`
+/// alone, from `source` (its name, for the header's line), played as the
+/// library's are without importing them, each play holding its item
+/// (`crate::sources::fetched`); Back goes back to Find songs.
+pub fn found_screen(
+    env: &Env,
+    songs: &Rc<Songs>,
+    sound: Option<SharedPlayer>,
+    source: String,
+    ids: Vec<String>,
+) -> SelectScreen {
+    let play: PlayFn = {
+        let songs = songs.clone();
+        Rc::new(move |song, chart, _env, _cx| {
+            let mut request =
+                crate::play::Request::song(&song.id, chart.index, songs.autoplay.get());
+            request.backdrop = song.background.clone();
+            request.countdown = true;
+            request.held = crate::sources::fetched::hold(&song.id);
+            *songs.play.borrow_mut() = Some(request);
+        })
+    };
+    let open = open_fn(songs, sound.clone());
+    // The item kept while its songs are listed.
+    let held: Vec<_> = ids
+        .iter()
+        .filter_map(|id| crate::sources::fetched::hold(id))
+        .take(1)
+        .collect();
+    let calls: ShellFn = {
+        let (songs, env) = (songs.clone(), env.clone());
+        Rc::new(move |call, cx| {
+            let _ = &held;
+            match call {
+                SelectCall::Open(what) if what == "calibrate" => {
+                    cx.push(crate::calibrate::menu(&env, &songs, sound.clone()));
+                }
+                // Its place is its own: the library's is kept.
+                SelectCall::Place(_) => {}
+                call @ (SelectCall::Leave
+                | SelectCall::Selected { .. }
+                | SelectCall::Volume(_)
+                | SelectCall::Shown(_)
+                | SelectCall::WatchPlay(_)
+                | SelectCall::ShowPlay(_)
+                | SelectCall::RemovePlay(_)) => songs.call(call, sound.as_ref(), cx),
+                _ => {}
+            }
+        })
+    };
+    let data = found_data(songs, source, &ids);
+    let screen = SelectScreen::new(env.clone(), data, None, play, open)
+        .with_shell(calls, SharedFeed::default());
+    with_plays(screen, songs)
+}
+
+/// [`found_screen`]'s list: the fetched songs `ids`, as song select
+/// lists the library's.
+pub fn found_data(songs: &Songs, source: String, ids: &[String]) -> SelectData {
+    let settings = Settings::load();
+    let empty = ddi_ui::state::history::History::default();
+    let history = songs.plays.as_ref().map(|p| p.history());
+    let found: Vec<LibSong> = ids
+        .iter()
+        .filter_map(|id| crate::sources::fetched::song(id))
+        .collect();
+    let listed: Vec<Listed<'_>> = found.iter().map(|s| s.listed(false)).collect();
+    let mut data = select_view::select_data(
+        &listed,
+        &|_| false,
+        &settings,
+        history.as_deref().unwrap_or(&empty),
+        &MenuPlace::default(),
+    );
+    data.shared = Some(ddi_ui::screens::data::SharedView::found(source));
+    data.autoplay = songs.autoplay.get();
+    data
 }

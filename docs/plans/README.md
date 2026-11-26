@@ -796,8 +796,13 @@ so.
   keep (one crate since 2026-11-10, `crates/share-protocol`), and online
   rooms' shares made under a room's upload grant (M5d).
 - [Song sources: native plugins](source-plugins.md) (2026-11-25,
-  revised 2026-11-26): stage 1 built (2026-11-26), nothing a player sees
-  yet: the protocol (`crates/source-protocol`, version 1, with test
+  revised 2026-11-26): stages 1 and 2 built (2026-11-26). Stage 2, the
+  first a player can try (desktop, `--sources on`, tentative): "This
+  computer" built in behind a switch of its own, searching folders
+  without adding them to the library; Find songs in a first form from
+  song select's More; a found song played without importing it, or
+  imported into the data folder's `sources/library/`. Stage 1: the
+  protocol (`crates/source-protocol`, version 1, with test
   vectors), the host (`crates/source-host`: plugins found in the data
   folder's `plugins/`, off until switched on, each a process of its own
   held to the protocol's limits and timeouts, off for the run after

@@ -98,6 +98,10 @@ pub struct Request {
     /// the play's own (`ddi_session::play::SessionConfig::seat`; set by
     /// the host from [`host::Host::seat`]).
     pub seat: Option<Rc<ddi_engine::history::PlayLog>>,
+    /// A song fetched from a source and not imported: its item kept in
+    /// the store from the prompt until the results close
+    /// (`crate::sources::fetched`).
+    pub held: Option<crate::sources::fetched::Held>,
 }
 
 /// A line's scene in play, from the announcer studio
@@ -155,6 +159,7 @@ impl Request {
             stage: None,
             stage_room: None,
             seat: None,
+            held: None,
         }
     }
 
@@ -682,13 +687,23 @@ impl Play {
         let Some(plays) = plays else {
             return;
         };
+        // A fetched song's play is kept only as a play of the library's
+        // song of the same chart, else not at all: no kept play names a
+        // song that may not be found again (`crate::sources::fetched`).
+        let Some(song_id) = crate::sources::fetched::keeps_as(
+            &self.request.song,
+            &self.loaded.song,
+            self.request.chart,
+        ) else {
+            return;
+        };
         // The settings as stored, the prompt's play options over them.
         let mut settings = Settings::load();
         self.overrides.apply(&mut settings);
         // Whole milliseconds, as the web's `Date.now()`.
         let time = crate::clock::epoch_ms().round();
         let played = ddi_session::record::Played {
-            song_id: &self.request.song,
+            song_id: &song_id,
             song: &self.loaded.song,
             chart: self.request.chart,
             settings: &settings,

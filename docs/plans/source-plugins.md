@@ -1,9 +1,13 @@
 # Song sources: native plugins for the desktop app (2026-11-25)
 
-Status: stage 1 built (2026-11-26): the protocol, the host, the store
-for fetched songs, synthetic test plugins, `--source-check` and the start
-of the SDK; nothing a player sees yet ("Stage 1 as built", below). The
-maintainer's decisions of 2026-11-25 and 2026-11-26:
+Status: stages 1 and 2 built (2026-11-26). Stage 1: the protocol, the
+host, the store for fetched songs, synthetic test plugins,
+`--source-check` and the start of the SDK ("Stage 1 as built", below).
+Stage 2, the first a player can try, on desktop: "This computer" built
+in behind its own switch (`--sources on`, tentative), Find songs in a
+first form from song select's More, a found song played without
+importing it, and imported ("Stage 2 as built"). The maintainer's
+decisions of 2026-11-25 and 2026-11-26:
 
 - plugins are trusted native programs, as other desktop software's are,
   with no sandbox imposed by the game;
@@ -909,7 +913,7 @@ joining the `qps-ploc` walk. Plugin text never enters them.
 | Stage | What | Size | Tested without network |
 |---|---|---|---|
 | 1 (built 2026-11-26) | `ddi-source-protocol`; the host: finding plugins in `plugins/`, manifests, spawning, framing, operations, streamed files into memory, timeouts, kills and crash counting; synthetic plugins in tests (well-behaved, hanging, crashing, flooding); `--source-check`; the SDK's start. | Medium. | Yes. |
-| 2 | "This computer" built in, behind the in-process `Source` trait; Find songs in a first form; fetched songs in memory (`MemReader`, `Files::Memory`, `mem:` pictures, the preview from bytes, the budget, the cache for what memory cannot hold); play without importing; the import store. Useful with no plugin at all. | Medium to large. | Yes: folders written by tests, offscreen plays. |
+| 2 (built 2026-11-26) | "This computer" built in, behind the in-process `Source` trait; Find songs in a first form; fetched songs in memory (`MemReader`, `Files::Memory`, `mem:` pictures, the preview from bytes, the budget, the cache for what memory cannot hold); play without importing; the import store. Useful with no plugin at all. | Medium to large. | Yes: folders written by tests, offscreen plays. |
 | 3 | Add to a room without importing; the room rule. No room model change. | Small to medium. | Yes: `FakeServer`, a local server and bots. |
 | 4 | Plugins in Options (Advanced), on/off, "Add plugin…", details with the digest, Remove; plugin sources in Find songs; `--plugin-check`; the systems' checks verified on macOS, Linux and Windows. | Small to medium. | Yes: synthetic plugins. |
 | 5 | The SDK's repository: SDK, harness, the folder and catalog examples, the template; the protocol crate published. | Medium. | Yes. |
@@ -1099,6 +1103,128 @@ game sees it.
 - Stage 3: the room's upload reading `ItemFiles` (`Source::Bytes`),
   holding the item while the room lists it; the rule from
   `store::Origin::rooms` (the manifest's, narrowed by the item's).
+
+## Stage 2 as built (2026-11-26)
+
+**How to try it**: `cargo run -- --sources on` (saved; `--sources off`
+undoes it), then song select's More → Find songs…, Add folder…, and a
+search. With the switch off and no plugin switched on, nothing shows and
+nothing runs: the window's start reads the switches and makes no host.
+
+**What exists**
+
+- The host runs **sources built into the app** behind the same
+  requests and events as a plugin's (`ddi_source_host::builtin`,
+  `Host::add_builtin`): in process, a thread an operation, at most four,
+  a cancel failing the operation at once and its answer dropped; what
+  one fetches (its files where they are, or bytes) read by the store's
+  scanner into `src:` songs as a plugin's are.
+- **Nothing new starts during a play** (`Host::set_quiet`, set by the
+  window's loop while a play runs): a request made meanwhile is kept and
+  started once the play is over; a built-in operation waits at its next
+  step; a plugin's operation already running goes on in its own process
+  at its lower priority, and what it answers waits for the game (tested
+  with the example's slow fetch, `tools/source-test-plugins/tests/host.rs`).
+- **"This computer"** (`crates/desktop/src/sources/this_computer.rs`):
+  its switch and folders are the desktop's own setting
+  (`ddi.desktop.sources.v1`, never the settings the web shares; no
+  Options row in this stage, the levels round rewording Options); the
+  folders are chosen on the page itself (Add folder…, the system's
+  picker; Remove). It reads song folders (`.ssc`, `.sm`, `.dwi`) and
+  zips of them, by the library's own scanner, without adding them to
+  the library; search by text (title, artist, pack, their
+  transliterations, folded as song select's search), the filters
+  `style` (our layouts) and `level` (a range of meters), browse by
+  folder then pack, metadata with `song_key`; a song folder fetched
+  `in place` (its files read where they are), a zip's song read into
+  memory (its movies left out). Bounds, a folder: 8 folders deep,
+  200,000 entries looked at, 20,000 songs, 30 s of work (time waiting
+  during a play not counted); a cut is said on the page. Symbolic links
+  are never followed, so nothing outside a folder named is read. What
+  it found is kept in memory until the page opens again; nothing is
+  written to disk. Not in this stage: Dancing☆Onigiri works and FFR
+  levels, which the library reads its own way (`LibSong::work`, levels'
+  SWF) and the store's scanner does not.
+- **Find songs** (`ddi_ui::screens::find_songs`, its model
+  `crates/desktop/src/sources/find.rs`): song select's More offers
+  "Find songs…" while a source is on. A page built from the page blocks:
+  the sources as buttons where more than one is on (This computer
+  first, then the plugins switched on, by their own names), This
+  computer's folders, a search field searched once it rests (and a
+  Search button; an empty search lists everything), the results (title;
+  artist, pack and charts as tags; "In your library" where the library
+  has the same song by its `song_key`, or the item was imported before)
+  with Play and Import each, More results, what runs with Cancel, a
+  problem in the game's words with the source's own in Details. Keys,
+  controller and mouse as every page. Its text is `locales/*/sources.ftl`,
+  an area the web's build leaves out (`crates/l10n/build.rs`'s
+  `DESKTOP_ONLY`; the screen's module is not built for the web either),
+  and joins the `qps-ploc` walk.
+- **Play without importing**: Play fetches the item and lists its songs
+  alone in song select ("FOUND SONGS", its footer saying where they are
+  from), played through the ordinary prompt, play and results. A
+  fetched song is found where the library finds a song
+  (`library::song` answers `src:` ids from the store as a `LibSong`
+  with `fetched` set), its files read from the store
+  (`play::load::Files::Memory` over `ItemFiles`), its pictures as
+  `mem:<item>!<path>` sources, its movies by their paths on disk (the
+  store keeps movies there), its preview from the file where it is on
+  disk, else written once into the cache's `previews/` as a zip's music
+  is (the preview player opens a file). The item is held from the
+  prompt until the results close (`play::Request::held`), and while its
+  songs are listed.
+- **What such a play keeps** (decided here; a question below): it is
+  kept in the play history only where the library has a song with a
+  chart of the same content (by digest), and then as a play of that
+  library song (`sources::fetched::keeps_as`); otherwise it is not kept
+  at all: no history entry, no best, no replay, no prior for the
+  announcer. So no kept play ever names a song that may not be found
+  again (a `src:` id is gone after the run). The ghost is the chart's
+  best play by its digest, as for any song.
+- **Import** (`crates/desktop/src/sources/import.rs`): the item's songs
+  written into the data folder's `sources/library/<source>/<pack>/<song>/`
+  (staged, then renamed into place, an earlier import of the same song
+  replaced), recorded in `sources/catalog.json` (source, item, revision,
+  folders, when), the library read again with that folder added to the
+  folders it reads (`Songs::scanned`; Options does not list it), the
+  fetched copy let go. Afterwards each is an ordinary song: its id
+  `pack::song_id`, its bests and plays by its charts. A player's own
+  folder holding a song of the same pack and name wins, as between any
+  two folders.
+- Tests: the host's built-in sources (`builtin.rs`), This computer over
+  generated folders (`this_computer/tests.rs`: folders, a zip, a link
+  never followed, a folder too deep, filters, browse, fetch in place and
+  from a zip, bounds), Find songs through the play host with This
+  computer (`crates/desktop/tests/find_songs.rs`: searched, typed,
+  played to its results without being kept, its item held then let go,
+  imported, marked, played again and kept as the library's song) and
+  with the example plugin as a real process beside one that exits at
+  once (`crates/desktop/tests/find_songs_plugins.rs`).
+
+**What changed from the plan, and why**
+
+- The "This computer" source lives in the desktop crate, not the host:
+  it reads with the desktop's zip reader and folds text as song select
+  does; the host's `Builtin` trait is what it implements.
+- The surface is a page from the page blocks, not stage 6's screen; the
+  filters are declared by This computer but not drawn yet.
+- A play from memory is not kept unless the library has its chart (the
+  plan said "Plays are kept, and bests are keyed by chart digest").
+- The preview of a song held in memory goes through the cache's
+  `previews/` (as a zip's does), not decoded from bytes.
+- Import copies This computer's songs too (an `in_place` item), rather
+  than adding their folder to the library: the import store is one
+  place, and a player who wants a folder in the library has Add songs.
+- `Store::remove` lets an imported item go at once.
+
+**What stage 3 needs from here**
+
+- The room's upload already reads a fetched song's files
+  (`share::source_of` answers `Files::Memory` with its bytes); it needs
+  the item held while the room lists it (`sources::fetched::hold`), Add
+  to room offered on Find songs' results and the found list where
+  `store::Origin::rooms` allows, and a "Fetched this session" pack in
+  the room's My songs.
 
 ## 9. The maintainer's decisions
 
