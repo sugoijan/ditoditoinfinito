@@ -5,6 +5,18 @@ options-language = 言語（Language）
 options-language-system = システムに合わせる（{ $language }）
 
 options-language-description = メニューの言語です。スコアや評価はどの言語でも同じです。判定の言葉は、変更しない限り英語です。
+options-detail = 表示の詳しさ
+options-detail-basic = 基本
+options-detail-advanced = 上級
+options-detail-description = 基本では、多くのプレイヤーに必要なオプションだけを、わかりやすい言葉で表示します。上級では、すべてのオプションと細かい数値を、StepMania・ITGmania・Etternaのプレイヤーになじみのある用語で表示します。プレイの内容は変わりません。
+options-more-show-advanced = 上級のオプションを表示
+options-more-show-basic = 基本のオプションを表示
+options-advanced-changed = 上級で変更済み：{ $count }
+options-advanced-changed-reset = 元に戻す
+options-advanced-changed-show = 表示
+options-advanced-changed-description = { $count ->
+   *[other] このセクションの上級だけに表示される設定のうち、{ $count }件が既定値と違い、今も有効です。「表示」で表示の詳しさを上級にし、「元に戻す」で既定値に戻します。
+}
 
 ## The screen.
 
@@ -558,6 +570,11 @@ options-confirm-noteskin = このノートスキンを削除しますか？
 options-confirm-noteskin-body = { $skin }をこのブラウザーから削除します。以降の曲はInfinitoで表示されます。
 options-confirm-pump-noteskin-body = { $skin }をこのブラウザーから削除します。Pumpのスタイルは上の矢印で描かれるようになります。
 options-confirm-noteskin-button = 削除
+options-confirm-advanced = これらの設定をリセットしますか？
+options-confirm-advanced-body = { $count ->
+   *[other] { $section }の上級で変更した{ $count }件の設定を既定値に戻します。
+}
+options-confirm-advanced-button = リセット
 options-confirm-announcer = このアナウンサーを削除しますか？
 options-confirm-announcer-body = { $platform ->
     [web] { $announcer }をこのブラウザーから削除します。代わりにゲームに付属のアナウンサーが話します。
@@ -576,6 +593,9 @@ options-notice-added = { $control }を{ $lane }に追加しました。
 options-notice-token-set = アップロード用トークンを設定しました。
 options-notice-token-cleared = アップロード用トークンを消去しました。
 options-notice-settings-reset = 設定をリセットしました。
+options-notice-advanced-reset = { $count ->
+   *[other] { $count }件の設定を既定値に戻しました。
+}
 options-notice-announcer-removed = アナウンサーを削除しました。
 options-notice-announcer-not-removed = アナウンサーを削除できませんでした：{ $error }
 options-notice-noteskin-removed = ノートスキンを削除しました。

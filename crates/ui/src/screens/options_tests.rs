@@ -17,7 +17,7 @@ use super::{DESIGN, Env, SharedTheme};
 use crate::dev_widgets::FoldFn;
 use crate::look::Plain;
 use crate::screen::Cx;
-use crate::state::settings::{KEY, Settings};
+use crate::state::settings::{KEY, Level, Settings};
 use crate::testing::Harness;
 use crate::{MenuAction, PointerKind, TextMode, UiEvent, UiRequest};
 
@@ -100,8 +100,20 @@ struct Rig {
     feed: OptionsFeed,
 }
 
+/// Options on stored settings at Advanced: every row, as these tests
+/// drive them (Basic's are `rig_at`'s).
 fn rig(size: [f32; 2], design: [f32; 2]) -> Rig {
+    rig_at(size, design, Level::Advanced)
+}
+
+/// Options on default settings stored at `level`.
+fn rig_at(size: [f32; 2], design: [f32; 2], level: Level) -> Rig {
     storage::install(Rc::new(MemoryStore::default()));
+    Settings {
+        level,
+        ..Settings::default()
+    }
+    .save();
     let fold: FoldFn =
         Rc::new(|s: &str| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s));
     let env = Env::new(Rc::new(Plain), fold);
@@ -1170,4 +1182,46 @@ fn error_reports_are_a_web_row_that_says_when_the_privacy_signal_turns_them_off(
     m.world.platform = super::data::Platform::Desktop;
     assert!(row(&m).is_none(), "the desktop app sends none");
     assert!(data_ids(&m).contains(&"usage_stats".to_string()));
+}
+
+/// Basic and Advanced (`docs/plans/ui-levels.md`): a new player's Options
+/// at Basic; Detail and More's item flip the level in place, the focus
+/// kept on its row or the nearest shown above it; a changed Advanced row
+/// is counted at its section's end, and Show (Start, as a controller
+/// presses it) opens Advanced on it.
+#[test]
+fn detail_flips_the_level_in_place() {
+    use super::options_levels::CHANGED;
+    let mut r = rig_at([1280.0, 720.0], DESIGN, Level::Basic);
+    assert_eq!(r.state.borrow().options_level, "Basic");
+    assert!(!r.state.borrow().option_rows.contains(&"speed_source".to_string()));
+    r.section("Display");
+    r.row("detail");
+    let basic = r.state.borrow().option_rows.len();
+    r.h.key("ArrowRight", "ArrowRight");
+    r.h.run(0.05);
+    assert_eq!(r.state.borrow().options_level, "Advanced");
+    assert_eq!(r.state.borrow().option_id, "detail");
+    assert!(r.state.borrow().option_rows.len() > basic);
+    assert_eq!(Settings::load().level, Level::Advanced);
+    // An Advanced row changed, then More's "Show basic options".
+    r.row("show_deltas");
+    r.h.key("ArrowRight", "ArrowRight");
+    assert!(Settings::load().show_deltas);
+    r.h.tap(PointerKind::Mouse, "More");
+    r.h.run(0.3);
+    r.h.tap(PointerKind::Mouse, "Item.Level.Other");
+    r.h.run(0.3);
+    assert_eq!(r.state.borrow().options_level, "Basic");
+    assert_eq!(r.state.borrow().option_id, "field_place", "the nearest above");
+    assert!(Settings::load().show_deltas, "hidden, still set");
+    // Counted at the section's end; Show opens Advanced on it.
+    let count = format!("{CHANGED}Display");
+    assert_eq!(r.state.borrow().option_rows.last(), Some(&count));
+    r.row(&count);
+    r.h.key("Enter", "Enter");
+    r.h.run(0.05);
+    assert_eq!(r.state.borrow().options_level, "Advanced");
+    assert_eq!(r.state.borrow().section, "Display");
+    assert_eq!(r.state.borrow().option_id, "show_deltas");
 }

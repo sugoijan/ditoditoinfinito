@@ -485,15 +485,18 @@ pub fn results() -> ResultsData {
     }
 }
 
-/// Options' sample: the default settings' rows (reduced motion as the
-/// settings hold it, `Auto`, `On`, `Off`: 0, 1, 2), with a few
-/// noteskins, a controller and a song for the volume sample.
+/// Options' sample: the default settings' rows at Advanced, every row
+/// (reduced motion as the settings hold it, `Auto`, `On`, `Off`: 0, 1,
+/// 2), with a few noteskins, a controller and a song for the volume
+/// sample. (Basic's view is the model's own tests',
+/// `super::options_levels`.)
 pub fn options(reduced_motion: usize) -> OptionsData {
     use super::options_model::{OptionsModel, Sample, World};
-    use crate::state::settings::{ReducedMotion, Settings};
+    use crate::state::settings::{Level, ReducedMotion, Settings};
     let settings = Settings {
         reduced_motion: [ReducedMotion::Auto, ReducedMotion::On, ReducedMotion::Off]
             [reduced_motion.min(2)],
+        level: Level::Advanced,
         ..Settings::default()
     };
     let world = World {

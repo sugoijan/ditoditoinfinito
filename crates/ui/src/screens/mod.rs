@@ -84,6 +84,7 @@ pub mod online;
 pub mod online_home;
 pub mod options;
 pub mod options_dialogs;
+pub mod options_levels;
 pub mod options_model;
 pub mod options_shell;
 #[cfg(test)]
@@ -223,6 +224,10 @@ pub struct ThemeState {
     pub option_id: String,
     pub value: String,
     pub option_rows: Vec<String>,
+    /// Options: the level shown (`Basic`, `Advanced`) and the sections'
+    /// ids at it (`docs/plans/ui-levels.md`).
+    pub options_level: String,
+    pub option_sections: Vec<String>,
     pub scroll: f32,
     pub notice: String,
     pub preview: Option<[f32; 4]>,

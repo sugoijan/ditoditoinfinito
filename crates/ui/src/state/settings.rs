@@ -301,6 +301,20 @@ pub struct Settings {
     /// before it starts by itself; 0: it waits for Start
     /// ([`START_COUNTDOWNS`], `docs/plans/start-prompt.md`).
     pub start_countdown: f32,
+    /// Basic or Advanced (Options → Display, "Detail";
+    /// `docs/plans/ui-levels.md`, stage 1): at Basic, Options and the start
+    /// prompt hide the Advanced rows, which keep their effect (a section
+    /// counts those changed, with Reset and Show). Basic for a new player.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub level: Level,
+    /// The level was decided once for settings stored before it existed
+    /// ([`Settings::load`]): Advanced where an Advanced setting differed
+    /// from its default, else Basic
+    /// (`crate::screens::options_levels::advanced_in_effect`). Settings
+    /// stored before it lack the field and read `false`; a choice made
+    /// after it stays.
+    #[serde(default = "not_yet")]
+    pub level_decided: bool,
     /// The results' panels the player chose ("Overview", "Timing",
     /// "Song"; one a ruleset does not offer falls back to its default).
     pub results_panels: String,
@@ -599,6 +613,18 @@ pub enum Graphics {
     /// WebGL2 always (a driver's trouble with WebGPU; testing the
     /// fallback).
     WebGl2,
+}
+
+/// How much of the interface shows ([`Settings::level`],
+/// `docs/plans/ui-levels.md`): Options' Detail row. A level hides, never
+/// changes what a setting does.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum Level {
+    /// The options most players need (the default).
+    #[default]
+    Basic,
+    /// Every option, for players who know the genre.
+    Advanced,
 }
 
 /// Reduced motion in the menus.
@@ -920,6 +946,8 @@ impl Default for Settings {
             cursor_style: CursorStyle::default(),
             cursor_size: 28.0,
             start_countdown: 3.0,
+            level: Level::Basic,
+            level_decided: true,
             results_panels: "Overview".into(),
             debug: false,
             graphics: Graphics::Auto,
@@ -1266,6 +1294,16 @@ impl Settings {
         let stored: Settings = storage::load(Area::Local, KEY).unwrap_or_default();
         let mut s = stored.clone();
         s.sanitize();
+        // The level, once for settings stored before it (only this
+        // device's, never a play record's snapshot).
+        if !s.level_decided {
+            s.level_decided = true;
+            s.level = if crate::screens::options_levels::advanced_in_effect(&s) {
+                Level::Advanced
+            } else {
+                Level::Basic
+            };
+        }
         if s != stored {
             // Persist migrations and clamping so storage matches what runs.
             s.save();

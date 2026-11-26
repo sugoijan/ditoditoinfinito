@@ -12,7 +12,7 @@ use ddi_engine::{Appearance, CoverMode, Turn};
 
 use super::data::{OptionDef, Platform};
 use super::options_model::{OptionsModel, World};
-use crate::state::settings::Settings;
+use crate::state::settings::{Level, Settings};
 
 /// The rows, in their order; `noteskin` is `pump_noteskin` on a pump
 /// layout when pump skins can be chosen.
@@ -209,25 +209,41 @@ impl PlayOptions {
         self.pump = layout.starts_with("pump");
     }
 
-    /// The skin's row: the pump one on a pump layout when pump skins can
-    /// be chosen.
-    fn skin_row(&self, rows: &[OptionDef]) -> &'static str {
-        if self.pump && rows.iter().any(|o| o.id == "pump_noteskin") {
+    /// The rows, as Options shows them: at Basic
+    /// (`docs/plans/ui-levels.md`) the Basic ones and each Advanced one
+    /// changed from its default, in the stored settings or for this play
+    /// (Turn, Appearance, Lane cover; a pump skin), so that a modifier in
+    /// effect shows where it can be undone and never goes from under the
+    /// player's hands. The skin's row is the pump one on a pump layout
+    /// when pump skins can be chosen (and it shows).
+    pub fn rows(&self) -> Vec<OptionDef> {
+        let all: Vec<OptionDef> = self.model.prompt_rows().collect();
+        let basic = self.model.settings.level == Level::Basic;
+        let stored: Vec<OptionDef> = if basic {
+            OptionsModel::new(self.stored.clone(), self.model.world.clone())
+                .prompt_rows()
+                .filter(OptionDef::changed)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let shown = |o: &OptionDef| {
+            !basic
+                || o.level == Level::Basic
+                || o.changed()
+                || stored.iter().any(|s| s.id == o.id)
+        };
+        let skin = if self.pump && all.iter().any(|o| o.id == "pump_noteskin" && shown(o)) {
             "pump_noteskin"
         } else {
             "noteskin"
-        }
-    }
-
-    /// The rows, as Options shows them.
-    pub fn rows(&self) -> Vec<OptionDef> {
-        let all: Vec<OptionDef> = self.model.prompt_rows().collect();
-        let skin = self.skin_row(&all);
+        };
         ROWS.iter()
             .map(|id| if *id == "noteskin" { skin } else { id })
             .filter(|id| self.listed || !id.ends_with("noteskin"))
             .filter(|id| self.touch || !TOUCH_ROWS.contains(id))
             .filter_map(|id| all.iter().find(|o| o.id == id).cloned())
+            .filter(shown)
             .map(|mut o| {
                 o.heading = None;
                 o
@@ -292,8 +308,13 @@ mod tests {
     use super::*;
     use crate::state::settings::INFINITO;
 
+    /// The prompt's options at Advanced: every row it offers.
     fn options() -> PlayOptions {
-        let mut o = PlayOptions::new(Settings::default(), "dance-single", Platform::Web);
+        options_at(Level::Advanced, Settings::default())
+    }
+
+    fn options_at(level: Level, stored: Settings) -> PlayOptions {
+        let mut o = PlayOptions::new(Settings { level, ..stored }, "dance-single", Platform::Web);
         o.set_noteskins(
             vec![
                 (INFINITO.into(), "Infinito".into()),
@@ -341,7 +362,14 @@ mod tests {
             }
         }
         // The skins not all listed yet: no skin row.
-        let o = PlayOptions::new(Settings::default(), "dance-single", Platform::Web);
+        let o = PlayOptions::new(
+            Settings {
+                level: Level::Advanced,
+                ..Settings::default()
+            },
+            "dance-single",
+            Platform::Web,
+        );
         assert_eq!(o.rows().len(), 5);
     }
 
@@ -388,6 +416,42 @@ mod tests {
         let s = Settings::load();
         assert_eq!((s.speed, s.reverse, s.lyrics), (3.0, true, false));
         assert!(o.saved() && !o.differs());
+    }
+
+    /// At Basic (`docs/plans/ui-levels.md`) the prompt offers Speed,
+    /// Reverse and the arrows; an Advanced row changed, stored or for this
+    /// play, stays shown so the modifier can be undone where it acts, and
+    /// does not go when put back; a pump skin chosen shows on a pump
+    /// layout, else the arrows' row.
+    #[test]
+    fn basic_shows_its_rows_and_a_changed_advanced_one() {
+        ddi_platform::storage::install(std::rc::Rc::new(
+            ddi_platform::storage::MemoryStore::default(),
+        ));
+        let ids = |o: &PlayOptions| -> Vec<String> { o.rows().into_iter().map(|r| r.id).collect() };
+        let o = options_at(Level::Basic, Settings::default());
+        assert_eq!(ids(&o), ["speed", "reverse", "noteskin"]);
+        let mut mirror = Settings::default();
+        mirror.transform.turn = Turn::Mirror;
+        let mut o = options_at(Level::Basic, mirror);
+        assert_eq!(ids(&o), ["speed", "reverse", "turn", "noteskin"]);
+        o.change("turn", 0);
+        let turn = o.rows().into_iter().find(|r| r.id == "turn").unwrap();
+        assert_eq!(turn.index, 0, "put back for this play, still shown");
+        // Changed for this play alone shows too.
+        let mut o = options_at(Level::Basic, Settings::default());
+        assert!(o.change("appearance", 1).is_some());
+        assert!(ids(&o).contains(&"appearance".to_string()));
+        let pump = Settings {
+            pump_noteskin: Some("pump/cmd".into()),
+            ..Settings::default()
+        };
+        let mut o = options_at(Level::Basic, pump);
+        o.set_layout("pump-single");
+        assert_eq!(ids(&o).last().map(String::as_str), Some("pump_noteskin"));
+        let mut o = options_at(Level::Basic, Settings::default());
+        o.set_layout("pump-single");
+        assert_eq!(ids(&o).last().map(String::as_str), Some("noteskin"));
     }
 
     /// On a touch screen the prompt offers the touch controls and, since

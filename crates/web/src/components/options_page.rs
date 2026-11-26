@@ -645,7 +645,8 @@ impl OptionsPlatform for Web {
     fn remove(&self, reset: &Reset) {
         let link = self.0.link.clone();
         match reset.clone() {
-            Reset::Settings => {}
+            // The settings' part alone.
+            Reset::Settings | Reset::Advanced(_) => {}
             reset @ (Reset::Songs | Reset::Everything) => {
                 // Everything: the play history too.
                 if reset == Reset::Everything {

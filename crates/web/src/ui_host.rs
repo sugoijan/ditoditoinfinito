@@ -2698,6 +2698,8 @@ fn publish_now(h: &Host) {
         set(&o, "optionId", st.option_id.as_str().into());
         set(&o, "value", st.value.as_str().into());
         set(&o, "rows", strings(&st.option_rows));
+        set(&o, "level", st.options_level.as_str().into());
+        set(&o, "sections", strings(&st.option_sections));
         set(&o, "scroll", st.scroll.into());
         set(&o, "notice", st.notice.as_str().into());
         set(&o, "pageItems", strings(&st.page_items));

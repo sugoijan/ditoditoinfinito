@@ -18,6 +18,41 @@ options-language-system = As the system ({ $language })
 
 options-language-description = The language of the menus. Scores and grades read the same in every language; judgment words are English unless chosen otherwise.
 
+# The row choosing how much of the interface shows (Basic or Advanced),
+# first under the MENUS heading: a row's label.
+options-detail = Detail
+
+# The Detail row's choices.
+options-detail-basic = Basic
+options-detail-advanced = Advanced
+options-detail-description = Basic shows the options most players need, in plain words. Advanced shows every option and more numbers, with the terms players of StepMania, ITGmania and Etterna know. Nothing about how you play changes.
+
+# In the More menu: switches Detail to Advanced (shown at Basic).
+options-more-show-advanced = Show advanced options
+
+# In the More menu: switches Detail to Basic (shown at Advanced).
+options-more-show-basic = Show basic options
+
+# The last row of a section at Basic, where settings shown only at
+# Advanced are not at their defaults (they still apply): a row's label
+# with the count. Buttons follow it.
+# Variables:
+#   $count (Number) - how many of the section's Advanced settings are changed
+options-advanced-changed = Changed in Advanced: { $count }
+
+# The row's button that puts them back (asks first): about 10 letters.
+options-advanced-changed-reset = Reset them
+
+# The row's button that switches Detail to Advanced and shows them: about
+# 10 letters.
+options-advanced-changed-show = Show
+# Variables:
+#   $count (Number) - how many of the section's Advanced settings are changed
+options-advanced-changed-description = { $count ->
+    [one] One setting of this section that shows at Advanced only is not at its default, and still applies. Show switches Detail to Advanced; Reset them puts it back.
+   *[other] { $count } settings of this section that show at Advanced only are not at their defaults, and still apply. Show switches Detail to Advanced; Reset them puts them back.
+}
+
 ## The screen: its header, the notice beside it, its footer's key hints
 ## (a word after the keys' caps, about 10 letters) and the field
 ## preview's parts.
@@ -1095,6 +1130,18 @@ options-confirm-noteskin-body = { $skin } is removed from this browser; songs pl
 options-confirm-pump-noteskin-body = { $skin } is removed from this browser; the pump styles are drawn with the arrows above again.
 options-confirm-noteskin-button = Remove
 
+# Asked before a section's "Reset them" (the Advanced settings changed).
+options-confirm-advanced = Reset these settings?
+
+# Variables:
+#   $count (Number) - how many settings go back to their defaults
+#   $section (String) - the section's name as its tab shows it ("Notes")
+options-confirm-advanced-body = { $count ->
+    [one] The setting of { $section } changed in Advanced goes back to its default.
+   *[other] The { $count } settings of { $section } changed in Advanced go back to their defaults.
+}
+options-confirm-advanced-button = Reset
+
 options-confirm-announcer = Remove this announcer?
 
 # Variables:
@@ -1141,6 +1188,13 @@ options-notice-added = { $control } added to { $lane }.
 options-notice-token-set = The upload token is set.
 options-notice-token-cleared = The upload token is cleared.
 options-notice-settings-reset = Settings reset.
+
+# Variables:
+#   $count (Number) - how many settings went back to their defaults
+options-notice-advanced-reset = { $count ->
+    [one] One setting back to its default.
+   *[other] { $count } settings back to their defaults.
+}
 options-notice-announcer-removed = Announcer removed.
 
 # Variables:

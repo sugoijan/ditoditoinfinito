@@ -23,7 +23,11 @@
 //! [Parameter Explosions]
 //! Type=Toggle
 //! Default=1
+//! Level=Basic
 //! ```
+//!
+//! `Level=Basic` shows a parameter at Options' Basic level too
+//! (`docs/plans/ui-levels.md`); without it, at Advanced only.
 //!
 //! Declarations are merged under the fallbacks' like every metric, so a
 //! skin's variants declare what it declares. Everything is bounded: a
@@ -81,6 +85,10 @@ pub struct Parameter {
     pub kind: Kind,
     /// Always one [`Parameter::accept`] takes.
     pub default: Value,
+    /// Shown at Options' Basic level too (`Level=Basic`, our extension;
+    /// `docs/plans/ui-levels.md`): a parameter without it shows at
+    /// Advanced only, and keeps its effect at either level.
+    pub basic: bool,
 }
 
 /// What a parameter is.
@@ -371,6 +379,7 @@ fn parameter(ini: &Ini, name: &str) -> Result<Parameter, String> {
             description: String::new(),
             kind,
             default: Value::Number(min),
+            basic: false,
         };
         let default = default
             .parse::<f64>()
@@ -417,6 +426,7 @@ fn parameter(ini: &Ini, name: &str) -> Result<Parameter, String> {
         description,
         kind,
         default,
+        basic: get("Level").is_some_and(|l| l.eq_ignore_ascii_case("Basic")),
     })
 }
 

@@ -29,7 +29,7 @@ use super::select_dialogs::{ImportDialog, Manage, ManageDialog};
 use super::test_kit::{env, harness};
 use super::{COMPACT, DESIGN, Env, sample};
 use crate::message::{Message, Param};
-use crate::state::settings::Settings;
+use crate::state::settings::{Level, Settings};
 use crate::testing::Harness;
 use crate::{Modifiers, PointerKind, TextMode};
 
@@ -2661,6 +2661,12 @@ fn walk() -> BTreeSet<String> {
         };
         let settings = Settings {
             noteskin: Some("folder:x".into()),
+            // Changed at Advanced: Notes counts them at Basic.
+            transform: ddi_engine::TransformOptions {
+                turn: ddi_engine::Turn::Mirror,
+                ..Default::default()
+            },
+            show_deltas: true,
             ..Settings::default()
         };
         let model = OptionsModel::new(settings, world);
@@ -2670,6 +2676,8 @@ fn walk() -> BTreeSet<String> {
             Reset::Songs,
             Reset::Everything,
             Reset::History,
+            Reset::Advanced("Notes".into()),
+            Reset::Advanced("Display".into()),
         ] {
             let (title, body, yes) = r.texts(&model);
             for t in [title, body, yes] {
@@ -2694,7 +2702,15 @@ fn walk() -> BTreeSet<String> {
 /// Options' sections, rows, values, notes, headings and descriptions, and
 /// the preview's line and layout.
 fn options_texts(model: &OptionsModel, found: &mut BTreeSet<String>) {
-    let data = model.data();
+    // At both levels (`docs/plans/ui-levels.md`): Basic's counts of what is
+    // changed at Advanced, and Advanced's rows.
+    for level in [Level::Basic, Level::Advanced] {
+        options_texts_at(model, level, found);
+    }
+}
+
+fn options_texts_at(model: &OptionsModel, level: Level, found: &mut BTreeSet<String>) {
+    let data = model.data_at(level);
     let preview = data.preview_layout.iter();
     for o in data.sections.iter().flat_map(|s| &s.options).chain(preview) {
         for t in [&o.label, &o.note, &o.description]

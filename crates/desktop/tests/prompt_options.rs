@@ -61,9 +61,11 @@ fn play_options_are_this_plays_kept_with_it_and_saved_when_asked() {
         ui.update(0.3);
     };
     // No announcer (on by default since 2026-11-17): the play's own line
-    // is the log's first.
+    // is the log's first. At Advanced: every row the prompt offers
+    // (Basic's are `ddi_ui`'s `prompt_options` tests').
     Settings {
         announcer: None,
+        level: ddi_ui::state::settings::Level::Advanced,
         ..Settings::load()
     }
     .save();

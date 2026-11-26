@@ -27,11 +27,12 @@ use super::data::{
     OptionDef, OptionKind, OptionSection, OptionsData, Platform, lane_name, style_name, trim_number,
 };
 use super::options::CALIBRATE;
+use super::options_levels::{CHANGED, DETAIL, DETAIL_PLACE};
 use crate::state::bind::Bound;
 use crate::state::settings::{
     BUILT_IN_ANNOUNCER, BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, GeneratedBackground,
     ChartRatings, Graphics, INFINITO, OpponentFields, RoomAhead, PadBindings, Palette, ParamValue, ReducedMotion, START_COUNTDOWNS,
-    JudgmentWords, ScoreDisplay, Settings, VideoMode, slider_to_volume, volume_to_slider,
+    JudgmentWords, Level, ScoreDisplay, Settings, VideoMode, slider_to_volume, volume_to_slider,
 };
 use ddi_l10n::UiText;
 use ddi_l10n::msg::{common, options as m};
@@ -114,6 +115,10 @@ pub struct World {
     /// TW1b, `docs/plans/multiplayer-twitch.md` A4): Data's "Twitch access"
     /// row.
     pub twitch: TwitchRow,
+    /// Sections the shell adds after the model's own, their rows' levels
+    /// as given (`docs/plans/ui-levels.md`: an Advanced section, as
+    /// desktop's Plugins page will be, shows at Advanced alone).
+    pub sections: Vec<OptionSection>,
 }
 
 /// The person's Twitch access, for Data's row: signed in or not, the
@@ -171,6 +176,9 @@ pub enum Reset {
     Announcer(String),
     /// Every play kept (the bests go with them).
     History,
+    /// A section's Advanced rows changed from their defaults, back to
+    /// them (its id), from its count at Basic.
+    Advanced(String),
 }
 
 impl Reset {
@@ -222,6 +230,14 @@ impl Reset {
                     m::confirm_noteskin_button(),
                 )
             }
+            Reset::Advanced(section) => (
+                m::confirm_advanced(),
+                m::confirm_advanced_body(
+                    model.changed_in(section).len(),
+                    model.section_name(section),
+                ),
+                m::confirm_advanced_button(),
+            ),
             Reset::Announcer(key) => (
                 m::confirm_announcer(),
                 m::confirm_announcer_body(model.announcer_name(key), model.world.platform.l10n()),
@@ -378,6 +394,9 @@ pub struct OptionsModel {
     /// Changes are not saved (the start prompt's play options,
     /// `super::prompt_options`).
     pub transient: bool,
+    /// A row the screen focuses once (a section's Show), taken by the next
+    /// [`OptionsModel::data`].
+    focus: std::cell::Cell<Option<(String, String)>>,
 }
 
 impl OptionsModel {
@@ -389,6 +408,7 @@ impl OptionsModel {
             notice: String::new(),
             preview_layout: None,
             transient: false,
+            focus: Default::default(),
         };
         m.follow_style();
         m
@@ -476,8 +496,17 @@ impl OptionsModel {
             .map_or_else(|| key.to_string(), |(_, n)| n.clone())
     }
 
-    /// The rows.
+    /// The rows, at the level the settings say.
     pub fn data(&self) -> OptionsData {
+        self.data_at(self.settings.level)
+    }
+
+    /// The rows at `level` (`docs/plans/ui-levels.md`): every one at
+    /// Advanced; at Basic the Basic ones, each section ending with a row
+    /// counting its Advanced rows changed from their defaults (Reset,
+    /// Show), and a section with neither left out. Hidden rows keep their
+    /// effect.
+    pub fn data_at(&self, level: Level) -> OptionsData {
         let s = &self.settings;
         let shown = self.preview_layout.as_deref().unwrap_or(&s.style);
         let layouts = self.bind_layouts();
@@ -497,36 +526,144 @@ impl OptionsModel {
         if s.dancing_hand_for(shown) {
             preview.push(m::preview_standing_hand().into());
         }
+        let mut sections = self.sections_with_defaults();
+        if level == Level::Basic {
+            sections = sections.into_iter().filter_map(basic_view).collect();
+        }
         OptionsData {
-            sections: vec![
-                self.scroll(),
-                self.notes(),
-                self.rules(),
-                self.timing(),
-                self.sound(),
-                self.display(),
-                self.arrows(),
-                self.controls(&layouts),
-                self.data_section(),
-            ]
-            .into_iter()
-            .chain(self.folders())
-            .chain(self.sharing())
-            .collect(),
+            sections,
             preview_layout: Some(self.preview_layout_option(&layouts)),
             preview_whole_play: s.dancing_hand_for(shown),
             preview: preview.join(" · "),
             notice: self.notice.clone(),
+            level,
+            focus: self.focus.take(),
         }
     }
 
-    /// The rows a play's start prompt picks from, as Options shows them:
-    /// its Scroll, Notes and Arrows sections' alone.
-    pub fn prompt_rows(&self) -> impl Iterator<Item = OptionDef> {
-        [self.scroll(), self.notes(), self.arrows()]
+    /// Every section and row, as Advanced shows them: the model's, then
+    /// the shell's ([`World::sections`]), the Detail row in its place.
+    fn sections(&self) -> Vec<OptionSection> {
+        let layouts = self.bind_layouts();
+        let mut sections: Vec<OptionSection> = vec![
+            self.scroll(),
+            self.notes(),
+            self.rules(),
+            self.timing(),
+            self.sound(),
+            self.display(),
+            self.arrows(),
+            self.controls(&layouts),
+            self.data_section(),
+        ]
+        .into_iter()
+        .chain(self.folders())
+        .chain(self.sharing())
+        .chain(self.world.sections.iter().cloned())
+        .collect();
+        // Detail, Basic or Advanced, before the row its place names (with
+        // that row's heading).
+        let (section, before) = DETAIL_PLACE;
+        if let Some(sec) = sections.iter_mut().find(|s| s.id == section) {
+            let mut detail = choice(
+                DETAIL,
+                m::detail(),
+                [m::detail_basic(), m::detail_advanced()],
+                usize::from(self.settings.level == Level::Advanced),
+                m::detail_description(),
+            );
+            let at = sec.options.iter().position(|o| o.id == before).unwrap_or(0);
+            if let Some(o) = sec.options.get_mut(at) {
+                detail.heading = o.heading.take();
+            }
+            sec.options.insert(at, detail);
+        }
+        sections
+    }
+
+    /// [`Self::sections`], each row that has a value given its default
+    /// where it has none of its own (a skin's and an announcer's are
+    /// declared): its value under the default settings.
+    fn sections_with_defaults(&self) -> Vec<OptionSection> {
+        let mut sections = self.sections();
+        let defaults = self.default_values();
+        for o in sections.iter_mut().flat_map(|s| &mut s.options) {
+            if o.default.is_none() && !matches!(o.kind, OptionKind::Actions(_)) {
+                o.default = defaults.get(&o.id).copied();
+            }
+        }
+        sections
+    }
+
+    /// Each row's value under the default settings, by id, in this world:
+    /// the rows shown only under another value too (StepMania's rules,
+    /// the covers' heights, the chat's rows), at their defaults. A row
+    /// that is not there at the defaults (a known device) has none.
+    fn default_values(&self) -> HashMap<String, usize> {
+        let revealing = Settings {
+            ruleset: ddi_engine::rules::presets::all()
+                .iter()
+                .find(|r| r.id != ddi_engine::rules::ddi::ID)
+                .map_or_else(String::new, |r| r.id.clone()),
+            lane_cover: LaneCover {
+                mode: CoverMode::HiddenSudden,
+                ..LaneCover::default()
+            },
+            twitch_chat: ddi_chat::Level::Messages,
+            dancing_hand: true,
+            ..Settings::default()
+        };
+        let mut out = HashMap::new();
+        for settings in [Settings::default(), revealing] {
+            let model = OptionsModel {
+                settings,
+                world: self.world.clone(),
+                bind_layout: self.bind_layout.clone(),
+                notice: String::new(),
+                preview_layout: self.preview_layout.clone(),
+                transient: true,
+                focus: Default::default(),
+            };
+            for o in model.sections().into_iter().flat_map(|s| s.options) {
+                if !matches!(o.kind, OptionKind::Actions(_)) {
+                    out.entry(o.id).or_insert(o.index);
+                }
+            }
+        }
+        out
+    }
+
+    /// Section `id`'s Advanced rows changed from their defaults, as
+    /// Advanced shows them.
+    fn changed_in(&self, id: &str) -> Vec<OptionDef> {
+        self.sections_with_defaults()
             .into_iter()
+            .filter(|s| s.id == id)
             .flat_map(|s| s.options)
-            .chain(self.touch_rows())
+            .filter(|o| o.level == Level::Advanced && o.changed())
+            .collect()
+    }
+
+    /// The rows a play's start prompt picks from, as Options shows them at
+    /// Advanced (with their levels and defaults): its Scroll, Notes and
+    /// Arrows sections' and the touch controls'.
+    pub fn prompt_rows(&self) -> impl Iterator<Item = OptionDef> {
+        let touch: Vec<String> = self.touch_rows().into_iter().map(|o| o.id).collect();
+        self.sections_with_defaults()
+            .into_iter()
+            .flat_map(|s| s.options.into_iter().map(move |o| (s.id.clone(), o)))
+            .filter(move |(section, o)| {
+                matches!(section.as_str(), "Scroll" | "Notes" | "Arrows") || touch.contains(&o.id)
+            })
+            .map(|(_, o)| o)
+    }
+
+    /// Section `id`'s name as it shows (its id where there is none).
+    fn section_name(&self, id: &str) -> String {
+        self.sections()
+            .into_iter()
+            .find(|s| s.id == id)
+            .map_or_else(|| id.to_string(), |s| s.name)
     }
 
     /// Controls' rows for touch screens (`docs/plans/touch-controls.md`):
@@ -1201,17 +1338,19 @@ impl OptionsModel {
                 Some(ParamValue::Bool(on)) => *on,
                 _ => tag.default,
             };
-            rows.push(choice(
+            let mut r = choice(
                 &format!("{ANNOUNCER_TAG}{}", tag.name),
                 UiText::data(&tag.label),
                 on_off(),
                 usize::from(on),
                 m::announcer_tag_description(),
-            ));
+            );
+            r.default = Some(usize::from(tag.default));
+            rows.push(r);
         }
         for p in &offered.parameters {
             let (labels, _, at) = param_values(p, stored.get(&p.name));
-            rows.push(row(
+            let mut r = row(
                 &format!("{ANNOUNCER_PARAM}{}", p.name),
                 UiText::data(&p.label),
                 match p.kind {
@@ -1220,7 +1359,9 @@ impl OptionsModel {
                 },
                 at,
                 UiText::data(&p.description),
-            ));
+            );
+            r.default = Some(param_values(p, None).2);
+            rows.push(r);
         }
         rows
     }
@@ -1642,7 +1783,7 @@ impl OptionsModel {
             .iter()
             .map(|p| {
                 let (labels, _, at) = param_values(p, stored.get(&p.name));
-                row(
+                let mut r = row(
                     &format!("{prefix}{}", p.name),
                     UiText::data(&p.label),
                     match p.kind {
@@ -1651,7 +1792,14 @@ impl OptionsModel {
                     },
                     at,
                     UiText::data(&p.description),
-                )
+                );
+                // The skin's word for its level (a pump skin's are
+                // Advanced, as its row is), and its own default.
+                if prefix == SKIN_ROW && p.basic {
+                    r.level = Level::Basic;
+                }
+                r.default = Some(param_values(p, None).2);
+                r
             })
             .collect()
     }
@@ -2457,6 +2605,7 @@ impl OptionsModel {
             }
             "graphics" => s.graphics = at(&GRAPHICS, i),
             "debug" => s.debug = on,
+            DETAIL => s.level = if on { Level::Advanced } else { Level::Basic },
             "fast_pad_poll" => s.fast_pad_poll = on,
             "noteskin" => {
                 s.noteskin = i.checked_sub(1).and_then(|n| {
@@ -2591,6 +2740,20 @@ impl OptionsModel {
             ("share.shares", _) if !self.settings.share_token.is_empty() => Act::ListShares,
             ("folders.add", 0) => Act::AddFolder,
             ("folders.add", _) => Act::Rescan,
+            (id, b) if id.starts_with(CHANGED) => {
+                let section = id[CHANGED.len()..].to_string();
+                if b == 0 {
+                    Act::Confirm(Reset::Advanced(section))
+                } else {
+                    // Show: Advanced, on the first of them.
+                    let first = self.changed_in(&section).first().map(|o| o.id.clone());
+                    self.settings.level = Level::Advanced;
+                    if let Some(row) = first {
+                        self.focus.set(Some((section, row)));
+                    }
+                    Act::Done
+                }
+            }
             ("reset.settings", _) => Act::Confirm(Reset::Settings),
             ("reset.songs", _) => Act::Confirm(Reset::Songs),
             ("reset.everything", _) => Act::Confirm(Reset::Everything),
@@ -2867,6 +3030,19 @@ impl OptionsModel {
                     .retain(|k, _| ddi_library::announcer::is_bundled(k));
             }
             Reset::History => {}
+            // Each changed Advanced row of the section to its default, as
+            // its row would set it.
+            Reset::Advanced(section) => {
+                let rows = self.changed_in(section);
+                let transient = std::mem::replace(&mut self.transient, true);
+                for o in &rows {
+                    if let Some(d) = o.default {
+                        self.change(&o.id, d);
+                    }
+                }
+                self.transient = transient;
+                self.notice = m::notice_advanced_reset(rows.len()).into();
+            }
             // The access is gone from the row, and (round TB) nothing of
             // it is asked for again at the next sign-in.
             Reset::Twitch => {
@@ -3083,6 +3259,48 @@ fn skins_of(skins: &[(String, String)], pump: bool) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Section `s` at Basic: its Basic rows (a hidden row's heading carried
+/// to the next row shown under it), then, where any of its Advanced rows
+/// differ from their defaults, a row counting them with Reset and Show;
+/// `None` where it has neither (an Advanced section: nothing of it shows).
+fn basic_view(s: OptionSection) -> Option<OptionSection> {
+    let changed = s
+        .options
+        .iter()
+        .filter(|o| o.level == Level::Advanced && o.changed())
+        .count();
+    let mut rows = Vec::new();
+    let mut carried: Option<String> = None;
+    for mut o in s.options {
+        if o.level == Level::Basic {
+            match o.heading {
+                Some(_) => carried = None,
+                None => o.heading = carried.take(),
+            }
+            rows.push(o);
+        } else if o.heading.is_some() {
+            carried = o.heading.take();
+        }
+    }
+    if changed > 0 {
+        let mut count = actions(
+            &format!("{CHANGED}{}", s.id),
+            m::advanced_changed(changed),
+            [m::advanced_changed_reset(), m::advanced_changed_show()],
+            "",
+            m::advanced_changed_description(changed),
+        );
+        // Show lit first: Start shows them, Reset asks before it acts.
+        count.index = 1;
+        rows.push(count);
+    }
+    (!rows.is_empty()).then_some(OptionSection {
+        id: s.id,
+        name: s.name,
+        options: rows,
+    })
+}
+
 /// A section: `id` what the shell and the tests know it by (its English
 /// name), `name` as it shows.
 fn section(id: &str, name: UiText, options: Vec<OptionDef>) -> OptionSection {
@@ -3108,6 +3326,9 @@ fn row(
         note: String::new(),
         description: description.into(),
         heading: None,
+        // In doubt, Advanced (a test holds every row to the table).
+        level: super::options_levels::level_of(id).unwrap_or(Level::Advanced),
+        default: None,
     }
 }
 
@@ -3816,10 +4037,15 @@ mod tests {
         assert!(!m.data().preview_whole_play);
     }
 
+    /// A model at Advanced: every row, as these tests read them (Basic's
+    /// have tests of their own, `options_levels`'s).
     fn model() -> OptionsModel {
         storage::install(Rc::new(MemoryStore::default()));
         let mut m = OptionsModel::new(
-            Settings::default(),
+            Settings {
+                level: Level::Advanced,
+                ..Settings::default()
+            },
             World {
                 noteskins: vec![
                     ("bundled:dance/delta".into(), "Delta (with the game)".into()),
@@ -4338,6 +4564,10 @@ mod tests {
             }
             if o.id == "announcer" {
                 m.change("announcer", 1);
+            }
+            // (And Advanced's rows while it is Advanced.)
+            if o.id == DETAIL {
+                m.change(DETAIL, 1);
             }
         }
         m.change("dancing_hand", 0);

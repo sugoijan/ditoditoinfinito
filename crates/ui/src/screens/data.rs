@@ -1119,9 +1119,22 @@ pub struct OptionDef {
     pub description: String,
     /// A heading above it ("SCROLL").
     pub heading: Option<String>,
+    /// The level it shows at (`docs/plans/ui-levels.md`): a Basic row at
+    /// both, an Advanced one at Advanced alone (`super::options_levels`).
+    pub level: crate::state::settings::Level,
+    /// Its value under the default settings, or its declared default (a
+    /// skin's parameter), where it has one: at Basic a section counts its
+    /// Advanced rows that differ ([`OptionDef::changed`]). `None` for
+    /// buttons and rows without a default (a device's offset).
+    pub default: Option<usize>,
 }
 
 impl OptionDef {
+    /// It differs from its default (buttons never do).
+    pub fn changed(&self) -> bool {
+        !matches!(self.kind, OptionKind::Actions(_)) && self.default.is_some_and(|d| d != self.index)
+    }
+
     pub fn values(&self) -> &[String] {
         match &self.kind {
             OptionKind::Choices(v) | OptionKind::Actions(v) => v,
@@ -1172,6 +1185,10 @@ pub struct OptionsData {
     /// What the last action did ("Settings reset.", "3 plays
     /// exported."), shown in the header.
     pub notice: String,
+    /// The level the rows are shown at (Options' More offers the other).
+    pub level: crate::state::settings::Level,
+    /// A row to focus once, by section and row id (a section's Show).
+    pub focus: Option<(String, String)>,
 }
 
 #[cfg(test)]

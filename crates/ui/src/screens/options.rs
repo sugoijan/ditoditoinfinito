@@ -38,6 +38,7 @@ use crate::message::Message;
 use crate::nav::{Focusable, MenuAction};
 use crate::request::UiRequest;
 use crate::screen::{Cx, Handled, Input, Screen};
+use crate::state::settings::Level;
 use crate::widgets::{part, set_text};
 
 /// The texture the shell draws the field's preview into.
@@ -47,6 +48,8 @@ pub const FIELD_PREVIEW: &str = "field-preview";
 pub const OPTIONS_CHANGED: &str = "Options.Changed";
 /// Timing's Calibrate row, which the footer's link presses too.
 pub const CALIBRATE: &str = "calibrate";
+/// More's item showing the other level (`docs/plans/ui-levels.md`).
+pub const LEVEL_ITEM: &str = "Level.Other";
 
 /// Told each change: the section's name and the option as it is now (the
 /// developer routes' sample).
@@ -946,10 +949,22 @@ impl OptionsScreen {
         }
     }
 
-    /// New rows: the same section and option where they still are.
-    fn set_data(&mut self, data: OptionsData, root: &mut Actor) {
-        let section = self.data.sections.get(self.section).map(|s| s.id.clone());
-        let id = self.options().get(self.focus).map(|o| o.id.clone());
+    /// New rows: the same section and option where they still are; where
+    /// the option went (a level hid it), the nearest shown before it; a
+    /// row the data names to focus (a section's Show) first.
+    fn set_data(&mut self, mut data: OptionsData, root: &mut Actor) {
+        let mut section = self.data.sections.get(self.section).map(|s| s.id.clone());
+        // The focused row, then those above it, nearest first.
+        let mut ids: Vec<String> = self.options()[..(self.focus + 1).min(self.options().len())]
+            .iter()
+            .rev()
+            .map(|o| o.id.clone())
+            .collect();
+        if let Some((s, row)) = data.focus.take() {
+            section = Some(s);
+            ids = vec![row];
+            self.preview_focused = false;
+        }
         if !descriptions(&self.data).eq(descriptions(&data)) {
             self.desc_cache.set(None);
         }
@@ -959,11 +974,29 @@ impl OptionsScreen {
         }
         self.section = self.section.min(self.data.sections.len().saturating_sub(1));
         let n = self.options().len();
-        self.focus = id
-            .and_then(|id| self.options().iter().position(|o| o.id == id))
+        self.focus = ids
+            .iter()
+            .find_map(|id| self.options().iter().position(|o| o.id == *id))
             .unwrap_or(self.focus)
             .min(n.saturating_sub(1));
         self.refresh(root);
+    }
+
+    /// Options' More's Show advanced (or basic) options: Detail flipped,
+    /// as its row would.
+    fn flip_level(&mut self, root: &mut Actor, cx: &mut Cx) {
+        let to = usize::from(self.data.level == Level::Basic);
+        if let Some(d) = self.shell.clone().and_then(|s| {
+            s(
+                OptionsCall::Change {
+                    id: super::options_levels::DETAIL.into(),
+                    index: to,
+                },
+                cx,
+            )
+        }) {
+            self.set_data(d, root);
+        }
     }
 
     /// Moves the focused row's (or the preview selector's) value by
@@ -981,6 +1014,17 @@ impl OptionsScreen {
         }
         if self.can_calibrate() {
             items.push(("Link.Calibrate".into(), common::calibrate().into()));
+        }
+        // The other level, where the shell keeps the settings.
+        if self.shell.is_some() {
+            items.push((
+                LEVEL_ITEM.into(),
+                match self.data.level {
+                    Level::Basic => m::more_show_advanced(),
+                    Level::Advanced => m::more_show_basic(),
+                }
+                .into(),
+            ));
         }
         items.push(("Back".into(), common::back().into()));
         super::action_menu(&self.env, &m::more_title(), items, "Options.More", cx);
@@ -1152,6 +1196,8 @@ impl OptionsScreen {
         st.option_id = o.map(|o| o.id.clone()).unwrap_or_default();
         st.value = o.map(|o| o.value().to_string()).unwrap_or_default();
         st.option_rows = self.options().iter().map(|o| o.id.clone()).collect();
+        st.options_level = format!("{:?}", self.data.level);
+        st.option_sections = self.data.sections.iter().map(|s| s.id.clone()).collect();
         st.notice = self.data.notice.clone();
         st.scroll = self.scroll;
     }
@@ -1563,6 +1609,8 @@ impl Screen for OptionsScreen {
                     self.leave(cx);
                 } else if name == "Link.Calibrate" {
                     self.calibrate(cx);
+                } else if name == LEVEL_ITEM {
+                    self.flip_level(root, cx);
                 } else if name == "PreviewLayout" {
                     self.preview_focused = true;
                     self.change(1, root, cx);

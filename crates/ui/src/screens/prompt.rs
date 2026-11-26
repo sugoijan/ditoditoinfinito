@@ -3674,8 +3674,13 @@ mod tests {
         ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
         use super::super::prompt_options::PlayOptions;
         let state = SharedPrompt::default();
+        // At Advanced: every row the prompt offers (Basic's are
+        // `prompt_options`' own test).
         let options = Rc::new(RefCell::new(PlayOptions::new(
-            crate::state::settings::Settings::default(),
+            crate::state::settings::Settings {
+                level: crate::state::settings::Level::Advanced,
+                ..Default::default()
+            },
             "dance-single",
             super::super::data::Platform::Web,
         )));
