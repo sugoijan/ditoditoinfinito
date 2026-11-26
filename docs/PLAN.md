@@ -1083,7 +1083,9 @@ named was looked at for this list.
    maintainer: [Basic and Advanced, the settings' hierarchy and a hidden
    settings screen](plans/ui-levels.md) (2026-11-26; its stage 1, the
    level and Basic hiding Options' Advanced rows, built the same day on
-   the plan's recommendations, its open questions still the
+   the plan's recommendations; on 2026-11-26 the maintainer chose the
+   switch's words, "Show advanced options: Off / On", and leaned the
+   rows toward Advanced; the other open questions still the
    maintainer's).
 
 Below these, later:

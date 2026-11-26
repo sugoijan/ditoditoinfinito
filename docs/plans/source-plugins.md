@@ -1143,8 +1143,7 @@ As they were asked, in the order they blocked work:
      holds one; with the levels, at Advanced only.
    - The levels' design is [ui-levels.md](ui-levels.md) (2026-11-26):
      the Plugins page a section of Options at Advanced on desktop,
-     reached by setting Interface → Detail to Advanced (or Options'
-     More); "This computer" Basic; a plugin switched on keeps its source
+     reached by turning Show advanced options On (or Options' More); "This computer" Basic; a plugin switched on keeps its source
      in Find songs at Basic (its section 6).
 3. **"This computer" built in?** (Blocks stage 2.)
    - **Recommended: yes.** It is Basic, it is our code, and it makes the

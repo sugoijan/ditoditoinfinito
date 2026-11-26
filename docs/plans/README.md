@@ -754,14 +754,17 @@ so.
 - [Basic and Advanced, the settings' hierarchy and a hidden settings
   screen](ui-levels.md) (2026-11-26): a design, its stage 1 built
   (section 9: the level as a setting, Basic by default and decided once
-  for settings stored before it, the Detail row and More's item, Basic
+  for settings stored before it, the switch "Show advanced options"
+  (Off by default) and More's item, Basic
   hiding Options' and the start prompt's Advanced rows with each
   section's count of those changed, Reset and Show), on the plan's own
-  recommendations while its open questions wait for the maintainer.
+  recommendations; the switch's words and a stricter sorting of the
+  rows toward Advanced the maintainer's answers of 2026-11-26, the
+  other open questions waiting.
   An inventory of every option (126 kinds of row,
   93 stored settings) and of 52 places outside Options with the genre's
   jargon or technical detail; a rule sorting them into Basic (the
-  default) and Advanced, switched by an ordinary "Detail" row, Basic
+  default) and Advanced, switched by an ordinary On/Off row, Basic
   hiding and never removing; two wordings in one message (a Fluent
   `.advanced` attribute); a tree of 12 sections; a chooser showing a
   row's choices side by side (stills from the field preview, the

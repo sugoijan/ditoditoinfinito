@@ -494,8 +494,10 @@ Rust and the browser are implementation details, not advertised features.
   flow in `crates/ui/src/state/bind.rs`); each row's level, Basic or
   Advanced, in one table (`options_levels.rs`, `docs/plans/ui-levels.md`,
   stage 1: `Settings::level`, Basic for a new player and decided once
-  for settings stored before it, `level_decided`; the Detail row and
-  More's item flip it; Basic hides Options' and the start prompt's
+  for settings stored before it, `level_decided`; the switch "Show
+  advanced options" (Off: Basic) and More's item flip it; a row is Basic
+  only where a newcomer understands it, would want it and cannot quietly
+  make the game worse with it; Basic hides Options' and the start prompt's
   Advanced rows and never their effect, each section ending with a
   count of those changed, Reset and Show; a section a shell adds,
   `World::sections`, may be Advanced alone). Controller menus use shared

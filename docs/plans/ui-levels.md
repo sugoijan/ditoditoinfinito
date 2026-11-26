@@ -1,8 +1,10 @@
 # Basic and Advanced, the settings' hierarchy and a hidden settings screen (2026-11-26)
 
 A design for the maintainer to decide; its stage 1 is built (section 9,
-2026-11-26) on the plan's own recommendations, the open questions of
-section 8 still open. It covers items 3,
+2026-11-26) on the plan's own recommendations, then on the maintainer's
+answers to open questions 1 and 2 the same day (the switch's words, and
+the rows leaned toward Advanced); the other open questions of section 8
+still open. It covers items 3,
 7 and 8 of `docs/PLAN.md`'s "What comes next" together, since they
 decide the same screen: two levels of the interface, a better hierarchy
 for Options with choices shown side by side where the look matters, and
@@ -50,14 +52,17 @@ The maintainer's words:
 - **The rule**: a row is Basic when someone who has never played a
   rhythm game can tell from its name and one plain sentence what it
   changes, would want to change it, and can see, hear or feel the
-  change; privacy, consent, resets, volume, language, accessibility,
+  change, leaning toward Advanced in doubt (the maintainer, 2026-11-26:
+  "lean into erring more towards marking a simple option as advanced
+  than marking a complex option as basic"); privacy, consent, resets, volume, language, accessibility,
   controls and calibration are always Basic. A row is Advanced when it
   names a genre or another game's concept, moves judging or scoring away
   from the game's own, tunes a mechanism by a number, or serves content
   brought from other games. A switch for testing, an experiment or a
   few people goes to the hidden screen.
-- **The toggle**: an ordinary row, "Detail: Basic / Advanced", first in
-  a new Interface section, and an item in Options' More. Basic hides,
+- **The toggle**: an ordinary switch, "Show advanced options: Off / On"
+  (Off by default; the maintainer's choice of 2026-11-26, section 9),
+  first in a new Interface section, and an item in Options' More. Basic hides,
   never removes: a section at Basic ends with a line counting the
   settings changed at Advanced, with Reset and Show.
 - **Words**: one message, two wordings: a Fluent attribute `.advanced`
@@ -453,7 +458,14 @@ few people (the watch-only link's Copy).
 
 Tie-breakers: in doubt, an option goes to Advanced and is promoted later
 (a Basic row is a promise to every player); but anything a person needs
-to fix a problem stays Basic. A readout (a judgment, a grade, a score)
+to fix a problem stays Basic. The maintainer leaned this further on
+2026-11-26: "I think we should lean into erring more towards marking a
+simple option as advanced than marking a complex option as basic." So a
+row stays Basic only where one is confident that a person new to rhythm
+games understands its name and its one-line description without knowing
+the genre, would plausibly want it, and cannot quietly make their game
+worse or confusing with it; anything one hesitates on is Advanced. The
+always-Basic list above stands. A readout (a judgment, a grade, a score)
 is the same at both levels: it is what happened, not a word to choose.
 A ruleset or a layout named by its own game's name is allowed at both
 levels (as `AGENTS.md` allows it now); what Basic leaves out is the
@@ -461,7 +473,9 @@ genre's community vocabulary and the technical numbers.
 
 ### 2.2 Applied
 
-The level column of the tables in 1.2 applies the rule: 69 Basic, 53
+(Before the maintainer's lean of 2026-11-26; section 9 has the rows as
+leaned, 18 of them moved from Basic to Advanced.) The level column of
+the tables in 1.2 applies the rule: 69 Basic, 53
 Advanced, 4 hidden. By section (Basic of the whole): Scroll 2 of 4,
 Notes 3 of 13, Rules 4 of 18, Timing 1 of 5, Sound 9 of 11, Display
 21 of 33, Arrows 4 of 12 and the preview's selector, Controls 13 of 14,
@@ -482,7 +496,8 @@ tags and parameters are Advanced.
 
 ### 2.3 The toggle
 
-An ordinary row, first in the Interface section of section 3 (until
+(The maintainer chose a switch on 2026-11-26, "Show advanced options:
+Off / On": section 9. The proposal as it was:) An ordinary row, first in the Interface section of section 3 (until
 that exists, under Display's MENUS heading beside Language), and an item
 in Options' More ("Show advanced options" / "Show basic options"), so a
 site's instructions can say either way.
@@ -618,7 +633,8 @@ rooms' rules and what they decide.
     with the first): desktop's first start already offers other games'
     song folders (`folders_offer.rs`, StepMania 5, ITGmania, OutFox);
     after "Add them", one line in song select: "You play other dance
-    games: Options → Interface → Detail: Advanced uses their terms." The
+    games: Options → Interface → Show advanced options uses their
+    terms." The
     web's Add songs of a StepMania pack could do the same once.
 - **Those who play already.** Their settings were stored before the
   level existed. Recommended: a settings migration with its own mark,
@@ -755,7 +771,7 @@ Advanced (13 on desktop, 12 on the web); Basic shows the rows marked B.
     - B Opponents' fields, Dancing hand in multiplayer, Room songs
       ahead, Twitch chat in rooms and its four rows
 11. **Interface**
-    - B Detail (the toggle), Language, Reduced motion, Cursor, Cursor
+    - B Show advanced options (the toggle), Language, Reduced motion, Cursor, Cursor
       size
     - TROUBLESHOOTING: A Graphics (web), Debug overlay, Autoplay demo,
       Experimental settings (section 5, once used)
@@ -1096,7 +1112,7 @@ they are test drivers, kept in addresses and scripts.
   someone chose would make their songs vanish from a search); turning
   plugins on or off is Advanced.
 - **The path from a site's instructions**: "Open Options. In Interface,
-  set Detail to Advanced. Open Plugins and choose Add plugin…". Or
+  turn Show advanced options On. Open Plugins and choose Add plugin…". Or
   Options' More: "Show advanced options".
 - **Until the levels exist**, the source plugins plan's interim stands
   (the page shows once the plugins folder holds a plugin); the hidden
@@ -1125,9 +1141,17 @@ In the order they block work.
 
 1. **The rule, and the level of each row** (blocks stage 1). The rule
    of 2.1 and the table of 1.2; first the judgment calls of 2.2.
+   - **Answered 2026-11-26**: "I think we should lean into erring more
+     towards marking a simple option as advanced than marking a complex
+     option as basic." Applied in section 9; the rows' table for the
+     maintainer to mark up is generated by `options_levels`'
+     `rows_table`.
    - **Recommended**: as written; Turn and Appearance Advanced,
      Fewer notes, At once and No holds Basic.
 2. **The toggle's name and place** (blocks stage 1).
+   - **Answered 2026-11-26**: "I want the toggle to read something to
+     the tone of 'Enable advanced options: On / Off'." Built as "Show
+     advanced options: Off / On" (section 9).
    - **Recommended**: "Detail: Basic / Advanced" (「表示の詳しさ：基本／
      上級」), first in Interface, and Options' More. Others: "Options
      shown", "Advanced options: On/Off".
@@ -1185,15 +1209,17 @@ In the order they block work.
 
 The maintainer approved starting stage 1 before going through section
 8. It rests on the plan's recommendations for the questions that block
-it, each kept in one place so that an answer is applied there:
+it, each kept in one place so that an answer is applied there; the
+answers to questions 1 and 2 came the same day and are applied (below,
+"The switch and the lean"):
 
 | Question | What was built | Where to change it |
 |---|---|---|
-| 1, the rule and each row's level | the levels of section 1.2's tables: Turn, Appearance and Lane cover Advanced; Fewer notes, At once and No holds Basic | `crates/ui/src/screens/options_levels.rs`, `LEVELS`: one entry a row or a family of rows (an id ending in `.`); a row not in it is Advanced, and a test holds every row the model makes to an entry |
-| 2, the toggle's name and place | "Detail: Basic / Advanced" (「表示の詳しさ：基本／上級」, a draft), under Display's MENUS heading before Language until stage 3 makes Interface; and Options' More, "Show advanced options" / "Show basic options" | `DETAIL_PLACE` (the section and the row it comes before); the words are `options-detail*` and `options-more-show-*` |
+| 1, the rule and each row's level | the levels of section 1.2's tables leaned toward Advanced by the maintainer's answer: Turn, Appearance and Lane cover Advanced, and since the answer Notes, At once and No holds too, with 15 other rows (below) | `crates/ui/src/screens/options_levels.rs`, `LEVELS`: one entry a row or a family of rows (an id ending in `.`); a row not in it is Advanced, and a test holds every row the model makes to an entry |
+| 2, the toggle's name and place | by the maintainer's answer, a switch: "Show advanced options: Off / On" (「上級オプションを表示：オフ／オン」, a draft), Off by default, under Display's MENUS heading before Language until stage 3 makes Interface; and Options' More, "Show advanced options" / "Hide advanced options" | `SHOW_ADVANCED_PLACE` (the section and the row it comes before); the words are `options-show-advanced*`, `options-more-show-advanced`, `options-more-hide-advanced`, `options-advanced-changed*` |
 | 3, those who play already | settings stored before the level start at Advanced where an Advanced row differs from its default, else Basic; decided once at load, marked `level_decided` | `options_levels::advanced_in_effect`, called by `Settings::load` |
 | 4, the first run | Basic, nothing asked | `Settings::default().level` |
-| 5, Basic's view of Advanced settings in effect | each section at Basic ends with "Changed in Advanced: N", Reset them (asked once, naming the count and the section) and Show (Detail to Advanced, focused on the first of them; lit first, so a press of Start shows rather than resets); a changed Advanced row stays on the start prompt | `options_model::basic_view`; `prompt_options::PlayOptions::rows` |
+| 5, Basic's view of Advanced settings in effect | each section at Basic ends with "Advanced changes: N", Reset them (asked once, naming the count and the section) and Show (Show advanced options On, focused on the first of them; lit first, so a press of Start shows rather than resets); a changed Advanced row stays on the start prompt | `options_model::basic_view`; `prompt_options::PlayOptions::rows` |
 
 **What a person sees.** A new player (no stored settings) is at Basic.
 A player whose settings were stored before is at Advanced if any of
@@ -1201,28 +1227,30 @@ these differ from the default (and sees exactly what they saw), else
 at Basic: an Advanced row of Options (by its value against the default
 settings', the rows shown only under another value too: StepMania's
 rules under another ruleset, the covers' heights, the chat's rows), a
-pump skin chosen, an Advanced parameter of a skin (any of a skin other
-than Infinito, Infinito's but Note colors and Explosions), an
-announcer's tag or parameter (its Language is Basic). Flipping Detail,
-by its row or More's item, rebuilds Options in place: the focused row
-where it still shows, else the nearest shown above it.
+pump skin chosen, a skin's parameter (none is Basic since the lean), an
+announcer's tag or parameter (its Language is Basic). Flipping the
+switch, by its row or More's item, rebuilds Options in place: the
+focused row where it still shows, else the nearest shown above it, else
+below it; where its section is not shown at Basic (Notes), the first row
+of the section in its place.
 
 **Rows at each level** (a fresh profile, a controller-reading
-platform, nothing connected; the Detail row counted in Display):
+platform, nothing connected; the switch counted in Display; `cargo test
+-p ddi-ui --lib rows_per_section -- --ignored --nocapture`):
 
-| Section | Basic | Advanced |
-|---|---|---|
-| Scroll | 2 | 4 |
-| Notes | 3 | 11 (13 with both covers) |
-| Rules | 4 | 11 under DDI (17 under another ruleset) |
-| Timing | 1 | 3, and 2 a known device |
-| Sound | 7 | 7 (more with a pack's tags and parameters) |
-| Display | 18 | 30 (35 with the chat and the hand's multiplayer row) |
-| Arrows | 3 | 8 |
-| Controls | 10 | 11 (with each controller's rows at both) |
-| Data | 9 (8 on desktop) | 9 (8 on desktop) |
-| Songs (desktop) | 2 | 2 |
-| Total | 57 (58 on desktop) | 94 (95 on desktop) |
+| Section | Basic as first built | Basic since the lean | Advanced |
+|---|---|---|---|
+| Scroll | 2 | 2 | 4 |
+| Notes | 3 | 0 (left out) | 11 (13 with both covers) |
+| Rules | 4 | 4 | 11 under DDI (17 under another ruleset) |
+| Timing | 1 | 1 | 3, and 2 a known device |
+| Sound | 7 | 5 | 7 (more with a pack's tags and parameters) |
+| Display | 18 | 10 (11 with the chat) | 30 (35 with the chat and the hand's multiplayer row) |
+| Arrows | 3 | 1 | 8 |
+| Controls | 10 | 10 | 11 (with each controller's rows at both) |
+| Data | 9 (8 on desktop) | 9 (8 on desktop) | 9 (8 on desktop) |
+| Songs (desktop) | 2 | 2 | 2 |
+| Total | 57 (58 on desktop) | 42 (43 on desktop) | 94 (95 on desktop) |
 
 **Choices made beyond the plan, for the maintainer to check:**
 
@@ -1242,8 +1270,8 @@ platform, nothing connected; the Detail row counted in Display):
   test-only Advanced section.
 - A skin's parameter is Basic where its metrics say `Level=Basic` (our
   extension, read by `ddi_noteskin::params`; `skin-parameters.md`):
-  Infinito's Note colors and Explosions. A pump skin's are Advanced
-  whatever they say, as its row is.
+  Infinito's Note colors and Explosions until the lean, none since. A
+  pump skin's are Advanced whatever they say, as its row is.
 - "Changed" is row by row against `OptionDef::default`: the row's value
   under the default settings, or its declared default for a skin's and
   an announcer's parameters. Reset sets each changed Advanced row of the
@@ -1261,7 +1289,7 @@ stored, in the preview's settings; its count; Show; Reset asked and
 done); headings carried to the next row shown; an Advanced-only
 section; skins' parameters' levels and defaults; the decision for those
 who play already, from stored blobs. The screen's: `options_tests::
-detail_flips_the_level_in_place` (the row, More's item, the count and
+show_advanced_flips_the_level_in_place` (the row, More's item, the count and
 Show by Start). The prompt's: `prompt_options::tests::
 basic_shows_its_rows_and_a_changed_advanced_one`. The `qps-ploc` walk
 reads Options at both levels and the new confirmation. Tests that were
@@ -1270,6 +1298,62 @@ tests, the prompt's navigation, the developer sample `sample::options`,
 which the theme's tests and the developer routes draw) keep today's
 full view by setting Advanced in their helpers, so no drawn pin moved;
 Basic has tests and pictures of its own.
+
+**The switch and the lean (2026-11-26).** The maintainer's answers to
+questions 1 and 2, applied before stage 1 reached any player (so no
+settings needed moving again):
+
+- *The words.* "I want the toggle to read something to the tone of
+  'Enable advanced options: On / Off'." Options' On/Off rows are named
+  either by a thing (Reverse, Lyrics, Practice) or by what the game does
+  when On (Send usage statistics, Poll every millisecond), and no row
+  says "Enable". A thing's name would read "Advanced options: Off",
+  which says they are off, while they still apply; so the row says what
+  On does: **"Show advanced options: Off / On"**, Off by default; its
+  sentence "On, every option shows, those for players who know rhythm
+  games too, in StepMania's, ITGmania's and Etterna's terms. Off, only
+  the options most players need; hidden ones still apply, and each
+  section counts those changed."
+  More's item says "Show advanced options" or "Hide advanced options";
+  a section's count "Advanced changes: N" (Show, Reset them; short enough
+  that a phone's row keeps the count beside its two buttons).
+  Japanese drafts: 「上級オプションを表示」 (オフ／オン; as
+  「タイミング誤差の表示」, short enough for a phone's row), More's
+  「上級オプションを表示」／「上級オプションを非表示」, 「上級の変更：N件」.
+  The setting is still the level (`Settings::level`, Basic and
+  Advanced) and the code's row id
+  `show_advanced`.
+- *The lean.* Every row was gone through again (the table is printed by
+  `options_levels`' `rows_table` test). 18 rows moved from Basic to
+  Advanced, none the other way: Notes (`cut`, today's "Quarters"
+  wording, and it marks plays assisted), At once, No holds (the genre's
+  holds, rolls and jumps); Assist clap (StepMania's name), Mine sound (a
+  newcomer knows no mine, and Off takes a warning away quietly); Field
+  position, Opponents' fields (a performance knob), Chat style, Chatter
+  names, Chat opacity, Dancing hand in multiplayer (finer controls under
+  a Basic row), Ghost of your best ("ghost"), Background videos ("costs
+  frames", "the decoder"; Automatic already handles a costly video),
+  Generated background and Generated colors (looks a newcomer need not
+  choose; Background brightness keeps the way to have none), Field
+  filter (our jargon); Infinito's Note colors and Explosions (their
+  words are a skin's English data: "timing-color families", "SVG
+  flashes", so its metrics declare no `Level=Basic` now). Kept Basic
+  with a reason each beyond the always-Basic list: Speed, Reverse,
+  Timing difficulty, Practice, Score display, Judgment words, Announcer
+  and its language and volume, Your own announcer, Twitch chat in rooms
+  (the privacy note and Host options send players to it), Dancing hand,
+  Lyrics, Background brightness, Start countdown, Arrows, Room songs
+  ahead (data use).
+- *What it makes awkward.* Notes has no Basic row and is left out at
+  Basic unless something in it is changed: a newcomer's assists are
+  Timing difficulty's Easy and Practice until stage 2's plain words
+  ("Fewer notes") can bring Notes back. Arrows at Basic is one row.
+  Calibration's page still tells a player to set an offset "by hand in
+  the options" and to turn on "Timing error of each hit", Advanced rows
+  since stage 1 (stage 2's calibration page). More players carry a
+  hidden setting: the counts, the prompt's rule and the one-time
+  placement read the same table, and the stored-settings tests have a
+  case for each moved row.
 
 **Not done in stage 1** (as the stages say): no wording changes (stage
 2), no section moved (stage 3), nothing outside Options and the start
