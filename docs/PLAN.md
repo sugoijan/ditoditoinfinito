@@ -1079,7 +1079,10 @@ named was looked at for this list.
 
    Items 3, 7 and 8 are designed together, with the choices left to the
    maintainer: [Basic and Advanced, the settings' hierarchy and a hidden
-   settings screen](plans/ui-levels.md) (2026-11-26; nothing built).
+   settings screen](plans/ui-levels.md) (2026-11-26; its stage 1, the
+   level and Basic hiding Options' Advanced rows, built the same day on
+   the plan's recommendations, its open questions still the
+   maintainer's).
 
 Below these, later:
 

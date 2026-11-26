@@ -752,8 +752,13 @@ so.
   again only when something changed; the web's history state written
   only when it changes.
 - [Basic and Advanced, the settings' hierarchy and a hidden settings
-  screen](ui-levels.md) (2026-11-26): a design, nothing built; for the
-  maintainer to decide. An inventory of every option (126 kinds of row,
+  screen](ui-levels.md) (2026-11-26): a design, its stage 1 built
+  (section 9: the level as a setting, Basic by default and decided once
+  for settings stored before it, the Detail row and More's item, Basic
+  hiding Options' and the start prompt's Advanced rows with each
+  section's count of those changed, Reset and Show), on the plan's own
+  recommendations while its open questions wait for the maintainer.
+  An inventory of every option (126 kinds of row,
   93 stored settings) and of 52 places outside Options with the genre's
   jargon or technical detail; a rule sorting them into Basic (the
   default) and Advanced, switched by an ordinary "Detail" row, Basic

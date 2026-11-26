@@ -487,7 +487,14 @@ Rust and the browser are implementation details, not advertised features.
   `docs/plans/start-prompt.md`) with their sample
   data, options' rows made from the settings and the shell every
   platform shares (`options_model.rs`, `options_shell.rs`, the bind
-  flow in `crates/ui/src/state/bind.rs`). Controller menus use shared
+  flow in `crates/ui/src/state/bind.rs`); each row's level, Basic or
+  Advanced, in one table (`options_levels.rs`, `docs/plans/ui-levels.md`,
+  stage 1: `Settings::level`, Basic for a new player and decided once
+  for settings stored before it, `level_decided`; the Detail row and
+  More's item flip it; Basic hides Options' and the start prompt's
+  Advanced rows and never their effect, each section ending with a
+  count of those changed, Reset and Show; a section a shell adds,
+  `World::sections`, may be Advanced alone). Controller menus use shared
   `ControlBindings::menu_control`: West opens visible More actions, shoulders
   change charts/sections/panels (editor: lanes), and dedicated Start stays
   distinct until the screen resolves it. Standard-controller binding has
@@ -740,7 +747,8 @@ Rust and the browser are implementation details, not advertised features.
   opt-in roll body/cap animation from the active scaled roll timing window
   (`RollAnimationTimingWindowRatio`, `docs/plans/noteskin-authoring.md`);
   parameters a skin declares in its metrics, kept per skin in the
-  settings, shown under Options → Arrows and read by its Lua
+  settings, shown under Options → Arrows (at Advanced, or at Basic too
+  with `Level=Basic`) and read by its Lua
   (`NOTESKIN:GetParameter`; `crates/noteskin/src/params.rs`, our extension,
   `docs/plans/skin-parameters.md`; Infinito's Vivid (default), Rainbow and Flat colors, onigiri, mine shape,
   per-note charge timing (on by default), receptor fill and hit effects are its parameters; Peters-DDR combines

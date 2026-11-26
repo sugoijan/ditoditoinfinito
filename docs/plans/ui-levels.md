@@ -1,6 +1,8 @@
 # Basic and Advanced, the settings' hierarchy and a hidden settings screen (2026-11-26)
 
-A design, nothing built; for the maintainer to decide. It covers items 3,
+A design for the maintainer to decide; its stage 1 is built (section 9,
+2026-11-26) on the plan's own recommendations, the open questions of
+section 8 still open. It covers items 3,
 7 and 8 of `docs/PLAN.md`'s "What comes next" together, since they
 decide the same screen: two levels of the interface, a better hierarchy
 for Options with choices shown side by side where the look matters, and
@@ -1178,3 +1180,101 @@ In the order they block work.
 16. **Small things found** (any time): the Graphics row and "On
     WebGL2" on desktop; the unused skill radar messages; Infinito's
     parameters as messages (1.7).
+
+## 9. Stage 1 as built (2026-11-26)
+
+The maintainer approved starting stage 1 before going through section
+8. It rests on the plan's recommendations for the questions that block
+it, each kept in one place so that an answer is applied there:
+
+| Question | What was built | Where to change it |
+|---|---|---|
+| 1, the rule and each row's level | the levels of section 1.2's tables: Turn, Appearance and Lane cover Advanced; Fewer notes, At once and No holds Basic | `crates/ui/src/screens/options_levels.rs`, `LEVELS`: one entry a row or a family of rows (an id ending in `.`); a row not in it is Advanced, and a test holds every row the model makes to an entry |
+| 2, the toggle's name and place | "Detail: Basic / Advanced" (「表示の詳しさ：基本／上級」, a draft), under Display's MENUS heading before Language until stage 3 makes Interface; and Options' More, "Show advanced options" / "Show basic options" | `DETAIL_PLACE` (the section and the row it comes before); the words are `options-detail*` and `options-more-show-*` |
+| 3, those who play already | settings stored before the level start at Advanced where an Advanced row differs from its default, else Basic; decided once at load, marked `level_decided` | `options_levels::advanced_in_effect`, called by `Settings::load` |
+| 4, the first run | Basic, nothing asked | `Settings::default().level` |
+| 5, Basic's view of Advanced settings in effect | each section at Basic ends with "Changed in Advanced: N", Reset them (asked once, naming the count and the section) and Show (Detail to Advanced, focused on the first of them; lit first, so a press of Start shows rather than resets); a changed Advanced row stays on the start prompt | `options_model::basic_view`; `prompt_options::PlayOptions::rows` |
+
+**What a person sees.** A new player (no stored settings) is at Basic.
+A player whose settings were stored before is at Advanced if any of
+these differ from the default (and sees exactly what they saw), else
+at Basic: an Advanced row of Options (by its value against the default
+settings', the rows shown only under another value too: StepMania's
+rules under another ruleset, the covers' heights, the chat's rows), a
+pump skin chosen, an Advanced parameter of a skin (any of a skin other
+than Infinito, Infinito's but Note colors and Explosions), an
+announcer's tag or parameter (its Language is Basic). Flipping Detail,
+by its row or More's item, rebuilds Options in place: the focused row
+where it still shows, else the nearest shown above it.
+
+**Rows at each level** (a fresh profile, a controller-reading
+platform, nothing connected; the Detail row counted in Display):
+
+| Section | Basic | Advanced |
+|---|---|---|
+| Scroll | 2 | 4 |
+| Notes | 3 | 11 (13 with both covers) |
+| Rules | 4 | 11 under DDI (17 under another ruleset) |
+| Timing | 1 | 3, and 2 a known device |
+| Sound | 7 | 7 (more with a pack's tags and parameters) |
+| Display | 18 | 30 (35 with the chat and the hand's multiplayer row) |
+| Arrows | 3 | 8 |
+| Controls | 10 | 11 (with each controller's rows at both) |
+| Data | 9 (8 on desktop) | 9 (8 on desktop) |
+| Songs (desktop) | 2 | 2 |
+| Total | 57 (58 on desktop) | 94 (95 on desktop) |
+
+**Choices made beyond the plan, for the maintainer to check:**
+
+- A known device's offset rows (Timing) have no default to count: their
+  values are calibration's results, calibration is Basic, and every
+  device gets a profile by playing; counting them would put every
+  player who calibrated at Advanced and leave Timing's count lit for
+  good. The default offsets for devices without a profile, set only by
+  hand, count.
+- Sharing's four rows (behind their hidden switch) show at both levels
+  until the hidden screen (stage 4) takes them: hiding a section a
+  person turned on by a switch would lose it.
+- A section with no Basic row and nothing changed is left out at Basic
+  (none today); with something changed it shows its count alone. The
+  place for desktop's Plugins page is `World::sections`, sections a
+  shell adds with their rows' levels; a test proves it with a
+  test-only Advanced section.
+- A skin's parameter is Basic where its metrics say `Level=Basic` (our
+  extension, read by `ddi_noteskin::params`; `skin-parameters.md`):
+  Infinito's Note colors and Explosions. A pump skin's are Advanced
+  whatever they say, as its row is.
+- "Changed" is row by row against `OptionDef::default`: the row's value
+  under the default settings, or its declared default for a skin's and
+  an announcer's parameters. Reset sets each changed Advanced row of the
+  section to its default as its row would (so the field's place stays
+  where Hand layout put it, as a change of that row leaves it).
+- The start prompt's skin row on a pump layout is the pump skins' at
+  Basic only where a pump skin is chosen (stored or for this play), else
+  the arrows' row, which then draws the pump layouts.
+- Settings reset ("Settings" in Data) puts the level back to Basic with
+  everything else.
+
+**Tests.** The level's own (`options_levels::tests`): every row has a
+level; Basic hides and never removes (the setting still in effect,
+stored, in the preview's settings; its count; Show; Reset asked and
+done); headings carried to the next row shown; an Advanced-only
+section; skins' parameters' levels and defaults; the decision for those
+who play already, from stored blobs. The screen's: `options_tests::
+detail_flips_the_level_in_place` (the row, More's item, the count and
+Show by Start). The prompt's: `prompt_options::tests::
+basic_shows_its_rows_and_a_changed_advanced_one`. The `qps-ploc` walk
+reads Options at both levels and the new confirmation. Tests that were
+about rows rather than the level (the options model's and screen's
+tests, the prompt's navigation, the developer sample `sample::options`,
+which the theme's tests and the developer routes draw) keep today's
+full view by setting Advanced in their helpers, so no drawn pin moved;
+Basic has tests and pictures of its own.
+
+**Not done in stage 1** (as the stages say): no wording changes (stage
+2), no section moved (stage 3), nothing outside Options and the start
+prompt (song select, the results, calibration: stage 2), no hidden
+settings screen (stage 4), no choosers (stage 5). The import dialog's
+"Details for pack authors" and a song's offset (the results) are
+Advanced settings outside Options and are not counted.
+
