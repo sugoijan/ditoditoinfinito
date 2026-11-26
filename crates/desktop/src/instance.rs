@@ -35,9 +35,10 @@ pub const EXIT_RUNNING: i32 = 3;
 
 /// The runs that open no window, by the flag that makes them one and
 /// whether it takes a value (as `crate::run` reads them, in its order).
-const UTILITIES: [(&str, bool); 7] = [
+const UTILITIES: [(&str, bool); 8] = [
     ("--danoni-bundle-info", false),
     ("--danoni-importer-check", false),
+    ("--source-check", false),
     ("--mp-bots", false),
     ("--video-check", false),
     ("--share", true),
@@ -338,6 +339,7 @@ mod tests {
         for (line, flag) in [
             ("--danoni-bundle-info", "--danoni-bundle-info"),
             ("--danoni-importer-check", "--danoni-importer-check"),
+            ("--source-check", "--source-check"),
             ("--mp-bots --host --guests 2", "--mp-bots"),
             ("--mp-bots --help", "--mp-bots"),
             ("--video-check a.mp4 --frames", "--video-check"),

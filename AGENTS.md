@@ -1301,7 +1301,9 @@ Rust and the browser are implementation details, not advertised features.
   (`editor.rs`: song select's E, saving into the song's folder, its
   playtests; new songs from a music file, `editor/new_song.rs`, made
   only once the music decodes, as on the web); the
-  devices' fingerprints and notices (`devices.rs`). Settings in
+  devices' fingerprints and notices (`devices.rs`); song source plugins'
+  folders and `--source-check` (`sources.rs`, over `ddi-source-host`;
+  the cache folder's `sources/` emptied at the window's start). Settings in
   `storage.json` in the config folder; `DDI_HOME` moves the config, data
   and cache folders under it (`paths.rs`). One app a data folder
   (`instance.rs`; `docs/plans/desktop.md`, "One app a data folder"): a
@@ -1316,8 +1318,8 @@ Rust and the browser are implementation details, not advertised features.
   what is written in it (the process and its start, for the message),
   and the file is never deleted; where no lock can be had the app starts
   as before and says so in a line. The runs that open no window
-  (`--danoni-bundle-info`, `--danoni-importer-check`, `--mp-bots`,
-  `--video-check`, `--share`, `--shares`, `--delete-share`:
+  (`--danoni-bundle-info`, `--danoni-importer-check`, `--source-check`,
+  `--mp-bots`, `--video-check`, `--share`, `--shares`, `--delete-share`:
   `instance::utility`, which a new one joins) take none, may run beside
   an open app, and read the settings without ever writing them
   (`store::install_reading`; a saved switch given beside one,
@@ -1443,6 +1445,38 @@ Rust and the browser are implementation details, not advertised features.
   `ddi_library::share`
   re-exports it for the game; the private server (`../ddi-server`)
   depends on it by path and keeps no copy. Pure, natively tested.
+- `crates/source-protocol/` song source plugins' wire contract
+  (`ddi-source-protocol`, serde only, builds for wasm where nothing uses
+  it; `docs/plans/source-plugins.md`, version 1): the framing (`frame`:
+  a length, the JSON's length, the JSON, a `file` chunk's bytes
+  attached; 4 MiB a frame, 1 MiB an attachment, a cut frame never a
+  clean end), the messages both ways (`message`, `type` in snake_case,
+  unknown fields refused, steps, failure codes and capabilities as
+  values), every limit (`limits`), a plugin's messages and Hello checked
+  against them and its manifest (`check`), its text (`text`: English
+  required, control and direction characters taken out), `plugin.toml`'s
+  fields (`manifest`), and `vectors/v1.json`, frames as bytes for other
+  languages (`tests/vectors.rs`; `DDI_WRITE_VECTORS=1` writes it).
+- `crates/source-host/` the desktop's host for song source plugins
+  (`ddi-source-host`, empty on wasm; stage 1 of
+  `docs/plans/source-plugins.md`): plugins found in the data folder's
+  `plugins/<id>/` (`installed`: the manifest, the executable in
+  `bin/<arch>-<os>/`, its SHA-256), off until listed in the
+  configuration folder's `plugins.json` (`switches`); each started as a
+  process of its own at a lower priority when first asked (`process`),
+  on a thread of its own (`supervisor`: every message held to the
+  limits and its operation's order, stopped and reaped when silent 30 s
+  in an operation, a search past 60 s, a cancel past 5 s, a shutdown
+  past 5 s or a protocol broken, off for the run after three such ends
+  or a Hello it does not take, shut down after 60 s idle); the game's
+  handle never waits (`host::Host`: `request`, `cancel`, `try_event`);
+  fetched songs in memory, 64 MiB an item, 256 MiB in all, else in the
+  cache folder's `sources/`, 2 GiB a run, movies always there, held
+  items (`store::hold`) moved there rather than dropped (`store`), read
+  by the library's own scanner and zip reader into songs with ids
+  `src:<16 hex>:<n>` and their `song_key` (`assemble`). Nothing starts a
+  plugin from the game's screens yet (stages 2 to 4). Its tests over
+  real processes are `tools/source-test-plugins/tests/host.rs`.
 - `crates/room/` the multiplayer room, match and stage model (`ddi-room`,
   `docs/plans/multiplayer-prototype-progress.md`): serde and JSON only, no
   chart/engine/library or I/O, so the private server can run it too;
@@ -2326,6 +2360,20 @@ Rust and the browser are implementation details, not advertised features.
   generated third-party packs stay outside Git. See
   `docs/plans/danoni-importer.md` for the current build/distribution contract;
   `docs/research/danoni-desktop-integration.md` records the research.
+- `tools/source-sdk/` the start of the song source plugins' SDK
+  (`ddi-source-sdk`; in this repository until the interface settles,
+  then a repository of its own; never packaged): the `Source` trait, every
+  method optional, and `serve`/`main` doing the protocol (framing, Hello,
+  operations on threads, cancellation, progress, the limits checked
+  before anything is sent); its README says to authors what a plugin is,
+  that it runs with the player's access, and the courtesy owed to the
+  sites a plugin reads. `tools/source-test-plugins/`
+  (`ddi-source-test-plugins`, never packaged, no dependency of the app):
+  `ddi-example-source`, a well-behaved plugin on the SDK over generated
+  songs (every capability; no network), and `ddi-bad-source`, which
+  misbehaves as the name it is installed under says (hangs, crashes,
+  floods, oversized or malformed frames, lies about sizes, hostile
+  paths and content); `tests/host.rs` runs the host against both.
 - `crates/icon/` the approved brand icon's build-time compositor: the vector
   artwork, frozen color texture and target profiles in `assets/icon/`. Cargo
   builds the Windows/Linux window SVG in `OUT_DIR`; Windows' executable
@@ -2448,6 +2496,9 @@ Rust and the browser are implementation details, not advertised features.
   base, `--mp-dev-chat-record DIR` every raw socket frame written
   there), `--share IDS|pack:NAME
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
+  `--source-check` (no window: the song source plugins installed in the
+  data folder's `plugins/`, their manifests and SHA-256, each started,
+  switched on or not, and what it declared, as JSON; `sources.rs`),
   `--mp-bots --api URL [--host] [--join LINK] [--guests N] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
   [--pick ID[:N],…] [--add ID[:N],…] [--everyone] [--group]
@@ -2581,7 +2632,8 @@ Rust and the browser are implementation details, not advertised features.
   [--area A]` lists messages for a review pass; `xtask l10n review <tag>
   --by agent|human <ids…>|--area A` records one (`locales/README.md`).
 - `just test` native tests (chart, msd, rating, chat, engine, render, session, shell, room,
-  share-protocol,
+  share-protocol, source-protocol, source-host, source-sdk and the test
+  plugins (their host tests start real plugin processes),
   platform with `decode` and, through desktop, `decode-all` (its references against
   the `ffmpeg` command where it is installed), library with `nfkd`,
   actor, ui, l10n, theme, noteskin, lua, desktop, the web's routes' table, xtask), after writing the

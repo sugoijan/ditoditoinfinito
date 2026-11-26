@@ -183,7 +183,7 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 
 ## Desktop app (Linux, macOS and Windows)
 
-362 crates.
+367 crates.
 
 | Crate | Version | Licence | Used under | Notices |
 |---|---|---|---|---|
@@ -430,8 +430,9 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 | serde | 1.0.229 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | serde_core | 1.0.229 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | serde_json | 1.0.154 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| sha1 | 0.11.0 | MIT OR Apache-2.0 | MIT | [156](#notice-156) |
-| sha2 | 0.11.1 | MIT OR Apache-2.0 | MIT | [156](#notice-156) |
+| serde_spanned | 1.1.3 | MIT OR Apache-2.0 | MIT | [156](#notice-156) |
+| sha1 | 0.11.0 | MIT OR Apache-2.0 | MIT | [157](#notice-157) |
+| sha2 | 0.11.1 | MIT OR Apache-2.0 | MIT | [157](#notice-157) |
 | simd-adler32 | 0.3.10 | MIT | MIT | [63](#notice-63) |
 | simdutf8 | 0.1.5 | MIT OR Apache-2.0 | MIT | [24](#notice-24) |
 | simplecss | 0.2.2 | Apache-2.0 OR MIT | MIT | [64](#notice-64) |
@@ -445,7 +446,7 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 | smol_str | 0.2.2 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | smol_str | 0.3.7 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | spirv | 0.4.0+sdk-1.4.341.0 | Apache-2.0 | Apache-2.0 | [14](#notice-14) |
-| stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 | MIT | [157](#notice-157) |
+| stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 | MIT | [158](#notice-158) |
 | static_assertions | 1.1.0 | MIT OR Apache-2.0 | MIT | [68](#notice-68) |
 | strength_reduce | 0.2.4 | MIT OR Apache-2.0 | MIT | [152](#notice-152) |
 | strict-num | 0.1.1 | MIT | MIT | [69](#notice-69) |
@@ -462,7 +463,7 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 | symphonia-format-riff | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
 | symphonia-metadata | 0.6.1 | MPL-2.0 | MPL-2.0 | [72](#notice-72) |
 | sys-locale | 0.3.2 | MIT OR Apache-2.0 | MIT | [73](#notice-73) |
-| tempfile | 3.27.0 | MIT OR Apache-2.0 | MIT | [158](#notice-158) |
+| tempfile | 3.27.0 | MIT OR Apache-2.0 | MIT | [159](#notice-159) |
 | thiserror | 1.0.69 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | thiserror | 2.0.21 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | tiny-skia | 0.11.4 | BSD-3-Clause | BSD-3-Clause | [74](#notice-74) |
@@ -471,15 +472,18 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 | tiny-skia-path | 0.12.0 | BSD-3-Clause | BSD-3-Clause | [74](#notice-74) |
 | tinystr | 0.8.5 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
 | tinyvec | 1.13.3 | Zlib OR Apache-2.0 OR MIT | MIT | [1](#notice-1) |
-| tracing | 0.1.44 | MIT | MIT | [159](#notice-159) |
-| tracing-core | 0.1.36 | MIT | MIT | [159](#notice-159) |
-| transpose | 0.2.3 | MIT OR Apache-2.0 | MIT | [160](#notice-160) |
-| tree_magic_mini | 3.2.2 | MIT | MIT | [161](#notice-161) |
+| toml | 1.2.2+spec-1.1.0 | MIT OR Apache-2.0 | MIT | [156](#notice-156) |
+| toml_datetime | 1.1.3+spec-1.1.0 | MIT OR Apache-2.0 | MIT | [156](#notice-156) |
+| toml_parser | 1.1.6+spec-1.1.0 | MIT OR Apache-2.0 | MIT | [156](#notice-156) |
+| tracing | 0.1.44 | MIT | MIT | [160](#notice-160) |
+| tracing-core | 0.1.36 | MIT | MIT | [160](#notice-160) |
+| transpose | 0.2.3 | MIT OR Apache-2.0 | MIT | [161](#notice-161) |
+| tree_magic_mini | 3.2.2 | MIT | MIT | [162](#notice-162) |
 | ttf-parser | 0.25.1 | MIT OR Apache-2.0 | MIT | [70](#notice-70) |
-| tungstenite | 0.30.0 | MIT OR Apache-2.0 | MIT | [162](#notice-162) |
+| tungstenite | 0.30.0 | MIT OR Apache-2.0 | MIT | [163](#notice-163) |
 | type-map | 0.5.1 | MIT/Apache-2.0 | MIT | [76](#notice-76) |
-| typenum | 1.20.1 | MIT OR Apache-2.0 | MIT | [163](#notice-163) |
-| uncased | 0.9.10 | MIT OR Apache-2.0 | MIT | [164](#notice-164) |
+| typenum | 1.20.1 | MIT OR Apache-2.0 | MIT | [164](#notice-164) |
+| uncased | 0.9.10 | MIT OR Apache-2.0 | MIT | [165](#notice-165) |
 | unic-langid | 0.9.6 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | unic-langid-impl | 0.9.6 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | unicode-bidi | 0.3.18 | MIT OR Apache-2.0 | MIT | [77](#notice-77) |
@@ -489,24 +493,24 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 | unicode-script | 0.5.9 | MIT OR Apache-2.0 | MIT | [79](#notice-79) |
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | MIT | [77](#notice-77) |
 | unicode-width | 0.2.3 | MIT OR Apache-2.0 | MIT | [77](#notice-77) |
-| ureq | 3.5.2 | MIT OR Apache-2.0 | MIT | [165](#notice-165) |
-| ureq-proto | 0.7.1 | MIT OR Apache-2.0 | MIT | [166](#notice-166) |
+| ureq | 3.5.2 | MIT OR Apache-2.0 | MIT | [166](#notice-166) |
+| ureq-proto | 0.7.1 | MIT OR Apache-2.0 | MIT | [167](#notice-167) |
 | url | 2.5.9 | MIT OR Apache-2.0 | MIT | [19](#notice-19) |
 | usvg | 0.50.0 | Apache-2.0 OR MIT | MIT | [54](#notice-54) |
 | utf8-zero | 0.8.1 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | utf8_iter | 1.1.0 | Apache-2.0 OR MIT | MIT | [110](#notice-110) |
 | utf_types | 1.0.0 | Apache-2.0 OR MIT | MIT | [110](#notice-110) |
-| uuid | 1.29.3 | Apache-2.0 OR MIT | MIT | [167](#notice-167) |
+| uuid | 1.29.3 | Apache-2.0 OR MIT | MIT | [168](#notice-168) |
 | vec_map | 0.8.2 | MIT/Apache-2.0 | MIT | [77](#notice-77) |
-| wayland-backend | 0.3.17 | MIT | MIT | [168](#notice-168) |
-| wayland-client | 0.31.15 | MIT | MIT | [168](#notice-168) |
+| wayland-backend | 0.3.17 | MIT | MIT | [169](#notice-169) |
+| wayland-client | 0.31.15 | MIT | MIT | [169](#notice-169) |
 | wayland-csd-frame | 0.3.0 | MIT | MIT | [93](#notice-93) |
-| wayland-cursor | 0.31.14 | MIT | MIT | [168](#notice-168) |
-| wayland-protocols | 0.32.13 | MIT | MIT | [168](#notice-168) |
-| wayland-protocols-plasma | 0.3.12 | MIT | MIT | [168](#notice-168) |
-| wayland-protocols-wlr | 0.3.12 | MIT | MIT | [168](#notice-168) |
-| wayland-sys | 0.31.11 | MIT | MIT | [168](#notice-168) |
-| weezl | 0.1.12 | MIT OR Apache-2.0 | MIT | [169](#notice-169) |
+| wayland-cursor | 0.31.14 | MIT | MIT | [169](#notice-169) |
+| wayland-protocols | 0.32.13 | MIT | MIT | [169](#notice-169) |
+| wayland-protocols-plasma | 0.3.12 | MIT | MIT | [169](#notice-169) |
+| wayland-protocols-wlr | 0.3.12 | MIT | MIT | [169](#notice-169) |
+| wayland-sys | 0.31.11 | MIT | MIT | [169](#notice-169) |
+| weezl | 0.1.12 | MIT OR Apache-2.0 | MIT | [170](#notice-170) |
 | wgpu | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
 | wgpu-core | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
 | wgpu-core-deps-apple | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
@@ -514,47 +518,48 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 | wgpu-hal | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
 | wgpu-naga-bridge | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
 | wgpu-types | 30.0.2 | MIT OR Apache-2.0 | MIT | [48](#notice-48) |
-| windowfunctions | 0.1.1 | MIT | MIT | [170](#notice-170) |
-| windows | 0.62.2 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
-| windows-collections | 0.3.2 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
-| windows-core | 0.62.2 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
-| windows-future | 0.3.2 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
-| windows-link | 0.2.1 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
-| windows-numerics | 0.3.1 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
-| windows-result | 0.4.1 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
-| windows-strings | 0.5.1 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
-| windows-sys | 0.52.0 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
-| windows-sys | 0.61.2 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
-| windows-targets | 0.52.6 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
-| windows-threading | 0.2.1 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
-| windows_aarch64_msvc | 0.52.6 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
-| windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 | MIT | [171](#notice-171) |
+| windowfunctions | 0.1.1 | MIT | MIT | [171](#notice-171) |
+| windows | 0.62.2 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| windows-collections | 0.3.2 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| windows-core | 0.62.2 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| windows-future | 0.3.2 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| windows-link | 0.2.1 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| windows-numerics | 0.3.1 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| windows-result | 0.4.1 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| windows-strings | 0.5.1 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| windows-sys | 0.52.0 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| windows-sys | 0.61.2 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| windows-targets | 0.52.6 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| windows-threading | 0.2.1 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| windows_aarch64_msvc | 0.52.6 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
 | winit | 0.30.13 | Apache-2.0 | Apache-2.0 | [108](#notice-108) |
-| wl-clipboard-rs | 0.9.5 | MIT OR Apache-2.0 | MIT | [172](#notice-172) |
+| winnow | 1.0.5 | MIT | MIT | [1](#notice-1) |
+| wl-clipboard-rs | 0.9.5 | MIT OR Apache-2.0 | MIT | [173](#notice-173) |
 | writeable | 0.6.4 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
 | x11-dl | 2.21.0 | MIT | MIT | [1](#notice-1) |
-| x11rb | 0.13.2 | MIT OR Apache-2.0 | MIT | [173](#notice-173) |
-| x11rb-protocol | 0.13.2 | MIT OR Apache-2.0 | MIT | [173](#notice-173) |
-| xcursor | 0.3.11 | MIT | MIT | [174](#notice-174) |
-| xkbcommon-dl | 0.4.2 | MIT | MIT | [175](#notice-175) |
-| xkeysym | 0.2.1 | MIT OR Apache-2.0 OR Zlib | MIT | [176](#notice-176) |
+| x11rb | 0.13.2 | MIT OR Apache-2.0 | MIT | [174](#notice-174) |
+| x11rb-protocol | 0.13.2 | MIT OR Apache-2.0 | MIT | [174](#notice-174) |
+| xcursor | 0.3.11 | MIT | MIT | [175](#notice-175) |
+| xkbcommon-dl | 0.4.2 | MIT | MIT | [176](#notice-176) |
+| xkeysym | 0.2.1 | MIT OR Apache-2.0 OR Zlib | MIT | [177](#notice-177) |
 | yazi | 0.2.2 | Apache-2.0 OR MIT | MIT | [71](#notice-71) |
 | yoke | 0.8.4 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
 | zeno | 0.3.3 | Apache-2.0 OR MIT | MIT | [71](#notice-71) |
 | zerocopy | 0.8.64 | BSD-2-Clause OR Apache-2.0 OR MIT | MIT | [80](#notice-80) |
 | zerofrom | 0.1.8 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
-| zeroize | 1.9.2 | Apache-2.0 OR MIT | MIT | [177](#notice-177) |
+| zeroize | 1.9.2 | Apache-2.0 OR MIT | MIT | [178](#notice-178) |
 | zerotrie | 0.2.5 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
 | zerovec | 0.11.9 | Unicode-3.0 | Unicode-3.0 | [75](#notice-75) |
 | zmij | 1.0.23 | MIT | MIT | [1](#notice-1) |
-| zune-core | 0.5.3 | MIT OR Apache-2.0 OR Zlib | MIT | [178](#notice-178) |
-| zune-jpeg | 0.5.15 | MIT OR Apache-2.0 OR Zlib | MIT | [178](#notice-178) |
+| zune-core | 0.5.3 | MIT OR Apache-2.0 OR Zlib | MIT | [179](#notice-179) |
+| zune-jpeg | 0.5.15 | MIT OR Apache-2.0 OR Zlib | MIT | [179](#notice-179) |
 
 ## Notices
 
 <a id="notice-1"></a>
 
-### 1. MIT — adler2 2.0.1, allocator-api2 0.2.21, anyhow 1.0.105, fastrand 2.5.0, gc-arena 0.7.0, glow 0.17.0, glyphon 0.12.0, itoa 1.0.19, lazy_static 1.5.1, linux-raw-sys 0.12.1, linux-raw-sys 0.4.15, lunita 0.1.2, once_cell 1.21.4, pin-project 1.2.0, pin-project-lite 0.2.18, pinned 0.1.0, polling 3.11.0, raw-window-metal 1.1.0, rtrb 0.4.1, rustc-hash 1.1.0, rustc-hash 2.1.3, rustix 0.38.44, rustix 1.1.6, serde 1.0.229, serde_core 1.0.229, serde_json 1.0.154, siphasher 1.0.4, smol_str 0.2.2, smol_str 0.3.7, thiserror 1.0.69, thiserror 2.0.21, tinyvec 1.13.3, unic-langid 0.9.6, unic-langid-impl 0.9.6, unicode-ident 1.0.27, utf8-zero 0.8.1, x11-dl 2.21.0, zmij 1.0.23
+### 1. MIT — adler2 2.0.1, allocator-api2 0.2.21, anyhow 1.0.105, fastrand 2.5.0, gc-arena 0.7.0, glow 0.17.0, glyphon 0.12.0, itoa 1.0.19, lazy_static 1.5.1, linux-raw-sys 0.12.1, linux-raw-sys 0.4.15, lunita 0.1.2, once_cell 1.21.4, pin-project 1.2.0, pin-project-lite 0.2.18, pinned 0.1.0, polling 3.11.0, raw-window-metal 1.1.0, rtrb 0.4.1, rustc-hash 1.1.0, rustc-hash 2.1.3, rustix 0.38.44, rustix 1.1.6, serde 1.0.229, serde_core 1.0.229, serde_json 1.0.154, siphasher 1.0.4, smol_str 0.2.2, smol_str 0.3.7, thiserror 1.0.69, thiserror 2.0.21, tinyvec 1.13.3, unic-langid 0.9.6, unic-langid-impl 0.9.6, unicode-ident 1.0.27, utf8-zero 0.8.1, winnow 1.0.5, x11-dl 2.21.0, zmij 1.0.23
 
 ```text
 Permission is hereby granted, free of charge, to any
@@ -6833,7 +6838,33 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 <a id="notice-156"></a>
 
-### 156. MIT — sha1 0.11.0, sha2 0.11.1
+### 156. MIT — serde_spanned 1.1.3, toml 1.2.2+spec-1.1.0, toml_datetime 1.1.3+spec-1.1.0, toml_parser 1.1.6+spec-1.1.0
+
+```text
+Copyright (c) Individual contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+<a id="notice-157"></a>
+
+### 157. MIT — sha1 0.11.0, sha2 0.11.1
 
 ```text
 Copyright (c) 2016-2026 The RustCrypto Project Developers
@@ -6866,9 +6897,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-157"></a>
+<a id="notice-158"></a>
 
-### 157. MIT — stable_deref_trait 1.2.1
+### 158. MIT — stable_deref_trait 1.2.1
 
 ```text
 Copyright (c) 2017 Robert Grosse
@@ -6898,9 +6929,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-158"></a>
+<a id="notice-159"></a>
 
-### 158. MIT — tempfile 3.27.0
+### 159. MIT — tempfile 3.27.0
 
 ```text
 Copyright (c) 2015 Steven Allen
@@ -6930,9 +6961,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-159"></a>
+<a id="notice-160"></a>
 
-### 159. MIT — tracing 0.1.44, tracing-core 0.1.36
+### 160. MIT — tracing 0.1.44, tracing-core 0.1.36
 
 ```text
 Copyright (c) 2019 Tokio Contributors
@@ -6962,9 +6993,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-160"></a>
+<a id="notice-161"></a>
 
-### 160. MIT — transpose 0.2.3
+### 161. MIT — transpose 0.2.3
 
 ```text
 Copyright (c) 2022 The transpose Developers
@@ -6994,9 +7025,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-161"></a>
+<a id="notice-162"></a>
 
-### 161. MIT — tree_magic_mini 3.2.2
+### 162. MIT — tree_magic_mini 3.2.2
 
 ```text
 MIT License
@@ -7022,9 +7053,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-162"></a>
+<a id="notice-163"></a>
 
-### 162. MIT — tungstenite 0.30.0
+### 163. MIT — tungstenite 0.30.0
 
 ```text
 Copyright (c) 2017 Alexey Galakhov
@@ -7049,9 +7080,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-163"></a>
+<a id="notice-164"></a>
 
-### 163. MIT — typenum 1.20.1
+### 164. MIT — typenum 1.20.1
 
 ```text
 The MIT License (MIT)
@@ -7077,9 +7108,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-164"></a>
+<a id="notice-165"></a>
 
-### 164. MIT — uncased 0.9.10
+### 165. MIT — uncased 0.9.10
 
 ```text
 The MIT License (MIT)
@@ -7103,9 +7134,9 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-165"></a>
+<a id="notice-166"></a>
 
-### 165. MIT — ureq 3.5.2
+### 166. MIT — ureq 3.5.2
 
 ```text
 MIT License
@@ -7131,9 +7162,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-166"></a>
+<a id="notice-167"></a>
 
-### 166. MIT — ureq-proto 0.7.1
+### 167. MIT — ureq-proto 0.7.1
 
 ```text
 Copyright 2022 Martin Algesten
@@ -7145,9 +7176,9 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-167"></a>
+<a id="notice-168"></a>
 
-### 167. MIT — uuid 1.29.3
+### 168. MIT — uuid 1.29.3
 
 ```text
 Copyright (c) 2014 The Rust Project Developers
@@ -7178,9 +7209,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-168"></a>
+<a id="notice-169"></a>
 
-### 168. MIT — wayland-backend 0.3.17, wayland-client 0.31.15, wayland-cursor 0.31.14, wayland-protocols 0.32.13, wayland-protocols-plasma 0.3.12, wayland-protocols-wlr 0.3.12, wayland-sys 0.31.11
+### 169. MIT — wayland-backend 0.3.17, wayland-client 0.31.15, wayland-cursor 0.31.14, wayland-protocols 0.32.13, wayland-protocols-plasma 0.3.12, wayland-protocols-wlr 0.3.12, wayland-sys 0.31.11
 
 ```text
 Copyright (c) 2015 Elinor Berger
@@ -7204,9 +7235,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-<a id="notice-169"></a>
+<a id="notice-170"></a>
 
-### 169. MIT — weezl 0.1.12
+### 170. MIT — weezl 0.1.12
 
 ```text
 The MIT License (MIT)
@@ -7232,9 +7263,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-170"></a>
+<a id="notice-171"></a>
 
-### 170. MIT — windowfunctions 0.1.1
+### 171. MIT — windowfunctions 0.1.1
 
 ```text
 Copyright (c) 2025 Henrik Enquist
@@ -7258,9 +7289,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-171"></a>
+<a id="notice-172"></a>
 
-### 171. MIT — windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-link 0.2.1, windows-numerics 0.3.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.52.0, windows-sys 0.61.2, windows-targets 0.52.6, windows-threading 0.2.1, windows_aarch64_msvc 0.52.6, windows_x86_64_msvc 0.52.6
+### 172. MIT — windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-link 0.2.1, windows-numerics 0.3.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.52.0, windows-sys 0.61.2, windows-targets 0.52.6, windows-threading 0.2.1, windows_aarch64_msvc 0.52.6, windows_x86_64_msvc 0.52.6
 
 ```text
 MIT License
@@ -7286,9 +7317,9 @@ MIT License
     SOFTWARE
 ```
 
-<a id="notice-172"></a>
+<a id="notice-173"></a>
 
-### 172. MIT — wl-clipboard-rs 0.9.5
+### 173. MIT — wl-clipboard-rs 0.9.5
 
 ```text
 Copyright (c) 2019 Ivan Molodetskikh
@@ -7318,9 +7349,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-173"></a>
+<a id="notice-174"></a>
 
-### 173. MIT — x11rb 0.13.2, x11rb-protocol 0.13.2
+### 174. MIT — x11rb 0.13.2, x11rb-protocol 0.13.2
 
 ```text
 Copyright 2019 x11rb Contributers
@@ -7350,9 +7381,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-174"></a>
+<a id="notice-175"></a>
 
-### 174. MIT — xcursor 0.3.11
+### 175. MIT — xcursor 0.3.11
 
 ```text
 MIT License
@@ -7378,9 +7409,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-175"></a>
+<a id="notice-176"></a>
 
-### 175. MIT — xkbcommon-dl 0.4.2
+### 176. MIT — xkbcommon-dl 0.4.2
 
 ```text
 The MIT License (MIT)
@@ -7406,9 +7437,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-176"></a>
+<a id="notice-177"></a>
 
-### 176. MIT — xkeysym 0.2.1
+### 177. MIT — xkeysym 0.2.1
 
 ```text
 Copyright (c) 2022-2023 John Nunley
@@ -7432,9 +7463,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-<a id="notice-177"></a>
+<a id="notice-178"></a>
 
-### 177. MIT — zeroize 1.9.2
+### 178. MIT — zeroize 1.9.2
 
 ```text
 Copyright (c) 2018-2026 The RustCrypto Project Developers
@@ -7464,9 +7495,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-<a id="notice-178"></a>
+<a id="notice-179"></a>
 
-### 178. MIT — zune-core 0.5.3, zune-jpeg 0.5.15
+### 179. MIT — zune-core 0.5.3, zune-jpeg 0.5.15
 
 ```text
 MIT License

@@ -58,6 +58,7 @@ pub mod room;
 pub mod share;
 pub mod shell;
 pub mod songs;
+pub mod sources;
 pub mod store;
 pub mod studio;
 #[cfg(feature = "video")]
@@ -256,13 +257,16 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// the library chart, on the multiplayer CPUs' absolute scale
 /// (`CPU_LEVELS`, `cpu-levels-v2`): `--cpu-level N` (1 to 10; level 5 where none is
 /// named), or `--cpu-strength relaxed|easy|normal|strong|expert`, levels 6
-/// to 10 of it.
+/// to 10 of it. `--source-check` lists the song source plugins installed
+/// in the data folder's `plugins/` and starts each, printing what each
+/// declared as JSON ([`sources`]).
 ///
 /// A run that opens the window takes its data folder's lock first and
 /// does not start where another app has it; the runs that open none
-/// (`--danoni-bundle-info`, `--danoni-importer-check`, `--mp-bots`,
-/// `--video-check`, `--share`, `--shares`, `--delete-share`) take none,
-/// run beside an open app, and only read the settings ([`instance`]).
+/// (`--danoni-bundle-info`, `--danoni-importer-check`, `--source-check`,
+/// `--mp-bots`, `--video-check`, `--share`, `--shares`, `--delete-share`)
+/// take none, run beside an open app, and only read the settings
+/// ([`instance`]).
 pub fn run() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let a = args::Args(&args);
@@ -306,6 +310,9 @@ pub fn run() {
         #[cfg(danoni_importer)]
         return;
     }
+    if a.has("--source-check") {
+        std::process::exit(sources::check());
+    }
     // One app a data folder: the window's run takes the folder's lock
     // before it reads its settings, and ends here where another app has
     // it. A run without a window takes none and may run beside the app,
@@ -316,6 +323,7 @@ pub fn run() {
     // crash, a quit there): the folder's one app deletes them.
     if utility.is_none() {
         share::clear_stores();
+        sources::clear_store();
     }
     clock::epoch();
     // Announcers' scripts: the clock behind their fuel, and a seed they

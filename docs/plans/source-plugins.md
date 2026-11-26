@@ -1,14 +1,15 @@
 # Song sources: native plugins for the desktop app (2026-11-25)
 
-Status: a design, nothing built. Revised twice after the maintainer's
-decisions of 2026-11-25 and 2026-11-26:
+Status: stage 1 built (2026-11-26): the protocol, the host, the store
+for fetched songs, synthetic test plugins, `--source-check` and the start
+of the SDK; nothing a player sees yet ("Stage 1 as built", below). The
+maintainer's decisions of 2026-11-25 and 2026-11-26:
 
 - plugins are trusted native programs, as other desktop software's are,
   with no sandbox imposed by the game;
 - the game ships none;
-- songs not imported stay in memory.
-
-The open questions at the end are the maintainer's to decide.
+- songs not imported stay in memory;
+- and the six open questions of section 9, all decided on 2026-11-26.
 
 ## The request
 
@@ -748,8 +749,10 @@ plugin:
 
 ### Examples, the SDK and the harness
 
-In **a repository of their own** (for example `sugoijan/ddi-sources`),
-never in the game's packages:
+Decided 2026-11-26: they **start in this repository**
+(`tools/source-sdk`, `tools/source-test-plugins`) and move to **a
+repository of their own** (for example `sugoijan/ddi-sources`) once the
+interface settles; never in the game's packages:
 
 - **`ddi-source-sdk`**:
   - a `Source` trait whose methods each default to "unsupported";
@@ -905,7 +908,7 @@ joining the `qps-ploc` walk. Plugin text never enters them.
 
 | Stage | What | Size | Tested without network |
 |---|---|---|---|
-| 1 | `ddi-source-protocol`; the host: finding plugins in `plugins/`, manifests, spawning, framing, operations, streamed files into memory, timeouts, kills and crash counting; synthetic plugins in tests (well-behaved, hanging, crashing, flooding). | Medium. | Yes. |
+| 1 (built 2026-11-26) | `ddi-source-protocol`; the host: finding plugins in `plugins/`, manifests, spawning, framing, operations, streamed files into memory, timeouts, kills and crash counting; synthetic plugins in tests (well-behaved, hanging, crashing, flooding); `--source-check`; the SDK's start. | Medium. | Yes. |
 | 2 | "This computer" built in, behind the in-process `Source` trait; Find songs in a first form; fetched songs in memory (`MemReader`, `Files::Memory`, `mem:` pictures, the preview from bytes, the budget, the cache for what memory cannot hold); play without importing; the import store. Useful with no plugin at all. | Medium to large. | Yes: folders written by tests, offscreen plays. |
 | 3 | Add to a room without importing; the room rule. No room model change. | Small to medium. | Yes: `FakeServer`, a local server and bots. |
 | 4 | Plugins in Options (Advanced), on/off, "Add plugin…", details with the digest, Remove; plugin sources in Find songs; `--plugin-check`; the systems' checks verified on macOS, Linux and Windows. | Small to medium. | Yes: synthetic plugins. |
@@ -922,7 +925,182 @@ What changes along the way:
 - no room model revision, no change to the web, and nothing in the
   game's packages.
 
-## 9. Open questions for the maintainer
+## Stage 1 as built (2026-11-26)
+
+Nothing a player sees: no screen starts a plugin, the switches are a file
+the host reads, and a player with no plugins pays a missing folder's
+check at the window's start (and the empty `sources/` it deletes).
+
+**What exists**
+
+- `crates/source-protocol` (`ddi-source-protocol`, serde only, builds
+  for wasm): version 1's framing (`frame`), messages (`message`), limits
+  (`limits`), checks of a plugin's messages and of its Hello against its
+  manifest (`check`), its text (`text`), the manifest's fields
+  (`manifest`), and `vectors/v1.json`, frames as bytes with what they
+  decode to or why they are refused, for other languages (made by
+  `tests/vectors.rs`, which fails when the file is stale;
+  `DDI_WRITE_VECTORS=1` writes it).
+- `crates/source-host` (`ddi-source-host`, empty on wasm): finding the
+  plugins (`installed`: `plugins/<id>/plugin.toml`, the executable in
+  `bin/<arch>-<os>/`, its SHA-256), the switches (`switches`: the
+  configuration folder's `plugins.json`, `{"on": [ids]}`, every plugin
+  off until listed), a plugin's process and pipes (`process`), its
+  thread (`supervisor`), the game's handle (`host::Host`: `start`,
+  `request`, `cancel`, `try_event`, `shutdown`; never waiting), the
+  store of fetched songs (`store`) and a fetch's assembly and scan
+  (`assemble`).
+- `crates/desktop/src/sources.rs`: the folders (the data folder's
+  `plugins/` and `plugin-data/<id>/`, the cache folder's
+  `plugins/<id>/` and `sources/`, the configuration folder's
+  `plugins.json`), the store's folder emptied at the window's start, and
+  `--source-check`.
+- `tools/source-sdk` (`ddi-source-sdk`): the `Source` trait, every
+  method optional (answering `unsupported`), `serve`/`main` doing the
+  framing, the Hello, operations on threads of their own (up to four),
+  cancellation and progress at most ten a second, the checks before
+  anything is sent, streaming a fetch's files, and `difficulty`, sites'
+  difficulty names as ours; its README for authors.
+- `tools/source-test-plugins`: `ddi-example-source`, on the SDK, every
+  capability over generated songs (no network, nothing of anyone's), and
+  `ddi-bad-source`, misbehaving as the name it is installed under says;
+  the host's tests (`tests/host.rs`) run both as real processes. Neither
+  crate is a dependency of the app: `package.py` copies the app's own
+  executable, its assets and the video helper, never `tools/`.
+
+**The protocol in a page**
+
+- A frame: a 4-byte big-endian length of the rest (at most 4 MiB), a
+  4-byte big-endian length of the JSON (at least 2 bytes), the JSON, then
+  the attachment (at most 1 MiB, a `file` message's only; an empty one
+  only for a file's last chunk). A clean end only between frames: a cut
+  frame is `truncated`, a length past the bounds `oversized` (refused
+  before anything is allocated), anything else `malformed`.
+- The JSON: one object, its kind in `type` (snake_case), every object
+  refusing fields it does not know, closed sets (steps, failure codes,
+  capabilities, units, difficulties) as values.
+- App to plugin: `hello` (`protocols`, `features`, `app` {version,
+  language}, `dirs` {cache, data}), `open`, `search` (scope, query of at
+  most 256 characters, filters' values, cursor, page size of at most 50),
+  `browse`, `describe`, `fetch` (`deliver`: `memory` with its budget, or
+  `cache_dir` with a folder), `cancel`, `shutdown`.
+- Plugin to app: `hello` (the version chosen, `features`, `plugin` {id,
+  version}, capabilities, inputs, filters), `opened`, `results`,
+  `nodes`, `done` (cursor, total), `item`, `progress` (step, done,
+  total, bytes), `file` (path, its whole size, offset, last; the bytes
+  attached), `fetched` (`files`, `archive`, `cached` or `in_place`),
+  `failed` (code, detail of at most 2 KiB), `bye`.
+- Limits (`limits.rs`): four operations at once; ids 256 bytes, cursors
+  1 KiB; labels 128 characters in at most 16 languages, English
+  required; an item's text 512; 32 filters, 256 choices, 64 charts an
+  item; a fetched file's path 512 bytes and 16 parts, plain names only;
+  4,096 files and 256 songs an item; a manifest 64 KiB.
+- Versions: the app lists those it speaks, the plugin answers with the
+  one it chose (or, sharing none, the newest it speaks, and exits); a
+  minor addition is a `feature` both Hellos name.
+
+**What the host does with each bad plugin** (each a test in
+`tests/host.rs`, the timeouts shortened there)
+
+| The plugin | The host |
+|---|---|
+| Never says Hello | Stopped after 10 s (`TimedOut`). A strike. |
+| Silent 30 s with an operation running | Stopped (`TimedOut`). A strike. |
+| A search, browse, open or description past 60 s | Stopped (`TimedOut`). A strike. |
+| Ignores a cancel 5 s | The operation failed as cancelled at once; the plugin stopped after 5 s. A strike. |
+| Crashes, or exits while working | Its operations fail as crashed, with the last 32 KiB of its diagnostics. A strike. |
+| Leaves a child holding its pipes and exits | Its exit is polled: found gone within a second. A strike. |
+| Floods progress | Told the game at most every 100 ms; stopped at the search's 60 s. |
+| Floods results past its page, answers an operation never asked, sends a frame past 4 MiB, not JSON, or a log line on its output | Stopped at once (`Misbehaved`), without reading an oversized frame. A strike. |
+| A frame cut short | Crashed. A strike. |
+| Speaks no version the app speaks | Off for the run (`Incompatible`, which side is newer). No strike. |
+| A Hello that is not its manifest's (id, version, a capability or input not declared) | Off for the run. No strike. |
+| Says Bye and does not exit | Killed after 5 s. No strike. |
+| Exits by itself, successfully, with nothing running | No strike. |
+| A fetch whose counts are not what it sent, a chunk out of order or past its size, a path that leaves the item | Stopped (`Misbehaved`). A strike. |
+| Song data that does not read | The fetch fails as unreadable, with why for each folder. No strike. |
+| A fetch past the cache's cap | The fetch fails as too large and the plugin is told to cancel it. No strike. |
+| Three strikes in a run | Off until the next run. |
+| Not reading what it is sent (16 messages queued) | Stopped (`Misbehaved`). Not exercised by a test: the app sends too little to fill a pipe. |
+
+Every process ended is reaped; the threads reading its pipes are never
+joined, so a pipe a child keeps open holds nothing up. Plugins run at a
+lower priority than the game (`nice` 10; below-normal on Windows). A
+plugin's text is cleaned of control and direction characters before the
+game sees it.
+
+**The store at its limits** (`store.rs`, `assemble.rs`)
+
+- An item's files stream into memory, counted as they arrive (never as
+  announced). Past 64 MiB for the item, its files move to the cache's
+  `sources/` and the rest follow there. Movies go there always.
+- Past 256 MiB in all, items nothing holds are dropped, least recently
+  used first; items something holds (`store::hold`, for stage 2's play
+  and stage 3's room) move to the cache folder instead, written outside
+  the store's lock.
+- Past 2 GiB in the cache for the run, items nothing holds there are
+  dropped; a fetch that still does not fit fails as too large.
+- An item announced over 64 MiB (its metadata's size) is asked for into
+  a folder the host made (`cache_dir`), which the plugin fills.
+- A zip is read with the library's sans-IO reader, each entry through
+  `zip::extract_to`, which bounds its output by its declared size; a
+  name that climbs out of the zip is passed over.
+- What read becomes songs through `ddi_library::scan::scan_root`, as a
+  folder's songs do: ids `src:<16 hex digits>:<n>` (the item's key, the
+  FNV-1a of the plugin, the item and its revision), the room's
+  `song_key` where every original chart has a digest.
+- Emptied when it opens (a run that ended without its exit) and when it
+  is dropped.
+
+**What changed from the plan, and why**
+
+- The host is a crate of its own, `ddi-source-host`, that desktop
+  depends on: its tests run real plugin processes, which Cargo builds in
+  `tools/source-test-plugins`, without building the desktop for them.
+  Desktop keeps the folders and the command.
+- The check is `--source-check` (every installed plugin, its manifest and
+  digest, each started), as the stage's brief asked, rather than
+  `--plugin-check <folder>`.
+- A plugin's own data folder is the data folder's `plugin-data/<id>/`,
+  not `plugins/<id>/`, which is the folder it is installed in.
+- Past the memory budget while streaming, the host moves the files to
+  the cache folder itself and the plugin is not told: no "continue in a
+  cache folder" answer, no race. `cache_dir` is asked only for an item
+  announced over the budget.
+- The memory budget is an item's, a pack's included (64 MiB), not each
+  song's: the host knows the songs only once it has read them.
+- A `file` frame carries its file's whole size, so a lie is caught at the
+  chunk that tells it.
+- `unsupported` joins the failure codes: what the SDK answers for a
+  method left out.
+- Not in version 1: the `managed` delivery and its snapshots (for the
+  DanOni importer's move, which needs its catalog's rules), and an item's
+  banner (the app fetches no URLs; a banner needs bytes before a fetch,
+  a feature for stage 6).
+- `in_place` takes a folder where it is; a zip named in place is read
+  into the store as an `archive` is (desktop's in-place zip reader is the
+  library's on desktop, for stage 2 to use).
+- The manifest also names its `executable` and, for the link input, the
+  `links` it claims; the item's licence field is spelled `license`.
+
+**What stages 2 and 3 need from here**
+
+- Stage 2: a `Host` the game holds (made from `sources::host_config`,
+  the discovered plugins, `Switches`, a `Store` on `sources::store_dir`)
+  with `wake` the event loop's; `Files::Memory` over `store::ItemFiles`
+  (already a `ddi_library::scan::Reader`); `library::song` asking
+  `Store::song` for `src:` ids; a play holding its item with
+  `store::hold` until its results close; `mem:` pictures and the preview
+  from `ItemFiles`; a movie through its `Stored::Disk` path; the built-in
+  "This computer" as an in-process `Source` behind its own switch; no
+  new operation started during a play (section 3), which the game, not
+  the host, knows; the switches written by the Plugins page (stage 4)
+  through `Switches::set`.
+- Stage 3: the room's upload reading `ItemFiles` (`Source::Bytes`),
+  holding the item while the room lists it; the rule from
+  `store::Origin::rooms` (the manifest's, narrowed by the item's).
+
+## 9. The maintainer's decisions
 
 **Decided**:
 
@@ -935,7 +1113,24 @@ What changes along the way:
   cache dirs when that's not possible/feasible": memory first for songs
   not imported (2026-11-25).
 
-**Open**, in the order they block work:
+The six questions this plan asked, decided on 2026-11-26 (the
+recommendations as written below, kept for their reasons):
+
+1. **A separate process.**
+2. **The Plugins page behind the Advanced toggle** (the levels are
+   another round's work; stage 4).
+3. **"This computer" built in, tentatively**: "it might either lead into
+   replacing the 'Add song' on the desktop app if it's good and complete
+   enough or maybe I'll decide to not include it after testing". So
+   behind a switch of its own and apart from Add songs (stage 2).
+4. **The room rule when a plugin declares none: allowed** by default.
+5. **The memory limits as proposed**: 64 MiB a song, 256 MiB in all, the
+   cache 2 GiB for the run, movies always in the cache; to adjust after
+   use.
+6. **The SDK and the examples start in this repository** and split out
+   once the interface settles.
+
+As they were asked, in the order they blocked work:
 
 1. **A separate process, or a library loaded into the game?** (Blocks
    stage 1.)

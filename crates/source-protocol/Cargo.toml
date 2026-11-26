@@ -1,0 +1,19 @@
+[package]
+name = "ddi-source-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: the wire contract between the desktop app and the song source plugins players install"
+# To be published for plugin authors once the interface settles
+# (`docs/plans/source-plugins.md`, stage 5).
+publish = false
+
+# Serde only, on purpose, as `ddi-importer-protocol` and
+# `ddi-share-protocol`: plugins (any language) and the app's host share
+# it, and it builds for every target, wasm too, though only desktop uses it.
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

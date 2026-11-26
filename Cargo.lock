@@ -1206,6 +1206,7 @@ dependencies = [
  "ddi-room",
  "ddi-session",
  "ddi-shell",
+ "ddi-source-host",
  "ddi-theme",
  "ddi-ui",
  "ddi-video-protocol",
@@ -1481,6 +1482,44 @@ dependencies = [
  "serde_json",
  "unicode-segmentation",
  "wgpu",
+]
+
+[[package]]
+name = "ddi-source-host"
+version = "0.1.0"
+dependencies = [
+ "ddi-library",
+ "ddi-source-protocol",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+]
+
+[[package]]
+name = "ddi-source-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ddi-source-sdk"
+version = "0.1.0"
+dependencies = [
+ "ddi-source-protocol",
+]
+
+[[package]]
+name = "ddi-source-test-plugins"
+version = "0.1.0"
+dependencies = [
+ "ddi-library",
+ "ddi-source-host",
+ "ddi-source-protocol",
+ "ddi-source-sdk",
 ]
 
 [[package]]

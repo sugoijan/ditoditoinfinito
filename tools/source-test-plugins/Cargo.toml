@@ -1,0 +1,30 @@
+[package]
+name = "ddi-source-test-plugins"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Synthetic song source plugins for the host's tests: one well-behaved, written on the SDK, and ones that hang, crash, flood or lie. Never packaged."
+publish = false
+
+[[bin]]
+name = "ddi-example-source"
+path = "src/bin/example.rs"
+test = false
+
+[[bin]]
+name = "ddi-bad-source"
+path = "src/bin/bad.rs"
+test = false
+
+[dependencies]
+ddi-source-sdk.workspace = true
+ddi-source-protocol.workspace = true
+
+# The host the plugins are run against (its tests live here, where Cargo
+# builds the plugins for them).
+[dev-dependencies]
+ddi-source-host.workspace = true
+ddi-library.workspace = true

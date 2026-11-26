@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "tools/danoni-importer", "tools/danoni-dump/rust", "tools/danoni-dump/desktop-probe", "tools/danoni-dump/pack-verify", "video/protocol", "video/helper", "xtask"]
+members = ["crates/*", "tools/danoni-importer", "tools/source-sdk", "tools/source-test-plugins", "tools/danoni-dump/rust", "tools/danoni-dump/desktop-probe", "tools/danoni-dump/pack-verify", "video/protocol", "video/helper", "xtask"]
 # `app` is the game: built for wasm by Trunk (site/index.html) it starts the
 # web shell, built natively (a bare `cargo run`) the desktop shell.
 default-members = ["crates/app"]
@@ -22,6 +22,9 @@ ddi-hand-plan = { path = "crates/hand-plan" }
 ddi-icon = { path = "crates/icon" }
 ddi-danoni-export = { path = "tools/danoni-dump/rust", default-features = false }
 ddi-importer-protocol = { path = "crates/importer-protocol" }
+ddi-source-protocol = { path = "crates/source-protocol" }
+ddi-source-host = { path = "crates/source-host" }
+ddi-source-sdk = { path = "tools/source-sdk" }
 ddi-video-protocol = { path = "video/protocol" }
 ddi-chart = { path = "crates/chart" }
 ddi-chat = { path = "crates/chat" }

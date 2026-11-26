@@ -1,0 +1,26 @@
+[package]
+name = "ddi-source-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: the desktop's host for song source plugins (finding, starting and speaking to them; fetched songs in memory)"
+publish = false
+
+# Desktop only: on wasm the crate is empty and pulls nothing.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ddi-source-protocol.workspace = true
+# Fetched songs read by the library's own bounded scanner and zip reader.
+ddi-library.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# `plugin.toml`, parsed only (no writer).
+toml = { version = "1.2.2", default-features = false, features = ["parse", "serde", "std"] }
+# A plugin's executable's digest, shown for comparing with its publisher's.
+sha2 = "0.11.1"
+
+# A plugin started at a lower priority than the game (`setpriority`).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.190"

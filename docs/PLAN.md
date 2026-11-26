@@ -1015,7 +1015,9 @@ named was looked at for this list.
    that a site's own maintainers could implement, native and desktop
    only, as the DanOni importer is. Its design, with the choices left to
    the maintainer: [Song sources: native plugins](plans/source-plugins.md)
-   (2026-11-25; nothing built).
+   (2026-11-25; its choices decided 2026-11-26; stage 1, the protocol,
+   the host, the store and the SDK's start, built 2026-11-26, nothing a
+   player sees yet).
 3. **A settings revamp.** A better hierarchy, and previews for each
    option beyond today's live field preview: the choices side by side
    where what they look like matters. Most of the work is deciding each

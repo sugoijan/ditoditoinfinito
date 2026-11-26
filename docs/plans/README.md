@@ -789,18 +789,26 @@ so.
   keep (one crate since 2026-11-10, `crates/share-protocol`), and online
   rooms' shares made under a room's upload grant (M5d).
 - [Song sources: native plugins](source-plugins.md) (2026-11-25,
-  revised 2026-11-26): a design, nothing built; for the maintainer to
-  decide. Decided: plugins are trusted native programs an advanced
-  player installs, as other desktop software's are, with no sandbox or
-  network imposed by the game; the game ships none (the DanOni importer
-  stays shipped for now and may become a plugin later, a small move);
-  songs not imported are held in memory, the known cache folder only
-  where memory will not do. A plugin declares the capabilities it has
-  (inputs, search, filters, browse, metadata, fetch); a fetched song is
-  imported, played without importing or added to a room without
-  importing. Recommended: a separate process over a versioned protocol;
-  folder search built into the app; the SDK, harness and examples in a
-  repository of their own.
+  revised 2026-11-26): stage 1 built (2026-11-26), nothing a player sees
+  yet: the protocol (`crates/source-protocol`, version 1, with test
+  vectors), the host (`crates/source-host`: plugins found in the data
+  folder's `plugins/`, off until switched on, each a process of its own
+  held to the protocol's limits and timeouts, off for the run after
+  three abnormal ends; fetched songs in memory, the cache folder's
+  `sources/` where memory will not do), desktop's `--source-check`, the
+  SDK's start (`tools/source-sdk`) and synthetic test plugins
+  (`tools/source-test-plugins`). Decided: plugins are trusted native
+  programs an advanced player installs, as other desktop software's are,
+  with no sandbox or network imposed by the game; the game ships none
+  (the DanOni importer stays shipped for now and may become a plugin
+  later, a small move); a separate process; the Plugins page behind the
+  Advanced level; "This computer" built in tentatively, behind a switch
+  of its own; rooms allowed where a plugin says nothing; 64 MiB a song,
+  256 MiB in all, 2 GiB of cache a run; the SDK here until the interface
+  settles. A plugin declares the capabilities it has (inputs, search,
+  filters, browse, metadata, fetch); a fetched song is imported, played
+  without importing or added to a room without importing (stages 2 and
+  3).
 - [Quiet calibration](quiet-calibration.md) (2026-10-29): done
   (decision 76), the thresholds to tune by playing. The
   device banners, the devices line, the prompt's new-device step and the

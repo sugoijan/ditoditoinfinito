@@ -72,6 +72,10 @@ ureq = { version = "3.5.0", default-features = false, features = ["native-tls-no
 # The multiplayer prototype's online rooms (`src/online.rs`): a room's
 # WebSocket on a thread of its own, over the same system TLS as ureq.
 tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "native-tls"] }
+# Song source plugins (`src/sources.rs`, `docs/plans/source-plugins.md`):
+# the host that finds, starts and speaks to the programs players install
+# (none is shipped), and keeps the songs they fetch.
+ddi-source-host.workspace = true
 # Background movies (`src/video.rs`, feature `video`): the contract with
 # `ddi-video-helper`, the sandboxed FFmpeg process `build.rs` builds and
 # stages beside the executable (`video/helper`); FFmpeg is never linked

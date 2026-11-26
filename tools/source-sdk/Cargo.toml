@@ -1,0 +1,16 @@
+[package]
+name = "ddi-source-sdk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Write a song source plugin for DitoDitoInfinito's desktop app: implement what your source does, the SDK speaks the protocol"
+# Starts in the game's repository and moves to one of its own once the
+# interface settles (`docs/plans/source-plugins.md`, decided 2026-11-26).
+# Never part of the game's packages.
+publish = false
+
+[dependencies]
+ddi-source-protocol.workspace = true
