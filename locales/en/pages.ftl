@@ -459,7 +459,7 @@ pages-credits-rust-notice-for = for { $crates }
 pages-privacy = Privacy
 
 # The note's first paragraph.
-pages-privacy-intro = This note tells you what { -game-name } and its online server keep about you. It also tells you for how long. We last changed this note on November 25, 2026.
+pages-privacy-intro = This note tells you what { -game-name } and its online server keep about you. It also tells you for how long. We last changed this note on November 27, 2026.
 
 # A heading inside the note.
 pages-privacy-alone-heading = Playing alone
@@ -570,7 +570,7 @@ pages-privacy-songs =
 # A heading inside the note: the room's songs the game downloads ahead.
 pages-privacy-songs-ahead-heading = Room songs on your device
 
-# "Room songs ahead" is Options → Data's row (options-room-ahead), named as
+# "Room songs ahead" is Options → Multiplayer's row (options-room-ahead), named as
 # it reads there; its values are Everything, Likely next and Off.
 # Variables:
 #   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
@@ -578,7 +578,7 @@ pages-privacy-songs-ahead = { $platform ->
     [web]
         While you are in a room, the game also downloads the room's songs onto your device before they are picked. This lets a stage start at once. The game never downloads the songs' movies.
 
-        Options → Data → Room songs ahead decides which songs the game downloads:
+        Options → Multiplayer → Room songs ahead decides which songs the game downloads:
         • every song of the list
         • only the songs that will likely come next
         • none
@@ -600,7 +600,7 @@ pages-privacy-songs-ahead = { $platform ->
    *[desktop]
         While you are in a room, the game also downloads the room's songs onto your device before they are picked. This lets a stage start at once. The game never downloads the songs' movies.
 
-        Options → Data → Room songs ahead decides which songs the game downloads:
+        Options → Multiplayer → Room songs ahead decides which songs the game downloads:
         • every song of the list
         • only the songs that will likely come next
         • none
@@ -625,7 +625,7 @@ pages-privacy-songs-ahead = { $platform ->
 # features (round TW1b).
 pages-privacy-twitch-heading = Twitch access for a room's features
 
-# "Options → Data" is where the Twitch access is disconnected.
+# "Options → Data and privacy" is where the Twitch access is disconnected.
 pages-privacy-twitch =
     A room's host can turn on two features that use Twitch:
     • keep out of the room the people that the host banned or blocked on Twitch
@@ -640,13 +640,13 @@ pages-privacy-twitch =
     • keeping out blocked people too: reading who you blocked
     • showing your chat: nothing from you
 
-    To see a host's chat on your device, turn on Options → Display → Twitch chat in rooms. The game then asks Twitch for reading chat.
+    To see a host's chat on your device, turn on Options → Multiplayer → Twitch chat in rooms. The game then asks Twitch for reading chat.
 
     If you allow it, our server keeps Twitch's keys for this access. It seals the keys so that only the server can read them. It never gives the keys to the game.
 
     Our server uses this access only when a room's feature needs it. It deletes the access:
     • when you sign out
-    • when you disconnect it in Options → Data
+    • when you disconnect it in Options → Data and privacy
     • after 30 days without use
     • when Twitch ends it
 
@@ -662,7 +662,7 @@ pages-privacy-twitch =
 
     When you sign in on this device again, it asks Twitch for the permissions that you used in the last 30 days. It does this in the same step as the sign-in. So you do not go through Twitch again for each permission when you sign out and in. The device does not ask for a permission that you have not used for 30 days.
 
-    When you disconnect in Options → Data, this device forgets these permissions.
+    When you disconnect in Options → Data and privacy, this device forgets these permissions.
 
     When a host's room keeps people out in this way, our server asks Twitch about each person:
     • when the person joins
@@ -680,7 +680,7 @@ pages-privacy-twitch =
 # (round TW7).
 pages-privacy-twitch-chat-heading = A host's Twitch chat on your device
 
-# "Emotes from" and "Twitch" are Options → Display's row and its value.
+# "Emotes from" and "Twitch" are Options → Multiplayer's row and its value.
 pages-privacy-twitch-chat =
     When your device shows a host's Twitch chat during play, the game on your device connects directly to Twitch. Twitch sends the chat's messages to your device. So Twitch sees:
     • your device's address
@@ -696,7 +696,7 @@ pages-privacy-twitch-chat =
 
     If a direct request fails, our server asks in place of your device. Then the services see the server's address instead. Our server keeps each emote picture or list that it gets in this way for one day at most. It does not store who asked for it.
 
-    If you set Options → Display → Emotes from to Twitch, your device does not ask the other three services.
+    If you set Options → Multiplayer → Emotes from to Twitch, your device does not ask the other three services.
 
 # The part on a host's Kick.
 pages-privacy-kick-heading = Removing someone from a room
@@ -791,7 +791,7 @@ pages-privacy-stats-game = { $platform ->
 
         Each of these things is one value from a fixed list, or a range. It is never a name, an account, an address, a room or a song. Our server adds these values to the totals and keeps nothing else of them.
 
-        To turn this off, set Options → Data → Send usage statistics to Off. Then the game sends none of these things. Our server's own counts above go on.
+        To turn this off, set Options → Data and privacy → Send usage statistics to Off. Then the game sends none of these things. Our server's own counts above go on.
 
         When you watch with an audience, the game sends none of these things.
    *[desktop]
@@ -812,7 +812,7 @@ pages-privacy-stats-game = { $platform ->
 
         Each of these things is one value from a fixed list, or a range. It is never a name, an account, an address, a room or a song. Our server adds these values to the totals and keeps nothing else of them.
 
-        To turn this off, set Options → Data → Send usage statistics to Off. Then the app sends none of these things. Our server's own counts above go on.
+        To turn this off, set Options → Data and privacy → Send usage statistics to Off. Then the app sends none of these things. Our server's own counts above go on.
 
         When you watch with an audience, the app sends none of these things.
 }
@@ -898,7 +898,7 @@ pages-privacy-errors = { $platform ->
 
         The game sends at most five reports in one visit. It never sends the same error twice in one visit.
 
-        To turn this off, set Options → Data → Send error reports to Off. If your browser sends the Global Privacy Control signal, the game sends no error reports, whatever that option says.
+        To turn this off, set Options → Data and privacy → Send error reports to Off. If your browser sends the Global Privacy Control signal, the game sends no error reports, whatever that option says.
 
         The app on a computer sends no error reports.
    *[desktop] The app sends no error reports.
