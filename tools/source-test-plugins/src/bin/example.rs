@@ -10,7 +10,8 @@
 //!   cache folder the game gives (its size is past the memory budget), and
 //!   `local` where it is, a folder in the plugin's data folder;
 //! - `slow-song` takes a while, telling progress and checking for a
-//!   cancel.
+//!   cancel;
+//! - `song-24` is not for online rooms (its own room rule).
 
 fn main() {
     ddi_source_sdk::main(ddi_source_test_plugins::example::Example);

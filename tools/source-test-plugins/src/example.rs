@@ -11,7 +11,12 @@
 //!   cache folder the game gives (its size is past the memory budget), and
 //!   `local` where it is, a folder in the plugin's data folder;
 //! - `slow-song` takes a while, telling progress and checking for a
-//!   cancel.
+//!   cancel;
+//! - `song-24` narrows the room rule for itself: its songs are not for
+//!   online rooms (`rooms`), whatever the manifest allows.
+//!
+//! [`ExampleAs`] is the same source under another id (a manifest of its
+//! own beside it: another room rule, say).
 
 use crate::{meter, simfile, song_files, zip};
 use ddi_source_sdk::*;
@@ -54,6 +59,8 @@ fn item(n: u32) -> ItemMeta {
         size: Some((simfile(n).len() + 4044) as u64),
         license: Some("CC0 1.0".into()),
         revision: Some("r1".into()),
+        // An item may narrow its source's room rule, never widen it.
+        rooms: (n == SONGS).then_some(RoomRule::None),
         ..ItemMeta::default()
     }
 }
@@ -259,5 +266,38 @@ impl Source for Example {
                 Ok(out.files())
             }
         }
+    }
+}
+
+/// [`Example`] under the id `.0`: installed beside it with a manifest of
+/// its own.
+pub struct ExampleAs(pub &'static str);
+
+impl Source for ExampleAs {
+    fn info(&self) -> Info {
+        Info {
+            id: self.0.to_string(),
+            ..Example.info()
+        }
+    }
+
+    fn open(&self, cx: &Context, input: Input) -> Outcome<Opened> {
+        Example.open(cx, input)
+    }
+
+    fn search(&self, cx: &Context, q: SearchQuery) -> Outcome<Page> {
+        Example.search(cx, q)
+    }
+
+    fn browse(&self, cx: &Context, q: BrowseQuery) -> Outcome<BrowsePage> {
+        Example.browse(cx, q)
+    }
+
+    fn describe(&self, cx: &Context, id: &str) -> Outcome<ItemMeta> {
+        Example.describe(cx, id)
+    }
+
+    fn fetch(&self, cx: &Context, id: &str, out: &mut Fetch) -> Outcome<Delivery> {
+        Example.fetch(cx, id, out)
     }
 }
