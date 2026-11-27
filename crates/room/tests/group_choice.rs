@@ -433,8 +433,6 @@ fn a_chosen_song_is_kept_from_removal() {
     g.choose(ana, 1).unwrap();
     let id = g.ids[0];
     assert_eq!(g.r.by(host, Command::RemoveSong { song: id }), Err(Rejection::SongInUse));
-    // The authority's removal too (round AT: the server's operator).
-    assert_eq!(g.r.sys(Command::RemoveSong { song: id }), Err(Rejection::SongInUse));
     g.r.by(host, Command::SetSongList { rules: ListRules { size: 3, when_full: WhenFull::RemoveOldest } })
         .unwrap();
     let events = g.r.by(host, Command::AddSong { song: Box::new(new_song(9)) }).unwrap();
@@ -444,6 +442,59 @@ fn a_chosen_song_is_kept_from_removal() {
         share: Some(format!("share{:03}", g.ids[1].0)),
     }));
     assert!(g.r.s.songs.get(id).is_some());
+}
+
+/// The authority's removal of a chosen song (round AT: the server's
+/// operator, a reported song) goes through where a host's is refused:
+/// the choices of it go, each chooser told as for any song gone
+/// (`ChoiceGone::Song`), a countdown with no choice left canceled, one
+/// with another choice still standing going on; a song a stage not yet
+/// over plays is still refused, to a host and to the authority.
+#[test]
+fn the_authoritys_removal_takes_the_choices_of_its_song() {
+    let mut g = group(Repeats::Allowed, 3);
+    let (host, ana, bob) = (g.r.host, g.ana, g.bob);
+    let (one, two) = (g.ids[0], g.ids[1]);
+    g.choose(ana, 1).unwrap();
+    g.choose(host, 1).unwrap();
+    assert!(g.r.s.draw.is_some(), "the host's choice opened the countdown");
+    assert_eq!(g.r.by(host, Command::RemoveSong { song: one }), Err(Rejection::SongInUse));
+    let events = g.r.sys(Command::RemoveSong { song: one }).unwrap();
+    assert_eq!(
+        events[0],
+        Event::SongRemoved {
+            song: one,
+            why: Removal::Removed,
+            share: Some(format!("share{:03}", one.0)),
+        }
+    );
+    for who in [host, ana] {
+        assert!(events.contains(&Event::ChoiceChanged {
+            participant: who,
+            choice: None,
+            why: Some(ChoiceGone::Song),
+        }));
+        assert_eq!(g.chosen(who), None);
+    }
+    assert!(events.contains(&Event::DrawCanceled { why: DrawEnd::Empty }));
+    assert!(g.r.s.draw.is_none());
+    assert!(g.r.s.songs.get(one).is_none());
+    // Another choice still standing: the countdown goes on.
+    g.choose(bob, 3).unwrap();
+    g.choose(host, 2).unwrap();
+    g.choose(ana, 2).unwrap();
+    assert!(g.r.s.draw.is_some());
+    let events = g.r.sys(Command::RemoveSong { song: two }).unwrap();
+    assert!(!events.iter().any(|e| matches!(e, Event::DrawCanceled { .. })));
+    assert!(g.r.s.draw.is_some(), "Bob's choice still stands");
+    assert_eq!(g.chosen(bob), Some(g.ids[2]));
+    assert_eq!((g.chosen(host), g.chosen(ana)), (None, None));
+    // The draw's song, its stage picked: refused to both.
+    g.draw(0);
+    let three = g.ids[2];
+    assert!(g.r.s.song_in_stage(g.r.s.songs.get(three).unwrap()));
+    assert_eq!(g.r.by(host, Command::RemoveSong { song: three }), Err(Rejection::SongInUse));
+    assert_eq!(g.r.sys(Command::RemoveSong { song: three }), Err(Rejection::SongInUse));
 }
 
 /// A chooser who leaves, is kicked or turns to Watch takes their choice

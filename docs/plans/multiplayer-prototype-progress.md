@@ -15549,14 +15549,21 @@ The game's terms of use say a reported song that should not be on the
 server is deleted. The server's operator's panel now lists a room's song
 list and removes one entry, the room carrying on (the server's README,
 "A room's songs"). The room model's reducer takes `Command::RemoveSong`
-from the authority as from a host (before, `NotAMember`): the same rules
-(never a song a stage not yet over names, nor one somebody chose:
-`SongInUse`) and the same event, `Event::SongRemoved` with
-`Removal::Removed`, so a mirror applies it as any revision and no client
-tells the two apart. Nothing new on the wire and no room model revision:
-the authority is the only peer that runs the change. Tests:
-`room_songs.rs`'s `the_authority_removes_a_song_as_a_host_does`,
-`group_choice.rs`'s `a_chosen_song_is_kept_from_removal`.
+from the authority as from a host (before, `NotAMember`) with the same
+event, `Event::SongRemoved` with `Removal::Removed`, so a mirror applies
+it as any revision and no client tells the two apart. It is refused only
+by a stage not yet over (`RoomState::song_in_stage`; closing the room is
+the immediate tool there). A song players chose for the group's draw is
+removed all the same (the maintainer, 2026-11-27): the choices of it go,
+each chooser told as for any song gone (`ChoiceGone::Song`, "that song
+can't be played any more"), and a countdown left with no choice is
+canceled (`DrawEnd::Empty`), both by `settle_choices` as before. A host's
+removal keeps its rule: refused while the song is chosen. Nothing new on
+the wire and no room model revision: the authority is the only peer that
+runs the change. Tests: `room_songs.rs`'s
+`the_authority_removes_a_song_as_a_host_does`, `group_choice.rs`'s
+`the_authoritys_removal_takes_the_choices_of_its_song` and
+`a_chosen_song_is_kept_from_removal`.
 
 ## Round TU (2026-11-25): terms of use, an upload notice and a contact (drafts)
 

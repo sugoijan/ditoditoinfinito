@@ -713,7 +713,16 @@ impl RoomState {
                         capability: Capability::AddSongs,
                     });
                 }
-                if self.song_in_use(entry) {
+                // A member's: never a song a stage not yet over names nor
+                // one somebody chose. The authority's: never a stage's;
+                // the choices of it go after (`settle_choices`: each
+                // chooser told, `ChoiceGone::Song`, a countdown left with
+                // none canceled).
+                let in_use = match by {
+                    Some(_) => self.song_in_use(entry),
+                    None => self.song_in_stage(entry),
+                };
+                if in_use {
                     return Err(Rejection::SongInUse);
                 }
                 let share = entry.share.clone();

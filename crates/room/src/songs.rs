@@ -20,7 +20,8 @@
 //! who is not held to watching by the watch-only link (playing or
 //! watching by choice; bots too; never a CPU or the audience). Removing:
 //! whoever added it, or a host; or the authority (the server's operator
-//! removing a reported song, round AT), with the same event.
+//! removing a reported song, round AT), with the same event: refused only
+//! by a stage not yet over, it takes the choices of a chosen song away.
 //! Bounds ([`MAX_SONGS`], [`ListRules`]): at most a hundred songs, the
 //! list's size a host setting up to it, what happens when it is full
 //! another (remove the oldest not in use, or refuse), and a person at

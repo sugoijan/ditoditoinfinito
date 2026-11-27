@@ -1863,9 +1863,19 @@ impl RoomState {
     }
 
     /// Whether entry `song` is named by a stage not yet over: picked (its
-    /// window open or not), counting down or being played. Such a song is
-    /// never removed, by anyone or to make room.
+    /// window open or not), counting down or being played, or somebody's
+    /// standing choice (revision 22). Such a song is never removed by a
+    /// member or to make room; the authority's removal (round AT) is
+    /// refused only by a stage ([`RoomState::song_in_stage`]) and takes
+    /// the choices of it away.
     pub fn song_in_use(&self, song: &crate::songs::RoomSong) -> bool {
+        self.song_in_stage(song) || self.choices.values().any(|c| c.song == song.id)
+    }
+
+    /// Whether entry `song` is named by a stage not yet over: picked (its
+    /// window open or not), counting down or being played. Such a song is
+    /// never removed, by anyone.
+    pub fn song_in_stage(&self, song: &crate::songs::RoomSong) -> bool {
         self.current
             .iter()
             .flat_map(|m| m.stages.iter())
@@ -1873,8 +1883,6 @@ impl RoomState {
             .filter(|s| s.play.as_ref().is_none_or(|p| !p.song_ended && !p.interrupted))
             .filter_map(|s| s.content.as_ref())
             .any(|c| c.song == Some(song.id) || (c.song.is_none() && c.id.song == song.key))
-            // Somebody's standing choice (revision 22).
-            || self.choices.values().any(|c| c.song == song.id)
     }
 
     /// The CPU profile behind a member, if it is a CPU seat.

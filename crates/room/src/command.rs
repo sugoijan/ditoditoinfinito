@@ -139,9 +139,11 @@ pub enum Command {
     },
     /// Remove an entry: its adder's, or a host's; or the authority's (the
     /// server's operator removing a reported song, round AT: the same
-    /// event, `Removal::Removed`). Never one a stage not yet over names,
-    /// nor one somebody chose ([`Rejection::SongInUse`]). Its upload is
-    /// deleted.
+    /// event, `Removal::Removed`). Never one a stage not yet over names
+    /// ([`Rejection::SongInUse`]); a member's never one somebody chose
+    /// either, while the authority's takes those choices away, each
+    /// chooser told (`ChoiceGone::Song`, as for any song gone). Its upload
+    /// is deleted.
     RemoveSong {
         song: RoomSongId,
     },

@@ -59,9 +59,13 @@ Each is a room model revision of its own; server first, as always.
 - Commands: `AddSong` (who may: `RoomState::may_add`, the hosts in this
   stage: `Capability::AddSongs`), `RemoveSong` (the adder or a host; never
   a song a stage not yet over names: `SongInUse`; since round AT,
-  2026-11-27, the authority's too, by the same rules and with the same
-  event, `Removal::Removed`: the server's operator removing a reported
-  song from the panel, no room model revision), `SetSongList` (the
+  2026-11-27, the authority's too, with the same event,
+  `Removal::Removed`: the server's operator removing a reported song from
+  the panel, no room model revision; refused only by a stage not yet over,
+  `RoomState::song_in_stage`, and taking the choices of a chosen song
+  away, each chooser told as for any song gone, `ChoiceGone::Song`, a
+  draw's countdown left with none canceled; a host's still refused while
+  the song is chosen), `SetSongList` (the
   owner's: the list's size, 1 to 100, and When the list is full: Remove
   the oldest, the default, or Refuse new songs), the authority's
   `SetSongContent` (what the server made of an upload), and `PickListed`
