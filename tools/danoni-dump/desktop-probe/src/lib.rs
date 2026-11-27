@@ -185,7 +185,7 @@ pub fn snapshot(root: &Path) -> Result<(String, Vec<LibSong>)> {
                 entry,
                 warnings: vec![],
                 notes: vec![],
-                work: None, // Prepared SSC, not a raw HTML5 work.
+                work: None,    // Prepared SSC, not a raw HTML5 work.
                 fetched: None, // In the library, not held by a source.
             })
         })
