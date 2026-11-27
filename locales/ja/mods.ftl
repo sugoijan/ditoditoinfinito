@@ -21,10 +21,9 @@ mods-quarters = ノーツ減：拍のみ
 mods-eighths = ノーツ減：拍と半拍
     .advanced = 8分まで
 
-mods-up-to-two = 同時に押すのは2つまで
+mods-up-to-two = 同時押しは2つまで
     .advanced = 同時押し2つまで
-mods-no-jumps = 1つずつ押す
-    .advanced = 同時押しなし
+mods-no-jumps = 同時押しなし
 
 mods-no-holds = 長押しなし
     .advanced = ホールドなし

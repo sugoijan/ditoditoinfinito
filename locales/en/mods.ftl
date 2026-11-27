@@ -38,10 +38,9 @@ mods-eighths = fewer notes: beats and half-beats
     .advanced = quarters and eighths
 
 # No more than two notes at once; no jumps (two at once) at all.
-mods-up-to-two = two notes together at most
+mods-up-to-two = jumps: pairs only
     .advanced = up to two at once
-mods-no-jumps = one note at a time
-    .advanced = no jumps
+mods-no-jumps = no jumps
 
 mods-no-holds = no long notes
     .advanced = no holds

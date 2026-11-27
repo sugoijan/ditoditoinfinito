@@ -20,7 +20,7 @@
 //!
 //! Stage 2 brought six rows back to Basic under plain words (each
 //! message's value; its `.advanced` the genre's words, Show advanced
-//! options On): Fewer notes, Notes together and No long notes (Notes),
+//! options On): Fewer notes, Limit jumps and No long notes (Notes),
 //! Clap on each note (Sound), Compare with your best and Darken behind
 //! the arrows (Display); the plan's section 10.
 

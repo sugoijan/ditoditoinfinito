@@ -1413,7 +1413,7 @@ alone: `results-average-timing` ("2.1 ms early") and
 
 **Rows brought back to Basic** (`options_levels::LEVELS`), each for its
 words alone, each passing the lean once plainly named: Fewer notes
-(`cut`), Notes together (`at_once`) and No long notes (`no_holds`),
+(`cut`), Limit jumps (`at_once`; "Notes together" until 2026-11-27) and No long notes (`no_holds`),
 whose sentences say the play is marked ASSIST on the results and its
 best kept apart; Clap on each note (`assist_clap`); Compare with your
 best (`ghost`); Darken behind the arrows (`field_filter`). Notes shows
@@ -1530,7 +1530,7 @@ six worlds.
 |---|---|
 | The twelve sections, their names and order | open question 9: section 3.3 |
 | Show advanced options first in Interface, with no heading | open question 2's place: "first in Interface" (its words the maintainer's answer) |
-| Play's order: Speed, Reverse, then the Advanced modifiers; EASIER over Fewer notes, Notes together, No long notes, No stretch | 3.3's Play |
+| Play's order: Speed, Reverse, then the Advanced modifiers; EASIER over Fewer notes, Limit jumps, No long notes, No stretch | 3.3's Play |
 | Fewer notes on the start prompt (after Lane cover, before the arrows) | open question 9: "with Fewer notes added to the prompt"; 3.2 |
 | Screen: Field position, Judgment words, Score display, Compare with your best, Lyrics, Timing error, Receptor snap; DANCING HAND over the hand's four | 3.3's Screen; 3.4 (`ddi.words`, `ddi.score` from Rules) |
 | Backgrounds: Background brightness, Darken behind the arrows, Background videos, Random movies, Generated background, Over song backgrounds, Generated colors, Background frame | 3.3's Backgrounds; a finer row kept right under the row it refines (as the model already puts the covers' heights and the chat's rows) |
@@ -1619,3 +1619,11 @@ its items closer.
   each effect costs, measured (the web's frame recorder), before
   choosing what it holds off; the rail, which twelve sections fill at
   1280×720.
+- `at_once` at Basic reads "Limit jumps: Off / Only allow pairs / No
+  jumps" (the maintainer: "'Limit jumps' is simple and descriptive, even
+  if 'jump' is a genre term, but it's a potentially important setting
+  for users who aren't advanced and the visual for that setting (which
+  is something I want to touch on the settings revamp) should
+  communicate the behavior much better than the terms themselves"). Its
+  description says what a jump is. The chooser's picture for it is the
+  revamp's (stage 5).

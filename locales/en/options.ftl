@@ -275,14 +275,15 @@ options-simplify-center-all = All
 options-simplify-center-description = Adds Pump charts to Single and Double without the center notes, each pad turned an eighth clockwise, marked as assisted. Where missing: only at difficulties the song has no chart of there.
 
 # The most panels pressed at once.
-options-at-once = Notes together
+options-at-once = Limit jumps
     .advanced = At once
-options-at-once-any = Any
-options-at-once-two = Two at most
+options-at-once-any = Off
+    .advanced = Any
+options-at-once-two = Only allow pairs
     .advanced = Up to two
-options-at-once-one = One at a time
+options-at-once-one = No jumps
     .advanced = One
-options-at-once-description = The most notes you press at the same time; the rest of each group is left out. A play with notes left out shows ASSIST on its results, and its best is kept apart.
+options-at-once-description = A jump is two or more notes pressed at the same time. Only allow pairs keeps jumps of two and leaves the extra notes out of bigger ones; No jumps leaves one note at a time. A play with notes left out shows ASSIST on its results, and its best is kept apart.
     .advanced = The most panels pressed at once, holds included: Up to two keeps jumps but leaves out arrows meant for a hand or a keyboard, One leaves out jumps too. The leftmost arrows go first.
 
 # Leaves out combinations too wide to reach.
