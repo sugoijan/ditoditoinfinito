@@ -115,7 +115,7 @@ pub const LEVELS: &[(&str, Level)] = &[
     ("receptor_snap", Advanced),
     ("lyrics", Basic),
     ("bg_brightness", Basic),
-    ("video", Advanced),
+    ("video", Basic),
     ("random_movies", Advanced),
     ("generated_background", Advanced),
     ("generated_over_pictures", Advanced),
@@ -517,7 +517,7 @@ pub(crate) mod tests {
             last_seen: 0.0,
         });
         assert!(!advanced_in_effect(&basic_only), "calibration is Basic's");
-        let changed: [fn(&mut Settings); 16] = [
+        let changed: [fn(&mut Settings); 15] = [
             |s| s.transform.turn = ddi_engine::Turn::Mirror,
             |s| s.ruleset = "itg".into(),
             |s| s.audio_offset = 0.01,
@@ -537,7 +537,6 @@ pub(crate) mod tests {
                 s.chat_names = true;
             },
             |s| s.dancing_hand_multiplayer = true,
-            |s| s.video = crate::state::settings::VideoMode::Off,
             |s| s.generated_background = crate::state::settings::GeneratedBackground::Off,
             |s| s.generated_palette = crate::state::settings::Palette::Mono,
             |s| s.set_infinito_param("Explosions", ParamValue::Bool(false)),
@@ -549,14 +548,16 @@ pub(crate) mod tests {
         }
         // The rows stage 2 brought back to Basic under plain words no
         // longer count (`docs/plans/ui-levels.md`, section 10).
-        let back: [fn(&mut Settings); 7] = [
+        let back: [fn(&mut Settings); 8] = [
             |s| s.transform.cut = ddi_engine::TimingCut::Quarters,
             |s| s.transform.at_once = ddi_engine::AtOnce::Two,
             |s| s.transform.no_holds = true,
             |s| s.assist_clap = true,
             |s| s.ghost = true,
             |s| s.field_filter = 0.0,
-            // Infinito's Note colors, back on 2026-11-27.
+            // Background videos and Infinito's Note colors, back on
+            // 2026-11-27.
+            |s| s.video = crate::state::settings::VideoMode::Off,
             |s| s.set_infinito_param("Colors", ParamValue::Text("Rainbow".into())),
         ];
         for (i, change) in back.into_iter().enumerate() {

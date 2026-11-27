@@ -1600,10 +1600,22 @@ its items closer.
 
 - Note colors is Basic again (Infinito's `Level=Basic`); Generated
   background, Generated colors, Explosions and Field position stay
-  Advanced. Basic shows 49 rows on the web, 50 on desktop.
-- Background videos "in practice it's a very useful performance toggle":
-  not brought back as its own Basic row yet, because the maintainer
-  proposed a Performance section in its place, with a simplified option
-  ("low quality graphics") that changes such options under the hood, and
-  a setting allowed to appear in more than one section. To be designed
-  before it is built; until then Background videos stays where it is.
+  Advanced.
+- Background videos is Basic again, with a plain description beside
+  today's (its `.advanced`): "in practice it's a very useful performance
+  toggle". Basic shows 50 rows on the web, 51 on desktop.
+- **A simplified performance selector, to design later** (the
+  maintainer, 2026-11-27): a Performance section, a setting allowed to
+  appear in more than one section, and a simplified option ("low quality
+  graphics") that prioritizes performance and changes other options
+  under the hood, behind which Background videos might then live. "Let's
+  design it first, with a bit more care. I have some ideas to how we can
+  abstract this nicely, but it's best to go through it as part of the
+  design. Which we don't have to do now": after the two fronts under way
+  (these levels and the source plugins) are done. Until then Background
+  videos shows at Basic so this front keeps going. Notes for that
+  design: an override held at play time (stored settings untouched, the
+  rows it holds off saying so) against a preset that rewrites them; what
+  each effect costs, measured (the web's frame recorder), before
+  choosing what it holds off; the rail, which twelve sections fill at
+  1280×720.

@@ -643,7 +643,8 @@ options-bg-brightness-description = How bright songs' backgrounds are behind the
 
 options-video = Background videos
 options-video-auto = Automatic
-options-video-description = Videos play behind the field in time with the music; automatic turns one off for the rest of a song when it costs frames. Off never loads the decoder.
+options-video-description = Some songs have a video that plays behind the arrows. Automatic stops a video for the rest of its song when it makes the game stutter. Off is the lightest on a slow device.
+    .advanced = Videos play behind the field in time with the music; automatic turns one off for the rest of a song when it costs frames. Off never loads the decoder.
 
 # StepMania's random movies (a RandomMovies folder).
 options-random-movies = Random movies

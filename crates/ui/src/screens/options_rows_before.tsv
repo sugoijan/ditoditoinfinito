@@ -28,7 +28,7 @@ full-Web-ddi	Advanced	hand_frame_width	Advanced	Hand frame width	30%|40%|50%|60%
 full-Web-ddi	Advanced	hand_frame_height	Advanced	Hand frame height	50%|60%|70%|80%|90%|100%	5	Some(5)	bb8e8fc73ee4d3de	in Screen
 full-Web-ddi	Advanced	bg_brightness	Basic	Background brightness	21 values #b81ab5ea05e5154d	8	Some(8)	26b391f7219ab6a4	in Backgrounds
 full-Web-ddi	Advanced	field_filter	Basic	Field filter	Off|40%|60%|80%	1	Some(1)	f56f9bc5e85dc28c	in Backgrounds
-full-Web-ddi	Advanced	video	Advanced	Background videos	Automatic|On|Off	0	Some(0)	48e6a26ad8d79100	in Backgrounds
+full-Web-ddi	Advanced	video	Basic	Background videos	Automatic|On|Off	0	Some(0)	48e6a26ad8d79100	in Backgrounds
 full-Web-ddi	Advanced	random_movies	Advanced	Random movies	Off|On	1	Some(1)	d908c27d6518668f	in Backgrounds
 full-Web-ddi	Advanced	generated_background	Advanced	Generated background	Off|Spectrum bars|Kaleidoscope|Field and lines|Outline rain	3	Some(3)	3796ffce384d29d0	in Backgrounds
 full-Web-ddi	Advanced	generated_over_pictures	Advanced	Over song backgrounds	Off|On	0	Some(0)	dd9f8e167afdeeff	in Backgrounds
@@ -127,6 +127,7 @@ full-Web-ddi	Basic	lyrics
 full-Web-ddi	Basic	dancing_hand
 full-Web-ddi	Basic	bg_brightness
 full-Web-ddi	Basic	field_filter
+full-Web-ddi	Basic	video
 full-Web-ddi	Basic	ddi.difficulty
 full-Web-ddi	Basic	ddi.practice
 full-Web-ddi	Basic	calibrate
@@ -205,7 +206,7 @@ full-Web-itg	Advanced	hand_frame_width	Advanced	Hand frame width	30%|40%|50%|60%
 full-Web-itg	Advanced	hand_frame_height	Advanced	Hand frame height	50%|60%|70%|80%|90%|100%	5	Some(5)	4d4aa0ac33d65a2f	in Screen
 full-Web-itg	Advanced	bg_brightness	Basic	Background brightness	21 values #b81ab5ea05e5154d	8	Some(8)	14e680cfbed5a869	in Backgrounds
 full-Web-itg	Advanced	field_filter	Basic	Field filter	Off|40%|60%|80%	1	Some(1)	1a18568986836e91	in Backgrounds
-full-Web-itg	Advanced	video	Advanced	Background videos	Automatic|On|Off	0	Some(0)	00850df35144c16d	in Backgrounds
+full-Web-itg	Advanced	video	Basic	Background videos	Automatic|On|Off	0	Some(0)	00850df35144c16d	in Backgrounds
 full-Web-itg	Advanced	random_movies	Advanced	Random movies	Off|On	1	Some(1)	c3db538491110946	in Backgrounds
 full-Web-itg	Advanced	generated_background	Advanced	Generated background	Off|Spectrum bars|Kaleidoscope|Field and lines|Outline rain	3	Some(3)	9ee4ca3c5a1b30b5	in Backgrounds
 full-Web-itg	Advanced	generated_over_pictures	Advanced	Over song backgrounds	Off|On	0	Some(0)	b34bd6c6797d4d56	in Backgrounds
@@ -306,6 +307,7 @@ full-Web-itg	Basic	lyrics
 full-Web-itg	Basic	dancing_hand
 full-Web-itg	Basic	bg_brightness
 full-Web-itg	Basic	field_filter
+full-Web-itg	Basic	video
 full-Web-itg	Basic	calibrate
 full-Web-itg	Basic	volume
 full-Web-itg	Basic	sample
@@ -382,7 +384,7 @@ full-Desktop-ddi	Advanced	hand_frame_width	Advanced	Hand frame width	30%|40%|50%
 full-Desktop-ddi	Advanced	hand_frame_height	Advanced	Hand frame height	50%|60%|70%|80%|90%|100%	5	Some(5)	bb8e8fc73ee4d3de	in Screen
 full-Desktop-ddi	Advanced	bg_brightness	Basic	Background brightness	21 values #b81ab5ea05e5154d	8	Some(8)	26b391f7219ab6a4	in Backgrounds
 full-Desktop-ddi	Advanced	field_filter	Basic	Field filter	Off|40%|60%|80%	1	Some(1)	f56f9bc5e85dc28c	in Backgrounds
-full-Desktop-ddi	Advanced	video	Advanced	Background videos	Automatic|On|Off	0	Some(0)	48e6a26ad8d79100	in Backgrounds
+full-Desktop-ddi	Advanced	video	Basic	Background videos	Automatic|On|Off	0	Some(0)	48e6a26ad8d79100	in Backgrounds
 full-Desktop-ddi	Advanced	random_movies	Advanced	Random movies	Off|On	1	Some(1)	d908c27d6518668f	in Backgrounds
 full-Desktop-ddi	Advanced	generated_background	Advanced	Generated background	Off|Spectrum bars|Kaleidoscope|Field and lines|Outline rain	3	Some(3)	3796ffce384d29d0	in Backgrounds
 full-Desktop-ddi	Advanced	generated_over_pictures	Advanced	Over song backgrounds	Off|On	0	Some(0)	dd9f8e167afdeeff	in Backgrounds
@@ -481,6 +483,7 @@ full-Desktop-ddi	Basic	lyrics
 full-Desktop-ddi	Basic	dancing_hand
 full-Desktop-ddi	Basic	bg_brightness
 full-Desktop-ddi	Basic	field_filter
+full-Desktop-ddi	Basic	video
 full-Desktop-ddi	Basic	ddi.difficulty
 full-Desktop-ddi	Basic	ddi.practice
 full-Desktop-ddi	Basic	calibrate
@@ -558,7 +561,7 @@ full-Desktop-itg	Advanced	hand_frame_width	Advanced	Hand frame width	30%|40%|50%
 full-Desktop-itg	Advanced	hand_frame_height	Advanced	Hand frame height	50%|60%|70%|80%|90%|100%	5	Some(5)	4d4aa0ac33d65a2f	in Screen
 full-Desktop-itg	Advanced	bg_brightness	Basic	Background brightness	21 values #b81ab5ea05e5154d	8	Some(8)	14e680cfbed5a869	in Backgrounds
 full-Desktop-itg	Advanced	field_filter	Basic	Field filter	Off|40%|60%|80%	1	Some(1)	1a18568986836e91	in Backgrounds
-full-Desktop-itg	Advanced	video	Advanced	Background videos	Automatic|On|Off	0	Some(0)	00850df35144c16d	in Backgrounds
+full-Desktop-itg	Advanced	video	Basic	Background videos	Automatic|On|Off	0	Some(0)	00850df35144c16d	in Backgrounds
 full-Desktop-itg	Advanced	random_movies	Advanced	Random movies	Off|On	1	Some(1)	c3db538491110946	in Backgrounds
 full-Desktop-itg	Advanced	generated_background	Advanced	Generated background	Off|Spectrum bars|Kaleidoscope|Field and lines|Outline rain	3	Some(3)	9ee4ca3c5a1b30b5	in Backgrounds
 full-Desktop-itg	Advanced	generated_over_pictures	Advanced	Over song backgrounds	Off|On	0	Some(0)	b34bd6c6797d4d56	in Backgrounds
@@ -659,6 +662,7 @@ full-Desktop-itg	Basic	lyrics
 full-Desktop-itg	Basic	dancing_hand
 full-Desktop-itg	Basic	bg_brightness
 full-Desktop-itg	Basic	field_filter
+full-Desktop-itg	Basic	video
 full-Desktop-itg	Basic	calibrate
 full-Desktop-itg	Basic	volume
 full-Desktop-itg	Basic	sample
@@ -740,7 +744,7 @@ new-Web	Advanced	hand_frame_width	Advanced	Hand frame width	30%|40%|50%|60%|70%|
 new-Web	Advanced	hand_frame_height	Advanced	Hand frame height	50%|60%|70%|80%|90%|100%	5	Some(5)	f0cb3d5d82397b49	in Screen
 new-Web	Advanced	bg_brightness	Basic	Background brightness	21 values #b81ab5ea05e5154d	8	Some(8)	f0e8109fcb5b47a3	in Backgrounds
 new-Web	Advanced	field_filter	Basic	Field filter	Off|40%|60%|80%	1	Some(1)	753233710bab112b	in Backgrounds
-new-Web	Advanced	video	Advanced	Background videos	Automatic|On|Off	0	Some(0)	38f2c04c3f6261d7	in Backgrounds
+new-Web	Advanced	video	Basic	Background videos	Automatic|On|Off	0	Some(0)	38f2c04c3f6261d7	in Backgrounds
 new-Web	Advanced	random_movies	Advanced	Random movies	Off|On	1	Some(1)	d5657fdc1ba59d92	in Backgrounds
 new-Web	Advanced	generated_background	Advanced	Generated background	Off|Spectrum bars|Kaleidoscope|Field and lines|Outline rain	3	Some(3)	94bee2bbc78790b7	in Backgrounds
 new-Web	Advanced	generated_over_pictures	Advanced	Over song backgrounds	Off|On	0	Some(0)	282b733dad532562	in Backgrounds
@@ -816,6 +820,7 @@ new-Web	Basic	lyrics
 new-Web	Basic	dancing_hand
 new-Web	Basic	bg_brightness
 new-Web	Basic	field_filter
+new-Web	Basic	video
 new-Web	Basic	ddi.difficulty
 new-Web	Basic	ddi.practice
 new-Web	Basic	calibrate
@@ -884,7 +889,7 @@ new-Desktop	Advanced	hand_frame_width	Advanced	Hand frame width	30%|40%|50%|60%|
 new-Desktop	Advanced	hand_frame_height	Advanced	Hand frame height	50%|60%|70%|80%|90%|100%	5	Some(5)	f0cb3d5d82397b49	in Screen
 new-Desktop	Advanced	bg_brightness	Basic	Background brightness	21 values #b81ab5ea05e5154d	8	Some(8)	f0e8109fcb5b47a3	in Backgrounds
 new-Desktop	Advanced	field_filter	Basic	Field filter	Off|40%|60%|80%	1	Some(1)	753233710bab112b	in Backgrounds
-new-Desktop	Advanced	video	Advanced	Background videos	Automatic|On|Off	0	Some(0)	38f2c04c3f6261d7	in Backgrounds
+new-Desktop	Advanced	video	Basic	Background videos	Automatic|On|Off	0	Some(0)	38f2c04c3f6261d7	in Backgrounds
 new-Desktop	Advanced	random_movies	Advanced	Random movies	Off|On	1	Some(1)	d5657fdc1ba59d92	in Backgrounds
 new-Desktop	Advanced	generated_background	Advanced	Generated background	Off|Spectrum bars|Kaleidoscope|Field and lines|Outline rain	3	Some(3)	94bee2bbc78790b7	in Backgrounds
 new-Desktop	Advanced	generated_over_pictures	Advanced	Over song backgrounds	Off|On	0	Some(0)	282b733dad532562	in Backgrounds
@@ -961,6 +966,7 @@ new-Desktop	Basic	lyrics
 new-Desktop	Basic	dancing_hand
 new-Desktop	Basic	bg_brightness
 new-Desktop	Basic	field_filter
+new-Desktop	Basic	video
 new-Desktop	Basic	ddi.difficulty
 new-Desktop	Basic	ddi.practice
 new-Desktop	Basic	calibrate
