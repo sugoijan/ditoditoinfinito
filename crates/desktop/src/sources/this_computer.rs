@@ -25,7 +25,7 @@
 //!
 //! Imported, it is added to the library where it is (the maintainer,
 //! 2026-11-27: "folder in place" instead of copying): its zip, else its
-//! pack's folder (the folder it is in, where that is within the folder
+//! pack's folder (the folder it is in, where that is inside the folder
 //! named), else its own folder, as Add songs adds one; nothing where a
 //! song folder of the library holds it already ([`ThisComputer::in_place`]).
 //!
@@ -102,17 +102,18 @@ pub enum InPlace {
 
 /// What importing a song at `place` adds, the player's folders `named`
 /// searched and the library's song folders `listed`: its zip; else its
-/// pack's folder, the folder its song folder is in where that is within a
-/// folder named (that folder itself included), unless a listed folder is
-/// inside it (it would be read twice), else its own folder; nothing where a
-/// listed folder is it or holds it.
+/// pack's folder, the folder its song folder is in where that is inside a
+/// folder named (a song directly in a folder named has none: never the
+/// folder named itself, decided 2026-11-27), unless a listed folder is
+/// inside it (it would be read twice); else its own folder; nothing where
+/// a listed folder is it or holds it.
 fn in_place_of(place: &Place, named: &[PathBuf], listed: &[PathBuf]) -> InPlace {
     let covered = |p: &Path| listed.iter().find(|f| p.starts_with(f)).cloned();
     let path = match place {
         Place::Zip { zip, .. } => zip.clone(),
         Place::Folder { dir, .. } => {
             dir.parent()
-                .filter(|parent| named.iter().any(|n| dir != n && parent.starts_with(n)))
+                .filter(|parent| named.iter().any(|n| parent != n && parent.starts_with(n)))
                 .filter(|parent| !listed.iter().any(|f| f.starts_with(parent) && f != parent))
                 .map_or_else(|| dir.clone(), Path::to_path_buf)
         }

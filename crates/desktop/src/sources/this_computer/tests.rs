@@ -313,8 +313,9 @@ fn past_its_entries_a_folder_is_read_in_part_and_says_so() {
 
 /// Importing in place: what is added to the library's song folders for a
 /// song of a pack (its pack's folder), a second of the same pack once the
-/// first is in (nothing), a loose song (its own folder), a zip's song (the
-/// zip), and a song a song folder holds already (nothing); a pack holding
+/// first is in (nothing), a loose song and one directly in a folder
+/// searched (its own folder), a zip's song (the zip), and a song a song
+/// folder holds already (nothing); a pack holding
 /// a listed song folder is not added whole (its songs would be read twice).
 #[test]
 fn an_import_adds_the_pack_or_the_song_or_the_zip_in_place_once() {
@@ -336,9 +337,21 @@ fn an_import_adds_the_pack_or_the_song_or_the_zip_in_place_once() {
     let loose = folder("/elsewhere/Loose Song", "elsewhere");
     let here = [PathBuf::from("/elsewhere/Loose Song")];
     assert_eq!(in_place_of(&loose, &here, &[]), add("/elsewhere/Loose Song"));
-    // A song directly in the folder named: that folder, its pack.
+    // A song directly in the folder named: its own folder, never the
+    // folder named; listed, nothing.
     let top = folder("/songs/Top Song", "songs");
-    assert_eq!(in_place_of(&top, named, &[]), add("/songs"));
+    assert_eq!(in_place_of(&top, named, &[]), add("/songs/Top Song"));
+    assert_eq!(
+        in_place_of(&top, named, &[PathBuf::from("/songs/Top Song")]),
+        covered("/songs/Top Song")
+    );
+    // A pack folder named itself: its songs are directly in it, each its
+    // own folder.
+    let pack_named = [PathBuf::from("/songs/Pack A")];
+    assert_eq!(
+        in_place_of(&one, &pack_named, &[]),
+        add("/songs/Pack A/Song One")
+    );
     // A zip's song: the zip.
     let zipped = Place::Zip {
         zip: PathBuf::from("/songs/Zipped.zip"),

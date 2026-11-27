@@ -119,6 +119,15 @@ fn this_computer_finds_a_song_plays_it_without_importing_and_imports_it() {
     let found = dir.join("found");
     song_at(&found.join("Pack A/Song One"), "Song One", 4);
     song_at(&found.join("Pack A/Song Two"), "Song Two", 7);
+    // A song directly in the folder searched (no pack folder), of notes
+    // of its own (the pack's songs share theirs, and so their song key).
+    let loose = found.join("Loose Song");
+    song_at(&loose, "Loose Song", 5);
+    std::fs::write(
+        loose.join("song.ssc"),
+        simfile("Loose Song", 5).replace("1000\n0100\n0010\n0001\n", "1001\n0110\n1001\n0110\n"),
+    )
+    .unwrap();
     let library = dir.join("library");
     std::fs::create_dir_all(&library).unwrap();
 
@@ -165,7 +174,7 @@ fn this_computer_finds_a_song_plays_it_without_importing_and_imports_it() {
     assert_eq!(top(&h.ui), "find-songs", "{:?}", h.ui.layers());
     until(&mut h, "found", |h| shows(h, "Song Two") && shows(h, "Song One"));
     assert!(shows(&h, "This computer"), "{:?}", h.texts());
-    assert!(shows(&h, "2 results."), "{:?}", h.texts());
+    assert!(shows(&h, "3 results."), "{:?}", h.texts());
     pictures.shot(&mut h.ui, SIZE, "find-songs.png");
 
     // Typed: searched once the field rests.
@@ -296,6 +305,17 @@ fn this_computer_finds_a_song_plays_it_without_importing_and_imports_it() {
     // nothing for a folder listed already is `this_computer`'s tests').
     until(&mut h, "song one marked", |h| shows(h, "Pack A · Single 4 · In your library"));
     assert_eq!(crate_folders().len(), 1, "nothing added twice");
+    // The song directly in the folder searched: its own folder added,
+    // never the folder searched.
+    search_for(&mut h, "loose");
+    until(&mut h, "the loose song", |h| {
+        shows(h, "Loose Song") && shows(h, "One result")
+    });
+    press(&mut h, &env, "button:import:0");
+    until(&mut h, "imported in its own folder", |h| {
+        shows(h, "Added “Loose Song” to your song folders.")
+    });
+    assert_eq!(crate_folders(), [found.join("Pack A"), loose.clone()]);
     search_for(&mut h, "two");
     until(&mut h, "song two again", |h| shows(h, "Song Two") && !shows(h, "Song One"));
 
