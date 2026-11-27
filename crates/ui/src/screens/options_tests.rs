@@ -709,8 +709,9 @@ fn a_tap_on_the_rows_empty_space_presses_nothing() {
         .filter_map(|i| r.h.ui.bounds(&format!("Option{i}")))
         .map(|b| b[3])
         .fold(clip[1], f32::max);
+    // (Round TU's Terms of use row left 34 px there at this size.)
     assert!(
-        clip[3] - bottom > 40.0,
+        clip[3] - bottom > 24.0,
         "room under the rows: {clip:?} {bottom}"
     );
     // Under the last row, and far to the right of the focused one's

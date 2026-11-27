@@ -164,6 +164,61 @@ pub fn privacy(platform: &str) -> Block {
 /// The privacy note's fold's id (the page names it `fold:privacy`).
 pub const PRIVACY_FOLD: &str = "privacy";
 
+/// The terms of use's page on the game's site, beside the privacy note's
+/// (`site/terms.html`), relative as [`privacy_url`] is; its Japanese part
+/// where the game speaks Japanese.
+pub fn terms_url() -> String {
+    let lang = ddi_l10n::current().tag;
+    if lang == "ja" || lang.starts_with("ja-") {
+        "terms.html#ja".into()
+    } else {
+        "terms.html".into()
+    }
+}
+
+/// The terms of use (round TU, 2026-11-25, a draft for the maintainer's
+/// approval): the rules for the online service, what may be uploaded, who
+/// can read an upload and for how long, and how to report one; a fold
+/// after the privacy note, as the site's page says them, written the same
+/// way (each part one message, its paragraphs separated by an empty line,
+/// its lists lines starting with "• ").
+pub fn terms(platform: &str) -> Block {
+    let parts = [
+        (pm::terms_about_heading(), pm::terms_about()),
+        (pm::terms_who_heading(), pm::terms_who()),
+        (pm::terms_sign_in_heading(), pm::terms_sign_in()),
+        (pm::terms_upload_heading(), pm::terms_upload()),
+        (pm::terms_readers_heading(), pm::terms_readers()),
+        (pm::terms_behavior_heading(), pm::terms_behavior()),
+        (pm::terms_ours_heading(), pm::terms_ours()),
+        (pm::terms_promise_heading(), pm::terms_promise()),
+        (pm::terms_report_heading(), pm::terms_report()),
+        (pm::terms_changes_heading(), pm::terms_changes()),
+        (pm::terms_questions_heading(), pm::terms_questions()),
+    ];
+    let mut body = vec![Block::Text(pm::terms_intro().into())];
+    for (heading, text) in parts {
+        body.push(Block::Subheading(heading.into()));
+        body.push(Block::Text(text.into()));
+    }
+    body.push(Block::Link {
+        label: pm::credits_source(SOURCE).into(),
+        url: SOURCE.into(),
+    });
+    body.push(Block::Link {
+        label: pm::terms_page(platform).into(),
+        url: terms_url(),
+    });
+    Block::Fold {
+        id: TERMS_FOLD.into(),
+        label: pm::terms().into(),
+        body,
+    }
+}
+
+/// The terms of use's fold's id (the page names it `fold:terms`).
+pub const TERMS_FOLD: &str = "terms";
+
 pub fn parse(json: &str) -> Result<Credits, String> {
     serde_json::from_str(json).map_err(|e| e.to_string())
 }
@@ -236,6 +291,7 @@ pub fn doc(c: &Credits, platform: super::data::Platform) -> PageDoc {
         url: SOURCE.into(),
     });
     b.push(privacy(platform.l10n()));
+    b.push(terms(platform.l10n()));
     b.push(Block::Heading(pm::credits_songs().into()));
     for s in &c.songs {
         b.push(Block::Subheading(data(format!(
@@ -570,6 +626,66 @@ mod rust_tests {
             body.iter()
                 .any(|b| matches!(b, Block::Subheading(h) if h == "Usage statistics"))
         );
+    }
+
+    /// The terms of use are a fold right after the privacy note, ending
+    /// with the link to their page, with the contact for reports and the
+    /// same lifetimes as the note.
+    #[test]
+    fn the_terms_are_a_fold_after_the_privacy_note() {
+        let d = doc(&sample(), Default::default());
+        let at = d
+            .blocks
+            .iter()
+            .position(|b| matches!(b, Block::Fold { id, .. } if id == TERMS_FOLD))
+            .expect("the fold");
+        assert!(matches!(&d.blocks[at - 1], Block::Fold { id, .. } if id == PRIVACY_FOLD));
+        let Block::Fold { label, body, .. } = &d.blocks[at] else {
+            unreachable!()
+        };
+        assert_eq!(label, "Terms of use");
+        assert!(matches!(body.last(), Some(Block::Link { url, .. }) if url == "terms.html"));
+        let text: String = body
+            .iter()
+            .filter_map(|b| match b {
+                Block::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("write to me@sugoijan.dev"));
+        let Block::Fold { body: note, .. } = privacy("web") else {
+            unreachable!()
+        };
+        let lifetime = "Then nobody can read its songs one day after the room last showed that it \
+            was open. The server deletes them within the next hour.";
+        assert!(text.contains(lifetime));
+        assert!(
+            note.iter()
+                .any(|b| matches!(b, Block::Text(t) if t.contains(lifetime)))
+        );
+        // Round TU2: a key's links last from one hour to one month (no
+        // expiry is the administrator's alone), in both; and both speak
+        // as one person.
+        let keyed = "from one hour to one month";
+        assert!(text.contains(keyed));
+        let expiry = "The expiry can be from one hour to one month.";
+        assert!(
+            note.iter()
+                .any(|b| matches!(b, Block::Text(t) if t.contains(expiry)))
+        );
+        assert!(text.contains("I read these reports myself"));
+        for t in [text.as_str()]
+            .into_iter()
+            .chain(note.iter().filter_map(|b| match b {
+                Block::Text(t) => Some(t.as_str()),
+                _ => None,
+            }))
+        {
+            for we in [" we ", "We ", " us ", "Our ", " our "] {
+                assert!(!t.contains(we), "{we:?} in {t:?}");
+            }
+        }
     }
 
     /// The note in plain language (2026-11-22): a part's paragraphs are

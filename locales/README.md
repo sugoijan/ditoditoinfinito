@@ -170,9 +170,10 @@ languages (since 2026-11-22), because people rely on what it says.
 English follows plain-language guidance in the spirit of Simplified
 Technical English (ASD-STE100; the note does not claim to conform to
 it): sentences of 20 words at most with one idea each, active voice,
-"we" for the people who run the server and "you" for the reader, one
-word for one thing (keep, delete, our server, your device, the game,
-the app), common words, no facts in parentheses, and a list wherever
+"I" for the one person who makes the game and runs its server (since
+2026-11-27: the maintainer is a solo developer, not a company) and
+"you" for the reader, one word for one thing (keep, delete, my server
+or the server, your device, the game, the app), common words, no facts in parentheses, and a list wherever
 there are three or more items. Japanese is やさしい日本語, the plain
 Japanese of the national guideline for residents (出入国在留管理庁 and
 文化庁, 2020): see `ja/GLOSSARY.md`, "The privacy note". A part of the
@@ -180,6 +181,14 @@ note is one message: its paragraphs separated by an empty line, its
 lists lines starting with "• " (the fold draws each line as text). A
 change to what the note says is made in the messages, the page and the
 note's date together, every fact kept as the server's README states it.
+The terms of use (`pages-terms-*`, the Credits' Terms of use fold and
+`site/terms.html`; rounds TU and TU2, not published until the
+maintainer has read them) are written the same way, and state every
+lifetime as the privacy note does. Both speak as one person: English
+says "I", "me", "my server" where a part first names the server or the
+server is an object, and "the server" where it acts; Japanese says 私
+where the English says "I" and keeps サーバー with no possessive (see
+`ja/GLOSSARY.md`).
 
 ## Checking and reviewing
 

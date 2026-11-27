@@ -38,10 +38,17 @@ public bodies use for residents (出入国在留管理庁・文化庁「在留�
   席, 対戦, 抽選, 準備OK, このデバイス); "sat a stage out" stays ステージに
   参加しなかった here, plainer than 見学.
 - Options' rows named as they read there, in 「」 with their path:
-  「オプション → データ → 利用統計を送る」.
+  「オプション → データとプライバシー → 利用統計を送る」.
 - No furigana and no spaces between phrases (分かち書き), which some
   やさしい日本語 guidance uses: neither the page nor the game's text has
   ruby, and spaces would read as broken lines in the fold.
+- One person speaks (2026-11-27, the maintainer: a solo developer, not
+  a company), in the note and in the terms of use (`pages-terms-*`):
+  私 where the English says "I" (私は一部の人に鍵を渡しています。,
+  私が削除します。), never 私たち, nor 当社 or 運営者, which read as a
+  company's; 開発者 in the third person was set aside as stiffer than
+  the plain register. The server stays サーバー, the subject of what it does,
+  with no possessive. A sentence with no doer in Japanese keeps none.
 
 ## Never translated
 

@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Terms of use · Dito Dito Infinito</title>
+    <meta name="description" content="The rules for Dito Dito Infinito's online rooms and for the songs uploaded to its server, and how to report a song." />
+    <meta name="theme-color" content="#0a090d" />
+    <style>
+      /* The game's theme (`crates/theme/src/infinito.toml`, as
+         `target/seo/theme.css` writes it); nothing fetched. The same
+         styles as privacy.html. */
+      :root {
+        --ground: #0a090d;
+        --text: #f2eee9;
+        --muted: #a39c95;
+        --accent: #ff6ea0;
+        --line: #3a3542;
+        color-scheme: dark;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--ground);
+        color: var(--text);
+        font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      :lang(ja) { font-family: system-ui, "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif; }
+      main { max-width: 46rem; margin: 0 auto; padding: 24px 16px 64px; }
+      nav { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--muted); font-size: 14px; }
+      a { color: var(--accent); }
+      h1 { font-size: 28px; margin: 24px 0 8px; }
+      h2 { font-size: 19px; margin: 28px 0 6px; }
+      p, li { margin: 8px 0; }
+      li { margin: 4px 0; }
+      ul { padding-left: 1.3em; }
+      .muted { color: var(--muted); }
+      section + section { border-top: 1px solid var(--line); margin-top: 48px; padding-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav aria-label="Language and game">
+        <a href="./">Dito Dito Infinito</a>
+        <a href="#en" hreflang="en">English</a>
+        <a href="#ja" hreflang="ja" lang="ja">日本語</a>
+        <a href="privacy.html">Privacy</a>
+      </nav>
+
+      <!-- Round TU (2026-11-25), with the maintainer's decisions of
+           round TU2 (2026-11-27): one person's voice, as the privacy
+           note's. Written in the privacy note's plain language: the
+           same text as the Credits' Terms of use fold (`pages-terms-*` in
+           locales/en/pages.ftl and locales/ja/pages.ftl). Every lifetime
+           is the privacy note's. -->
+      <section id="en" lang="en">
+        <h1>Terms of use</h1>
+        <p>These terms are the rules for using the online service of Dito Dito Infinito. Please read them before you use a room or share a song. I last changed these terms on November 27, 2026.</p>
+
+        <h2>What these terms are about</h2>
+        <p>The online service is:</p>
+        <ul>
+          <li>the online rooms</li>
+          <li>watching a room with its audience</li>
+          <li>songs shared by a link</li>
+          <li>my server, which runs these things</li>
+        </ul>
+        <p>When you play alone, you need no account. These terms do not apply to playing alone.</p>
+        <p>The game's code has its own license, the MIT license.</p>
+
+        <h2>Who runs the service</h2>
+        <p>I make the game and run its online server by myself, as a hobby. There is no company behind the game. The online service is free.</p>
+        <p>My server runs on Cloudflare.</p>
+
+        <h2>Signing in</h2>
+        <p>To use online rooms, you sign in with Twitch. Twitch's own terms also apply to your Twitch account.</p>
+        <p>You do not need to sign in to watch a room with its audience.</p>
+
+        <h2 id="uploads">Songs that you upload</h2>
+        <p>The host and the co-hosts of a room can add songs to the room's song list. If the host lets everyone add songs, anyone in the room can add songs. When you add a song, the game uploads it from your device to my server. This lets the people in the room play it.</p>
+        <p>Add only songs that you have the right to share with the people in your room. For example:</p>
+        <ul>
+          <li>songs that you made yourself, both the music and the charts</li>
+          <li>songs whose license lets you share them</li>
+          <li>songs whose owners told you that you may share them</li>
+        </ul>
+        <p>Many songs hold music and charts that belong to other people. A song on your device is not always a song that you may share.</p>
+        <p>The game does not check where a song came from. You are responsible for the songs that you upload.</p>
+
+        <h2>Who can read a song, and for how long</h2>
+        <p>Rooms are private. People join a room by its invite link. People can also watch a room with its audience, by the room's audience link.</p>
+        <p>My server does not show the uploaded songs in any public list. The game gives a song's link only to the people in its room and to the room's audience. Anyone who has the link can read the song. The server's administrators can also see and delete it.</p>
+        <p>The server deletes a song that you added:</p>
+        <ul>
+          <li>when someone removes the song from the room's list</li>
+          <li>when the room ends</li>
+        </ul>
+        <p>Usually, a room ends two minutes after the connection of its last member closed. The <a href="privacy.html">privacy note</a> tells you when a room ends.</p>
+        <p>A room may stop without ending. Then nobody can read its songs one day after the room last showed that it was open. The server deletes them within the next hour.</p>
+        <p>I give a key to a few people. With it, they can also share songs by a link, outside a room. Such a link works for the time that they choose: from one hour to one month. These terms apply to their songs too.</p>
+
+        <h2>In rooms</h2>
+        <p>Rooms are for playing together. Do not use them to harm other people, the service or the server.</p>
+        <p>The host and the co-hosts of a room can:</p>
+        <ul>
+          <li>remove a person from the room. The game calls this Kick.</li>
+          <li>replace the room's invite link, so that the old link stops working</li>
+        </ul>
+        <p>The host can also keep out of the room the people that the host banned or blocked on Twitch.</p>
+
+        <h2>What I may do</h2>
+        <p>I may delete any upload or close any room. I do not have to say why.</p>
+        <p>When I close a room, the game tells its members that the room was closed.</p>
+
+        <h2>What I do not promise</h2>
+        <p>I give the game and the online service as they are, without any promise. I do not promise that the service works, that it is always there, or that it keeps your songs. Keep your own copy of every song that you upload.</p>
+        <p>I can change the service, or stop it, at any time.</p>
+
+        <h2 id="report">Reporting a song</h2>
+        <p>If you think that a song on my server should not be there, write to <a href="mailto:me@sugoijan.dev">me@sugoijan.dev</a>. For example, you made its music or its chart, and you did not allow this.</p>
+        <p>Please send:</p>
+        <ul>
+          <li>the link to the shared song, or the room's invite link or audience link</li>
+          <li>the song's title and artist</li>
+          <li>what your work in the song is, for example the music or a chart</li>
+          <li>who you are: the person who made it, or a person who acts for them</li>
+          <li>how I can reach you</li>
+        </ul>
+        <p>Please do not post these links in a public issue. That would show the song to more people.</p>
+        <p>I read these reports myself, in my free time. If a song should not be on my server, I delete it. I can also close its room. The server deletes a room's songs when the room ends anyway.</p>
+
+        <h2>Changes to these terms</h2>
+        <p>I can change these terms. When I do, I change the date at the top of these terms.</p>
+
+        <h2>Questions</h2>
+        <p>If something in these terms is not clear, open an issue on <a href="https://github.com/sugoijan/ditoditoinfinito">the game's repository</a>. Or write to <a href="mailto:me@sugoijan.dev">me@sugoijan.dev</a>. The <a href="privacy.html">privacy note</a> tells you what the game and my server keep about you.</p>
+      </section>
+
+      <section id="ja" lang="ja">
+        <h1>利用規約</h1>
+        <p>この利用規約は、Dito Dito Infinitoのオンラインサービスを使うときのきまりです。ルームを使ったり、曲を共有したりする前に、読んでください。この利用規約を最後に変えたのは、2026年11月27日です。</p>
+
+        <h2>この利用規約について</h2>
+        <p>オンラインサービスとは、次のものです。</p>
+        <ul>
+          <li>オンラインのルーム</li>
+          <li>観客席での観戦</li>
+          <li>リンクで共有した曲</li>
+          <li>これらを動かすサーバー</li>
+        </ul>
+        <p>ひとりで遊ぶときは、アカウントはいりません。ひとりで遊ぶことには、この利用規約は当てはまりません。</p>
+        <p>ゲームのコードには、別のライセンスがあります。MITライセンスです。</p>
+
+        <h2>サービスを運営している人</h2>
+        <p>ゲームを作って、オンラインのサーバーを運営しているのは、私ひとりです。趣味でしています。会社が運営しているのではありません。オンラインサービスは無料です。</p>
+        <p>サーバーは、Cloudflareの上で動いています。</p>
+
+        <h2>サインイン</h2>
+        <p>オンラインのルームを使うには、Twitchでサインインします。あなたのTwitchのアカウントには、Twitch自身の規約も当てはまります。</p>
+        <p>観客席で観戦するときは、サインインはいりません。</p>
+
+        <h2 id="ja-uploads">アップロードする曲</h2>
+        <p>ルームのホストと共同ホストは、ルームの曲リストに曲を追加できます。ホストが全員に曲の追加を許している場合は、ルームのだれでも曲を追加できます。曲を追加すると、ゲームは、あなたのデバイスからサーバーに曲をアップロードします。ルームの人がその曲で遊べるようにするためです。</p>
+        <p>追加してよいのは、ルームの人と共有する権利がある曲だけです。たとえば、次の曲です。</p>
+        <ul>
+          <li>自分で作った曲。音楽も譜面も、自分で作ったものです。</li>
+          <li>ライセンスで共有が認められている曲</li>
+          <li>権利を持っている人から、共有してよいと言われた曲</li>
+        </ul>
+        <p>多くの曲には、ほかの人の音楽や譜面が入っています。デバイスにある曲でも、共有してよいとはかぎりません。</p>
+        <p>ゲームは、曲がどこから来たかを確かめません。アップロードした曲については、あなたが責任を持ちます。</p>
+
+        <h2>曲を読み込める人と期間</h2>
+        <p>ルームはプライベートです。人は、招待リンクでルームに参加します。ルームの観客用リンクで、観客席から観戦することもできます。</p>
+        <p>サーバーは、アップロードされた曲を、だれでも見られる一覧には出しません。ゲームは、曲のリンクを、そのルームの人とルームの観客にだけ渡します。リンクを持っている人は、だれでも曲を読み込めます。サーバーの管理者も、曲を見たり削除したりできます。</p>
+        <p>サーバーは、あなたが追加した曲を、次のときに削除します。</p>
+        <ul>
+          <li>だれかが、その曲をルームの曲リストから外したとき</li>
+          <li>ルームが終わったとき</li>
+        </ul>
+        <p>ふだんは、最後のメンバーの接続が切れてから2分後に、ルームが終わります。ルームがいつ終わるかは、<a href="privacy.html#ja">プライバシーのお知らせ</a>に書いてあります。</p>
+        <p>ルームが終わらずに止まってしまうことがあります。そのときは、ルームがまだ開いていると最後に示してから1日たつと、だれもそのルームの曲を読み込めなくなります。サーバーは、そのあと1時間以内に曲を削除します。</p>
+        <p>また、私は一部の人に鍵を渡しています。その人たちは、鍵を使って、ルームの外でも曲をリンクで共有できます。そのリンクは、その人が選んだ期間だけ使えます。期間は、1時間から1か月までです。その人たちの曲にも、この利用規約が当てはまります。</p>
+
+        <h2>ルームでのふるまい</h2>
+        <p>ルームは、いっしょに遊ぶための場所です。ほかの人や、サービスやサーバーを傷つけるために、ルームを使わないでください。</p>
+        <p>ルームのホストと共同ホストは、次のことができます。</p>
+        <ul>
+          <li>人をルームから退出させる</li>
+          <li>ルームの招待リンクを新しくする。前のリンクは使えなくなります。</li>
+        </ul>
+        <p>ホストは、Twitchでバンやブロックをした人を、ルームに入れないようにすることもできます。</p>
+
+        <h2>私ができること</h2>
+        <p>私は、どのアップロードも削除できます。どのルームも閉じることができます。その理由を伝える必要はありません。</p>
+        <p>私がルームを閉じると、ゲームは、ルームが閉じたことをメンバーに伝えます。</p>
+
+        <h2>約束できないこと</h2>
+        <p>私は、ゲームとオンラインサービスを、今のままの形で提供します。どんな約束もしません。サービスがうまく動くこと、いつでも使えること、あなたの曲を保存し続けることは、約束しません。アップロードする曲は、必ず自分でもコピーを持っていてください。</p>
+        <p>私は、いつでも、サービスを変えたり止めたりすることができます。</p>
+
+        <h2 id="ja-report">曲の報告</h2>
+        <p>サーバーにあるべきではない曲があると思ったら、<a href="mailto:me@sugoijan.dev">me@sugoijan.dev</a> に連絡してください。たとえば、あなたがその曲の音楽や譜面を作っていて、共有を認めていないときです。</p>
+        <p>次のことを送ってください。</p>
+        <ul>
+          <li>共有された曲のリンク。または、ルームの招待リンクか観客用リンク</li>
+          <li>曲名とアーティスト</li>
+          <li>その曲の中の、あなたの作品。たとえば、音楽や譜面です。</li>
+          <li>あなたがだれか。作った人か、作った人の代わりに動いている人か</li>
+          <li>私があなたに連絡する方法</li>
+        </ul>
+        <p>リンクは、だれでも見られるIssueには書かないでください。曲を見る人が増えてしまうからです。</p>
+        <p>報告は、私が自分で、空いた時間に読みます。サーバーにあるべきではない曲なら、私が削除します。その曲のルームを閉じることもあります。どちらにしても、サーバーは、ルームが終わるとそのルームの曲を削除します。</p>
+
+        <h2>この利用規約の変更</h2>
+        <p>私は、この利用規約を変えることがあります。変えたときは、この利用規約のいちばん上の日付を変えます。</p>
+
+        <h2>お問い合わせ</h2>
+        <p>この利用規約でわかりにくいところがあれば、<a href="https://github.com/sugoijan/ditoditoinfinito">ゲームのリポジトリ</a>でIssueを開いてください。または、<a href="mailto:me@sugoijan.dev">me@sugoijan.dev</a> に連絡してください。ゲームとサーバーがあなたについて何を保存するかは、<a href="privacy.html#ja">プライバシーのお知らせ</a>に書いてあります。</p>
+      </section>
+    </main>
+  </body>
+</html>

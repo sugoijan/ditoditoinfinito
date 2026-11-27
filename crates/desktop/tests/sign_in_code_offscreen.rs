@@ -8,7 +8,10 @@
 //! page shows the same plate while its Join signs in (the maintainer,
 //! 2026-11-20: "yes, the same plate"). Drawn offscreen where there is a
 //! GPU, at 1280×720 and in a small window (`DDI_OFFSCREEN_PPM=<dir>` keeps
-//! `sign-in-code-<what>-<w>x<h>-<lang>.ppm`).
+//! `sign-in-code-<what>-<w>x<h>-<lang>.ppm`). Since round TU2 a sign-in
+//! (never the access trip) says under its text and the code that signing
+//! in means agreeing to the terms of use, with the terms' and the privacy
+//! note's links (`sign-in-terms-<when>-<w>x<h>-<lang>.ppm`).
 
 mod common;
 use std::cell::Cell;
@@ -16,7 +19,7 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 
 use ddi_ui::screens::online::{OnlinePage, OnlineScreen};
-use ddi_ui::screens::online_home::{CODE, SignInDialog};
+use ddi_ui::screens::online_home::{CODE, SIGN_IN_PRIVACY, SIGN_IN_TERMS, SignInDialog};
 use ddi_ui::state::online::api::{ApiRequest, ApiResponse, Method};
 use ddi_ui::state::online::{Dest, Http, Online, OnlineConfig, Platform};
 use ddi_ui::testing::Harness;
@@ -119,6 +122,13 @@ fn the_sign_in_code_is_large_and_copied_on_a_click() {
             h.run(0.5);
             let what = if connect { "twitch" } else { "sign-in" };
             assert!(h.ui.bounds(CODE).is_some(), "{what} {size:?}: the code's plate");
+            // Round TU2: the quiet line about the terms under the code, on
+            // a sign-in alone.
+            assert_eq!(
+                h.ui.bounds(SIGN_IN_TERMS).is_some(),
+                !connect,
+                "{what} {size:?}: the terms' link"
+            );
             // Measured as the window measures (the harness's frames measure
             // by its own estimate).
             h.ui.forget_metrics();
@@ -215,4 +225,61 @@ fn an_invites_page_shows_the_sign_in_code_on_its_plate() {
             common::online::keep("sign-in-code-invite-copied", size, lang, &p);
         }
     }
+}
+
+/// Round TU2 (the maintainer, 2026-11-27: "Let's go with the quiet
+/// line"): the sign-in dialog before its press says that signing in means
+/// agreeing to the terms of use, the terms' and the privacy note's links
+/// after it, inside the panel and above its buttons; each link opens its
+/// page (a request here), the dialog staying.
+#[test]
+fn signing_in_says_it_agrees_to_the_terms() {
+    common::indexes();
+    let mut pictures = common::gpu::Pictures::new();
+    for (size, lang) in [([1280u32, 720u32], "en"), ([640, 400], "en"), ([1280, 720], "ja")] {
+        assert!(ddi_l10n::set_language(lang));
+        let online = Online::new(
+            Box::new(Attempt {
+                signed_in: false,
+                out: VecDeque::new(),
+            }),
+            OnlineConfig {
+                platform: Platform::Desktop,
+                site: "http://localhost:8080/".into(),
+            },
+        )
+        .shared();
+        online.borrow_mut().check();
+        online.borrow_mut().poll(0);
+        let css = [size[0] as f32, size[1] as f32];
+        let look = ddi_theme::Infinito::new();
+        let design = ddi_ui::screens::design_for(&look, css);
+        let mut h = Harness::with_gestures(design, css, 1.0, TextMode::Own, false);
+        h.ui.set_focus_ring(false);
+        h.push(SignInDialog::new(env(), online.clone(), Dest::Create, Rc::new(Cell::new(true))));
+        h.run(0.5);
+        let panel = h.ui.bounds("Panel").expect("the dialog");
+        let confirm = h.ui.bounds("Confirm").expect("its press");
+        for name in ["SignIn.Agree0", SIGN_IN_TERMS, SIGN_IN_PRIVACY] {
+            let b = h.ui.bounds(name).unwrap_or_else(|| panic!("{size:?} {lang}: {name}"));
+            assert!(b[0] >= panel[0] && b[2] <= panel[2], "{name} {b:?} in {panel:?}");
+            assert!(b[3] <= confirm[1], "{name} {b:?} above {confirm:?}");
+        }
+        h.ui.forget_metrics();
+        if let Some(p) = pictures.draw(&mut h.ui, size) {
+            common::online::keep("sign-in-terms-before", size, lang, &p);
+        }
+        h.tap(PointerKind::Mouse, SIGN_IN_TERMS);
+        h.run(0.3);
+        let want = if lang == "ja" { "terms.html#ja" } else { "terms.html" };
+        assert!(
+            h.requests
+                .iter()
+                .any(|r| matches!(r, UiRequest::OpenUrl(u) if u == want)),
+            "{:?}",
+            h.requests
+        );
+        assert!(h.ui.bounds("Panel").is_some(), "the dialog stays");
+    }
+    assert!(ddi_l10n::set_language("en"));
 }

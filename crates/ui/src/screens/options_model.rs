@@ -379,6 +379,8 @@ pub enum Act {
     /// Open the privacy note's page (`credits::privacy_url`; in the
     /// press, the browser opening a tab only from one).
     Privacy,
+    /// Open the terms of use's page (`credits::terms_url`), the same way.
+    Terms,
 }
 
 pub struct OptionsModel {
@@ -2301,6 +2303,13 @@ impl OptionsModel {
                     "",
                     m::privacy_description(self.world.platform.l10n()),
                 ),
+                actions(
+                    "terms",
+                    ddi_l10n::msg::pages::terms(),
+                    [m::terms_button()],
+                    "",
+                    m::terms_description(self.world.platform.l10n()),
+                ),
                 choice(
                     "usage_stats",
                     m::usage_stats(),
@@ -2696,6 +2705,7 @@ impl OptionsModel {
                 Act::Done
             }
             ("privacy", _) => Act::Privacy,
+            ("terms", _) => Act::Terms,
             ("twitch", _) if self.world.twitch.connected() => Act::Confirm(Reset::Twitch),
             ("history.export", b) => {
                 let buttons = history_buttons(self.world.plays, self.world.importing_plays);

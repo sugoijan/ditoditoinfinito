@@ -414,7 +414,11 @@ impl ShareDialog {
                     None => msg::share_title_list(n),
                 }
                 .into(),
-                vec![msg::share_intro(n, pack_label(Some(&self.pack))).into()],
+                // What is shared, then the condition on it (round TU).
+                vec![
+                    msg::share_intro(n, pack_label(Some(&self.pack))).into(),
+                    msg::share_terms().into(),
+                ],
             ),
             ShareState::Uploading => (
                 msg::share_uploading().into(),

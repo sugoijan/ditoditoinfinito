@@ -159,6 +159,7 @@ pub const LEVELS: &[(&str, Level)] = &[
     ("room_ahead", Basic),
     ("twitch", Basic),
     ("privacy", Basic),
+    ("terms", Basic),
     ("usage_stats", Basic),
     ("error_reports", Basic),
     ("reset.everything", Basic),

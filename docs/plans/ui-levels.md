@@ -778,9 +778,9 @@ Advanced (13 on desktop, 12 on the web); Basic shows the rows marked B.
     - TROUBLESHOOTING: A Graphics (web), Debug overlay, Autoplay demo,
       Experimental settings (section 5, once used)
 12. **Data and privacy**
-    - B Play history, Twitch access, Privacy note, Send usage
-      statistics, Send error reports, Settings, Imported songs (or Song
-      folders), Everything
+    - B Play history, Twitch access, Privacy note, Terms of use (round
+      TU2, 2026-11-27), Send usage statistics, Send error reports,
+      Settings, Imported songs (or Song folders), Everything
 13. **Plugins** (desktop, Advanced only; section 6)
 
 Sharing, today a section behind its switch, becomes the hidden

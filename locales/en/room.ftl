@@ -46,6 +46,15 @@ room-sign-in-for-private-host = Private rooms are invite-only and are played as 
 # The sign-in dialog's text when opened from the footer's Sign in.
 room-sign-in-for-account = Sign in with Twitch to make private rooms and join invites. CPU practice needs no account.
 
+# Round TU2 (the maintainer's "quiet line", 2026-11-27): one muted line
+# wherever a person signs in (the sign-in dialog, under its text and
+# desktop's code; an invite's page, under its Sign in with Twitch to
+# join), saying that signing in means agreeing to the terms of use. Two
+# links follow it on their own line: the terms of use (pages-terms) and
+# the privacy note (pages-privacy). No checkbox: nothing more to press.
+# About 60 letters a line in the dialog, wrapped.
+room-sign-in-terms = Signing in means that you agree to the terms of use.
+
 # The join-by-link page: its title beside its back icon on a phone, and
 # its name in its header, in small capitals.
 room-join-title = Join by link
@@ -2314,6 +2323,17 @@ room-song-line-spotlight = { $picker } is on it · { $artist } · { $by } · { $
 room-add-song-use = Add to the room
 # The same where the song is in the room's list already (nothing happens).
 room-song-in-room = In the room
+# The notice on a room's My songs, under the status line, to whoever may
+# add songs (round TU, a draft for the maintainer's approval): what adding
+# does and the condition. Muted, wrapped to the list's column (about 500
+# px wide on a computer, about 330 on a phone: two lines at most there);
+# a button with the terms of use (pages-terms) sits at the right of the
+# tabs over it. "Uploaded" and "deleted" as the privacy note and the terms
+# say: the song goes to our server for this room, and goes when it ends.
+room-upload-notice = Songs you add are uploaded so this room can play them, and deleted when it ends. Add only songs you may share.
+# The same place on Room songs, and on My songs for whoever may not add
+# songs: what the room's songs are (the same lifetime as the notice's).
+room-songs-notice = The room's songs are uploaded by whoever added them, and deleted when the room ends.
 # More's item for a room song this player may remove.
 room-remove-song = Remove from the room
 # More's item for a room song whose upload from this device failed.

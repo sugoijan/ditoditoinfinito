@@ -43,32 +43,34 @@
         <a href="./">Dito Dito Infinito</a>
         <a href="#en" hreflang="en">English</a>
         <a href="#ja" hreflang="ja" lang="ja">日本語</a>
+        <a href="terms.html">Terms of use</a>
       </nav>
 
-      <!-- Written in plain language (2026-11-22): the same text as the
+      <!-- Written in plain language (2026-11-22), in one person's voice
+           (2026-11-27: "I", the developer alone): the same text as the
            Credits' Privacy fold (`pages-privacy-*` in
            locales/en/pages.ftl and locales/ja/pages.ftl, their web
            variants), plus how the desktop app's report differs. -->
       <section id="en" lang="en">
         <h1>Privacy</h1>
-        <p>This note tells you what Dito Dito Infinito and its online server keep about you. It also tells you for how long. We last changed this note on November 27, 2026.</p>
+        <p>This note tells you what Dito Dito Infinito and its online server keep about you. It also tells you for how long. I last changed this note on November 27, 2026.</p>
 
         <h2>Playing alone</h2>
         <p>When you play alone, the game keeps everything on your device: your settings, your songs and your play history. In a browser, they stay in the browser's storage. In the app, they stay in the app's folders on your computer.</p>
-        <p>The game sends nothing about you or your plays to our server. If someone shares a song with you by a link, the game reads that song from our server.</p>
+        <p>The game sends nothing about you or your plays to my server. If someone shares a song with you by a link, the game reads that song from my server.</p>
 
         <h2>Signing in</h2>
         <p>To use online rooms, you must sign in with Twitch. You do not have to sign in to watch a room with its audience.</p>
-        <p>When you sign in, our server asks Twitch for three things:</p>
+        <p>When you sign in, my server asks Twitch for three things:</p>
         <ul>
           <li>your Twitch user ID</li>
           <li>your login name</li>
           <li>your display name</li>
         </ul>
-        <p>Our server keeps none of Twitch's keys. The three things go into a signed session. Your browser keeps the session as a cookie. The app keeps the session in its settings folder.</p>
+        <p>The server keeps none of Twitch's keys. The three things go into a signed session. Your browser keeps the session as a cookie. The app keeps the session in its settings folder.</p>
         <p>A session lasts one week. It is renewed while you use it. It never lasts more than 30 days after you signed in.</p>
-        <p>When you sign in from the app, our server keeps the sign-in attempt for 11 minutes at most. The attempt holds your Twitch user ID, your login name and your display name. It also holds the session until the app takes it.</p>
-        <p>Our server keeps no list of the people who signed in. Signing out removes the session from your device. We never ask Twitch for your email address.</p>
+        <p>When you sign in from the app, the server keeps the sign-in attempt for 11 minutes at most. The attempt holds your Twitch user ID, your login name and your display name. It also holds the session until the app takes it.</p>
+        <p>The server keeps no list of the people who signed in. Signing out removes the session from your device. I never ask Twitch for your email address.</p>
 
         <h2>Rooms</h2>
         <p>A room keeps what its members see:</p>
@@ -90,7 +92,7 @@
           <li>when its host loses the connection for too long, in a room set to close when its host leaves</li>
           <li>when the server's administrators close it</li>
         </ul>
-        <p>After a room ends, our server keeps only a note that the room ended. This note holds the room's ID, when the room ended and why. Our server keeps this note for one week, so that the room's links can say that the room is closed.</p>
+        <p>After a room ends, the server keeps only a note that the room ended. This note holds the room's ID, when the room ended and why. The server keeps this note for one week, so that the room's links can say that the room is closed.</p>
         <p>These times are the usual ones. The server's administrators can change them. They can also turn off the two-minute limit. Then a room with no member connected ends after one week without activity.</p>
         <p>The room's session log is kept apart and names nobody. The part "<a href="#sessions">A room's session log</a>" below tells you about it.</p>
         <p>While a room is open, the server's administrators can see it in a list. The list shows the room's name and the display name of its host. It also shows what the room is doing, for example which stage it plays. It also shows counts, for example how many people are in the room.</p>
@@ -98,15 +100,16 @@
 
         <h2>Songs</h2>
         <p>The host and the co-hosts of a room can add songs to the room's song list. If the host lets everyone add songs, anyone in the room can add songs.</p>
-        <p>When someone adds a song, the game uploads the song from their device to our server. This lets everyone in the room play it. The room keeps who added the song. With the copy, our server keeps the room's ID. It also keeps the Twitch user ID of the person who added the song.</p>
-        <p>While the room is open, anyone with the link to this copy can read it. Our server keeps the copy as long as the room exists. It deletes the copy:</p>
+        <p>When someone adds a song, the game uploads the song from their device to my server. This lets everyone in the room play it. The room keeps who added the song. With the copy, the server keeps the room's ID. It also keeps the Twitch user ID of the person who added the song.</p>
+        <p>While the room is open, anyone with the link to this copy can read it. The server keeps the copy as long as the room exists. It deletes the copy:</p>
         <ul>
           <li>when the song is removed from the list: by the person who added it, by a host, or to make space in a full list</li>
           <li>when the room ends</li>
         </ul>
-        <p>If a room ever stops without ending, our server deletes its songs. It does this one day at the latest after the room last showed that it was still open.</p>
-        <p>We give a key to a few people. These people can also share songs by link. Such a song is kept until the expiry that was chosen when it was shared, or until it is deleted. The expiry can be from one hour to no expiry. With such a song, our server keeps a short code made from the key that shared it.</p>
-        <p>If the upload of a song never finishes, our server deletes the song after one day.</p>
+        <p>A room may stop without ending. Then nobody can read its songs one day after the room last showed that it was open. The server deletes them within the next hour.</p>
+        <p>I give a key to a few people. These people can also share songs by link. Such a song is kept until the expiry that was chosen when it was shared, or until it is deleted. The expiry can be from one hour to one month. With such a song, the server keeps a short code made from the key that shared it.</p>
+        <p>If the upload of a song never finishes, the server deletes the song after one day.</p>
+        <p>The <a href="terms.html">terms of use</a> say which songs you may add, and how to report a song.</p>
 
         <h2>Room songs on your device</h2>
         <p>While you are in a room, the game also downloads the room's songs onto your device before they are picked. This lets a stage start at once. The game never downloads the songs' movies.</p>
@@ -126,7 +129,7 @@
         <p>Every song of the list is the default. A browser on a small screen, such as a phone, has another default: only the songs that will likely come next. The default is the same in a browser that is set to save data. If the browser's storage becomes full, the game downloads only the songs that will likely come next.</p>
         <p>The game keeps these songs apart from your own songs and your play history. In a browser, it keeps them in the browser's storage. In the app, it keeps them in the app's cache folder.</p>
         <p>The game deletes these songs when you leave the room. If the game stopped while you were in a room, it deletes them the next time it starts. In a browser, it does this only when no page of the game has used them for 30 minutes.</p>
-        <p>Your device tells our server which of the room's songs it has. Our server passes this on to the devices of the room's members. Then the game can show how many players have each song. Our server keeps this only while your connection to the room is open. It stores none of it.</p>
+        <p>Your device tells my server which of the room's songs it has. The server passes this on to the devices of the room's members. Then the game can show how many players have each song. The server keeps this only while your connection to the room is open. It stores none of it.</p>
 
         <h2>Twitch access for a room's features</h2>
         <p>A room's host can turn on two features that use Twitch:</p>
@@ -143,8 +146,8 @@
           <li>showing your chat: nothing from you</li>
         </ul>
         <p>To see a host's chat on your device, turn on Options → Multiplayer → Twitch chat in rooms. The game then asks Twitch for reading chat.</p>
-        <p>If you allow it, our server keeps Twitch's keys for this access. It seals the keys so that only the server can read them. It never gives the keys to the game.</p>
-        <p>Our server uses this access only when a room's feature needs it. It deletes the access:</p>
+        <p>If you allow it, my server keeps Twitch's keys for this access. It seals the keys so that only the server can read them. It never gives the keys to the game.</p>
+        <p>The server uses this access only when a room's feature needs it. It deletes the access:</p>
         <ul>
           <li>when you sign out</li>
           <li>when you disconnect it in Options → Data and privacy</li>
@@ -154,14 +157,14 @@
         <p>If the access ends while you host a room, the room stops keeping people out. It still shows your chat.</p>
         <p>The game then offers to ask Twitch again for the permissions that you had. It does not offer this when you disconnect on this device. If you allow them, the room keeps people out again, as before. If you do not, your next rooms start with this feature off.</p>
         <p>Until then, this device remembers that the room kept people out. It forgets this when you close the game.</p>
-        <p>This device also remembers which of these permissions you used, and when. It keeps this in the game's settings on this device, never on our server. You use a permission when you:</p>
+        <p>This device also remembers which of these permissions you used, and when. It keeps this in the game's settings on this device, never on my server. You use a permission when you:</p>
         <ul>
           <li>host a room that keeps out people banned or blocked on Twitch</li>
           <li>show a host's chat on this device</li>
         </ul>
         <p>When you sign in on this device again, it asks Twitch for the permissions that you used in the last 30 days. It does this in the same step as the sign-in. So you do not go through Twitch again for each permission when you sign out and in. The device does not ask for a permission that you have not used for 30 days.</p>
         <p>When you disconnect in Options → Data and privacy, this device forgets these permissions.</p>
-        <p>When a host's room keeps people out in this way, our server asks Twitch about each person:</p>
+        <p>When a host's room keeps people out in this way, the server asks Twitch about each person:</p>
         <ul>
           <li>when the person joins</li>
           <li>when the person's connection opens again</li>
@@ -170,7 +173,7 @@
           <li>when a new host of the room sets it</li>
           <li>when Twitch tells a device in the room that the person was banned or timed out in the host's channel</li>
         </ul>
-        <p>Our server keeps the answers only in memory, for five minutes at most. It keeps an answer about a timeout no longer than the timeout lasts. It never stores the answers.</p>
+        <p>The server keeps the answers only in memory, for five minutes at most. It keeps an answer about a timeout no longer than the timeout lasts. It never stores the answers.</p>
         <p>Someone who is kept out is told only: "You can't join this room." The other members see that person leave. The server's logs count these checks and never name anyone.</p>
 
         <h2>A host's Twitch chat on your device</h2>
@@ -179,11 +182,11 @@
           <li>your device's address</li>
           <li>that your Twitch account reads that channel's chat</li>
         </ul>
-        <p>Our server only asks Twitch to start this. It never sees a message.</p>
-        <p>Twitch also tells your device when someone is banned or timed out in that chat. In a room that keeps out people banned on Twitch, your device then tells our server who it is. It does this only for someone who is in the room. Our server then asks Twitch about that person itself.</p>
-        <p>Our server keeps in memory, for one minute at most, who asked and about whom. It never stores this.</p>
+        <p>My server only asks Twitch to start this. It never sees a message.</p>
+        <p>Twitch also tells your device when someone is banned or timed out in that chat. In a room that keeps out people banned on Twitch, your device then tells my server who it is. It does this only for someone who is in the room. The server then asks Twitch about that person itself.</p>
+        <p>The server keeps in memory, for one minute at most, who asked and about whom. It never stores this.</p>
         <p>To show emotes, your device asks 7TV, BetterTTV and FrankerFaceZ for emote lists: the channel's lists and their global lists. It also asks these three services and Twitch for the emote pictures. So these services see your device's address.</p>
-        <p>If a direct request fails, our server asks in place of your device. Then the services see the server's address instead. Our server keeps each emote picture or list that it gets in this way for one day at most. It does not store who asked for it.</p>
+        <p>If a direct request fails, my server asks in place of your device. Then the services see the server's address instead. The server keeps each emote picture or list that it gets in this way for one day at most. It does not store who asked for it.</p>
         <p>If you set Options → Multiplayer → Emotes from to Twitch, your device does not ask the other three services.</p>
 
         <h2>Removing someone from a room</h2>
@@ -191,30 +194,30 @@
 
         <h2 id="audience">Watching with an audience</h2>
         <p>You can watch a room with its audience without signing in.</p>
-        <p>Our server then turns your network's address into a mark, so that one network cannot take every seat. The mark is a code made with a secret key. The code is different every day. Without the key, nobody can turn the mark back into the address. The key never leaves our server. Our server does not keep the address itself.</p>
+        <p>My server then turns your network's address into a mark, so that one network cannot take every seat. The mark is a code made with a secret key. The code is different every day. Without the key, nobody can turn the mark back into the address. The key never leaves the server. The server does not keep the address itself.</p>
         <p>The mark exists only in the server's memory, and only while your seat is open. The server's administrators see only a short code of eight characters made from the mark.</p>
         <p>If you are signed in, your seats count against your account instead. Then no mark is made. The server's administrators see a short code of eight characters made from your account.</p>
 
         <h2>Usage statistics</h2>
-        <p>Our server counts what happens in rooms, as daily totals. This helps us see whether online play works well. For example, our server counts:</p>
+        <p>My server counts what happens in rooms, as daily totals. This helps me see whether online play works well. For example, the server counts:</p>
         <ul>
-          <li>what kind of device and browser opened a connection: a phone, a tablet or a computer, and Chrome, Edge, Firefox, Safari, Samsung Internet or another browser. Our server reads this from your browser's User-Agent when the connection opens. Then it drops the User-Agent. The User-Agent is a line of text in which your browser describes itself.</li>
+          <li>what kind of device and browser opened a connection: a phone, a tablet or a computer, and Chrome, Edge, Firefox, Safari, Samsung Internet or another browser. The server reads this from your browser's User-Agent when the connection opens. Then it drops the User-Agent. The User-Agent is a line of text in which your browser describes itself.</li>
           <li>how connections closed</li>
           <li>how long connections lasted, in ranges</li>
           <li>how long people were away, in ranges, and whether they came back</li>
-          <li>the round trip from your network to our server, in ranges. The round trip is the time that a message takes to go to our server and back.</li>
+          <li>the round trip from your network to my server, in ranges. The round trip is the time that a message takes to go to the server and back.</li>
           <li>how long songs took to upload and to load</li>
           <li>why players sat a stage out</li>
           <li>what was played: the charts' difficulty range and style, the rules, when runs ran out of life, the attacks sent, the shocks stepped on and the steps on the Adaptive ladder</li>
           <li>how many different people were in rooms each day</li>
         </ul>
         <p>These totals contain no names, accounts, addresses, rooms or song titles.</p>
-        <p>Our server counts the people of each day without knowing who they are. For this, it keeps a code made from each account and the day, with a secret key. The code changes every day. Our server deletes the code once it has counted the day.</p>
-        <p>Our server keeps the totals day by day for 13 months. After that, it keeps them month by month.</p>
+        <p>The server counts the people of each day without knowing who they are. For this, it keeps a code made from each account and the day, with a secret key. The code changes every day. The server deletes the code once it has counted the day.</p>
+        <p>The server keeps the totals day by day for 13 months. After that, it keeps them month by month.</p>
         <p>Bots and the game's computer players are counted apart from people. Playing alone is never counted.</p>
 
         <h2>What the game sends for the totals</h2>
-        <p>While you are in an online room, the game also tells our server a few things for these totals. It does this each time its connection to the room opens. It tells:</p>
+        <p>While you are in an online room, the game also tells my server a few things for these totals. It does this each time its connection to the room opens. It tells:</p>
         <ul>
           <li>that it is the game in a browser</li>
           <li>your system, such as Windows, macOS, Android or iOS</li>
@@ -229,7 +232,7 @@
           <li>how long the page was in the background during that connection</li>
           <li>whether the page was in the background when that connection ended, and for how long</li>
           <li>whether that connection's keep-alive messages were answered. Keep-alive messages check that a connection still works.</li>
-          <li>the round trip to our server</li>
+          <li>the round trip to my server</li>
         </ul>
         <p>The desktop app sends the same things, with these differences:</p>
         <ul>
@@ -240,8 +243,8 @@
           <li>It counts the time that its window was hidden, in place of the page's time in the background.</li>
           <li>It says that it keeps its connection alive by itself, in place of whether keep-alive messages were answered.</li>
         </ul>
-        <p>Each of these things is one value from a fixed list, or a range. It is never a name, an account, an address, a room or a song. Our server adds these values to the totals and keeps nothing else of them.</p>
-        <p>To turn this off, set Options → Data and privacy → Send usage statistics to Off. Then the game sends none of these things. Our server's own counts above go on.</p>
+        <p>Each of these things is one value from a fixed list, or a range. It is never a name, an account, an address, a room or a song. The server adds these values to the totals and keeps nothing else of them.</p>
+        <p>To turn this off, set Options → Data and privacy → Send usage statistics to Off. Then the game sends none of these things. The server's own counts above go on.</p>
         <p>When you watch with an audience, the game sends none of these things.</p>
 
         <h2 id="sessions">A room's session log</h2>
@@ -252,7 +255,7 @@
           <li>when each connection was asked for, opened and closed, with which code, and how long it lasted</li>
           <li>when someone was away, and whether they came back</li>
           <li>the kind of device and browser of each seat, as in the totals above</li>
-          <li>what the game of each seat told our server for the totals above</li>
+          <li>what the game of each seat told my server for the totals above</li>
           <li>how long songs took to upload and to load</li>
           <li>how big each upload was, in ranges</li>
           <li>when a seat could not load a song, and why</li>
@@ -269,11 +272,11 @@
           <li>when someone was turned away, for example because the room was full</li>
         </ul>
         <p>The log names nobody. Each person is only a seat number, and a seat number means something only inside that room. The log holds no names, accounts, addresses, room name, room ID or song titles.</p>
-        <p>The log marks bots and the game's computer players as such. If you turned Send usage statistics off, the log has only what our server saw by itself.</p>
-        <p>The room keeps the log while it is open. If the log becomes too long, the room drops the oldest events. When the room ends, our server keeps the log for 14 days for its administrators to read. Then our server deletes the log. Our server deletes the oldest logs sooner if it holds more than 20,000 logs or 512 MB of logs.</p>
+        <p>The log marks bots and the game's computer players as such. If you turned Send usage statistics off, the log has only what the server saw by itself.</p>
+        <p>The room keeps the log while it is open. If the log becomes too long, the room drops the oldest events. When the room ends, the server keeps the log for 14 days for its administrators to read. Then the server deletes the log. The server deletes the oldest logs sooner if it holds more than 20,000 logs or 512 MB of logs.</p>
 
         <h2>Error reports</h2>
-        <p>When the game itself goes wrong in your browser, it sends our server a short report. The game goes wrong when there is:</p>
+        <p>When the game itself goes wrong in your browser, it sends my server a short report. The game goes wrong when there is:</p>
         <ul>
           <li>a crash</li>
           <li>a failure in the game's code that nothing caught</li>
@@ -301,18 +304,18 @@
           <li>any letters beyond English</li>
         </ul>
         <p>The game also cuts the message to 300 characters. The message can still hold an ordinary English word. An example is a word of a song's title that the game's own message did not quote.</p>
-        <p>Our server reads the kind of browser and device from your browser's User-Agent, as it does for the totals. Then it drops the User-Agent. Our server takes the same things out of the message again. It drops a report that still holds any of them.</p>
-        <p>Our server counts reports in the daily totals by kind, version, screen, browser, device and graphics. For each distinct error, it keeps one example message. It keeps that example for 30 days after the error was last seen. It keeps 500 examples at most. When it has more, it first deletes the examples whose errors were last seen longest ago.</p>
-        <p>To stop floods of reports, our server counts the reports from one network for one minute. It counts them by the daily mark from "<a href="#audience">Watching with an audience</a>" above, and only in its memory. It takes at most 20 reports in one minute from one network. It drops the rest.</p>
+        <p>The server reads the kind of browser and device from your browser's User-Agent, as it does for the totals. Then it drops the User-Agent. The server takes the same things out of the message again. It drops a report that still holds any of them.</p>
+        <p>The server counts reports in the daily totals by kind, version, screen, browser, device and graphics. For each distinct error, it keeps one example message. It keeps that example for 30 days after the error was last seen. It keeps 500 examples at most. When it has more, it first deletes the examples whose errors were last seen longest ago.</p>
+        <p>To stop floods of reports, the server counts the reports from one network for one minute. It counts them by the daily mark from "<a href="#audience">Watching with an audience</a>" above, and only in its memory. It takes at most 20 reports in one minute from one network. It drops the rest.</p>
         <p>The game sends at most five reports in one visit. It never sends the same error twice in one visit.</p>
         <p>To turn this off, set Options → Data and privacy → Send error reports to Off. If your browser sends the Global Privacy Control signal, the game sends no error reports, whatever that option says.</p>
         <p>The app on a computer sends no error reports.</p>
 
         <h2>Server logs</h2>
-        <p>Our server runs on Cloudflare. Cloudflare handles the connections to our server. It keeps logs of the requests that it receives for up to 7 days.</p>
+        <p>My server runs on Cloudflare. Cloudflare handles the connections to the server. It keeps logs of the requests that it receives for up to 7 days.</p>
         <p>These logs can include the address that was asked for, for example an invite link. They can also include technical details of the connection.</p>
-        <p>Our own lines in these logs name rooms by their IDs and never name a player. The only person that they name is an administrator, by display name. They name an administrator who changes the server's settings, closes a room, or opens or closes a room's audience.</p>
-        <p>Our server also keeps a list of the last 1,000 changes to its settings and rooms closed by administrators. The list holds the administrator's name. It is there for the server's administrators to read.</p>
+        <p>The server's own lines in these logs name rooms by their IDs and never name a player. The only person that they name is an administrator, by display name. They name an administrator who changes the server's settings, closes a room, or opens or closes a room's audience.</p>
+        <p>The server also keeps a list of the last 1,000 changes to its settings and rooms closed by administrators. The list holds the administrator's name. It is there for the server's administrators to read.</p>
 
         <h2>Questions</h2>
         <p>If something in this note is not clear, open an issue on <a href="https://github.com/sugoijan/ditoditoinfinito">the game's repository</a>. Or write to <a href="mailto:me@sugoijan.dev">me@sugoijan.dev</a>.</p>
@@ -373,9 +376,10 @@
           <li>曲がリストから外されたとき。追加した人かホストが外したときと、いっぱいのリストに空きを作るときです。</li>
           <li>ルームが終わったとき</li>
         </ul>
-        <p>ルームが終わらずに止まってしまうことがあれば、サーバーはそのルームの曲を削除します。ルームがまだ開いていると最後に示してから、遅くとも1日後に削除します。</p>
-        <p>また、私たちは一部の人に鍵を渡しています。その人たちは、曲をリンクで共有することもできます。その曲は、共有したときに選んだ期限まで、または削除されるまで保存します。期限は、1時間から無期限までです。サーバーは、その曲といっしょに、共有に使った鍵から作った短いコードを保存します。</p>
+        <p>ルームが終わらずに止まってしまうことがあります。そのときは、ルームがまだ開いていると最後に示してから1日たつと、だれもそのルームの曲を読み込めなくなります。サーバーは、そのあと1時間以内に曲を削除します。</p>
+        <p>また、私は一部の人に鍵を渡しています。その人たちは、曲をリンクで共有することもできます。その曲は、共有したときに選んだ期限まで、または削除されるまで保存します。期限は、1時間から1か月までです。サーバーは、その曲といっしょに、共有に使った鍵から作った短いコードを保存します。</p>
         <p>曲のアップロードが最後まで終わらなかったときは、サーバーは1日後にその曲を削除します。</p>
+        <p>どの曲を追加してよいかと、曲の報告のしかたは、<a href="terms.html#ja">利用規約</a>に書いてあります。</p>
 
         <h2>デバイスにダウンロードするルームの曲</h2>
         <p>ルームにいる間、ゲームは、ルームの曲が選ばれる前に、その曲をあなたのデバイスにダウンロードします。ステージをすぐに始められるようにするためです。動画はダウンロードしません。</p>
@@ -580,7 +584,7 @@
         <h2>サーバーのログ</h2>
         <p>サーバーは、Cloudflareの上で動いています。Cloudflareは、サーバーへの接続を受け持ちます。そして、受け取ったリクエストのログを、長くても7日間保存します。リクエストは、サーバーへの問い合わせのことです。</p>
         <p>このログには、問い合わせたアドレスが入ることがあります。たとえば、招待リンクです。接続の技術的な情報が入ることもあります。</p>
-        <p>このログの中で私たち自身が書く行は、ルームをIDで示します。プレイヤーの名前は書きません。名前を書くのは、管理者だけです。管理者の表示名を書きます。書くのは、管理者がサーバーの設定を変えたとき、ルームを閉じたとき、ルームの観客席を開いたり閉じたりしたときです。</p>
+        <p>このログの中でサーバー自身が書く行は、ルームをIDで示します。プレイヤーの名前は書きません。名前を書くのは、管理者だけです。管理者の表示名を書きます。書くのは、管理者がサーバーの設定を変えたとき、ルームを閉じたとき、ルームの観客席を開いたり閉じたりしたときです。</p>
         <p>また、サーバーは、設定の変更と、管理者が閉じたルームの一覧を、新しいものから1,000件まで保存します。一覧には、管理者の名前が入ります。サーバーの管理者が読むための一覧です。</p>
 
         <h2>お問い合わせ</h2>

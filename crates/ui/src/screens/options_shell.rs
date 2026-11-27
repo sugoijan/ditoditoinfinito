@@ -267,6 +267,7 @@ fn call_with(
         }
         Act::Export => platform.export(),
         Act::Privacy => cx.request(crate::UiRequest::OpenUrl(super::credits::privacy_url())),
+        Act::Terms => cx.request(crate::UiRequest::OpenUrl(super::credits::terms_url())),
         Act::Rejudge => {
             let rules = model.borrow().settings.rules();
             platform.rejudge(&rules);

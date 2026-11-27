@@ -240,7 +240,7 @@ announcer contexts for the three ways to play.
 | StepMania `.ssc` | same | same | same | + `#WARPS`, `#SPEEDS` (beat=ratio=delay=unit), `#SCROLLS`, `#FAKES`, `#LABELS`, `#TIMESIGNATURES`, `#TICKCOUNTS`, `#COMBOS`; per-chart split timing (v ≥ 0.70) | phase 2 |
 | DWI `.dwi` | beats; one char = 1/8 note, brackets `()`=1/16 `[]`=1/24 `{}`=1/64 `` `' ``=1/192 | SINGLE/DOUBLE/COUPLE/SOLO; numpad digits, `A`=U+D, `B`=L+R, `C`–`M` solo combos, `<…>` jumps | tap, hold (`X!Y`, released at next note in column) | `#GAP` ms (OFFSET = −GAP/1000), `#BPM`, `#CHANGEBPM`/`#FREEZE` in **quarter-beat** units, freeze in ms | phase 2 (small) |
 | Dancing☆Onigiri (dos) | integer frames @ 60 fps; `blankFrame`/`startFrame`/`adjustment`/`playbackRate` | arbitrary, defined as data (5…23+ keys; onigiri/giko/iyo lanes; per-lane color group, shuffle group, scroll sign, position, default keys) | tap, hold (`frz*_data` pairs), dummy notes | no BPM; `speed_data` (global), `boost_data` (per-note), `color_data`/`acolor_data`/`ncolor_data`, `word_data`, `back_data`/`mask_data`, `scrollch_data`, `keych_data`; per-chart gauge params in `difData` | phase 3 |
-| FFR (R^3 `beatBox`) | integer frames @ 30 fps (+ optional ms, + per-song `sync`) | 4 fixed (L,D,U,R) | tap only; color stored per note | none | late; content is not redistributable, importer only for user-owned data |
+| FFR (R^3 `beatBox`) | integer frames @ 30 fps (+ optional ms, + per-song `sync`) | 4 fixed (L,D,U,R) | tap only; color stored per note | none | late; the importer reads level files the player has. Adding one to a room is not blocked (the maintainer, 2026-11-25): the uploader is responsible for having the right to share it (the terms of use, `site/terms.html`), and FFR's music is licensed to FFR on the stated promise that it is not made available for download, a reason for a person to think first |
 | KSF, BMS, `.osu`, `.sma` | various | | | | not planned; notes in research doc |
 
 Semantics an importer must get right (all verified against StepMania source):
@@ -656,7 +656,10 @@ What exists:
   among the players' choices).
 - **Around it**: the server's operator panel; usage statistics and the
   web's error reports, said in the privacy note (`site/privacy.html`);
-  bots for testing rooms (a development tool, `--mp-bots`).
+  the terms of use for rooms and uploads (`site/terms.html`, round TU2,
+  2026-11-27, awaiting the maintainer's reading before it is published),
+  both written as one person, the developer, says them; bots for testing
+  rooms (a development tool, `--mp-bots`).
 
 What is provisional, in one paragraph: the numbers and many rules are
 first versions, each named and versioned in the code (about 60
@@ -982,7 +985,13 @@ named was looked at for this list.
      (decision 106); room shares are readable by anyone holding their id,
      not only by members (`docs/plans/shared-songs.md`, "Room shares").
      Whether a downloaded level may be shared into a room at all, and to
-     whom, is the first question.
+     whom, is the first question. For songs a person already has, the
+     maintainer answered on 2026-11-25: nothing is blocked by where a song
+     came from, rooms are private and their uploads temporary, and the
+     uploader is responsible for having the right to share it; the terms
+     of use, an upload notice and a contact for reports were drafted for
+     their approval (round TU). A source that fetches from FFR is still
+     this item's open design.
    - The precedent: the DanOni URL import is a user-triggered single
      download of one work, desktop only (not the web, not Windows), in
      a separate native helper with public-address checks, limits and
@@ -1040,7 +1049,7 @@ named was looked at for this list.
    says whether an entry is direct or indirect involvement today; the
    attribution CC BY asks for must stay reachable in the game (section
    8), and the Rust libraries' licence texts must still ship; the
-   privacy note's fold lives there too.
+   privacy note's and the terms of use's folds live there too.
 5. **Music on the main menu, and the dancing hand behind it.** Its
    animation may change with the focused submenu. Needs design. Visible
    questions: the start menu is silent today by design (the preview's

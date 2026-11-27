@@ -40,9 +40,10 @@ fn credits_links_open_from_keys_and_taps() {
     let items = state.borrow().page_items.clone();
     // The game's own source first.
     assert_eq!(items[0], format!("link:{}", credits::SOURCE));
-    // Then the privacy note, folded, then the songs.
+    // Then the privacy note and the terms of use, folded, then the songs.
     assert_eq!(items[1], format!("fold:{}", credits::PRIVACY_FOLD));
-    assert_eq!(items[2], "link:https://example.org/songs");
+    assert_eq!(items[2], format!("fold:{}", credits::TERMS_FOLD));
+    assert_eq!(items[3], "link:https://example.org/songs");
     assert!(items.iter().any(|i| i == "link:video/ddivideo.LICENSE.txt"));
     assert!(items.iter().any(|i| i == "fold:configure"));
     // Down to the first link, Enter opens it in the press.

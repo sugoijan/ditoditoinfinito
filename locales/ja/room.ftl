@@ -18,6 +18,7 @@ room-sign-in-title = サインイン
 room-sign-in-for-private = プライベートルームは招待制で、Twitchのアカウントでプレイします。作るにはTwitchでサインインしてください。
 room-sign-in-for-private-host = プライベートルームは招待制で、Twitchのアカウントでプレイします。作るにはTwitchでサインインしてください。あわせて、チャンネルでバンやタイムアウトされた人をゲームが確認することの許可もTwitchで求められます。その人たちはルームに入れなくなります（ホスト設定 → Twitchのバン）。
 room-sign-in-for-account = Twitchでサインインすると、プライベートルームを作ったり招待に参加したりできます。CPU練習にアカウントは不要です。
+room-sign-in-terms = サインインすると、利用規約に同意したことになります。
 room-join-title = リンクで参加
 room-join-heading = リンクで参加
 
@@ -1002,6 +1003,8 @@ room-song-line-no-artist = { $by } · { $state }
 room-song-line-spotlight = { $picker }が選択中 · { $artist } · { $by } · { $state }
 room-add-song-use = ルームに追加
 room-song-in-room = ルームにあります
+room-upload-notice = 追加した曲は、このルームで遊べるようにアップロードされ、ルームが終わると削除されます。共有してよい曲だけを追加してください。
+room-songs-notice = ルームの曲は、追加した人がアップロードしたものです。ルームが終わると削除されます。
 room-remove-song = ルームから削除
 room-retry-upload = もう一度アップロード
 room-refused-song-listed = その曲はすでにルームにあります。

@@ -413,6 +413,25 @@ fn invite_doc(online: &Online, copied: bool) -> PageDoc {
     }
     actions.push(Action::new("back", ddi_l10n::msg::common::back()));
     blocks.push(Block::Actions(actions));
+    // Round TU2: where this page signs a person in (its Sign in with
+    // Twitch to join, desktop's code, a Join after a cancel or a
+    // failure), the sign-in dialog's quiet line and its two links.
+    let signing_in = matches!(
+        online.sign_in_state(),
+        SignIn::Idle | SignIn::Waiting { .. } | SignIn::Canceled { .. } | SignIn::Failed { .. }
+    );
+    let waiting = matches!(online.sign_in_state(), SignIn::Waiting { .. });
+    if online.me().is_none() && signing_in && (joinable || waiting) && !update {
+        blocks.push(Block::Muted(super::online_home::sign_in_agreement().into()));
+        blocks.push(Block::Link {
+            label: ddi_l10n::msg::pages::terms().into(),
+            url: super::credits::terms_url(),
+        });
+        blocks.push(Block::Link {
+            label: ddi_l10n::msg::pages::privacy().into(),
+            url: super::credits::privacy_url(),
+        });
+    }
     PageDoc {
         title: PageTitle::new(m::invite_title(), m::invite_heading()),
         blocks,

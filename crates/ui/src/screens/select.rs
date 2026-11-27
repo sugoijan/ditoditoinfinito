@@ -73,6 +73,8 @@ mod room_mode;
 /// An online room's song select's tabs' buttons (revision 17).
 pub const TAB_ROOM_NAME: &str = room_mode::TAB_ROOM;
 pub const TAB_MINE_NAME: &str = room_mode::TAB_MINE;
+/// The terms of use's button beside an online room's upload notice.
+pub const TERMS_NAME: &str = room_mode::TERMS;
 #[path = "select_favorites.rs"]
 mod favorites_mode;
 /// A room's players panel (the wide layout's right part).
@@ -4376,6 +4378,11 @@ impl Screen for SelectScreen {
         // the line that says their access ended.
         if self.room_restore_bans_shown() {
             v.push(Focusable::new(super::room::RESTORE_BANS));
+        }
+        // The terms of use beside an online room's upload notice (round
+        // TU).
+        if self.room_terms_shown() {
+            v.push(Focusable::new(room_mode::TERMS));
         }
         if self.following() {
             v.push(Focusable::new("Panel.Up"));

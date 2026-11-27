@@ -1003,6 +1003,17 @@ options-reset-settings-description = { $platform ->
    *[desktop] Every setting back to its default; the song folders and per-song offsets are kept.
 }
 
+# The terms of use (its row's name is pages-terms): a button opening the
+# game's site's terms page in the browser.
+options-terms-button = Read
+
+# Variables:
+#   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
+options-terms-description = { $platform ->
+    [web] The rules for the online rooms, and for the songs uploaded to the server. Opens them on the game's site; they are also in the credits.
+   *[desktop] The rules for the online rooms, and for the songs uploaded to the server. Opens them on the web; they are also in the credits.
+}
+
 # The privacy note (its row's name is pages-privacy): a button opening the
 # game's site's privacy page in the browser.
 options-privacy-button = Read

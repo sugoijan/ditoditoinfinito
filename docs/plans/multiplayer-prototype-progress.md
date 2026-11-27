@@ -15557,3 +15557,58 @@ tells the two apart. Nothing new on the wire and no room model revision:
 the authority is the only peer that runs the change. Tests:
 `room_songs.rs`'s `the_authority_removes_a_song_as_a_host_does`,
 `group_choice.rs`'s `a_chosen_song_is_kept_from_removal`.
+
+## Round TU (2026-11-25): terms of use, an upload notice and a contact (drafts)
+
+Drafts for the maintainer's approval, built on the branch so they can be
+seen in place; nothing is published until the wording is approved. The
+maintainer's framing: rooms are private, uploads are readable only by
+their link and are temporary, nothing is blocked by where a song came
+from, and whoever uploads is responsible for having the right to share
+it with their room.
+- The terms of use: `site/terms.html` (copied by Trunk beside the
+  privacy note) and the same text as the Credits' fold "Terms of use"
+  after "Privacy" (`credits::terms`, `pages-terms-*`), in the privacy
+  note's plain language, English and Japanese (an unverified draft). The
+  multiplayer home's footer and Options' Data section open them
+  (`credits::terms_url`).
+- The notice: under an online room's status line, on both tabs (one band
+  as tall as the longer text needs, so the list never moves): on My
+  songs to whoever may add, `room-upload-notice` ("Songs you add are
+  uploaded so this room can play them, and deleted when it ends. Add
+  only songs you may share."); else `room-songs-notice`; the terms'
+  button at the tabs' row's right end (`select::TERMS_NAME`). The share
+  dialog (keyed link shares) says `select-share-terms`.
+- The contact for reports is the privacy note's address, in the terms'
+  "Reporting a song". The privacy note's lifetime for a room that stops
+  without ending now says what the server does: unreadable a day after
+  the room's last report, deleted by the hourly purge within the hour.
+- Not built then: a line in the sign-in dialog saying signing in agrees
+  to the terms (built in round TU2, below, with its links).
+
+## Round TU2 (2026-11-27): the terms of use with the maintainer's decisions
+
+Round TU's drafts brought onto `dev` with what the maintainer decided;
+still not published until they have read the two pages.
+- The wording approved (2026-11-26). A key's link lasts from one hour to
+  one month (no expiry is the administrator's alone, as the server
+  refuses since 2026-11-26), in the terms and the privacy note alike.
+- The upload notice stays the always shown line under an online room's
+  status line; no dialog.
+- Signing in: one muted line wherever a person signs in, "Signing in
+  means that you agree to the terms of use." (`room-sign-in-terms`), the
+  terms and the privacy note as links after it, no checkbox: the
+  sign-in dialog before its press and under desktop's code, and an
+  invite's page under its Sign in with Twitch to join
+  (`online_home::sign_in_agreement`; a trip for Twitch access, made
+  signed in, has none).
+- A reported song: the terms say only that a song that should not be on
+  the server is deleted and its room may be closed; "or stop anyone
+  from using the online service" went, since barring an account is not
+  built (the operator's removal of one room song is another round's).
+- One person's voice: both documents say "I" ("my server" where a part
+  first names it or it is an object, "the server" where it acts), 私 in
+  Japanese; nothing else in the privacy note changed in meaning. Both
+  dated November 27, 2026.
+- Options: the terms' row in Data and privacy after Privacy, at the
+  Basic level (the rows' record written again for it alone).

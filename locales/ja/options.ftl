@@ -521,6 +521,11 @@ options-reset-settings-description = { $platform ->
     [web] すべての設定を既定値に戻します。インポートした曲と曲ごとのオフセットは残ります。
    *[desktop] すべての設定を既定値に戻します。曲フォルダーと曲ごとのオフセットは残ります。
 }
+options-terms-button = 読む
+options-terms-description = { $platform ->
+    [web] オンラインのルームと、サーバーにアップロードする曲についてのきまりです。ゲームのサイトで利用規約を開きます。クレジットにも載っています。
+   *[desktop] オンラインのルームと、サーバーにアップロードする曲についてのきまりです。Webで利用規約を開きます。クレジットにも載っています。
+}
 options-privacy-button = 読む
 options-privacy-description = { $platform ->
     [web] ゲームとそのオンラインサーバーが保存するプレイヤーの情報と、サーバーが集計する利用統計です。ゲームのサイトでお知らせを開きます。クレジットにも載っています。

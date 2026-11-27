@@ -3242,6 +3242,21 @@ dependency's licence before adding it.
   the multiplayer home's footer and Options' Data and privacy section open the page
   (`credits::privacy_url`). Keep the three in step with what the game
   and the private server keep (its README's "Usage statistics").
+- `site/terms.html` is the terms of use beside it, the same way (round
+  TU, 2026-11-25, with the maintainer's decisions of round TU2,
+  2026-11-27; not published until the maintainer has read its wording):
+  the Credits' fold "Terms of use" after "Privacy" (`credits::terms`,
+  `pages-terms-*`), opened by the multiplayer home's footer, Options'
+  Data and privacy row after Privacy (Basic) and the button beside an
+  online room's upload notice (`room-upload-notice`, under the status
+  line of its list; `credits::terms_url`). Wherever a person signs in
+  (the sign-in dialog, also under desktop's code; an invite's page),
+  one muted line says that signing in means agreeing to the terms,
+  their page and the privacy note's as links after it, nothing more to
+  press (`online_home::sign_in_agreement`, `room-sign-in-terms`). Both
+  documents speak as one person, the developer ("I", 私; since
+  2026-11-27, `locales/README.md`). The terms and the privacy note agree
+  on every lifetime and on who can read an upload; change them together.
 - GitHub Pages from the `main` branch via the workflow in `.github/`. The
   public URL is lowercase; on a custom domain Pages paths are case-sensitive,
   which is why the repository name is lowercase.

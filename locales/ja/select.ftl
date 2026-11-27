@@ -262,6 +262,8 @@ select-share-title-list = { $count }曲を共有
 
 select-share-intro = 「{ $pack }」の{ $count }曲のコピーをアップロードします。リンクを知っている人は、期限が切れるまでプレイできます。
 
+select-share-terms = 共有する権利がある曲だけを共有してください。くわしくは、利用規約に書いてあります。
+
 select-share-uploading = アップロード中…
 
 select-share-progress = { $total }曲中{ $done }曲、{ $size }中{ $sent }。

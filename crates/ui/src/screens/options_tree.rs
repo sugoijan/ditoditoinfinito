@@ -261,6 +261,7 @@ pub const TREE: &[Branch] = &[
             Row("history.export"),
             Row("twitch"),
             Row("privacy"),
+            Row("terms"),
             Row("usage_stats"),
             Row("error_reports"),
             Row("reset.settings"),

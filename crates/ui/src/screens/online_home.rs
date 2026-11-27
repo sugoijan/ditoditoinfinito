@@ -37,6 +37,8 @@ pub const JOIN: &str = "join";
 pub const ACCOUNT: &str = "Link.Account";
 /// The footer's link to the privacy note's page (`credits::privacy_url`).
 pub const PRIVACY: &str = "Link.Privacy";
+/// The footer's link to the terms of use's page (`credits::terms_url`).
+pub const TERMS: &str = "Link.Terms";
 /// The account menu's pick.
 const ACCOUNT_MENU: &str = "MultiplayerAccount";
 
@@ -228,7 +230,8 @@ impl Home {
         let (to_move, choose, back) = (pm::move_hint(), pm::activate(), common::back());
         let account = self.account();
         let privacy = String::from(pm::privacy());
-        let mut links: Vec<(&str, &str)> = vec![(PRIVACY, privacy.as_str())];
+        let terms = String::from(pm::terms());
+        let mut links: Vec<(&str, &str)> = vec![(TERMS, terms.as_str()), (PRIVACY, privacy.as_str())];
         links.extend(account.iter().map(|a| (ACCOUNT, a.as_str())));
         let hints: &[(&[&str], &str)] = &[
             (&["↑", "↓"], &to_move),
@@ -305,6 +308,10 @@ impl Home {
     fn activate(&mut self, name: &str, cx: &mut Cx) {
         if name == PRIVACY {
             cx.request(crate::UiRequest::OpenUrl(super::credits::privacy_url()));
+            return;
+        }
+        if name == TERMS {
+            cx.request(crate::UiRequest::OpenUrl(super::credits::terms_url()));
             return;
         }
         if name == ACCOUNT {
@@ -389,6 +396,7 @@ impl Screen for Home {
 
     fn focusables(&self) -> Vec<Focusable> {
         let mut names: Vec<String> = entries().iter().map(|(id, ..)| choice(id)).collect();
+        names.push(TERMS.into());
         names.push(PRIVACY.into());
         if self.account().is_some() {
             names.push(ACCOUNT.into());
@@ -605,6 +613,24 @@ pub struct SignInDialog {
 pub const CODE: &str = "Code";
 use super::code_plate::CODE_H;
 
+/// The links after the dialog's quiet line saying that signing in means
+/// agreeing to the terms of use (round TU2, the maintainer's "quiet line",
+/// 2026-11-27): the terms' page and the privacy note's.
+pub const SIGN_IN_TERMS: &str = "SignIn.Terms";
+pub const SIGN_IN_PRIVACY: &str = "SignIn.Privacy";
+/// The quiet line's text size, its lines' spacing and its links' height.
+const AGREE_SIZE: f32 = 13.0;
+const AGREE_LINE: f32 = 17.0;
+const AGREE_LINK_H: f32 = 26.0;
+
+/// Where a person signs in (the sign-in dialog, an invite's page): one
+/// muted sentence, that signing in means agreeing to the terms of use,
+/// with the terms and the privacy note as links after it. No checkbox and
+/// nothing more to press (the maintainer, 2026-11-27).
+pub fn sign_in_agreement() -> UiText {
+    m::sign_in_terms()
+}
+
 /// A connecting [`SignInDialog`]'s trip: the scope sets asked (`chat`,
 /// `bans,blocks`…) and what is told when it ends (connected or not).
 struct Connect {
@@ -679,6 +705,20 @@ impl SignInDialog {
         c.scopes
             .split(',')
             .all(|s| t.has(s.trim()))
+    }
+
+    /// Whether the quiet line about the terms shows: a sign-in (never a
+    /// trip for Twitch access, made signed in) waiting for its press, for
+    /// the browser's page (desktop's code), or for Try again.
+    fn agreement_shown(&self) -> bool {
+        self.connect.is_none()
+            && matches!(
+                self.online.borrow().sign_in_state(),
+                SignIn::Idle
+                    | SignIn::Waiting { .. }
+                    | SignIn::Canceled { .. }
+                    | SignIn::Failed { .. }
+            )
     }
 
     /// A connecting dialog's trip ended: told once.
@@ -816,7 +856,19 @@ impl Screen for SignInDialog {
             }
         }
         let plate = if code.is_some() { CODE_H + 28.0 } else { 0.0 };
-        let h = 160.0 + lines.len() as f32 * 18.0 + plate;
+        // The quiet line about the terms, under the body (and the code),
+        // its links under it (round TU2).
+        let agree: Vec<String> = if self.agreement_shown() {
+            wrap_lines(&sign_in_agreement(), w - 48.0, AGREE_SIZE)
+        } else {
+            Vec::new()
+        };
+        let agree_h = if agree.is_empty() {
+            0.0
+        } else {
+            12.0 + agree.len() as f32 * AGREE_LINE + 4.0 + AGREE_LINK_H
+        };
+        let h = 160.0 + lines.len() as f32 * 18.0 + plate + agree_h;
         let title = if self.connect.is_some() {
             ddi_l10n::msg::twitch::access()
         } else {
@@ -837,9 +889,51 @@ impl Screen for SignInDialog {
             }
             None => dialog_body(&env, &mut c, &lines, [x, y], w, |_| "Muted"),
         }
+        if !agree.is_empty() {
+            let top = y + 57.0 + plate + lines.len() as f32 * 18.0 + 12.0;
+            for (i, line) in agree.iter().enumerate() {
+                let mut t = env.text(&format!("SignIn.Agree{i}"), line, AGREE_SIZE, 400, "Muted");
+                look::ellipsized(&mut t, w - 48.0);
+                c.push(super::left(
+                    t,
+                    x + 24.0,
+                    top + AGREE_LINE * (i as f32 + 0.5),
+                ));
+            }
+            let ly = top + agree.len() as f32 * AGREE_LINE + 4.0 + AGREE_LINK_H / 2.0;
+            // A link's label sits 4 px inside its plate: the labels line
+            // up with the text above.
+            let mut lx = x + 20.0;
+            for (name, label) in [
+                (SIGN_IN_TERMS, pm::terms()),
+                (SIGN_IN_PRIVACY, pm::privacy()),
+            ] {
+                let lw = look::mono_width(&label, AGREE_SIZE) + 8.0;
+                c.push(env.component(
+                    "Link",
+                    "Button",
+                    &Spec::new([lw, AGREE_LINK_H], label.as_str()),
+                    name,
+                    [lx + lw / 2.0, ly],
+                ));
+                lx += lw + 12.0;
+            }
+        }
         let per_row = buttons.len();
         c.extend(button_rows(&env, &buttons, per_row, [x, y, w, h], 220.0));
-        env.state.borrow_mut().page_items = buttons.iter().map(|b| b.0.to_string()).collect();
+        // The buttons, then the quiet line's links (round TU2; the web's
+        // debug state names their rects by these).
+        env.state.borrow_mut().page_items = buttons
+            .iter()
+            .map(|b| b.0.to_string())
+            .chain(
+                (!agree.is_empty())
+                    .then_some([SIGN_IN_TERMS, SIGN_IN_PRIVACY])
+                    .into_iter()
+                    .flatten()
+                    .map(String::from),
+            )
+            .collect();
         let _ = scale;
         dialog_root(c)
     }
@@ -849,6 +943,10 @@ impl Screen for SignInDialog {
         let (_, buttons) = self.content();
         let mut names: Vec<&str> = buttons.iter().map(|b| b.0).collect();
         names.reverse();
+        // The terms' and the privacy note's links after the buttons.
+        if self.agreement_shown() {
+            names.extend([SIGN_IN_TERMS, SIGN_IN_PRIVACY]);
+        }
         // The code's plate last: the first focus stays the dialog's action
         // (Open the browser again); the arrows reach the plate over it.
         if self.code().is_some() {
@@ -934,6 +1032,14 @@ impl Screen for SignInDialog {
                         }
                     }
                     "Browser" => self.online.borrow_mut().open_browser_again(),
+                    // The terms' and the privacy note's pages, in the press
+                    // (the dialog stays).
+                    SIGN_IN_TERMS => {
+                        cx.request(crate::UiRequest::OpenUrl(super::credits::terms_url()))
+                    }
+                    SIGN_IN_PRIVACY => {
+                        cx.request(crate::UiRequest::OpenUrl(super::credits::privacy_url()))
+                    }
                     // The code to the clipboard, as shown (the page takes
                     // it with or without its dash); Copied in place, its
                     // moment begun again by another press, never twice.

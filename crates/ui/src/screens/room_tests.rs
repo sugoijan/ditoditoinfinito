@@ -3189,6 +3189,43 @@ impl Three {
     }
 }
 
+/// Round TU (a draft for the maintainer's approval): an online room's list
+/// says under its status line what its songs are; on My songs, to whoever
+/// may add, what adding does and the condition; the terms of use's button
+/// at the tabs' row's end opens their page in the press. Neither moves the
+/// list when the tab changes.
+#[test]
+fn an_online_rooms_list_says_what_uploading_does() {
+    let t = Three::new(false);
+    let orders = Orders::default();
+    let (ea, eb) = (env(), env());
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    ha.run(2.0);
+    hb.run(2.0);
+    let room = "The room's songs are uploaded by whoever added them, and deleted when the room ends.";
+    let upload = "Songs you add are uploaded so this room can play them, and deleted when it ends. \
+        Add only songs you may share.";
+    assert!(says_words(&ha, room), "{:?}", ha.texts());
+    let wheel = ha.ui.bounds("Wheel").expect("the list");
+    // Alice may add: My songs says what adding does.
+    ha.key("KeyM", "m");
+    ha.run(0.5);
+    assert_eq!(view(&ea).tab.as_deref(), Some("mine"));
+    assert!(says_words(&ha, upload), "{:?}", ha.texts());
+    assert!(!says_words(&ha, room));
+    assert_eq!(ha.ui.bounds("Wheel"), Some(wheel), "the list stays put");
+    let r = ha.tap(PointerKind::Mouse, super::select::TERMS_NAME);
+    assert!(r.contains(&crate::UiRequest::OpenUrl("terms.html".into())), "{r:?}");
+    // Bob may not add: his own songs, and what the room's are.
+    hb.key("KeyM", "m");
+    hb.run(0.5);
+    assert_eq!(view(&eb).tab.as_deref(), Some("mine"));
+    assert!(says_words(&hb, room), "{:?}", hb.texts());
+    assert!(!says_words(&hb, upload));
+}
+
 /// A library of `titles`, each a Single song with a chart of its own
 /// digest.
 fn songs_of(titles: &[&str]) -> SelectData {
@@ -6450,6 +6487,9 @@ fn the_rooms_screens_draw_as_pinned() {
 /// own chart. Round RD moved "host": the line under the Twitch rows
 /// saying the next room starts with them as left. Round UL3 moved
 /// "host": that Show my Twitch chat line names Options → Multiplayer.
+/// Round TU moved the online room's four: the upload notice under the
+/// status line and the terms of use's button at the tabs' row's right
+/// end.
 const PINNED: [(&str, u64); 10] = [
     ("select", 1409723276464905846),
     ("rules", 6687782191474637924),
@@ -6457,10 +6497,10 @@ const PINNED: [(&str, u64); 10] = [
     ("add-level", 5301032595464307603),
     ("players", 15355125971359581996),
     ("standings", 2078648925402476071),
-    ("online-select", 6323310014290112460),
-    ("online-member", 15885329307818148993),
-    ("online-players", 3138793288985063061),
-    ("host", 16739444858093440584),
+    ("online-select", 8434682744959849497),
+    ("online-member", 1221564222885287135),
+    ("online-players", 5307194287450534157),
+    ("host", 15210468342788043185),
 ];
 
 /// The first `make(k)` whose "You" badge is drawn (the local player's
@@ -8443,6 +8483,127 @@ fn an_invites_page_shows_the_sign_in_code_on_its_plate() {
         assert_eq!(copies(&h).len(), 4);
         assert!(copies(&h).iter().all(|c| c == "K7M-X3Q"));
     }
+}
+
+/// Round TU2 (the maintainer, 2026-11-27: "Let's go with the quiet
+/// line"): wherever a person signs in, one muted line says that signing
+/// in means agreeing to the terms of use, the terms and the privacy note
+/// as links after it, and nothing more to press. The sign-in dialog has
+/// it before its press (the web's, which leaves for Twitch) and under
+/// desktop's code; a trip for Twitch access, made signed in, has none.
+/// An invite's page has it under its Sign in with Twitch to join, and
+/// not once signed in. Its links open the pages in the press.
+#[test]
+fn signing_in_says_it_agrees_to_the_terms() {
+    use crate::screens::online::{OnlinePage, OnlineScreen};
+    use crate::screens::online_home::{CODE, SIGN_IN_PRIVACY, SIGN_IN_TERMS, SignInDialog};
+    use crate::state::online::api::{ApiResponse, Method};
+    use crate::state::online::tests::{INVITE, err, ok, rig};
+    use crate::state::online::{Dest, Platform};
+    use std::cell::Cell;
+    let line = "Signing in means that you agree to the terms of use.";
+    let opened = |h: &Harness| -> Vec<String> {
+        h.requests
+            .iter()
+            .filter_map(|q| match q {
+                crate::UiRequest::OpenUrl(u) => Some(u.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    let harness = |size: [f32; 2]| {
+        crate::testing::Harness::with_gestures(super::DESIGN, size, 1.0, crate::TextMode::Own, false)
+    };
+    for platform in [Platform::Web, Platform::Desktop] {
+        for size in [[1280.0, 720.0], [390.0, 844.0]] {
+            let r = rig(
+                platform,
+                Box::new(|req| match (req.method, req.path.as_str()) {
+                    (Method::Get, "/me") => err(401, "signed_out"),
+                    (Method::Get, p) if p.starts_with("/invites/") => ok(
+                        r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"lobby","admission":"open","members":2}"#,
+                    ),
+                    (Method::Post, "/auth/attempts") => Some(ApiResponse {
+                        status: 201,
+                        body: r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"http://api/auth/attempts/a1/open","user_code":"K7MX3Q","expires_at_ms":9}"#.into(),
+                        session: None,
+                    }),
+                    (Method::Get, "/auth/attempts/a1") => {
+                        ok(r#"{"status":"pending","return":"/mp","expires_at_ms":9}"#)
+                    }
+                    _ => None,
+                }),
+            );
+            r.online.borrow_mut().check();
+            r.online.borrow_mut().poll(0);
+            // The dialog before its press: the line inside the panel,
+            // above the buttons; its links open the pages.
+            let mut h = harness(size);
+            h.push(SignInDialog::new(
+                env(),
+                r.online.clone(),
+                Dest::Home,
+                Rc::new(Cell::new(true)),
+            ));
+            h.run(0.3);
+            assert!(says_words(&h, line), "{platform:?} {size:?}: {:?}", h.texts());
+            let panel = h.ui.bounds("Panel").expect("the dialog");
+            let confirm = h.ui.bounds("Confirm").expect("its press");
+            for name in ["SignIn.Agree0", SIGN_IN_TERMS, SIGN_IN_PRIVACY] {
+                let b = h.ui.bounds(name).unwrap_or_else(|| panic!("{name}"));
+                assert!(b[0] >= panel[0] && b[2] <= panel[2], "{name} {b:?} in {panel:?}");
+                assert!(b[3] <= confirm[1], "{name} {b:?} above {confirm:?}");
+            }
+            assert_eq!(h.ui.focused(), Some("Confirm"), "the first focus stays the press");
+            h.tap(PointerKind::Mouse, SIGN_IN_TERMS);
+            h.tap(PointerKind::Mouse, SIGN_IN_PRIVACY);
+            h.run(0.2);
+            assert_eq!(opened(&h), ["terms.html", "privacy.html"]);
+            assert!(h.ui.bounds("Panel").is_some(), "the dialog stays");
+            if platform == Platform::Desktop {
+                // Desktop's wait for the browser: the line under the code.
+                r.online.borrow_mut().sign_in(Dest::Home);
+                r.online.borrow_mut().poll(0);
+                h.run(0.5);
+                let plate = h.ui.bounds(CODE).expect("the code's plate");
+                let agree = h.ui.bounds("SignIn.Agree0").expect("the line");
+                assert!(agree[1] >= plate[3], "{agree:?} under {plate:?}");
+                r.online.borrow_mut().cancel_sign_in();
+                r.online.borrow_mut().clear_sign_in();
+            }
+            // An invite's page, signed out: under its sign-in.
+            let mut h = harness(size);
+            let e = env();
+            h.push(OnlineScreen::new(
+                e.clone(),
+                r.online.clone(),
+                OnlinePage::Invite(INVITE.into()),
+                Rc::new(|_, _| {}),
+            ));
+            h.run(0.5);
+            assert!(says_words(&h, line), "{platform:?} {size:?}: {:?}", h.texts());
+            let (_, actions) = crate::screens::online::invite_page(&r.online.borrow());
+            assert!(actions.contains(&"join".to_string()));
+            let items = e.state.borrow().page_items.clone();
+            assert!(items.iter().any(|i| i == "link:terms.html"), "{items:?}");
+            assert!(items.iter().any(|i| i == "link:privacy.html"), "{items:?}");
+        }
+    }
+    // A trip for Twitch access (signed in): no line.
+    let r = rig(
+        Platform::Desktop,
+        Box::new(|req| match (req.method, req.path.as_str()) {
+            (Method::Get, "/me") => ok(crate::state::online::tests::ME),
+            _ => None,
+        }),
+    );
+    r.online.borrow_mut().check();
+    r.online.borrow_mut().poll(0);
+    let mut h = harness([1280.0, 720.0]);
+    h.push(SignInDialog::connecting(env(), r.online.clone(), Dest::Home, "chat", None));
+    h.run(0.3);
+    assert!(!says_words(&h, line), "{:?}", h.texts());
+    assert!(h.ui.bounds(SIGN_IN_TERMS).is_none());
 }
 
 /// Round TW3: desktop's trip through Twitch for a Twitch feature (Options'

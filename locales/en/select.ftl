@@ -536,6 +536,11 @@ select-share-intro = { $count ->
    *[other] Uploads a copy of { $count } songs of “{ $pack }” for anyone with the link to play, until the link expires.
 }
 
+# Under the intro, muted (round TU, a draft for the maintainer's
+# approval): the condition on what is shared, and where the rules are (the
+# terms of use, pages-terms: in the credits and on the game's site).
+select-share-terms = Share only songs that you have the right to share. The terms of use say more.
+
 # The dialog's title while the songs go up.
 select-share-uploading = Uploading…
 

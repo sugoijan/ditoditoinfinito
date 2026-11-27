@@ -104,6 +104,7 @@ full-Web-ddi	Advanced	demo	Advanced	Autoplay demo	Play|On WebGL2	0	None	-	in Int
 full-Web-ddi	Advanced	history.export	Basic	Play history	Export|Import…|Reset	0	None	-	in Data
 full-Web-ddi	Advanced	twitch	Basic	Twitch access		0	None	-	in Data
 full-Web-ddi	Advanced	privacy	Basic	Privacy	Read	0	None	-	in Data
+full-Web-ddi	Advanced	terms	Basic	Terms of use	Read	0	None	-	in Data
 full-Web-ddi	Advanced	usage_stats	Basic	Send usage statistics	Off|On	1	Some(1)	4b884f081178aed9	in Data
 full-Web-ddi	Advanced	error_reports	Basic	Send error reports	Off|On	1	Some(1)	e6cfd9e76d06c0df	in Data
 full-Web-ddi	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
@@ -168,6 +169,7 @@ full-Web-ddi	Basic	cursor_size
 full-Web-ddi	Basic	history.export
 full-Web-ddi	Basic	twitch
 full-Web-ddi	Basic	privacy
+full-Web-ddi	Basic	terms
 full-Web-ddi	Basic	usage_stats
 full-Web-ddi	Basic	error_reports
 full-Web-ddi	Basic	reset.settings
@@ -286,6 +288,7 @@ full-Web-itg	Advanced	demo	Advanced	Autoplay demo	Play|On WebGL2	0	None	-	in Int
 full-Web-itg	Advanced	history.export	Basic	Play history	Export|Import…|Reset	0	None	-	in Data
 full-Web-itg	Advanced	twitch	Basic	Twitch access		0	None	-	in Data
 full-Web-itg	Advanced	privacy	Basic	Privacy	Read	0	None	-	in Data
+full-Web-itg	Advanced	terms	Basic	Terms of use	Read	0	None	-	in Data
 full-Web-itg	Advanced	usage_stats	Basic	Send usage statistics	Off|On	1	Some(1)	0f2389bc979e7352	in Data
 full-Web-itg	Advanced	error_reports	Basic	Send error reports	Off|On	1	Some(1)	b8303df04b3985b6	in Data
 full-Web-itg	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
@@ -346,6 +349,7 @@ full-Web-itg	Basic	cursor_size
 full-Web-itg	Basic	history.export
 full-Web-itg	Basic	twitch
 full-Web-itg	Basic	privacy
+full-Web-itg	Basic	terms
 full-Web-itg	Basic	usage_stats
 full-Web-itg	Basic	error_reports
 full-Web-itg	Basic	reset.settings
@@ -462,6 +466,7 @@ full-Desktop-ddi	Advanced	demo	Advanced	Autoplay demo	Play|On WebGL2	0	None	-	in
 full-Desktop-ddi	Advanced	history.export	Basic	Play history	Export|Import…|Reset	0	None	-	in Data
 full-Desktop-ddi	Advanced	twitch	Basic	Twitch access		0	None	-	in Data
 full-Desktop-ddi	Advanced	privacy	Basic	Privacy	Read	0	None	-	in Data
+full-Desktop-ddi	Advanced	terms	Basic	Terms of use	Read	0	None	-	in Data
 full-Desktop-ddi	Advanced	usage_stats	Basic	Send usage statistics	Off|On	1	Some(1)	4b884f081178aed9	in Data
 full-Desktop-ddi	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
 full-Desktop-ddi	Advanced	reset.songs	Basic	Song folders	Forget	0	None	-	in Data
@@ -526,6 +531,7 @@ full-Desktop-ddi	Basic	cursor_size
 full-Desktop-ddi	Basic	history.export
 full-Desktop-ddi	Basic	twitch
 full-Desktop-ddi	Basic	privacy
+full-Desktop-ddi	Basic	terms
 full-Desktop-ddi	Basic	usage_stats
 full-Desktop-ddi	Basic	reset.settings
 full-Desktop-ddi	Basic	reset.songs
@@ -643,6 +649,7 @@ full-Desktop-itg	Advanced	demo	Advanced	Autoplay demo	Play|On WebGL2	0	None	-	in
 full-Desktop-itg	Advanced	history.export	Basic	Play history	Export|Import…|Reset	0	None	-	in Data
 full-Desktop-itg	Advanced	twitch	Basic	Twitch access		0	None	-	in Data
 full-Desktop-itg	Advanced	privacy	Basic	Privacy	Read	0	None	-	in Data
+full-Desktop-itg	Advanced	terms	Basic	Terms of use	Read	0	None	-	in Data
 full-Desktop-itg	Advanced	usage_stats	Basic	Send usage statistics	Off|On	1	Some(1)	0f2389bc979e7352	in Data
 full-Desktop-itg	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
 full-Desktop-itg	Advanced	reset.songs	Basic	Song folders	Forget	0	None	-	in Data
@@ -703,6 +710,7 @@ full-Desktop-itg	Basic	cursor_size
 full-Desktop-itg	Basic	history.export
 full-Desktop-itg	Basic	twitch
 full-Desktop-itg	Basic	privacy
+full-Desktop-itg	Basic	terms
 full-Desktop-itg	Basic	usage_stats
 full-Desktop-itg	Basic	reset.settings
 full-Desktop-itg	Basic	reset.songs
@@ -801,6 +809,7 @@ new-Web	Advanced	demo	Advanced	Autoplay demo	Play|On WebGL2	0	None	-	in Interfac
 new-Web	Advanced	history.export	Basic	Play history	Import…	0	None	-	in Data
 new-Web	Advanced	twitch	Basic	Twitch access		0	None	-	in Data
 new-Web	Advanced	privacy	Basic	Privacy	Read	0	None	-	in Data
+new-Web	Advanced	terms	Basic	Terms of use	Read	0	None	-	in Data
 new-Web	Advanced	usage_stats	Basic	Send usage statistics	Off|On	1	Some(1)	5d066ebf4ab526b0	in Data
 new-Web	Advanced	error_reports	Basic	Send error reports	Off|On	1	Some(1)	f609f3bba61be37a	in Data
 new-Web	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
@@ -851,6 +860,7 @@ new-Web	Basic	cursor_size
 new-Web	Basic	history.export
 new-Web	Basic	twitch
 new-Web	Basic	privacy
+new-Web	Basic	terms
 new-Web	Basic	usage_stats
 new-Web	Basic	error_reports
 new-Web	Basic	reset.settings
@@ -948,6 +958,7 @@ new-Desktop	Advanced	demo	Advanced	Autoplay demo	Play|On WebGL2	0	None	-	in Inte
 new-Desktop	Advanced	history.export	Basic	Play history	Import…	0	None	-	in Data
 new-Desktop	Advanced	twitch	Basic	Twitch access		0	None	-	in Data
 new-Desktop	Advanced	privacy	Basic	Privacy	Read	0	None	-	in Data
+new-Desktop	Advanced	terms	Basic	Terms of use	Read	0	None	-	in Data
 new-Desktop	Advanced	usage_stats	Basic	Send usage statistics	Off|On	1	Some(1)	5d066ebf4ab526b0	in Data
 new-Desktop	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
 new-Desktop	Advanced	reset.songs	Basic	Song folders	Forget	0	None	-	in Data
@@ -999,6 +1010,7 @@ new-Desktop	Basic	cursor_size
 new-Desktop	Basic	history.export
 new-Desktop	Basic	twitch
 new-Desktop	Basic	privacy
+new-Desktop	Basic	terms
 new-Desktop	Basic	usage_stats
 new-Desktop	Basic	reset.settings
 new-Desktop	Basic	reset.songs

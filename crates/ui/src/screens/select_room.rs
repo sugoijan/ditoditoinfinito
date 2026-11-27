@@ -59,6 +59,16 @@ const TABS_H: f32 = 34.0;
 /// The tabs' buttons.
 pub(super) const TAB_ROOM: &str = "Room.Tab.Room";
 pub(super) const TAB_MINE: &str = "Room.Tab.Mine";
+/// The upload notice under the status line (round TU, a draft for the
+/// maintainer's approval): its text's size, its lines' spacing, the most
+/// lines it takes and the room around it.
+const NOTICE_SIZE: f32 = 13.0;
+const NOTICE_LINE: f32 = 17.0;
+const NOTICE_LINES: usize = 3;
+const NOTICE_PAD: f32 = 6.0;
+/// The terms of use's button at the tabs' row's right end, beside the
+/// notice (`credits::terms_url`).
+pub const TERMS: &str = "Room.Terms";
 /// More's items for the list (revision 17).
 const MORE_TAB: &str = "room-tab";
 const MORE_REMOVE: &str = "room-remove-song";
@@ -319,6 +329,12 @@ impl SelectScreen {
             .is_some_and(|rm| rm.side == Side::Joining)
     }
 
+    /// Whether the upload notice and its terms of use's button show (an
+    /// online room's list, round TU).
+    pub(super) fn room_terms_shown(&self) -> bool {
+        self.room.as_ref().is_some_and(|rm| rm.side == Side::Listed)
+    }
+
     /// Whether this player may take the pick over now (an operator who
     /// does not choose): Pick songs is offered.
     pub(super) fn room_may_take(&self) -> bool {
@@ -352,7 +368,7 @@ impl SelectScreen {
     /// online room's tabs) and, on a phone, the players strip.
     pub(super) fn room_layout(&self, mut l: Layout) -> Layout {
         if self.room.is_some() {
-            let top = STATUS_H + self.tabs_height() + self.strip_height(&l);
+            let top = STATUS_H + self.tabs_height() + self.notice_height(&l) + self.strip_height(&l);
             l.wheel[1] += top;
             l.wheel[3] -= top;
         }
@@ -363,6 +379,61 @@ impl SelectScreen {
     fn tabs_height(&self) -> f32 {
         match &self.room {
             Some(rm) if rm.side == Side::Listed => TABS_H,
+            _ => 0.0,
+        }
+    }
+
+    /// The width the status line and the notice have: the list's column
+    /// less its inset (`l` before the room's parts are taken from it).
+    fn column_text(&self, l: &Layout) -> (f32, f32) {
+        let [wx, _, ww, _] = l.wheel;
+        let inset = self.env.metric("Select.Wheel.Inset", 0.0);
+        (wx + inset + 8.0, (ww - inset - 24.0).max(80.0))
+    }
+
+    /// The upload notice's text (round TU) for the tab shown: on My songs,
+    /// to whoever may add songs, what adding does and the condition; else
+    /// what the room's songs are. None but in an online room's list.
+    fn notice_text(&self) -> Option<UiText> {
+        let rm = self.room.as_ref()?;
+        if rm.side != Side::Listed {
+            return None;
+        }
+        Some(if rm.tab == Tab::Mine && rm.room.borrow().may_add() {
+            ddi_l10n::msg::room::upload_notice()
+        } else {
+            ddi_l10n::msg::room::songs_notice()
+        })
+    }
+
+    /// The notice's lines, wrapped to the column (the last one cut where
+    /// there would be more).
+    fn notice_lines(text: &str, width: f32) -> Vec<String> {
+        let mut lines = crate::screens::dialog::wrap_lines(text, width, NOTICE_SIZE);
+        if lines.len() > NOTICE_LINES {
+            lines.truncate(NOTICE_LINES);
+        }
+        lines
+    }
+
+    /// The band the notice takes under the status line: an online room's
+    /// list's, on both tabs, as tall as the longer of its two texts needs
+    /// in this width, so that changing the tab or who may add moves
+    /// nothing.
+    fn notice_height(&self, l: &Layout) -> f32 {
+        match &self.room {
+            Some(rm) if rm.side == Side::Listed => {
+                let (_, sw) = self.column_text(l);
+                let lines = [
+                    ddi_l10n::msg::room::upload_notice(),
+                    ddi_l10n::msg::room::songs_notice(),
+                ]
+                .iter()
+                .map(|t| Self::notice_lines(t.as_str(), sw).len())
+                .max()
+                .unwrap_or(1);
+                lines as f32 * NOTICE_LINE + NOTICE_PAD
+            }
             _ => 0.0,
         }
     }
@@ -443,16 +514,36 @@ impl SelectScreen {
         }
         let env = self.env.clone();
         let l = self.room_layout(self.layout);
+        let notice_h = self.notice_height(&self.layout);
+        let notice = self.notice_text();
         let r = rm.room.borrow();
         let mut children = Vec::new();
-        let [wx, wy, ww, wh] = l.wheel;
-        let inset = env.metric("Select.Wheel.Inset", 0.0);
-        let (sx, sw) = (wx + inset + 8.0, (ww - inset - 24.0).max(80.0));
+        let [_, wy, _, wh] = l.wheel;
+        let (sx, sw) = self.column_text(&l);
         let strip = self.strip_height(&l);
-        let status_y = wy - strip - STATUS_H / 2.0;
-        // An online room's tabs (revision 17): Room songs, My songs.
+        let status_y = wy - strip - notice_h - STATUS_H / 2.0;
+        // The upload notice under the status line (round TU), quiet.
+        if let Some(text) = &notice {
+            for (i, line) in Self::notice_lines(text.as_str(), sw).iter().enumerate() {
+                let mut t = env.text(&format!("Room.Notice{i}"), line, NOTICE_SIZE, 400, "Muted");
+                look::ellipsized(&mut t, sw);
+                let y = wy - strip - notice_h + NOTICE_LINE * (i as f32 + 0.5);
+                children.push(left(t, sx, y));
+            }
+        }
+        // An online room's tabs (revision 17): Room songs, My songs; the
+        // terms of use's button at the row's right end (round TU).
         if rm.side == Side::Listed {
-            let ty = wy - strip - STATUS_H - TABS_H / 2.0;
+            let ty = wy - strip - notice_h - STATUS_H - TABS_H / 2.0;
+            let label = ddi_l10n::msg::pages::terms();
+            let w = (look::mono_width(&label, 13.0) + 24.0).max(64.0);
+            children.push(env.component(
+                "Button",
+                "Button",
+                &Spec::new([w, TABS_H - 8.0], label.as_str()),
+                TERMS,
+                [sx + sw - w / 2.0, ty],
+            ));
             let mut x = sx;
             for (name, label, on) in [
                 (TAB_ROOM, ddi_l10n::msg::room::tab_room_songs(), rm.tab == Tab::Room),
@@ -1575,6 +1666,7 @@ impl SelectScreen {
                 self.open_players(cx)
             }
             room::TAKE_PICK => self.take_pick(cx),
+            TERMS => cx.request(crate::UiRequest::OpenUrl(crate::screens::credits::terms_url())),
             room::ALLOW_CHAT => {
                 if let Some(rm) = &self.room {
                     room::allow_chat(&self.env, &rm.room, cx);
