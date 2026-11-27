@@ -338,12 +338,28 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
                 assert_apart_n(&ui, &format!("{scene} {lang}"), spokes);
             }
             if id == "z-partial" {
-                for k in 0..8 {
-                    assert_eq!(ui.bounds_of("Radar", &format!("Point{k}")).is_some(), matches!(k, 0 | 1 | 2 | 7));
-                }
-                for (k, expected) in [(0, "Number"), (1, "Number"), (2, "Number"), (7, "Status")] {
-                    assert!(ui.bounds_of(&format!("Label{k}"), expected).is_some());
-                }
+                let points: Vec<usize> = (0..8)
+                    .filter(|k| ui.bounds_of("Radar", &format!("Point{k}")).is_some())
+                    .collect();
+                let labels: Vec<(usize, &str)> = (0..8)
+                    .flat_map(|k| ["Number", "Status"].map(|kind| (k, kind)))
+                    .filter(|(k, kind)| ui.bounds_of(&format!("Label{k}"), kind).is_some())
+                    .collect();
+                assert_eq!(points, [0, 1, 2, 6, 7], "{scene} {lang}: the spokes with a point");
+                assert_eq!(
+                    labels,
+                    [
+                        (0, "Number"),
+                        (1, "Number"),
+                        (2, "Number"),
+                        (3, "Status"),
+                        (4, "Status"),
+                        (5, "Status"),
+                        (6, "Number"),
+                        (7, "Status"),
+                    ],
+                    "{scene} {lang}: each label's kind"
+                );
             }
             if let Some(p) = shot {
                 keep(scene, size, lang, &p);
