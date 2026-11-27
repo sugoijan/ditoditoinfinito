@@ -2564,6 +2564,7 @@ fn find_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         best: Some("1234567 AA".into()),
         when: "2026-11-27 14:03".into(),
         state,
+        ..PlayedView::default()
     };
     let full = FindView {
         sources: vec![this.clone(), plugin.clone()],
@@ -2746,6 +2747,33 @@ fn find_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             ],
             chosen: 1,
             folders: None,
+            ..full.clone()
+        },
+        // From a room: Add to room on a played song, in the room, or why
+        // it may not go to rooms.
+        FindView {
+            room: true,
+            played: vec![PlayedSection {
+                id: "this-computer".into(),
+                source: SourceName::ThisComputer,
+                chosen: true,
+                rows: vec![
+                    PlayedView {
+                        room: RoomOffer::Add,
+                        ..played(1, PlayedState::Ready)
+                    },
+                    PlayedView {
+                        room: RoomOffer::InRoom,
+                        ..played(2, PlayedState::Ready)
+                    },
+                    PlayedView {
+                        room: RoomOffer::NotForRooms,
+                        reach: Reach::Play,
+                        ..played(3, PlayedState::Ready)
+                    },
+                ],
+                unlisted: 0,
+            }],
             ..full.clone()
         },
     ];

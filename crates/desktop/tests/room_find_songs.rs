@@ -621,10 +621,9 @@ fn found_songs_go_into_a_room_without_being_imported() {
         std::fs::read(one.join("song.ssc")).unwrap()
     );
 
-    // Both play it: bob from his download, alice from the copy kept.
-    let store_plays = Rc::new(ddi_platform::history::MemoryPlayStore::default());
-    let plays = ddi_ui::state::history::Plays::new(store_plays.clone());
-    let mut host = Host::new(songs.play.clone(), Some(plays));
+    // Both play it: bob from his download, alice from the copy kept (her
+    // play kept in her history, with where its song came from).
+    let mut host = Host::new(songs.play.clone(), songs.plays.clone());
     let fake = common::rig::fake_clock(&mut host);
     let draws = common::rig::Draws::here(&mut host, SIZE);
     for id in [&bob_id, &id1] {
@@ -683,6 +682,49 @@ fn found_songs_go_into_a_room_without_being_imported() {
     w.h.tap(PointerKind::Mouse, ddi_ui::screens::select::TAB_ROOM_NAME);
     w.h.run(0.6);
     pictures.shot(&mut w.h.ui, SIZE, "room-songs.png");
+
+    // Find songs from the room: Song One under "Played before", in the
+    // room already (no button); removed from the list, Add to room in
+    // Play's place, which adds it again from the copy fetched.
+    w.h.tap(PointerKind::Mouse, "More");
+    w.h.run(0.4);
+    w.h.tap(PointerKind::Mouse, "Item.room-find-songs");
+    w.h.run(0.4);
+    w.until("played before", |w| {
+        w.shows("Played before") && w.shows("Last played") && w.shows("Song Two")
+    });
+    let items = w.items();
+    assert!(
+        !items.iter().any(|i| i.starts_with("button:played")),
+        "in the room already: {items:?}"
+    );
+    assert!(w.shows("In the room"), "{:?}", w.h.texts());
+    alice.borrow_mut().remove_song(e1.id).unwrap();
+    w.until("removed again", |w| w.entry("Song One").is_none());
+    w.until("offered again", |w| {
+        w.items().contains(&"button:played-add:0".to_string())
+    });
+    assert!(
+        !w.items().iter().any(|i| i.starts_with("button:played:")),
+        "nothing played over a room"
+    );
+    pictures.shot(&mut w.h.ui, SIZE, "room-played-before.png");
+    w.press("button:played-add:0");
+    w.until("added from played before", |w| w.shows("Added to the room"));
+    w.until("listed from played before", |w| w.available("Song One"));
+    w.step();
+    assert!(held(&id1), "held for the room");
+    assert_eq!(
+        alice
+            .borrow()
+            .library_song(&w.entry("Song One").unwrap())
+            .map(|s| s.id.clone()),
+        Some(id1.clone()),
+        "its copy fetched, the same song"
+    );
+    w.h.key("Escape", "Escape");
+    w.h.run(0.5);
+    assert_eq!(top(&w.h.ui), "select");
 
     // Generated Song 1 imported while listed: one entry, the library's
     // copy from then on, the fetched one let go.

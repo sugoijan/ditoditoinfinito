@@ -17,8 +17,8 @@
 //! the page lists the songs played before from the source chosen, from
 //! their plays' origins alone ([`PlayedSection`]), each with Play, which
 //! fetches it again; those played from a source not on stay listed under
-//! it, with a line saying why they cannot be fetched now. Never from a
-//! room (nothing is played alone over one).
+//! it, with a line saying why they cannot be fetched now. From a room,
+//! Add to room in Play's place, under a result's rules.
 //!
 //! How far a result may go is its source's level, lowered by the item
 //! (`docs/plans/source-plugins.md`, "How far a song may go"): played on
@@ -200,6 +200,12 @@ pub struct PlayedView {
     /// When it was last played, in the player's time.
     pub when: String,
     pub state: PlayedState,
+    /// How far it may go by its source's level (its item may lower it
+    /// further, checked once fetched): from a room, Add to room only at
+    /// `Rooms` or more.
+    pub reach: Reach,
+    /// Opened from an online room: what it offers there.
+    pub room: RoomOffer,
 }
 
 /// Whether a song played before can be fetched again now.
@@ -301,6 +307,9 @@ pub enum FindPress {
     /// A song played before (a row of the chosen source's section) fetched
     /// again and played.
     Played(usize),
+    /// A song played before added to the online room the page was opened
+    /// from (fetched again first where the library does not have it).
+    PlayedToRoom(usize),
     Cancel,
 }
 
@@ -487,10 +496,8 @@ pub fn doc(view: &FindView) -> PageDoc {
         Some(Note::Changed) => blocks.push(Block::Note(m::changed().into())),
         None => {}
     }
-    if !view.room {
-        for section in &view.played {
-            played_blocks(section, view.busy.is_some(), &mut blocks);
-        }
+    for section in &view.played {
+        played_blocks(section, view.busy.is_some(), view.room, &mut blocks);
     }
     // The results.
     if view.searched {
@@ -552,7 +559,7 @@ pub fn doc(view: &FindView) -> PageDoc {
 
 /// A section of songs played before: its heading, its first rows, the
 /// rest folded, what is not listed.
-fn played_blocks(section: &PlayedSection, busy: bool, blocks: &mut Vec<Block>) {
+fn played_blocks(section: &PlayedSection, busy: bool, room: bool, blocks: &mut Vec<Block>) {
     if section.rows.is_empty() {
         return;
     }
@@ -585,8 +592,23 @@ fn played_blocks(section: &PlayedSection, busy: bool, blocks: &mut Vec<Block>) {
             PlayedState::NotInstalled => tags.push(m::played_not_installed().into()),
             PlayedState::Gone => tags.push(m::played_gone().into()),
         }
-        let play = (section.chosen && r.state == PlayedState::Ready)
-            .then(|| Action::new(format!("played:{i}"), m::play()).off(busy));
+        // From a room, as a result's: in the room already, or why it may
+        // not be added.
+        if room && r.state == PlayedState::Ready {
+            if r.room == RoomOffer::InRoom {
+                tags.push(m::result_in_room().into());
+            }
+            if r.reach == Reach::Play {
+                tags.push(m::result_play_only().into());
+            }
+        }
+        let ready = section.chosen && r.state == PlayedState::Ready;
+        let play = if !room {
+            ready.then(|| Action::new(format!("played:{i}"), m::play()).off(busy))
+        } else {
+            (ready && r.room == RoomOffer::Add && r.reach >= Reach::Rooms)
+                .then(|| Action::new(format!("played-add:{i}"), m::add_to_room()).off(busy))
+        };
         Block::Entry {
             text: UiText::data(&r.title).into(),
             detail: Some(tags.join(" · ")),
@@ -630,6 +652,7 @@ fn press_of(id: &str) -> Option<FindPress> {
         ("import", Some(i)) => FindPress::Import(i),
         ("add", Some(i)) => FindPress::AddToRoom(i),
         ("played", Some(i)) => FindPress::Played(i),
+        ("played-add", Some(i)) => FindPress::PlayedToRoom(i),
         ("add-folder", None) => FindPress::AddFolder,
         ("search", None) => FindPress::Search,
         ("more", None) => FindPress::More,
@@ -946,9 +969,46 @@ mod tests {
         assert!(details.iter().any(|t| t.contains(m::played_gone().as_str())));
         assert!(details.iter().any(|t| t.contains(m::played_source_off().as_str())));
         assert!(d.blocks.iter().any(|b| matches!(b, Block::Muted(t) if t == m::played_unlisted(4.0).as_str())));
-        // Never from a room.
+        // From a room: Add to room in Play's place, as a result's: only
+        // where it may go to rooms and the room does not list it; the line
+        // says which; a source not on still has none.
         v.room = true;
-        assert!(!ids_of(&doc(&v)).iter().any(|i| i.starts_with("played:")));
+        v.played[0].rows = vec![
+            PlayedView {
+                room: RoomOffer::Add,
+                ..row(0, PlayedState::Ready)
+            },
+            PlayedView {
+                room: RoomOffer::InRoom,
+                ..row(1, PlayedState::Ready)
+            },
+            PlayedView {
+                room: RoomOffer::NotForRooms,
+                reach: Reach::Play,
+                ..row(2, PlayedState::Ready)
+            },
+            PlayedView {
+                room: RoomOffer::Add,
+                ..row(3, PlayedState::Gone)
+            },
+        ];
+        let d = doc(&v);
+        let ids = ids_of(&d);
+        assert!(!ids.iter().any(|i| i.starts_with("played:")), "{ids:?}");
+        let adds: Vec<&String> = ids.iter().filter(|i| i.starts_with("played-add:")).collect();
+        assert_eq!(adds, ["played-add:0"], "{ids:?}");
+        assert_eq!(press_of("played-add:0"), Some(FindPress::PlayedToRoom(0)));
+        let details: Vec<String> = d
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                Block::Entry { detail, .. } => detail.clone(),
+                _ => None,
+            })
+            .collect();
+        assert!(details[1].contains(m::result_in_room().as_str()), "{details:?}");
+        assert!(details[2].contains(m::result_play_only().as_str()), "{details:?}");
+        assert!(details[3].contains(m::played_gone().as_str()), "{details:?}");
     }
 
     #[test]

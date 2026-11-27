@@ -94,11 +94,13 @@ struct Fetching {
     again: Option<(PlayOrigin, bool)>,
 }
 
-/// A song played before, its source asked what the item is now.
+/// A song played before, its source asked what the item is now: to play
+/// it, or to add it to the room the page was opened from.
 struct Describing {
     op: OpId,
     source: String,
     origin: PlayOrigin,
+    purpose: Purpose,
 }
 
 struct Importing {
@@ -633,17 +635,80 @@ impl Finder {
         self.problem = None;
         self.details = None;
         self.note = None;
+        self.describe(source, row.origin, Purpose::Play);
+    }
+
+    /// Song `i` of the chosen source's played before added to the room the
+    /// page was opened from, as a result is (`add_to_room`): its level,
+    /// the room's own checks at the press, the library's copy where it has
+    /// one, else fetched again first (and checked again once fetched).
+    fn played_to_room(&mut self, i: usize, cx: &mut Cx) {
+        if self.busy() {
+            return;
+        }
+        let (Some(room), Some(source)) = (self.room.clone(), self.chosen_id()) else {
+            return;
+        };
+        let Some(row) = self.played(&source).0.into_iter().nth(i) else {
+            return;
+        };
+        if self.gone.contains(&(source.clone(), row.origin.item.clone())) {
+            return;
+        }
+        self.problem = None;
+        self.details = None;
+        self.note = None;
+        if let Some(p) = Self::refused_for(self.source_reach(&source), Purpose::Room) {
+            self.problem = Some(p);
+            self.changed();
+            return;
+        }
+        let refused = Self::room_refusal(&room).or_else(|| {
+            Self::unplayable(&room, std::iter::once(row.origin.chart.style.as_str()))
+        });
+        if let Some(why) = refused {
+            NoticeDialog::show_refusal(self.env.clone(), &room, &why, cx);
+            return;
+        }
+        if let Some(song) = self.library_copy(row.digest) {
+            self.add_entries(&room, vec![song], false, cx);
+            return;
+        }
+        self.describe(source, row.origin, Purpose::Room);
+    }
+
+    /// The library's song (a bundled one first) with a chart of content
+    /// `digest`, as the room's list is given it.
+    fn library_copy(&self, digest: ddi_chart::ChartDigest) -> Option<SongEntry> {
+        let id = crate::library::find_by_digest(digest)?;
+        self.songs.data().songs.into_iter().find(|s| s.id == id)
+    }
+
+    /// How far source `id`'s songs may go by its own level (an item's may
+    /// lower it, checked once fetched).
+    fn source_reach(&self, id: &str) -> Reach {
+        self.songs
+            .sources
+            .borrow()
+            .as_ref()
+            .map_or(Reach::Play, |s| s.reach(id))
+    }
+
+    /// Source `source` asked what item `origin` names is now, then fetched
+    /// for `purpose`.
+    fn describe(&mut self, source: String, origin: PlayOrigin, purpose: Purpose) {
         let op = self.request(
             &source,
             Request::Describe {
-                item: row.origin.item.clone(),
+                item: origin.item.clone(),
             },
         );
         if let Some(op) = op {
             self.describing = Some(Describing {
                 op,
                 source,
-                origin: row.origin,
+                origin,
+                purpose,
             });
         }
         self.changed();
@@ -676,7 +741,7 @@ impl Finder {
                     },
                     ..item
                 },
-                purpose: Purpose::Play,
+                purpose: d.purpose,
                 step: None,
                 done: None,
                 total: None,
@@ -1077,6 +1142,26 @@ impl Finder {
 impl Finder {
     /// The songs played before: the chosen source's, then those of the
     /// sources with plays that are not on now (`offered` the sources on).
+    /// What a song played before (its chart `digest`, its source's level
+    /// `reach`) offers the room the page was opened from: not for rooms
+    /// below `rooms`; in the room where an entry of its list has that
+    /// chart; else Add.
+    fn played_offer(&self, digest: ddi_chart::ChartDigest, reach: Reach) -> RoomOffer {
+        let Some(room) = &self.room else {
+            return RoomOffer::None;
+        };
+        if !reach.rooms() {
+            return RoomOffer::NotForRooms;
+        }
+        let chart = ddi_room::ChartKey::new(digest.to_string());
+        let room = room.borrow();
+        if room.state().songs.entries.iter().any(|e| e.chart(&chart).is_some()) {
+            RoomOffer::InRoom
+        } else {
+            RoomOffer::Add
+        }
+    }
+
     fn played_sections(&self, offered: &[(String, Option<String>)]) -> Vec<PlayedSection> {
         let Some(plays) = &self.plays else {
             return Vec::new();
@@ -1085,6 +1170,7 @@ impl Finder {
         let percent = ddi_ui::state::settings::Settings::cached().ddi_percent();
         let section = |id: &str, name: SourceName, state: PlayedState, chosen: bool| {
             let (rows, total) = plays.history().played_before(id, PLAYED_MAX);
+            let reach = self.source_reach(id);
             PlayedSection {
                 id: id.to_string(),
                 source: name,
@@ -1094,7 +1180,11 @@ impl Finder {
                     .iter()
                     .map(|r| {
                         let gone = self.gone.contains(&(id.to_string(), r.origin.item.clone()));
-                        played_view(r, if gone { PlayedState::Gone } else { state }, percent)
+                        PlayedView {
+                            reach: page_reach(reach),
+                            room: self.played_offer(r.digest, reach),
+                            ..played_view(r, if gone { PlayedState::Gone } else { state }, percent)
+                        }
                     })
                     .collect(),
             }
@@ -1134,6 +1224,15 @@ impl Finder {
     }
 }
 
+/// A level as the page has it.
+fn page_reach(reach: Reach) -> ddi_ui::screens::find_songs::Reach {
+    match reach {
+        Reach::Play => ddi_ui::screens::find_songs::Reach::Play,
+        Reach::Rooms => ddi_ui::screens::find_songs::Reach::Rooms,
+        Reach::Keep => ddi_ui::screens::find_songs::Reach::Keep,
+    }
+}
+
 /// A song played before as the page's row.
 fn played_view(
     r: &ddi_ui::state::history::PlayedBefore,
@@ -1161,6 +1260,7 @@ fn played_view(
             crate::play::replays::tz_minutes(r.last_played),
         ),
         state,
+        ..PlayedView::default()
     }
 }
 
@@ -1196,11 +1296,7 @@ impl FindModel for Finder {
                     .as_ref()
                     .is_some_and(|k| self.library_keys.contains(k))
                     || self.imported.contains(&(source.clone(), r.id.clone())),
-                reach: match self.reach_of(r) {
-                    Reach::Play => ddi_ui::screens::find_songs::Reach::Play,
-                    Reach::Rooms => ddi_ui::screens::find_songs::Reach::Rooms,
-                    Reach::Keep => ddi_ui::screens::find_songs::Reach::Keep,
-                },
+                reach: page_reach(self.reach_of(r)),
                 room: self.room_offer(r),
             })
             .collect();
@@ -1241,11 +1337,7 @@ impl FindModel for Finder {
             details: self.details.clone(),
             note: self.note.clone(),
             room: self.room.is_some(),
-            played: if self.room.is_some() {
-                Vec::new()
-            } else {
-                self.played_sections(&offered)
-            },
+            played: self.played_sections(&offered),
         }
     }
 
@@ -1268,6 +1360,7 @@ impl FindModel for Finder {
             }
             FindPress::Import(i) => self.fetch(i, Purpose::Import),
             FindPress::Played(i) => self.play_again(i),
+            FindPress::PlayedToRoom(i) => self.played_to_room(i, cx),
             FindPress::AddToRoom(i) => self.add_to_room(i, cx),
             FindPress::Cancel => {
                 if let Some((op, _)) = self.search.take() {

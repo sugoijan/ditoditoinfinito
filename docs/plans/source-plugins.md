@@ -1562,8 +1562,7 @@ connection's health. A play history export carries it, in the player's
 own file.
 
 **"Played before"** (`ddi_ui::screens::find_songs::PlayedSection`,
-`sources::find`): under the search, before the results, never from a
-room. A row an item's song (whatever its revision), the most recently
+`sources::find`): under the search, before the results. A row an item's song (whatever its revision), the most recently
 played first: title, then artist · chart ("Hard 4 · Single") · "Best …"
 (the score and grade as the lists write them, of the latest chart under
 the rules it was last played by) · "Last played 2026-11-27 14:03". Five
@@ -1574,6 +1573,19 @@ revision (one without metadata is fetched by the revision last played),
 then lists its songs. The sources not on: a section each, "Played before
 from …", no buttons.
 
+**From a room** (follow-up, the maintainer approving, 2026-11-27): the
+same list, with **Add to room** in Play's place on each row of the source
+chosen, under a result's rules (`FindPress::PlayedToRoom`,
+`Finder::played_to_room`): only where the source's level reaches `rooms`
+(the line says "Play only…" where it does not; the item's own level is
+checked again once fetched); the room's own checks and refusals at the
+press (who may add, a person's half, a full list, a chart of a style the
+room cannot play, by the chart last played; all its charts again once
+fetched); a song the library has (a chart of the content last played) is
+added as the library's copy, else the item is fetched again as Play does
+and its songs added; "In the room" where an entry of the room's list has
+that chart. Rows of a source that is off or gone stay without a button.
+
 **Also in this round**:
 
 - **This computer's Import adds in place** (`this_computer::InPlace`):
@@ -1581,8 +1593,10 @@ from …", no buttons.
   library's song folders as Add songs adds one (Options → Song list lists
   it; removing it there removes it). What is added: a zip's song, the zip;
   else its pack's folder, the folder its song folder is in where that is
-  within a folder This computer searches (that folder itself included),
-  unless a listed folder is inside it; else its own folder. A folder
+  inside a folder This computer searches, unless a listed folder is inside
+  it; else its own folder: a song directly in a folder searched adds only
+  its own folder, never the folder searched (follow-up, the maintainer
+  approving, 2026-11-27). A folder
   listed already, or inside one, adds nothing and the page says the song
   is in that song folder. The page says what was added by its name. A
   plugin's songs are written into the import store as before.
@@ -1595,7 +1609,10 @@ an export and an import untouched, `played_before`, counted once beside a
 library copy), the page's (`songs_played_before_have_play_where_their_source_can_fetch_them`,
 the qps-ploc walk), This computer's in-place rule
 (`an_import_adds_the_pack_or_the_song_or_the_zip_in_place_once`: one song
-of a pack, a second of it, a loose song, a zip, a folder listed already),
+of a pack, a second of it, a loose song, one directly in a folder searched,
+a zip, a folder listed already; end to end in `find_songs.rs`), Played
+before from a room (`room_find_songs.rs`: in the room already, no button;
+removed, Add to room adds it again from the copy fetched),
 and desktop's `tests/found_plays.rs` (its own `main`; the example plugin a
 real process): two runs over a scratch home, a song of This computer's
 and one of the plugin's played and kept, the store emptied, both found
