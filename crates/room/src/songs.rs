@@ -19,7 +19,8 @@
 //! room model revision 21, round RL3: stage 3) every person in the room
 //! who is not held to watching by the watch-only link (playing or
 //! watching by choice; bots too; never a CPU or the audience). Removing:
-//! whoever added it, or a host.
+//! whoever added it, or a host; or the authority (the server's operator
+//! removing a reported song, round AT), with the same event.
 //! Bounds ([`MAX_SONGS`], [`ListRules`]): at most a hundred songs, the
 //! list's size a host setting up to it, what happens when it is full
 //! another (remove the oldest not in use, or refuse), and a person at
@@ -295,7 +296,8 @@ impl NewSong {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Removal {
-    /// Its adder or a host removed it.
+    /// Its adder or a host removed it, or the authority did (the server's
+    /// operator, round AT): one reason, so no client tells them apart.
     Removed,
     /// The list was full and it was the oldest not in use.
     ListFull,

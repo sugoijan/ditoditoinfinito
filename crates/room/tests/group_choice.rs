@@ -433,6 +433,8 @@ fn a_chosen_song_is_kept_from_removal() {
     g.choose(ana, 1).unwrap();
     let id = g.ids[0];
     assert_eq!(g.r.by(host, Command::RemoveSong { song: id }), Err(Rejection::SongInUse));
+    // The authority's removal too (round AT: the server's operator).
+    assert_eq!(g.r.sys(Command::RemoveSong { song: id }), Err(Rejection::SongInUse));
     g.r.by(host, Command::SetSongList { rules: ListRules { size: 3, when_full: WhenFull::RemoveOldest } })
         .unwrap();
     let events = g.r.by(host, Command::AddSong { song: Box::new(new_song(9)) }).unwrap();

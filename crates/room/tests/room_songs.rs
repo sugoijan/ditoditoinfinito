@@ -199,6 +199,64 @@ fn removing_is_the_adders_or_a_hosts_and_never_a_song_in_use() {
     assert_eq!(r.by(cy, Command::RemoveSong { song: b }), Err(Rejection::SongInUse));
 }
 
+/// The authority removes an entry (the server's operator, a reported
+/// song: round AT) as a host does: whoever added it, with the same event
+/// and reason, its share for the server to delete, the mirror following
+/// it as any revision; never a song in use, which stays until its stage
+/// is over; never one not listed. Nothing else of the room changes.
+#[test]
+fn the_authority_removes_a_song_as_a_host_does() {
+    let mut r = online();
+    let host = r.host;
+    let cy = r.cohost("cy");
+    let ana = r.join_as("ana", Intent::Play, false).unwrap();
+    r.by(host, Command::SetWhoAdds { who: WhoAdds::Everyone }).unwrap();
+    let a = r.add(ana, 1).unwrap();
+    let b = r.add(cy, 2).unwrap();
+    let c = r.add(host, 3).unwrap();
+    for id in [a, b, c] {
+        r.uploaded(id);
+    }
+    let pending = r.add(ana, 4).unwrap();
+    // A member's song, by the authority: the event a host's removal emits.
+    let by_authority = r.sys(Command::RemoveSong { song: a }).unwrap();
+    assert_eq!(
+        by_authority,
+        [Event::SongRemoved {
+            song: a,
+            why: Removal::Removed,
+            share: Some("share001".into()),
+        }]
+    );
+    let by_host = r.by(host, Command::RemoveSong { song: b }).unwrap();
+    assert_eq!(
+        by_host,
+        [Event::SongRemoved {
+            song: b,
+            why: Removal::Removed,
+            share: Some("share002".into()),
+        }]
+    );
+    // One still uploading: nothing to delete yet (its upload is refused
+    // when it finishes, as after a host's removal).
+    assert_eq!(
+        r.sys(Command::RemoveSong { song: pending }).unwrap(),
+        [Event::SongRemoved {
+            song: pending,
+            why: Removal::Removed,
+            share: None,
+        }]
+    );
+    assert_eq!(r.sys(Command::RemoveSong { song: a }), Err(Rejection::NotListed));
+    // Picked: in use until its stage is over, for the authority too.
+    r.by(host, Command::PickListed { song: c, chart: chart_line(3, 1).chart }).unwrap();
+    assert_eq!(r.sys(Command::RemoveSong { song: c }), Err(Rejection::SongInUse));
+    assert_eq!(r.keys(), ["Song 3"]);
+    // The room goes on: the stage still names it, its members as they were.
+    assert!(r.s.upcoming_stage().is_some());
+    assert!(r.s.member(ana).is_some_and(|m| !m.left));
+}
+
 /// A full list under Remove the oldest (a new room's): the oldest song no
 /// stage not yet over names goes; under Refuse new songs, refused. Hosts,
 /// co-hosts and administrators may fill the whole list (round DB); anyone

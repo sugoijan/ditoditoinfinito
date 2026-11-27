@@ -15541,3 +15541,19 @@ running is left as a quit (`LiveRoom::seat_end` for a member,
 room everywhere; the web leaves a gone room with the history returning
 to `#/mp` (`router::returning_to`). TESTING ONLY: `mpfakeremove=S,
 kick|mirror|close` in the web's fake room.
+
+
+## Round AT (2026-11-27): the operator removes a room's song
+
+The game's terms of use say a reported song that should not be on the
+server is deleted. The server's operator's panel now lists a room's song
+list and removes one entry, the room carrying on (the server's README,
+"A room's songs"). The room model's reducer takes `Command::RemoveSong`
+from the authority as from a host (before, `NotAMember`): the same rules
+(never a song a stage not yet over names, nor one somebody chose:
+`SongInUse`) and the same event, `Event::SongRemoved` with
+`Removal::Removed`, so a mirror applies it as any revision and no client
+tells the two apart. Nothing new on the wire and no room model revision:
+the authority is the only peer that runs the change. Tests:
+`room_songs.rs`'s `the_authority_removes_a_song_as_a_host_does`,
+`group_choice.rs`'s `a_chosen_song_is_kept_from_removal`.

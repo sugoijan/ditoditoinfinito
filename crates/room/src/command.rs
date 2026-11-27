@@ -137,8 +137,11 @@ pub enum Command {
     AddSong {
         song: Box<NewSong>,
     },
-    /// Remove an entry: its adder's, or a host's. Never one a stage not
-    /// yet over names ([`Rejection::SongInUse`]). Its upload is deleted.
+    /// Remove an entry: its adder's, or a host's; or the authority's (the
+    /// server's operator removing a reported song, round AT: the same
+    /// event, `Removal::Removed`). Never one a stage not yet over names,
+    /// nor one somebody chose ([`Rejection::SongInUse`]). Its upload is
+    /// deleted.
     RemoveSong {
         song: RoomSongId,
     },

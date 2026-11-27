@@ -699,9 +699,16 @@ impl RoomState {
                 Ok(())
             }
             Command::RemoveSong { song } => {
-                let id = self.own(actor)?;
+                // A member: its adder or a host. The authority: the
+                // server's operator removing a reported song (round AT),
+                // by the same rules otherwise and with the same event, so
+                // no client tells the two apart.
+                let by = match actor {
+                    Actor::Member(_) => Some(self.own(actor)?),
+                    Actor::Authority => None,
+                };
                 let entry = self.songs.get(*song).ok_or(Rejection::NotListed)?;
-                if !self.may_remove(id, entry) {
+                if by.is_some_and(|id| !self.may_remove(id, entry)) {
                     return Err(Rejection::Unauthorized {
                         capability: Capability::AddSongs,
                     });
