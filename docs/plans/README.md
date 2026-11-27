@@ -808,7 +808,11 @@ so.
   (2026-11-27) one ordered level says how far a source's song may go,
   in place of the room rule: played here only, added to rooms too, or
   imported as well, each step allowing those before it, everything where
-  a source says nothing, an item lowering it, never raising it. Stage 2, the
+  a source says nothing, an item lowering it, never raising it. Since
+  round PH (2026-11-27) every play of a found song is kept, with where it
+  came from, and Find songs lists the songs played before from each
+  source and fetches them again; This computer's Import adds a folder in
+  place. Stage 2, the
   first a player can try (desktop, `--sources on`, tentative): "This
   computer" built in behind a switch of its own, searching folders
   without adding them to the library; Find songs in a first form from

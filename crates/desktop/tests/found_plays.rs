@@ -395,6 +395,14 @@ fn found_songs_plays_are_kept_and_found_again() {
             .is_empty(),
         "nothing fetched yet"
     );
+    // Its replay asked for while its song is not loaded: refused as a
+    // removed song's, nothing more.
+    let plays = r.songs.plays.clone().unwrap();
+    let asked = ddi_desktop::play::replays::request(&plays, &kept[0].0, false);
+    assert_eq!(
+        asked.refused,
+        Some(ddi_ui::state::history::Refusal::MissingSong)
+    );
     r.open_find();
     r.until("played before", |r| {
         r.shows("Played before") && r.shows("Local One")
@@ -410,6 +418,11 @@ fn found_songs_plays_are_kept_and_found_again() {
     );
     assert!(r.shows("FOUND SONGS"));
     r.shot("plays-found-again.png");
+    let asked = ddi_desktop::play::replays::request(&plays, &kept[0].0, false);
+    assert!(
+        asked.refused.is_none() && asked.song == local_id,
+        "loaded: its replay"
+    );
     // Its best and its plays, by its chart.
     {
         let plays = r.songs.plays.as_ref().unwrap();

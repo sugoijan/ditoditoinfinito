@@ -464,7 +464,9 @@ Rust and the browser are implementation details, not advertised features.
   Import; `docs/plans/source-plugins.md`, stage 2; opened from an online
   room, Add to room in Play's place, `RoomOffer`, stage 3; Add to room and
   Import each only where the result's level allows, `find_songs::Reach`,
-  the line saying why where a button is absent, round RC) and the
+  the line saying why where a button is absent, round RC; the songs played
+  before from the source chosen, and from sources not on with why,
+  `PlayedSection`, round PH) and the
   frame its scenes are shown in (`stage.rs`: a chrome drawing the
   screens under it smaller, `Screen::stage`; `Ui::mark` rings what a
   screen names, `Screen::spot`), the app's notices as the UI's
@@ -1350,14 +1352,21 @@ Rust and the browser are implementation details, not advertised features.
   with its folders, off by default, apart from Add songs: song folders
   and zips searched in place without adding them to the library, bounded
   in depth, entries, songs and time, links never followed, found songs
-  kept in memory until the page opens again), Find songs
+  kept in memory until the page opens again; its songs imported in
+  place, round PH: their pack's folder, their own or their zip added to
+  the song folders, `this_computer::InPlace`, nothing copied), Find songs
   (`sources/find.rs`, the model of `ddi_ui::screens::find_songs`, from
-  song select's More while a source is on), songs fetched and not
-  imported (`sources/fetched.rs`: `src:` ids found by `library::song`,
-  `LibSong::fetched`, `play::load::Files::Memory`, `mem:` pictures, a
-  play holding its item, `play::Request::held`; such a play kept only as
-  the library's song of the same chart, `fetched::keeps_as`, else not at
-  all) and imports (`sources/import.rs`: the data folder's
+  song select's More while a source is on; "Played before" from the
+  plays' origins, at most `PLAYED_MAX` a source, Play asking the source
+  for the item's current revision, `Describe`, and fetching it), songs
+  fetched and not imported (`sources/fetched.rs`: `src:` ids found by
+  `library::song`, `LibSong::fetched`, `play::load::Files::Memory`,
+  `mem:` pictures, a play holding its item, `play::Request::held`; every
+  play of one kept since round PH, as the library's song of the same
+  chart where there is one, else by its `src:` id, with its origin,
+  `fetched::keeps_as`, `origin_of`; its chart found by content among the
+  fetched songs for re-judging and replays, `fetched::song_by_digest`)
+  and imports of plugins' songs (`sources/import.rs`: the data folder's
   `sources/library/<source>/`, read as one more folder,
   `Songs::scanned`; `sources/catalog.json`); since stage 3 added to an
   online room without importing them (the room's More, "Find songs to

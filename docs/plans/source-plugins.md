@@ -3,6 +3,10 @@
 Status: stages 1 to 3 built (2026-11-26). Since round RC (2026-11-27)
 one ordered level says how far a source's song may go, in place of the
 room rule ("How far a song may go", section 4; "Round RC as built").
+Since round PH (2026-11-27) every play of a found song is kept, with
+where its song came from, and Find songs lists the songs played before
+from each source; This computer's Import adds a folder in place ("Round
+PH as built").
 Stage 3: a found song added
 to an online room without importing it ("Stage 3 as built", below).
 Stage 1: the protocol, the
@@ -736,9 +740,11 @@ allowing everything before it:
 - **What is not keeping**: the app's own caches, emptied each run and
   never read as the library: a held item moved to the cache folder's
   `sources/` under memory pressure, a movie a play loads, a preview's
-  music written into `previews/` for the preview player. A play of a
-  song that may not be kept is kept in the history only as the library's
-  song of the same chart, else not at all (unchanged from stage 2).
+  music written into `previews/` for the preview player. Nor is a play:
+  a play record is the player's own presses and score, never the song, so
+  every play of a found song is kept at every level, with a small note of
+  where its song came from (round PH; until then such a play was kept only
+  as the library's song of the same chart, else not at all).
 - **What it gives up, knowingly**: a source cannot say "keep it, but do
   not share it". A song that may be kept may go to rooms; a source that
   wants its songs off rooms chooses `play`, or accepts rooms. That is the
@@ -1223,7 +1229,8 @@ nothing runs: the window's start reads the switches and makes no host.
   is (the preview player opens a file). The item is held from the
   prompt until the results close (`play::Request::held`), and while its
   songs are listed.
-- **What such a play keeps** (decided here; a question below): it is
+- **What such a play keeps** (decided here; replaced in round PH, where
+  every such play is kept, "Round PH as built"): it is
   kept in the play history only where the library has a song with a
   chart of the same content (by digest), and then as a play of that
   library song (`sources::fetched::keeps_as`); otherwise it is not kept
@@ -1265,6 +1272,7 @@ nothing runs: the window's start reads the switches and makes no host.
 - Import copies This computer's songs too (an `in_place` item), rather
   than adding their folder to the library: the import store is one
   place, and a player who wants a folder in the library has Add songs.
+  (Replaced in round PH: This computer's Import adds the folder in place.)
 - `Store::remove` lets an imported item go at once.
 
 **What stage 3 needs from here**
@@ -1461,6 +1469,151 @@ module and `sources.ftl` are desktop only).
   cases alone, the refused import, My songs' fetched pack) and
   `room_find_songs.rs` (the three cases from a room, the play-only
   source).
+
+## Round PH as built (2026-11-27)
+
+The maintainer: "We should keep the play even if the song isn't kept.
+Without a chart the play can't be re-judged, but that's fine. The primary
+intention is that a plugin could be made to allow, for example, purely
+playing songs from FFR, but at the same time keeping all your history, so
+when you re-open the game and load the same song from the plugin, your
+play history is still there. Maybe keeping some plugin-specific metadata
+on the play could be useful to allow for the history to re-fetch the
+chart, or to load the song through a plugin from the play history list."
+Where those plays show while their song is not loaded: on Find songs, per
+source ("Yes, let's go with that"); a play history screen of its own is a
+later item. And for This computer's Import: "I lean into 'folder in
+place' instead of copying".
+
+**What a player sees across two runs**: a song found (on this computer
+or through a plugin) and played; its results as any play's, its first
+clear and new record told. The game closed and started again (the songs
+fetched before are gone from memory and the cache): Find songs shows the
+source's "Played before", the song with its artist, its chart, its best
+and when it was last played. Play fetches it again (its source asked what
+the item is now) and lists it as Play on a result does: its plays under
+P, its best on its chart's row, its replay watched, the ghost of its best
+where the ghost is on. A plugin switched off since: its songs stay listed
+under "Played before from …", with "Its source is not on" and no button;
+uninstalled, "Its source is not installed"; a source that no longer has
+the item (a folder moved, a song taken down), "No longer at its source"
+for the run. Nothing is deleted.
+
+**What is kept** (`play-history.md`, "Plays of found songs"):
+
+- Every play of a found song, at every level of how far its song may go,
+  as any play is (the summary, the replay's log, the bests, the ghost, the
+  announcer's prior): as the library's song where the library has a chart
+  of the same content (as before), else by its `src:` id (the FNV of the
+  plugin's id, the item's and its revision, `ItemKey::of`: the same the
+  next time it is fetched at that revision). Stage plays in rooms are
+  still never kept.
+- **The origin**, on the record and its summary, optional, left out of
+  the JSON where there is none (`PlayOrigin`): `source` (the plugin's id,
+  or `this-computer`), `item`, `revision`, `song` (which of the item's,
+  from 0), `title`, `artist`, `chart` (`name`, `style`, `difficulty`,
+  `meter`). Nothing else of a plugin's own. Ids over 256 bytes (the
+  protocol's own bound) make it none; texts are cut at 256 bytes.
+- This computer's item id is a hash of where the song is (its folder's
+  path, or its zip's and its folder in it) and its revision the chart
+  file's size and time: the folder's path is in effect its item id, kept
+  hashed; a moved folder is an item gone, an edited chart file a new
+  revision.
+
+**How plays join**:
+
+- Everything that reads plays by chart reads the digest, never the song
+  id: the plays list, the bests, the ghost, the results' comparison,
+  "played". So after an import (in place, or into the import store) the
+  plays kept under the `src:` id are the library song's chart's at once,
+  each once (one record under one id; nothing is copied or re-keyed).
+- A new revision is another `src:` id. Within the same plugin and item,
+  plays are found by the chart's content: a chart whose notes are
+  unchanged carries its plays and best; one whose notes changed starts
+  with none, the old chart's plays kept (as an edited library chart's).
+  Play from "Played before" says so where the revision changed: "This
+  song changed at its source since you last played it…".
+- Judged again (an older judge, or other rules): by song id as before;
+  where the song is not loaded its chart is looked for by content in the
+  library, then among the songs fetched in this run
+  (`fetched::song_by_digest`, `history::read_chart`); found nowhere, the
+  play keeps what it came to as played, its best shown as pending, and the
+  pass leaves it for the session (a lookup, no source asked, nothing
+  printed). A fetch makes the pass look again (`Songs::poll`, the store's
+  generation).
+
+**Every resolver walked**, with a song not loaded:
+
+| Where | What it does |
+|---|---|
+| Song select's lamps, bests, "NEW" | By digest: a library copy of the chart shows them; none otherwise. |
+| The plays list (P), a kept play's results | Reached from a loaded song only; by digest. |
+| Replays (`play::replays::request`, `--replay`) | The record's song, else a song of its chart's content (library, then fetched): else refused, "its song is no longer in the library", as a removed song's. |
+| The ghost, the results' first clear and new record | By the loaded song's chart's digest. |
+| The reworker (desktop and web) | As above: passed over for the session. |
+| The history's export and the web's import of plays | The record's text as it is; the summary made from it, origin included. |
+| Desktop's import of the web's plays | The same reader. |
+| "Played before" | From the origins alone; no song read, no source asked. |
+
+**Privacy**: the origin stays on the device. The desktop sends no error
+reports; the web's carry a kind, a route's kind and a scrubbed message,
+never a play; the rooms' usage reports carry the client's kind and its
+connection's health. A play history export carries it, in the player's
+own file.
+
+**"Played before"** (`ddi_ui::screens::find_songs::PlayedSection`,
+`sources::find`): under the search, before the results, never from a
+room. A row an item's song (whatever its revision), the most recently
+played first: title, then artist · chart ("Hard 4 · Single") · "Best …"
+(the score and grade as the lists write them, of the latest chart under
+the rules it was last played by) · "Last played 2026-11-27 14:03". Five
+shown, the rest in a fold, at most 50 a source (`PLAYED_MAX`); beyond
+that a muted count ("… are not listed here. Their plays are kept.").
+Play asks the source what the item is now (`Describe`) and fetches that
+revision (one without metadata is fetched by the revision last played),
+then lists its songs. The sources not on: a section each, "Played before
+from …", no buttons.
+
+**Also in this round**:
+
+- **This computer's Import adds in place** (`this_computer::InPlace`):
+  nothing copied, nothing recorded in the import catalog; added to the
+  library's song folders as Add songs adds one (Options → Song list lists
+  it; removing it there removes it). What is added: a zip's song, the zip;
+  else its pack's folder, the folder its song folder is in where that is
+  within a folder This computer searches (that folder itself included),
+  unless a listed folder is inside it; else its own folder. A folder
+  listed already, or inside one, adds nothing and the page says the song
+  is in that song folder. The page says what was added by its name. A
+  plugin's songs are written into the import store as before.
+- **The page's note clears when a new search starts.**
+- The page's lead says what is kept; the found list's footer says the
+  plays are kept.
+
+**Tests**: `ddi_ui`'s `origin_tests.rs` (kept, read back, bounded, through
+an export and an import untouched, `played_before`, counted once beside a
+library copy), the page's (`songs_played_before_have_play_where_their_source_can_fetch_them`,
+the qps-ploc walk), This computer's in-place rule
+(`an_import_adds_the_pack_or_the_song_or_the_zip_in_place_once`: one song
+of a pack, a second of it, a loose song, a zip, a folder listed already),
+and desktop's `tests/found_plays.rs` (its own `main`; the example plugin a
+real process): two runs over a scratch home, a song of This computer's
+and one of the plugin's played and kept, the store emptied, both found
+under "Played before" and fetched again by the same ids, their plays and
+best, a replay watched (and refused while the song was not loaded), the
+plugin switched off, a judge older than today's with the chart absent then
+present, an import in place counted once, a revision with the chart
+unchanged and one with its notes changed. `find_songs.rs` and
+`find_songs_plugins.rs` keep the play now, and import in place.
+
+**Not done**: a play history screen of its own; the "Played before"
+list's filters or its search (the source's own search finds the rest);
+removing a song's plays from the page (Options' Kept plays removes them
+all, song select's plays list one by one once the song is loaded); a
+plugin's metadata language for the title (the origin keeps the simfile's
+title); the reworker focusing a found song's plays loaded under another
+revision's id (the background pass finds them by content instead, a
+second and a half later).
 
 ## 9. The maintainer's decisions
 

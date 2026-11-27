@@ -213,6 +213,44 @@ the rules chosen now.
 - **Removal:** all, a chart's, or a pack's, and the Reset section's
   "remove imported songs" leaves the history alone unless asked.
 
+## Plays of found songs (2026-11-27)
+
+Desktop's song sources (`docs/plans/source-plugins.md`, "Round PH as
+built") play songs without importing them. Every such play is kept as any
+play is: as the library's song where the library has a chart of the same
+content, else by the found song's `src:` id (the same each time the same
+source's item is fetched at the same revision).
+
+- **The origin** (`PlayRecord::origin`, copied into `PlaySummary::origin`;
+  `ddi_ui::state::history::PlayOrigin`, `origin.rs`): the source's id, the
+  item's id and revision, which song of the item, its title and artist,
+  and the chart played (name, style, difficulty, meter), as data.
+  Optional, left out of the JSON where there is none, so every other play
+  is written as before; read leniently (a field that does not read, or an
+  id over 256 bytes, an empty one or a song past 256, is none; texts cut
+  at 256 bytes). No new record version: an older reader passes the field
+  over. The web makes none and keeps one it reads: an imported line's
+  record is kept as its text, its summary made from it with the origin.
+  It stays on the device: the web's error reports and the rooms' usage
+  reports carry nothing of a play; the history's export is the player's
+  own file.
+- **Found by content**: the plays list, the bests, the ghost, the
+  results' first clear and new record and "played" read a chart's digest,
+  never the song id, so a found song's plays are a library copy's after an
+  import, each play once (one record, under one id). A new revision whose
+  chart did not change keeps its plays; changed notes are another chart,
+  as for any song.
+- **Judged again**: by song id, as before; where the song is not loaded
+  its chart is looked for by content in the library, then among the songs
+  fetched in this run (`fetched::song_by_digest`); found nowhere, the play
+  keeps what it came to as played and is passed over for the session (a
+  quiet lookup, no source asked); an item fetched later makes the pass
+  look again.
+- **Listed while not loaded**: `History::played_before(source, max)`, a
+  row an item's song (whatever its revision), the newest first, its
+  latest play's origin and chart, the chart's best under the rules it was
+  last played by; Find songs shows it.
+
 ## What is not kept (for now)
 
 - **Calibration plays.**
