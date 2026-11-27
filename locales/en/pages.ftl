@@ -966,7 +966,7 @@ pages-terms-about-heading = What these terms are about
 pages-terms-about =
     The online service is:
     • the online rooms
-    • watching a room with its audience
+    • watching a room as the audience
     • songs shared by a link
     • my server, which runs these things
 
@@ -988,7 +988,7 @@ pages-terms-sign-in-heading = Signing in
 pages-terms-sign-in =
     To use online rooms, you sign in with Twitch. Twitch's own terms also apply to your Twitch account.
 
-    You do not need to sign in to watch a room with its audience.
+    You do not need to sign in to watch a room as the audience.
 
 # A heading inside the terms.
 pages-terms-upload-heading = Songs that you upload
@@ -1009,7 +1009,7 @@ pages-terms-upload =
 pages-terms-readers-heading = Who can read a song, and for how long
 
 pages-terms-readers =
-    Rooms are private. People join a room by its invite link. People can also watch a room with its audience, by the room's audience link.
+    Rooms are private. People join a room by its invite link. People can also watch a room as the audience, by the room's audience link.
 
     My server does not show the uploaded songs in any public list. The game gives a song's link only to the people in its room and to the room's audience. Anyone who has the link can read the song. The server's administrators can also see and delete it.
 
