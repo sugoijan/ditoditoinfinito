@@ -80,6 +80,7 @@ fn stale_plays_are_judged_again_off_the_event_loop() {
             time: 1_000.0 + i as f64,
             app_version: "0.1.0".into(),
             judge_version: JUDGE_VERSION,
+            origin: None,
         };
         let (mut entry, mut summary) =
             new_entry(play_id(record.time, 7), &record, &log, &results).unwrap();

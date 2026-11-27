@@ -796,6 +796,7 @@ mod tests {
             clock: None,
             rejudged: None,
             rejudge: None,
+            origin: None,
         };
         let mut history = History::default();
         // A's chart under another song's id (a pack imported again).

@@ -140,6 +140,7 @@ fn keep_plays(plays: &Rc<Plays>, of: &[(usize, f64, &str)]) {
             time: 1_760_000_000_000.0 + i as f64,
             app_version: "0.1.0".into(),
             judge_version: JUDGE_VERSION,
+            origin: None,
         };
         let id = play_id(record.time, 0xab + i as u32);
         plays

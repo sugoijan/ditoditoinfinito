@@ -13,6 +13,9 @@
 mod import;
 #[cfg(test)]
 mod import_tests;
+mod origin;
+#[cfg(test)]
+mod origin_tests;
 mod plays;
 mod replay;
 mod reworker;
@@ -38,6 +41,10 @@ pub use ddi_engine::rules::RulesetKey;
 pub use import::{
     ImportReport, Imported, LinePart, LineProblem, MAX_LINE, MAX_PLAYS, MAX_PROBLEMS, PlayImport,
     Refused, read_line,
+};
+pub use origin::{
+    MAX_ORIGIN_ID, MAX_ORIGIN_SONGS, MAX_ORIGIN_TEXT, OriginChart, PlayOrigin, PlayedBefore,
+    PlayedBest,
 };
 pub use plays::{Plays, Reworked, export_lines, rework_entries};
 pub use replay::{
@@ -201,6 +208,15 @@ pub struct PlayRecord {
     /// timing is that judge's.
     #[serde(default = "first_judge")]
     pub judge_version: u32,
+    /// Where its song came from, where a song source found it
+    /// ([`PlayOrigin`]; desktop's, none in plays kept before there was
+    /// one, or of any other song).
+    #[serde(
+        default,
+        deserialize_with = "origin::lenient_origin",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub origin: Option<PlayOrigin>,
 }
 
 fn first_judge() -> u32 {
@@ -576,6 +592,13 @@ pub struct PlaySummary {
         skip_serializing_if = "Option::is_none"
     )]
     pub rejudge: Option<crate::state::settings::RuleChoice>,
+    /// Where its song came from, as its record says ([`PlayOrigin`]).
+    #[serde(
+        default,
+        deserialize_with = "origin::lenient_origin",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub origin: Option<PlayOrigin>,
 }
 
 /// A play's devices and audio offset, as its summary keeps them.
@@ -647,6 +670,7 @@ impl PlaySummary {
             clock: SummaryClock::of(&record.setup.clock),
             rejudged: None,
             rejudge: None,
+            origin: record.origin.clone().and_then(PlayOrigin::bounded),
         }
     }
 
@@ -665,6 +689,8 @@ impl PlaySummary {
             options: Option<serde_json::Value>,
             #[serde(default)]
             setup: Option<serde_json::Value>,
+            #[serde(default, deserialize_with = "origin::lenient_origin")]
+            origin: Option<PlayOrigin>,
         }
         let k: Keys = serde_json::from_str(record).map_err(|e| e.to_string())?;
         let clock = k
@@ -683,6 +709,7 @@ impl PlaySummary {
             clock,
             rejudged: None,
             rejudge: None,
+            origin: k.origin,
         })
     }
 }

@@ -624,7 +624,9 @@ Rust and the browser are implementation details, not advertised features.
   history and its replays, `crates/ui/src/state/history/`, and when its
   stale plays are judged again, `reworker.rs`, kept plays judged again
   under other rules too, `Plays::rejudge`, both judgments kept,
-  `PlaySummary::rejudged`; stored through
+  `PlaySummary::rejudged`; where a found song's play came from,
+  `origin.rs`, `PlayOrigin`, kept on its record and summary, optional,
+  and the songs played from a source, `History::played_before`; stored through
   `ddi_platform::storage`, which each shell installs), the chart
   editor's model (`crates/ui/src/state/editor/`: edits with undo; the
   music's waveform and spectrogram, `audio.rs`, which its audio view,

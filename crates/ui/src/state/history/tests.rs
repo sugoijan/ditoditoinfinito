@@ -113,6 +113,7 @@ pub(super) fn record(
         time,
         app_version: "0.1.0".into(),
         judge_version: JUDGE_VERSION,
+        origin: None,
     }
 }
 
@@ -427,6 +428,7 @@ fn summary(rules: &RulesetKey, time: f64, score: f64, lamp: Lamp) -> PlaySummary
         clock: None,
         rejudged: None,
         rejudge: None,
+        origin: None,
     }
 }
 
