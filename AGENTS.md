@@ -3337,7 +3337,10 @@ dependency's licence before adding it.
   `.github/actions/apt`: their `.deb` files kept in the Actions cache by
   package set and image version (an entry per image, which the prune
   script leaves alone: a run's jobs land on two image versions while
-  GitHub rolls one out), installed with dpkg on a hit, and on a
+  GitHub rolls one out), installed with dpkg on a hit (with
+  `--auto-deconfigure`, since the files may upgrade the image's own
+  packages; files that still do not install are dropped for a download,
+  never failing the job), and on a
   miss downloaded with Canonical's archive put before the Azure mirror,
   which apt never leaves while it trickles.
 

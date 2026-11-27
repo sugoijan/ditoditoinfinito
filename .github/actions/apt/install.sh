@@ -14,8 +14,18 @@ set -- $PACKAGES
 
 if compgen -G "$dir/*.deb" >/dev/null; then
   echo "apt: $* from the cache ($(find "$dir" -name '*.deb' | wc -l) files)"
-  $sudo dpkg -i "$dir"/*.deb
-  exit
+  # --auto-deconfigure: the files may upgrade packages the image has, in
+  # an order dpkg takes them in by name. A newer libasound2-data that
+  # Breaks the image's libasound2t64 was refused before the newer
+  # libasound2t64 in the same call was unpacked (2026-11-27, every Linux
+  # job); apt passes the same flag.
+  if $sudo dpkg -i --auto-deconfigure "$dir"/*.deb; then exit; fi
+  # A cache that does not fit the image never fails the job: the
+  # packages by name from the archive, as on a miss, mending what dpkg
+  # left half installed.
+  echo "apt: the cached files did not install; downloading instead" >&2
+  rm -f "$dir"/*.deb
+  fix=--fix-broken
 fi
 
 # The runner image's mirror list: azure.archive.ubuntu.com first
@@ -28,11 +38,11 @@ if [ -f "$mirrors" ]; then
 fi
 $sudo apt-get update
 $sudo apt-get clean
-$sudo apt-get install -y --no-install-recommends --download-only "$@"
+$sudo apt-get install -y --no-install-recommends ${fix:-} --download-only "$@"
 mkdir -p "$dir"
 # Nothing to download: every package was installed already.
 if compgen -G "/var/cache/apt/archives/*.deb" >/dev/null; then
   cp /var/cache/apt/archives/*.deb "$dir"/
 fi
-$sudo apt-get install -y --no-install-recommends "$@"
+$sudo apt-get install -y --no-install-recommends ${fix:-} "$@"
 echo "apt: $* installed, $(find "$dir" -name '*.deb' | wc -l) files kept for the cache"
