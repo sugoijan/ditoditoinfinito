@@ -345,14 +345,14 @@ fn the_ddi_estimate_s_radar_draws_in_the_theme() {
                     .flat_map(|k| ["Number", "Status"].map(|kind| (k, kind)))
                     .filter(|(k, kind)| ui.bounds_of(&format!("Label{k}"), kind).is_some())
                     .collect();
-                assert_eq!(points, [0, 1, 2, 6, 7], "{scene} {lang}: the spokes with a point");
+                assert_eq!(points, [0, 1, 2, 3, 6, 7], "{scene} {lang}: the spokes with a point");
                 assert_eq!(
                     labels,
                     [
                         (0, "Number"),
                         (1, "Number"),
                         (2, "Number"),
-                        (3, "Status"),
+                        (3, "Number"),
                         (4, "Status"),
                         (5, "Status"),
                         (6, "Number"),

@@ -1457,7 +1457,8 @@ Rust and the browser are implementation details, not advertised features.
   qualification covers 1,200 mine-free source notes and 900 with mines. Longer
   scalar-qualified charts use the validated skill bands through 8,000. At
   1,201–3,200 notes Stream also checks chart patterns and the sensitivity of
-  the shared numeric display in `ddi_rating::radar`. At 1,201–3,200 notes
+  the shared numeric display in `ddi_rating::radar`. Stamina in that band checks
+  the same display over ±0.25 chart levels and ±2 signed Accuracy points. At 1,201–3,200 notes
   `ddi_rating::technical` computes the displayed-level Technical cost in the
   ratings job, cached with the profile by chart digest. In that band Jumpstream
   requires a two-head row. It corrects the matched cost through 1 Accuracy pp

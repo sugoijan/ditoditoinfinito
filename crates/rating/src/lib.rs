@@ -81,6 +81,7 @@ impl MatchedSpokes {
                 let stream = opportunity[0]
                     && stream::pattern_qualifies(chart)
                     && radar::stream_display_stable(decimal, means);
+                let stamina = radar::stamina_display_stable(decimal, means);
                 if opportunity[1] {
                     jumpstream_cost_pp = jumpstream::display_cost(chart, decimal, means);
                 }
@@ -88,6 +89,7 @@ impl MatchedSpokes {
                     technical_cost_pp = technical::display_cost(chart, decimal);
                 }
                 (u8::from(technical_cost_pp.is_some()) << 6)
+                    | (u8::from(stamina) << 3)
                     | 0b0000_0100
                     | (u8::from(jumpstream_cost_pp.is_some()) << 1)
                     | u8::from(stream)
@@ -449,8 +451,8 @@ mod tests {
         use ddi_library::manifest::{ChartEstimate, ProfileSpoke};
         for (notes, numeric) in [
             (1200, 255),
-            (1201, 70),
-            (3200, 70),
+            (1201, 78),
+            (3200, 78),
             (3201, 13),
             (4800, 13),
             (4801, 31),

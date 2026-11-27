@@ -128,29 +128,71 @@ pub(super) fn matched_levels(decimal: f64) -> (usize, usize, f64) {
     (i, (i + 1).min(9), level - i as f64)
 }
 
-/// Sensitivity at the chart's matched level under the frozen ±1 Accuracy pp test.
-pub(super) fn stream_display_stable(decimal: f64, means: &[[f64; 9]; 10]) -> bool {
+/// Compare the rounded song-select label and radius at each registered perturbation.
+fn display_stable(
+    decimal: f64,
+    means: &[[f64; 9]; 10],
+    axis: usize,
+    level_offsets: &[f64],
+    cost_offsets: &[f64],
+    radius_limit: f64,
+) -> bool {
     let (i, j, f) = matched_levels(decimal);
-    let cost = (1.0 - f) * means[i][1] + f * means[j][1];
+    let cost = (1.0 - f) * means[i][axis + 1] + f * means[j][axis + 1];
     let hundredth = |x: f64| ((x * 100.0).round() / 100.0) as f32;
-    let decimal = hundredth(decimal);
-    let display = |cost: f64| {
+    let display = |level: f64, cost: f64| {
+        let level = hundredth(level.clamp(1.0, 19.0));
         let cost = hundredth(cost.max(0.0));
-        // Formatting an f32 with one decimal uses ties-to-even. Scale in f64
-        // so the multiplication doesn't round before choosing the displayed tenth.
-        let tenths = (f64::from(spoke_number(decimal, 0, cost)) * 10.0).round_ties_even() as i32;
-        (tenths, f64::from(spoke_radius(decimal, 0, cost)))
+        // A formatted f32 label rounds ties to even at one decimal.
+        let tenths = (f64::from(spoke_number(level, axis, cost)) * 10.0).round_ties_even() as i32;
+        (tenths, f64::from(spoke_radius(level, axis, cost)))
     };
-    let (label, radius) = display(cost);
-    [cost - 1.0, cost + 1.0].into_iter().all(|perturbed| {
-        let (other_label, other_radius) = display(perturbed);
-        (label - other_label).abs() <= 15 && (radius - other_radius).abs() <= 0.08
+    let (label, radius) = display(decimal, cost);
+    level_offsets.iter().all(|dl| {
+        cost_offsets.iter().all(|dc| {
+            let (other_label, other_radius) = display(decimal + dl, cost + dc);
+            (label - other_label).abs() <= 15 && (radius - other_radius).abs() <= radius_limit
+        })
     })
+}
+
+/// Stream varies its matched cost by ±1 Accuracy point at the chart's level.
+pub(super) fn stream_display_stable(decimal: f64, means: &[[f64; 9]; 10]) -> bool {
+    display_stable(decimal, means, 0, &[0.0], &[-1.0, 1.0], 0.08)
+}
+
+/// Stamina varies the display level and the signed cost independently. Sample
+/// the cost curve only at the original chart level, as in the qualification.
+pub(super) fn stamina_display_stable(decimal: f64, means: &[[f64; 9]; 10]) -> bool {
+    display_stable(
+        decimal,
+        means,
+        3,
+        &[-0.25, 0.0, 0.25],
+        &[-2.0, 0.0, 2.0],
+        0.08000001,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stamina_uses_both_chart_level_and_cost_when_qualifying_the_display() {
+        for (level, signed_cost, qualifies) in [
+            (19.0, 8.586729049682617, false),              // Indigo
+            (15.120492414489785, 6.128651450614611, true), // Dancing With Kadafi
+            // Seeing is Believing passes a cost-only check but fails the joint check.
+            (18.35739029389915, 8.544620156457375, false),
+        ] {
+            let mut means = [[0.0; 9]; 10];
+            for row in &mut means {
+                row[4] = signed_cost;
+            }
+            assert_eq!(stamina_display_stable(level, &means), qualifies);
+        }
+    }
 
     #[test]
     fn lower_band_stream_uses_the_displayed_change_at_the_matched_level() {

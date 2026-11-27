@@ -1282,7 +1282,7 @@ mod tests {
         assert!(next().is_none());
         // A previous qualification rule also requires recomputation.
         let mut stored: StoredEstimates = storage::load(Area::Local, ESTIMATE_KEY).unwrap();
-        stored.rule = "jumpstream-level16-profile-v7".into();
+        stored.rule = "technical-matched-profile-v8".into();
         storage::save(Area::Local, ESTIMATE_KEY, &stored).unwrap();
         reset();
         storage::install(store);
