@@ -20,9 +20,9 @@ twitch-feature-chat = chat
 # The row's button, and the confirmation's (about 12 letters).
 twitch-disconnect = Disconnect
 # The row's description while connected.
-twitch-connected-description = Kept on our server, never in the game; deleted after 30 days unused and when you sign out.
+twitch-connected-description = Kept on my server, never in the game; deleted after 30 days unused and when you sign out.
 # The confirmation's title and text.
 twitch-confirm = Disconnect Twitch access?
-twitch-confirm-body = It is deleted from our server and revoked at Twitch. If your room keeps out your Twitch bans or shows your chat, that turns off at once there, and nobody is removed.
+twitch-confirm-body = It is deleted from my server and revoked at Twitch. If your room keeps out your Twitch bans or shows your chat, that turns off at once there, and nobody is removed.
 # The notice after.
 twitch-notice-disconnected = Twitch access disconnected.

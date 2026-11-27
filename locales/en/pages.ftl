@@ -235,7 +235,7 @@ pages-credits-loading = loading…
 pages-credits-unreadable = The credits could not be read: { $error }
 
 # The page's first paragraph. CC0 and MIT are licenses' names.
-pages-credits-about = { -game-name }'s code is MIT-licensed. The bundled demo songs, noteskins and fonts, the video decoder and the code from other projects are third-party works used under their own licenses, credited here as those licenses require. Our announcers are CC0, credited with what made them.
+pages-credits-about = { -game-name }'s code is MIT-licensed. The bundled demo songs, noteskins and fonts, the video decoder and the code from other projects are third-party works used under their own licenses, credited here as those licenses require. My announcers are CC0, credited with what made them.
 
 # A link to where a work's source is (the game's own, a song's, a
 # noteskin's).

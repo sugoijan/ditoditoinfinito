@@ -718,7 +718,7 @@ options-chart-ratings = Chart ratings
 options-chart-ratings-from-song = From the song
 options-chart-ratings-msd = MSD
 options-chart-ratings-estimate = DDI estimate
-options-chart-ratings-description = MSD rates a four-lane chart's patterns for keyboard play, after Etterna's calculator. The DDI estimate is our own, experimental, for Single charts. Both are made in the background; charts without one keep the song's number, fainter.
+options-chart-ratings-description = MSD rates a four-lane chart's patterns for keyboard play, after Etterna's calculator. The DDI estimate is my own, experimental, for Single charts. Both are made in the background; charts without one keep the song's number, fainter.
 
 # Song select's radar of the chart's skills (once Options → Display,
 # under Menus; no row since round SLB): MSD's seven, or the DDI estimate's eight where Chart ratings
@@ -1034,8 +1034,8 @@ options-usage-stats = Send usage statistics
 # Variables:
 #   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
 options-usage-stats-description = { $platform ->
-    [web] In an online room, the game tells our server what kind of device this is and how its last connection went, in fixed ranges, never your name. Off, it sends none of it.
-   *[desktop] In an online room, the app tells our server what kind of computer this is and how its last connection went, in fixed ranges, never your name. Off, it sends none of it.
+    [web] In an online room, the game tells my server what kind of device this is and how its last connection went, in fixed ranges, never your name. Off, it sends none of it.
+   *[desktop] In an online room, the app tells my server what kind of computer this is and how its last connection went, in fixed ranges, never your name. Off, it sends none of it.
 }
 
 # Options → Data and privacy, under Send usage statistics, in the browser only: a
@@ -1047,7 +1047,7 @@ options-usage-stats-description = { $platform ->
 options-error-reports = Send error reports
 
 # The row's description.
-options-error-reports-description = When the game itself goes wrong (a crash, a lost graphics device, a page that cannot start it), it tells our server what kind of error it was, with its message cleaned of paths, addresses, names and ids. Off, it sends none.
+options-error-reports-description = When the game itself goes wrong (a crash, a lost graphics device, a page that cannot start it), it tells my server what kind of error it was, with its message cleaned of paths, addresses, names and ids. Off, it sends none.
 
 # The row's description while the browser sends the Global Privacy Control
 # signal (a browser setting, named as browsers name it): no error report is

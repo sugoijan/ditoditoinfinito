@@ -287,7 +287,7 @@ studio-tidy = { $state ->
    *[off] Tidy recordings: off
 }
 
-studio-tidy-description = Cuts the silence before and after each recording and evens its loudness with our announcers'.
+studio-tidy-description = Cuts the silence before and after each recording and evens its loudness with the game's own announcers'.
 
 # Variables:
 #   $state (String) - "on" or "off"
