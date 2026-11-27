@@ -310,3 +310,55 @@ fn past_its_entries_a_folder_is_read_in_part_and_says_so() {
     assert!(search(&mut host, "", BTreeMap::new()).is_empty());
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// Importing in place: what is added to the library's song folders for a
+/// song of a pack (its pack's folder), a second of the same pack once the
+/// first is in (nothing), a loose song (its own folder), a zip's song (the
+/// zip), and a song a song folder holds already (nothing); a pack holding
+/// a listed song folder is not added whole (its songs would be read twice).
+#[test]
+fn an_import_adds_the_pack_or_the_song_or_the_zip_in_place_once() {
+    let named = PathBuf::from("/songs");
+    let folder = |dir: &str, pack: &str| Place::Folder {
+        dir: PathBuf::from(dir),
+        pack: pack.into(),
+    };
+    let one = folder("/songs/Pack A/Song One", "Pack A");
+    let two = folder("/songs/Pack A/Song Two", "Pack A");
+    let add = |p: &str| InPlace::Add(PathBuf::from(p));
+    let covered = |p: &str| InPlace::Covered(PathBuf::from(p));
+    let named = std::slice::from_ref(&named);
+    // One of a pack: the pack's folder; then the second: in it already.
+    assert_eq!(in_place_of(&one, named, &[]), add("/songs/Pack A"));
+    let listed = [PathBuf::from("/songs/Pack A")];
+    assert_eq!(in_place_of(&two, named, &listed), covered("/songs/Pack A"));
+    // A loose song, the folder named itself: its own folder.
+    let loose = folder("/elsewhere/Loose Song", "elsewhere");
+    let here = [PathBuf::from("/elsewhere/Loose Song")];
+    assert_eq!(in_place_of(&loose, &here, &[]), add("/elsewhere/Loose Song"));
+    // A song directly in the folder named: that folder, its pack.
+    let top = folder("/songs/Top Song", "songs");
+    assert_eq!(in_place_of(&top, named, &[]), add("/songs"));
+    // A zip's song: the zip.
+    let zipped = Place::Zip {
+        zip: PathBuf::from("/songs/Zipped.zip"),
+        dir: ddi_library::path::RelPathBuf::from("Zipped/Song Three"),
+    };
+    assert_eq!(in_place_of(&zipped, named, &[]), add("/songs/Zipped.zip"));
+    assert_eq!(
+        in_place_of(&zipped, named, &[PathBuf::from("/songs/Zipped.zip")]),
+        covered("/songs/Zipped.zip")
+    );
+    // A song folder of the library above it (a StepMania root): nothing.
+    let root = [PathBuf::from("/songs")];
+    assert_eq!(in_place_of(&one, named, &root), covered("/songs"));
+    assert_eq!(in_place_of(&zipped, named, &root), covered("/songs"));
+    // The library lists the first song's folder alone: the second is
+    // added by its own folder, the first is in already.
+    let alone = [PathBuf::from("/songs/Pack A/Song One")];
+    assert_eq!(in_place_of(&two, named, &alone), add("/songs/Pack A/Song Two"));
+    assert_eq!(
+        in_place_of(&one, named, &alone),
+        covered("/songs/Pack A/Song One")
+    );
+}

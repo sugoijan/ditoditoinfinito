@@ -2553,6 +2553,18 @@ fn find_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         reach: Reach::Keep,
         room: RoomOffer::None,
     };
+    let played = |n: usize, state: PlayedState| PlayedView {
+        title: format!("Played Song {n}"),
+        artist: "Test Artist".into(),
+        chart: super::prompt::chart_line(
+            ddi_chart::Difficulty::Hard,
+            5,
+            &String::from(super::data::style_name("dance-single", "dance-single")),
+        ),
+        best: Some("1234567 AA".into()),
+        when: "2026-11-27 14:03".into(),
+        state,
+    };
     let full = FindView {
         sources: vec![this.clone(), plugin.clone()],
         folders: Some(vec!["/Users/me/Songs".into()]),
@@ -2661,6 +2673,79 @@ fn find_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         FindView {
             room: true,
             note: Some(Note::AddedToRoom { songs: 1 }),
+            ..full.clone()
+        },
+        // This computer's import in place, a song fetched again changed.
+        FindView {
+            note: Some(Note::AddedFolder {
+                folder: "Pack A".into(),
+            }),
+            ..full.clone()
+        },
+        FindView {
+            note: Some(Note::InFolders {
+                folder: "Songs".into(),
+            }),
+            ..full.clone()
+        },
+        FindView {
+            note: Some(Note::Changed),
+            ..full.clone()
+        },
+        // Songs played before: the chosen source's (more than are shown,
+        // more than are listed), then sources not on, each way.
+        FindView {
+            played: vec![
+                PlayedSection {
+                    id: "this-computer".into(),
+                    source: SourceName::ThisComputer,
+                    chosen: true,
+                    rows: (0..7).map(|n| played(n, PlayedState::Ready)).collect(),
+                    unlisted: 3,
+                },
+                PlayedSection {
+                    id: "example".into(),
+                    source: SourceName::Plugin("Example Songs".into()),
+                    chosen: false,
+                    rows: vec![played(1, PlayedState::SourceOff)],
+                    unlisted: 1,
+                },
+                PlayedSection {
+                    id: "gone-plugin".into(),
+                    source: SourceName::Plugin("gone-plugin".into()),
+                    chosen: false,
+                    rows: vec![played(2, PlayedState::NotInstalled)],
+                    unlisted: 0,
+                },
+            ],
+            ..full.clone()
+        },
+        FindView {
+            played: vec![
+                PlayedSection {
+                    id: "example".into(),
+                    source: SourceName::Plugin("Example Songs".into()),
+                    chosen: true,
+                    rows: vec![
+                        played(1, PlayedState::Gone),
+                        PlayedView {
+                            best: None,
+                            artist: String::new(),
+                            ..played(2, PlayedState::Ready)
+                        },
+                    ],
+                    unlisted: 0,
+                },
+                PlayedSection {
+                    id: "this-computer".into(),
+                    source: SourceName::ThisComputer,
+                    chosen: false,
+                    rows: vec![played(3, PlayedState::SourceOff)],
+                    unlisted: 0,
+                },
+            ],
+            chosen: 1,
+            folders: None,
             ..full.clone()
         },
     ];

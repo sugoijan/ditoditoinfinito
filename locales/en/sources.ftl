@@ -14,8 +14,10 @@ sources-title = Find songs
 # The page's header, in capitals where the language has them.
 sources-heading = FIND SONGS
 
-# The page's first line, muted, wrapped: what the page does.
-sources-intro = Search a source for songs. What you find plays without being added to your library, unless you import it.
+# The page's first line, muted, wrapped: what the page does, and what is
+# kept of a song found and played (the plays, best scores and replays),
+# which the page then lists under "Played before" (sources-played-heading).
+sources-intro = Search a source for songs. What you find plays without being added to your library, unless you import it. Your plays of it are kept, with your best scores and replays, and listed here under Played before.
 
 # Where no source is on (the page is reached only when one is; a source
 # switched off since).
@@ -161,11 +163,11 @@ sources-problem-import-failed = The song could not be written into your library.
 sources-select-title = FOUND SONGS
 
 # Its footer's line, where nothing else is said: where the songs are
-# from, and that a play is kept in the play history only where the
-# library has the same song.
+# from, and that the plays of them are kept (in the play history, with
+# their bests; Find songs lists them under "Played before").
 # Variables:
 #   $source (String) - the source's name (This computer, or a plugin's)
-sources-select-note = From { $source }. Plays of songs not in your library are not kept.
+sources-select-note = From { $source }. Your plays of these songs are kept.
 
 # The filters This computer offers a search, by their labels (a source's
 # filter, drawn by the real Find songs screen later): the charts' style,
@@ -214,3 +216,76 @@ sources-added-to-room = { $songs ->
 # An online room's My songs: the pack of songs found with Find songs in
 # this run and not imported (a pack's header, and the song's pack line).
 sources-pack-fetched = Fetched this session
+
+# Songs played before (every play of a song found is kept): the page lists
+# the songs played from the source chosen, each with Play, which fetches it
+# again from its source; and those played from a source not on now.
+
+# The subheading over the songs played before from the source chosen.
+sources-played-heading = Played before
+
+# The subheading over the songs played before from a source that is not
+# on now (switched off, or no longer installed).
+# Variables:
+#   $source (String) - the source's name (This computer, or a plugin's own name)
+sources-played-heading-from = Played before from { $source }
+
+# A tag of a played song's line (joined by " · "): its chart's best.
+# Variables:
+#   $best (String) - the score and the grade as the lists write them (data)
+sources-played-best = Best { $best }
+
+# A tag of a played song's line: when it was last played.
+# Variables:
+#   $when (String) - a date and time, "2026-11-27 14:03" (data)
+sources-played-last = Last played { $when }
+
+# A tag of a played song's line where it has no Play button: its source
+# is installed but not switched on (or This computer is off). Its plays
+# stay kept.
+sources-played-source-off = Its source is not on
+
+# A tag of a played song's line where it has no Play button: its plugin
+# is no longer installed. Its plays stay kept.
+sources-played-not-installed = Its source is not installed
+
+# A tag of a played song's line where it has no Play button: its source
+# said it no longer has it (a folder moved or deleted, a song taken down).
+# Its plays stay kept.
+sources-played-gone = No longer at its source
+
+# The fold under a source's first played songs that shows the rest.
+# Variables:
+#   $count (Number) - how many more are in the fold
+sources-played-more = { $count ->
+    [one] One more song played before
+   *[other] { $count } more songs played before
+}
+
+# Muted, under a source's played songs: more were played from it than the
+# page lists (the most recent are listed).
+# Variables:
+#   $count (Number) - how many are not listed
+sources-played-unlisted = { $count ->
+    [one] One more song played from this source is not listed here. Its plays are kept.
+   *[other] { $count } more songs played from this source are not listed here. Their plays are kept.
+}
+
+# After Play on a song played before: it changed at its source since it
+# was last played, and the source's current version was fetched. Plays of
+# a chart whose notes changed stay with the old chart; charts that did not
+# change keep their plays.
+sources-changed = This song changed at its source since you last played it. Charts whose notes changed start with no plays; the plays of the old charts are kept.
+
+# After Import of a song found on this computer: the folder it is in (its
+# pack's folder, its own, or its zip) was added to the library's song
+# folders (Options → Song list's folders), nothing copied.
+# Variables:
+#   $folder (String) - the folder's or the zip's name (data)
+sources-added-folder = Added “{ $folder }” to your song folders. Its songs are in your library now.
+
+# After Import of a song found on this computer that a song folder of the
+# library holds already: nothing added.
+# Variables:
+#   $folder (String) - the song folder's name that holds it (data)
+sources-in-folders = This song is in your song folder “{ $folder }” already, so it is in your library.

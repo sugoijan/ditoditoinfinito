@@ -4,7 +4,7 @@ sources-title = 曲を探す
 
 sources-heading = 曲を探す
 
-sources-intro = ソースから曲を探します。見つけた曲はライブラリーに追加せずにプレイできます。インポートした場合だけライブラリーに追加されます。
+sources-intro = ソースから曲を探します。見つけた曲はライブラリーに追加せずにプレイできます。インポートした場合だけライブラリーに追加されます。プレイの記録はベストスコアやリプレイとともに保存され、ここの「前にプレイした曲」に表示されます。
 
 sources-no-sources = 有効な曲のソースがありません。
 
@@ -90,7 +90,7 @@ sources-problem-import-failed = 曲をライブラリーに書き込めません
 
 sources-select-title = 見つけた曲
 
-sources-select-note = { $source }から。ライブラリーにない曲のプレイは記録されません。
+sources-select-note = { $source }から。これらの曲のプレイは記録されます。
 
 sources-filter-style = スタイル
 sources-filter-level = レベル
@@ -110,3 +110,16 @@ sources-result-not-for-keeping = インポート不可：ソースが許可し�
 sources-added-to-room = { $songs }曲をルームに追加しました。このコンピューターからアップロードされ、ライブラリーには追加されません。
 
 sources-pack-fetched = このセッションで取得した曲
+
+sources-played-heading = 前にプレイした曲
+sources-played-heading-from = { $source }で前にプレイした曲
+sources-played-best = ベスト { $best }
+sources-played-last = 最後のプレイ { $when }
+sources-played-source-off = ソースが有効になっていません
+sources-played-not-installed = ソースがインストールされていません
+sources-played-gone = ソースにもうありません
+sources-played-more = ほかに前にプレイした曲が{ $count }曲
+sources-played-unlisted = このソースでプレイした曲がほかに{ $count }曲あります。ここには表示しませんが、プレイの記録は残っています。
+sources-changed = この曲は前回のプレイのあとソース側で変更されています。ノーツが変わった譜面はプレイの記録がない状態から始まります。前の譜面のプレイの記録は残っています。
+sources-added-folder = 「{ $folder }」を曲フォルダーに追加しました。その曲はライブラリーにあります。
+sources-in-folders = この曲はすでに曲フォルダー「{ $folder }」にあるため、ライブラリーにあります。

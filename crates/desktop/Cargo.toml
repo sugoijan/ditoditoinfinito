@@ -177,6 +177,12 @@ harness = false
 name = "room_find_songs"
 harness = false
 
+# Plays of found songs kept and found again (`tests/found_plays.rs`): its
+# own `main` too, the example plugin run under its name.
+[[test]]
+name = "found_plays"
+harness = false
+
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 ddi-importer-protocol = { workspace = true, optional = true }
 sha2 = { version = "0.11.1", optional = true }

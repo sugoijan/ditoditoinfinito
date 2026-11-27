@@ -16,6 +16,22 @@
 //! with the same checks and the same words, its item kept for the room
 //! (`super::rooms`).
 //!
+//! Every play of a song found is kept (`super::fetched::keeps_as`): the
+//! page lists the songs played before from the source chosen from their
+//! plays' origins ([`ddi_ui::state::history::History::played_before`],
+//! at most [`PLAYED_MAX`] a source, no source asked to list them), and
+//! those of sources not on now with why; Play on one asks its source what
+//! the item is now (`Describe`) and fetches its current revision (saying
+//! so where that is not the one last played), then lists its songs as Play
+//! on a result does. A source without metadata is fetched by the revision
+//! last played; one that says it no longer has the item marks its row so
+//! for the run. Nothing is deleted.
+//!
+//! Import from This computer adds the song's folder to the library's song
+//! folders in place (`super::this_computer::InPlace`), copying nothing
+//! and recording nothing in the import catalog; a plugin's songs are
+//! written into the import store as before.
+//!
 //! How far a result may go is its source's level lowered by its item's
 //! (`super::Reach`): below `rooms` it offers no Add to room, below `keep`
 //! no Import, and its line says why; each is checked again at the press
@@ -34,10 +50,11 @@ use ddi_ui::Cx;
 use ddi_ui::screens::Env;
 use ddi_ui::screens::data::SongEntry;
 use ddi_ui::screens::find_songs::{
-    Busy, FindModel, FindPress, FindView, Note, Problem, ResultView, RoomOffer, SourceName,
-    SourceView, Step,
+    Busy, FindModel, FindPress, FindView, Note, PlayedSection, PlayedState, PlayedView, Problem,
+    ResultView, RoomOffer, SourceName, SourceView, Step,
 };
 use ddi_ui::screens::room_dialogs::NoticeDialog;
+use ddi_ui::state::history::{PlayOrigin, Plays};
 use ddi_ui::state::room::{Refusal, SharedRoom, Unsupported};
 
 use super::Reach;
@@ -50,6 +67,10 @@ const REST_S: f64 = 0.35;
 
 /// Results asked for a page.
 const PAGE: u32 = 50;
+
+/// The songs played before a source lists, the most recent first (the
+/// rest counted; their plays kept all the same).
+pub const PLAYED_MAX: usize = 50;
 
 /// What a fetch is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +89,16 @@ struct Fetching {
     step: Option<Step>,
     done: Option<u64>,
     total: Option<u64>,
+    /// A song played before fetched again: its origin, and whether its
+    /// source has another revision of it now.
+    again: Option<(PlayOrigin, bool)>,
+}
+
+/// A song played before, its source asked what the item is now.
+struct Describing {
+    op: OpId,
+    source: String,
+    origin: PlayOrigin,
 }
 
 struct Importing {
@@ -117,6 +148,15 @@ pub struct Finder {
     room_seen: u64,
     /// A fetched item's songs to add to the room (the next frame).
     add: Option<Vec<FetchedSong>>,
+    /// The play history (the songs played before), and its generation as
+    /// last shown.
+    plays: Option<Rc<Plays>>,
+    plays_seen: u64,
+    /// A song played before being looked up at its source.
+    describing: Option<Describing>,
+    /// Items their sources said they no longer have, by source and item
+    /// (this run).
+    gone: HashSet<(String, String)>,
 }
 
 impl Finder {
@@ -135,6 +175,7 @@ impl Finder {
         {
             t.refresh();
         }
+        let plays = songs.plays.clone();
         let mut f = Finder {
             env,
             songs,
@@ -165,6 +206,10 @@ impl Finder {
             room,
             room_seen: 0,
             add: None,
+            plays,
+            plays_seen: 0,
+            describing: None,
+            gone: HashSet::new(),
         };
         f.library_changed();
         // This computer with folders, or a plugin: everything listed at
@@ -459,9 +504,8 @@ impl Finder {
         self.total = None;
         self.problem = None;
         self.details = None;
-        if matches!(self.note, Some(Note::Partial)) {
-            self.note = None;
-        }
+        // A new search: what the page said of the last one goes.
+        self.note = None;
         self.searched = true;
         if self.folders().is_some_and(|f| f.is_empty()) {
             self.changed();
@@ -505,7 +549,7 @@ impl Finder {
 
     /// Result `i` fetched, for `purpose`.
     fn fetch(&mut self, i: usize, purpose: Purpose) {
-        if self.fetching.is_some() || self.importing.is_some() {
+        if self.busy() {
             return;
         }
         let (Some(item), Some(source)) = (self.results.get(i).cloned(), self.chosen_id()) else {
@@ -551,7 +595,131 @@ impl Finder {
                 step: None,
                 done: None,
                 total: None,
+                again: None,
             });
+        }
+        self.changed();
+    }
+
+    /// Something runs that a press waits for.
+    fn busy(&self) -> bool {
+        self.fetching.is_some() || self.importing.is_some() || self.describing.is_some()
+    }
+
+    /// The songs played before from source `source`, at most
+    /// [`PLAYED_MAX`], and how many in all.
+    fn played(&self, source: &str) -> (Vec<ddi_ui::state::history::PlayedBefore>, usize) {
+        self.plays
+            .as_ref()
+            .map(|p| p.history().played_before(source, PLAYED_MAX))
+            .unwrap_or_default()
+    }
+
+    /// Song `i` of the chosen source's played before, fetched again: its
+    /// source asked what the item is now first.
+    fn play_again(&mut self, i: usize) {
+        if self.busy() {
+            return;
+        }
+        let Some(source) = self.chosen_id() else {
+            return;
+        };
+        let Some(row) = self.played(&source).0.into_iter().nth(i) else {
+            return;
+        };
+        if self.gone.contains(&(source.clone(), row.origin.item.clone())) {
+            return;
+        }
+        self.problem = None;
+        self.details = None;
+        self.note = None;
+        let op = self.request(
+            &source,
+            Request::Describe {
+                item: row.origin.item.clone(),
+            },
+        );
+        if let Some(op) = op {
+            self.describing = Some(Describing {
+                op,
+                source,
+                origin: row.origin,
+            });
+        }
+        self.changed();
+    }
+
+    /// A song played before fetched as `item` says it is now (its
+    /// revision, size and level), said changed where its revision is not
+    /// the one last played.
+    fn fetch_again(&mut self, d: Describing, item: ItemMeta) {
+        let changed = item.revision != d.origin.revision;
+        let op = self.request(
+            &d.source,
+            Request::Fetch {
+                item: d.origin.item.clone(),
+                revision: item.revision.clone(),
+                size: item.size,
+                reach: item.reach,
+            },
+        );
+        if let Some(op) = op {
+            self.fetching = Some(Fetching {
+                op,
+                source: d.source,
+                item: ItemMeta {
+                    id: d.origin.item.clone(),
+                    title: if item.title.is_empty() {
+                        d.origin.title.clone()
+                    } else {
+                        item.title
+                    },
+                    ..item
+                },
+                purpose: Purpose::Play,
+                step: None,
+                done: None,
+                total: None,
+                again: Some((d.origin, changed)),
+            });
+        }
+    }
+
+    /// Import from This computer: the song's folder added to the library's
+    /// song folders where it is, nothing copied; said by its folder's name.
+    fn import_in_place(&mut self, i: usize) {
+        if self.busy() {
+            return;
+        }
+        let Some(item) = self.results.get(i).cloned() else {
+            return;
+        };
+        self.problem = None;
+        self.details = None;
+        self.note = None;
+        let listed = self.songs.folders();
+        let found = self
+            .songs
+            .sources
+            .borrow()
+            .as_ref()
+            .and_then(|s| s.this_computer.clone())
+            .and_then(|t| t.in_place(&item.id, &listed));
+        let name = |p: &std::path::Path| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| p.display().to_string())
+        };
+        match found {
+            Some(this_computer::InPlace::Add(path)) => {
+                self.note = Some(Note::AddedFolder { folder: name(&path) });
+                self.songs.add_folders(vec![path]);
+            }
+            Some(this_computer::InPlace::Covered(path)) => {
+                self.note = Some(Note::InFolders { folder: name(&path) });
+            }
+            // Not known now (the page's list is older than what was read).
+            None => self.problem = Some(Problem::NotFound),
         }
         self.changed();
     }
@@ -680,7 +848,49 @@ impl Finder {
     fn on_event(&mut self, event: Event) {
         let search = self.search.as_ref().map(|(op, _)| *op);
         let fetch = self.fetching.as_ref().map(|f| f.op);
+        let describe = self.describing.as_ref().map(|d| d.op);
         match event {
+            Event::Item { op, item } if Some(op) == describe => {
+                if let Some(d) = self.describing.take() {
+                    self.fetch_again(d, item);
+                }
+                self.changed();
+            }
+            Event::Failed { op, failure, .. } if Some(op) == describe => {
+                let Some(d) = self.describing.take() else {
+                    return;
+                };
+                let gone = matches!(
+                    failure,
+                    Failure::Plugin {
+                        code: FailCode::NotFound | FailCode::Gone,
+                        ..
+                    }
+                );
+                let unsupported = matches!(
+                    failure,
+                    Failure::Host(HostFailure::Unsupported)
+                        | Failure::Plugin {
+                            code: FailCode::Unsupported,
+                            ..
+                        }
+                );
+                if gone {
+                    self.gone.insert((d.source.clone(), d.origin.item.clone()));
+                } else if unsupported {
+                    // No metadata: fetched by the revision last played.
+                    let item = ItemMeta {
+                        id: d.origin.item.clone(),
+                        title: d.origin.title.clone(),
+                        revision: d.origin.revision.clone(),
+                        ..ItemMeta::default()
+                    };
+                    self.fetch_again(d, item);
+                } else {
+                    self.problem = Self::problem_of(&failure);
+                }
+                self.changed();
+            }
             Event::Results { op, items } if Some(op) == search => {
                 self.results.extend(items);
                 self.changed();
@@ -708,8 +918,18 @@ impl Finder {
             } if Some(op) == search || Some(op) == fetch => {
                 if Some(op) == search {
                     self.search = None;
-                } else {
-                    self.fetching = None;
+                } else if let Some(f) = self.fetching.take()
+                    && let Some((origin, _)) = f.again
+                    && matches!(
+                        failure,
+                        Failure::Plugin {
+                            code: FailCode::NotFound | FailCode::Gone,
+                            ..
+                        }
+                    )
+                {
+                    // A song played before its source no longer has.
+                    self.gone.insert((f.source, origin.item));
                 }
                 self.problem = Self::problem_of(&failure);
                 self.details = self
@@ -753,6 +973,9 @@ impl Finder {
                 let Some(f) = self.fetching.take() else {
                     return;
                 };
+                if f.again.as_ref().is_some_and(|(_, changed)| *changed) {
+                    self.note = Some(Note::Changed);
+                }
                 match f.purpose {
                     Purpose::Play => self.show = Some((self.chosen_name(), songs)),
                     Purpose::Import => self.import(f, key, songs),
@@ -851,6 +1074,96 @@ impl Finder {
     }
 }
 
+impl Finder {
+    /// The songs played before: the chosen source's, then those of the
+    /// sources with plays that are not on now (`offered` the sources on).
+    fn played_sections(&self, offered: &[(String, Option<String>)]) -> Vec<PlayedSection> {
+        let Some(plays) = &self.plays else {
+            return Vec::new();
+        };
+        let chosen = self.chosen_id();
+        let percent = ddi_ui::state::settings::Settings::cached().ddi_percent();
+        let section = |id: &str, name: SourceName, state: PlayedState, chosen: bool| {
+            let (rows, total) = plays.history().played_before(id, PLAYED_MAX);
+            PlayedSection {
+                id: id.to_string(),
+                source: name,
+                chosen,
+                unlisted: total - rows.len(),
+                rows: rows
+                    .iter()
+                    .map(|r| {
+                        let gone = self.gone.contains(&(id.to_string(), r.origin.item.clone()));
+                        played_view(r, if gone { PlayedState::Gone } else { state }, percent)
+                    })
+                    .collect(),
+            }
+        };
+        let mut out = Vec::new();
+        if let Some(id) = &chosen {
+            let name = offered
+                .iter()
+                .find(|(i, _)| i == id)
+                .and_then(|(_, n)| n.clone())
+                .map_or(SourceName::ThisComputer, SourceName::Plugin);
+            out.push(section(id, name, PlayedState::Ready, true));
+        }
+        let sources = plays.history().origin_sources();
+        let installed = self.songs.sources.borrow();
+        for id in sources {
+            if offered.iter().any(|(i, _)| *i == id) {
+                continue;
+            }
+            let plugin = installed
+                .as_ref()
+                .and_then(|s| s.host.plugins().find(|p| p.id() == id).cloned());
+            let (name, state) = if id == this_computer::ID {
+                (SourceName::ThisComputer, PlayedState::SourceOff)
+            } else if let Some(p) = plugin {
+                let language = ddi_l10n::current().tag;
+                (
+                    SourceName::Plugin(p.manifest.name.get(language).to_string()),
+                    PlayedState::SourceOff,
+                )
+            } else {
+                (SourceName::Plugin(id.clone()), PlayedState::NotInstalled)
+            };
+            out.push(section(&id, name, state, false));
+        }
+        out
+    }
+}
+
+/// A song played before as the page's row.
+fn played_view(
+    r: &ddi_ui::state::history::PlayedBefore,
+    state: PlayedState,
+    percent: bool,
+) -> PlayedView {
+    use ddi_ui::state::history as h;
+    let c = &r.origin.chart;
+    let style: String = ddi_ui::screens::data::style_name(&c.style, &c.style).into();
+    PlayedView {
+        title: r.origin.title.clone(),
+        artist: r.origin.artist.clone(),
+        chart: ddi_ui::screens::prompt::chart_line(c.difficulty, c.meter, &style),
+        best: r.best.as_ref().map(|b| {
+            let grade = h::list_grade(&b.grade);
+            let score = h::score_text_as(&b.score, percent);
+            if grade.is_empty() {
+                score
+            } else {
+                format!("{score} {grade}")
+            }
+        }),
+        when: h::local_time(
+            r.last_played,
+            crate::play::replays::tz_minutes(r.last_played),
+        ),
+        state,
+    }
+}
+
 impl FindModel for Finder {
     fn version(&self) -> u64 {
         self.version
@@ -895,6 +1208,13 @@ impl FindModel for Finder {
             Some(Busy::Importing {
                 title: i.title.clone(),
             })
+        } else if let Some(d) = &self.describing {
+            Some(Busy::Fetching {
+                title: d.origin.title.clone(),
+                step: Some(Step::Resolving),
+                done: None,
+                total: None,
+            })
         } else if let Some(f) = &self.fetching {
             Some(Busy::Fetching {
                 title: f.item.title.clone(),
@@ -921,6 +1241,11 @@ impl FindModel for Finder {
             details: self.details.clone(),
             note: self.note.clone(),
             room: self.room.is_some(),
+            played: if self.room.is_some() {
+                Vec::new()
+            } else {
+                self.played_sections(&offered)
+            },
         }
     }
 
@@ -938,7 +1263,11 @@ impl FindModel for Finder {
             FindPress::Search => self.search_now(),
             FindPress::More => self.more(),
             FindPress::Play(i) => self.fetch(i, Purpose::Play),
+            FindPress::Import(i) if self.chosen_id().as_deref() == Some(this_computer::ID) => {
+                self.import_in_place(i)
+            }
             FindPress::Import(i) => self.fetch(i, Purpose::Import),
+            FindPress::Played(i) => self.play_again(i),
             FindPress::AddToRoom(i) => self.add_to_room(i, cx),
             FindPress::Cancel => {
                 if let Some((op, _)) = self.search.take() {
@@ -946,6 +1275,9 @@ impl FindModel for Finder {
                 }
                 if let Some(f) = self.fetching.take() {
                     self.cancel(f.op);
+                }
+                if let Some(d) = self.describing.take() {
+                    self.cancel(d.op);
                 }
             }
         }
@@ -964,6 +1296,12 @@ impl FindModel for Finder {
         self.take_events();
         self.poll_import();
         self.library_changed();
+        // A play kept (or judged again): the songs played before.
+        let generation = self.plays.as_ref().map_or(0, |p| p.generation());
+        if generation != self.plays_seen {
+            self.plays_seen = generation;
+            self.changed();
+        }
         // The field searched once it rests.
         if self.dirty {
             let now = cx.time();
@@ -1003,6 +1341,9 @@ impl FindModel for Finder {
         }
         if let Some(f) = self.fetching.take() {
             self.cancel(f.op);
+        }
+        if let Some(d) = self.describing.take() {
+            self.cancel(d.op);
         }
     }
 }

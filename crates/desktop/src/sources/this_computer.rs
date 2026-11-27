@@ -22,6 +22,17 @@
 //! A song found is fetched `in place`: its files where they are (a zip's
 //! read into memory), read by the store's scanner into `src:` songs a play
 //! reads as the library's (`super::fetched`).
+//!
+//! Imported, it is added to the library where it is (the maintainer,
+//! 2026-11-27: "folder in place" instead of copying): its zip, else its
+//! pack's folder (the folder it is in, where that is within the folder
+//! named), else its own folder, as Add songs adds one; nothing where a
+//! song folder of the library holds it already ([`ThisComputer::in_place`]).
+//!
+//! An item's id is a hash of where it is (a song folder's path, or a
+//! zip's and the song's folder in it): the same each run while it stays
+//! there, so a play's origin finds it again; moved, it is another item,
+//! and the old one is gone.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -78,6 +89,39 @@ impl Default for Bounds {
 
 /// A song folder's own folders walked, at most (`bg/`, `movies/`).
 const SONG_DEPTH: usize = 4;
+
+/// What importing a song found adds to the library's song folders
+/// ([`ThisComputer::in_place`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InPlace {
+    /// This folder (or zip) is added.
+    Add(PathBuf),
+    /// This song folder of the library's holds it already: nothing added.
+    Covered(PathBuf),
+}
+
+/// What importing a song at `place` adds, the player's folders `named`
+/// searched and the library's song folders `listed`: its zip; else its
+/// pack's folder, the folder its song folder is in where that is within a
+/// folder named (that folder itself included), unless a listed folder is
+/// inside it (it would be read twice), else its own folder; nothing where a
+/// listed folder is it or holds it.
+fn in_place_of(place: &Place, named: &[PathBuf], listed: &[PathBuf]) -> InPlace {
+    let covered = |p: &Path| listed.iter().find(|f| p.starts_with(f)).cloned();
+    let path = match place {
+        Place::Zip { zip, .. } => zip.clone(),
+        Place::Folder { dir, .. } => {
+            dir.parent()
+                .filter(|parent| named.iter().any(|n| dir != n && parent.starts_with(n)))
+                .filter(|parent| !listed.iter().any(|f| f.starts_with(parent) && f != parent))
+                .map_or_else(|| dir.clone(), Path::to_path_buf)
+        }
+    };
+    match covered(&path) {
+        Some(f) => InPlace::Covered(f),
+        None => InPlace::Add(path),
+    }
+}
 
 /// Where a song found is.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -177,6 +221,14 @@ impl ThisComputer {
             Some(s) => vec![PathBuf::from(s)],
             None => self.folders(),
         }
+    }
+
+    /// What importing song `item` (found in what was read) adds to the
+    /// library's song folders `listed` ([`InPlace`]); `None` where it is not
+    /// known now.
+    pub fn in_place(&self, item: &str, listed: &[PathBuf]) -> Option<InPlace> {
+        let found = self.find(item)?;
+        Some(in_place_of(&found.place, &self.folders(), listed))
     }
 
     /// A song found by its item id, in what was read.

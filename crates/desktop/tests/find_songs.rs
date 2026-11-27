@@ -100,6 +100,11 @@ fn until(h: &mut Harness, what: &str, done: impl Fn(&Harness) -> bool) {
     }
 }
 
+/// The song folders the settings list (`--songs` folders aside).
+fn crate_folders() -> Vec<PathBuf> {
+    ddi_desktop::library::folders()
+}
+
 fn shows(h: &Harness, text: &str) -> bool {
     h.texts().iter().any(|t| t.contains(text))
 }
@@ -244,9 +249,13 @@ fn this_computer_finds_a_song_plays_it_without_importing_and_imports_it() {
     assert_eq!(top(&h.ui), "find-songs", "{:?}", h.ui.layers());
     assert!(!store.lock().unwrap().held(key), "let go once nothing needs it");
 
-    // Import: in the library after.
+    // Import: its pack's folder added to the song folders where it is,
+    // nothing copied; in the library after.
     press(&mut h, &env, "button:import:0");
-    until(&mut h, "imported", |h| shows(h, "Imported one song"));
+    until(&mut h, "imported", |h| {
+        shows(h, "Added “Pack A” to your song folders.")
+    });
+    assert_eq!(crate_folders(), [found.join("Pack A")], "the settings' folders");
     pictures.shot(&mut h.ui, SIZE, "find-songs-imported.png");
     wait(&songs);
     songs.poll(&mut h.ui);
@@ -261,10 +270,34 @@ fn this_computer_finds_a_song_plays_it_without_importing_and_imports_it() {
         .cloned()
         .expect("in the library");
     assert!(imported.entry.id.starts_with("u-"));
-    assert!(imported.root.starts_with(dir.join("home")), "{:?}", imported.root);
-    assert!(store.lock().unwrap().songs(key).is_none(), "the fetched copy let go");
+    assert_eq!(imported.root, found.join("Pack A"), "read where it is");
+    assert!(
+        ddi_desktop::sources::import::catalog().is_empty()
+            && ddi_desktop::sources::import::roots().is_empty(),
+        "nothing copied or recorded"
+    );
     until(&mut h, "marked", |h| shows(h, "In your library"));
     pictures.shot(&mut h.ui, SIZE, "find-songs-in-library.png");
+    // The other song of the pack: in that folder already, nothing added.
+    let search_for = |h: &mut Harness, text: &str| {
+        h.tap(PointerKind::Mouse, "Field.query");
+        for _ in 0..8 {
+            h.key("Backspace", "Backspace");
+        }
+        h.send(ddi_ui::UiEvent::Text(ddi_ui::event::TextEvent::Commit(
+            text.into(),
+        )));
+        h.key("Enter", "Enter");
+    };
+    search_for(&mut h, "one");
+    until(&mut h, "song one", |h| shows(h, "Song One") && !shows(h, "Song Two"));
+    assert!(!shows(&h, "Added “Pack A”"), "a new search, the note gone");
+    // In the library with its pack: its Import waits (the rule that adds
+    // nothing for a folder listed already is `this_computer`'s tests').
+    until(&mut h, "song one marked", |h| shows(h, "Pack A · Single 4 · In your library"));
+    assert_eq!(crate_folders().len(), 1, "nothing added twice");
+    search_for(&mut h, "two");
+    until(&mut h, "song two again", |h| shows(h, "Song Two") && !shows(h, "Song One"));
 
     // Played again from the page: kept now, as the library's song.
     press(&mut h, &env, "button:play:0");

@@ -45,7 +45,13 @@ fn stored(store: &MemoryPlayStore, id: &str) -> PlayEntry {
 
 /// A play of chart `chart` kept as song `song_id` at `time`, from
 /// `origin`.
-fn keep(p: &Rc<Plays>, song_id: &str, chart: usize, time: f64, origin: Option<PlayOrigin>) -> String {
+fn keep(
+    p: &Rc<Plays>,
+    song_id: &str,
+    chart: usize,
+    time: f64,
+    origin: Option<PlayOrigin>,
+) -> String {
     let s = song();
     let (log, results) = play(&s, chart, &itg(), Some(0.0));
     let mut rec = record(&s, chart, &itg(), time, false);
@@ -134,7 +140,13 @@ fn an_origin_out_of_bounds_reads_as_none_and_its_texts_are_cut() {
 fn an_export_and_an_import_keep_the_origin_untouched() {
     let (_, p) = plays();
     let o = origin("song-7", "r1", "Generated Song 7");
-    keep(&p, "src:00000000000000bb:0", 0, 1_700_000_000_000.0, Some(o.clone()));
+    keep(
+        &p,
+        "src:00000000000000bb:0",
+        0,
+        1_700_000_000_000.0,
+        Some(o.clone()),
+    );
     let out = Rc::new(std::cell::RefCell::new(String::new()));
     let (o2, done) = (out.clone(), answered());
     p.export(10, move |chunk| o2.borrow_mut().push_str(&chunk), done.1);
@@ -163,8 +175,20 @@ fn the_songs_played_from_a_source_are_listed_from_the_origins_newest_first() {
     // Song 1 played twice (its second play under a new revision of its
     // item), song 2 once, between them; one from another source; one with
     // no origin.
-    keep(&p, "src:01:0", 0, 1_000.0, Some(origin("song-1", "r1", "One")));
-    keep(&p, "src:02:0", 1, 2_000.0, Some(origin("song-2", "r1", "Two")));
+    keep(
+        &p,
+        "src:01:0",
+        0,
+        1_000.0,
+        Some(origin("song-1", "r1", "One")),
+    );
+    keep(
+        &p,
+        "src:02:0",
+        1,
+        2_000.0,
+        Some(origin("song-2", "r1", "Two")),
+    );
     let mut renamed = origin("song-1", "r2", "One (new)");
     renamed.chart.meter = 6;
     keep(&p, "src:03:0", 0, 3_000.0, Some(renamed.clone()));
@@ -184,7 +208,11 @@ fn the_songs_played_from_a_source_are_listed_from_the_origins_newest_first() {
     let (rows, total) = h.played_before("example", 10);
     assert_eq!(total, 2);
     let titles: Vec<&str> = rows.iter().map(|r| r.origin.title.as_str()).collect();
-    assert_eq!(titles, ["One (new)", "Two"], "the latest play's, newest first");
+    assert_eq!(
+        titles,
+        ["One (new)", "Two"],
+        "the latest play's, newest first"
+    );
     assert_eq!(rows[0].plays, 2);
     assert_eq!(rows[0].origin.revision.as_deref(), Some("r2"));
     assert_eq!(rows[0].last_played, 3_000.0);
@@ -210,7 +238,13 @@ fn a_found_songs_play_counts_once_for_a_library_copy_of_its_chart() {
     // under its own id (imported since): the plays list, the bests and
     // "played" find it by content, once.
     let (_, p) = plays();
-    let found = keep(&p, "src:0000000000000abc:0", 0, 1_000.0, Some(origin("song-1", "r1", "One")));
+    let found = keep(
+        &p,
+        "src:0000000000000abc:0",
+        0,
+        1_000.0,
+        Some(origin("song-1", "r1", "One")),
+    );
     let library = keep(&p, "u-0123", 0, 2_000.0, None);
     let h = p.history();
     let digest = song().chart_digest(0);

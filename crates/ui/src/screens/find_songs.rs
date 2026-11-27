@@ -13,6 +13,13 @@
 //! room allow; what is added goes to the room's list as a song of the
 //! library does, uploaded from here and never imported.
 //!
+//! Every play of a song found here is kept (the maintainer, 2026-11-27):
+//! the page lists the songs played before from the source chosen, from
+//! their plays' origins alone ([`PlayedSection`]), each with Play, which
+//! fetches it again; those played from a source not on stay listed under
+//! it, with a line saying why they cannot be fetched now. Never from a
+//! room (nothing is played alone over one).
+//!
 //! How far a result may go is its source's level, lowered by the item
 //! (`docs/plans/source-plugins.md`, "How far a song may go"): played on
 //! this computer only, added to rooms too, or imported as well. A button
@@ -179,11 +186,70 @@ pub enum Problem {
     NotForKeeping,
 }
 
+/// A song played before from a source, as a row of
+/// [`PlayedSection`]: what its latest play's origin says (data), its
+/// chart's best as the lists write it, when it was last played.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PlayedView {
+    pub title: String,
+    pub artist: String,
+    /// The chart last played, as a chart's line (`prompt::chart_line`).
+    pub chart: String,
+    /// Its best: the score and the grade as the lists write them.
+    pub best: Option<String>,
+    /// When it was last played, in the player's time.
+    pub when: String,
+    pub state: PlayedState,
+}
+
+/// Whether a song played before can be fetched again now.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PlayedState {
+    /// Play fetches it again from its source.
+    #[default]
+    Ready,
+    /// Its source is installed but not switched on (or This computer is
+    /// off): no button.
+    SourceOff,
+    /// Its plugin is not installed any more: no button.
+    NotInstalled,
+    /// Its source said it does not have it any more (a folder moved, an
+    /// item taken down): no button.
+    Gone,
+}
+
+/// The songs played before from one source ([`FindView::played`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlayedSection {
+    /// The source's id.
+    pub id: String,
+    pub source: SourceName,
+    /// The source chosen now: its rows are pressed for Play.
+    pub chosen: bool,
+    /// The most recently played first.
+    pub rows: Vec<PlayedView>,
+    /// Songs played from it beyond the rows (their plays kept all the
+    /// same).
+    pub unlisted: usize,
+}
+
+/// Rows of a [`PlayedSection`] shown before the rest are folded.
+pub const PLAYED_SHOWN: usize = 5;
+
 /// What the page says once, quietly.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Note {
     /// A result was imported: its songs are in the library now.
     Imported { songs: usize },
+    /// This computer's song imported in place: this folder (its name)
+    /// added to the library's song folders.
+    AddedFolder { folder: String },
+    /// This computer's song is in a song folder of the library's already
+    /// (that folder's name): nothing added.
+    InFolders { folder: String },
+    /// A song played before fetched again changed at its source since
+    /// (its current revision fetched).
+    Changed,
     /// Some folders were too large to read whole (their bounds).
     Partial,
     /// A result's songs were added to the room's list (their upload
@@ -215,6 +281,9 @@ pub struct FindView {
     pub note: Option<Note>,
     /// Opened from an online room: results are added to it, not played.
     pub room: bool,
+    /// The songs played before: the chosen source's first, then those of
+    /// sources not on now (none from a room).
+    pub played: Vec<PlayedSection>,
 }
 
 /// What a press asks of the model.
@@ -229,6 +298,9 @@ pub enum FindPress {
     Import(usize),
     /// Added to the online room the page was opened from.
     AddToRoom(usize),
+    /// A song played before (a row of the chosen source's section) fetched
+    /// again and played.
+    Played(usize),
     Cancel,
 }
 
@@ -406,7 +478,19 @@ pub fn doc(view: &FindView) -> PageDoc {
         Some(Note::AddedToRoom { songs }) => {
             blocks.push(Block::Note(m::added_to_room(*songs as f64).into()));
         }
+        Some(Note::AddedFolder { folder }) => {
+            blocks.push(Block::Note(m::added_folder(UiText::data(folder)).into()));
+        }
+        Some(Note::InFolders { folder }) => {
+            blocks.push(Block::Note(m::in_folders(UiText::data(folder)).into()));
+        }
+        Some(Note::Changed) => blocks.push(Block::Note(m::changed().into())),
         None => {}
+    }
+    if !view.room {
+        for section in &view.played {
+            played_blocks(section, view.busy.is_some(), &mut blocks);
+        }
     }
     // The results.
     if view.searched {
@@ -466,6 +550,69 @@ pub fn doc(view: &FindView) -> PageDoc {
     }
 }
 
+/// A section of songs played before: its heading, its first rows, the
+/// rest folded, what is not listed.
+fn played_blocks(section: &PlayedSection, busy: bool, blocks: &mut Vec<Block>) {
+    if section.rows.is_empty() {
+        return;
+    }
+    blocks.push(Block::Subheading(
+        if section.chosen {
+            m::played_heading()
+        } else {
+            m::played_heading_from(match &section.source {
+                SourceName::ThisComputer => m::this_computer(),
+                SourceName::Plugin(name) => UiText::data(name),
+            })
+        }
+        .into(),
+    ));
+    let entry = |i: usize, r: &PlayedView| {
+        let mut tags: Vec<String> = Vec::new();
+        if !r.artist.is_empty() {
+            tags.push(UiText::data(&r.artist).into());
+        }
+        if !r.chart.is_empty() {
+            tags.push(r.chart.clone());
+        }
+        if let Some(best) = &r.best {
+            tags.push(m::played_best(UiText::data(best)).into());
+        }
+        tags.push(m::played_last(UiText::data(&r.when)).into());
+        match r.state {
+            PlayedState::Ready => {}
+            PlayedState::SourceOff => tags.push(m::played_source_off().into()),
+            PlayedState::NotInstalled => tags.push(m::played_not_installed().into()),
+            PlayedState::Gone => tags.push(m::played_gone().into()),
+        }
+        let play = (section.chosen && r.state == PlayedState::Ready)
+            .then(|| Action::new(format!("played:{i}"), m::play()).off(busy));
+        Block::Entry {
+            text: UiText::data(&r.title).into(),
+            detail: Some(tags.join(" · ")),
+            actions: play.into_iter().collect(),
+        }
+    };
+    let (first, rest) = section.rows.split_at(section.rows.len().min(PLAYED_SHOWN));
+    blocks.extend(first.iter().enumerate().map(|(i, r)| entry(i, r)));
+    if !rest.is_empty() {
+        blocks.push(Block::Fold {
+            id: format!("played-more:{}", section.id),
+            label: m::played_more(rest.len() as f64).into(),
+            body: rest
+                .iter()
+                .enumerate()
+                .map(|(i, r)| entry(i + PLAYED_SHOWN, r))
+                .collect(),
+        });
+    }
+    if section.unlisted > 0 {
+        blocks.push(Block::Muted(
+            m::played_unlisted(section.unlisted as f64).into(),
+        ));
+    }
+}
+
 fn title() -> PageTitle {
     PageTitle::new(m::title(), m::heading())
 }
@@ -482,6 +629,7 @@ fn press_of(id: &str) -> Option<FindPress> {
         ("play", Some(i)) => FindPress::Play(i),
         ("import", Some(i)) => FindPress::Import(i),
         ("add", Some(i)) => FindPress::AddToRoom(i),
+        ("played", Some(i)) => FindPress::Played(i),
         ("add-folder", None) => FindPress::AddFolder,
         ("search", None) => FindPress::Search,
         ("more", None) => FindPress::More,
@@ -739,6 +887,68 @@ mod tests {
         // A model's mistake (Add offered below `rooms`) shows no button.
         v.results = vec![result("play", Reach::Play, RoomOffer::Add)];
         assert_eq!(entries(&doc(&v))[0].0, Vec::<String>::new());
+    }
+
+    #[test]
+    fn songs_played_before_have_play_where_their_source_can_fetch_them() {
+        let row = |n: usize, state: PlayedState| PlayedView {
+            title: format!("Song {n}"),
+            when: "2026-11-27 14:03".into(),
+            state,
+            ..PlayedView::default()
+        };
+        let mut v = view();
+        v.folders = None;
+        v.results.clear();
+        v.played = vec![
+            PlayedSection {
+                id: "this-computer".into(),
+                source: SourceName::ThisComputer,
+                chosen: true,
+                rows: (0..PLAYED_SHOWN + 2)
+                    .map(|n| row(n, if n == 1 { PlayedState::Gone } else { PlayedState::Ready }))
+                    .collect(),
+                unlisted: 4,
+            },
+            PlayedSection {
+                id: "example".into(),
+                source: SourceName::Plugin("Example".into()),
+                chosen: false,
+                rows: vec![row(9, PlayedState::SourceOff)],
+                unlisted: 0,
+            },
+        ];
+        let d = doc(&v);
+        let ids = ids(&d);
+        // The first rows shown, a gone one without Play; the rest folded;
+        // a source not on: no button at all.
+        assert!(ids.contains(&"played:0".to_string()), "{ids:?}");
+        assert!(!ids.contains(&"played:1".to_string()), "{ids:?}");
+        assert_eq!(
+            ids.iter().filter(|i| i.starts_with("played:")).count(),
+            PLAYED_SHOWN - 1,
+            "{ids:?}"
+        );
+        assert_eq!(press_of("played:6"), Some(FindPress::Played(6)));
+        let fold = d.blocks.iter().find_map(|b| match b {
+            Block::Fold { body, .. } => Some(body.len()),
+            _ => None,
+        });
+        assert_eq!(fold, Some(2));
+        let details: Vec<String> = d
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                Block::Entry { detail, .. } => detail.clone(),
+                _ => None,
+            })
+            .collect();
+        assert!(details.iter().any(|t| t.contains(m::played_gone().as_str())));
+        assert!(details.iter().any(|t| t.contains(m::played_source_off().as_str())));
+        assert!(d.blocks.iter().any(|b| matches!(b, Block::Muted(t) if t == m::played_unlisted(4.0).as_str())));
+        // Never from a room.
+        v.room = true;
+        assert!(!ids_of(&doc(&v)).iter().any(|i| i.starts_with("played:")));
     }
 
     #[test]

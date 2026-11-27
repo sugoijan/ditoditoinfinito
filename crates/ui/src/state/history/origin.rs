@@ -94,7 +94,10 @@ impl PlayOrigin {
         let id_ok = |s: &str| !s.is_empty() && s.len() <= MAX_ORIGIN_ID;
         if !id_ok(&self.source)
             || !id_ok(&self.item)
-            || self.revision.as_deref().is_some_and(|r| r.len() > MAX_ORIGIN_ID)
+            || self
+                .revision
+                .as_deref()
+                .is_some_and(|r| r.len() > MAX_ORIGIN_ID)
             || self.song >= MAX_ORIGIN_SONGS
         {
             return None;
