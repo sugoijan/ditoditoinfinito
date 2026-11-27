@@ -9,6 +9,7 @@ pub mod radar;
 #[rustfmt::skip] // Generated percentile knots retain their tabular layout.
 pub mod radar_table;
 mod stream;
+mod technical;
 
 use ddi_chart::{ChartDigest, Song};
 use ddi_engine::cpu::{
@@ -60,6 +61,9 @@ pub struct MatchedSpokes {
     /// Signed display cost for a qualified 1,201–3,200-note Jumpstream spoke.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jumpstream_cost_pp: Option<f64>,
+    /// Signed Technical cost from the qualified lane readout at this chart level.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub technical_cost_pp: Option<f64>,
 }
 
 impl MatchedSpokes {
@@ -70,6 +74,7 @@ impl MatchedSpokes {
         means: &[[f64; 9]; 10],
     ) -> Self {
         let mut jumpstream_cost_pp = None;
+        let mut technical_cost_pp = None;
         let validated = match chart.source_notes {
             _ if chart.matched_profile_studied => u8::MAX,
             1201..=3200 => {
@@ -79,7 +84,13 @@ impl MatchedSpokes {
                 if opportunity[1] {
                     jumpstream_cost_pp = jumpstream::display_cost(chart, decimal, means);
                 }
-                0b0000_0100 | (u8::from(jumpstream_cost_pp.is_some()) << 1) | u8::from(stream)
+                if opportunity[6] {
+                    technical_cost_pp = technical::display_cost(chart, decimal);
+                }
+                (u8::from(technical_cost_pp.is_some()) << 6)
+                    | 0b0000_0100
+                    | (u8::from(jumpstream_cost_pp.is_some()) << 1)
+                    | u8::from(stream)
             }
             3201..=4800 => 0b0000_1101, // also Stream, Stamina
             4801..=8000 => 0b0001_1111, // also Jumpstream, JackSpeed
@@ -95,6 +106,7 @@ impl MatchedSpokes {
             numeric: validated & !inactive,
             inactive,
             jumpstream_cost_pp,
+            technical_cost_pp,
         }
     }
 }
@@ -323,7 +335,7 @@ mod tests {
                 let profile = stored.profile.unwrap();
                 assert!(matches!(profile[0], ProfileSpoke::Numeric(_)));
                 assert_eq!(profile[1], ProfileSpoke::Inactive);
-                assert_eq!(profile[6], ProfileSpoke::Unavailable);
+                assert!(matches!(profile[6], ProfileSpoke::Numeric(_)));
             }
             let mut legacy = serde_json::to_value(&estimate).unwrap();
             legacy
@@ -397,12 +409,48 @@ mod tests {
     }
 
     #[test]
+    fn technical_matches_the_frozen_lane_readout_and_survives_display_rounding() {
+        use ddi_library::manifest::{ChartEstimate, ProfileSpoke};
+
+        // Repeated taps, chords and mine conflicts during both a hold and a roll.
+        let measure = [
+            "2000", "0100", "0011", "M000", "3000", "0101", "0004", "0010", "000M", "1100", "0010",
+            "0003", "0100", "0011", "1000", "0001",
+        ]
+        .join("\n");
+        let song = parse_sm(&format!(
+            "#BPMS:0=210;#NOTES:dance-single::Hard:1::{};",
+            vec![measure; 88].join(",\n")
+        ))
+        .unwrap();
+        let chart = features::extract(&song, 0).unwrap();
+        // Independently recorded with the qualified reference, at a fractional
+        // ability (both adjacent levels needed) and the upper plateau.
+        for (decimal, expected) in [(17.37, 2.924199507873387), (19., 2.3965194803164795)] {
+            assert!((technical::display_cost(&chart, decimal).unwrap() - expected).abs() < 1e-8);
+        }
+        let estimate = estimate(&song, 0).unwrap();
+        let cost = estimate
+            .matched_spokes
+            .as_ref()
+            .unwrap()
+            .technical_cost_pp
+            .unwrap();
+        let stored =
+            ChartEstimate::from_rating_json(&serde_json::to_string(&estimate).unwrap()).unwrap();
+        assert_eq!(
+            stored.profile.unwrap()[6],
+            ProfileSpoke::Numeric(((cost.max(0.) * 100.).round() / 100.) as f32)
+        );
+    }
+
+    #[test]
     fn partial_spokes_follow_the_qualified_band_and_chart_opportunities() {
         use ddi_library::manifest::{ChartEstimate, ProfileSpoke};
         for (notes, numeric) in [
             (1200, 255),
-            (1201, 6),
-            (3200, 6),
+            (1201, 70),
+            (3200, 70),
             (3201, 13),
             (4800, 13),
             (4801, 31),

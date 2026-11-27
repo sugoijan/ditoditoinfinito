@@ -15,6 +15,8 @@ struct Group {
 }
 
 pub(super) struct Row {
+    pub masks: [u8; 5],
+    pub durations: [f64; 4],
     pub time: f64,
     pub heads: f64,
     pub near: f64,
@@ -249,6 +251,8 @@ pub(super) fn extract(song: &Song, index: usize) -> Result<Chart, String> {
             }
         }
         rows.push(Row {
+            masks: g.masks,
+            durations: g.durations,
             time: t,
             heads,
             near: f64::from(near),

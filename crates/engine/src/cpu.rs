@@ -12,6 +12,8 @@ use std::collections::BTreeMap;
 mod absolute;
 mod automatic;
 mod basis;
+/// Timing bucket boundaries in seconds for the absolute CPU motor.
+pub const TIMING_EDGES: [f64; 89] = basis::EDGES;
 mod full;
 mod levels;
 mod mines;

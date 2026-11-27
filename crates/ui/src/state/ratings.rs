@@ -1277,9 +1277,12 @@ mod tests {
         assert_eq!(standing("a", Some(digest(5)), "dance-double", true), Standing::NoLayout);
         // MSD is not made under the estimate, nor read.
         assert!(!wants_msd());
+        // The restored Technical cost satisfies a request for the same chart in another song.
+        want_first("another", 1, Some(digest(5)), "dance-single", true);
+        assert!(next().is_none());
         // A previous qualification rule also requires recomputation.
         let mut stored: StoredEstimates = storage::load(Area::Local, ESTIMATE_KEY).unwrap();
-        stored.rule = "jumpstream-ceiling-profile-v6".into();
+        stored.rule = "jumpstream-level16-profile-v7".into();
         storage::save(Area::Local, ESTIMATE_KEY, &stored).unwrap();
         reset();
         storage::install(store);

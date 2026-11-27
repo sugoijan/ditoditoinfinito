@@ -492,7 +492,7 @@ count and the scalar's full-precision eligibility decision.
 |---|---|
 | Up to 900, or through 1,200 without playable mines | All eight |
 | 901–1,200 with playable mines | None |
-| 1,201–3,200 | Handstream, Stream where its pattern and display-sensitivity checks pass, and Jumpstream with a two-head row and either raw cost ≤1 Accuracy pp or a full-precision scalar of at least 16 |
+| 1,201–3,200 | Technical, Handstream, Stream where its pattern and display-sensitivity checks pass, and Jumpstream with a two-head row and either raw cost ≤1 Accuracy pp or a full-precision scalar of at least 16 |
 | 3,201–4,800 | Stream, Handstream, Stamina |
 | 4,801–8,000 with an exact 19.0 | Stream, Jumpstream, Handstream, Stamina, JackSpeed |
 
@@ -511,6 +511,12 @@ uses that cost, two-head row share, log head density, and the head-weighted chan
 spread and omission probability when Jumpstream is weakened to 0.75. The
 adjustment is capped at ±0.10 Accuracy pp before the usual cost flooring,
 rounding, and radar mapping. Its scope is the displayed-level spoke only.
+
+For Technical at 1,201–3,200 notes, the ratings worker computes the expected
+raw Accuracy difference between balanced play and Technical weakened to 0.75
+at the chart’s estimated level. It accounts for head assignment, mine locks
+and long-note credit. The three calibrated costs are averaged before the
+usual radar rounding. The chart-digest cache stores the resulting profile.
 
 A structurally inactive skill shows **Inactive** at the chart's base radius.
 Without single-head rows this applies to Stream and JackSpeed, without
