@@ -82,8 +82,8 @@ ChoiceLabels=Cyan,Red
   `Default`, and `Level=Basic` where Options' Basic level shows it too
   (`docs/plans/ui-levels.md`, 2026-11-26: without it a parameter shows
   at Advanced only, and keeps its effect at either; Infinito declares
-  none since 2026-11-26, when the maintainer leaned the levels toward
-  Advanced; a pump skin's are Advanced whatever they say, as its row
+  its Note colors, back since 2026-11-27 after the lean of 2026-11-26
+  took both it had declared; a pump skin's are Advanced whatever they say, as its row
   is).
 - **Choice**: `Choices` (ids, as names), `ChoiceLabels` (what Options
   shows, the ids when missing), at most 32; the default is the first

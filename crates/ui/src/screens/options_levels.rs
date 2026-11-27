@@ -37,7 +37,8 @@ use crate::state::settings::{INFINITO, Settings};
 ///
 /// A skin's parameters (`skin.`) are Advanced unless the skin declares one
 /// Basic (`Level=Basic` in its metrics, our extension; Infinito declares
-/// none since 2026-11-26); a pump skin's are Advanced as its row is.
+/// its Note colors, since 2026-11-27); a pump skin's are Advanced as its
+/// row is.
 pub const LEVELS: &[(&str, Level)] = &[
     // Scroll.
     ("speed", Basic),
@@ -470,9 +471,9 @@ pub(crate) mod tests {
         assert_eq!(test.options[0].id, format!("{CHANGED}Test"));
     }
 
-    /// Skins' parameters take the skin's level (Infinito declares none
-    /// Basic since 2026-11-26), announcers' are Advanced, each counted
-    /// against its own declared default.
+    /// Skins' parameters take the skin's level (Infinito declares its
+    /// Note colors Basic, since 2026-11-27), announcers' are Advanced,
+    /// each counted against its own declared default.
     #[test]
     fn parameters_take_their_declared_level_and_default() {
         storage::install(Rc::new(MemoryStore::default()));
@@ -484,14 +485,14 @@ pub(crate) mod tests {
             .iter()
             .map(|o| o.id.as_str())
             .collect();
-        assert_eq!(arrows, ["noteskin"], "Infinito declares none Basic");
+        assert_eq!(arrows, ["noteskin", "skin.Colors"], "Infinito's Basic one");
         m.settings
             .set_infinito_param("ReceptorFill", ParamValue::Bool(false));
         m.settings
             .set_infinito_param("Colors", ParamValue::Text("Rainbow".into()));
         let d = m.data();
         let arrows = section(&d, "Arrows").unwrap();
-        assert_eq!(arrows.options.last().unwrap().label, "Advanced changes: 2");
+        assert_eq!(arrows.options.last().unwrap().label, "Advanced changes: 1");
     }
 
     /// Settings stored before the levels: Advanced where an Advanced
@@ -516,7 +517,7 @@ pub(crate) mod tests {
             last_seen: 0.0,
         });
         assert!(!advanced_in_effect(&basic_only), "calibration is Basic's");
-        let changed: [fn(&mut Settings); 17] = [
+        let changed: [fn(&mut Settings); 16] = [
             |s| s.transform.turn = ddi_engine::Turn::Mirror,
             |s| s.ruleset = "itg".into(),
             |s| s.audio_offset = 0.01,
@@ -539,7 +540,6 @@ pub(crate) mod tests {
             |s| s.video = crate::state::settings::VideoMode::Off,
             |s| s.generated_background = crate::state::settings::GeneratedBackground::Off,
             |s| s.generated_palette = crate::state::settings::Palette::Mono,
-            |s| s.set_infinito_param("Colors", ParamValue::Text("Rainbow".into())),
             |s| s.set_infinito_param("Explosions", ParamValue::Bool(false)),
         ];
         for (i, change) in changed.into_iter().enumerate() {
@@ -549,13 +549,15 @@ pub(crate) mod tests {
         }
         // The rows stage 2 brought back to Basic under plain words no
         // longer count (`docs/plans/ui-levels.md`, section 10).
-        let back: [fn(&mut Settings); 6] = [
+        let back: [fn(&mut Settings); 7] = [
             |s| s.transform.cut = ddi_engine::TimingCut::Quarters,
             |s| s.transform.at_once = ddi_engine::AtOnce::Two,
             |s| s.transform.no_holds = true,
             |s| s.assist_clap = true,
             |s| s.ghost = true,
             |s| s.field_filter = 0.0,
+            // Infinito's Note colors, back on 2026-11-27.
+            |s| s.set_infinito_param("Colors", ParamValue::Text("Rainbow".into())),
         ];
         for (i, change) in back.into_iter().enumerate() {
             let mut s = Settings::default();
@@ -569,7 +571,8 @@ pub(crate) mod tests {
             (r#"{"show_deltas": true}"#, Advanced),
             // Rows Basic left on 2026-11-26 and kept at Advanced.
             (r#"{"mine_sound": false}"#, Advanced),
-            (r#"{"skin_params": {"bundled:dance/infinito": {"Colors": "Rainbow"}}}"#, Advanced),
+            (r#"{"skin_params": {"bundled:dance/infinito": {"Colors": "Rainbow"}}}"#, Basic),
+            (r#"{"skin_params": {"bundled:dance/infinito": {"Explosions": false}}}"#, Advanced),
             (r#"{"lyrics": false, "reverse": true}"#, Basic),
             // Rows stage 2 brought back: Basic where not yet placed.
             (r#"{"assist_clap": true}"#, Basic),

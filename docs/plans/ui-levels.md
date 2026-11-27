@@ -1274,8 +1274,10 @@ platform, nothing connected; the switch counted in Display; `cargo test
   test-only Advanced section.
 - A skin's parameter is Basic where its metrics say `Level=Basic` (our
   extension, read by `ddi_noteskin::params`; `skin-parameters.md`):
-  Infinito's Note colors and Explosions until the lean, none since. A
-  pump skin's are Advanced whatever they say, as its row is.
+  Infinito's Note colors and Explosions until the lean, then none, and
+  Note colors again since 2026-11-27 (the maintainer: "Bring back the
+  Note colors"; a look a newcomer enjoys choosing, as the radar stayed).
+  A pump skin's are Advanced whatever they say, as its row is.
 - "Changed" is row by row against `OptionDef::default`: the row's value
   under the default settings, or its declared default for a skin's and
   an announcer's parameters. Reset sets each changed Advanced row of the
@@ -1593,3 +1595,15 @@ the Experimental settings row (stage 4); the privacy note's sentences
 thirteenth section (desktop's Plugins) will not fit the 1280×720 rail
 as it is (twelve reach its foot): it will need the rail to scroll or
 its items closer.
+
+## 12. After stage 3: the maintainer's answers (2026-11-27)
+
+- Note colors is Basic again (Infinito's `Level=Basic`); Generated
+  background, Generated colors, Explosions and Field position stay
+  Advanced. Basic shows 49 rows on the web, 50 on desktop.
+- Background videos "in practice it's a very useful performance toggle":
+  not brought back as its own Basic row yet, because the maintainer
+  proposed a Performance section in its place, with a simplified option
+  ("low quality graphics") that changes such options under the hood, and
+  a setting allowed to appear in more than one section. To be designed
+  before it is built; until then Background videos stays where it is.
