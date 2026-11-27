@@ -1,6 +1,8 @@
 //! Replays on desktop (`docs/plans/play-history.md`, Replays): a kept
 //! play read back, its chart found (where the record says, else in a song
-//! with a chart of its content), the skin it was drawn with looked for;
+//! with a chart of its content: the library's, or one fetched in this
+//! run; a found song's play whose song is not loaded is refused as a
+//! removed song's), the skin it was drawn with looked for;
 //! the [`Request`] that watches it (or shows its results), or one the
 //! prompt refuses with the reason.
 
@@ -18,7 +20,12 @@ use super::load::read_chart;
 /// `view_results`. Refused (`Request::refused`) when it cannot be
 /// replayed.
 pub fn request(plays: &Plays, id: &str, view_results: bool) -> Request {
-    request_with(plays, id, view_results, &crate::library::find_by_digest)
+    request_with(
+        plays,
+        id,
+        view_results,
+        &crate::sources::fetched::song_by_digest,
+    )
 }
 
 /// [`request`], `find` naming a song with a chart of a content.

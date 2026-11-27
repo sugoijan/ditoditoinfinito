@@ -1759,12 +1759,9 @@ impl Host {
             request.ghost = self.ghost(&loaded, &request, settings).map(Rc::new);
         }
         // What the history says of the chart before this play, for the
-        // results' first clear and new record (a play that is kept: a
-        // fetched song's only where the library has its chart).
-        let kept =
-            crate::sources::fetched::keeps_as(&request.song, &loaded.song, request.chart)
-                .is_some();
-        if purpose.has_prior() && kept {
+        // results' first clear and new record (every play that is kept: a
+        // fetched song's too, by its chart's content).
+        if purpose.has_prior() {
             request.prior = Some(self.plays.as_ref().map_or_else(Default::default, |p| {
                 ddi_session::announcer::Prior::before(
                     &p.history(),

@@ -133,13 +133,16 @@ pub fn open() -> Option<(Rc<Plays>, Rework)> {
 
 /// Song `id`'s chart alone (no music); where that song is gone, a song's
 /// with a chart of one of `digests` (the bundled songs first, then the
-/// library's).
+/// library's, then one fetched in this run: a found song's play kept by
+/// an id that is gone now, an earlier revision's, or none fetched yet).
+/// Where none has it, a found song's play is passed over quietly for the
+/// session, as a removed song's: what it came to as played stays.
 pub fn read_chart(id: &str, digests: &[ChartDigest]) -> Result<Song, String> {
     crate::play::load::read_chart(id)
         .or_else(|e| {
             digests
                 .iter()
-                .find_map(|d| crate::library::find_by_digest(*d))
+                .find_map(|d| crate::sources::fetched::song_by_digest(*d))
                 .ok_or(e)
                 .and_then(|other| crate::play::load::read_chart(&other))
         })

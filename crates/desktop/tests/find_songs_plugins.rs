@@ -2,8 +2,8 @@
 //! well-behaved example plugin (`ddi_source_test_plugins::example`, every
 //! song generated, no network) installed in a scratch home's plugins
 //! folder and switched on, run as a real process, searched from the
-//! page, a song played from it to its results without importing it, one
-//! imported; how far each song may go (its items name each step for
+//! page, a song played from it to its results without importing it (its
+//! play kept, with where it came from), one imported; how far each song may go (its items name each step for
 //! themselves): Import on a song that may be kept, none on one that may
 //! go to rooms but not be kept, nor on one played here only, each line
 //! saying why, and such a song's import refused by the import itself;
@@ -186,7 +186,8 @@ fn the_example_plugin_from_find_songs_and_a_crashing_one_beside_it() {
     pictures.shot(&mut h.ui, SIZE, "find-songs-plugins.png");
 
     // Played from it, without importing: fetched over its pipe, its songs
-    // listed alone, played to its results, not kept.
+    // listed alone, played to its results, kept by its found song's id
+    // with where it came from.
     press(&mut h, &env, "button:play:0");
     until(&mut h, "listed", |h| top(&h.ui) == "select");
     h.run(0.6);
@@ -202,7 +203,7 @@ fn the_example_plugin_from_find_songs_and_a_crashing_one_beside_it() {
     );
     let store_plays = Rc::new(MemoryPlayStore::default());
     let plays = Plays::new(store_plays.clone());
-    let mut host = Host::new(songs.play.clone(), Some(plays));
+    let mut host = Host::new(songs.play.clone(), Some(plays.clone()));
     let clock = common::rig::fake_clock(&mut host);
     let draws = common::rig::Draws::here(&mut host, SIZE);
     draws.wait_prompt(&mut host, &mut h.ui, &env);
@@ -221,7 +222,17 @@ fn the_example_plugin_from_find_songs_and_a_crashing_one_beside_it() {
     draws.wait_gpu();
     h.ui.update(0.05);
     assert_eq!(top(&h.ui), "results");
-    assert_eq!(store_plays.len(), 0, "not kept");
+    assert_eq!(store_plays.len(), 1, "kept");
+    {
+        let history = plays.history();
+        let (_, s) = history.last().expect("the play");
+        assert!(s.chart.song.starts_with("src:"), "{}", s.chart.song);
+        let o = s.origin.as_ref().expect("its origin");
+        assert_eq!(
+            (o.source.as_str(), o.item.as_str(), o.revision.as_deref()),
+            ("example", "song-1", Some("r1"))
+        );
+    }
     h.ui.update(3.0);
     common::ui::key(&mut h.ui, "Escape", "Escape");
     h.ui.update(0.5);

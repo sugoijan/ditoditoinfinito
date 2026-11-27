@@ -2,11 +2,12 @@
 //! stage 2), as the window does it but headless: song select's More →
 //! Find songs, a folder of generated songs (in the build's scratch
 //! folder, nothing of anyone's) searched, a song played from it to its
-//! results with autoplay on a fake clock without importing it (not kept:
-//! the library has no such song; its item held from the prompt until its
-//! results close), then imported (in the library after) and played again
-//! from the page (kept now, as the library's song). The page's pictures
-//! where `DDI_OFFSCREEN_PPM` names a folder and a GPU is there.
+//! results with autoplay on a fake clock without importing it (kept by
+//! its found song's id, with where it came from; its item held from the
+//! prompt until its results close), then imported (in the library after)
+//! and played again from the page (kept as the library's song; both plays
+//! its chart's). The page's pictures where
+//! `DDI_OFFSCREEN_PPM` names a folder and a GPU is there.
 
 mod common;
 
@@ -218,7 +219,17 @@ fn this_computer_finds_a_song_plays_it_without_importing_and_imports_it() {
     };
     play_to_results(&mut host, &mut h.ui);
     assert!(store.lock().unwrap().held(key), "held while its results show");
-    assert_eq!(store_plays.len(), 0, "not kept: the library has no such song");
+    // Kept by its found song's id (the library has no such song), with
+    // where it came from.
+    assert_eq!(store_plays.len(), 1, "kept");
+    {
+        let history = plays.history();
+        let (_, s) = history.last().expect("the play");
+        assert!(s.chart.song.starts_with("src:"), "{}", s.chart.song);
+        let o = s.origin.as_ref().expect("its origin");
+        assert_eq!(o.source, "this-computer");
+        assert_eq!((o.title.as_str(), o.chart.meter), ("Song Two", 7));
+    }
     // The results closed: the item let go.
     h.ui.update(3.0);
     common::ui::key(&mut h.ui, "Escape", "Escape");
@@ -263,7 +274,11 @@ fn this_computer_finds_a_song_plays_it_without_importing_and_imports_it() {
     play_to_results(&mut host, &mut h.ui);
     let history = plays.history();
     let kept: Vec<_> = history.iter().collect();
-    assert_eq!(kept.len(), 1, "kept once");
-    assert_eq!(kept[0].1.chart.song, imported.entry.id, "as the library's song");
-    assert_eq!(store_plays.len(), 1);
+    assert_eq!(kept.len(), 2, "each play kept once");
+    assert_eq!(kept[1].1.chart.song, imported.entry.id, "as the library's song");
+    assert_eq!(store_plays.len(), 2);
+    // Both are the library song's chart's, each once.
+    let digest = kept[1].1.chart.digest;
+    assert_eq!(kept[0].1.chart.digest, digest);
+    assert_eq!(history.ids_of_chart(digest).len(), 2);
 }

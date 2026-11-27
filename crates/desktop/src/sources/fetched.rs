@@ -7,12 +7,16 @@
 //! do), their pictures as `mem:<item>!<path>` texture sources, a play
 //! holding its item ([`Held`]) from its prompt until its results close.
 //!
-//! What a play of one keeps (decided here, a question for the
-//! maintainer): it is kept in the play history only where the library has
-//! a song of the same chart (by its digest), and then as a play of that
-//! song ([`keeps_as`]); else it is not kept at all (no history entry, no
-//! best, no replay), so that no kept play ever names a song that may not
-//! be found again.
+//! What a play of one keeps (the maintainer, 2026-11-27: "We should keep
+//! the play even if the song isn't kept"): every play is kept, as any
+//! play is, at every level of how far its song may go (a record is the
+//! player's own presses and score, never the song): as the library's
+//! song where the library has a song of the same chart (by its digest),
+//! else by its `src:` id, the same the next time its item is fetched from
+//! the same source at the same revision ([`keeps_as`]). Either way it
+//! carries where the song came from ([`origin_of`],
+//! `ddi_ui::state::history::PlayOrigin`), from which Find songs lists it
+//! and fetches it again.
 
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -22,6 +26,7 @@ use ddi_library::path::RelPath;
 use ddi_library::scan::Reader as _;
 use ddi_source_host::store::{self, Hold, ItemFiles, ItemKey, SONG_ID_PREFIX, Stored};
 use ddi_source_host::SharedStore;
+use ddi_ui::state::history::{OriginChart, PlayOrigin};
 
 use crate::library::LibSong;
 
@@ -170,14 +175,84 @@ pub fn hold(id: &str) -> Option<Held> {
     store::hold(&store, key).map(|h| Held(Rc::new(h)))
 }
 
-/// The song a play of `song_id`'s chart `chart` of `song` is kept as in
-/// the play history: the song itself, for any song but a fetched one;
-/// for a fetched one, the library's song with a chart of the same content
-/// (its digest), else none (the play is not kept).
-pub fn keeps_as(song_id: &str, song: &ddi_chart::Song, chart: usize) -> Option<String> {
+/// How a play of a song is kept in the play history ([`keeps_as`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Kept {
+    /// The song id it is kept under.
+    pub song: String,
+    /// Where its song came from: a found song's source and item.
+    pub origin: Option<PlayOrigin>,
+}
+
+/// How a play of `song_id`'s chart `chart` of `song` is kept: any song
+/// but a fetched one as itself; a fetched one as the library's song with
+/// a chart of the same content (its digest) where there is one, else as
+/// itself, by its `src:` id, with its origin either way (where the store
+/// still has it).
+pub fn keeps_as(song_id: &str, song: &ddi_chart::Song, chart: usize) -> Kept {
     if !is_fetched(song_id) {
-        return Some(song_id.to_string());
+        return Kept {
+            song: song_id.to_string(),
+            origin: None,
+        };
     }
-    song.charts.get(chart)?;
-    crate::library::find_by_digest(song.chart_digest(chart)).filter(|id| !is_fetched(id))
+    let library = song
+        .charts
+        .get(chart)
+        .and_then(|_| crate::library::find_by_digest(song.chart_digest(chart)))
+        .filter(|id| !is_fetched(id));
+    Kept {
+        song: library.unwrap_or_else(|| song_id.to_string()),
+        origin: origin_of(song_id, song, chart),
+    }
+}
+
+/// Where fetched song `song_id` (its chart `chart` of `song`, as stored)
+/// came from, as a play keeps it: its source, item and revision as the
+/// store has them, which of the item's songs, its title and artist, the
+/// chart played. `None` where the store does not have it.
+pub fn origin_of(song_id: &str, song: &ddi_chart::Song, chart: usize) -> Option<PlayOrigin> {
+    let store = store()?;
+    let mut st = store.lock().ok()?;
+    let (fetched, _) = st.song(song_id)?;
+    let from = st.origin(fetched.key)?.clone();
+    let n: u32 = song_id.rsplit(':').next()?.parse().ok()?;
+    let c = song.charts.get(chart)?;
+    let name = if c.name.is_empty() {
+        c.description.clone()
+    } else {
+        c.name.clone()
+    };
+    PlayOrigin {
+        source: from.plugin,
+        item: from.item,
+        revision: from.revision,
+        song: n,
+        title: fetched.entry.title.clone(),
+        artist: fetched.entry.artist.clone(),
+        chart: OriginChart {
+            name,
+            style: c.layout.clone(),
+            difficulty: c.difficulty,
+            meter: c.meter,
+        },
+    }
+    .bounded()
+}
+
+/// A fetched song in the store with a chart of content `digest` (the
+/// first by id): a play kept under another `src:` id (an earlier
+/// revision whose chart this one kept) judged again, or replayed, on it.
+pub fn find_by_digest(digest: ddi_chart::ChartDigest) -> Option<String> {
+    let every = store()?.lock().ok()?.every_song();
+    every
+        .into_iter()
+        .find(|(s, _)| s.entry.charts.iter().any(|c| c.digest == Some(digest)))
+        .map(|(s, _)| s.id)
+}
+
+/// A song with a chart of content `digest`: the library's (the bundled
+/// songs first), else one fetched in this run.
+pub fn song_by_digest(digest: ddi_chart::ChartDigest) -> Option<String> {
+    crate::library::find_by_digest(digest).or_else(|| find_by_digest(digest))
 }

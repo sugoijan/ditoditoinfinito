@@ -107,6 +107,10 @@ pub struct Songs {
     /// [`Songs::library_keys`] as last worked out, and the library's size
     /// then (worked out again when it changes, or the scan reads it).
     keys: RefCell<Option<(usize, Rc<std::collections::HashSet<String>>)>>,
+    /// The store of fetched songs' generation as last seen: an item come
+    /// or gone, the history's stale plays look for their charts again (a
+    /// found song's play, by its chart's content).
+    store_seen: Cell<u64>,
 }
 
 /// An online room's song select as the library feeds it.
@@ -189,6 +193,7 @@ impl Songs {
             sources_wake: Arc::default(),
             room_select: RefCell::default(),
             keys: RefCell::default(),
+            store_seen: Cell::new(0),
         })
     }
 
@@ -885,12 +890,18 @@ impl Songs {
             self.history_seen.set(generation);
             self.history_sent.set(Some(std::time::Instant::now()));
         }
+        let store = crate::sources::fetched::store()
+            .and_then(|s| s.lock().ok().map(|s| s.generation()))
+            .unwrap_or(0);
+        let fetched = self.store_seen.replace(store) != store;
         if scanned {
             self.show_again();
             self.tell_options();
-            if let Some(r) = self.rework.borrow_mut().as_mut() {
-                r.library_changed();
-            }
+        }
+        if (scanned || fetched)
+            && let Some(r) = self.rework.borrow_mut().as_mut()
+        {
+            r.library_changed();
         }
         let room = self.poll_room(ui, scanned || history);
         if scanned || history {

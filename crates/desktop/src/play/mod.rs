@@ -687,16 +687,15 @@ impl Play {
         let Some(plays) = plays else {
             return;
         };
-        // A fetched song's play is kept only as a play of the library's
-        // song of the same chart, else not at all: no kept play names a
-        // song that may not be found again (`crate::sources::fetched`).
-        let Some(song_id) = crate::sources::fetched::keeps_as(
+        // A fetched song's play is kept as the library's song of the same
+        // chart where there is one, else by its own `src:` id; with where
+        // its song came from either way (`crate::sources::fetched`).
+        let kept = crate::sources::fetched::keeps_as(
             &self.request.song,
             &self.loaded.song,
             self.request.chart,
-        ) else {
-            return;
-        };
+        );
+        let song_id = kept.song;
         // The settings as stored, the prompt's play options over them.
         let mut settings = Settings::load();
         self.overrides.apply(&mut settings);
@@ -727,9 +726,10 @@ impl Play {
             time,
             app_version: env!("CARGO_PKG_VERSION"),
         };
-        let Some(record) = ddi_session::record::play_record(&played, results, facts) else {
+        let Some(mut record) = ddi_session::record::play_record(&played, results, facts) else {
             return;
         };
+        record.origin = kept.origin;
         let id = ddi_platform::history::play_id(time, random_seed() as u32);
         self.play_id = Some(id.clone());
         let saved = self.saved.clone();
