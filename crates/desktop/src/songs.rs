@@ -89,6 +89,9 @@ pub struct Songs {
     pub share_feed: SharedFeed,
     /// An upload's progress, from its thread.
     share_upload: RefCell<Option<std::sync::mpsc::Receiver<ShareView>>>,
+    /// What the upload token may do, asked for the Share dialog
+    /// ([`SelectCall::ShareAccess`]): the token and the server's listing.
+    share_access: RefCell<Option<std::sync::mpsc::Receiver<crate::share::ListingAnswer>>>,
     /// The share's download as last sent to the list.
     download_seen: RefCell<Option<crate::share::Download>>,
     /// The song sources the game holds (`crate::sources`): none where
@@ -180,6 +183,7 @@ impl Songs {
             share: RefCell::default(),
             share_feed: SharedFeed::default(),
             share_upload: RefCell::default(),
+            share_access: RefCell::default(),
             download_seen: RefCell::default(),
             sources: RefCell::default(),
             sources_wake: Arc::default(),
@@ -839,6 +843,20 @@ impl Songs {
             self.feed.borrow_mut().share = Some(v);
             ui.broadcast(Message::new(FEED));
         }
+        // What the upload token may do: the Share dialog's choices.
+        let access = self
+            .share_access
+            .borrow()
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok());
+        if let Some((token, result)) = access {
+            *self.share_access.borrow_mut() = None;
+            if let Err(e) = crate::share::told(&token, result) {
+                eprintln!("sharing: what the token may do: {e}");
+            }
+            self.feed.borrow_mut().share_access = true;
+            ui.broadcast(Message::new(FEED));
+        }
         // The share's songs came, or its download moved: its screen told.
         let shared = self.poll_share();
         let download = self
@@ -1223,6 +1241,16 @@ impl Songs {
                         }
                         tell(&view);
                     });
+            }
+            // What the upload token may do, read on a thread.
+            SelectCall::ShareAccess => {
+                let token = Settings::load().share_token;
+                let wake = self.wake.borrow().clone();
+                *self.share_access.borrow_mut() =
+                    Some(crate::os::background("ddi-share-access", wake, move || {
+                        let result = crate::share::shares_listing(&token);
+                        (token, result)
+                    }));
             }
             // The editor is opened by `screen`'s calls.
             SelectCall::Open(_)

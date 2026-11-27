@@ -521,8 +521,31 @@ async fn checked(
     })
 }
 
-/// The shares the token may see (`GET <base>/s`), each with its link.
+/// The shares the token may see (`GET <base>/s`), each with its link;
+/// what the token may do kept for the Share dialog
+/// (`ddi_ui::state::share_access`).
 pub(crate) async fn list(token: &str) -> Result<ddi_ui::screens::data::SharesView, ShareError> {
+    let listing = listing(token).await?;
+    Ok(ddi_ui::screens::data::SharesView::from_listing(
+        listing, link,
+    ))
+}
+
+/// The server's listing for `token` (`GET <base>/s`), what the token may
+/// do told to `ddi_ui::state::share_access`.
+pub(crate) async fn listing(
+    token: &str,
+) -> Result<ddi_library::share::ShareListing, ShareError> {
+    use ddi_ui::state::share_access;
+    let result = fetch_listing(token).await;
+    match &result {
+        Ok(l) => share_access::heard(token, l),
+        Err(_) => share_access::failed(token),
+    }
+    result
+}
+
+async fn fetch_listing(token: &str) -> Result<ddi_library::share::ShareListing, ShareError> {
     if token.is_empty() {
         return Err(ShareError::NoToken);
     }
@@ -532,13 +555,9 @@ pub(crate) async fn list(token: &str) -> Result<ddi_ui::screens::data::SharesVie
         .await
         .map_err(ShareError::failed("reading the shares"))?;
     let resp = checked(resp, false).await?;
-    let listing: ddi_library::share::ShareListing = resp
-        .json()
+    resp.json()
         .await
-        .map_err(|e| ShareError::Answer(e.to_string()))?;
-    Ok(ddi_ui::screens::data::SharesView::from_listing(
-        listing, link,
-    ))
+        .map_err(|e| ShareError::Answer(e.to_string()))
 }
 
 /// Deletes share `id` (`DELETE <base>/s/<id>`; an uploader's own only).

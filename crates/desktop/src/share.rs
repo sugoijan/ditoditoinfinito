@@ -859,6 +859,34 @@ fn source_of(files: &Files, named: &str) -> Option<Source> {
 
 /// The shares the token may see (`GET <base>/s`), each with its link.
 pub fn list(token: &str) -> Result<ddi_ui::screens::data::SharesView, ShareError> {
+    Ok(ddi_ui::screens::data::SharesView::from_listing(
+        shares_listing(token)?,
+        link_of,
+    ))
+}
+
+/// A token and what the server's listing for it answered, sent from the
+/// thread that asked to the UI thread ([`told`]).
+pub type ListingAnswer = (String, Result<contract::ShareListing, ShareError>);
+
+/// What the server's listing for `token` said it may do, told to the
+/// Share dialog's memory (`ddi_ui::state::share_access`): on the UI
+/// thread, with what [`shares_listing`] answered on another.
+pub fn told(
+    token: &str,
+    result: Result<contract::ShareListing, ShareError>,
+) -> Result<contract::ShareListing, ShareError> {
+    use ddi_ui::state::share_access;
+    match &result {
+        Ok(l) => share_access::heard(token, l),
+        Err(_) => share_access::failed(token),
+    }
+    result
+}
+
+/// The server's listing for `token` (`GET <base>/s`): its role and the
+/// shares it may see. Blocking.
+pub fn shares_listing(token: &str) -> Result<contract::ShareListing, ShareError> {
     if token.trim().is_empty() {
         return Err(ShareError::NoToken);
     }
@@ -880,11 +908,7 @@ pub fn list(token: &str) -> Result<ddi_ui::screens::data::SharesView, ShareError
         .limit(64 * 1024 * 1024)
         .read_to_string()
         .map_err(ShareError::failed("reading the shares"))?;
-    let listing: contract::ShareListing =
-        serde_json::from_str(&text).map_err(|e| ShareError::Answer(e.to_string()))?;
-    Ok(ddi_ui::screens::data::SharesView::from_listing(
-        listing, link_of,
-    ))
+    serde_json::from_str(&text).map_err(|e| ShareError::Answer(e.to_string()))
 }
 
 /// Deletes share `id` (`DELETE <base>/s/<id>`; an uploader's own only).

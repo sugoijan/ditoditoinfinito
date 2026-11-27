@@ -15,4 +15,5 @@ pub mod ratings;
 pub mod room;
 pub mod select_view;
 pub mod settings;
+pub mod share_access;
 pub mod twitch;

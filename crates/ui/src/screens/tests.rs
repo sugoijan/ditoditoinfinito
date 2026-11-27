@@ -1536,6 +1536,10 @@ fn a_share_lists_its_songs_alone_with_nothing_to_add_or_edit() {
 #[test]
 fn share_offers_an_expiry_then_shows_the_upload_and_the_link() {
     use super::data::{ShareState, ShareView};
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    let mut settings = crate::state::settings::Settings::load();
+    settings.share_token = "admin-token".into();
+    settings.save();
     let sharing = |start: &str| {
         let env = env();
         let state = env.state.clone();
@@ -1577,6 +1581,17 @@ fn share_offers_an_expiry_then_shows_the_upload_and_the_link() {
     h.run(0.3);
     assert_eq!(top(&h), "share");
     assert!(h.texts().iter().any(|t| t == "1 week"), "{:?}", h.texts());
+    // What the token may do is asked of the shell; until it answers,
+    // no Forever.
+    assert_eq!(
+        calls
+            .borrow()
+            .iter()
+            .filter(|c| matches!(c, SelectCall::ShareAccess))
+            .count(),
+        1
+    );
+    assert!(!h.texts().iter().any(|t| t == "Forever"), "{:?}", h.texts());
     h.tap(PointerKind::Mouse, "Expiry.1w");
     h.run(0.3);
     assert!(
@@ -1696,14 +1711,40 @@ fn share_offers_an_expiry_then_shows_the_upload_and_the_link() {
     h.ui.broadcast(crate::Message::new(FEED));
     h.run(0.2);
     assert!(state.borrow().to_share.is_empty());
-    // A pack's header shares the pack's imported songs.
-    let (mut h, calls, _, _) = sharing("u-one");
+    // A pack's header shares the pack's imported songs; Forever only
+    // once the server said the token is an administrator's.
+    let (mut h, calls, feed, _) = sharing("u-one");
     h.key("ArrowUp", "ArrowUp");
     h.run(0.4);
     h.tap(PointerKind::Mouse, "More");
     h.run(0.3);
     h.tap(PointerKind::Mouse, "Item.Share");
     h.run(0.3);
+    let asked = |calls: &Calls| {
+        calls
+            .borrow()
+            .iter()
+            .filter(|c| matches!(c, SelectCall::ShareAccess))
+            .count()
+    };
+    // Asked once a session (the first dialog asked; no answer came).
+    assert_eq!(asked(&calls), 0);
+    assert!(!h.texts().iter().any(|t| t == "Forever"), "{:?}", h.texts());
+    h.key("ArrowRight", "ArrowRight");
+    let focused = h.ui.focused().map(str::to_string);
+    assert_eq!(focused.as_deref(), Some("Expiry.1d"));
+    crate::state::share_access::heard(
+        "admin-token",
+        &ddi_library::share::ShareListing {
+            role: "admin".into(),
+            shares: Vec::new(),
+        },
+    );
+    feed.borrow_mut().share_access = true;
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.3);
+    assert!(h.texts().iter().any(|t| t == "Forever"), "{:?}", h.texts());
+    assert_eq!(h.ui.focused(), focused.as_deref(), "the focus stays");
     h.tap(PointerKind::Mouse, "Expiry.never");
     h.run(0.3);
     assert!(

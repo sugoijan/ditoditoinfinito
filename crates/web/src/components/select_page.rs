@@ -978,6 +978,18 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
                 }
             });
         }
+        // What the upload token may do, for the Share dialog's choices.
+        SelectCall::ShareAccess => {
+            let token = Settings::load().share_token;
+            let shared = shared.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Err(e) = crate::share::listing(&token).await {
+                    web_sys::console::warn_1(&format!("sharing: what the token may do: {e}").into());
+                }
+                shared.feed.borrow_mut().share_access = true;
+                broadcast(&shared);
+            });
+        }
         // In the gesture: the picker opens only then.
         SelectCall::NewSong => {
             let _ = storage::request_persist();

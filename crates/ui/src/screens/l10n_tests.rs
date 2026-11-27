@@ -679,6 +679,18 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         }
     }
     // Sharing: what is shown, the list; the upload, the link, a failure.
+    // An administrator's token, so that Forever shows too.
+    let before = crate::state::settings::Settings::load();
+    let mut admin = before.clone();
+    admin.share_token = "walk-admin-token".into();
+    admin.save();
+    crate::state::share_access::heard(
+        &admin.share_token,
+        &ddi_library::share::ShareListing {
+            role: ddi_library::share::roles::ADMIN.into(),
+            shares: Vec::new(),
+        },
+    );
     for title in [Some("Song".to_string()), None] {
         let view = Rc::new(RefCell::new(ShareView::default()));
         let mut h = harness();
@@ -707,6 +719,7 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
             shown(&mut h, found);
         }
     }
+    before.save();
     // A chart's plays: none; a page of them, one removal armed.
     let row = |i: usize| PlayRow {
         id: format!("p{i}"),

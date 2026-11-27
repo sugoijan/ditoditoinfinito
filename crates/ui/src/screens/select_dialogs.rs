@@ -330,6 +330,13 @@ fn expiry_label(word: &str) -> UiText {
     }
 }
 
+/// The expiries the upload token may choose, as the server said
+/// ([`crate::state::share_access`]): Forever only where it said so.
+fn offered_expiries() -> &'static [&'static str] {
+    let token = crate::state::settings::Settings::cached().share_token;
+    crate::state::share_access::expiries(&token)
+}
+
 /// Share… (`docs/plans/shared-songs.md`): how long the link lives,
 /// then the upload as the shell reports it ([`SHARE_CHANGED`]), then
 /// the link to copy or open.
@@ -379,7 +386,7 @@ impl ShareDialog {
         match self.state() {
             ShareState::Idle => {
                 // By the server's word (the buttons are `Expiry.<word>`).
-                let mut v: Vec<_> = ddi_library::share::EXPIRIES
+                let mut v: Vec<_> = offered_expiries()
                     .iter()
                     .map(|w| (expiry_button(w), expiry_label(w).into(), "Button"))
                     .collect();
@@ -502,8 +509,15 @@ impl Screen for ShareDialog {
     }
 
     fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) {
-        if m.name == SHARE_CHANGED && self.started {
-            self.rebuild(root, cx);
+        if m.name == SHARE_CHANGED {
+            if self.started {
+                self.rebuild(root, cx);
+            } else {
+                // What the token may do came: the choices again, the
+                // focus where it was.
+                *root = self.build(cx);
+                root.finish_tweening();
+            }
         }
     }
 
@@ -516,7 +530,7 @@ impl Screen for ShareDialog {
                     "Open" => cx.request(UiRequest::OpenUrl(self.view.borrow().link.clone())),
                     name if name.starts_with("Expiry.") && !self.started => {
                         let word = name.trim_start_matches("Expiry.");
-                        if !ddi_library::share::EXPIRIES.contains(&word) {
+                        if !offered_expiries().contains(&word) {
                             return Handled::No;
                         }
                         // The dialog shows the upload from its start.

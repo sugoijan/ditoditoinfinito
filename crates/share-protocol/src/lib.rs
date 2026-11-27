@@ -257,10 +257,32 @@ pub struct ShareSummary {
 /// share, `upload` its own) and the shares it may see.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ShareListing {
+    /// One of [`roles`]; empty from a server that names none.
     #[serde(default)]
     pub role: String,
     #[serde(default)]
     pub shares: Vec<ShareSummary>,
+}
+
+/// The roles the listing names a token by ([`ShareListing::role`]).
+pub mod roles {
+    /// Lists, writes and deletes every share; any of [`super::EXPIRIES`].
+    pub const ADMIN: &str = "admin";
+    /// Makes shares and touches only its own; [`super::UPLOAD_EXPIRIES`].
+    pub const UPLOAD: &str = "upload";
+}
+
+impl ShareListing {
+    /// The expiry words the token that asked may choose, by the role the
+    /// server named it ([`expiry_allowed`]); `None` where it named none
+    /// the game knows (a server from before roles): not known.
+    pub fn expiries(&self) -> Option<&'static [&'static str]> {
+        match self.role.as_str() {
+            roles::ADMIN => Some(&EXPIRIES),
+            roles::UPLOAD => Some(&UPLOAD_EXPIRIES),
+            _ => None,
+        }
+    }
 }
 
 /// A file's path inside a song's folder: relative, no `..`, no empty
@@ -766,6 +788,23 @@ mod tests {
             .filter_map(|w| expiry_seconds(w).flatten())
             .max();
         assert_eq!(longest, Some(30 * 86_400));
+    }
+
+    /// What the listing says a token may choose is what the server lets
+    /// it make ([`expiry_allowed`]); a role the game does not know, or
+    /// none, is not known.
+    #[test]
+    fn the_listing_s_role_says_the_expiries_a_token_may_choose() {
+        let read = |json: &str| serde_json::from_str::<ShareListing>(json).unwrap();
+        let admin = read(r#"{"role":"admin","shares":[]}"#).expiries().unwrap();
+        let upload = read(r#"{"role":"upload","shares":[]}"#).expiries().unwrap();
+        for w in EXPIRIES {
+            assert_eq!(admin.contains(&w), expiry_allowed(w, true), "{w}");
+            assert_eq!(upload.contains(&w), expiry_allowed(w, false), "{w}");
+        }
+        assert!(admin.contains(&"never") && !upload.contains(&"never"));
+        assert_eq!(read(r#"{"shares":[]}"#).expiries(), None);
+        assert_eq!(read(r#"{"role":"owner"}"#).expiries(), None);
     }
 
     #[test]

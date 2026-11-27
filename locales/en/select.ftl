@@ -507,9 +507,9 @@ select-share-expiry-day = 1 day
 select-share-expiry-week = 1 week
 select-share-expiry-month = 1 month
 
-# The link never expires: only the server's administrator may choose it
-# (anyone else's choice is refused), so the button says for whom.
-select-share-expiry-never = Forever (admin)
+# The link never expires: shown only where the server said the upload
+# token is its administrator's (no one else may choose it).
+select-share-expiry-never = Forever
 
 # Puts the share's link on the clipboard: a button about 160 px wide.
 select-share-copy-link = Copy link

@@ -52,7 +52,7 @@ pub struct Shared {
     shares: RefCell<
         Option<(
             SharesFeed,
-            std::sync::mpsc::Receiver<ddi_ui::screens::data::SharesView>,
+            std::sync::mpsc::Receiver<crate::share::ListingAnswer>,
         )>,
     >,
 }
@@ -146,11 +146,15 @@ impl Shared {
             .borrow()
             .as_ref()
             .and_then(|(feed, rx)| rx.try_recv().ok().map(|v| (feed.clone(), v)));
-        let Some((feed, view)) = got else {
+        let Some((feed, (token, result))) = got else {
             return false;
         };
         *self.shares.borrow_mut() = None;
-        *feed.borrow_mut() = view;
+        // What the token may do kept for the Share dialog too.
+        *feed.borrow_mut() = match crate::share::told(&token, result) {
+            Ok(l) => ddi_ui::screens::data::SharesView::from_listing(l, crate::share::link_of),
+            Err(e) => ddi_ui::screens::data::SharesView::failed(e),
+        };
         true
     }
 
@@ -300,14 +304,11 @@ impl Desktop {
         let rx = crate::os::background("ddi-shares", wake, move || {
             let result = match delete {
                 Some(id) => {
-                    crate::share::delete(&token, &id).and_then(|()| crate::share::list(&token))
+                    crate::share::delete(&token, &id).and_then(|()| crate::share::shares_listing(&token))
                 }
-                None => crate::share::list(&token),
+                None => crate::share::shares_listing(&token),
             };
-            match result {
-                Ok(v) => v,
-                Err(e) => ddi_ui::screens::data::SharesView::failed(e),
-            }
+            (token, result)
         });
         *self.0.shares.borrow_mut() = Some((into, rx));
     }

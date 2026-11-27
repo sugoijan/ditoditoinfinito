@@ -215,6 +215,11 @@ pub enum SelectCall {
         songs: Vec<String>,
         expires: String,
     },
+    /// Ask the server what the upload token may do (its listing,
+    /// `GET <base>/s`), tell [`crate::state::share_access`] and set
+    /// [`Feed::share_access`]: the Share dialog opened and nothing is
+    /// known of the token yet (`docs/plans/shared-songs.md`).
+    ShareAccess,
 }
 
 /// Song select's header over a share's songs, or (desktop) over songs a
@@ -262,6 +267,9 @@ pub struct Feed {
     pub import: Option<ImportView>,
     /// How the upload of a share goes ([`SelectCall::Share`]).
     pub share: Option<ShareView>,
+    /// The server said what the upload token may do
+    /// ([`SelectCall::ShareAccess`]): the Share dialog shows it.
+    pub share_access: bool,
     pub notices: Option<Vec<Notice>>,
     /// Open the import dialog (files were dropped on the page).
     pub open_import: bool,
@@ -1303,6 +1311,11 @@ impl SelectScreen {
             ),
             true,
         );
+        // What the token may do, asked once (Forever shows when it may).
+        let token = crate::state::settings::Settings::cached().share_token;
+        if self.shell.is_some() && crate::state::share_access::ask(&token) {
+            self.call(SelectCall::ShareAccess, cx);
+        }
     }
 
     /// The chart editor on the song and chart shown.
@@ -3372,12 +3385,13 @@ impl SelectScreen {
         let Some(feed) = self.feed.clone() else {
             return;
         };
-        let (data, import, share, notices, open, overlay, movie) = {
+        let (data, import, share, access, notices, open, overlay, movie) = {
             let mut f = feed.borrow_mut();
             (
                 f.data.take(),
                 f.import.take(),
                 f.share.take(),
+                std::mem::take(&mut f.share_access),
                 f.notices.take(),
                 std::mem::take(&mut f.open_import),
                 f.overlay.take(),
@@ -3392,6 +3406,8 @@ impl SelectScreen {
                 self.publish_dirty = true;
             }
             *self.share.borrow_mut() = s;
+            cx.broadcast(Message::new(SHARE_CHANGED));
+        } else if access {
             cx.broadcast(Message::new(SHARE_CHANGED));
         }
         if let Some(movie) = movie

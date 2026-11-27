@@ -742,7 +742,7 @@ impl SharesView {
     ) -> SharesView {
         SharesView {
             state: SharesState::Ready,
-            admin: listing.role == "admin",
+            admin: listing.role == ddi_library::share::roles::ADMIN,
             shares: listing
                 .shares
                 .into_iter()

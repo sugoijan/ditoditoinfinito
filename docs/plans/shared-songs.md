@@ -23,7 +23,8 @@ maintainer:
   read as it goes (a later step on the app's side, below).
 - Expiry: one of 1 hour, 1 day, 1 week, 1 month or forever, chosen at
   the upload; forever with the administrator's key alone (2026-11-26:
-  shares are temporary for anyone else, a month at most).
+  shares are temporary for anyone else, a month at most), and offered
+  only to it (2026-11-27: the role the server's listing names).
 - The link is short, as a link shortener's: `#/s/<id>` with an id of 8
   characters from `[0-9A-Za-z]` (about 48 bits of randomness; the Worker
   never lists shares, so an id is found only by having it).
@@ -69,6 +70,9 @@ for the app's origins only: the Pages site and `localhost`):
   (`ddi_share_protocol::expiry_allowed`, `UPLOAD_EXPIRIES`; since
   2026-11-26), which the game words ("only an administrator's key can
   share forever"); a game from before shows it as the server's answer.
+  Since 2026-11-27 the game offers `never` only where the listing named
+  the token an admin's (below), so the refusal reaches only desktop's
+  `--share … --expires never` and a token whose role changed.
 - `POST <base>/s/<id>/expires` with an expiry word as its body (an
   admin token's alone, `403 admin_token_required` otherwise) sets a
   token's share's expiry from now (`409` for a room's share) →
@@ -83,6 +87,15 @@ for the app's origins only: the Pages site and `localhost`):
 - `GET <base>/s` (a token) lists the shares it may see: `{ "role":
   "admin" | "upload", "shares": [ { "id", "pack", "songs", "bytes",
   "created_at", "expires_at", "finished", "mine" } ] }`, newest first.
+  The role is what the game knows of a token
+  (`ddi_share_protocol::ShareListing::expiries`, `roles`): the Share
+  dialog offers Forever only where it said `admin`
+  (`ddi_ui::state::share_access`, asked once a session a token when the
+  dialog first opens, `SelectCall::ShareAccess`, and told whenever
+  Options' Shares dialog reads the listing). Not known (no answer yet,
+  the token refused, offline, a server that names no role): not
+  offered; an admin on a slow link sees it come. Nothing new on the
+  wire: the field is the server's since tokens had roles.
 
 Tokens have roles, a line each in the secret: a bare token is an admin's
 (the first tokens), who sees, writes and deletes every share; `upload
@@ -172,9 +185,9 @@ read grant on the share's URLs).
   server it uploads to (read-only, the API's base), and a note
   on what sharing publishes. In song select, an imported pack's More
   actions (and a song's) get "Share…": a dialog with the expiry choice
-  (1 hour, 1 day, 1 week, 1 month, "Forever (admin)": the game does not
-  know a token's role without asking, so the choice is shown, named for
-  whom it is, and the server's refusal worded), then the upload with a
+  (1 hour, 1 day, 1 week, 1 month, and "Forever" only where the
+  server's listing named the token an admin's; until 2026-11-27 it was
+  "Forever (admin)" for everyone, the server's refusal worded), then the upload with a
   progress line (songs and bytes), then the link to copy
   (`<site>/#/s/<id>`, the clipboard where allowed, selectable text
   always) and "Open" to see it as a player would. Bundled songs cannot
