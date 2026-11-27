@@ -506,8 +506,6 @@ impl Finder {
         self.total = None;
         self.problem = None;
         self.details = None;
-        // A new search: what the page said of the last one goes.
-        self.note = None;
         self.searched = true;
         if self.folders().is_some_and(|f| f.is_empty()) {
             self.changed();
@@ -823,6 +821,7 @@ impl Finder {
         {
             t.set_folders(folders);
         }
+        self.note = None;
         self.search_now();
     }
 
@@ -1352,7 +1351,10 @@ impl FindModel for Finder {
             }
             FindPress::AddFolder => self.add_folder(),
             FindPress::RemoveFolder(i) => self.remove_folder(i),
-            FindPress::Search => self.search_now(),
+            FindPress::Search => {
+                self.note = None;
+                self.search_now();
+            }
             FindPress::More => self.more(),
             FindPress::Play(i) => self.fetch(i, Purpose::Play),
             FindPress::Import(i) if self.chosen_id().as_deref() == Some(this_computer::ID) => {
@@ -1382,6 +1384,13 @@ impl FindModel for Finder {
             self.query = query;
             self.dirty = true;
             self.typed_at = None;
+            // A new search of the player's own (the field changed, Search
+            // pressed, another source or folder): what the page said of
+            // the last one goes. Never the search the page starts by
+            // itself as it opens, which a fetch may finish before: on a
+            // fast machine it took "This song changed at its source"
+            // away as soon as it was said (2026-11-27, every CI job).
+            self.note = None;
         }
     }
 
