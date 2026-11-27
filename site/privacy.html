@@ -60,7 +60,7 @@
         <p>The game sends nothing about you or your plays to my server. If someone shares a song with you by a link, the game reads that song from my server.</p>
 
         <h2>Signing in</h2>
-        <p>To use online rooms, you must sign in with Twitch. You do not have to sign in to watch a room with its audience.</p>
+        <p>To use online rooms, you must sign in with Twitch. You do not have to sign in to watch a room as the audience.</p>
         <p>When you sign in, my server asks Twitch for three things:</p>
         <ul>
           <li>your Twitch user ID</li>
@@ -96,7 +96,7 @@
         <p>These times are the usual ones. The server's administrators can change them. They can also turn off the two-minute limit. Then a room with no member connected ends after one week without activity.</p>
         <p>The room's session log is kept apart and names nobody. The part "<a href="#sessions">A room's session log</a>" below tells you about it.</p>
         <p>While a room is open, the server's administrators can see it in a list. The list shows the room's name and the display name of its host. It also shows what the room is doing, for example which stage it plays. It also shows counts, for example how many people are in the room.</p>
-        <p>An administrator can also open the details of a room. The details show each member's display name, role and connection, and whether the member plays or watches. They also show the seats of the audience by short codes. The part "<a href="#audience">Watching with an audience</a>" below tells you about these codes.</p>
+        <p>An administrator can also open the details of a room. The details show each member's display name, role and connection, and whether the member plays or watches. They also show the seats of the audience by short codes. The part "<a href="#audience">Watching as the audience</a>" below tells you about these codes.</p>
 
         <h2>Songs</h2>
         <p>The host and the co-hosts of a room can add songs to the room's song list. If the host lets everyone add songs, anyone in the room can add songs.</p>
@@ -192,8 +192,8 @@
         <h2>Removing someone from a room</h2>
         <p>The host and the co-hosts of a room can remove a member. The game calls this Kick. Everyone in the room is told who was removed and who removed them. Nothing else is kept. The removed person can come back by the room's invite link.</p>
 
-        <h2 id="audience">Watching with an audience</h2>
-        <p>You can watch a room with its audience without signing in.</p>
+        <h2 id="audience">Watching as the audience</h2>
+        <p>You can watch a room as the audience without signing in.</p>
         <p>My server then turns your network's address into a mark, so that one network cannot take every seat. The mark is a code made with a secret key. The code is different every day. Without the key, nobody can turn the mark back into the address. The key never leaves the server. The server does not keep the address itself.</p>
         <p>The mark exists only in the server's memory, and only while your seat is open. The server's administrators see only a short code of eight characters made from the mark.</p>
         <p>If you are signed in, your seats count against your account instead. Then no mark is made. The server's administrators see a short code of eight characters made from your account.</p>
@@ -245,7 +245,7 @@
         </ul>
         <p>Each of these things is one value from a fixed list, or a range. It is never a name, an account, an address, a room or a song. The server adds these values to the totals and keeps nothing else of them.</p>
         <p>To turn this off, set Options → Data and privacy → Send usage statistics to Off. Then the game sends none of these things. The server's own counts above go on.</p>
-        <p>When you watch with an audience, the game sends none of these things.</p>
+        <p>When you watch as the audience, the game sends none of these things.</p>
 
         <h2 id="sessions">A room's session log</h2>
         <p>Each room keeps a short log of its session. It is there so that problems in a room can be understood afterwards. For example, the log can show why people lost their connection. The log holds:</p>
@@ -306,7 +306,7 @@
         <p>The game also cuts the message to 300 characters. The message can still hold an ordinary English word. An example is a word of a song's title that the game's own message did not quote.</p>
         <p>The server reads the kind of browser and device from your browser's User-Agent, as it does for the totals. Then it drops the User-Agent. The server takes the same things out of the message again. It drops a report that still holds any of them.</p>
         <p>The server counts reports in the daily totals by kind, version, screen, browser, device and graphics. For each distinct error, it keeps one example message. It keeps that example for 30 days after the error was last seen. It keeps 500 examples at most. When it has more, it first deletes the examples whose errors were last seen longest ago.</p>
-        <p>To stop floods of reports, the server counts the reports from one network for one minute. It counts them by the daily mark from "<a href="#audience">Watching with an audience</a>" above, and only in its memory. It takes at most 20 reports in one minute from one network. It drops the rest.</p>
+        <p>To stop floods of reports, the server counts the reports from one network for one minute. It counts them by the daily mark from "<a href="#audience">Watching as the audience</a>" above, and only in its memory. It takes at most 20 reports in one minute from one network. It drops the rest.</p>
         <p>The game sends at most five reports in one visit. It never sends the same error twice in one visit.</p>
         <p>To turn this off, set Options → Data and privacy → Send error reports to Off. If your browser sends the Global Privacy Control signal, the game sends no error reports, whatever that option says.</p>
         <p>The app on a computer sends no error reports.</p>

@@ -52,7 +52,7 @@ players' stage never slower for them.
   whom the owner can let play. That is for people the host knows.
 - **At the member bound**, a join by the invite or the watch-only link is
   offered the audience instead of a plain refusal: "The room is full: you
-  can watch with its audience." (the invite page's Watch button then joins
+  can watch as the audience." (the invite page's Watch button then joins
   the audience). Nobody is refused who could watch.
 - An audience seat has **no name in the room**, no row in the room's
   state, no event when it comes or goes; it **sends nothing** but its
@@ -83,7 +83,7 @@ a round trip and an account we then did not use. Since then:
   identity: nothing changes for them, and they are not signed out or told
   anything.
 - **No sign-in is asked for on the audience's path**: the invite page's
-  "Watch with the audience", the audience link's page (`#/mp/audience/
+  "Watch as the audience", the audience link's page (`#/mp/audience/
   <link>`, which says nothing of an account unless one is signed in), the
   member bound's offer and desktop's `--join <audience link>` go straight
   to the seat; a lost socket's new ticket is asked for the same way.
@@ -584,7 +584,7 @@ measurement on the platform.
 1. **Arriving as audience** on both shells: the audience link's page (the
    invite page with "You're invited to watch with the audience." and a
    Watch button; no sign-in since 2026-11-15), the member bound's offer
-   ("The room is full: you can watch with its audience."); the web's route
+   ("The room is full: you can watch as the audience."); the web's route
    `#/mp/audience/<link>`, desktop's `--join` taking an audience link;
    the audience join, its refusals worded ("The room's audience is
    full.", "The host closed the audience.", "This room has ended.", "You

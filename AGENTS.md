@@ -2195,7 +2195,7 @@ Rust and the browser are implementation details, not advertised features.
   `AudienceClient::banner`; and for a seat with no picture the last
   played stage's background read from its share, `sync_picture`,
   `SharedFound::background`); the invite
-  page's Watch with the audience (`Online::watch_audience`, signed in
+  page's Watch as the audience (`Online::watch_audience`, signed in
   or not, never asking for a sign-in; `OnlineCall::Watch`), members' count on the status line, Host options'
   Close/Open the audience and More's Copy audience link
   (`RoomClient::audience`, `set_audience_open`). M7b: the room's main view is song select

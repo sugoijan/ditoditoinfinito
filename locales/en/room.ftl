@@ -2121,7 +2121,7 @@ room-watched-note = You watched this stage.
 # How many watch with the room's audience: on the invite's page, the
 # audience's page and Host options.
 # Variables:
-#   $count (Number) - people watching with the audience
+#   $count (Number) - people watching as the audience
 room-audience-watching = { $count ->
     [one] One person watching
    *[other] { $count } watching
@@ -2132,13 +2132,13 @@ room-audience-closed-short = Audience closed
 # watch after it, between stages.
 # Variables:
 #   $status (String) - the room's status line, as it would read alone
-#   $count (Number) - people watching with the audience
+#   $count (Number) - people watching as the audience
 room-status-with-audience = { $count ->
     [one] { $status } · One watching
    *[other] { $status } · { $count } watching
 }
 # More's item (about 24 letters): copies the link that lets anyone watch
-# with the audience (they never join the room).
+# as the audience (they never join the room).
 room-copy-audience-invite = Copy audience link
 # The status line after it.
 room-audience-invite-copied = Audience link copied: anyone with it can watch.
@@ -2158,11 +2158,11 @@ room-audience-opened-notice = The audience is open again.
 
 # The invite page on an audience link, where the room's own says whether
 # one can join.
-room-invite-audience = You're invited to watch with the audience.
+room-invite-audience = You're invited to watch as the audience.
 # In its place on the room's own link when every member's place is taken.
-room-invite-full-audience = The room is full: you can watch with its audience.
+room-invite-full-audience = The room is full: you can watch as the audience.
 # The button there (about 24 letters).
-room-invite-audience-join = Watch with the audience
+room-invite-audience-join = Watch as the audience
 # While the audience join is under way, and on the audience's page before
 # the room is shown.
 room-audience-joining = Joining the audience…

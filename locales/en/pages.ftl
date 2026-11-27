@@ -487,7 +487,7 @@ pages-privacy-sign-in-heading = Signing in
 #   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
 pages-privacy-sign-in = { $platform ->
     [web]
-        To use online rooms, you must sign in with Twitch. You do not have to sign in to watch a room with its audience.
+        To use online rooms, you must sign in with Twitch. You do not have to sign in to watch a room as the audience.
 
         When you sign in, my server asks Twitch for three things:
         • your Twitch user ID
@@ -502,7 +502,7 @@ pages-privacy-sign-in = { $platform ->
 
         The server keeps no list of the people who signed in. Signing out removes the session from your device. I never ask Twitch for your email address.
    *[desktop]
-        To use online rooms, you must sign in with Twitch. You do not have to sign in to watch a room with its audience.
+        To use online rooms, you must sign in with Twitch. You do not have to sign in to watch a room as the audience.
 
         When you sign in, my server asks Twitch for three things:
         • your Twitch user ID
@@ -521,7 +521,7 @@ pages-privacy-sign-in = { $platform ->
 # A heading inside the note.
 pages-privacy-rooms-heading = Rooms
 
-# "A room's session log" and "Watching with an audience" name the note's
+# "A room's session log" and "Watching as the audience" name the note's
 # headings of those parts (pages-privacy-sessions-heading,
 # pages-privacy-audience-heading).
 pages-privacy-rooms =
@@ -550,7 +550,7 @@ pages-privacy-rooms =
 
     While a room is open, the server's administrators can see it in a list. The list shows the room's name and the display name of its host. It also shows what the room is doing, for example which stage it plays. It also shows counts, for example how many people are in the room.
 
-    An administrator can also open the details of a room. The details show each member's display name, role and connection, and whether the member plays or watches. They also show the seats of the audience by short codes. The part "Watching with an audience" below tells you about these codes.
+    An administrator can also open the details of a room. The details show each member's display name, role and connection, and whether the member plays or watches. They also show the seats of the audience by short codes. The part "Watching as the audience" below tells you about these codes.
 
 # A heading inside the note.
 pages-privacy-songs-heading = Songs
@@ -708,10 +708,10 @@ pages-privacy-kick-heading = Removing someone from a room
 pages-privacy-kick = The host and the co-hosts of a room can remove a member. The game calls this Kick. Everyone in the room is told who was removed and who removed them. Nothing else is kept. The removed person can come back by the room's invite link.
 
 # A heading inside the note.
-pages-privacy-audience-heading = Watching with an audience
+pages-privacy-audience-heading = Watching as the audience
 
 pages-privacy-audience =
-    You can watch a room with its audience without signing in.
+    You can watch a room as the audience without signing in.
 
     My server then turns your network's address into a mark, so that one network cannot take every seat. The mark is a code made with a secret key. The code is different every day. Without the key, nobody can turn the mark back into the address. The key never leaves the server. The server does not keep the address itself.
 
@@ -798,7 +798,7 @@ pages-privacy-stats-game = { $platform ->
 
         To turn this off, set Options → Data and privacy → Send usage statistics to Off. Then the game sends none of these things. The server's own counts above go on.
 
-        When you watch with an audience, the game sends none of these things.
+        When you watch as the audience, the game sends none of these things.
    *[desktop]
         While you are in an online room, the app also tells my server a few things for these totals. It does this each time its connection to the room opens. It tells:
         • that it is the app
@@ -819,7 +819,7 @@ pages-privacy-stats-game = { $platform ->
 
         To turn this off, set Options → Data and privacy → Send usage statistics to Off. Then the app sends none of these things. The server's own counts above go on.
 
-        When you watch with an audience, the app sends none of these things.
+        When you watch as the audience, the app sends none of these things.
 }
 
 # A heading inside the note (the stats proposal's step 3: what a room's
@@ -863,7 +863,7 @@ pages-privacy-errors-heading = Error reports
 
 # Send error reports is the Options row (options-error-reports), named as
 # it reads there; Global Privacy Control is a browser setting, named as
-# browsers name it. "Watching with an audience" names the note's heading
+# browsers name it. "Watching as the audience" names the note's heading
 # of that part (pages-privacy-audience-heading).
 # Variables:
 #   $platform (String) - web or desktop (the app sends none)
@@ -899,7 +899,7 @@ pages-privacy-errors = { $platform ->
 
         The server counts reports in the daily totals by kind, version, screen, browser, device and graphics. For each distinct error, it keeps one example message. It keeps that example for 30 days after the error was last seen. It keeps 500 examples at most. When it has more, it first deletes the examples whose errors were last seen longest ago.
 
-        To stop floods of reports, the server counts the reports from one network for one minute. It counts them by the daily mark from "Watching with an audience" above, and only in its memory. It takes at most 20 reports in one minute from one network. It drops the rest.
+        To stop floods of reports, the server counts the reports from one network for one minute. It counts them by the daily mark from "Watching as the audience" above, and only in its memory. It takes at most 20 reports in one minute from one network. It drops the rest.
 
         The game sends at most five reports in one visit. It never sends the same error twice in one visit.
 

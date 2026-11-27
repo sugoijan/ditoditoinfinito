@@ -438,7 +438,7 @@ fn the_audience_link_s_page_and_the_audience_s_page_say_what_they_should() {
     ));
     h.run(0.5);
     let texts = h.texts().join("\n");
-    assert!(texts.contains("You're invited to watch with the audience."), "{texts}");
+    assert!(texts.contains("You're invited to watch as the audience."), "{texts}");
     assert!(texts.contains("Watch"), "{texts}");
     assert!(!texts.contains("people in the room"), "an audience link is no member's join");
     online.borrow_mut().watch_audience();

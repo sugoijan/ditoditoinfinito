@@ -348,7 +348,7 @@ pub struct Preview {
     pub expires_at_ms: i64,
     /// The room offers its audience by this link: an audience link's
     /// preview, or the room's own links at its member bound ("The room is
-    /// full: you can watch with its audience."). Absent from a server
+    /// full: you can watch as the audience."). Absent from a server
     /// without an audience.
     #[serde(default)]
     pub audience: bool,
