@@ -5,7 +5,9 @@
 //! ([`this_computer`], behind its own switch), the songs they fetch
 //! played without importing ([`fetched`]) or imported ([`import`]), and
 //! the Find songs page's model ([`find`]), and since stage 3 added to an
-//! online room without importing them ([`rooms`]). A player with the switch off
+//! online room without importing them ([`rooms`]), each as far as its
+//! source's level allows ([`Reach`]: played here, added to rooms, or
+//! imported; [`fetched::reach`]). A player with the switch off
 //! and no plugin switched on gets no host at all: nothing is started,
 //! nothing shows, and the start pays reading the switches' file.
 //!
@@ -36,6 +38,7 @@ use ddi_platform::storage::{self, Area};
 use serde::{Deserialize, Serialize};
 
 use ddi_source_host::installed::Found;
+pub use ddi_source_host::protocol::Reach;
 use ddi_source_host::store::{Store, StoreLimits};
 use ddi_source_host::switches::Switches;
 use ddi_source_host::{Event, Host, HostConfig};
@@ -141,18 +144,18 @@ impl Sources {
         }
     }
 
-    /// Whether source `id`'s songs may be added to an online room, by its
-    /// own rule (a plugin's manifest's; This computer's, the player's own
-    /// files, always): an item's metadata may narrow it further.
-    pub fn room_rule(&self, id: &str) -> ddi_source_host::protocol::RoomRule {
-        use ddi_source_host::protocol::RoomRule;
+    /// How far source `id`'s songs may go by its own level (a plugin's
+    /// manifest's; This computer's, the player's own files, everything):
+    /// an item's metadata may lower it further, never raise it. A source
+    /// not known allows play alone.
+    pub fn reach(&self, id: &str) -> Reach {
         if id == this_computer::ID {
-            return RoomRule::Upload;
+            return Reach::Keep;
         }
         self.host
             .plugins()
             .find(|p| p.id() == id)
-            .map_or(RoomRule::None, |p| p.manifest.rooms)
+            .map_or(Reach::Play, |p| p.manifest.reach)
     }
 
     /// The sources a player may ask now, in the page's order: This
@@ -246,7 +249,7 @@ pub fn check() -> i32 {
                     "protocol": m.protocol,
                     "capabilities": m.capabilities,
                     "inputs": m.inputs,
-                    "rooms": m.rooms,
+                    "reach": m.reach,
                     "attribution": m.attribution,
                     "dir": p.dir,
                     "executable": p.executable,

@@ -191,9 +191,16 @@ sources-add-to-room = Add to room
 # song already.
 sources-result-in-room = In the room
 
-# A tag of a result's line: its source (or the source for this song) does
-# not allow its songs in online rooms, so it has no Add to room button.
-sources-result-not-for-rooms = Not for rooms: its source does not allow it
+# A tag of a result's line (joined by " · "), where its buttons are fewer:
+# its source (or the source for this song) lets it be played on this
+# computer and nothing more, so it has no Import button and, from an
+# online room, no Add to room button.
+sources-result-play-only = Play only: its source does not allow importing it or adding it to rooms
+
+# A tag of a result's line, where its buttons are fewer: its source (or
+# the source for this song) lets it be played and added to online rooms
+# but not imported into the library, so it has no Import button.
+sources-result-not-for-keeping = Not for importing: its source allows playing it and adding it to rooms only
 
 # After Add to room: its songs are in the room's list; each is uploaded
 # from this computer, as any song added to a room.

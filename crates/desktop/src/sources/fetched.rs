@@ -71,10 +71,25 @@ fn lib_song(s: ddi_source_host::FetchedSong) -> LibSong {
     }
 }
 
+/// How far fetched song `id` (or any song of item `key`) may go, as the
+/// store keeps it (its source's level, lowered by its item's): `None`
+/// where it is not a fetched song in the store.
+pub fn reach(id: &str) -> Option<super::Reach> {
+    let store = store()?;
+    let mut s = store.lock().ok()?;
+    let key = s.song(id)?.0.key;
+    s.origin(key).map(|o| o.reach)
+}
+
+/// How far item `key`'s songs may go, as the store keeps it.
+pub fn item_reach(key: ItemKey) -> Option<super::Reach> {
+    store()?.lock().ok()?.origin(key).map(|o| o.reach)
+}
+
 /// The songs in the store an online room may be given (stage 3: My
-/// songs' "Fetched this session"): those whose source's rule allows
-/// rooms and whose charts name them (`song_key`), the library's own
-/// (`library`, by `song_key`) left out, by id.
+/// songs' "Fetched this session"): those whose level allows rooms and
+/// whose charts name them (`song_key`), the library's own (`library`, by
+/// `song_key`) left out, by id.
 pub fn for_rooms(library: &std::collections::HashSet<String>) -> Vec<LibSong> {
     let Some(store) = store() else {
         return Vec::new();
@@ -85,9 +100,8 @@ pub fn for_rooms(library: &std::collections::HashSet<String>) -> Vec<LibSong> {
     };
     every
         .into_iter()
-        .filter(|(s, rule)| {
-            *rule == ddi_source_host::protocol::RoomRule::Upload
-                && s.song_key.as_ref().is_some_and(|k| !library.contains(k))
+        .filter(|(s, reach)| {
+            reach.rooms() && s.song_key.as_ref().is_some_and(|k| !library.contains(k))
         })
         .map(|(s, _)| lib_song(s))
         .collect()

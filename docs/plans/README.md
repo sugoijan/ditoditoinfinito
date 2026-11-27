@@ -804,8 +804,11 @@ so.
   revised 2026-11-26): stages 1 to 3 built (2026-11-26). Stage 3: a found
   song added to an online room without importing it (the room's More,
   "Find songs to add…"; My songs' "Fetched this session"), through the
-  room's own adding and upload, no room model change; a source's room
-  rule honored. Stage 2, the
+  room's own adding and upload, no room model change. Since round RC
+  (2026-11-27) one ordered level says how far a source's song may go,
+  in place of the room rule: played here only, added to rooms too, or
+  imported as well, each step allowing those before it, everything where
+  a source says nothing, an item lowering it, never raising it. Stage 2, the
   first a player can try (desktop, `--sources on`, tentative): "This
   computer" built in behind a switch of its own, searching folders
   without adding them to the library; Find songs in a first form from
@@ -824,7 +827,7 @@ so.
   (the DanOni importer stays shipped for now and may become a plugin
   later, a small move); a separate process; the Plugins page behind the
   Advanced level; "This computer" built in tentatively, behind a switch
-  of its own; rooms allowed where a plugin says nothing; 64 MiB a song,
+  of its own; everything allowed where a plugin says nothing; 64 MiB a song,
   256 MiB in all, 2 GiB of cache a run; the SDK here until the interface
   settles. A plugin declares the capabilities it has (inputs, search,
   filters, browse, metadata, fetch); a fetched song is imported, played

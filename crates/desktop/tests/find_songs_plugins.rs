@@ -3,7 +3,11 @@
 //! song generated, no network) installed in a scratch home's plugins
 //! folder and switched on, run as a real process, searched from the
 //! page, a song played from it to its results without importing it, one
-//! imported; and a plugin that exits at once switched on beside it: the
+//! imported; how far each song may go (its items name each step for
+//! themselves): Import on a song that may be kept, none on one that may
+//! go to rooms but not be kept, nor on one played here only, each line
+//! saying why, and such a song's import refused by the import itself;
+//! and a plugin that exits at once switched on beside it: the
 //! page says the source stopped working, and the game goes on with the
 //! other.
 //!
@@ -31,6 +35,13 @@ const SIZE: [u32; 2] = [1280, 720];
 
 /// The plugin that exits at once, before any Hello.
 const CRASHING: &str = "crashing";
+
+/// What a result's line says where its source lets it be played alone,
+/// or played and added to rooms but not imported.
+const SAYS_PLAY_ONLY: &str =
+    "Play only: its source does not allow importing it or adding it to rooms";
+const SAYS_NOT_FOR_KEEPING: &str =
+    "Not for importing: its source allows playing it and adding it to rooms only";
 
 fn main() {
     let me = std::env::current_exe().expect("this executable");
@@ -238,6 +249,115 @@ fn the_example_plugin_from_find_songs_and_a_crashing_one_beside_it() {
         "in the library"
     );
     until(&mut h, "marked", |h| shows(h, "In your library"));
+
+    // How far each song may go: song 22 may be kept, 23 go to rooms but
+    // not be kept, 24 only be played here.
+    let search = |h: &mut Harness, text: &str, erase: usize| {
+        h.tap(PointerKind::Mouse, "Field.query");
+        for _ in 0..erase {
+            h.key("Backspace", "Backspace");
+        }
+        if !text.is_empty() {
+            h.send(ddi_ui::UiEvent::Text(ddi_ui::event::TextEvent::Commit(
+                text.into(),
+            )));
+        }
+        h.key("Enter", "Enter");
+    };
+    let items = |env: &ddi_ui::screens::Env| env.state.borrow().page_items.clone();
+    search(&mut h, "22", 0);
+    until(&mut h, "song 22", |h| {
+        shows(h, "One result") && shows(h, "Generated Song 22")
+    });
+    let i = items(&env);
+    assert!(
+        i.contains(&"button:play:0".into()) && i.contains(&"button:import:0".into()),
+        "{i:?}"
+    );
+    assert!(!shows(&h, SAYS_PLAY_ONLY) && !shows(&h, SAYS_NOT_FOR_KEEPING));
+    pictures.shot(&mut h.ui, SIZE, "reach-keep.png");
+    search(&mut h, "23", 2);
+    until(&mut h, "song 23", |h| {
+        shows(h, "One result") && shows(h, "Generated Song 23")
+    });
+    assert!(shows(&h, SAYS_NOT_FOR_KEEPING), "{:?}", h.texts());
+    let i = items(&env);
+    assert!(
+        i.contains(&"button:play:0".into()) && !i.contains(&"button:import:0".into()),
+        "{i:?}"
+    );
+    pictures.shot(&mut h.ui, SIZE, "reach-rooms.png");
+    // Played (so fetched), then back: a room's My songs may be given it.
+    press(&mut h, &env, "button:play:0");
+    until(&mut h, "song 23 listed", |h| top(&h.ui) == "select");
+    h.key("Escape", "Escape");
+    h.run(0.5);
+    assert_eq!(top(&h.ui), "find-songs");
+    search(&mut h, "24", 2);
+    until(&mut h, "song 24", |h| {
+        shows(h, "One result") && shows(h, "Generated Song 24")
+    });
+    assert!(shows(&h, SAYS_PLAY_ONLY), "{:?}", h.texts());
+    let i = items(&env);
+    assert!(
+        i.contains(&"button:play:0".into()) && !i.contains(&"button:import:0".into()),
+        "{i:?}"
+    );
+    pictures.shot(&mut h.ui, SIZE, "reach-play.png");
+    press(&mut h, &env, "button:play:0");
+    until(&mut h, "song 24 listed", |h| top(&h.ui) == "select");
+    h.key("Escape", "Escape");
+    h.run(0.5);
+    assert_eq!(top(&h.ui), "find-songs");
+    // What the store keeps of each, and what that allows.
+    let store = ddi_desktop::sources::fetched::store().expect("the store");
+    let fetched = |title: &str| {
+        let every = store.lock().unwrap().every_song();
+        every
+            .into_iter()
+            .find(|(s, _)| s.entry.title == title)
+            .unwrap_or_else(|| panic!("{title} fetched"))
+    };
+    use ddi_desktop::sources::Reach;
+    let (s23, reach23) = fetched("Generated Song 23");
+    let (s24, reach24) = fetched("Generated Song 24");
+    assert_eq!((reach23, reach24), (Reach::Rooms, Reach::Play));
+    // A room's My songs is given song 23, never song 24.
+    let mine = songs.room_data_at(&ddi_ui::state::place::MenuPlace::default());
+    let given: Vec<&str> = mine
+        .songs
+        .iter()
+        .filter(|s| s.pack.as_deref() == Some(ddi_ui::state::place::FETCHED_PACK))
+        .map(|s| s.id.as_str())
+        .collect();
+    assert!(
+        given.contains(&s23.id.as_str()) && !given.contains(&s24.id.as_str()),
+        "{given:?}"
+    );
+    // Their import refused by the import itself: nothing written.
+    let before = songs.library.borrow().as_ref().unwrap().songs.len();
+    for s in [&s23, &s24] {
+        let files = ddi_desktop::sources::fetched::files(s.key.0).unwrap();
+        let refused = ddi_desktop::sources::import::import(
+            "example",
+            "song",
+            None,
+            std::slice::from_ref(s),
+            &files,
+        );
+        assert!(refused.is_err(), "{}", s.entry.title);
+    }
+    assert!(
+        !ddi_desktop::sources::import::catalog()
+            .iter()
+            .any(|r| r.item == "song-23" || r.item == "song-24")
+    );
+    songs.rescan(Vec::new());
+    wait(&songs);
+    songs.poll(&mut h.ui);
+    assert_eq!(songs.library.borrow().as_ref().unwrap().songs.len(), before);
+    search(&mut h, "", 2);
+    until(&mut h, "everything again", |h| shows(h, "24 results."));
 
     // The plugin that crashes asked again: said again; the example still
     // answers after it.

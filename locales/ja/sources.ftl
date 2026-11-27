@@ -103,7 +103,9 @@ sources-add-to-room = ルームに追加
 
 sources-result-in-room = ルームにあります
 
-sources-result-not-for-rooms = ルーム不可：ソースが許可していません
+sources-result-play-only = プレイのみ：ソースがインポートとルームへの追加を許可していません
+
+sources-result-not-for-keeping = インポート不可：ソースが許可しているのはプレイとルームへの追加のみです
 
 sources-added-to-room = { $songs }曲をルームに追加しました。このコンピューターからアップロードされ、ライブラリーには追加されません。
 

@@ -88,7 +88,9 @@ fn name_of(text: &str, fallback: &str) -> String {
 
 /// `songs` of an item (its `files`) written into the import store as
 /// source `source`'s: how many were. The item's own `item` and
-/// `revision` go into the catalog.
+/// `revision` go into the catalog. Refused, nothing written, where the
+/// level the store keeps for any of their items does not allow keeping
+/// them ([`may_keep`]): checked here, whatever offered the import.
 pub fn import(
     source: &str,
     item: &str,
@@ -96,8 +98,21 @@ pub fn import(
     songs: &[FetchedSong],
     files: &ItemFiles,
 ) -> Result<usize, String> {
+    if let Some(song) = songs.iter().find(|s| !may_keep(s)) {
+        return Err(format!(
+            "{}: its source does not allow importing it",
+            song.entry.title
+        ));
+    }
     let root = root().ok_or("no data folder")?;
     import_into(&root, source, item, revision, songs, files)
+}
+
+/// Whether fetched song `song` may be imported: its item's level, as
+/// the store keeps it, is `keep` (an item the store no longer has is
+/// not).
+pub fn may_keep(song: &FetchedSong) -> bool {
+    super::fetched::item_reach(song.key).is_some_and(super::Reach::keeps)
 }
 
 /// [`import`] into `root`.
@@ -178,4 +193,79 @@ pub fn import_into(
         }
     }
     Ok(written.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use ddi_library::path::RelPathBuf;
+    use ddi_source_host::store::{Assembled, ItemKey, Origin, Store, StoreLimits};
+
+    use super::*;
+    use crate::sources::Reach;
+
+    #[test]
+    fn an_import_below_keep_is_refused_by_the_import_itself() {
+        let dir = std::env::temp_dir().join(format!("ddi-import-reach-{}", std::process::id()));
+        let store = Store::open(dir.join("sources"), StoreLimits::default()).shared();
+        let song = |key: ItemKey| FetchedSong {
+            id: key.song_id(0),
+            key,
+            entry: serde_json::from_str(
+                r#"{"id":"x","title":"T","artist":"A","chart":"song.ssc","music":"song.wav"}"#,
+            )
+            .unwrap(),
+            pack: "Pack".into(),
+            dir: RelPathBuf::from("song"),
+            song_key: None,
+            warnings: Vec::new(),
+        };
+        let mut songs = Vec::new();
+        for (n, reach) in [Reach::Play, Reach::Rooms, Reach::Keep]
+            .into_iter()
+            .enumerate()
+        {
+            let key = ItemKey::of("p", &n.to_string(), None);
+            store.lock().unwrap().insert(
+                key,
+                Origin {
+                    plugin: "p".into(),
+                    item: n.to_string(),
+                    revision: None,
+                    reach,
+                },
+                Assembled {
+                    files: BTreeMap::new(),
+                    memory: 0,
+                    disk: 0,
+                    owned: vec![],
+                },
+                vec![song(key)],
+            );
+            songs.push(song(key));
+        }
+        crate::sources::fetched::set_store(Some(store));
+        let files = ItemFiles(std::sync::Arc::new(BTreeMap::new()));
+        // Played only, or added to rooms only: refused before anything is
+        // written (no data folder is even asked for).
+        for s in &songs[..2] {
+            assert!(!may_keep(s));
+            let refused = import(
+                "p",
+                &s.key.0.to_string(),
+                None,
+                std::slice::from_ref(s),
+                &files,
+            );
+            assert!(refused.is_err_and(|e| e.contains("does not allow importing")));
+        }
+        // An item's songs with one that may not be kept: none written.
+        assert!(import("p", "0", None, &songs, &files).is_err());
+        assert!(may_keep(&songs[2]));
+        // A song the store does not have: not kept.
+        assert!(!may_keep(&song(ItemKey::of("p", "gone", None))));
+        crate::sources::fetched::set_store(None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

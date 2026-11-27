@@ -16,7 +16,7 @@ use ddi_library::path::RelPathBuf;
 use ddi_library::report::Finding;
 use ddi_source_protocol::check::Accepted;
 use ddi_source_protocol::{
-    Capability, FailCode, FilterValue, Input, ItemMeta, Node, OpId, RoomRule, Step, Text,
+    Capability, FailCode, FilterValue, Input, ItemMeta, Node, OpId, Reach, Step, Text,
 };
 
 use crate::builtin::{self, Builtin, Running};
@@ -107,14 +107,14 @@ pub enum Request {
         item: String,
     },
     /// An item's files, read as songs into the store. `revision`, `size`
-    /// and `rooms` as its metadata said (a revision is another item for
+    /// and `reach` as its metadata said (a revision is another item for
     /// the store; a size over the item's memory asks for the cache folder;
-    /// `rooms` narrows the manifest's rule).
+    /// `reach` lowers the manifest's level, never raises it).
     Fetch {
         item: String,
         revision: Option<String>,
         size: Option<u64>,
-        rooms: Option<RoomRule>,
+        reach: Option<Reach>,
     },
 }
 

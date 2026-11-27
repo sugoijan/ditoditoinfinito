@@ -14,14 +14,14 @@
 //! capabilities = ["search", "filters", "metadata", "fetch"]
 //! inputs = []                     # or ["folder"], ["url"], ["link"], ["text"]
 //! links = []                      # with "link": [{ host = "…", path = "/songs/" }]
-//! rooms = "upload"                # or "none"
+//! reach = "keep"                 # or "rooms", or "play" (how far its songs may go)
 //! attribution = { required = true, link_back = true }
 //! ```
 
 use serde::{Deserialize, Serialize};
 
 use crate::limits::{MAX_LABEL_CHARS, MAX_LINKS, MAX_NAME_CHARS, MAX_URL_BYTES};
-use crate::message::{Capability, InputKind, RoomRule};
+use crate::message::{Capability, InputKind, Reach};
 use crate::text::{Text, clean};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -46,10 +46,11 @@ pub struct Manifest {
     /// The links it claims (`inputs` has `link`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<LinkClaim>,
-    /// Whether its songs may be added to an online room; allowed where it
-    /// says nothing (decided 2026-11-26).
+    /// How far its songs may go: played here only (`play`), added to
+    /// online rooms too (`rooms`), or imported as well (`keep`, where it
+    /// says nothing: decided 2026-11-27). Each item may lower it.
     #[serde(default)]
-    pub rooms: RoomRule,
+    pub reach: Reach,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attribution: Option<Attribution>,
 }
@@ -197,12 +198,47 @@ mod tests {
     }
 
     #[test]
-    fn a_plain_manifest_is_taken_and_rooms_are_allowed_by_default() {
+    fn a_plain_manifest_is_taken_and_its_songs_go_everywhere_by_default() {
         let m = manifest();
         assert_eq!(m.problem(), None);
-        assert_eq!(m.rooms, RoomRule::Upload);
+        assert_eq!(m.reach, Reach::Keep);
         assert!(m.has(Capability::Fetch));
         assert!(!m.has(Capability::Browse));
+    }
+
+    #[test]
+    fn the_level_is_read_by_its_names_and_the_old_room_rule_is_not() {
+        let with = |key: &str, value: &str| {
+            let mut v = serde_json::to_value(manifest()).unwrap();
+            v[key] = value.into();
+            serde_json::from_value::<Manifest>(v)
+        };
+        assert_eq!(with("reach", "play").unwrap().reach, Reach::Play);
+        assert_eq!(with("reach", "rooms").unwrap().reach, Reach::Rooms);
+        assert_eq!(with("reach", "keep").unwrap().reach, Reach::Keep);
+        assert!(with("reach", "upload").is_err());
+        let old = with("rooms", "none").unwrap_err().to_string();
+        assert!(old.contains("unknown field `rooms`"), "{old}");
+    }
+
+    #[test]
+    fn an_item_lowers_its_sources_level_and_never_raises_it() {
+        use Reach::*;
+        assert!(Play < Rooms && Rooms < Keep);
+        for (source, item, is) in [
+            (Keep, None, Keep),
+            (Keep, Some(Rooms), Rooms),
+            (Keep, Some(Play), Play),
+            (Rooms, Some(Keep), Rooms),
+            (Rooms, Some(Play), Play),
+            (Play, Some(Keep), Play),
+            (Play, Some(Rooms), Play),
+            (Play, None, Play),
+        ] {
+            assert_eq!(source.narrowed(item), is, "{source:?} by {item:?}");
+        }
+        assert!(!Play.rooms() && Rooms.rooms() && Keep.rooms());
+        assert!(!Play.keeps() && !Rooms.keeps() && Keep.keeps());
     }
 
     #[test]

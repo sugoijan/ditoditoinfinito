@@ -243,7 +243,7 @@ fn it_finds_folders_and_zips_songs_never_through_a_link_or_past_its_depth() {
                 item: item.id.clone(),
                 revision: item.revision.clone(),
                 size: item.size,
-                rooms: None,
+                reach: None,
             },
         );
         match answer(host, op).pop() {
@@ -256,6 +256,12 @@ fn it_finds_folders_and_zips_songs_never_through_a_link_or_past_its_depth() {
     assert!(fetched[0].id.starts_with("src:"));
     assert_eq!(fetched[0].entry.title, "Song One");
     assert_eq!(fetched[0].song_key, one.song_key);
+    // The player's own files: everything, as far as a song goes.
+    let key = fetched[0].key;
+    assert_eq!(
+        host.store().lock().unwrap().origin(key).map(|o| o.reach),
+        Some(ddi_source_host::protocol::Reach::Keep)
+    );
     let (song, files) = host.store().lock().unwrap().song(&fetched[0].id).unwrap();
     let wav = song.dir.join("song.wav");
     assert!(

@@ -12,11 +12,15 @@
 //!   `local` where it is, a folder in the plugin's data folder;
 //! - `slow-song` takes a while, telling progress and checking for a
 //!   cancel;
-//! - `song-24` narrows the room rule for itself: its songs are not for
-//!   online rooms (`rooms`), whatever the manifest allows.
+//! - the three steps of how far a song may go (`reach`), each named by
+//!   an item for itself: `song-22` may be kept (imported), as every song
+//!   whose item says nothing; `song-23` may be added to online rooms but
+//!   not kept; `song-24` may only be played on this computer. An item
+//!   lowers its manifest's level, never raises it: under a manifest of
+//!   `reach = "play"`, `song-22` is played only.
 //!
 //! [`ExampleAs`] is the same source under another id (a manifest of its
-//! own beside it: another room rule, say).
+//! own beside it: another level, say).
 
 use crate::{meter, simfile, song_files, zip};
 use ddi_source_sdk::*;
@@ -59,8 +63,13 @@ fn item(n: u32) -> ItemMeta {
         size: Some((simfile(n).len() + 4044) as u64),
         license: Some("CC0 1.0".into()),
         revision: Some("r1".into()),
-        // An item may narrow its source's room rule, never widen it.
-        rooms: (n == SONGS).then_some(RoomRule::None),
+        // An item may lower its source's level, never raise it.
+        reach: match n {
+            22 => Some(Reach::Keep),
+            23 => Some(Reach::Rooms),
+            24 => Some(Reach::Play),
+            _ => None,
+        },
         ..ItemMeta::default()
     }
 }

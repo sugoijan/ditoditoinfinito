@@ -676,6 +676,15 @@ pub fn upload_room(
     grant: &str,
     progress: &mut dyn FnMut(f64, f64),
 ) -> Result<String, ShareError> {
+    // A song a source fetched goes to a room only where its level allows
+    // it (`docs/plans/source-plugins.md`, "How far a song may go"):
+    // checked here too, whatever added it.
+    if crate::sources::fetched::reach(song).is_some_and(|r| !r.rooms()) {
+        return Err(ShareError::Failed {
+            doing: "uploading a found song to a room",
+            error: "its source allows playing it on this computer only".into(),
+        });
+    }
     let mut view = ShareView {
         state: ShareState::Uploading,
         songs: 1,

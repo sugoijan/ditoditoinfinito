@@ -16,7 +16,7 @@ use ddi_source_protocol::limits::{MAX_OPS, MAX_PAGE};
 use ddi_source_protocol::text::clean;
 use ddi_source_protocol::{
     AppInfo, AppMessage, Capability, Deliver, Delivery, Dirs, ItemMeta, Node, OpId,
-    PluginMessage, RoomRule, Text, VERSIONS,
+    PluginMessage, Reach, Text, VERSIONS,
 };
 
 use crate::assemble::{Incoming, Reject, read_songs};
@@ -78,7 +78,7 @@ struct Running {
 struct FetchState {
     item: String,
     revision: Option<String>,
-    rooms: RoomRule,
+    reach: Reach,
     deliver: Deliver,
     incoming: Option<Incoming>,
 }
@@ -379,7 +379,7 @@ impl Session<'_> {
                 item,
                 revision,
                 size,
-                rooms,
+                reach,
             } => {
                 let (budget, folder) = match self.sup.store.lock() {
                     Ok(mut s) => {
@@ -402,16 +402,13 @@ impl Session<'_> {
                     }
                     None => Deliver::Memory { budget },
                 };
-                // An item's metadata narrows its manifest's rule, never
-                // widens it.
-                let rooms = match (self.sup.plugin.manifest.rooms, rooms) {
-                    (RoomRule::None, _) | (_, Some(RoomRule::None)) => RoomRule::None,
-                    _ => RoomRule::Upload,
-                };
+                // An item's metadata lowers its manifest's level, never
+                // raises it.
+                let reach = self.sup.plugin.manifest.reach.narrowed(reach);
                 let fetch = FetchState {
                     item: item.clone(),
                     revision,
-                    rooms,
+                    reach,
                     deliver: deliver.clone(),
                     incoming: Some(Incoming::new(self.sup.store.clone())),
                 };
@@ -775,7 +772,7 @@ impl Session<'_> {
                             plugin,
                             item: fetch.item,
                             revision: fetch.revision,
-                            rooms: fetch.rooms,
+                            reach: fetch.reach,
                         },
                         assembled,
                         songs.clone(),

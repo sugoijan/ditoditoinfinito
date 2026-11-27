@@ -65,11 +65,35 @@ protocol = [1]
 executable = "my-songs"
 capabilities = ["search", "filters", "metadata", "fetch"]
 inputs = []                     # or ["folder"], ["url"], ["link"], ["text"]
-rooms = "upload"                # or "none": your songs are not offered for rooms
+reach = "keep"                  # or "rooms", or "play": how far your songs may go
 attribution = { required = true, link_back = true }
 ```
 
-A plugin found there is **off until the player switches it on**. The
+A plugin found there is **off until the player switches it on**.
+
+### How far your songs may go
+
+`reach` says what a player may do with a song your plugin fetched, in
+three steps, each allowing everything before it:
+
+1. `play`: play it on this computer, without importing it. Nothing is
+   added to the library, and the song is gone when the game exits.
+2. `rooms`: play it, and add it to an online room (the game uploads it
+   to the room for the other players, for as long as the room lists it),
+   still without importing it.
+3. `keep`: all of that, and import it into the player's library, where
+   it stays as any song of theirs.
+
+A manifest that says nothing allows everything (`keep`). An item may
+lower its source's level for itself (`ItemMeta::reach`), never raise
+it: an item that names a higher step than your manifest is held to the
+manifest's. There is no "keep it but do not share it": a song that may
+be kept may go to rooms, so choose `play` for that, or accept rooms.
+
+This is a wish the game honors, not a protection. The game offers only
+the buttons your level allows and checks it again when each is pressed,
+but a player can always copy files by hand, and a song played is
+decoded on their computer like any other. The
 game shows your executable's SHA-256 beside it: publish yours so players
 can compare. Updates are a new folder in its place; the game never
 updates or downloads plugins.
@@ -151,3 +175,5 @@ and the sites are counting on it.
   is written by the site's maintainers; if you are not one, ask them.
 - Keep what the site states of a song: its license and who to credit
   (`ItemMeta::license`, `ItemMeta::attribution`), and its page.
+- Say how far its songs may go (`reach`, above) as the site wishes:
+  `play` for a site that wants its songs played and nothing more.

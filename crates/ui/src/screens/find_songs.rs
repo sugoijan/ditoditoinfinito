@@ -9,10 +9,15 @@
 //! plan's stage 6.
 //!
 //! Opened from an online room (stage 3: its More, "Find songs to add…"),
-//! each result has Add to room in Play's place where its source's rule
-//! and the room allow, else says why on its line; what is added goes to
-//! the room's list as a song of the library does, uploaded from here and
-//! never imported.
+//! each result has Add to room in Play's place where its source and the
+//! room allow; what is added goes to the room's list as a song of the
+//! library does, uploaded from here and never imported.
+//!
+//! How far a result may go is its source's level, lowered by the item
+//! (`docs/plans/source-plugins.md`, "How far a song may go"): played on
+//! this computer only, added to rooms too, or imported as well. A button
+//! its level leaves out is absent, and the result's line says why
+//! ([`Reach`]).
 //!
 //! The page is made from [`FindView`], what the shell's model shows now;
 //! a press goes to the model ([`FindPress`]), which asks the sources.
@@ -62,8 +67,24 @@ pub struct ResultView {
     pub tags: Vec<String>,
     /// The library has a song of the same charts already.
     pub in_library: bool,
+    /// How far its songs may go (its source's level, lowered by the
+    /// item's own).
+    pub reach: Reach,
     /// Opened from an online room: what it offers there.
     pub room: RoomOffer,
+}
+
+/// How far a result's songs may go, each step allowing everything before
+/// it: the buttons it has, and why a button is absent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Reach {
+    /// Played on this computer only: no Import, no Add to room.
+    Play,
+    /// Played and added to rooms: no Import.
+    Rooms,
+    /// Everything (the default).
+    #[default]
+    Keep,
 }
 
 /// What a result offers an online room (stage 3).
@@ -76,8 +97,8 @@ pub enum RoomOffer {
     Add,
     /// The room lists the same song already.
     InRoom,
-    /// Its source (or the item itself) keeps its songs out of rooms: said
-    /// on its line, no button.
+    /// It may not go to rooms ([`Reach::Play`]): no button, its line
+    /// saying why.
     NotForRooms,
 }
 
@@ -151,6 +172,11 @@ pub enum Problem {
     Stopped,
     /// The import could not write the song into the library.
     ImportFailed,
+    /// Its source lets it be played on this computer alone (a press its
+    /// level leaves out: said in the line's words).
+    PlayOnly,
+    /// Its source lets it be played and added to rooms, not imported.
+    NotForKeeping,
 }
 
 /// What the page says once, quietly.
@@ -257,6 +283,8 @@ pub fn problem_text(p: Problem) -> UiText {
         Problem::SwitchedOff => m::problem_switched_off(),
         Problem::Stopped => m::problem_stopped(),
         Problem::ImportFailed => m::problem_import_failed(),
+        Problem::PlayOnly => m::result_play_only(),
+        Problem::NotForKeeping => m::result_not_for_keeping(),
     }
 }
 
@@ -400,27 +428,32 @@ pub fn doc(view: &FindView) -> PageDoc {
             if r.in_library {
                 tags.push(m::result_in_library().into());
             }
-            match r.room {
-                RoomOffer::InRoom => tags.push(m::result_in_room().into()),
-                RoomOffer::NotForRooms => tags.push(m::result_not_for_rooms().into()),
-                RoomOffer::None | RoomOffer::Add => {}
+            if r.room == RoomOffer::InRoom {
+                tags.push(m::result_in_room().into());
+            }
+            // Why a button is absent: how far its source lets it go.
+            match r.reach {
+                Reach::Play => tags.push(m::result_play_only().into()),
+                Reach::Rooms => tags.push(m::result_not_for_keeping().into()),
+                Reach::Keep => {}
             }
             let busy = view.busy.is_some();
             // From a room: Add to room in Play's place (nothing is played
             // over a room), where it may be added.
             let first = if !view.room {
                 Some(Action::new(format!("play:{i}"), m::play()).off(busy))
-            } else if r.room == RoomOffer::Add {
+            } else if r.room == RoomOffer::Add && r.reach >= Reach::Rooms {
                 Some(Action::new(format!("add:{i}"), m::add_to_room()).off(busy))
             } else {
                 None
             };
-            let import =
-                Action::new(format!("import:{i}"), m::import()).off(busy || r.in_library);
+            // Import only where it may be kept.
+            let import = (r.reach == Reach::Keep)
+                .then(|| Action::new(format!("import:{i}"), m::import()).off(busy || r.in_library));
             blocks.push(Block::Entry {
                 text: UiText::data(&r.title).into(),
                 detail: (!tags.is_empty()).then(|| tags.join(" · ")),
-                actions: first.into_iter().chain([import]).collect(),
+                actions: first.into_iter().chain(import).collect(),
             });
         }
         if view.more {
@@ -530,6 +563,7 @@ mod tests {
                 title: "Song A".into(),
                 tags: vec!["Artist".into(), "Pack".into()],
                 in_library: true,
+                reach: Reach::Keep,
                 room: RoomOffer::None,
             }],
             total: Some(3),
@@ -606,6 +640,7 @@ mod tests {
             ResultView {
                 id: "b".into(),
                 title: "Song B".into(),
+                reach: Reach::Play,
                 room: RoomOffer::NotForRooms,
                 ..ResultView::default()
             },
@@ -630,8 +665,80 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(details[1], m::result_not_for_rooms().as_str());
+        assert_eq!(details[1], m::result_play_only().as_str());
         assert_eq!(details[2], m::result_in_room().as_str());
+    }
+
+    #[test]
+    fn a_results_level_leaves_its_buttons_out_and_its_line_says_why() {
+        let result = |id: &str, reach: Reach, room: RoomOffer| ResultView {
+            id: id.into(),
+            title: id.into(),
+            reach,
+            room,
+            ..ResultView::default()
+        };
+        let entries = |d: &PageDoc| -> Vec<(Vec<String>, String)> {
+            d.blocks
+                .iter()
+                .filter_map(|b| match b {
+                    Block::Entry {
+                        actions, detail, ..
+                    } => Some((
+                        actions.iter().map(|a| a.id.clone()).collect(),
+                        detail.clone().unwrap_or_default(),
+                    )),
+                    _ => None,
+                })
+                .collect()
+        };
+        // Alone: Play always, Import only where it may be kept.
+        let mut v = view();
+        v.folders = None;
+        v.results = vec![
+            result("keep", Reach::Keep, RoomOffer::None),
+            result("rooms", Reach::Rooms, RoomOffer::None),
+            result("play", Reach::Play, RoomOffer::None),
+        ];
+        let e = entries(&doc(&v));
+        assert_eq!(
+            e[0],
+            (vec!["play:0".into(), "import:0".into()], String::new())
+        );
+        assert_eq!(
+            e[1],
+            (
+                vec!["play:1".into()],
+                m::result_not_for_keeping().as_str().into()
+            )
+        );
+        assert_eq!(
+            e[2],
+            (vec!["play:2".into()], m::result_play_only().as_str().into())
+        );
+        // From a room: Add to room from `rooms` up, the same words.
+        v.room = true;
+        v.results = vec![
+            result("keep", Reach::Keep, RoomOffer::Add),
+            result("rooms", Reach::Rooms, RoomOffer::Add),
+            result("play", Reach::Play, RoomOffer::NotForRooms),
+        ];
+        let e = entries(&doc(&v));
+        assert_eq!(
+            e[0],
+            (vec!["add:0".into(), "import:0".into()], String::new())
+        );
+        assert_eq!(
+            e[1],
+            (
+                vec!["add:1".into()],
+                m::result_not_for_keeping().as_str().into()
+            )
+        );
+        assert_eq!(e[2], (vec![], m::result_play_only().as_str().into()));
+        // A model's mistake (Add offered below `rooms`) shows no button.
+        v.results = vec![result("play", Reach::Play, RoomOffer::Add)];
+        assert_eq!(entries(&doc(&v))[0].0, Vec::<String>::new());
     }
 
     #[test]

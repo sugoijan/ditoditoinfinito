@@ -14,8 +14,13 @@
 //! added to the room's list (Add to room, fetched first where the library
 //! does not have it) through the room's client as My songs adds a song,
 //! with the same checks and the same words, its item kept for the room
-//! (`super::rooms`); a source or an item whose rule keeps its songs out
-//! of rooms offers no Add to room and says so.
+//! (`super::rooms`).
+//!
+//! How far a result may go is its source's level lowered by its item's
+//! (`super::Reach`): below `rooms` it offers no Add to room, below `keep`
+//! no Import, and its line says why; each is checked again at the press
+//! and once the item is fetched (by the level the store keeps), and the
+//! import checks it itself (`super::import::import`).
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
@@ -35,6 +40,7 @@ use ddi_ui::screens::find_songs::{
 use ddi_ui::screens::room_dialogs::NoticeDialog;
 use ddi_ui::state::room::{Refusal, SharedRoom, Unsupported};
 
+use super::Reach;
 use super::this_computer;
 use crate::preview::SharedPlayer;
 use crate::songs::Songs;
@@ -223,15 +229,28 @@ impl Finder {
         }
     }
 
-    /// Whether result `r`'s songs may be added to a room by their
-    /// source's rule, narrowed by the item's own (never widened).
-    fn rooms_allow(&self, r: &ItemMeta) -> bool {
-        use ddi_source_host::protocol::RoomRule;
-        let source = self
-            .chosen_id()
-            .and_then(|id| Some(self.songs.sources.borrow().as_ref()?.room_rule(&id)))
-            .unwrap_or(RoomRule::None);
-        source == RoomRule::Upload && r.rooms != Some(RoomRule::None)
+    /// How far result `r`'s songs may go: the chosen source's level,
+    /// lowered by the item's own (never raised).
+    fn reach_of(&self, r: &ItemMeta) -> Reach {
+        self.chosen_id()
+            .and_then(|id| Some(self.songs.sources.borrow().as_ref()?.reach(&id)))
+            .unwrap_or(Reach::Play)
+            .narrowed(r.reach)
+    }
+
+    /// Why a result of level `reach` may not be used as `purpose` wants,
+    /// in the page's words (the same as its line's), or `None`.
+    fn refused_for(reach: Reach, purpose: Purpose) -> Option<Problem> {
+        match purpose {
+            Purpose::Play => None,
+            Purpose::Room if !reach.rooms() => Some(Problem::PlayOnly),
+            Purpose::Import if !reach.keeps() => Some(if reach.rooms() {
+                Problem::NotForKeeping
+            } else {
+                Problem::PlayOnly
+            }),
+            Purpose::Room | Purpose::Import => None,
+        }
     }
 
     /// What result `r` offers the room the page was opened from.
@@ -239,7 +258,7 @@ impl Finder {
         let Some(room) = &self.room else {
             return RoomOffer::None;
         };
-        if !self.rooms_allow(r) {
+        if !self.reach_of(r).rooms() {
             return RoomOffer::NotForRooms;
         }
         // By the key its source states, else by its songs as fetched in
@@ -304,7 +323,10 @@ impl Finder {
         let (Some(room), Some(item)) = (self.room.clone(), self.results.get(i).cloned()) else {
             return;
         };
-        if !self.rooms_allow(&item) {
+        // Checked here, not only by the button's absence.
+        if let Some(p) = Self::refused_for(self.reach_of(&item), Purpose::Room) {
+            self.problem = Some(p);
+            self.changed();
             return;
         }
         let refused = Self::room_refusal(&room)
@@ -387,19 +409,18 @@ impl Finder {
         self.changed();
     }
 
-    /// A fetched item's songs added to the room: its rule as the store
-    /// has it (the source's, narrowed by the item's), then as any song.
+    /// A fetched item's songs added to the room: its level as the store
+    /// has it (the source's, lowered by the item's), then as any song.
     fn add_fetched(&mut self, songs: Vec<FetchedSong>, cx: &mut Cx) {
         let Some(room) = self.room.clone() else {
             return;
         };
-        let allowed = songs.first().is_some_and(|s| {
-            super::fetched::store()
-                .and_then(|st| st.lock().ok()?.origin(s.key).map(|o| o.rooms))
-                .is_some_and(|r| r == ddi_source_host::protocol::RoomRule::Upload)
-        });
-        if !allowed {
-            self.problem = Some(Problem::Refused);
+        let reach = songs
+            .first()
+            .and_then(|s| super::fetched::item_reach(s.key))
+            .unwrap_or(Reach::Play);
+        if let Some(p) = Self::refused_for(reach, Purpose::Room) {
+            self.problem = Some(p);
             self.changed();
             return;
         }
@@ -493,6 +514,11 @@ impl Finder {
         self.problem = None;
         self.details = None;
         self.note = None;
+        // Checked at the press, not only by the button's absence.
+        if let Some(p) = Self::refused_for(self.reach_of(&item), purpose) {
+            self.problem = Some(p);
+            return;
+        }
         // For a room, an item fetched already in this run is used as it
         // is (it may be held: a song added before, then removed).
         if purpose == Purpose::Room {
@@ -513,7 +539,7 @@ impl Finder {
                 item: item.id.clone(),
                 revision: item.revision.clone(),
                 size: item.size,
-                rooms: item.rooms,
+                reach: item.reach,
             },
         );
         if let Some(op) = op {
@@ -764,8 +790,14 @@ impl Finder {
         }
     }
 
-    /// An item fetched for Import: written into the library on a thread.
+    /// An item fetched for Import: written into the library on a thread,
+    /// where the level the store keeps for it allows keeping it.
     fn import(&mut self, f: Fetching, key: ItemKey, songs: Vec<FetchedSong>) {
+        let reach = super::fetched::item_reach(key).unwrap_or(Reach::Play);
+        if let Some(p) = Self::refused_for(reach, Purpose::Import) {
+            self.problem = Some(p);
+            return;
+        }
         let Some(files) = super::fetched::files(key.0) else {
             self.problem = Some(Problem::ImportFailed);
             return;
@@ -851,6 +883,11 @@ impl FindModel for Finder {
                     .as_ref()
                     .is_some_and(|k| self.library_keys.contains(k))
                     || self.imported.contains(&(source.clone(), r.id.clone())),
+                reach: match self.reach_of(r) {
+                    Reach::Play => ddi_ui::screens::find_songs::Reach::Play,
+                    Reach::Rooms => ddi_ui::screens::find_songs::Reach::Rooms,
+                    Reach::Keep => ddi_ui::screens::find_songs::Reach::Keep,
+                },
                 room: self.room_offer(r),
             })
             .collect();

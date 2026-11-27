@@ -113,6 +113,12 @@ pub trait Builtin: Send + Sync + 'static {
     /// What it does, as a plugin's Hello says it.
     fn accepted(&self) -> Accepted;
 
+    /// How far its songs may go, as a plugin's manifest says it (an
+    /// item's may lower it): everything, unless it says otherwise.
+    fn reach(&self) -> ddi_source_protocol::Reach {
+        ddi_source_protocol::Reach::Keep
+    }
+
     fn open(&self, cx: &Context, input: Input) -> Answer<Opened> {
         let _ = (cx, input);
         Err(Failed::new(FailCode::Unsupported))
@@ -420,7 +426,7 @@ fn answer(source: &dyn Builtin, cx: &Context, spawn: &Spawn, request: Request) -
         Request::Fetch {
             item,
             revision,
-            rooms,
+            reach,
             ..
         } => {
             let delivered = match source.fetch(cx, &item) {
@@ -436,7 +442,7 @@ fn answer(source: &dyn Builtin, cx: &Context, spawn: &Spawn, request: Request) -
                 op,
                 &item,
                 revision,
-                rooms.unwrap_or_default(),
+                source.reach().narrowed(reach),
                 delivered,
             )]
         }
@@ -450,7 +456,7 @@ fn fetched(
     op: OpId,
     item: &str,
     revision: Option<String>,
-    rooms: ddi_source_protocol::RoomRule,
+    reach: ddi_source_protocol::Reach,
     delivered: Delivered,
 ) -> Event {
     let memory: u64 = delivered
@@ -486,7 +492,7 @@ fn fetched(
                         plugin: source.id().to_string(),
                         item: item.to_string(),
                         revision,
-                        rooms,
+                        reach,
                     },
                     Assembled {
                         files: (*files.0).clone(),
@@ -525,7 +531,7 @@ mod tests {
 
     use ddi_library::path::RelPath;
     use ddi_library::scan::Reader as _;
-    use ddi_source_protocol::{Capability, InputKind};
+    use ddi_source_protocol::{Capability, InputKind, Reach};
 
     use super::*;
     use crate::store::{Store, StoreLimits};
@@ -659,7 +665,7 @@ mod tests {
             item: item.into(),
             revision: None,
             size: None,
-            rooms: None,
+            reach: None,
         }
     }
 
@@ -681,6 +687,22 @@ mod tests {
         assert_eq!(song.key, key);
         assert_eq!(files.read(RelPath::new("Pack/Song/song.ogg")).unwrap(), b"OggS");
         assert_eq!(host.store().lock().unwrap().usage().memory, SSC.len() as u64 + 4);
+        // Its level: everything, unless the item lowers it.
+        let reach = |host: &Host, key| host.store().lock().unwrap().origin(key).map(|o| o.reach);
+        assert_eq!(reach(&host, key), Some(Reach::Keep));
+        let op = host.request(
+            "fake",
+            Request::Fetch {
+                item: "one".into(),
+                revision: Some("r2".into()),
+                size: None,
+                reach: Some(Reach::Rooms),
+            },
+        );
+        let Some(Event::Fetched { key, .. }) = until_end(&mut host, op).pop() else {
+            panic!("not fetched");
+        };
+        assert_eq!(reach(&host, key), Some(Reach::Rooms));
         // Not offered: browse; not found: another item.
         let op = host.request(
             "fake",

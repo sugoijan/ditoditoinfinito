@@ -11,8 +11,12 @@
 //!   song listed, uploaded from its item (the bytes the share got are the
 //!   song's files), held while the room lists it;
 //! - the example plugin (a real process): its songs added the same way;
-//!   one of its items keeps itself out of rooms, and a second plugin
-//!   whose manifest says `rooms = "none"` offers no Add to room at all;
+//!   how far each of its songs may go (its items name each of the three
+//!   steps for themselves): Add to room and Import on a song that may be
+//!   kept, Add to room alone on one that may go to rooms, neither on one
+//!   played here only, each line saying why; and a second plugin whose
+//!   manifest says `reach = "play"` offers neither on any song, even one
+//!   whose item names a higher step;
 //! - the room's own refusals at the press (a full list; a member who may
 //!   not add), in its words;
 //! - a song removed from the list let go, then added again from My songs'
@@ -53,16 +57,23 @@ use ddi_ui::{PointerKind, TextMode, Ui};
 
 const SIZE: [u32; 2] = [1280, 720];
 const ROOM: &str = common::online::ROOM;
-/// The example source again under another id, its manifest keeping its
-/// songs out of rooms.
-const CLOSED: &str = "closed";
+/// The example source again under another id, its manifest letting its
+/// songs be played on this computer only.
+const PLAY_ONLY: &str = "play-only";
+
+/// What a result's line says where its source lets it be played alone,
+/// or played and added to rooms but not imported.
+const SAYS_PLAY_ONLY: &str =
+    "Play only: its source does not allow importing it or adding it to rooms";
+const SAYS_NOT_FOR_KEEPING: &str =
+    "Not for importing: its source allows playing it and adding it to rooms only";
 
 fn main() {
     let me = std::env::current_exe().expect("this executable");
     match me.file_stem().and_then(|s| s.to_str()) {
         Some("example") => ddi_source_sdk::main(ddi_source_test_plugins::example::Example),
-        Some(CLOSED) => {
-            ddi_source_sdk::main(ddi_source_test_plugins::example::ExampleAs(CLOSED))
+        Some(PLAY_ONLY) => {
+            ddi_source_sdk::main(ddi_source_test_plugins::example::ExampleAs(PLAY_ONLY))
         }
         _ => {
             found_songs_go_into_a_room_without_being_imported();
@@ -122,8 +133,8 @@ fn song_at(dir: &Path, title: &str, meter: u32, notes: &str) {
 }
 
 /// This executable installed as plugin `id` in `plugins`, with its
-/// manifest (`rooms` its room rule, where it states one).
-fn install(plugins: &Path, id: &str, rooms: Option<&str>) {
+/// manifest (`reach` how far its songs may go, where it states it).
+fn install(plugins: &Path, id: &str, reach: Option<&str>) {
     let dir = plugins.join(id);
     let bin = dir.join("bin").join(ddi_source_host::installed::platform());
     std::fs::create_dir_all(&bin).unwrap();
@@ -132,11 +143,13 @@ fn install(plugins: &Path, id: &str, rooms: Option<&str>) {
     if std::fs::hard_link(&me, &exe).is_err() {
         std::fs::copy(&me, &exe).unwrap();
     }
-    let rooms = rooms.map(|r| format!("rooms = \"{r}\"\n")).unwrap_or_default();
+    let reach = reach
+        .map(|r| format!("reach = \"{r}\"\n"))
+        .unwrap_or_default();
     std::fs::write(
         dir.join("plugin.toml"),
         format!(
-            "id = \"{id}\"\nname = {{ en = \"Test {id}\" }}\npublisher = \"Tests\"\nversion = \"1.0.0\"\nprotocol = [1]\nexecutable = \"{id}\"\ncapabilities = [\"input\", \"search\", \"filters\", \"browse\", \"metadata\", \"fetch\"]\ninputs = [\"url\"]\n{rooms}"
+            "id = \"{id}\"\nname = {{ en = \"Test {id}\" }}\npublisher = \"Tests\"\nversion = \"1.0.0\"\nprotocol = [1]\nexecutable = \"{id}\"\ncapabilities = [\"input\", \"search\", \"filters\", \"browse\", \"metadata\", \"fetch\"]\ninputs = [\"url\"]\n{reach}"
         ),
     )
     .unwrap();
@@ -296,10 +309,10 @@ fn found_songs_go_into_a_room_without_being_imported() {
     song_at(&found.join("Pack A/Song Two"), "Song Two", 7, "0001\n0010\n0100\n1000\n");
     let plugins = ddi_desktop::sources::plugins_dir().unwrap();
     install(&plugins, "example", None);
-    install(&plugins, CLOSED, Some("none"));
+    install(&plugins, PLAY_ONLY, Some("play"));
     let switches = ddi_desktop::sources::switches_path().unwrap();
     std::fs::create_dir_all(switches.parent().unwrap()).unwrap();
-    for id in ["example", CLOSED] {
+    for id in ["example", PLAY_ONLY] {
         ddi_source_host::switches::Switches::set(&switches, id, true).unwrap();
     }
     ddi_desktop::sources::save_switch(true);
@@ -448,8 +461,9 @@ fn found_songs_go_into_a_room_without_being_imported() {
         );
     }
 
-    // The example plugin: Add to room on its songs, but for the one that
-    // keeps itself out of rooms; the closed plugin: none.
+    // The example plugin: Add to room and Import on its songs that may be
+    // kept; song 23 may go to rooms and not be kept, song 24 only be
+    // played here (their items say so); the play-only plugin: neither.
     let source = |w: &World, name: &str| -> String {
         let texts = w.h.texts();
         let names: Vec<&String> = texts
@@ -469,10 +483,13 @@ fn found_songs_go_into_a_room_without_being_imported() {
     w.press(&example);
     w.until("the example's songs", |w| w.shows("24 results."));
     let items = w.items();
-    assert!(items.contains(&"button:add:0".to_string()), "{items:?}");
-    assert!(items.contains(&"button:import:23".to_string()), "{items:?}");
-    assert!(!items.contains(&"button:add:23".to_string()), "{items:?}");
-    // Song 24 alone: why, on its line.
+    for i in ["add:0", "import:0", "add:21", "import:21", "add:22"] {
+        assert!(items.contains(&format!("button:{i}")), "{i}: {items:?}");
+    }
+    for i in ["import:22", "add:23", "import:23"] {
+        assert!(!items.contains(&format!("button:{i}")), "{i}: {items:?}");
+    }
+    // Each step alone: why a button is absent, on its line.
     let search = |w: &mut World, text: &str, erase: usize| {
         w.h.tap(PointerKind::Mouse, field);
         for _ in 0..erase {
@@ -485,22 +502,61 @@ fn found_songs_go_into_a_room_without_being_imported() {
         }
         w.h.key("Enter", "Enter");
     };
-    search(&mut w, "24", 0);
-    w.until("song 24", |w| w.shows("One result"));
-    assert!(w.shows("Not for rooms: its source does not allow it"), "{:?}", w.h.texts());
-    assert!(!w.items().iter().any(|i| i.starts_with("button:add:")));
-    pictures.shot(&mut w.h.ui, SIZE, "room-rules.png");
-    let closed = source(&w, &format!("Test {CLOSED}"));
-    w.press(&closed);
-    w.until("the closed source's song", |w| {
-        w.shows("Searching: Test closed") && w.shows("One result")
+    search(&mut w, "22", 0);
+    w.until("song 22", |w| {
+        w.shows("One result") && w.shows("Generated Song 22")
     });
-    search(&mut w, "", 2);
-    w.until("the closed source's songs", |w| w.shows("24 results."));
     let items = w.items();
-    assert!(!items.iter().any(|i| i.starts_with("button:add:")), "{items:?}");
-    assert!(w.shows("Not for rooms"));
-    pictures.shot(&mut w.h.ui, SIZE, "room-closed.png");
+    assert!(
+        items.contains(&"button:add:0".to_string())
+            && items.contains(&"button:import:0".to_string()),
+        "{items:?}"
+    );
+    assert!(!w.shows(SAYS_PLAY_ONLY) && !w.shows(SAYS_NOT_FOR_KEEPING));
+    pictures.shot(&mut w.h.ui, SIZE, "reach-room-keep.png");
+    search(&mut w, "23", 2);
+    w.until("song 23", |w| {
+        w.shows("One result") && w.shows("Generated Song 23")
+    });
+    assert!(w.shows(SAYS_NOT_FOR_KEEPING), "{:?}", w.h.texts());
+    let items = w.items();
+    assert!(items.contains(&"button:add:0".to_string()), "{items:?}");
+    assert!(!items.contains(&"button:import:0".to_string()), "{items:?}");
+    pictures.shot(&mut w.h.ui, SIZE, "reach-room-rooms.png");
+    search(&mut w, "24", 2);
+    w.until("song 24", |w| {
+        w.shows("One result") && w.shows("Generated Song 24")
+    });
+    assert!(w.shows(SAYS_PLAY_ONLY), "{:?}", w.h.texts());
+    assert!(
+        !w.items()
+            .iter()
+            .any(|i| i.starts_with("button:add:") || i.starts_with("button:import:")),
+        "{:?}",
+        w.items()
+    );
+    pictures.shot(&mut w.h.ui, SIZE, "reach-room-play.png");
+    let play_only = source(&w, &format!("Test {PLAY_ONLY}"));
+    w.press(&play_only);
+    w.until("the play-only source's song", |w| {
+        w.shows("Searching: Test play-only") && w.shows("One result")
+    });
+    // Song 22's item names `keep`: held to its source's `play`.
+    search(&mut w, "22", 2);
+    w.until("its song 22", |w| w.shows("Generated Song 22"));
+    assert!(w.shows(SAYS_PLAY_ONLY), "{:?}", w.h.texts());
+    search(&mut w, "", 2);
+    w.until("the play-only source's songs", |w| w.shows("24 results."));
+    let items = w.items();
+    assert!(
+        !items
+            .iter()
+            .any(|i| i.starts_with("button:add:") || i.starts_with("button:import:")),
+        "{items:?}"
+    );
+    assert!(w.shows(SAYS_PLAY_ONLY));
+    assert!(!w.shows(SAYS_NOT_FOR_KEEPING));
+    pictures.shot(&mut w.h.ui, SIZE, "reach-room-play-only-source.png");
 
     // Generated Song 1 from the example (a real process) added.
     let example = source(&w, "Test example");

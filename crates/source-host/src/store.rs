@@ -35,7 +35,7 @@ use ddi_library::manifest::ManifestEntry;
 use ddi_library::path::{RelPath, RelPathBuf};
 use ddi_library::report::Finding;
 use ddi_library::scan::Reader;
-use ddi_source_protocol::RoomRule;
+use ddi_source_protocol::Reach;
 
 /// The store as the host's threads and the game share it. Its lock is
 /// held for bookkeeping only; files are written and read outside it.
@@ -93,9 +93,9 @@ pub struct Origin {
     pub plugin: String,
     pub item: String,
     pub revision: Option<String>,
-    /// Whether its songs may be added to a room: the manifest's rule,
-    /// narrowed by the item's metadata (stage 3 reads it).
-    pub rooms: RoomRule,
+    /// How far its songs may go (played here, added to rooms, imported):
+    /// the source's level, lowered by the item's metadata, never raised.
+    pub reach: Reach,
 }
 
 /// One of an item's files.
@@ -423,13 +423,13 @@ impl Store {
         self.items.get(&key).map(|i| &i.origin)
     }
 
-    /// Every song in the store with its item's room rule, by id (stage 3:
-    /// a room's "Fetched this session"), none of their uses noted.
-    pub fn every_song(&self) -> Vec<(FetchedSong, RoomRule)> {
-        let mut out: Vec<(FetchedSong, RoomRule)> = self
+    /// Every song in the store with its item's level, by id (stage 3: a
+    /// room's "Fetched this session"), none of their uses noted.
+    pub fn every_song(&self) -> Vec<(FetchedSong, Reach)> {
+        let mut out: Vec<(FetchedSong, Reach)> = self
             .items
             .values()
-            .flat_map(|i| i.songs.iter().map(|s| (s.clone(), i.origin.rooms)))
+            .flat_map(|i| i.songs.iter().map(|s| (s.clone(), i.origin.reach)))
             .collect();
         out.sort_by(|a, b| a.0.id.cmp(&b.0.id));
         out
@@ -628,7 +628,7 @@ mod tests {
                 plugin: "p".into(),
                 item: n.to_string(),
                 revision: None,
-                rooms: RoomRule::Upload,
+                reach: Reach::Keep,
             },
             Assembled {
                 files,
@@ -712,7 +712,7 @@ mod tests {
     }
 
     #[test]
-    fn every_song_says_its_items_room_rule() {
+    fn every_song_says_its_items_level() {
         let (store, _) = store("every", SMALL);
         let key = ItemKey::of("p", "1", None);
         let song = |n: usize| FetchedSong {
@@ -733,7 +733,7 @@ mod tests {
                 plugin: "p".into(),
                 item: "1".into(),
                 revision: None,
-                rooms: RoomRule::None,
+                reach: Reach::Play,
             },
             Assembled {
                 files: BTreeMap::new(),
@@ -746,7 +746,7 @@ mod tests {
         let every = store.lock().unwrap().every_song();
         let ids: Vec<&str> = every.iter().map(|(s, _)| s.id.as_str()).collect();
         assert_eq!(ids, [key.song_id(0), key.song_id(1)]);
-        assert!(every.iter().all(|(_, r)| *r == RoomRule::None));
+        assert!(every.iter().all(|(_, r)| *r == Reach::Play));
     }
 
     #[test]

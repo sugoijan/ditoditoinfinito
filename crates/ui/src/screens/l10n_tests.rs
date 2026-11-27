@@ -2537,6 +2537,7 @@ fn find_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             chart_tag("their-own", Some(3)),
         ],
         in_library,
+        reach: Reach::Keep,
         room: RoomOffer::None,
     };
     let full = FindView {
@@ -2572,6 +2573,8 @@ fn find_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         Problem::SwitchedOff,
         Problem::Stopped,
         Problem::ImportFailed,
+        Problem::PlayOnly,
+        Problem::NotForKeeping,
     ];
     let mut views = vec![
         FindView::default(),
@@ -2610,17 +2613,35 @@ fn find_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             }),
             ..full.clone()
         },
-        // Opened from an online room (stage 3): Add to room, or why not.
+        // How far each may go: Import, or why not.
         FindView {
-            room: true,
-            results: [RoomOffer::Add, RoomOffer::InRoom, RoomOffer::NotForRooms]
+            results: [Reach::Keep, Reach::Rooms, Reach::Play]
                 .into_iter()
                 .enumerate()
-                .map(|(n, room)| ResultView {
-                    room,
+                .map(|(n, reach)| ResultView {
+                    reach,
                     ..result(n, false)
                 })
                 .collect(),
+            ..full.clone()
+        },
+        // Opened from an online room (stage 3): Add to room, or why not.
+        FindView {
+            room: true,
+            results: [
+                (RoomOffer::Add, Reach::Keep),
+                (RoomOffer::InRoom, Reach::Keep),
+                (RoomOffer::Add, Reach::Rooms),
+                (RoomOffer::NotForRooms, Reach::Play),
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(n, (room, reach))| ResultView {
+                room,
+                reach,
+                ..result(n, false)
+            })
+            .collect(),
             note: Some(Note::AddedToRoom { songs: 2 }),
             ..full.clone()
         },

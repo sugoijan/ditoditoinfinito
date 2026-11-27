@@ -186,6 +186,19 @@ fn vectors() -> Value {
             &[],
         ),
         plugin(
+            "results: an item that may only be played here",
+            PluginMessage::Results {
+                op: 2,
+                items: vec![ItemMeta {
+                    id: "song-18".into(),
+                    title: "Day Train".into(),
+                    reach: Some(Reach::Play),
+                    ..Default::default()
+                }],
+            },
+            &[],
+        ),
+        plugin(
             "done with a cursor",
             PluginMessage::Done {
                 op: 2,
@@ -272,6 +285,24 @@ fn vectors() -> Value {
             "an unknown message",
             "plugin",
             &raw(r#"{"type":"teleport","op":1}"#, &[]),
+            "malformed",
+        ),
+        refused(
+            "an item's room rule, replaced by its reach",
+            "plugin",
+            &raw(
+                r#"{"type":"results","op":2,"items":[{"id":"song-18","title":"Day Train","rooms":"none"}]}"#,
+                &[],
+            ),
+            "malformed",
+        ),
+        refused(
+            "a reach that is not one of the three",
+            "plugin",
+            &raw(
+                r#"{"type":"results","op":2,"items":[{"id":"song-18","title":"Day Train","reach":"share"}]}"#,
+                &[],
+            ),
             "malformed",
         ),
         refused(

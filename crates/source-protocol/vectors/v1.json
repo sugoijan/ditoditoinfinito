@@ -187,6 +187,22 @@
       "name": "results"
     },
     {
+      "frame": "0000005b000000577b2274797065223a22726573756c7473222c226f70223a322c226974656d73223a5b7b226964223a22736f6e672d3138222c227469746c65223a2244617920547261696e222c227265616368223a22706c6179227d5d7d",
+      "from": "plugin",
+      "message": {
+        "items": [
+          {
+            "id": "song-18",
+            "reach": "play",
+            "title": "Day Train"
+          }
+        ],
+        "op": 2,
+        "type": "results"
+      },
+      "name": "results: an item that may only be played here"
+    },
+    {
       "frame": "00000038000000347b2274797065223a22646f6e65222c226f70223a322c22637572736f72223a22706167652d32222c22746f74616c223a3133307d",
       "from": "plugin",
       "message": {
@@ -298,6 +314,18 @@
       "frame": "0000001e0000001a7b2274797065223a2274656c65706f7274222c226f70223a317d",
       "from": "plugin",
       "name": "an unknown message"
+    },
+    {
+      "error": "malformed",
+      "frame": "0000005b000000577b2274797065223a22726573756c7473222c226f70223a322c226974656d73223a5b7b226964223a22736f6e672d3138222c227469746c65223a2244617920547261696e222c22726f6f6d73223a226e6f6e65227d5d7d",
+      "from": "plugin",
+      "name": "an item's room rule, replaced by its reach"
+    },
+    {
+      "error": "malformed",
+      "frame": "0000005c000000587b2274797065223a22726573756c7473222c226f70223a322c226974656d73223a5b7b226964223a22736f6e672d3138222c227469746c65223a2244617920547261696e222c227265616368223a227368617265227d5d7d",
+      "from": "plugin",
+      "name": "a reach that is not one of the three"
     },
     {
       "error": "malformed",

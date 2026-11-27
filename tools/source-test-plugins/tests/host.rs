@@ -14,7 +14,7 @@ use ddi_source_host::host::{Event, Failure, HostFailure, Request, Stop};
 use ddi_source_host::installed::{Found, discover, platform};
 use ddi_source_host::store::{ItemKey, Store, StoreLimits};
 use ddi_source_host::{Host, HostConfig, Timeouts};
-use ddi_source_protocol::{Capability, FailCode, FilterValue, Input, InputKind, OpId};
+use ddi_source_protocol::{Capability, FailCode, FilterValue, Input, InputKind, OpId, Reach};
 
 const EXAMPLE: &str = env!("CARGO_BIN_EXE_ddi-example-source");
 const BAD: &str = env!("CARGO_BIN_EXE_ddi-bad-source");
@@ -27,8 +27,9 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 /// Installs `binary` as plugin `id` in `plugins` (its executable named
-/// `id`, which is how the misbehaving plugin knows what to do).
-fn install(plugins: &Path, id: &str, binary: &str, capabilities: &str, inputs: &str) {
+/// `id`, which is how the misbehaving plugin knows what to do), `extra`
+/// lines added to its manifest.
+fn install(plugins: &Path, id: &str, binary: &str, capabilities: &str, inputs: &str, extra: &str) {
     let dir = plugins.join(id);
     let bin = dir.join("bin").join(platform());
     std::fs::create_dir_all(&bin).unwrap();
@@ -36,7 +37,7 @@ fn install(plugins: &Path, id: &str, binary: &str, capabilities: &str, inputs: &
     std::fs::write(
         dir.join("plugin.toml"),
         format!(
-            "id = \"{id}\"\nname = {{ en = \"{id}\" }}\npublisher = \"Tests\"\nversion = \"1.0.0\"\nprotocol = [1]\nexecutable = \"{id}\"\ncapabilities = {capabilities}\ninputs = {inputs}\n"
+            "id = \"{id}\"\nname = {{ en = \"{id}\" }}\npublisher = \"Tests\"\nversion = \"1.0.0\"\nprotocol = [1]\nexecutable = \"{id}\"\ncapabilities = {capabilities}\ninputs = {inputs}\n{extra}"
         ),
     )
     .unwrap();
@@ -70,6 +71,18 @@ const BAD_CAPABILITIES: &str = r#"["search", "metadata", "fetch"]"#;
 /// A host over the plugins `bad` (misbehaving ones, by name) and the
 /// example, those in `on` switched on.
 fn rig(name: &str, bad: &[&str], on: &[&str], limits: StoreLimits, timeouts: Timeouts) -> Rig {
+    rig_with(name, bad, on, limits, timeouts, "")
+}
+
+/// [`rig`], the example's manifest given `example_extra` too.
+fn rig_with(
+    name: &str,
+    bad: &[&str],
+    on: &[&str],
+    limits: StoreLimits,
+    timeouts: Timeouts,
+    example_extra: &str,
+) -> Rig {
     let root = scratch(name);
     let plugins = root.join("data/plugins");
     install(
@@ -78,9 +91,10 @@ fn rig(name: &str, bad: &[&str], on: &[&str], limits: StoreLimits, timeouts: Tim
         EXAMPLE,
         r#"["input", "search", "filters", "browse", "metadata", "fetch"]"#,
         r#"["url"]"#,
+        example_extra,
     );
     for id in bad {
-        install(&plugins, id, BAD, BAD_CAPABILITIES, "[]");
+        install(&plugins, id, BAD, BAD_CAPABILITIES, "[]", "");
     }
     let installed = discover(&plugins)
         .into_iter()
@@ -160,7 +174,7 @@ fn fetch(item: &str, size: Option<u64>) -> Request {
         item: item.into(),
         revision: None,
         size,
-        rooms: None,
+        reach: None,
     }
 }
 
@@ -426,6 +440,86 @@ fn fetched_songs_land_in_memory_in_the_cache_folder_or_in_place() {
     let op = h.request("example", search("song 1", 5));
     assert!(matches!(until_end(h, op, LONG).last(), Some(Event::Done { .. })));
     assert_eq!(h.strikes("example"), 0);
+}
+
+/// How far a fetched item's songs may go, as the store keeps it: the
+/// manifest's level lowered by the item's metadata, never raised by it.
+#[test]
+fn an_items_level_lowers_its_manifests_and_never_raises_it() {
+    // What the example's items say of themselves (their metadata).
+    let said = |item: &str| {
+        let mut r = plain("reach-said", &[]);
+        let op = r
+            .host
+            .request("example", Request::Describe { item: item.into() });
+        match until_end(&mut r.host, op, LONG).pop() {
+            Some(Event::Item { item, .. }) => item.reach,
+            other => panic!("{other:#?}"),
+        }
+    };
+    assert_eq!(said("song-1"), None);
+    assert_eq!(said("song-22"), Some(Reach::Keep));
+    assert_eq!(said("song-23"), Some(Reach::Rooms));
+    assert_eq!(said("song-24"), Some(Reach::Play));
+    let fetched = |r: &mut Rig, item: &str| {
+        let reach = said(item);
+        let op = r.host.request(
+            "example",
+            Request::Fetch {
+                item: item.into(),
+                revision: None,
+                size: None,
+                reach,
+            },
+        );
+        let events = until_end(&mut r.host, op, LONG);
+        let Some(Event::Fetched { key, .. }) = events.last() else {
+            panic!("{events:#?}")
+        };
+        r.host.store().lock().unwrap().origin(*key).map(|o| o.reach)
+    };
+    // A manifest that says nothing: everything, as each item lowers it.
+    let mut r = plain("reach-keep", &[]);
+    for (item, is) in [
+        ("song-1", Reach::Keep),
+        ("song-22", Reach::Keep),
+        ("song-23", Reach::Rooms),
+        ("song-24", Reach::Play),
+    ] {
+        assert_eq!(fetched(&mut r, item), Some(is), "{item}");
+    }
+    drop(r);
+    // A manifest of `rooms`: an item that names `keep` is held to it.
+    let mut r = rig_with(
+        "reach-rooms",
+        &[],
+        &["example"],
+        StoreLimits::default(),
+        timeouts(),
+        "reach = \"rooms\"\n",
+    );
+    for (item, is) in [
+        ("song-1", Reach::Rooms),
+        ("song-22", Reach::Rooms),
+        ("song-23", Reach::Rooms),
+        ("song-24", Reach::Play),
+    ] {
+        assert_eq!(fetched(&mut r, item), Some(is), "{item}");
+    }
+    drop(r);
+    // A manifest of `play`: nothing higher, whatever an item says.
+    let mut r = rig_with(
+        "reach-play",
+        &[],
+        &["example"],
+        StoreLimits::default(),
+        timeouts(),
+        "reach = \"play\"\n",
+    );
+    for item in ["song-1", "song-22", "song-23", "song-24"] {
+        assert_eq!(fetched(&mut r, item), Some(Reach::Play), "{item}");
+    }
+    assert_eq!(r.host.strikes("example"), 0);
 }
 
 /// While the game is quiet (a play: `Host::set_quiet`) nothing new

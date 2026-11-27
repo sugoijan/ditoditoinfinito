@@ -462,8 +462,9 @@ Rust and the browser are implementation details, not advertised features.
   from the web's build: a page over a `FindModel`, its sources, This
   computer's folders, a field searched as it rests, results with Play and
   Import; `docs/plans/source-plugins.md`, stage 2; opened from an online
-  room, Add to room in Play's place where the source's room rule allows,
-  else why on the result's line, `RoomOffer`, stage 3) and the
+  room, Add to room in Play's place, `RoomOffer`, stage 3; Add to room and
+  Import each only where the result's level allows, `find_songs::Reach`,
+  the line saying why where a button is absent, round RC) and the
   frame its scenes are shown in (`stage.rs`: a chrome drawing the
   screens under it smaller, `Screen::stage`; `Ui::mark` rings what a
   screen names, `Screen::spot`), the app's notices as the UI's
@@ -1361,8 +1362,13 @@ Rust and the browser are implementation details, not advertised features.
   add…", while a source is on and the player may add:
   `sources::find::room_screen`; through `RoomClient::add_song` as My
   songs adds a song, the same checks, refusals and upload, no room model
-  change; `Sources::room_rule`, a plugin's manifest's narrowed by the
-  item's; the room's My songs given this run's fetched songs a room may
+  change; how far a source's song may go, one ordered level, `play`,
+  `rooms`, `keep`, each allowing what is before it (`Sources::reach`: a
+  plugin's manifest's `reach`, `keep` where it says nothing and for This
+  computer, lowered by an item's own, never raised; the store keeps it,
+  `fetched::reach`; Add to room needs `rooms`, Import `keep`, each
+  checked at the press, after the fetch, and by `import::import` and the
+  room's upload themselves; round RC); the room's My songs given this run's fetched songs a room may
   have in a pack of the screen's own, "Fetched this session",
   `ddi_ui::state::place::FETCHED_PACK`, `Songs::room_data_at`, fed again
   as they change, `Songs::feed_room`; an item kept for the room from Add
@@ -1522,7 +1528,10 @@ Rust and the browser are implementation details, not advertised features.
   values), every limit (`limits`), a plugin's messages and Hello checked
   against them and its manifest (`check`), its text (`text`: English
   required, control and direction characters taken out), `plugin.toml`'s
-  fields (`manifest`), and `vectors/v1.json`, frames as bytes for other
+  fields (`manifest`; `reach`, how far its songs may go, `Reach`: `play`,
+  `rooms` or `keep`, ordered, `keep` by default, an item's `reach`
+  lowering it, never raising it, `Reach::narrowed`; the old `rooms` key
+  refused as any unknown field), and `vectors/v1.json`, frames as bytes for other
   languages (`tests/vectors.rs`; `DDI_WRITE_VECTORS=1` writes it).
 - `crates/source-host/` the desktop's host for song source plugins
   (`ddi-source-host`, empty on wasm; stage 1 of
@@ -2443,11 +2452,13 @@ Rust and the browser are implementation details, not advertised features.
   method optional, and `serve`/`main` doing the protocol (framing, Hello,
   operations on threads, cancellation, progress, the limits checked
   before anything is sent); its README says to authors what a plugin is,
-  that it runs with the player's access, and the courtesy owed to the
-  sites a plugin reads. `tools/source-test-plugins/`
+  that it runs with the player's access, how far its songs may go (the
+  three steps, a wish the game honors, not a protection), and the
+  courtesy owed to the sites a plugin reads. `tools/source-test-plugins/`
   (`ddi-source-test-plugins`, never packaged, no dependency of the app):
   `ddi-example-source`, a well-behaved plugin on the SDK over generated
-  songs (every capability; no network), and `ddi-bad-source`, which
+  songs (every capability, its items `song-22` to `song-24` each naming
+  one step of `reach`; no network), and `ddi-bad-source`, which
   misbehaves as the name it is installed under says (hangs, crashes,
   floods, oversized or malformed frames, lies about sizes, hostile
   paths and content); `tests/host.rs` runs the host against both.

@@ -43,7 +43,7 @@ use std::time::{Duration, Instant};
 pub use ddi_source_protocol as protocol;
 pub use ddi_source_protocol::{
     AppInfo, Capability, ChartMeta, Choice, Deliver, Delivery, Difficulty, Dirs, FailCode,
-    Filter, FilterKind, FilterValue, Input, InputKind, ItemKind, ItemMeta, Node, RoomRule, Step,
+    Filter, FilterKind, FilterValue, Input, InputKind, ItemKind, ItemMeta, Node, Reach, Step,
     Text, Unit,
 };
 use ddi_source_protocol::check;

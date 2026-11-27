@@ -11,7 +11,9 @@
 //!   `local` where it is, a folder in the plugin's data folder;
 //! - `slow-song` takes a while, telling progress and checking for a
 //!   cancel;
-//! - `song-24` is not for online rooms (its own room rule).
+//! - how far a song may go, each step named by an item for itself:
+//!   `song-22` kept (imported) too, `song-23` added to online rooms but
+//!   not kept, `song-24` played on this computer only.
 
 fn main() {
     ddi_source_sdk::main(ddi_source_test_plugins::example::Example);

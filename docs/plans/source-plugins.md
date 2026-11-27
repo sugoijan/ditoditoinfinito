@@ -1,6 +1,9 @@
 # Song sources: native plugins for the desktop app (2026-11-25)
 
-Status: stages 1 to 3 built (2026-11-26). Stage 3: a found song added
+Status: stages 1 to 3 built (2026-11-26). Since round RC (2026-11-27)
+one ordered level says how far a source's song may go, in place of the
+room rule ("How far a song may go", section 4; "Round RC as built").
+Stage 3: a found song added
 to an online room without importing it ("Stage 3 as built", below).
 Stage 1: the protocol, the
 host, the store for fetched songs, synthetic test plugins,
@@ -80,7 +83,9 @@ and its SDK and template set the example (section 4).
   - play it without importing;
   - add it to an online room without importing.
 
-  The plugin does not know which use a fetch is for.
+  The plugin does not know which use a fetch is for. It says how far
+  its songs may go: played here only, added to rooms too, or imported as
+  well (section 4).
 - A song that is not imported **lives in the app's memory**, and goes to
   the known cache folder only where memory will not do.
 - **The game ships no plugin.** The DanOni importer stays shipped and
@@ -261,8 +266,8 @@ the fetch does not say which.
    ordinary prompt, play and results. Plays are kept, and bests are
    keyed by chart digest.
 3. **Add to an online room without importing.** The app hands the song's
-   `SongEntry` to `RoomClient::add_song`, after the plugin's room rule
-   (section 4). The upload reads it through `Files::of`, as for any song.
+   `SongEntry` to `RoomClient::add_song`, where its source's level allows
+   it (section 4). The upload reads it through `Files::of`, as for any song.
    Members load it from the room's share. Nothing source-specific crosses
    the wire, so there is **no room model revision**.
 
@@ -594,8 +599,8 @@ plugin…". It is not a consent ceremony repeated at every step.
 - **Where plugins live**: the data folder's `plugins/<id>/`.
 - **What one is**:
   - `plugin.toml`, the manifest: id, name, the source's page,
-    publisher, version, protocol versions, capabilities, inputs, the
-    room rule it declares, attribution;
+    publisher, version, protocol versions, capabilities, inputs, how far
+    its songs may go (`reach`), attribution;
   - its executable, one per platform (`bin/<target>/…`); the game takes
     its own platform's;
   - its licence.
@@ -684,20 +689,62 @@ homepage = "https://…"               # the source's page
 protocol = [1]
 capabilities = ["search", "filters", "metadata", "fetch"]
 inputs = []                          # or ["folder"], ["url"], ["link"], ["text"]
-rooms = "upload"                     # or "none"
+reach = "keep"                       # or "rooms", or "play"
 attribution = { required = true, link_back = true }
 ```
 
-### The room rule is advisory
+### How far a song may go (decided 2026-11-27)
 
-- A source may say its songs are not for rooms (`rooms = "none"`). The
-  game honors it: Add to room is not offered for songs it fetched,
-  including after an import (through the import catalog).
-- An item's metadata may narrow the rule, never widen it.
-- When a plugin says nothing, the default is open question 4.
-- It never applies to the player's own files from elsewhere. A level in
-  a folder of theirs can be added as today: the maintainer's "should be
-  possible too".
+Until round RC a source said one thing, whether its songs may be added
+to rooms (`rooms = "upload"` or `"none"`, allowed by default), and
+importing was always allowed. The question came up whether "not for
+rooms" should still hold once its song is imported. The maintainer
+(2026-11-27): "I think that complicates things more than they need to
+be, maybe instead of dealing with 'not for rooms'/'importable' as
+independent toggles, maybe it should be just a 'level' of how deep the
+song can go (playing locally only -> playing online too -> saving it
+locally) each level allowing all what comes before."
+
+So a source states **one ordered level**, `reach`, three steps, each
+allowing everything before it:
+
+1. `play`: played on this computer only, without importing it;
+2. `rooms`: that, and added to an online room (uploaded to the room's
+   share for its members, still without importing it);
+3. `keep`: those, and imported into the library.
+
+- **A source that says nothing allows everything** (`keep`): rooms were
+  allowed by default (decided 2026-11-26) and importing always was.
+- **An item may lower its source's level for itself, never raise it**:
+  the effective level is the lower of the two (`Reach::narrowed`). An
+  item that names a higher one is held to its source's, never an error.
+- **Each limit is checked where the action happens**, not only by
+  hiding a button: Add to room needs `rooms` at the press, again once
+  the item is fetched (by the level the store keeps for it), and at the
+  room's upload; Import needs `keep` at the press, once fetched, and in
+  the import itself. Play needs none.
+- **The page says why a button is absent**, on the result's line, in the
+  game's words: "Play only: its source does not allow importing it or
+  adding it to rooms"; "Not for importing: its source allows playing it
+  and adding it to rooms only".
+- **"This computer" is `keep`**: the player's own files. A level in a
+  folder of theirs can be added and imported as before (the
+  maintainer's "should be possible too").
+- **Nothing is remembered after an import**: a song that may be kept may
+  go to rooms anyway, and one that may not go to rooms is never kept, so
+  an imported song is an ordinary song of the player's.
+- **What is not keeping**: the app's own caches, emptied each run and
+  never read as the library: a held item moved to the cache folder's
+  `sources/` under memory pressure, a movie a play loads, a preview's
+  music written into `previews/` for the preview player. A play of a
+  song that may not be kept is kept in the history only as the library's
+  song of the same chart, else not at all (unchanged from stage 2).
+- **What it gives up, knowingly**: a source cannot say "keep it, but do
+  not share it". A song that may be kept may go to rooms; a source that
+  wants its songs off rooms chooses `play`, or accepts rooms. That is the
+  price of one rule instead of two.
+- **It is a wish the game honors, not a protection**: a player can always
+  copy files by hand. The SDK's README says so to authors.
 - The person who adds a song is responsible for it, under the terms of
   use being drafted (round TU). The room's upload notice shows for a
   fetched song as for any other.
@@ -879,8 +926,8 @@ All of this is desktop only.
 - The search field and the source's filters at the top.
 - The results, and the item's side: banner, charts, size, licence and
   attribution as stated, the source's page.
-- **Actions**: Play, Import, and, in a room, Add to room where the rule
-  and the room allow. A pack offers Import and Add pack to room.
+- **Actions**: Play; Import where the song's level is `keep`; in a room,
+  Add to room where its level is `rooms` or more and the room allows. A pack offers Import and Add pack to room.
 - **Progress** from the `step` values, and Cancel.
 - **Errors**: our sentence from the code, and Details.
 - **"Fetched this session"**: a pack at the top of Find songs and of the
@@ -916,7 +963,7 @@ joining the `qps-ploc` walk. Plugin text never enters them.
 |---|---|---|---|
 | 1 (built 2026-11-26) | `ddi-source-protocol`; the host: finding plugins in `plugins/`, manifests, spawning, framing, operations, streamed files into memory, timeouts, kills and crash counting; synthetic plugins in tests (well-behaved, hanging, crashing, flooding); `--source-check`; the SDK's start. | Medium. | Yes. |
 | 2 (built 2026-11-26) | "This computer" built in, behind the in-process `Source` trait; Find songs in a first form; fetched songs in memory (`MemReader`, `Files::Memory`, `mem:` pictures, the preview from bytes, the budget, the cache for what memory cannot hold); play without importing; the import store. Useful with no plugin at all. | Medium to large. | Yes: folders written by tests, offscreen plays. |
-| 3 (built 2026-11-26) | Add to a room without importing; the room rule. No room model change. | Small to medium. | Yes: `FakeServer` and the shares faked on a loopback port; no local server run. |
+| 3 (built 2026-11-26) | Add to a room without importing; the room rule (replaced by the level, round RC). No room model change. | Small to medium. | Yes: `FakeServer` and the shares faked on a loopback port; no local server run. |
 | 4 | Plugins in Options (Advanced), on/off, "Add plugin…", details with the digest, Remove; plugin sources in Find songs; `--plugin-check`; the systems' checks verified on macOS, Linux and Windows. | Small to medium. | Yes: synthetic plugins. |
 | 5 | The SDK's repository: SDK, harness, the folder and catalog examples, the template; the protocol crate published. | Medium. | Yes. |
 | 6 | Find songs complete: filters drawn from schemas, browse, the item's side. | Medium. | Yes: offscreen pictures. |
@@ -1104,7 +1151,8 @@ game sees it.
   through `Switches::set`.
 - Stage 3: the room's upload reading `ItemFiles` (`Source::Bytes`),
   holding the item while the room lists it; the rule from
-  `store::Origin::rooms` (the manifest's, narrowed by the item's).
+  `store::Origin::rooms` (the manifest's, narrowed by the item's; since
+  round RC `Origin::reach`, the level).
 
 ## Stage 2 as built (2026-11-26)
 
@@ -1225,8 +1273,8 @@ nothing runs: the window's start reads the switches and makes no host.
   (`share::source_of` answers `Files::Memory` with its bytes); it needs
   the item held while the room lists it (`sources::fetched::hold`), Add
   to room offered on Find songs' results and the found list where
-  `store::Origin::rooms` allows, and a "Fetched this session" pack in
-  the room's My songs.
+  `store::Origin::rooms` allows (since round RC `Origin::reach`), and a
+  "Fetched this session" pack in the room's My songs.
 
 ## Stage 3 as built (2026-11-26)
 
@@ -1250,7 +1298,8 @@ plays when picked. The first device plays it from its own copy.
   Import as before; a result the room lists says "In the room" (by the
   `song_key` its source states, else by its songs as fetched in this
   run); one its rule keeps out says "Not for rooms: its source does not
-  allow it" on its line and has no Add to room (`RoomOffer`).
+  allow it" on its line and has no Add to room (`RoomOffer`; since round
+  RC its level's words, "Round RC as built").
 - **The same checks and words as My songs**, at the press, before
   anything is fetched: who may add, the person's half of the list, a
   full list that refuses or has nothing to remove
@@ -1267,7 +1316,8 @@ plays when picked. The first device plays it from its own copy.
   `song_key`. **No room model revision, nothing new for the server**, and
   nothing new for the other devices, which load it from the room's share
   as any listed song (the web included).
-- **The room rule** (`Sources::room_rule`): This computer's songs always
+- **The room rule** (`Sources::room_rule`, replaced in round RC by the
+  level, `Sources::reach`): This computer's songs always
   (the player's own files: section 4); a plugin's manifest's `rooms`
   (allowed when it says nothing, decided), narrowed by the item's own
   `rooms`; after the fetch the store's `Origin::rooms` (the same rule, as
@@ -1337,7 +1387,8 @@ plays when picked. The first device plays it from its own copy.
 - Not done: the rule **after an import** (section 4: "including after an
   import, through the import catalog"). An imported song is an ordinary
   library song, offered by My songs whatever its source said; the
-  catalog does not record the rule. A question below.
+  catalog does not record the rule. A question below; answered by round
+  RC's level, under which nothing needs remembering.
 - Not done: no test of a chart the room cannot play from Find songs (a
   room that seats CPUs over the fake room); the check is
   `RoomClient::style_playable`, the one My songs' styles follow.
@@ -1349,11 +1400,67 @@ plays when picked. The first device plays it from its own copy.
 1. Should a plugin's "not for rooms" follow its songs into the library
    after an import (the catalog would record it and My songs would refuse
    them), or does an import make them the player's like any song?
+   (Answered 2026-11-27: one level instead, section 4; a song that may not
+   go to rooms may not be imported.)
 2. Find songs from a room: should Play be offered there too (a solo play
    while the room waits), or Import be left out?
 3. "Fetched this session" lists everything fetched in this run (for Play
    too), not only what was fetched for the room: is that the wanted
    reach?
+
+## Round RC as built (2026-11-27)
+
+The level of section 4, "How far a song may go", through the protocol,
+the host, the desktop app, the page, the SDK and the test plugins. No
+server change, no room model revision, nothing for the web (the page's
+module and `sources.ftl` are desktop only).
+
+- **The protocol** (`ddi-source-protocol`, version 1 changed in place:
+  the interface is not settled and no plugin exists outside this
+  repository): `Reach` (`play`, `rooms`, `keep`; ordered, `keep` the
+  default; `narrowed`, `rooms()`, `keeps()`) replaces `RoomRule`; the
+  manifest's `reach` replaces `rooms`, an item's `reach` replaces its
+  `rooms`. The old key is no longer read: a manifest that has it is
+  refused as any unknown key is (`--source-check` names the key), an
+  item that has it makes its frame malformed. `vectors/v1.json` gains an
+  item's `reach` and the old key and an unknown step refused.
+- **The host**: a fetch's level is the manifest's narrowed by the item's
+  (`supervisor.rs`), a built-in source's its own (`Builtin::reach`,
+  `keep` unless it says otherwise) narrowed alike, kept as
+  `store::Origin::reach`; `Store::every_song` gives each song's.
+- **Desktop**: `Sources::reach` (This computer `keep`, a plugin its
+  manifest's, a source not known `play`); `fetched::reach`,
+  `fetched::item_reach`; Find songs (`sources/find.rs`) works each
+  result's level, shows it to the page, and refuses Add to room below
+  `rooms` and Import below `keep` at the press and again once fetched,
+  in the line's words; `import::import` refuses any song whose item's
+  level is not `keep`, nothing written (`import::may_keep`); the room's
+  "Fetched this session" offers only songs of `rooms` or more; the
+  room's upload refuses a fetched song below `rooms` (a last check
+  whatever added it, worded as a system failure: no path reaches it).
+- **The page** (`ddi_ui::screens::find_songs`): `ResultView::reach`;
+  Import only at `keep`; Add to room (from a room) only at `rooms` or
+  more; the line's tag where a button is absent,
+  `sources-result-play-only` and `sources-result-not-for-keeping` (in
+  place of `sources-result-not-for-rooms`), the same words as the page's
+  note when a press is refused (`Problem::PlayOnly`,
+  `Problem::NotForKeeping`). Japanese drafts.
+- **The SDK and the test plugins**: the README tells authors the three
+  steps, that each includes those before it, that an item may only lower
+  it, what it gives up, and that it is a wish the game honors, not a
+  protection. The example plugin's `song-22`, `song-23` and `song-24`
+  each name one step for themselves; the desktop tests' "closed" plugin
+  is a play-only source (`reach = "play"`), whose `song-22` (naming
+  `keep`) is held to `play`; the host's tests run the example under
+  manifests of `keep`, `rooms` and `play`.
+- **Tests**: the protocol's (the level's names, the old key refused, the
+  narrowing table), the host's (`an_items_level_lowers_its_manifests_and_never_raises_it`,
+  a built-in's), This computer's (`keep`), the import refused by itself
+  (`import::tests`), the page (`a_results_level_leaves_its_buttons_out_and_its_line_says_why`,
+  the qps-ploc walk), and desktop's `find_songs_plugins.rs` (the three
+  cases alone, the refused import, My songs' fetched pack) and
+  `room_find_songs.rs` (the three cases from a room, the play-only
+  source).
 
 ## 9. The maintainer's decisions
 
@@ -1379,6 +1486,8 @@ recommendations as written below, kept for their reasons):
    enough or maybe I'll decide to not include it after testing". So
    behind a switch of its own and apart from Add songs (stage 2).
 4. **The room rule when a plugin declares none: allowed** by default.
+   Since 2026-11-27 one level replaces the rule ("How far a song may
+   go", section 4), and a source that says nothing allows everything.
 5. **The memory limits as proposed**: 64 MiB a song, 256 MiB in all, the
    cache 2 GiB for the run, movies always in the cache; to adjust after
    use.

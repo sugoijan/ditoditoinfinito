@@ -369,9 +369,11 @@ pub struct ItemMeta {
     /// can compute it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub song_key: Option<String>,
-    /// Narrows the manifest's room rule for this item, never widens it.
+    /// How far this item's songs may go: narrows the manifest's
+    /// [`Reach`], never widens it (a higher one is held to the
+    /// manifest's, not refused).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rooms: Option<RoomRule>,
+    pub reach: Option<Reach>,
 }
 
 /// A chart as a source describes it.
@@ -415,16 +417,45 @@ pub struct Node {
     pub nodes: Option<u64>,
 }
 
-/// Whether a source's songs may be added to an online room.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// How far a source's song may go (decided 2026-11-27,
+/// `docs/plans/source-plugins.md`, "How far a song may go"): one ordered
+/// level, each step allowing everything before it. A source that says
+/// nothing allows everything ([`Reach::Keep`]); an item may lower its
+/// source's level, never raise it ([`Reach::narrowed`]).
+///
+/// It is a wish the game honors, not a protection: a player can always
+/// copy files by hand.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
-pub enum RoomRule {
-    /// Allowed (the default where a plugin says nothing: decided
-    /// 2026-11-26).
+pub enum Reach {
+    /// Played on this computer only, without importing it.
+    Play,
+    /// Played, and added to an online room (still without importing it).
+    Rooms,
+    /// Played, added to rooms, and imported (kept) into the library: the
+    /// default.
     #[default]
-    Upload,
-    /// Not offered for the songs it fetched.
-    None,
+    Keep,
+}
+
+impl Reach {
+    /// The level, lowered by `item`'s where it names a lower one (an item
+    /// naming a higher one is held to this).
+    pub fn narrowed(self, item: Option<Reach>) -> Reach {
+        item.map_or(self, |i| self.min(i))
+    }
+
+    /// Its songs may be added to an online room.
+    pub fn rooms(self) -> bool {
+        self >= Reach::Rooms
+    }
+
+    /// Its songs may be imported into the library.
+    pub fn keeps(self) -> bool {
+        self >= Reach::Keep
+    }
 }
 
 /// A search filter the app draws from its declaration.
