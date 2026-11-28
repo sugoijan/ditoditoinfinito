@@ -566,6 +566,67 @@ fn plugins_are_off_until_switched_on_and_unknown_ones_are_not_installed() {
     assert!(h.wait_event(Duration::from_millis(200)).is_none());
 }
 
+/// The Plugins page's switches and its Look again (stage 4): switched on,
+/// a plugin starts only when asked; switched off, its process is stopped
+/// and nothing more is asked of it; the folder read again adds a new
+/// plugin off, keeps one as it was, and forgets one
+/// gone. Nothing waits on a clock: each step waits for its event.
+#[test]
+fn plugins_are_switched_and_the_folder_read_again_while_the_host_runs() {
+    let mut r = rig("switch", &[], &[], StoreLimits::default(), timeouts());
+    let h = &mut r.host;
+    assert!(!h.is_on("example"));
+    h.switch("example", true);
+    assert!(h.is_on("example"));
+    let op = h.request("example", search("", 5));
+    assert!(matches!(until_end(h, op, LONG).last(), Some(Event::Done { .. })));
+    // Off: stopped as asked, then refused.
+    h.switch("example", false);
+    let (_, why, off, _) = until_stopped(h, LONG);
+    assert_eq!((why, off), (Stop::Asked, false));
+    let op = h.request("example", search("", 5));
+    assert_eq!(
+        failure(&until_end(h, op, LONG)),
+        &Failure::Host(HostFailure::SwitchedOff)
+    );
+    // A second plugin put in the folder, read again: there, off.
+    let plugins = r.root.join("data/plugins");
+    install(&plugins, "second", EXAMPLE, r#"["search", "fetch"]"#, "[]", "");
+    let found = |plugins: &Path| -> Vec<_> {
+        discover(plugins)
+            .into_iter()
+            .filter_map(|f| match f {
+                Found::Plugin(p) => Some(p),
+                Found::Refused { .. } => None,
+            })
+            .collect()
+    };
+    let on: BTreeSet<String> = ["example".to_string()].into();
+    let h = &mut r.host;
+    h.set_installed(found(&plugins), &on);
+    let ids: Vec<&str> = h.plugins().map(|p| p.id()).collect();
+    assert_eq!(ids, ["example", "second"]);
+    assert!(h.is_on("example") && !h.is_on("second"));
+    let op = h.request("example", search("", 5));
+    assert!(matches!(until_end(h, op, LONG).last(), Some(Event::Done { .. })));
+    // Read again as it is: kept as it was, asked as before.
+    h.set_installed(found(&plugins), &on);
+    let op = h.request("example", search("", 5));
+    assert!(matches!(until_end(h, op, LONG).last(), Some(Event::Done { .. })));
+    // The example taken out of the folder: stopped and forgotten.
+    std::fs::remove_dir_all(plugins.join("example")).unwrap();
+    h.set_installed(found(&plugins), &on);
+    let (_, why, _, _) = until_stopped(h, LONG);
+    assert_eq!(why, Stop::Asked);
+    let ids: Vec<&str> = h.plugins().map(|p| p.id()).collect();
+    assert_eq!(ids, ["second"]);
+    let op = h.request("example", search("", 5));
+    assert_eq!(
+        failure(&until_end(h, op, LONG)),
+        &Failure::Host(HostFailure::NotInstalled)
+    );
+}
+
 /// One misbehaving plugin asked `request`: how its operation failed, and
 /// how its process ended.
 fn misbehave(name: &str, request: Request) -> (Failure, Stop, Option<String>, Duration) {
@@ -634,6 +695,8 @@ fn a_crash_fails_its_operation_with_the_last_of_its_diagnostics_and_three_turn_i
         assert_eq!(off, n == 3);
     }
     assert!(h.is_off_for_the_run("crash"));
+    assert!(matches!(h.off_why("crash"), Some(Stop::Crashed(_))));
+    assert_eq!(h.off_why("example"), None);
     let op = h.request("crash", search("", 5));
     assert_eq!(
         failure(&until_end(h, op, LONG)),
@@ -717,6 +780,7 @@ fn a_plugin_of_another_protocol_or_another_id_is_off_for_the_run_without_a_strik
             _ => assert!(matches!(why, Stop::InvalidHello(_)), "{why:?}"),
         }
         assert!(off);
+        assert_eq!(h.off_why(name), Some(why.clone()));
         assert_eq!(h.strikes(name), 0);
         let op = h.request(name, search("", 5));
         assert_eq!(

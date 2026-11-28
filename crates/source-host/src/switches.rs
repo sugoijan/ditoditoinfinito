@@ -7,9 +7,10 @@
 //! {"on": ["example-songs"]}
 //! ```
 //!
-//! Stage 1 has no screen for it: the host reads the list, tests and the
-//! person write it. An id listed for a plugin no longer installed is
-//! harmless.
+//! Desktop's Options → Plugins writes it (stage 4), as tests and the
+//! person may; the host reads it at the window's start and is told of a
+//! change (`Host::switch`). An id listed for a plugin no longer
+//! installed is harmless.
 
 use std::collections::BTreeSet;
 use std::io::Read as _;

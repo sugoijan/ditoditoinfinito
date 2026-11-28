@@ -287,6 +287,9 @@ impl Supervisor {
         }
         if off && let Ok(mut o) = self.state.off.lock() {
             *o = true;
+            if let Ok(mut w) = self.state.why.lock() {
+                *w = Some(why.clone());
+            }
         }
         off
     }

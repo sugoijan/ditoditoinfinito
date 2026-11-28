@@ -301,6 +301,8 @@ pub(crate) struct PluginState {
     pub(crate) strikes: AtomicU32,
     /// Off for the run.
     pub(crate) off: Mutex<bool>,
+    /// What turned it off for the run (its last end then).
+    pub(crate) why: Mutex<Option<Stop>>,
 }
 
 impl PluginState {
@@ -439,6 +441,92 @@ impl Host {
     /// Off for the rest of the run.
     pub fn is_off_for_the_run(&self, plugin: &str) -> bool {
         self.plugins.get(plugin).is_some_and(|p| p.state.is_off())
+    }
+
+    /// What turned `plugin` off for the run (its third abnormal end, a
+    /// protocol it does not share, a Hello not its manifest's), where it
+    /// is off.
+    pub fn off_why(&self, plugin: &str) -> Option<Stop> {
+        let p = self.plugins.get(plugin)?;
+        if !p.state.is_off() {
+            return None;
+        }
+        p.state.why.lock().ok()?.clone()
+    }
+
+    /// Switches `plugin` on or off for the host (the switches' file is the
+    /// game's to write): off, its process is shut down and what it was
+    /// asked fails as stopped; on, it starts when next asked. Nothing is
+    /// started here.
+    pub fn switch(&mut self, plugin: &str, on: bool) {
+        let Some(p) = self.plugins.get_mut(plugin) else {
+            return;
+        };
+        p.on = on;
+        if !on {
+            if let Some((tx, _)) = p.runner.take() {
+                let _ = tx.send(Command::Stop);
+            }
+            let (kept, dropped): (Vec<_>, Vec<_>) = std::mem::take(&mut self.queued)
+                .into_iter()
+                .partition(|(_, id, _)| id != plugin);
+            self.queued = kept;
+            for (op, ..) in dropped {
+                self.fail(op, HostFailure::SwitchedOff);
+            }
+        }
+    }
+
+    /// The plugins installed now (the folder read again, "Look again"),
+    /// those in `on` switched on. A plugin as it was keeps its process and
+    /// what it is this run (its strikes, off for the run); one whose folder
+    /// changed (its manifest, its program) is stopped and taken as new but
+    /// for what it is this run; one gone is stopped and forgotten. Nothing
+    /// is started.
+    pub fn set_installed(&mut self, installed: Vec<Installed>, on: &BTreeSet<String>) {
+        let mut before = std::mem::take(&mut self.plugins);
+        for p in installed {
+            let id = p.id().to_string();
+            if self.builtins.contains_key(&id) {
+                continue;
+            }
+            let plugin = match before.remove(&id) {
+                Some(mut old) if *old.installed == p => {
+                    old.on = on.contains(&id);
+                    old
+                }
+                Some(mut old) => {
+                    if let Some((tx, _)) = old.runner.take() {
+                        let _ = tx.send(Command::Stop);
+                    }
+                    Plugin {
+                        installed: Arc::new(p),
+                        on: on.contains(&id),
+                        state: old.state.clone(),
+                        runner: None,
+                    }
+                }
+                None => Plugin {
+                    installed: Arc::new(p),
+                    on: on.contains(&id),
+                    state: Arc::default(),
+                    runner: None,
+                },
+            };
+            self.plugins.insert(id, plugin);
+        }
+        for (id, mut gone) in before {
+            if let Some((tx, _)) = gone.runner.take() {
+                let _ = tx.send(Command::Stop);
+            }
+            let (kept, dropped): (Vec<_>, Vec<_>) = std::mem::take(&mut self.queued)
+                .into_iter()
+                .partition(|(_, plugin, _)| *plugin != id);
+            self.queued = kept;
+            for (op, ..) in dropped {
+                self.fail(op, HostFailure::NotInstalled);
+            }
+        }
     }
 
     fn emit(&self, event: Event) {
