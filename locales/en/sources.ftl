@@ -289,3 +289,192 @@ sources-added-folder = Added “{ $folder }” to your song folders. Its songs a
 # Variables:
 #   $folder (String) - the song folder's name that holds it (data)
 sources-in-folders = This song is in your song folder “{ $folder }” already, so it is in your library.
+
+# Options → Plugins (desktop only, shown with Show advanced options On;
+# docs/plans/source-plugins.md, stage 4): the plugins installed in the
+# plugins folder, each switched on or off, and This computer's switch. A
+# plugin's own name, version, publisher, page and hosts are data, never
+# these messages.
+
+# The section's name in Options' list of sections (a rail 208 px wide:
+# about 18 letters).
+sources-plugins-section = Plugins
+
+# The section's lead, muted, wrapped over the rows' width above them: what
+# a plugin is, what switching one on means, how to add one, and that the
+# game never fetches one itself. Said once.
+sources-plugins-lead = A plugin is a program that finds songs for Find songs. It runs on this computer with your access to your files and the network, like any program you run, and the game cannot check what it does: switch on only plugins from people you trust. To add one, put its folder in the plugins folder, come back here, choose Look again and switch it on. The game never downloads, installs or updates plugins.
+
+# A row's label: the folder plugins are installed in.
+sources-plugins-folder = Plugins folder
+
+# The row's buttons: show the folder in the system's file browser; read
+# the folder again (after adding, changing or removing a plugin).
+sources-plugins-open-folder = Open folder
+sources-plugins-look-again = Look again
+
+# Beside the buttons, muted (about 14 letters): how many plugins the
+# folder holds, none, or that it is being read.
+# Variables:
+#   $count (Number) - the plugins found (at least one)
+sources-plugins-folder-count = { $count ->
+    [one] One plugin
+   *[other] { $count } plugins
+}
+sources-plugins-folder-none = None yet
+sources-plugins-folder-looking = Looking…
+
+# The row's sentence in Options' description panel.
+# Variables:
+#   $folder (String) - the folder's path (data)
+sources-plugins-folder-description = Plugins are installed in { $folder }. Open folder shows it in your file browser; Look again reads it again after you add, change or remove a plugin.
+
+# The heading over This computer's row (in capitals where the language has
+# them).
+sources-plugins-built-in-heading = BUILT INTO THE GAME
+
+# This computer's row's sentence (its label is sources-this-computer),
+# where no folder is chosen yet, and where some are.
+sources-plugins-this-computer-description = Part of the game, not a plugin: Find songs searches folders on this computer that you choose there, without adding them to your library. No folder is chosen yet.
+# Variables:
+#   $folders (String) - the folders' paths, " · " between them (data)
+sources-plugins-this-computer-folders = Part of the game, not a plugin: Find songs searches folders on this computer, without adding them to your library. It searches { $folders }. Choose the folders on Find songs.
+
+# The heading over the plugins' rows (in capitals where the language has
+# them).
+sources-plugins-installed-heading = INSTALLED PLUGINS
+
+# A row where the folder holds no plugin, muted, and its sentence.
+sources-plugins-none = No plugin is installed.
+sources-plugins-none-description = Put a plugin's folder in the plugins folder, then choose Look again.
+
+# Beside a plugin's switch, muted (about 40 letters, cut where longer):
+# what its folder says of it. The version and the publisher are the
+# plugin's own words; the digest is the first characters of its program's
+# SHA-256, for comparing with what its publisher lists.
+# Variables:
+#   $version (String) - its version (data)
+#   $publisher (String) - its publisher as it names itself (data)
+#   $sha (String) - the start of its program's SHA-256 (data)
+sources-plugins-version-by = Version { $version } · { $publisher } · { $sha }
+
+# Beside a plugin's switch in its version's place, where it cannot run now
+# (about 40 letters, cut where longer): it failed three times this run;
+# it did not start as its plugin.toml says; it speaks a newer protocol
+# than this game; or an older one.
+sources-plugins-state-stopped = Stopped working: off until the game starts again
+sources-plugins-state-not-as-declared = Not as its plugin.toml says: off until the game starts again
+sources-plugins-state-newer = Needs a newer version of the game
+sources-plugins-state-older = Made for an older version of the game
+
+# The first sentence of a plugin's description: what it is now. Off; on
+# (a plugin's program runs only while Find songs asks it for something,
+# and is stopped after a minute with nothing to do); failed three times
+# this run; did not start as its plugin.toml says; too new; too old.
+sources-plugins-now-off = Switched off: it does not run.
+sources-plugins-now-on = Switched on: it runs only when Find songs asks it for songs, and stops after a minute with nothing to do.
+sources-plugins-now-stopped = It stopped working three times, so it is off until you start the game again.
+sources-plugins-now-not-as-declared = It did not start as its plugin.toml says, so it is off until you start the game again.
+sources-plugins-now-newer = It needs a newer version of the game, so it cannot run.
+sources-plugins-now-older = It was made for an older version of the game, so it cannot run.
+
+# A plugin's description in Options' description panel (wrapped, six
+# lines at most).
+# Variables:
+#   $state (String) - what it is now, a sentence (sources-plugins-now-*)
+#   $version (String) - its version (data)
+#   $publisher (String) - its publisher as it names itself (data)
+#   $can (String) - what it does, sources-plugins-can-* with " · " between them
+#   $reach (String) - how far its songs may go, a sentence (sources-plugins-reach-*)
+#   $page (String) - its page, a sentence (sources-plugins-page or sources-plugins-no-page)
+#   $sha (String) - its program's SHA-256, 64 characters (data)
+sources-plugins-description = { $state } Version { $version }, from { $publisher }, as the plugin says. What it does: { $can }. { $reach } { $page } SHA-256 of its program: { $sha }
+
+# What a plugin does, as a list joined by " · " in
+# sources-plugins-description: search; filters for a search; browse its
+# collection; describe a song before fetching it; fetch songs; take a
+# folder the player chooses, a web address pasted, links to its own site,
+# or text typed.
+sources-plugins-can-search = searching
+sources-plugins-can-filters = search filters
+sources-plugins-can-browse = browsing
+sources-plugins-can-describe = song details
+sources-plugins-can-fetch = fetching songs
+sources-plugins-can-folder = songs from a folder you choose
+sources-plugins-can-url = songs from a web address you paste
+sources-plugins-can-text = songs from text you type
+# Variables:
+#   $hosts (String) - the sites and paths it claims, ", " between them (data)
+sources-plugins-can-link = songs from links to { $hosts }
+
+# How far a plugin's songs may go, as its plugin.toml says (its songs may
+# lower it for themselves): played on this computer only; played and
+# added to online rooms; played, added to rooms and imported.
+sources-plugins-reach-play = Its songs can be played here only: not added to rooms or imported.
+sources-plugins-reach-rooms = Its songs can be played here and added to online rooms, but not imported.
+sources-plugins-reach-keep = Its songs can be played here, added to online rooms and imported into your library.
+
+# A plugin's page, a sentence of its description, or that it names none.
+# Variables:
+#   $page (String) - the page's address (data)
+sources-plugins-page = Its page: { $page }.
+sources-plugins-no-page = It names no page of its own.
+
+# A row under a plugin with a page: its button opening the page in the
+# system's browser (about 16 letters), and the row's sentence.
+sources-plugins-open-page = Open its page
+# Variables:
+#   $page (String) - the page's address (data)
+sources-plugins-page-description = Opens { $page } in your web browser: the page its plugin.toml names.
+
+# A folder in the plugins folder that is not a plugin the game can take,
+# beside its name (about 40 letters, cut where longer): no plugin.toml;
+# a plugin.toml that does not read; a folder not named as its plugin.toml
+# says; no program for this computer.
+sources-plugins-refused-no-manifest = Not taken: no plugin.toml
+sources-plugins-refused-manifest = Not taken: its plugin.toml does not read
+sources-plugins-refused-folder = Not taken: its folder has another name
+sources-plugins-refused-program = Not taken: no program for this computer
+
+# The same, as the row's sentence in the description panel.
+sources-plugins-refused-no-manifest-description = This folder holds no plugin.toml the game can read, so it is not a plugin.
+# Variables:
+#   $why (String) - what the reader found wrong, in its own words (data)
+sources-plugins-refused-manifest-description = Its plugin.toml does not read, so the game does not take it: { $why }
+sources-plugins-refused-folder-description = A plugin's folder must have the name its plugin.toml gives it, so the game does not take it.
+# Variables:
+#   $platform (String) - this computer's kind, as plugins name it (data: aarch64-macos)
+#   $path (String) - where its program was looked for (data)
+sources-plugins-refused-program-description = It has no program for this computer ({ $platform }) where its plugin.toml says: { $path }
+
+# The question when a plugin is switched on, asked once each time: its
+# title, its text, and its two buttons (Keep it off chosen first).
+# Variables:
+#   $name (String) - the plugin's own name (data)
+sources-plugins-ask-title = Switch on { $name }?
+# Variables:
+#   $name (String) - the plugin's own name (data)
+#   $publisher (String) - its publisher as it names itself (data)
+sources-plugins-ask-body = { $name }, from { $publisher } as it says, is a program. Switched on, it runs on this computer whenever Find songs asks it for songs, with your access to your files and the network, like any program you run. The game cannot check what it does: switch it on only if you trust where it came from.
+sources-plugins-ask-yes = Switch on
+sources-plugins-ask-no = Keep it off
+
+# Options' notice once a switch changed, or the folder was read again.
+# Variables:
+#   $name (String) - the plugin's own name (data)
+sources-plugins-notice-on = { $name } is on. Its songs are on Find songs.
+# Variables:
+#   $name (String) - the plugin's own name (data)
+sources-plugins-notice-off = { $name } is off and not running.
+sources-plugins-notice-this-computer-on = This computer is on. Find songs searches the folders you choose there.
+sources-plugins-notice-this-computer-off = This computer is off.
+# Variables:
+#   $count (Number) - the plugins found
+sources-plugins-notice-looked = { $count ->
+    [one] The plugins folder holds one plugin.
+   *[other] The plugins folder holds { $count } plugins.
+}
+sources-plugins-notice-looked-none = The plugins folder holds no plugin.
+# Variables:
+#   $error (String) - why, as the system said it (data)
+sources-plugins-notice-not-opened = The plugins folder could not be opened: { $error }

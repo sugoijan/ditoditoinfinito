@@ -25,6 +25,9 @@ use ddi_ui::state::settings::Settings;
 use ddi_ui::{Cx, Ui};
 
 use crate::library::announcers::DiskAnnouncer;
+use crate::sources::plugins;
+use ddi_ui::screens::options::OptionsCall;
+use ddi_ui::screens::options_plugins as section;
 use crate::preview::SharedPlayer;
 
 /// What the options screen and the shell share.
@@ -55,6 +58,18 @@ pub struct Shared {
             std::sync::mpsc::Receiver<crate::share::ListingAnswer>,
         )>,
     >,
+    /// Options → Plugins (`crate::sources::plugins`): the plugins folder
+    /// as last read, and its reading on a thread.
+    plugins: RefCell<PluginsPage>,
+}
+
+/// The plugins folder as Options → Plugins last read it.
+#[derive(Default)]
+struct PluginsPage {
+    scan: Option<plugins::Scan>,
+    /// Being read, and whether its end is told (Look again; not the
+    /// page's opening).
+    reading: Option<(std::sync::mpsc::Receiver<plugins::Scan>, bool)>,
 }
 
 /// Looks for the announcers on a thread (ours where there is no library).
@@ -69,6 +84,162 @@ fn list_announcers(
 }
 
 impl Shared {
+    /// The plugins folder read on a thread (the page's opening, Look
+    /// again: `tell`, its end said in the notice).
+    fn read_plugins(&self, tell: bool) {
+        let wake = self.songs.as_ref().and_then(|s| s.wake.borrow().clone());
+        let rx = crate::os::background("ddi-plugins", wake, plugins::scan);
+        self.plugins.borrow_mut().reading = Some((rx, tell));
+        self.plugins_changed();
+    }
+
+    /// Options → Plugins made again from what is known now.
+    fn plugins_changed(&self) {
+        let view = {
+            let page = self.plugins.borrow();
+            plugins::view(
+                page.scan.as_ref(),
+                page.reading.is_some(),
+                self.songs.as_deref(),
+            )
+        };
+        self.model.borrow_mut().world.sections = vec![section::section(&view)];
+    }
+
+    /// The plugins installed as last read.
+    fn installed(&self) -> Vec<ddi_source_host::Installed> {
+        self.plugins
+            .borrow()
+            .scan
+            .as_ref()
+            .map(plugins::Scan::installed)
+            .unwrap_or_default()
+    }
+
+    /// The plugins folder read, when its thread is done: the host told
+    /// what is installed now, the section made again.
+    fn take_plugins(&self) -> bool {
+        let got = self
+            .plugins
+            .borrow()
+            .reading
+            .as_ref()
+            .and_then(|(rx, tell)| rx.try_recv().ok().map(|s| (s, *tell)));
+        let Some((scan, tell)) = got else {
+            return false;
+        };
+        let installed = scan.installed();
+        {
+            let mut page = self.plugins.borrow_mut();
+            page.reading = None;
+            page.scan = Some(scan);
+        }
+        plugins::installed_again(self.songs.as_deref(), installed.clone());
+        if tell {
+            use ddi_l10n::msg::sources as msg;
+            self.model.borrow_mut().notice = if installed.is_empty() {
+                msg::plugins_notice_looked_none()
+            } else {
+                msg::plugins_notice_looked(installed.len())
+            }
+            .into();
+        }
+        self.plugins_changed();
+        true
+    }
+
+    /// The rows sent to the screen now, from inside a call.
+    fn send(&self, cx: &mut Cx) {
+        *self.feed.borrow_mut() = Some(self.model.borrow().data());
+        cx.broadcast(Message::new(OPTIONS_CHANGED));
+    }
+
+    /// Options → Plugins' rows (`OptionsPlatform::section_row`).
+    fn plugins_row(self: &Rc<Self>, call: &OptionsCall, cx: &mut Cx) {
+        use ddi_l10n::msg::sources as msg;
+        let songs = self.songs.as_deref();
+        match call {
+            OptionsCall::Action { id, button } if id == section::FOLDER => {
+                if *button == 0 {
+                    if let Err(e) = plugins::open_folder() {
+                        self.model.borrow_mut().notice = msg::plugins_notice_not_opened(
+                            ddi_ui::screens::errors::error_text(&e),
+                        )
+                        .into();
+                    }
+                } else {
+                    self.read_plugins(true);
+                }
+            }
+            OptionsCall::Action { id, .. } => {
+                let page = section::plugin_of(id).and_then(|p| {
+                    self.installed()
+                        .into_iter()
+                        .find(|i| i.id() == p)
+                        .and_then(|i| i.manifest.homepage)
+                });
+                if let Some(url) = page {
+                    cx.request(ddi_ui::UiRequest::OpenUrl(url));
+                }
+            }
+            OptionsCall::Change { id, index } if id == section::THIS_COMPUTER => {
+                let on = *index == 1;
+                plugins::switch_this_computer(songs, &self.installed(), on);
+                self.model.borrow_mut().notice = if on {
+                    msg::plugins_notice_this_computer_on()
+                } else {
+                    msg::plugins_notice_this_computer_off()
+                }
+                .into();
+            }
+            OptionsCall::Change { id, index } => {
+                let Some(plugin) = section::plugin_of(id)
+                    .and_then(|p| self.installed().into_iter().find(|i| i.id() == p))
+                else {
+                    return;
+                };
+                let on = *index == 1;
+                let name = plugin.manifest.name.get(ddi_l10n::current().tag).to_string();
+                if !on {
+                    self.switch(&plugin, false, &name);
+                } else if !plugins::switched_on().contains(plugin.id()) {
+                    // Asked once, Keep it off chosen first; the row stays
+                    // off meanwhile.
+                    let shared = self.clone();
+                    let (yes_name, publisher) = (name.clone(), plugin.manifest.publisher.clone());
+                    let dialog = ddi_ui::screens::dialog::ConfirmDialog::new(
+                        self.env.clone(),
+                        &msg::plugins_ask_title(name.as_str()),
+                        &msg::plugins_ask_body(name.as_str(), publisher.as_str()),
+                        &msg::plugins_ask_yes(),
+                        Rc::new(move |cx| {
+                            shared.switch(&plugin, true, &yes_name);
+                            shared.plugins_changed();
+                            shared.send(cx);
+                        }),
+                    )
+                    .with_no(&msg::plugins_ask_no())
+                    .named("plugin-switch-on");
+                    cx.overlay(dialog, true);
+                }
+            }
+            OptionsCall::Leave => {}
+        }
+        self.plugins_changed();
+    }
+
+    /// Plugin `p` switched as asked, and the notice says so.
+    fn switch(&self, p: &ddi_source_host::Installed, on: bool, name: &str) {
+        use ddi_l10n::msg::sources as msg;
+        let notice = match plugins::switch_plugin(self.songs.as_deref(), &self.installed(), p.id(), on)
+        {
+            Ok(()) if on => msg::plugins_notice_on(name),
+            Ok(()) => msg::plugins_notice_off(name),
+            Err(e) => ddi_ui::screens::errors::error_text(&e.to_string()),
+        };
+        self.model.borrow_mut().notice = notice.into();
+    }
+
     /// The announcers looked for again (one was made or removed).
     fn list_announcers(&self) {
         *self.announcers.borrow_mut() = Some(list_announcers(self.songs.as_ref()));
@@ -160,6 +331,9 @@ impl Shared {
 
     /// Whether the rows changed since the screen was last told.
     pub fn take_pending(&self) -> bool {
+        if self.take_plugins() {
+            self.refresh();
+        }
         let skins = self
             .skins
             .borrow()
@@ -270,9 +444,12 @@ pub fn screen(
         // Ours too where there is no library.
         announcers: RefCell::new(Some(list_announcers(songs.as_ref()))),
         found: RefCell::default(),
+        plugins: RefCell::default(),
         sound,
         songs,
     });
+    // Options → Plugins, from the plugins folder read off the frame.
+    shared.read_plugins(false);
     let shell = options_shell::shell(
         env.clone(),
         model.clone(),
@@ -490,6 +667,12 @@ impl OptionsPlatform for Desktop {
         {
             s.forget_all();
         }
+        // Everything: This computer and every plugin switched off too.
+        if *reset == Reset::Everything {
+            plugins::all_off(self.0.songs.as_deref());
+            self.0.plugins_changed();
+            self.0.refresh();
+        }
         // The plays folder emptied (every play's two files): the history's
         // reset, and everything's.
         if matches!(reset, Reset::History | Reset::Everything)
@@ -518,6 +701,10 @@ impl OptionsPlatform for Desktop {
 
     fn held(&self, id: &str) -> HashSet<String> {
         self.0.held.borrow().get(id).cloned().unwrap_or_default()
+    }
+
+    fn section_row(&self, call: &OptionsCall, cx: &mut Cx) {
+        self.0.plugins_row(call, cx);
     }
 
     fn connect_twitch_chat(

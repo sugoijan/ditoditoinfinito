@@ -1,6 +1,7 @@
 # Song sources: native plugins for the desktop app (2026-11-25)
 
-Status: stages 1 to 3 built (2026-11-26). Since round RC (2026-11-27)
+Status: stages 1 to 3 built (2026-11-26); stage 4's Plugins page built
+(round PG, 2026-11-28: "Stage 4 as built", below). Since round RC (2026-11-27)
 one ordered level says how far a source's song may go, in place of the
 room rule ("How far a song may go", section 4; "Round RC as built").
 Since round PH (2026-11-27) every play of a found song is kept, with
@@ -970,7 +971,7 @@ joining the `qps-ploc` walk. Plugin text never enters them.
 | 1 (built 2026-11-26) | `ddi-source-protocol`; the host: finding plugins in `plugins/`, manifests, spawning, framing, operations, streamed files into memory, timeouts, kills and crash counting; synthetic plugins in tests (well-behaved, hanging, crashing, flooding); `--source-check`; the SDK's start. | Medium. | Yes. |
 | 2 (built 2026-11-26) | "This computer" built in, behind the in-process `Source` trait; Find songs in a first form; fetched songs in memory (`MemReader`, `Files::Memory`, `mem:` pictures, the preview from bytes, the budget, the cache for what memory cannot hold); play without importing; the import store. Useful with no plugin at all. | Medium to large. | Yes: folders written by tests, offscreen plays. |
 | 3 (built 2026-11-26) | Add to a room without importing; the room rule (replaced by the level, round RC). No room model change. | Small to medium. | Yes: `FakeServer` and the shares faked on a loopback port; no local server run. |
-| 4 | Plugins in Options (Advanced), on/off, "Add plugin…", details with the digest, Remove; plugin sources in Find songs; `--plugin-check`; the systems' checks verified on macOS, Linux and Windows. | Small to medium. | Yes: synthetic plugins. |
+| 4 (the page built 2026-11-28) | Plugins in Options (Advanced), on/off, "Add plugin…", details with the digest, Remove; plugin sources in Find songs; `--plugin-check`; the systems' checks verified on macOS, Linux and Windows. Built: the page, its switches, details, Open folder, Look again; not yet: Add plugin…, Remove, `--plugin-check`, the systems' checks. | Small to medium. | Yes: synthetic plugins. |
 | 5 | The SDK's repository: SDK, harness, the folder and catalog examples, the template; the protocol crate published. | Medium. | Yes. |
 | 6 | Find songs complete: filters drawn from schemas, browse, the item's side. | Medium. | Yes: offscreen pictures. |
 | Later | The DanOni importer as a plugin (section 5); sign-in and upload where a site asks. | Small to medium (DanOni). | |
@@ -1694,6 +1695,133 @@ plugin's metadata language for the title (the origin keeps the simfile's
 title); the reworker focusing a found song's plays loaded under another
 revision's id (the background pass finds them by content instead, a
 second and a half later).
+
+## Stage 4 as built (2026-11-28, round PG)
+
+The Plugins page, as a section of Options on desktop at the Advanced
+level ([ui-levels.md](ui-levels.md), section 6). Not in this round:
+"Add plugin…" (copying a picked folder or zip), Remove, Find songs'
+filters drawn from schemas, `--plugin-check`, and the systems' checks
+of a downloaded program verified on each system (section 3, "The
+systems' own checks"): left for a round of their own.
+
+**What a player sees.** Options → Interface → Show advanced options On:
+a thirteenth section, Plugins, at the end of the rail (after Data and
+privacy). Its lead says once what a plugin is: a program that finds
+songs for Find songs, running on this computer with the player's access
+to their files and the network, which the game cannot check, so to
+switch on only plugins from people they trust; how to add one (put its
+folder in the plugins folder, come back, Look again, switch it on); and
+that the game never downloads, installs or updates plugins. Its rows:
+
+- **Plugins folder**: Open folder (the system's file browser on the
+  data folder's `plugins/`, made where missing: `crate::os::open_folder`,
+  `open` on macOS, `explorer` on Windows, `xdg-open` elsewhere) and Look
+  again (the folder read again); beside them how many plugins it holds,
+  "None yet", or "Looking…" while it is read; its sentence names the
+  folder's path.
+- **BUILT INTO THE GAME**: This computer's switch, the same setting
+  `--sources on|off` writes (`ddi.desktop.sources.v1`); its sentence
+  lists the folders it searches, chosen on Find songs.
+- **INSTALLED PLUGINS**: each plugin a switch (Off and On) named by its
+  own name, beside it "Version … · publisher · " and the first twelve
+  characters of its program's SHA-256 (the plugin's words, data), or
+  what keeps it from running now; its sentence (Options' description
+  panel, shown on focus) says what it is now, its version and publisher
+  "as the plugin says", what it does (from its manifest's capabilities
+  and inputs, in the game's words: searching, search filters, browsing,
+  song details, fetching songs, songs from a folder you choose, a web
+  address, links to its hosts, text), how far its songs may go (the
+  three levels' sentences), its page, and the whole SHA-256. A plugin
+  with a page has a row under it, its address and Open its page (the
+  system's browser). A folder that is no plugin the game takes is a row
+  of its folder's name and why: no `plugin.toml`; a `plugin.toml` that
+  does not read (the reader's words in the sentence); a folder named
+  otherwise than its manifest's id; no program for this computer (the
+  platform and the path looked for). Where the folder holds nothing:
+  "No plugin is installed." and how to add one.
+
+**The states' words** (English; Japanese drafts in `locales/ja/sources.ftl`):
+
+| State | Beside the switch | Its sentence starts |
+|---|---|---|
+| Off | Version · publisher · digest | Switched off: it does not run. |
+| On | Version · publisher · digest | Switched on: it runs only when Find songs asks it for songs, and stops after a minute with nothing to do. |
+| Three abnormal ends this run | Stopped working: off until the game starts again | It stopped working three times, so it is off until you start the game again. |
+| A Hello not its manifest's | Not as its plugin.toml says: off until the game starts again | It did not start as its plugin.toml says, … |
+| No protocol version in common (its manifest's, or its Hello's) | Needs a newer version of the game / Made for an older version of the game (no switch) | It needs a newer version of the game, so it cannot run. / It was made for an older version … |
+| Refused folders | Not taken: no plugin.toml / its plugin.toml does not read / its folder has another name / no program for this computer | the same, with why |
+
+**Switching.**
+
+- On asks once (`plugin-switch-on`): "Switch on {name}?", the plugin's
+  name and publisher as it says, that it is a program that runs on this
+  computer whenever Find songs asks it for songs, with the player's
+  access to their files and the network like any program they run, that
+  the game cannot check what it does, and to switch it on only if they
+  trust where it came from; Keep it off chosen first (Start alone never
+  switches one on), Switch on beside it. The row stays Off while it asks.
+- Off, and This computer either way, asks nothing.
+- The switches are written at once into the configuration folder's
+  `plugins.json` (`Switches::set`), the file `--source-check` and the
+  window's start read, and the host is told (`Host::switch`: off, its
+  process is shut down and what was queued for it fails as switched
+  off); the plugins folder read again gives the host what is installed
+  now (`Host::set_installed`: a new plugin added off, one as it was kept
+  as it was, a changed one stopped and taken anew with what it is this
+  run, one gone stopped and forgotten).
+- **Find songs follows at once**: song select's More offers Find songs
+  while a source is offered (`Songs::finding`, now "a source on" rather
+  than "the sources made"), and its sources are the host's switched on;
+  the first switched on in a run that held none makes them
+  (`Songs::make_sources`, the window's run only, as `with_sources`
+  allows).
+- **What starts a plugin**: Find songs asking it for something (a
+  search, a fetch, a description), as before. Opening the page, Look
+  again and switching it on start nothing: what it does is read from its
+  manifest, and its executable hashed (on a thread, `sources::plugins::scan`).
+  Its live Hello is never asked for the page; where the Hello disagrees
+  with the manifest the plugin is off for the run and the page says so.
+- **Reset**: at Basic the section shows only "Advanced changes: N" where
+  This computer or a plugin is on (each switch's default Off), its Reset
+  switching them off through the shell (`OptionsModel::shell_changes`,
+  `OptionsPlatform::section_row`); Data and privacy's Everything switches
+  This computer and every plugin off too (its question says so on
+  desktop); Settings alone leaves them as they are.
+
+**The rail.** Options' full rail runs down to the footer and keeps
+today's 48 px pitch while its sections fit (twelve at 1280×720); past
+that its sections sit closer, down to 40 px (thirteen at 45 px, fourteen
+at 42 px), and past what fits at 40 px it scrolls: the chosen section
+kept in view (Tab, the shoulders), a section focused by keys scrolled
+into view, the wheel and a drag moving it (`OptionsScreen::rail`). The
+compact layout's tab strip scrolled already. Rows may show a note beside
+their choices now (a plugin's state), and a section may have a lead
+above its rows (`OptionSection::lead`).
+
+**Where it lives.** `ddi_ui::screens::options_plugins` (the section
+from a `PluginsView`; desktop only, the module absent from the web's
+build, its text in `sources.ftl`, a desktop-only area);
+`crates/desktop/src/sources/plugins.rs` (the scan, the view, the
+switches); `crates/desktop/src/options.rs` (the section in `World`, its
+rows' calls, the question); `ddi_source_host::Host::switch`,
+`set_installed`, `off_why`.
+
+**Tests.** `ddi_ui`'s `options_plugins_tests.rs` (the rows of each state,
+the levels' count, a row's change and its count's Reset handed to the
+shell, the rail with thirteen and with twenty-four sections), the
+`qps-ploc` walk (`plugins_walk`: every state, at both levels, drawn);
+the host's `plugins_are_switched_and_the_folder_read_again_while_the_host_runs`
+and `off_why` in the crash and protocol tests
+(`tools/source-test-plugins/tests/host.rs`); desktop's
+`tests/plugins_page.rs` (its own `main`, the example and a crashing
+plugin run as real processes, a plugin whose manifest does not read and
+one with no program for this computer): each row's state, nothing
+started by opening the page, the question and Keep it off, Find songs
+following a switch both ways, three crashes, This computer's switch,
+Basic's count and its Reset, an empty folder, Japanese, pictures. The
+rows' record (`options_rows_tests.rs`) is the model's own rows: a
+shell's section is not in it, and is held by its own tests.
 
 ## 9. The maintainer's decisions
 

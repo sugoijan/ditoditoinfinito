@@ -527,6 +527,7 @@ pub(crate) mod tests {
                     level: Advanced,
                     default: Some(0),
                 }],
+                lead: String::new(),
             }],
             ..World::default()
         };

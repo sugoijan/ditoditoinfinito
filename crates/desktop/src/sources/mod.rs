@@ -26,6 +26,7 @@
 pub mod fetched;
 pub mod find;
 pub mod import;
+pub mod plugins;
 pub mod rooms;
 pub mod this_computer;
 
@@ -111,15 +112,26 @@ impl Sources {
         if !setting.this_computer && !plugin_on {
             return None;
         }
-        let store = Store::open(store_dir()?, StoreLimits::default()).shared();
-        Some(Sources::with(
-            host_config()?,
+        Sources::make(
             installed,
             &on,
-            store,
-            wake,
             setting.this_computer.then_some(setting.folders),
-        ))
+            wake,
+        )
+    }
+
+    /// The sources of `installed` (those in `on` switched on), This
+    /// computer on `folders` where given, over this app's folders and a
+    /// store of fetched songs emptied as it opens: `None` where the app
+    /// has no folders.
+    pub fn make(
+        installed: Vec<ddi_source_host::Installed>,
+        on: &BTreeSet<String>,
+        folders: Option<Vec<PathBuf>>,
+        wake: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) -> Option<Sources> {
+        let store = Store::open(store_dir()?, StoreLimits::default()).shared();
+        Some(Sources::with(host_config()?, installed, on, store, wake, folders))
     }
 
     /// The sources of `installed` (those in `on` switched on), This

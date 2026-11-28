@@ -806,8 +806,13 @@ fn select(
     let open = crate::songs::open_fn(songs, sound.clone());
     let songs = songs.clone();
     let shown = env.clone();
-    let finding = online && songs.finding();
-    let finding_offered = finding;
+    // Asked each time: a source switched on or off since (Options →
+    // Plugins) is followed at once.
+    let finding = {
+        let songs = Rc::downgrade(&songs);
+        Rc::new(move || online && songs.upgrade().is_some_and(|s| s.finding()))
+    };
+    let finding_offered = finding.clone();
     let r = room.clone();
     let calls: ddi_ui::screens::select::ShellFn = Rc::new(move |call, cx| match call {
         SelectCall::Open(what) if what == "calibrate" => {
@@ -815,7 +820,7 @@ fn select(
         }
         // Find songs to add (the room's More, while a song source is on):
         // what it finds added to the room's list without importing it.
-        SelectCall::Open(what) if what == "find-songs" && finding => {
+        SelectCall::Open(what) if what == "find-songs" && finding() => {
             cx.push(crate::sources::find::room_screen(
                 &shown,
                 &songs,
@@ -848,6 +853,6 @@ fn select(
         open,
     )
     .with_shell(calls, feed)
-    .with_finding(finding_offered)
+    .with_finding_by(finding_offered)
     .with_room(room, shell)
 }

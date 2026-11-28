@@ -100,6 +100,10 @@ pub struct Songs {
     /// What wakes the event loop for the sources' news, once
     /// [`Songs::start`] has it (the host is made before).
     sources_wake: Arc<std::sync::Mutex<Option<Wake>>>,
+    /// Song sources may be made while the run goes on (the window's run,
+    /// [`Songs::with_sources`]): Options → Plugins switching the first one
+    /// on ([`Songs::make_sources`]).
+    sources_allowed: Cell<bool>,
     /// An online room's song select while it is there: fed the library
     /// and this run's fetched songs again when they change
     /// ([`Songs::room_data_at`], `crate::sources::rooms`).
@@ -191,6 +195,7 @@ impl Songs {
             download_seen: RefCell::default(),
             sources: RefCell::default(),
             sources_wake: Arc::default(),
+            sources_allowed: Cell::new(false),
             room_select: RefCell::default(),
             keys: RefCell::default(),
             store_seen: Cell::new(0),
@@ -202,20 +207,45 @@ impl Songs {
     /// run alone (a run without a window, beside an open app, must not
     /// empty the app's store of fetched songs).
     pub fn with_sources(self: Rc<Self>) -> Rc<Self> {
+        *self.sources.borrow_mut() = crate::sources::Sources::start(Some(self.sources_wake()));
+        self.sources_allowed.set(true);
+        self
+    }
+
+    /// What wakes the event loop for the sources' news.
+    fn sources_wake(&self) -> Arc<dyn Fn() + Send + Sync> {
         let relay = self.sources_wake.clone();
-        let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        Arc::new(move || {
             let w = relay.lock().ok().and_then(|w| w.clone());
             if let Some(w) = w {
                 w();
             }
-        });
-        *self.sources.borrow_mut() = crate::sources::Sources::start(Some(wake));
-        self
+        })
+    }
+
+    /// The song sources made while the run goes on (the first switched on
+    /// in Options → Plugins), where this run may hold them and holds none
+    /// yet: `installed`, those in `on` switched on, This computer on
+    /// `folders` where given. Nothing is started.
+    pub fn make_sources(
+        &self,
+        installed: Vec<ddi_source_host::Installed>,
+        on: &std::collections::BTreeSet<String>,
+        folders: Option<Vec<PathBuf>>,
+    ) {
+        if !self.sources_allowed.get() || self.sources.borrow().is_some() {
+            return;
+        }
+        *self.sources.borrow_mut() =
+            crate::sources::Sources::make(installed, on, folders, Some(self.sources_wake()));
     }
 
     /// Whether song select offers Find songs (a source is on).
     pub fn finding(&self) -> bool {
-        self.sources.borrow().is_some()
+        self.sources
+            .borrow()
+            .as_ref()
+            .is_some_and(|s| !s.offered().is_empty())
     }
 
     /// Nothing new starts in a source while a play runs, and This
@@ -1379,7 +1409,10 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
         // Share… while the hidden switch is on (`crate::share`).
         .with_sharing_if(Settings::load().sharing_on())
         // Find songs… while a song source is on (`crate::sources`).
-        .with_finding(songs.finding());
+        .with_finding_by({
+            let songs = Rc::downgrade(songs);
+            Rc::new(move || songs.upgrade().is_some_and(|s| s.finding()))
+        });
     with_plays(screen, songs)
 }
 

@@ -55,6 +55,53 @@ pub fn open_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+thread_local! {
+    /// The folders [`open_folder`] showed, where a test records them
+    /// instead of opening the system's file browser ([`record_opened`]).
+    static OPENED: std::cell::RefCell<Option<Vec<std::path::PathBuf>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// From now on [`open_folder`] records the folders it is asked to show
+/// on this thread instead of opening the file browser (tests), and
+/// [`take_opened`] hands them over.
+pub fn record_opened() {
+    OPENED.with(|o| *o.borrow_mut() = Some(Vec::new()));
+}
+
+/// The folders recorded since [`record_opened`] (or the last take).
+pub fn take_opened() -> Vec<std::path::PathBuf> {
+    OPENED.with(|o| o.borrow_mut().as_mut().map(std::mem::take).unwrap_or_default())
+}
+
+/// Shows folder `dir` in the system's file browser (Finder, Explorer,
+/// the desktop's own through `xdg-open`), made first where it is missing.
+pub fn open_folder(dir: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let recorded = OPENED.with(|o| {
+        o.borrow_mut()
+            .as_mut()
+            .map(|list| list.push(dir.to_path_buf()))
+            .is_some()
+    });
+    if recorded {
+        return Ok(());
+    }
+    let mut cmd = if cfg!(target_os = "macos") {
+        Command::new("open")
+    } else if cfg!(windows) {
+        Command::new("explorer")
+    } else {
+        Command::new("xdg-open")
+    };
+    let mut child = cmd.arg(dir).spawn().map_err(|e| e.to_string())?;
+    // Reaped once it is done (the command hands the folder over and quits).
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
 /// Where a site-relative link's file is in this checkout: the site's
 /// files are built under `target/` (`target/video/…` is served as
 /// `video/…`), the rest as they are in the repository.

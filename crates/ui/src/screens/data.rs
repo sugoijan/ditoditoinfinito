@@ -1184,13 +1184,17 @@ impl OptionDef {
 }
 
 /// A section of options.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct OptionSection {
     /// What the shell and the tests know it by, whatever the language
     /// (its English name: `Display`).
     pub id: String,
     pub name: String,
     pub options: Vec<OptionDef>,
+    /// A paragraph above its rows, wrapped, where the section says once
+    /// what it is about (desktop's Plugins: what a plugin is); empty for
+    /// the model's own.
+    pub lead: String,
 }
 
 /// Options' data.

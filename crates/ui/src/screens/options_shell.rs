@@ -91,6 +91,12 @@ pub trait OptionsPlatform {
     /// tells `done` how it ended. Where the platform has no online state,
     /// nothing.
     fn connect_twitch_chat(&self, _level: ddi_chat::Level, _done: ConnectDone, _cx: &mut Cx) {}
+    /// A row of a section the platform adds (`World::sections`, desktop's
+    /// Plugins) changed or pressed: the platform carries it out and puts
+    /// the section as it is then in the model's `world.sections`, sent at
+    /// once. Where it asks first (a plugin switched on), the rows stay as
+    /// they were meanwhile, and its answer sends them through the feed.
+    fn section_row(&self, _call: &OptionsCall, _cx: &mut Cx) {}
     /// Opens share `id` in the game (its song select, over the options);
     /// `false` where the platform cannot, and the link opens instead.
     fn open_share(&self, _id: &str, _cx: &mut Cx) -> bool {
@@ -177,6 +183,17 @@ fn call_with(
     call: OptionsCall,
     cx: &mut Cx,
 ) -> Option<super::data::OptionsData> {
+    // A row of the platform's own section.
+    let owned = match &call {
+        OptionsCall::Change { id, .. } | OptionsCall::Action { id, .. } => {
+            model.borrow().world.has_row(id)
+        }
+        OptionsCall::Leave => false,
+    };
+    if owned {
+        platform.section_row(&call, cx);
+        return Some(model.borrow().data());
+    }
     let act = match call {
         OptionsCall::Change { id, index } => {
             let effect = model.borrow_mut().change(&id, index);
@@ -400,7 +417,15 @@ fn call_with(
                 &body,
                 &yes,
                 Rc::new(move |cx| {
+                    // A shell's section's rows are the shell's to put back.
+                    let shells = match &reset {
+                        Reset::Advanced(section) => m.borrow().shell_changes(section),
+                        _ => Vec::new(),
+                    };
                     m.borrow_mut().reset(&reset);
+                    for (id, index) in shells {
+                        p.section_row(&OptionsCall::Change { id, index }, cx);
+                    }
                     {
                         let model = m.borrow();
                         p.volume(model.settings.volume);

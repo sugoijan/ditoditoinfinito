@@ -89,6 +89,8 @@ pub mod options;
 pub mod options_dialogs;
 pub mod options_levels;
 pub mod options_model;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod options_plugins;
 pub mod options_shell;
 pub mod options_tree;
 #[cfg(test)]

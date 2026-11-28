@@ -329,6 +329,7 @@ pub fn arrange(parts: Vec<OptionSection>) -> Vec<OptionSection> {
                 id: branch.id.into(),
                 name: (branch.name)().into(),
                 options: rows,
+                lead: String::new(),
             }
         })
         .collect();

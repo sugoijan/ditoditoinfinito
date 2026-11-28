@@ -48,7 +48,13 @@ fn rules_first(on: bool) {
 /// before its closing » is the message's. A message or data cut to fit
 /// (opened, never closed: a name in a narrow column) is one to its end.
 fn outside(inside: bool, text: &str) -> String {
-    let mut depth = usize::from(inside);
+    outside_at(usize::from(inside), text)
+}
+
+/// [`outside`] for a text that begins `depth` messages deep (a message
+/// holding others in its variables, wrapped over several runs).
+fn outside_at(depth: usize, text: &str) -> String {
+    let mut depth = depth;
     let mut data = false;
     let mut left = String::new();
     for c in text.chars() {
@@ -138,7 +144,13 @@ fn line(text: &str) -> String {
 /// its variables (a lane's name in "«KeyF moved from «Down» to «Left».»")
 /// is one message: its translation places them.
 fn joined(text: &str) -> bool {
-    let mut depth = 0usize;
+    joined_at(0, text)
+}
+
+/// [`joined`] for a text that begins `depth` messages deep: what stands
+/// between two messages inside another is that message's.
+fn joined_at(depth: usize, text: &str) -> bool {
+    let mut depth = depth;
     // What stands since the last whole message, once there was one.
     let mut between: Option<String> = None;
     for c in text.chars() {
@@ -453,18 +465,53 @@ fn shown(h: &mut Harness, found: &mut BTreeSet<String>) {
 
 /// [`shown`]'s check of texts drawn in order (or each whole, unwrapped).
 fn checked(texts: Vec<String>, found: &mut BTreeSet<String>) {
-    let mut open = false;
+    let mut depth = 0;
     for t in texts {
-        // A line inside a wrapped message is the message's.
-        let inside = open;
-        open = still_open(open, &t);
-        if in_code_within(inside, &t) {
+        // A line inside a wrapped message is the message's (as deep as
+        // the messages around it, one holding others in its variables).
+        let at = depth;
+        depth = depth_after(depth, &t);
+        if outside_at(at, &t).chars().any(char::is_alphabetic) {
             found.insert(line(&t));
         }
-        if joined(&t) {
+        if joined_at(at, &t) {
             found.insert(format!("JOINED {}", line(&t)));
         }
     }
+}
+
+/// How many messages are open after `text`, the next of the runs drawn
+/// in order, `depth` open before it: a message wrapped over several runs
+/// opens with « on one and closes with » on a later one; a » that closes
+/// nothing seen (runs not drawn in order) closes what was open.
+fn depth_after(depth: usize, text: &str) -> usize {
+    text.chars().fold(depth, |d, c| match c {
+        '«' => d + 1,
+        '»' => d.saturating_sub(1),
+        _ => d,
+    })
+}
+
+#[test]
+fn a_message_holding_others_may_wrap_between_them() {
+    let lines = [
+        "«Version 1, from ‹Tests›. What it does: «searching» · «fetching». «Its",
+        "songs can be played here.» «Its page: ‹x›.» SHA-256 of its program:",
+        "‹ab›~~»",
+        "Then code",
+    ];
+    let mut depth = 0;
+    let mut flagged = Vec::new();
+    for l in lines {
+        let at = depth;
+        depth = depth_after(depth, l);
+        flagged.push(
+            outside_at(at, l).chars().any(char::is_alphabetic) || joined_at(at, l),
+        );
+    }
+    assert_eq!(flagged, [false, false, false, true]);
+    assert_eq!(depth_after(0, "«a» and «b"), 1);
+    assert_eq!(depth_after(2, "x»» y"), 0);
 }
 
 /// Song select's states beyond its first (typing a search, what it
@@ -3000,6 +3047,11 @@ fn walk() -> BTreeSet<String> {
         };
         let model = OptionsModel::new(settings, world);
         options_texts(&model, &mut found);
+        // Desktop's Plugins (`super::options_plugins`): every state of its
+        // rows, its count at Basic and its Reset's question, and drawn.
+        if platform == Platform::Desktop {
+            plugins_walk(&env, &model, &mut found);
+        }
         for r in [
             Reset::Settings,
             Reset::Songs,
@@ -3026,6 +3078,58 @@ fn walk() -> BTreeSet<String> {
         }
     }
     found
+}
+
+/// Desktop's Plugins section in every state, through the model at both
+/// levels and drawn at Advanced (its lead, its rows' notes).
+fn plugins_walk(env: &Env, model: &OptionsModel, found: &mut BTreeSet<String>) {
+    use super::options_plugins as p;
+    let mut world = model.world.clone();
+    world.sections = vec![p::section(&p::sample_view())];
+    let model = OptionsModel::new(model.settings.clone(), world.clone());
+    options_texts(&model, found);
+    for t in model
+        .data_at(Level::Advanced)
+        .sections
+        .iter()
+        .map(|s| &s.lead)
+        .filter(|l| !l.is_empty())
+    {
+        if in_code(t) || joined(t) {
+            found.insert(line(t));
+        }
+    }
+    let (title, body, yes) = Reset::Advanced(p::SECTION.into()).texts(&model);
+    for t in [title, body, yes] {
+        if in_code(&t) {
+            found.insert(line(&t));
+        }
+    }
+    for state in [p::PluginsView::default(), p::PluginsView {
+        looking: true,
+        ..p::PluginsView::default()
+    }] {
+        let mut world = world.clone();
+        world.sections = vec![p::section(&state)];
+        options_texts(&OptionsModel::new(model.settings.clone(), world), found);
+    }
+    // Drawn: the section's lead and rows on Options at Advanced.
+    let settings = Settings {
+        level: Level::Advanced,
+        ..model.settings.clone()
+    };
+    let drawn = OptionsModel::new(settings, world);
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+    h.push(super::options::OptionsScreen::new(env.clone(), drawn.data(), None));
+    for _ in 0..12 {
+        h.key("Tab", "Tab");
+    }
+    h.run(0.3);
+    assert_eq!(env.state.borrow().section, p::SECTION);
+    for _ in 0..16 {
+        h.key("ArrowDown", "ArrowDown");
+        shown(&mut h, found);
+    }
 }
 
 /// Options' sections, rows, values, notes, headings and descriptions, and

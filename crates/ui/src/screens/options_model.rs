@@ -121,6 +121,18 @@ pub struct World {
     pub sections: Vec<OptionSection>,
 }
 
+impl World {
+    /// Whether row `id` is one of a section the shell adds
+    /// ([`World::sections`]): the shell's to carry out
+    /// (`super::options_shell::OptionsPlatform::section_row`).
+    pub fn has_row(&self, id: &str) -> bool {
+        self.sections
+            .iter()
+            .flat_map(|s| &s.options)
+            .any(|o| o.id == id)
+    }
+}
+
 /// The person's Twitch access, for Data and privacy's row: signed in or not, the
 /// features it grants (`bans`, `blocks`, `chat`), whose account.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -675,6 +687,21 @@ impl OptionsModel {
     /// (`crate::state::experimental::changed_count`).
     fn experimental_changed(&self) -> usize {
         crate::state::experimental::changed_count(&self.settings, self.world.platform)
+    }
+
+    /// The rows of section `id` a shell adds ([`World::sections`]) that
+    /// differ from their defaults at Advanced, with their defaults: what
+    /// its count's Reset asks the shell to put back (the model knows
+    /// nothing of them).
+    pub fn shell_changes(&self, id: &str) -> Vec<(String, usize)> {
+        self.world
+            .sections
+            .iter()
+            .filter(|s| s.id == id)
+            .flat_map(|s| &s.options)
+            .filter(|o| o.level == Level::Advanced && o.changed())
+            .filter_map(|o| Some((o.id.clone(), o.default?)))
+            .collect()
     }
 
     /// The rows with these ids (a play's start prompt's), as Options shows
@@ -3351,10 +3378,12 @@ fn basic_view(s: OptionSection, experimental: usize) -> Option<OptionSection> {
         count.index = 1;
         rows.push(count);
     }
+    // Its lead goes with its rows: only the count shows of it.
     (!rows.is_empty()).then_some(OptionSection {
         id: s.id,
         name: s.name,
         options: rows,
+        lead: String::new(),
     })
 }
 
@@ -3365,6 +3394,7 @@ fn part(id: &str, options: Vec<OptionDef>) -> OptionSection {
         id: id.into(),
         name: String::new(),
         options,
+        lead: String::new(),
     }
 }
 

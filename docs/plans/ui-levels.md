@@ -783,7 +783,8 @@ Advanced (13 on desktop, 12 on the web); Basic shows the rows marked B.
     - B Play history, Twitch access, Privacy note, Terms of use (round
       TU2, 2026-11-27), Send usage statistics, Send error reports,
       Settings, Imported songs (or Song folders), Everything
-13. **Plugins** (desktop, Advanced only; section 6)
+13. **Plugins** (desktop, Advanced only; section 6; built 2026-11-28,
+    section 13)
 
 Sharing, today a section behind its switch, becomes the hidden
 screen's switch; while it is on, its four rows show at the end of Data
@@ -1706,3 +1707,29 @@ state, the questions), `route::tests::the_experimental_settings_have_their_addre
 desktop's `experimental_offscreen` (both sizes, both languages, the
 row in Options, Open and Back). `options_rows_before.tsv` was written
 again for Sharing's four rows, Advanced now (no other line moved).
+
+## 14. Plugins in the tree (2026-11-28, source plugins' stage 4)
+
+Desktop's Plugins page is the thirteenth section, id `Plugins`, after
+Data and privacy, added by the shell (`World::sections`,
+`ddi_ui::screens::options_plugins`); every row of it Advanced, its
+switches (This computer's and each plugin's) Off by default, so at Basic
+it shows only "Advanced changes: N" where one is on, its Reset handed to
+the shell (`OptionsModel::shell_changes`, `OptionsPlatform::section_row`).
+The web has twelve sections at both levels, as before. The rows' record
+(`options_rows_tests.rs`) holds the model's rows alone; the section a
+shell adds is held by its own tests (`options_plugins_tests.rs`) and the
+`qps-ploc` walk.
+
+**The rail.** It runs down to the footer now (it stopped at the
+description's top, which sits beside it), keeps its 48 px pitch while its
+sections fit, sits closer down to 40 px where they do not (thirteen at
+45 px at 1280×720, the smallest a full window's layout gets: a wider
+window keeps 720 lines, a narrower one has more), and past what fits at
+40 px it scrolls with the chosen section kept in view (Tab, the
+shoulders), a section focused by keys scrolled into view, the wheel and a
+drag moving it. The compact layout's strip of tabs scrolled already. A
+section may have a lead, a paragraph above its rows (`OptionSection::lead`,
+Plugins' alone), and a row of choices may show a note beside them (a
+plugin's state).
+

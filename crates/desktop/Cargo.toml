@@ -178,6 +178,12 @@ harness = false
 name = "room_find_songs"
 harness = false
 
+# Options → Plugins (`tests/plugins_page.rs`): its own `main` too, the
+# example plugin and a crashing one run under their names.
+[[test]]
+name = "plugins_page"
+harness = false
+
 # Plays of found songs kept and found again (`tests/found_plays.rs`): its
 # own `main` too, the example plugin run under its name.
 [[test]]

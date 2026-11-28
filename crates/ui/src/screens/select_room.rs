@@ -1533,7 +1533,7 @@ impl SelectScreen {
             last.push((MORE_TAB.into(), label.into()));
             // Desktop's song sources, on either tab, to who may add.
             #[cfg(not(target_arch = "wasm32"))]
-            if self.finding && rm.room.borrow().may_add() {
+            if (self.finding)() && rm.room.borrow().may_add() {
                 last.push((
                     MORE_FIND.into(),
                     ddi_l10n::msg::sources::more_find_room().into(),

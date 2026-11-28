@@ -77,6 +77,16 @@ pub type OptionsFeed = Rc<RefCell<Option<OptionsData>>>;
 const ROW: f32 = 42.0;
 const ROW_GAP: f32 = 4.0;
 const HEADING: f32 = 26.0;
+/// A section's lead: its lines' size and height, and the room under it.
+const LEAD_SIZE: f32 = 13.0;
+const LEAD_LINE: f32 = 17.0;
+const LEAD_GAP: f32 = 14.0;
+/// The rail's sections: their pitch where they fit at it (twelve did at
+/// 1280×720), else closer, down to [`RAIL_PITCH_MIN`]; more than fit at
+/// that scroll, the chosen one kept in view ([`OptionsScreen::rail`]).
+const RAIL_PITCH: f32 = 48.0;
+const RAIL_PITCH_MIN: f32 = 40.0;
+const RAIL_GAP: f32 = 4.0;
 
 /// Where things go, in the screen's own pixels ([`OptionsScreen::fit`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -112,6 +122,11 @@ pub struct OptionsScreen {
     tabs_scroll: f32,
     /// The strip follows the chosen tab (not while moved by hand).
     tabs_follow: bool,
+    /// How far the full layout's rail is scrolled, where its sections do
+    /// not fit it, and whether it follows the chosen one (not while moved
+    /// by hand).
+    rail_scroll: f32,
+    rail_follow: bool,
     changed: Option<ChangeFn>,
     shell: Option<OptionsShell>,
     feed: Option<OptionsFeed>,
@@ -138,6 +153,8 @@ impl OptionsScreen {
             sliding: None,
             tabs_scroll: 0.0,
             tabs_follow: true,
+            rail_scroll: 0.0,
+            rail_follow: true,
             changed,
             shell: None,
             feed: None,
@@ -220,11 +237,12 @@ impl OptionsScreen {
                 screen,
                 zoom,
                 compact,
+                // Down to the footer: the description is beside it.
                 sections: [
                     m,
                     top,
                     env.metric("Options.Rail.Width", 208.0),
-                    desc_y - top,
+                    h - env.metric("Footer.Height", 40.0) - 8.0 - top,
                 ],
                 rows: [
                     rows_x,
@@ -485,17 +503,19 @@ impl OptionsScreen {
         let [sx, sy, sw, sh] = self.places.sections;
         let mut items = Vec::new();
         if !self.places.compact {
+            let (pitch, scroll) = self.rail();
+            let ih = pitch - RAIL_GAP;
             for (i, s) in self.data.sections.iter().enumerate() {
                 let mut a = env.component(
                     "Options.Section",
                     "List.Header",
-                    &Spec::new([sw, 44.0], &s.name),
+                    &Spec::new([sw, ih], &s.name),
                     &format!("Section{i}"),
-                    [0.0, i as f32 * 48.0],
+                    [0.0, i as f32 * pitch],
                 );
                 set_text(&mut a, "Title", &s.name);
                 // The whole of it takes a tap, drawn plate or not.
-                let hit = quad_at("Hit", [sw, 44.0], [0.0, 0.0, 0.0, 0.004], [sw / 2.0, 22.0]);
+                let hit = quad_at("Hit", [sw, ih], [0.0, 0.0, 0.0, 0.004], [sw / 2.0, ih / 2.0]);
                 if let Kind::Frame(c) = &mut a.kind {
                     c.insert(0, hit);
                 }
@@ -510,7 +530,13 @@ impl OptionsScreen {
                 a.finish_tweening();
                 items.push(a);
             }
-            let mut r = frame("Sections", items);
+            let mut list = frame("SectionRail", items);
+            call(&mut list, "y", &[-scroll]);
+            let mut r = frame("Sections", vec![list]);
+            // Room for the chosen one's ring; cut only where it scrolls.
+            if scroll > 0.0 || self.rail_overflows() {
+                r.clip = Some([-6.0, -6.0, sw + 6.0, sh + 6.0]);
+            }
             call(&mut r, "xy", &[sx, sy]);
             return r;
         }
@@ -557,9 +583,106 @@ impl OptionsScreen {
         clip
     }
 
+    /// The full rail's pitch and scroll: today's pitch where every
+    /// section fits at it, else as close as they all fit, never closer
+    /// than [`RAIL_PITCH_MIN`]; past that the rail scrolls, following the
+    /// chosen section (keys, shoulders) until moved by hand (a wheel, a
+    /// drag), within its ends.
+    fn rail(&mut self) -> (f32, f32) {
+        let pitch = self.rail_pitch();
+        let n = self.data.sections.len() as f32;
+        let sh = self.places.sections[3];
+        let max = (n * pitch - RAIL_GAP - sh).max(0.0);
+        if self.rail_follow {
+            let top = self.section as f32 * pitch;
+            if top < self.rail_scroll {
+                self.rail_scroll = top;
+            }
+            if top + pitch - RAIL_GAP > self.rail_scroll + sh {
+                self.rail_scroll = top + pitch - RAIL_GAP - sh;
+            }
+        }
+        self.rail_scroll = self.rail_scroll.clamp(0.0, max);
+        (pitch, self.rail_scroll)
+    }
+
+    fn rail_pitch(&self) -> f32 {
+        let n = self.data.sections.len().max(1) as f32;
+        let sh = self.places.sections[3];
+        if n * RAIL_PITCH - RAIL_GAP <= sh {
+            RAIL_PITCH
+        } else {
+            ((sh + RAIL_GAP) / n).floor().max(RAIL_PITCH_MIN)
+        }
+    }
+
+    /// The full rail's sections do not all fit it: it scrolls.
+    fn rail_overflows(&self) -> bool {
+        let n = self.data.sections.len() as f32;
+        !self.places.compact && n * self.rail_pitch() - RAIL_GAP > self.places.sections[3]
+    }
+
+    /// The rail moved by hand by `dy`, where it scrolls.
+    fn scroll_rail(&mut self, dy: f32, root: &mut Actor) {
+        if !self.rail_overflows() {
+            return;
+        }
+        self.rail_scroll += dy;
+        self.rail_follow = false;
+        let fresh = self.sections_actor();
+        if let Some(r) = hit::find_mut(root, "Sections") {
+            super::refill(r, fresh);
+        }
+    }
+
+    /// A section focused in a rail that scrolls (keys moving through
+    /// it) scrolled into view; the chosen one stays as it is.
+    fn show_rail_item(&mut self, name: &str, root: &mut Actor) {
+        let Some(i) = name.strip_prefix("Section").and_then(|n| n.parse::<usize>().ok()) else {
+            return;
+        };
+        if !self.rail_overflows() {
+            return;
+        }
+        let pitch = self.rail_pitch();
+        let sh = self.places.sections[3];
+        let (top, bottom) = (i as f32 * pitch, i as f32 * pitch + pitch - RAIL_GAP);
+        let dy = if top < self.rail_scroll {
+            top - self.rail_scroll
+        } else if bottom > self.rail_scroll + sh {
+            bottom - self.rail_scroll - sh
+        } else {
+            0.0
+        };
+        if dy != 0.0 {
+            self.scroll_rail(dy, root);
+        }
+    }
+
+    /// The section's lead as lines, wrapped to the rows' width.
+    fn lead_lines(&self) -> Vec<String> {
+        let lead = self
+            .data
+            .sections
+            .get(self.section)
+            .map_or("", |s| s.lead.as_str());
+        if lead.is_empty() {
+            return Vec::new();
+        }
+        super::dialog::wrap_lines(lead, self.places.rows[2] - 32.0, LEAD_SIZE)
+    }
+
+    /// How tall the section's lead is, with the room under it.
+    fn lead_height(&self) -> f32 {
+        match self.lead_lines().len() {
+            0 => 0.0,
+            n => n as f32 * LEAD_LINE + LEAD_GAP,
+        }
+    }
+
     /// Where row `i` is in the rows' frame, and how tall all are.
     fn row_tops(&self) -> (Vec<f32>, f32) {
-        let mut at = 0.0;
+        let mut at = self.lead_height();
         let mut tops = Vec::new();
         for o in self.options() {
             if o.heading.is_some() {
@@ -577,6 +700,12 @@ impl OptionsScreen {
         let [x, y, w, h] = self.places.rows;
         let mut children = Vec::new();
         let (tops, _) = self.row_tops();
+        // The section's lead above its rows, scrolled with them.
+        for (i, l) in self.lead_lines().iter().enumerate() {
+            let mut t = env.text(&format!("Lead.Line{i}"), l, LEAD_SIZE, 400, "Muted");
+            call(&mut t, "maxwidth", &[w - 32.0]);
+            children.push(left(t, 16.0, i as f32 * LEAD_LINE + LEAD_LINE / 2.0));
+        }
         for (i, o) in self.options().iter().enumerate() {
             let at = tops[i];
             if let Some(hd) = &o.heading {
@@ -690,9 +819,26 @@ impl OptionsScreen {
                         }
                         x += cw + 16.0;
                     }
+                    // What it says beside them (a plugin's state), where
+                    // there is room.
+                    let room = w - x - 12.0;
+                    if !o.note.is_empty() && room >= 40.0 {
+                        let mut n =
+                            env.text(&format!("Option{i}.Note"), &o.note, 13.0, 400, "Muted");
+                        call(&mut n, "maxwidth", &[room]);
+                        ellipsize(&mut n);
+                        c.push(left(n, x, mid));
+                    }
                 } else {
                     // Too many for the row: one at a time.
-                    stepper(&mut c, o.value(), false);
+                    let end = stepper(&mut c, o.value(), false);
+                    if !o.note.is_empty() {
+                        let mut n =
+                            env.text(&format!("Option{i}.Note"), &o.note, 13.0, 400, "Muted");
+                        call(&mut n, "maxwidth", &[(w - end - 12.0).max(40.0)]);
+                        ellipsize(&mut n);
+                        c.push(left(n, end, mid));
+                    }
                 }
             }
             OptionKind::Stepper(values) => {
@@ -783,7 +929,10 @@ impl OptionsScreen {
         let h = self.places.rows[3];
         let max = (total - ROW_GAP - h).max(0.0);
         if let Some(&top) = tops.get(self.focus) {
-            let above = if self.options()[self.focus].heading.is_some() {
+            let above = if self.focus == 0 {
+                // The first row with all above it: the lead too.
+                top
+            } else if self.options()[self.focus].heading.is_some() {
                 HEADING
             } else {
                 0.0
@@ -1149,6 +1298,7 @@ impl OptionsScreen {
         self.focus = 0;
         self.scroll = 0.0;
         self.tabs_follow = true;
+        self.rail_follow = true;
         self.refresh(root);
     }
 
@@ -1411,6 +1561,9 @@ impl Screen for OptionsScreen {
         if let Some(h) = self.slide(input, root, cx) {
             return h;
         }
+        if let Input::Focus { to: Some(to), .. } = input {
+            self.show_rail_item(to, root);
+        }
         match input {
             Input::Menu { action, repeat } => match action {
                 MenuAction::Up | MenuAction::Down if on_preview => {
@@ -1512,6 +1665,14 @@ impl Screen for OptionsScreen {
                 target: Some(t),
                 delta,
                 ..
+            } if t.within("Sections") && !self.places.compact => {
+                self.scroll_rail(delta[1] / self.places.zoom, root);
+                Handled::Yes
+            }
+            Input::Wheel {
+                target: Some(t),
+                delta,
+                ..
             } if t.within("Sections") && self.places.compact => {
                 let d = if delta[0] != 0.0 { delta[0] } else { delta[1] };
                 self.tabs_scroll += d / self.places.zoom;
@@ -1528,6 +1689,14 @@ impl Screen for OptionsScreen {
                 ..
             } if t.within("RowsClip") => {
                 self.scroll_by(-delta[1] / self.places.zoom, root);
+                Handled::Yes
+            }
+            Input::Pointer {
+                target: Some(t),
+                gesture: Gesture::Drag { delta },
+                ..
+            } if t.within("Sections") && !self.places.compact => {
+                self.scroll_rail(-delta[1] / self.places.zoom, root);
                 Handled::Yes
             }
             Input::Pointer {

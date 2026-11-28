@@ -1161,7 +1161,7 @@ options-confirm-everything-body = { $platform ->
             [one] the { $plays } play kept deleted
            *[other] the { $plays } plays kept deleted
         }, and the offsets of the bundled songs too: like a first visit.
-   *[desktop] Settings back to their defaults, the song folders forgotten (nothing in them is deleted), { $plays ->
+   *[desktop] Settings back to their defaults, the song folders forgotten (nothing in them is deleted), This computer and every plugin switched off, { $plays ->
             [0] the play history (empty) cleared
             [one] the { $plays } play kept deleted
            *[other] the { $plays } plays kept deleted

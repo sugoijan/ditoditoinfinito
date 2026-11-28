@@ -466,7 +466,16 @@ Rust and the browser are implementation details, not advertised features.
   Import each only where the result's level allows, `find_songs::Reach`,
   the line saying why where a button is absent, round RC; the songs played
   before from the source chosen, and from sources not on with why,
-  `PlayedSection`, round PH) and the
+  `PlayedSection`, round PH), desktop's Options → Plugins
+  (`options_plugins.rs`, absent from the web's build: a section the shell
+  adds, `World::sections`, at Advanced alone, made from a `PluginsView`:
+  its lead, the plugins folder's Open folder and Look again, This
+  computer's switch, each installed plugin's switch, state, what it does,
+  how far its songs go, its page and SHA-256, the folders that are no
+  plugin with why; a shell section's rows and its count's Reset carried
+  out by the platform, `OptionsPlatform::section_row`; source plugins'
+  stage 4; Options' rail closer, then scrolling, past twelve sections,
+  `OptionsScreen::rail`) and the
   frame its scenes are shown in (`stage.rs`: a chrome drawing the
   screens under it smaller, `Screen::stage`; `Ui::mark` rings what a
   screen names, `Screen::spot`), the app's notices as the UI's
@@ -1371,7 +1380,14 @@ Rust and the browser are implementation details, not advertised features.
   devices' fingerprints and notices (`devices.rs`); song sources
   (`sources/`, over `ddi-source-host`; `docs/plans/source-plugins.md`):
   the plugins' folders and `--source-check` (`sources/mod.rs`; the cache
-  folder's `sources/` emptied at the window's start), and since stage 2
+  folder's `sources/` emptied at the window's start), Options → Plugins
+  since stage 4 (`sources/plugins.rs`: the folder read and hashed on a
+  thread, nothing started; the switches written to `plugins.json` and
+  This computer's setting, the host and Find songs following at once,
+  the first switched on making the sources, `Songs::make_sources`; one
+  question before a plugin is switched on; Open folder through
+  `os::open_folder`, recorded in tests, `os::record_opened`; Everything's
+  reset switching them all off), and since stage 2
   the sources the window's run holds (`Sources`, `Songs::with_sources`:
   none, nothing read but the switches, where This computer is off and no
   plugin is switched on; quiet during a play, `Songs::sources_quiet`):
@@ -1605,7 +1621,10 @@ Rust and the browser are implementation details, not advertised features.
   `MoreSong`: desktop's works and FFR levels), into songs with ids
   `src:<16 hex>:<n>` and their `song_key` (`assemble`); sources built
   into the app asked the same way, in process on a thread an operation
-  (`builtin`, `Host::add_builtin`: desktop's "This computer"); nothing
+  (`builtin`, `Host::add_builtin`: desktop's "This computer"); a
+  plugin switched on or off and the folder read again while the host
+  runs (`Host::switch`, `set_installed`, stage 4) and why one is off for
+  the run (`Host::off_why`); nothing
   new started while the game is quiet (`Host::set_quiet`, a play: a
   request kept until it is not, built-in work waiting at its next step,
   a plugin's running operation going on in its process). Its tests over

@@ -952,9 +952,9 @@ pub struct SelectScreen {
     /// Share… is offered on imported songs and packs.
     sharing: bool,
     /// More offers Find songs… (desktop, while song sources are on:
-    /// [`SelectScreen::with_finding`]).
+    /// [`SelectScreen::with_finding`]), asked each time More opens.
     #[cfg(not(target_arch = "wasm32"))]
-    finding: bool,
+    finding: Rc<dyn Fn() -> bool>,
     /// The imported songs (ids) added to the next share, in order
     /// ("Add to share" in More; "Share N songs…" takes them).
     to_share: Vec<String>,
@@ -1089,7 +1089,7 @@ impl SelectScreen {
             editing: false,
             sharing: false,
             #[cfg(not(target_arch = "wasm32"))]
-            finding: false,
+            finding: Rc::new(|| false),
             to_share: Vec::new(),
             import,
             share: Rc::default(),
@@ -1205,6 +1205,14 @@ impl SelectScreen {
     /// ([`SelectCall::Open`] `find-songs`).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn with_finding(mut self, on: bool) -> SelectScreen {
+        self.finding = Rc::new(move || on);
+        self
+    }
+
+    /// [`Self::with_finding`] as `on` says each time More opens (a source
+    /// switched on or off in Options → Plugins since).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_finding_by(mut self, on: Rc<dyn Fn() -> bool>) -> SelectScreen {
         self.finding = on;
         self
     }
@@ -5123,7 +5131,7 @@ impl SelectScreen {
             items.push(("Link.Add".into(), msg::more_add_songs().into()));
         }
         #[cfg(not(target_arch = "wasm32"))]
-        if self.finding && !shared {
+        if (self.finding)() && !shared {
             items.push((
                 "Link.Find".into(),
                 ddi_l10n::msg::sources::more_find().into(),
