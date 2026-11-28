@@ -32,7 +32,7 @@ sources-searching = 検索中…
 
 sources-fetching = 「{ $title }」：{ $step }
 
-sources-step-resolving = 確認中…
+sources-step-resolving = 曲を特定中…
 sources-step-searching = 検索中…
 sources-step-downloading = ダウンロード中…
 sources-step-reading = 読み込み中…
@@ -47,7 +47,7 @@ sources-details = 詳細
 
 sources-imported = { $songs }曲をインポートしました。ライブラリーに追加されています。
 
-sources-partial = 大きすぎて全体を検索できないフォルダーがありました。一部だけを検索しています。
+sources-partial = 大きすぎて全体を検索できないフォルダーがありました。一部だけを検索しました。
 
 sources-results-heading = 結果
 
@@ -90,7 +90,7 @@ sources-problem-import-failed = 曲をライブラリーに書き込めません
 
 sources-select-title = 見つけた曲
 
-sources-select-note = { $source }から。これらの曲のプレイは記録されます。
+sources-select-note = { $source }で見つけた曲です。これらの曲のプレイは記録されます。
 
 sources-filter-style = スタイル
 sources-filter-level = レベル
@@ -109,7 +109,7 @@ sources-result-not-for-keeping = インポート不可：ソースが許可し�
 
 sources-added-to-room = { $songs }曲をルームに追加しました。このコンピューターからアップロードされ、ライブラリーには追加されません。
 
-sources-pack-fetched = このセッションで取得した曲
+sources-pack-fetched = 今回取得した曲
 
 sources-played-heading = 前にプレイした曲
 sources-played-heading-from = { $source }で前にプレイした曲
@@ -121,5 +121,5 @@ sources-played-gone = ソースにもうありません
 sources-played-more = ほかに前にプレイした曲が{ $count }曲
 sources-played-unlisted = このソースでプレイした曲がほかに{ $count }曲あります。ここには表示しませんが、プレイの記録は残っています。
 sources-changed = この曲は前回のプレイのあとソース側で変更されています。ノーツが変わった譜面はプレイの記録がない状態から始まります。前の譜面のプレイの記録は残っています。
-sources-added-folder = 「{ $folder }」を曲フォルダーに追加しました。その曲はライブラリーにあります。
+sources-added-folder = 「{ $folder }」を曲フォルダーに追加しました。中の曲はライブラリーに入りました。
 sources-in-folders = この曲はすでに曲フォルダー「{ $folder }」にあるため、ライブラリーにあります。

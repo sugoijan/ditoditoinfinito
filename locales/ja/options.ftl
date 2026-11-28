@@ -13,7 +13,7 @@ options-advanced-changed = 上級の変更：{ $count }件
 options-advanced-changed-reset = 元に戻す
 options-advanced-changed-show = 表示
 options-advanced-changed-description = { $count ->
-   *[other] この分類の上級オプションのうち、{ $count }件を変更しています。変更は今も有効です。「表示」を押すと上級オプションを表示します。「元に戻す」を押すと最初の設定に戻します。
+   *[other] この分類の上級オプションのうち、{ $count }件を既定値から変更しています。変更は今も有効です。「表示」を押すと上級オプションを表示し、「元に戻す」を押すと既定値に戻します。
 }
 
 ## The screen.
@@ -242,7 +242,7 @@ options-sample-description = この音量で曲のプレビューを再生しま
 options-assist-clap = ノーツごとに手拍子
     .advanced = アシストクラップ
 options-assist-clap-description = ノーツのタイミングちょうどに手拍子が鳴り、押すタイミングが音でわかります。
-    .advanced = ノーツの各行のタイミングに合わせて手拍子を鳴らし、踏むタイミングを音で示します。
+    .advanced = ノーツが来るたびに、拍ぴったりに手拍子を鳴らします。ステップの位置を耳で確かめられます。
 options-mine-sound = 地雷の音
 options-mine-sound-description = 地雷やショックアローを踏んだときに音が鳴ります。
 options-announcer = アナウンサー
@@ -290,7 +290,7 @@ options-opponent-fields-description = マルチプレイのステージで、画
 options-twitch-chat = ルームでのTwitchチャット
 options-twitch-chat-emotes = エモート
 options-twitch-chat-messages = エモートとメッセージ
-options-twitch-chat-description = ホストがTwitchチャットを表示しているオンラインルームで、プレイ中にフィールドの後ろをチャットが流れます。シングルプレイでは表示されません。チャットを読むにはTwitchでの許可が必要で、サインイン中にオンにすると求められます。許可は「オプション → データとプライバシー」で解除できます。
+options-twitch-chat-description = ホストがTwitchチャットを表示しているオンラインルームで、プレイ中にフィールドの後ろをチャットが流れます。シングルプレイでは表示されません。チャットを読むにはTwitchでの許可が必要で、サインイン中にオンにすると求められます。Twitchとの接続は「オプション → データとプライバシー」で切断できます。
 options-twitch-chat-no-access = Twitchアクセスがチャットの読み取りを許可していないため、チャットは表示されません。一度オフにしてからオンにすると、Twitchで許可できます。
 options-chat-style = チャットの表示
 options-chat-style-across = 横に流れる
@@ -334,7 +334,7 @@ options-bg-brightness-description = 矢印の後ろの曲の背景の明るさ�
     .advanced = フィールドの後ろの曲の背景の明るさです。オフでは何も表示しません。
 options-video = 背景動画
 options-video-auto = 自動
-options-video-description = 曲によっては、矢印の後ろで動画が流れます。「自動」では、動画でゲームの動きが重くなると、その曲の残りは動画を止めます。「オフ」にすると、コンピューターの負担がいちばん軽くなります。
+options-video-description = 曲によっては、矢印の後ろで動画が流れます。「自動」では、動画でゲームの動きが重くなると、その曲の残りは動画を止めます。遅いデバイスでは、「オフ」がいちばん軽くなります。
     .advanced = 音楽に合わせてフィールドの後ろで動画を再生します。自動では、動画でフレームが落ちるとその曲の残りは止めます。オフではデコーダーを読み込みません。
 options-random-movies = ランダムムービー
 options-random-movies-description = 背景切り替えのない曲で、RandomMoviesフォルダーの動画を4小節ごとに替えながら再生します（StepManiaと同じ方式です）。
@@ -377,7 +377,7 @@ options-chart-ratings = 譜面の難易度
 options-chart-ratings-from-song = 曲の表記
 options-chart-ratings-msd = MSD
 options-chart-ratings-estimate = DDI推定
-options-chart-ratings-description = MSDは4レーンの譜面のパターンをキーボード向けに評価します（Etternaの計算方式による）。DDI推定はゲーム独自の試験的な推定で、シングルの譜面のみです。どちらもバックグラウンドで計算し、値のない譜面は曲の数値を薄く表示します。
+options-chart-ratings-description = MSDは4レーンの譜面のパターンをキーボード向けに評価します（Etternaの計算方式による）。DDI推定は私が独自に作った試験的なもので、シングルの譜面だけが対象です。どちらもバックグラウンドで計算し、値のない譜面は曲の数値を薄く表示します。
 options-skill-radar = スキルレーダー
 options-skill-radar-description = 横長の画面では、選曲画面の譜面の一覧がボタンの一列になり、選んだ譜面のスキルを数値つきのレーダーで表示します。MSDのもの、または譜面の難易度がDDI推定のときはその推定のものです。
 options-graphics = グラフィックス
@@ -523,8 +523,8 @@ options-reset-settings-description = { $platform ->
 }
 options-terms-button = 読む
 options-terms-description = { $platform ->
-    [web] オンラインのルームと、サーバーにアップロードする曲についてのきまりです。ゲームのサイトで利用規約を開きます。クレジットにも載っています。
-   *[desktop] オンラインのルームと、サーバーにアップロードする曲についてのきまりです。Webで利用規約を開きます。クレジットにも載っています。
+    [web] オンラインルームと、サーバーにアップロードする曲についてのきまりです。ゲームのサイトで利用規約を開きます。クレジットにも載っています。
+   *[desktop] オンラインルームと、サーバーにアップロードする曲についてのきまりです。Webで利用規約を開きます。クレジットにも載っています。
 }
 options-privacy-button = 読む
 options-privacy-description = { $platform ->
@@ -533,8 +533,8 @@ options-privacy-description = { $platform ->
 }
 options-usage-stats = 利用統計を送る
 options-usage-stats-description = { $platform ->
-    [web] オンラインルームで、どんなデバイスか、前回の接続がどうだったかを、決まった範囲の値で名前なしにサーバーへ伝えます。オフにすると何も送りません。
-   *[desktop] オンラインルームで、どんなコンピューターか、前回の接続がどうだったかを、決まった範囲の値で名前なしにサーバーへ伝えます。オフにすると何も送りません。
+    [web] オンラインルームでは、どんなデバイスか、前回の接続がどうだったかを、決まった範囲の値でサーバーに伝えます。名前は伝えません。オフにすると何も送りません。
+   *[desktop] オンラインルームでは、どんなコンピューターか、前回の接続がどうだったかを、決まった範囲の値でサーバーに伝えます。名前は伝えません。オフにすると何も送りません。
 }
 options-error-reports = エラーレポートを送る
 options-error-reports-description = ゲーム自体に問題が起きたとき（クラッシュ、グラフィックスデバイスの喪失、ゲームを始められないページなど）、どんな種類のエラーかを、パス・アドレス・名前・IDを取り除いたメッセージとともにサーバーへ伝えます。オフにすると何も送りません。
@@ -605,7 +605,7 @@ options-confirm-pump-noteskin-body = { $skin }をこのブラウザーから削�
 options-confirm-noteskin-button = 削除
 options-confirm-advanced = これらの設定をリセットしますか？
 options-confirm-advanced-body = { $count ->
-   *[other] { $section }で変更した上級オプション{ $count }件を、最初の設定に戻します。
+   *[other] 「{ $section }」で変更した上級オプション{ $count }件を、既定値に戻します。
 }
 options-confirm-advanced-button = リセット
 options-confirm-announcer = このアナウンサーを削除しますか？
@@ -753,4 +753,4 @@ options-touch-size = タッチ操作の大きさ
 options-touch-size-smaller = 小さめ
 options-touch-size-standard = 標準
 options-touch-size-larger = 大きめ
-options-touch-size-description = ボタンやパッドを描く大きさです。画面下の角を起点に大きさが変わります。「大きめ」は画面に余裕がある分だけ大きくなります。この端末に保存されます。
+options-touch-size-description = ボタンやパッドの表示の大きさです。画面下の角を起点に大きさが変わります。「大きめ」は画面に余裕がある分だけ大きくなります。このデバイスに保存されます。

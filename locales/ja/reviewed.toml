@@ -237,6 +237,12 @@ text = "9be15bf3bad5bfb3"
 by = "agent"
 date = "2026-11-07"
 
+[common-ok]
+source = "298230c18ade0314"
+text = "298230c18ade0314"
+by = "agent"
+date = "2026-11-28"
+
 [common-on]
 source = "ef87919a6c7ec452"
 text = "ff9d45c90a023e17"
@@ -2397,6 +2403,12 @@ text = "deda4796dd660c83"
 by = "agent"
 date = "2026-11-22"
 
+[errors-share-forever-admin-only]
+source = "a958c8d32e6c1558"
+text = "1eb83dad9b770cd4"
+by = "agent"
+date = "2026-11-28"
+
 [errors-share-gone]
 source = "5466709d8094a7af"
 text = "7d484850fbe46d98"
@@ -2422,10 +2434,10 @@ by = "agent"
 date = "2026-11-07"
 
 [errors-share-no-token]
-source = "8b03ceac83b9adac"
-text = "dbc3f6e914d16083"
+source = "8937a35c9be09f99"
+text = "e8f2b6a8cef02967"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [errors-share-not-loaded]
 source = "8331e2b86427e027"
@@ -3315,6 +3327,18 @@ text = "c85c90819f462d7d"
 by = "agent"
 date = "2026-11-07"
 
+[import-zip-too-large]
+source = "10ffa060e42290f1"
+text = "b90e55457f37abab"
+by = "agent"
+date = "2026-11-28"
+
+[import-zip-too-many-entries]
+source = "b8cbdaee4751cde1"
+text = "62748e4e6ee3c9bc"
+by = "agent"
+date = "2026-11-28"
+
 [judgments-boo]
 source = "c3fe3f9e23387654"
 text = "0f2520901e0a0406"
@@ -3430,28 +3454,28 @@ by = "agent"
 date = "2026-11-07"
 
 [mods-cover-both]
-source = "c29756e5a8f64b1b"
-text = "5f59f6b85a402394"
+source = "00189fb902a0ec9f"
+text = "210e6a297d648ae1"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [mods-cover-hidden]
-source = "6e512c2b0db0ca13"
-text = "af1097f53baeda01"
+source = "b92a6ea2df8b1ded"
+text = "1aa7dcfa3a630e25"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [mods-cover-sudden]
-source = "08c22d6c20ea232d"
-text = "ce16e50a6cc9c76e"
+source = "29fcc3a338a3b8c0"
+text = "96cfb099a138e153"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [mods-ddi-boos]
-source = "9e6cd0f006147980"
-text = "f69f3818178de0f3"
+source = "cff7c4c121b7eacc"
+text = "278d7af09c4275ed"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [mods-ddi-easy]
 source = "92434d51d9c4a030"
@@ -3472,10 +3496,10 @@ by = "agent"
 date = "2026-11-22"
 
 [mods-eighths]
-source = "b57f3de3980829c6"
-text = "56ed25fe1964c9be"
+source = "ace49d5c76c68294"
+text = "e36051032a7ec943"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [mods-fail-at-end]
 source = "931f841a2459e824"
@@ -3532,10 +3556,10 @@ by = "agent"
 date = "2026-11-07"
 
 [mods-no-holds]
-source = "5a3e760b62677585"
-text = "b5b39ae8ec13f25c"
+source = "c0e5cc6bfee945b4"
+text = "805ddd43c02cdf50"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [mods-no-jumps]
 source = "7de0c5fc78d7cfd3"
@@ -3550,10 +3574,10 @@ by = "agent"
 date = "2026-11-07"
 
 [mods-quarters]
-source = "51bb4f0736245210"
-text = "d40dc74fb9bfcdbd"
+source = "746e38e98563ef82"
+text = "dd36cc906daf58fd"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [mods-reverse]
 source = "f00a04f7e875a352"
@@ -3592,10 +3616,10 @@ by = "agent"
 date = "2026-11-07"
 
 [mods-up-to-two]
-source = "2ed19c307b6fb6a2"
-text = "01a486736195e7b4"
+source = "06ac81869d11354d"
+text = "ad65f92a4c2252aa"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [mods-wave]
 source = "d81c007b3eb31af6"
@@ -3686,6 +3710,30 @@ source = "b9d270ec84bb138c"
 text = "4e1f1ac6f8557dea"
 by = "agent"
 date = "2026-11-07"
+
+[options-advanced-changed]
+source = "7f11ed34ebbd8b96"
+text = "5d90e89ae4464cb9"
+by = "agent"
+date = "2026-11-28"
+
+[options-advanced-changed-description]
+source = "0cd673e9a7c40a85"
+text = "b9ec5be7b45ebb87"
+by = "agent"
+date = "2026-11-28"
+
+[options-advanced-changed-reset]
+source = "cf311498e8a4ef05"
+text = "4504564ff2ffac80"
+by = "agent"
+date = "2026-11-28"
+
+[options-advanced-changed-show]
+source = "bfad231101467561"
+text = "2447dee47af80d08"
+by = "agent"
+date = "2026-11-28"
 
 [options-announcer]
 source = "d8ca4101a34bb177"
@@ -3826,46 +3874,46 @@ by = "agent"
 date = "2026-11-07"
 
 [options-assist-clap]
-source = "d052ee0426ad099c"
-text = "505802361bd0243f"
+source = "84cd265b045608d1"
+text = "824806a6bc9d97c7"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-assist-clap-description]
-source = "ecd4f183b491bc56"
-text = "6a4a35e26576949e"
+source = "755f29504144faea"
+text = "43f3652b1168006f"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-at-once]
-source = "591afd85241d2978"
-text = "2680bb83d777a3bf"
+source = "1df1e84e98498b57"
+text = "9cbf58d278270fed"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-at-once-any]
-source = "f22360e7ed1efe9f"
-text = "39fdda5c8b98e69d"
+source = "925455a52cd4a51f"
+text = "d62b03058aa99fb6"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-at-once-description]
-source = "454022c7438bd139"
-text = "c22b323deed735ca"
+source = "99d2c4133397aa24"
+text = "aaf69638997eff9d"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-at-once-one]
-source = "da99da73409dcdc7"
-text = "06d765b7e7aed228"
+source = "bf57dff86fb491ea"
+text = "ab884fe77eeaba53"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-at-once-two]
-source = "3ac0ed75b2858a8d"
-text = "b54357422b23867e"
+source = "b61db9b4e0618318"
+text = "efa8b0820cc16f00"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-audio-offset]
 source = "2324367d81369695"
@@ -3910,10 +3958,10 @@ by = "agent"
 date = "2026-11-07"
 
 [options-bg-brightness-description]
-source = "2e4f5adcf75ef260"
-text = "e9b5c26b08ab3185"
+source = "38f315daa0f61c2e"
+text = "5fa5f4a9cf6bc80d"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-bind-already]
 source = "8338679c8fcec275"
@@ -4150,10 +4198,10 @@ by = "agent"
 date = "2026-11-07"
 
 [options-calibration-description]
-source = "e714dfe67e42ad71"
-text = "8302ac6b7b6211af"
+source = "d1bc133eb35ed1d6"
+text = "039f5d0396a468d6"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-chart-ratings]
 source = "9b1f4574a09a887a"
@@ -4162,10 +4210,10 @@ by = "agent"
 date = "2026-11-22"
 
 [options-chart-ratings-description]
-source = "fc1552fa6b256bc9"
-text = "19c98de9e7cbbe38"
+source = "eda86f44ac3e9da9"
+text = "2e04486bfc632058"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [options-chart-ratings-estimate]
 source = "41d5b7976cbe4652"
@@ -4256,6 +4304,24 @@ source = "d4d744e13c91c2b0"
 text = "5feb093e266e253f"
 by = "agent"
 date = "2026-11-22"
+
+[options-confirm-advanced]
+source = "bed1fe61242dfbb0"
+text = "e62a478c9fcfbc5d"
+by = "agent"
+date = "2026-11-28"
+
+[options-confirm-advanced-body]
+source = "f0c4bc011b85c6dc"
+text = "c47882b1a07c8f03"
+by = "agent"
+date = "2026-11-28"
+
+[options-confirm-advanced-button]
+source = "530f41ea6cb56270"
+text = "6fd34d80ce029a48"
+by = "agent"
+date = "2026-11-28"
 
 [options-confirm-announcer]
 source = "9f5dbc8ea1f6c12b"
@@ -4486,34 +4552,34 @@ by = "agent"
 date = "2026-11-07"
 
 [options-cut]
-source = "14deaf38a654ced2"
-text = "1d7767cc94af6daf"
+source = "03613bf0e0119513"
+text = "c5e7611c3047cf01"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-cut-all]
-source = "96cc66279740006e"
-text = "c71c7e64d90c46e1"
+source = "ab527d160b3e08de"
+text = "e4766d81290d841c"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-cut-description]
-source = "21d2088229b08a68"
-text = "12407617643dc935"
+source = "20bb2de91ccbe5b2"
+text = "3e6452895838b4cf"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-cut-eighths]
-source = "04e7f635bb44360e"
-text = "ea8d722f233324d6"
+source = "9d78eee5e90fe572"
+text = "162b00e8cc3cb87d"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-cut-quarters]
-source = "6fb7f19a9ca59cce"
-text = "8cb84dfd803ef155"
+source = "b582ba7b1f9ee568"
+text = "94f62f2ba26e3fed"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-dancing-hand]
 source = "1406b40f7e83c986"
@@ -4618,10 +4684,10 @@ by = "agent"
 date = "2026-11-22"
 
 [options-ddi-difficulty-description]
-source = "5df7d58ff061e2a4"
-text = "116d100bfe2b2451"
+source = "158e837b86cb3b7f"
+text = "94f43fd078f290c9"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [options-ddi-easy]
 source = "e915369a8fc500bf"
@@ -4756,10 +4822,10 @@ by = "agent"
 date = "2026-11-22"
 
 [options-error-reports-description]
-source = "874c13f1358b51a8"
+source = "5df900c07987ae48"
 text = "de57e8fb1f3b1977"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [options-error-reports-signal]
 source = "d5d2ea0fbfe03bc7"
@@ -4810,16 +4876,16 @@ by = "agent"
 date = "2026-11-07"
 
 [options-field-filter]
-source = "917f8f7aee64c63c"
-text = "2fc5ecd337872b61"
+source = "d40ab63db0038acb"
+text = "dc0b2104f122efa4"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-field-filter-description]
-source = "1b5e008dd8097b28"
-text = "7e90b53c2cf89cb9"
+source = "be75173d23e6a9d5"
+text = "4422696f59930803"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-field-place]
 source = "f12fac9e9581cf54"
@@ -5020,10 +5086,10 @@ by = "agent"
 date = "2026-11-07"
 
 [options-ghost]
-source = "b66c13e55a7dd5ab"
-text = "8f176181d6c6c696"
+source = "df78d09cb98ddd12"
+text = "5ad04b0958433716"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-ghost-description]
 source = "20e2eab40739e749"
@@ -5157,6 +5223,12 @@ text = "79d5ba4748a05889"
 by = "agent"
 date = "2026-11-07"
 
+[options-heading-dancing-hand]
+source = "a729b152432c9e41"
+text = "132da498e73f8a1a"
+by = "agent"
+date = "2026-11-28"
+
 [options-heading-danoni]
 source = "4727687d1263a301"
 text = "1c612764062ea16e"
@@ -5168,6 +5240,12 @@ source = "d348aeaeaae6da78"
 text = "1dcfec9e55854261"
 by = "agent"
 date = "2026-11-07"
+
+[options-heading-easier]
+source = "b9bbb66f172aaf8c"
+text = "2e2dea96d23fe69e"
+by = "agent"
+date = "2026-11-28"
 
 [options-heading-keyboard]
 source = "a0cbffb2965906ac"
@@ -5187,17 +5265,35 @@ text = "a319b2d11ee8a609"
 by = "agent"
 date = "2026-11-07"
 
+[options-heading-sharing]
+source = "e0f777f945f76014"
+text = "65233f0816e841c2"
+by = "agent"
+date = "2026-11-28"
+
 [options-heading-simplify]
 source = "5ffad8f95579d844"
 text = "6aae8496e08e85d7"
 by = "agent"
 date = "2026-11-07"
 
+[options-heading-song-folders]
+source = "685609e518ead419"
+text = "9d6e19f43976424a"
+by = "agent"
+date = "2026-11-28"
+
 [options-heading-touch]
 source = "4b452202295d8e19"
 text = "c73fb0c9fbfa94e0"
 by = "agent"
 date = "2026-11-22"
+
+[options-heading-troubleshooting]
+source = "5210fcf42e5deab4"
+text = "d270c3fd191d51ad"
+by = "agent"
+date = "2026-11-28"
 
 [options-hint-change]
 source = "e7b621e9ed45bcc9"
@@ -5571,11 +5667,23 @@ text = "eb0192fc5feb02e6"
 by = "agent"
 date = "2026-11-07"
 
+[options-more-hide-advanced]
+source = "068f9534b7090a3a"
+text = "561bd139e188e3e6"
+by = "agent"
+date = "2026-11-28"
+
 [options-more-preview-layout]
 source = "0bd27ca51601b174"
 text = "d182d860a9281807"
 by = "agent"
 date = "2026-11-07"
+
+[options-more-show-advanced]
+source = "567803a2aed8c10e"
+text = "f0e0398fc084a173"
+by = "agent"
+date = "2026-11-28"
 
 [options-more-title]
 source = "0346b4b330ad333f"
@@ -5596,16 +5704,16 @@ by = "agent"
 date = "2026-11-07"
 
 [options-no-holds]
-source = "47750e4435b33890"
-text = "28a64836558bda79"
+source = "e161b814d89efda5"
+text = "f53392bbc2cc5d1d"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-no-holds-description]
-source = "1374925989fa79e8"
-text = "ca0fcd5cdbf948b0"
+source = "8621d2e5f23bd37a"
+text = "e3e6ec2aa9d6ab01"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-no-stretch]
 source = "d5023fb96f50b076"
@@ -5626,10 +5734,10 @@ by = "agent"
 date = "2026-11-07"
 
 [options-noteskin-description]
-source = "5736cc1b9890cea3"
-text = "5995a0138d6f1975"
+source = "c11f1069c4ce4b17"
+text = "df1f4abc165cde2e"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-noteskin-lua-off]
 source = "36dd920eae57ebb6"
@@ -5660,6 +5768,12 @@ source = "d3ff1aec805423aa"
 text = "63ad4a38c9685e40"
 by = "agent"
 date = "2026-11-07"
+
+[options-notice-advanced-reset]
+source = "4f3d000a1c8a9f39"
+text = "c71ad599f0a335cc"
+by = "agent"
+date = "2026-11-28"
 
 [options-notice-announcer-not-removed]
 source = "6b4d5a65d90ed538"
@@ -6304,10 +6418,10 @@ by = "agent"
 date = "2026-11-07"
 
 [options-reverse-description]
-source = "add03894752b0b02"
-text = "72ec029c5264e11c"
+source = "1af2caedcefc39e5"
+text = "d6477577057d51f5"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-room-ahead]
 source = "8a6ae2c043fbe3e0"
@@ -6465,6 +6579,12 @@ text = "9fde5b13b17516e7"
 by = "agent"
 date = "2026-11-07"
 
+[options-section-backgrounds]
+source = "c04874789d1faaad"
+text = "d987c8e0d39cf94b"
+by = "agent"
+date = "2026-11-28"
+
 [options-section-controls]
 source = "2516b16517fddb3f"
 text = "6bbf9e9197d8fa3e"
@@ -6472,10 +6592,10 @@ by = "agent"
 date = "2026-11-07"
 
 [options-section-data]
-source = "105183b83ec86aef"
-text = "ca43badda7be41ba"
+source = "11d3d03b33f6db82"
+text = "6ddc9bce8f0354c5"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-section-display]
 source = "36b6bdc515c5f9e1"
@@ -6483,17 +6603,41 @@ text = "3698c38b21b7f979"
 by = "agent"
 date = "2026-11-07"
 
+[options-section-interface]
+source = "2cf7acba9682e721"
+text = "6bd1d966379e0ec3"
+by = "agent"
+date = "2026-11-28"
+
+[options-section-multiplayer]
+source = "29cd565bf9da337d"
+text = "7d75c4f7ed57bad1"
+by = "agent"
+date = "2026-11-28"
+
 [options-section-notes]
 source = "498cc662c01e2e39"
 text = "a2c0c2cc04102244"
 by = "agent"
 date = "2026-11-07"
 
+[options-section-play]
+source = "8b1e0058b6de7b1b"
+text = "aebb2136538d5eed"
+by = "agent"
+date = "2026-11-28"
+
 [options-section-rules]
 source = "40cdfbf5e0b0aa49"
 text = "cf25e743670e8d48"
 by = "agent"
 date = "2026-11-07"
+
+[options-section-screen]
+source = "e7cd27b89b6a7ae7"
+text = "f65a2379413cf6cf"
+by = "agent"
+date = "2026-11-28"
 
 [options-section-scroll]
 source = "213ddaa5bb53dbc9"
@@ -6506,6 +6650,12 @@ source = "7101dadef0760ce9"
 text = "719e2118c9cc3881"
 by = "agent"
 date = "2026-11-07"
+
+[options-section-song-list]
+source = "53a0d15d3b2a84f2"
+text = "920de34fd625d35e"
+by = "agent"
+date = "2026-11-28"
 
 [options-section-songs]
 source = "34bcb9333bcb8231"
@@ -6723,6 +6873,18 @@ text = "f24a4be13288654a"
 by = "agent"
 date = "2026-11-07"
 
+[options-show-advanced]
+source = "1f058154e39dd2f2"
+text = "e1272a127b29da37"
+by = "agent"
+date = "2026-11-28"
+
+[options-show-advanced-description]
+source = "5556bfac43d16ee9"
+text = "6d13ad382b70c68c"
+by = "agent"
+date = "2026-11-28"
+
 [options-show-deltas]
 source = "74e45ec8f7484693"
 text = "b07f289ed5fbe75c"
@@ -6790,10 +6952,10 @@ by = "agent"
 date = "2026-11-07"
 
 [options-speed-description]
-source = "d1c76614242fa3e7"
-text = "b5cea991cc9481cc"
+source = "3f6cd52542c4b8b3"
+text = "29945e9a6c1de56a"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-speed-source]
 source = "9d9b9ea345592a14"
@@ -6836,6 +6998,18 @@ source = "a7ccf04e535995c5"
 text = "728a180fa1e0e28c"
 by = "agent"
 date = "2026-11-07"
+
+[options-terms-button]
+source = "6a0b909b8e9bbc3f"
+text = "c6eac3a6579c8cd7"
+by = "agent"
+date = "2026-11-28"
+
+[options-terms-description]
+source = "972565adab1fc47a"
+text = "ab07a5c56ebf5c7d"
+by = "agent"
+date = "2026-11-28"
 
 [options-title]
 source = "9f9d7be6f02196fb"
@@ -6915,6 +7089,36 @@ text = "8b80ee6234c4b090"
 by = "agent"
 date = "2026-11-22"
 
+[options-touch-size]
+source = "8e34aa324c36c8f4"
+text = "a71cd5dc6a8a10c7"
+by = "agent"
+date = "2026-11-28"
+
+[options-touch-size-description]
+source = "da65496e64cd8440"
+text = "d9fbf14ffa59b5df"
+by = "agent"
+date = "2026-11-28"
+
+[options-touch-size-larger]
+source = "96df97a7de23aa21"
+text = "6e222e64d25c51c1"
+by = "agent"
+date = "2026-11-28"
+
+[options-touch-size-smaller]
+source = "326c63e4713c1769"
+text = "60a78d1edcba90aa"
+by = "agent"
+date = "2026-11-28"
+
+[options-touch-size-standard]
+source = "ee4eec00bd1e1505"
+text = "c241d9b7f002f8ed"
+by = "agent"
+date = "2026-11-28"
+
 [options-turn]
 source = "941294a8bbcfac87"
 text = "0f60e6b9fc36e433"
@@ -6958,10 +7162,10 @@ by = "agent"
 date = "2026-11-22"
 
 [options-twitch-chat-description]
-source = "c22c0f91cc937dd2"
-text = "bf53b61d80342acb"
+source = "cd228112c4e5b4ab"
+text = "911ae2b2546044ce"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [options-twitch-chat-emotes]
 source = "4816b2abc3725a1e"
@@ -6988,10 +7192,10 @@ by = "agent"
 date = "2026-11-22"
 
 [options-usage-stats-description]
-source = "9aaf7c7437fd6b87"
-text = "4fa789713dee4c8f"
+source = "fc9e8a40dfdde8b5"
+text = "75ae345ce5a15d49"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [options-video]
 source = "72e470aff48ed518"
@@ -7006,10 +7210,10 @@ by = "agent"
 date = "2026-11-07"
 
 [options-video-description]
-source = "b3417162c75067a0"
-text = "e58e187c9c5163af"
+source = "1e419ef93e44fca7"
+text = "d7573172f6cb33c0"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [options-visual-offset]
 source = "3de7d5337602649d"
@@ -7042,10 +7246,10 @@ by = "agent"
 date = "2026-11-07"
 
 [pages-calibration-about]
-source = "f1c5735f54c3ed77"
-text = "47b9573269eda3b3"
+source = "fbacced8e1508b4b"
+text = "821fc1004a6e7784"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-calibration-audio]
 source = "1d639cc0a1d22785"
@@ -7054,10 +7258,10 @@ by = "agent"
 date = "2026-11-07"
 
 [pages-calibration-audio-about]
-source = "1ae2df83e940cc65"
-text = "8cc2137a560d64e6"
+source = "ecf13f170324d9b4"
+text = "ffa76e8086d29ed7"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-calibration-audio-device]
 source = "3c252df1641bfceb"
@@ -7072,10 +7276,10 @@ by = "agent"
 date = "2026-11-07"
 
 [pages-calibration-combined-about]
-source = "d0327c746ba0b3d3"
-text = "4b1680d1ade38eb6"
+source = "bfd214e3f104f46e"
+text = "0b4b0dc62c2e02c6"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-calibration-defaults]
 source = "f8f6ccfa241818aa"
@@ -7108,10 +7312,10 @@ by = "agent"
 date = "2026-11-08"
 
 [pages-calibration-offsets]
-source = "c8519cb51a6f01ac"
-text = "83def4349cef5cf7"
+source = "253d5a8bfd214071"
+text = "23afe6947b7eaf2a"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-calibration-options]
 source = "ed3d3f48f6bc2bec"
@@ -7120,10 +7324,10 @@ by = "agent"
 date = "2026-11-07"
 
 [pages-calibration-order]
-source = "36660befa3ad45db"
-text = "46b4a1d2936d1185"
+source = "20b4ab2449deb29e"
+text = "06f31817f9dff412"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-calibration-per-device]
 source = "d419d9ea407d580d"
@@ -7132,34 +7336,34 @@ by = "agent"
 date = "2026-11-07"
 
 [pages-calibration-range]
-source = "97f094f53b168338"
-text = "fe6c32e2d98466cd"
+source = "06f7bd514c2c1b2c"
+text = "1dff5791f2306f59"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-calibration-reset]
-source = "f40b105fa9184601"
-text = "fc0fa5e73763d78a"
+source = "343b9990ecda63a1"
+text = "76ec5dd1d2af988b"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-calibration-reset-body]
-source = "6c244b0ba68f5de6"
-text = "7a78bf24e6dcdc7c"
+source = "eb352ad751359663"
+text = "f098dcaab4362d0b"
 by = "agent"
-date = "2026-11-08"
+date = "2026-11-28"
 
 [pages-calibration-reset-title]
-source = "01a2aed8e76f3349"
-text = "0f0a89fb6e776548"
+source = "33e75b22821b1161"
+text = "957c9b54ee59631a"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-calibration-run-audio-hint]
-source = "f0f32c4d0b583268"
-text = "e465ae566b60f1d5"
+source = "37ae604007af7774"
+text = "6b3f04bd1805722e"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-calibration-run-audio-title]
 source = "0152aa046d5606e8"
@@ -7168,10 +7372,10 @@ by = "agent"
 date = "2026-11-07"
 
 [pages-calibration-run-combined-hint]
-source = "fce3739c6ce2e84a"
-text = "67d01ceac57c0812"
+source = "0b4fb730ad4d78cb"
+text = "bc268049051e3bc9"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-calibration-run-combined-title]
 source = "ba57f7461793bd10"
@@ -7186,22 +7390,22 @@ by = "agent"
 date = "2026-11-07"
 
 [pages-calibration-run-out-of-range]
-source = "27956b19d457fcf8"
-text = "024105747e6b4381"
+source = "a2bb155f8d63b5e5"
+text = "11d1835436d41a38"
 by = "agent"
-date = "2026-11-08"
+date = "2026-11-28"
 
 [pages-calibration-run-right]
-source = "445fe514db4604e0"
-text = "f4d488671aeb4b08"
+source = "3e4894082cfa422d"
+text = "9e967d170eca2001"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-calibration-run-set]
-source = "fbcfe58a0487eeea"
-text = "ee1b900669e32ff6"
+source = "4baeba1b0dfbd7f3"
+text = "8c1cd6c7bbce0133"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-calibration-run-unreliable]
 source = "96d910c5abbdc966"
@@ -7210,10 +7414,10 @@ by = "agent"
 date = "2026-11-07"
 
 [pages-calibration-run-visual-hint]
-source = "054153cdcd11badd"
-text = "04e5b9311b1169c3"
+source = "7f01258fb15f454c"
+text = "142564b6026028d9"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-calibration-run-visual-title]
 source = "42cd543b3f8c3b44"
@@ -7233,11 +7437,17 @@ text = "b6d1fe05950a3428"
 by = "agent"
 date = "2026-11-07"
 
-[pages-calibration-tip]
-source = "724a3ff898fbd875"
-text = "f9b68ea2f9745dec"
+[pages-calibration-this-device]
+source = "8e450e05afc0fcf8"
+text = "46b79faa64ab9c1e"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
+
+[pages-calibration-tip]
+source = "6212f996d277c893"
+text = "cd4bdcc03fd4e200"
+by = "agent"
+date = "2026-11-28"
 
 [pages-calibration-title]
 source = "c5e68384167f717a"
@@ -7252,16 +7462,16 @@ by = "agent"
 date = "2026-11-07"
 
 [pages-calibration-visual-about]
-source = "8f76f6b3d452bbee"
-text = "0802e8361805819c"
+source = "0ec523009d416bec"
+text = "ea34c7e597293487"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-credits-about]
-source = "3815a189352c9ff7"
-text = "dd7ee9c9991ef1b9"
+source = "a787784b61058f57"
+text = "dabbe1074773cd29"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [pages-credits-announcers]
 source = "7ea1a203141805b8"
@@ -7564,10 +7774,10 @@ by = "agent"
 date = "2026-11-22"
 
 [pages-privacy-alone]
-source = "b95ac5461fffc2c3"
-text = "a948b6a528138dc9"
+source = "ea47a86007df764e"
+text = "f0dd97ead1f9c006"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [pages-privacy-alone-heading]
 source = "42ab47538139b4b9"
@@ -7576,22 +7786,22 @@ by = "agent"
 date = "2026-11-22"
 
 [pages-privacy-audience]
-source = "054ecd06628d2d2c"
-text = "cad8f282e1507741"
+source = "b342250c4a784e19"
+text = "0f11875c4e55ef17"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [pages-privacy-audience-heading]
-source = "a335ecae59a3a793"
+source = "ba03c2ff54fe8d4f"
 text = "44fd532a6a147795"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [pages-privacy-errors]
-source = "4bc965e8b25f3d0f"
-text = "66db1042feabc47d"
+source = "dc18bc931e8d6ac8"
+text = "a3bc1420d81e54dd"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [pages-privacy-errors-heading]
 source = "994910db543677f7"
@@ -7600,16 +7810,16 @@ by = "agent"
 date = "2026-11-22"
 
 [pages-privacy-intro]
-source = "952817583eebc57c"
-text = "e7e10cf4f71735d2"
+source = "ac78ae8c08e429fd"
+text = "a727def9aa10823b"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [pages-privacy-kick]
-source = "7123dc397fe560fb"
-text = "4f77780cc7824217"
+source = "bde4c8c7e13d59dd"
+text = "eb4aacbdf8629be7"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [pages-privacy-kick-heading]
 source = "e61825299ed6342c"
@@ -7618,10 +7828,10 @@ by = "agent"
 date = "2026-11-22"
 
 [pages-privacy-logs]
-source = "41994f1d1085d0a8"
-text = "6d4d62cbd0a77d61"
+source = "4baeb59e4bf60bc6"
+text = "2224dd6668cd95fc"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [pages-privacy-logs-heading]
 source = "eb904774410080ec"
@@ -7636,10 +7846,10 @@ by = "agent"
 date = "2026-11-22"
 
 [pages-privacy-questions]
-source = "aabaa543ae81402f"
-text = "3d47573dd9ac9fc0"
+source = "09330e4951817bd9"
+text = "704cf3175f95d023"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [pages-privacy-questions-heading]
 source = "47bc9bc833fcae0f"
@@ -7648,10 +7858,10 @@ by = "agent"
 date = "2026-11-22"
 
 [pages-privacy-rooms]
-source = "b55a5fc7dfe60634"
-text = "411a4850e5f7ed2f"
+source = "7843f584b163cfb4"
+text = "434a146f872db612"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [pages-privacy-rooms-heading]
 source = "2e7773fb5f8ad263"
@@ -7660,10 +7870,10 @@ by = "agent"
 date = "2026-11-22"
 
 [pages-privacy-sessions]
-source = "becfae04c1cd5805"
-text = "b3cd4d850fef70ea"
+source = "007f5c0815ecc2a2"
+text = "319338f0fa8857e6"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [pages-privacy-sessions-heading]
 source = "4276a6a3bc410842"
@@ -7672,10 +7882,10 @@ by = "agent"
 date = "2026-11-22"
 
 [pages-privacy-sign-in]
-source = "303804e016fd9fd7"
-text = "4925a61084b923b4"
+source = "c36e98111d2122ca"
+text = "3947f24f00437331"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [pages-privacy-sign-in-heading]
 source = "70f58305125811b6"
@@ -7684,10 +7894,22 @@ by = "agent"
 date = "2026-11-22"
 
 [pages-privacy-songs]
-source = "e366c8855e1d36c3"
-text = "2ff42fdb4687fa61"
+source = "4c8170c1a993e35f"
+text = "1374dc607706b480"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
+
+[pages-privacy-songs-ahead]
+source = "3fd61a5e0e291a79"
+text = "96eb2d716fca373c"
+by = "agent"
+date = "2026-11-28"
+
+[pages-privacy-songs-ahead-heading]
+source = "7fc310c6208bfcb4"
+text = "c1cb4b3e6f20fa29"
+by = "agent"
+date = "2026-11-28"
 
 [pages-privacy-songs-heading]
 source = "4f552ac542a7afcb"
@@ -7696,16 +7918,22 @@ by = "agent"
 date = "2026-11-22"
 
 [pages-privacy-stats]
-source = "87fc08c385b4cedf"
-text = "3e334b99605f2adb"
+source = "9b7af277e895f8f9"
+text = "ba04d004e14fcd78"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [pages-privacy-stats-game]
-source = "2f99fa8a9e231074"
-text = "78d9e4d8c1693c5a"
+source = "7b615ac9395ce02e"
+text = "8f96757aa0797daf"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
+
+[pages-privacy-stats-game-heading]
+source = "4d1545bc38495058"
+text = "de0072c6f4322e64"
+by = "agent"
+date = "2026-11-28"
 
 [pages-privacy-stats-heading]
 source = "b598ca2fa25670a6"
@@ -7714,28 +7942,184 @@ by = "agent"
 date = "2026-11-22"
 
 [pages-privacy-stats-kept]
-source = "2999ff1c074f3cfd"
-text = "303f9eed66624b86"
+source = "56f8f4157b50d984"
+text = "dfeac9f68db9984e"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [pages-privacy-twitch]
-source = "147955570f102493"
-text = "f474257fcc831efd"
+source = "a41f4830e863fdc3"
+text = "b3463ea3f6f9cc21"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [pages-privacy-twitch-chat]
-source = "58dfac61bfbd0aeb"
-text = "84cd9d6b067c6236"
+source = "bcc88ba839413f33"
+text = "58b1a83b73563d55"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
+
+[pages-privacy-twitch-chat-heading]
+source = "1d944d102e4f0053"
+text = "5001244706c29bd5"
+by = "agent"
+date = "2026-11-28"
 
 [pages-privacy-twitch-heading]
 source = "8591e88c1135e781"
 text = "e57f658cd24ae9f2"
 by = "agent"
 date = "2026-11-22"
+
+[pages-terms]
+source = "a18447df73690ec5"
+text = "a2aed72fa934a42b"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-about]
+source = "a1a8722c3e71aca4"
+text = "293b27af71f4a283"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-about-heading]
+source = "47b7df528fbb0a06"
+text = "5ffde70e9ac6c7ee"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-behavior]
+source = "e9ebaeeb78188aab"
+text = "04341d404ca8b6d7"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-behavior-heading]
+source = "b4312aed51d23861"
+text = "11f141d5f5dc1f11"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-changes]
+source = "ddaeca5bcb8fed37"
+text = "2672dc529c561991"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-changes-heading]
+source = "26efa1f72257f8a5"
+text = "e3c3b5f098368e96"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-intro]
+source = "d97110e50dd2eb3d"
+text = "ae2639c23a7e40b9"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-ours]
+source = "b159e0ae6aaa1d30"
+text = "534c12889f2cecb2"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-ours-heading]
+source = "aa9e79a48fd37482"
+text = "b71976308cd07b0f"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-page]
+source = "9f2e120dc67faa51"
+text = "50b50ad1e3644c10"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-promise]
+source = "de1100f7a9bffea4"
+text = "cbe7ae3e541b8511"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-promise-heading]
+source = "90e9f798ae29da77"
+text = "afe58eb14e79d676"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-questions]
+source = "1446192ea8797ef8"
+text = "15dc83f5849b0c28"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-questions-heading]
+source = "99f22e170b15bde0"
+text = "f4eb2e48e4097e4a"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-readers]
+source = "ebfd8a9b7e5a10c8"
+text = "34a6b0f49e917d6a"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-readers-heading]
+source = "6a4fb696574cbc58"
+text = "68c399ecf95f6c0f"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-report]
+source = "9c87d7ccd93109f7"
+text = "17108c97a914166f"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-report-heading]
+source = "82e5522f96ffe118"
+text = "187e01e263e0dfd1"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-sign-in]
+source = "8bf892f42fc0f265"
+text = "826041139d0a8a81"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-sign-in-heading]
+source = "27e4dbaa660ae38f"
+text = "2242bd0bd381332b"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-upload]
+source = "f6ca20d8df3cdd2e"
+text = "e57158b2f143c06c"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-upload-heading]
+source = "00adba4feb034570"
+text = "401d912a3496ef6e"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-who]
+source = "7b0cd80f7fd29894"
+text = "e116d8284e87fb72"
+by = "agent"
+date = "2026-11-28"
+
+[pages-terms-who-heading]
+source = "41521b0811796bee"
+text = "46b76cd929cb8d3f"
+by = "agent"
+date = "2026-11-28"
 
 [prompt-access]
 source = "e6a82623c766819a"
@@ -7983,6 +8367,12 @@ text = "85920431b09d2bc2"
 by = "agent"
 date = "2026-11-07"
 
+[results-average-timing]
+source = "9b674f2ad7922957"
+text = "cb53c8967d87b172"
+by = "agent"
+date = "2026-11-28"
+
 [results-beat]
 source = "81d1de21717c3f10"
 text = "8121f1313e153fe0"
@@ -8104,10 +8494,10 @@ by = "agent"
 date = "2026-11-07"
 
 [results-mean-offset]
-source = "1690120538ad3d68"
-text = "cb6a2ecea0d71715"
+source = "1763625901110f9a"
+text = "69c0bb23d4f29eae"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [results-mines-hit]
 source = "e9126e0ad681bd2a"
@@ -8116,22 +8506,22 @@ by = "agent"
 date = "2026-11-07"
 
 [results-more-offset-down]
-source = "d3a42e6bcd8f20b9"
-text = "c984ef6354875ebb"
+source = "5c8d260a2538c196"
+text = "b2042331267de910"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [results-more-offset-up]
-source = "5312f5b9694997f3"
-text = "f81966193b9f6b23"
+source = "74f967f96ed4647f"
+text = "a2d4ec0ab920e155"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [results-more-reset-offset]
-source = "15712243677d7854"
-text = "57a78d85995e6d67"
+source = "4efe49f6867c603d"
+text = "b6ab02de82fa262b"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [results-more-title]
 source = "62c5f7d5bf608de3"
@@ -8140,10 +8530,10 @@ by = "agent"
 date = "2026-11-07"
 
 [results-more-use-mean]
-source = "ae088c416b84a86f"
-text = "69562109fbbd24b4"
+source = "41f774154d2f99df"
+text = "091ecb45ce4c19ef"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [results-note-autoplay]
 source = "67ce5205826b0f0e"
@@ -8272,10 +8662,10 @@ by = "agent"
 date = "2026-11-07"
 
 [results-offset]
-source = "5e9c59e129f6a9e7"
-text = "2237d163ec007e67"
+source = "3551d65978ac0bbe"
+text = "4e51d86844633124"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [results-offset-value]
 source = "5b5b6faa6c50777a"
@@ -8458,10 +8848,10 @@ by = "agent"
 date = "2026-11-07"
 
 [results-song-offset]
-source = "414dece8a049e9a8"
-text = "2c7308f6304c327a"
+source = "1bff2dea018543e0"
+text = "cf3526c73734a8c4"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [results-stray-presses]
 source = "8a53677d2e4e063e"
@@ -8488,10 +8878,10 @@ by = "agent"
 date = "2026-11-07"
 
 [results-timing-note]
-source = "55232c8efae1ad06"
-text = "79cdf53f29295e5b"
+source = "040b3afa00cdd907"
+text = "0afa0f676b2a6f19"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [results-title]
 source = "cca781ca70eb39df"
@@ -8500,10 +8890,10 @@ by = "agent"
 date = "2026-11-07"
 
 [results-use-mean]
-source = "eb97220be62ff4d3"
-text = "d6a446b24e48ff14"
+source = "79192e0b726ca72c"
+text = "8a6e610747402dae"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [results-watch-again]
 source = "aafe9a4402bd9d16"
@@ -9153,6 +9543,12 @@ text = "feae212bbe1ac329"
 by = "agent"
 date = "2026-11-22"
 
+[room-ended-body]
+source = "15f7e12e66593deb"
+text = "17b9629c8f6808e3"
+by = "agent"
+date = "2026-11-28"
+
 [room-final-heading]
 source = "dac0b467462da98b"
 text = "e26b13d22def4f1f"
@@ -9333,6 +9729,12 @@ text = "0e4f028e75542e7c"
 by = "agent"
 date = "2026-11-22"
 
+[room-host-trip-why]
+source = "215074041c888df5"
+text = "dfa17efdb473017a"
+by = "agent"
+date = "2026-11-28"
+
 [room-host-twitch-bans]
 source = "8bf3dc465f3e5732"
 text = "5f1a830455d40743"
@@ -9358,10 +9760,10 @@ by = "agent"
 date = "2026-11-22"
 
 [room-host-twitch-chat-about]
-source = "fcaee2c6c74d5e01"
-text = "0c0c08adb46692b1"
+source = "0bbb7468df46565f"
+text = "f53af7e6abdb2293"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [room-host-twitch-emotes]
 source = "d05a5f2092fb7b97"
@@ -9380,6 +9782,12 @@ source = "93efb634fe0448ff"
 text = "4710ac1f5e0c929c"
 by = "agent"
 date = "2026-11-22"
+
+[room-host-twitch-remembered]
+source = "b5ad5c4603f5393d"
+text = "50dae0ad6504c402"
+by = "agent"
+date = "2026-11-28"
 
 [room-host-twitch-whose]
 source = "d9e34a3c57e385dc"
@@ -9442,16 +9850,16 @@ by = "agent"
 date = "2026-11-22"
 
 [room-invite-audience]
-source = "54deff35e575e579"
+source = "ca84bb5602496879"
 text = "1beb74d795ce5209"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [room-invite-audience-join]
-source = "d4619a16dc814117"
+source = "1903e854d115009f"
 text = "43ae543c36a5dadd"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [room-invite-closed]
 source = "634a2cdee9e31df7"
@@ -9490,10 +9898,10 @@ by = "agent"
 date = "2026-11-22"
 
 [room-invite-full-audience]
-source = "41638abfd47f3ad9"
+source = "6e3339948d49245c"
 text = "d046efa5d289d727"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [room-invite-full-watch]
 source = "40c24721d56f94c0"
@@ -10708,10 +11116,10 @@ by = "agent"
 date = "2026-11-22"
 
 [room-rules-boos]
-source = "8ad9de1a1bd519fe"
-text = "776f899c03985379"
+source = "2f808b161991ccc7"
+text = "5365f38643f984db"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [room-rules-change-at-once]
 source = "943bb7a9f93f1737"
@@ -10726,10 +11134,10 @@ by = "agent"
 date = "2026-11-22"
 
 [room-rules-change-boos]
-source = "9f2f425145aee44b"
-text = "5efdd1a9f75d9f62"
+source = "4f193e8a0d91e108"
+text = "c622a35116a47711"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [room-rules-change-charts]
 source = "48292368b0319c07"
@@ -11218,10 +11626,10 @@ by = "agent"
 date = "2026-11-22"
 
 [room-rules-words]
-source = "ce3bf429c90fdfaa"
-text = "efd8046347225804"
+source = "2bbc421b3a6b5240"
+text = "039e25165f9d0673"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [room-sat-out-then-chosen]
 source = "2a811b11cde399de"
@@ -11349,11 +11757,23 @@ text = "7ed07b9c67e16186"
 by = "agent"
 date = "2026-11-22"
 
+[room-sign-in-for-private-host]
+source = "390982116b168642"
+text = "1061162c196c7341"
+by = "agent"
+date = "2026-11-28"
+
 [room-sign-in-retry]
 source = "d7c3cbff1db31021"
 text = "85158135c76e817e"
 by = "agent"
 date = "2026-11-22"
+
+[room-sign-in-terms]
+source = "3c5005200127c20c"
+text = "da842e8483772773"
+by = "agent"
+date = "2026-11-28"
 
 [room-sign-in-title]
 source = "05b330ead25c2688"
@@ -11516,6 +11936,12 @@ source = "46f4c6b1bf195f21"
 text = "c94ae6aad2296c2f"
 by = "agent"
 date = "2026-11-22"
+
+[room-songs-notice]
+source = "9b124853438e232e"
+text = "897ec3b17e533c67"
+by = "agent"
+date = "2026-11-28"
 
 [room-stage]
 source = "547c4a0c28717e0b"
@@ -12177,6 +12603,30 @@ text = "e4ae22e4adf15bad"
 by = "agent"
 date = "2026-11-22"
 
+[room-twitch-bans-allow]
+source = "8c657c3896fc86ad"
+text = "4050bd8c347258b4"
+by = "agent"
+date = "2026-11-28"
+
+[room-twitch-bans-allow-more]
+source = "c8106170f4ab1812"
+text = "ead1a965adbc3c2f"
+by = "agent"
+date = "2026-11-28"
+
+[room-twitch-bans-off]
+source = "1a8e66de57cedb48"
+text = "2fe2af3646f876ba"
+by = "agent"
+date = "2026-11-28"
+
+[room-twitch-bans-off-by]
+source = "f99fb51a20ae3733"
+text = "74e894d6f8e86081"
+by = "agent"
+date = "2026-11-28"
+
 [room-twitch-chat-allow]
 source = "27e5a9e82c279331"
 text = "d3399a13564df2f8"
@@ -12214,10 +12664,10 @@ by = "agent"
 date = "2026-11-22"
 
 [room-twitch-ended]
-source = "3b85fd17537d4fee"
-text = "27028b652c4be63c"
+source = "f227a793af73b7a8"
+text = "4299ac0cb7f46ed9"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [room-twitch-not-connected]
 source = "793ba88c9c9102bc"
@@ -12254,6 +12704,12 @@ source = "633bafaad203dbcd"
 text = "0dfe3ac6641041f3"
 by = "agent"
 date = "2026-11-22"
+
+[room-upload-notice]
+source = "55e86b039f5808a6"
+text = "04c159f53d5cff2b"
+by = "agent"
+date = "2026-11-28"
 
 [room-use-this-device]
 source = "19dc5b64040d781e"
@@ -13102,16 +13558,16 @@ by = "agent"
 date = "2026-11-07"
 
 [select-radar-chordjack]
-source = "b4a198097a4b130f"
-text = "a90023a33eed6ad6"
+source = "913ac62e68ad3116"
+text = "9b2d122ce6835ebb"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-chordjack-full]
-source = "af3232dd293e6a70"
-text = "8df284a323da4539"
+source = "86c107a1fce40344"
+text = "9c50835d4d36b1f5"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-estimate-layout]
 source = "510bc31a37606075"
@@ -13126,10 +13582,10 @@ by = "agent"
 date = "2026-11-22"
 
 [select-radar-estimate-overall]
-source = "df24a8ab3d9211d1"
-text = "df24a8ab3d9211d1"
+source = "94ac9505e5e30705"
+text = "6969b290769279b6"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-estimate-unit]
 source = "d7ce36a18bf83438"
@@ -13150,52 +13606,52 @@ by = "agent"
 date = "2026-11-22"
 
 [select-radar-groove-air]
-source = "44770b69b9f9fb7b"
-text = "59f98cf3995ec2e5"
+source = "0dadd8599460ecc7"
+text = "c77d82a92e346fa5"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-groove-chaos]
-source = "9ac9ceb3e943244f"
-text = "5cc3bc6b52f435ce"
+source = "0bd07319d1131ec0"
+text = "e76306c3fd37e221"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-groove-freeze]
-source = "ab74df88fb8ebdff"
-text = "4d88f9177a31c530"
+source = "60bfcb2c8f471bd5"
+text = "2acb4cf440616895"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-groove-overall]
-source = "796369956f2ef197"
-text = "04e6f618c85990e9"
+source = "50d6d3cfbbeffc0b"
+text = "cc131f925c5e15f6"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-groove-stream]
-source = "f2077de0bc74acfd"
-text = "c3295f7be7f3345d"
+source = "4efeb9db52a6a60e"
+text = "c6b2ed2b58e3badf"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-groove-voltage]
-source = "49cc46e287c016bf"
-text = "88f3d6ef7f2f514b"
+source = "1e1edc73aac55d8b"
+text = "2bb7475cf34d2f40"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-handstream]
-source = "29e7203f229e443b"
-text = "c06c2e1339c691aa"
+source = "16d27801250b2b6d"
+text = "6f392832ead5b4d7"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-handstream-full]
-source = "61271eb9d9260d5c"
-text = "6b12e6a6b3adf8e6"
+source = "b388c3f398d04904"
+text = "4a22b29f15691d74"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-inactive]
 source = "b1d3aa6f26818bb2"
@@ -13204,28 +13660,28 @@ by = "agent"
 date = "2026-11-22"
 
 [select-radar-jackspeed]
-source = "297210518fd76320"
-text = "57af0c151bf9580b"
+source = "0e1359fc44a70291"
+text = "eb4bd15707e5c23c"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-jackspeed-full]
-source = "ec4afa30e6fe3f74"
-text = "7cdbf419293b334a"
+source = "0556a14cbbe972fe"
+text = "dacbccc5e9656c8a"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-jumpstream]
-source = "249c9afea577fa5d"
-text = "e7627694a1135ddc"
+source = "5a034ee8048ae595"
+text = "e4962a84f7ebb0ee"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-jumpstream-full]
-source = "87ea17a1bddf5c24"
-text = "9f8a2278da74c3ce"
+source = "6313f49997de26fa"
+text = "02a68c1cd3398a1f"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-no-layout]
 source = "c7cde5ac7a7ed447"
@@ -13246,10 +13702,10 @@ by = "agent"
 date = "2026-11-22"
 
 [select-radar-overall]
-source = "a7bbd520aa406ba7"
-text = "a7bbd520aa406ba7"
+source = "74682dbac1c16077"
+text = "755ecd4e0c6945b6"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-rating]
 source = "c17995332bcc74de"
@@ -13270,28 +13726,28 @@ by = "agent"
 date = "2026-11-22"
 
 [select-radar-stream]
-source = "d22db10f1f302794"
-text = "27ebf0523cd3f2de"
+source = "ad36db147bfb88f1"
+text = "01cfac890a7ae440"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-stream-full]
-source = "33163bd1c17de3d4"
-text = "8594b59c1a69031e"
+source = "80511d77fdf7b561"
+text = "f25eb14176e32b5a"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-technical]
-source = "96df49917fe80027"
-text = "5a7d83dcfdea7309"
+source = "7fbd03b71df13198"
+text = "f1d1b4403ade0493"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-technical-full]
-source = "56061fbf7ab81040"
-text = "12966dec6038efff"
+source = "1ad8f5a47851c2dc"
+text = "8bba88b806a72ea9"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [select-radar-unavailable]
 source = "93372d703032f3f2"
@@ -13394,6 +13850,12 @@ source = "e570b71100424fc5"
 text = "805ebf4ab6370b76"
 by = "agent"
 date = "2026-11-22"
+
+[select-share-terms]
+source = "0521e9fc050c6502"
+text = "3023d40b39e846f5"
+by = "agent"
+date = "2026-11-28"
 
 [select-share-title]
 source = "77666097ac093d11"
@@ -13622,6 +14084,636 @@ source = "884d832185b6d0db"
 text = "1cb3e666d3c5807b"
 by = "agent"
 date = "2026-11-07"
+
+[skins-dance-infinito-colors]
+source = "57b02dce61f0e238"
+text = "0789e5549bcab955"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-colors-choice-flat]
+source = "f8045651a2a99b57"
+text = "3a9e0465495e4a55"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-colors-choice-rainbow]
+source = "5f036926595e9ddf"
+text = "47bb311310cac5b1"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-colors-choice-vivid]
+source = "3e11641b2eefc1d7"
+text = "8e47cf6f54c7c16b"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-colors-description]
+source = "546e2097517b7f42"
+text = "649702179eb4967d"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-explosions]
+source = "ccab8c03059a3464"
+text = "ec5a70cba449f63b"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-explosions-description]
+source = "bcfa7eb54656183c"
+text = "ae1dee6df2d4d3b1"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-hit-variation]
+source = "7b4894425ddfac94"
+text = "4abc0900edfd2e85"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-hit-variation-description]
+source = "7cfaed3c7196b92c"
+text = "127600f4af52d2c5"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-note-timed-charge]
+source = "2e8aafad290a45ec"
+text = "edb4355e4238e89a"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-note-timed-charge-description]
+source = "330a473622b1edde"
+text = "53febdcc38c8cac1"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-onigiri]
+source = "2b2b8d2127ad2dd2"
+text = "ed7c80fc230c9f5b"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-onigiri-description]
+source = "8263b2d216b284ec"
+text = "7d15e3031a9f97d8"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-receptor-fill]
+source = "c4d007694284a200"
+text = "b490323178e85bf9"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-receptor-fill-description]
+source = "4379c8cbbc630299"
+text = "79d84e0ba3467304"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-shock-arrows]
+source = "533ffc11291636a9"
+text = "1fc07a64b2b113b5"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-infinito-shock-arrows-description]
+source = "3337c1b8ac2c9442"
+text = "bfcbf6310edb81c0"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-peters-ddr-colors]
+source = "f90f65499ef89992"
+text = "b39b701eaa923bfb"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-peters-ddr-colors-choice-quantized]
+source = "d3c9d43ca45e1090"
+text = "6199ce748459a64a"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-peters-ddr-colors-choice-vivid]
+source = "63bb0daea28030c5"
+text = "30d991ee1af87761"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-peters-ddr-colors-description]
+source = "c87c1f61d084b01e"
+text = "7a53c3ba8d872f3d"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-peters-ddr-explosions]
+source = "e1f1f49e65910432"
+text = "f75c90b2ae7e0229"
+by = "agent"
+date = "2026-11-28"
+
+[skins-dance-peters-ddr-explosions-description]
+source = "3c9e03998118386f"
+text = "19902e8865156a9e"
+by = "agent"
+date = "2026-11-28"
+
+[sources-add-to-room]
+source = "8d1e2a7fd9eb5e2d"
+text = "bdf8c00d10ff1537"
+by = "agent"
+date = "2026-11-28"
+
+[sources-added-folder]
+source = "04d22b7f21b431ea"
+text = "3e2c44e876ad6f2b"
+by = "agent"
+date = "2026-11-28"
+
+[sources-added-to-room]
+source = "b4a2836ecd0be51f"
+text = "9cd35fed29f5ca15"
+by = "agent"
+date = "2026-11-28"
+
+[sources-changed]
+source = "32a382872e1c2db4"
+text = "34d80c678c539c64"
+by = "agent"
+date = "2026-11-28"
+
+[sources-chart]
+source = "34f850fd2b65e511"
+text = "34f850fd2b65e511"
+by = "agent"
+date = "2026-11-28"
+
+[sources-details]
+source = "df5463fc6f22cc43"
+text = "e60adb5a3f2c5856"
+by = "agent"
+date = "2026-11-28"
+
+[sources-fetching]
+source = "b90de3c805407e6e"
+text = "4881396341737c9f"
+by = "agent"
+date = "2026-11-28"
+
+[sources-filter-level]
+source = "6566addb44070af4"
+text = "8889a2884effa5f0"
+by = "agent"
+date = "2026-11-28"
+
+[sources-filter-style]
+source = "54987b6717362724"
+text = "9bd6f2f8fab5b8a3"
+by = "agent"
+date = "2026-11-28"
+
+[sources-folder-add]
+source = "7327bb1f03d85a2a"
+text = "bab6997a76acd2bb"
+by = "agent"
+date = "2026-11-28"
+
+[sources-folder-remove]
+source = "3560c10a5ee0556c"
+text = "f452ab05b5c08e14"
+by = "agent"
+date = "2026-11-28"
+
+[sources-folders-heading]
+source = "f71710d465e06117"
+text = "a33d65cc1619d3b5"
+by = "agent"
+date = "2026-11-28"
+
+[sources-folders-none]
+source = "42b7703f7fe4af79"
+text = "62f3627075217b01"
+by = "agent"
+date = "2026-11-28"
+
+[sources-heading]
+source = "b31f648e978f1386"
+text = "bddd8208c6fc00fe"
+by = "agent"
+date = "2026-11-28"
+
+[sources-import]
+source = "17fa95498f5837fb"
+text = "ced9deab6334f8c9"
+by = "agent"
+date = "2026-11-28"
+
+[sources-imported]
+source = "23a4c6324a564330"
+text = "1280f02a7a85cc1f"
+by = "agent"
+date = "2026-11-28"
+
+[sources-importing]
+source = "291c929126938444"
+text = "9d8671e783a1502a"
+by = "agent"
+date = "2026-11-28"
+
+[sources-in-folders]
+source = "98985c178a9bfeab"
+text = "2d57f40a6b687973"
+by = "agent"
+date = "2026-11-28"
+
+[sources-intro]
+source = "298303d0fe769397"
+text = "df2e40a72ebb1606"
+by = "agent"
+date = "2026-11-28"
+
+[sources-intro-room]
+source = "fdcdae2c100d2004"
+text = "69d3489bfd540d43"
+by = "agent"
+date = "2026-11-28"
+
+[sources-more]
+source = "64e0adb539cbf1e1"
+text = "cf4e1db7501e564c"
+by = "agent"
+date = "2026-11-28"
+
+[sources-more-find]
+source = "4d2951591a197723"
+text = "733bf8aaadac912b"
+by = "agent"
+date = "2026-11-28"
+
+[sources-more-find-room]
+source = "b8238caad2bbfee5"
+text = "7c182d3f5886c56b"
+by = "agent"
+date = "2026-11-28"
+
+[sources-no-sources]
+source = "5a4e3131b40a4499"
+text = "93ade776ff68c5da"
+by = "agent"
+date = "2026-11-28"
+
+[sources-pack-fetched]
+source = "0a2607b5d17ceed1"
+text = "b2e829d42744c6ce"
+by = "agent"
+date = "2026-11-28"
+
+[sources-partial]
+source = "597fc8602da13d6f"
+text = "dd3aa6fb8b97d38d"
+by = "agent"
+date = "2026-11-28"
+
+[sources-play]
+source = "5cb85c69378557ad"
+text = "516eec24681d8817"
+by = "agent"
+date = "2026-11-28"
+
+[sources-played-best]
+source = "ef7748c42ef8914f"
+text = "aa7b019a8458cc7c"
+by = "agent"
+date = "2026-11-28"
+
+[sources-played-gone]
+source = "1bf9ecfbc1e8e56a"
+text = "3877a4e966afffae"
+by = "agent"
+date = "2026-11-28"
+
+[sources-played-heading]
+source = "da367c588ac44bd9"
+text = "0ff91d812a2116ec"
+by = "agent"
+date = "2026-11-28"
+
+[sources-played-heading-from]
+source = "270548bcaad5d6d9"
+text = "29989180db673569"
+by = "agent"
+date = "2026-11-28"
+
+[sources-played-last]
+source = "1b724bf8b54bff9c"
+text = "739d1f67dc8a1126"
+by = "agent"
+date = "2026-11-28"
+
+[sources-played-more]
+source = "d4ab10ed2f94c450"
+text = "1991c8bc36fcaa44"
+by = "agent"
+date = "2026-11-28"
+
+[sources-played-not-installed]
+source = "49c754b34c2c3e51"
+text = "299d60241e7c89e5"
+by = "agent"
+date = "2026-11-28"
+
+[sources-played-source-off]
+source = "15955735e280a4ad"
+text = "08494345a5d1cb40"
+by = "agent"
+date = "2026-11-28"
+
+[sources-played-unlisted]
+source = "a375bdbccae775b1"
+text = "6e27823fd70ee60c"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-busy]
+source = "8b476b72f7998e9e"
+text = "1f9d354a997abaf2"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-changed]
+source = "ab486cb8381d4b8c"
+text = "d78f13d23cb5a697"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-crashed]
+source = "a6101d21c836a4db"
+text = "2d6474ff69782e38"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-failed]
+source = "ee54ab3075c8b0b1"
+text = "58763b42ec43bad5"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-import-failed]
+source = "b04cc310e9ebcd72"
+text = "0b2024c19e1d7317"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-invalid-input]
+source = "a6f3011265544225"
+text = "0e93711fee45cae6"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-misbehaved]
+source = "d0e9d48f49819553"
+text = "b697851045e7de60"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-needs-newer-game]
+source = "cc3e166771ce5881"
+text = "ad1f558ae5f546af"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-not-found]
+source = "df52953fc72953e7"
+text = "4590dd6dfbfe511d"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-not-started]
+source = "09502a2dc9c0aca6"
+text = "2d461b7c47e33fc5"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-off-for-the-run]
+source = "84207e01a040d375"
+text = "564e992da1ad1931"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-rate-limited]
+source = "140b9a2c66517c75"
+text = "efad0f53a2f66919"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-refused]
+source = "1dbb8fa559a612bf"
+text = "9e159b9aa24ef79f"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-stopped]
+source = "05eb9a08ecbadbca"
+text = "f7b271bddcf03bef"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-switched-off]
+source = "8ed5dd124de2912f"
+text = "742d1ba4ed8a94c7"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-timed-out]
+source = "8a799c7c826ee985"
+text = "43cdcb5006a9cc50"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-too-large]
+source = "6fe83d9d8c179499"
+text = "c3e7d996c24e5d6d"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-too-old]
+source = "f3e544d60db6ef04"
+text = "8b5c1038ba57e2e7"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-unreachable]
+source = "6a4aefea3f4a2d82"
+text = "fbd8425d576814f7"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-unreadable]
+source = "326b5453a38820ce"
+text = "7b494f6b5cdb90f7"
+by = "agent"
+date = "2026-11-28"
+
+[sources-problem-unsupported]
+source = "c50957a562fd3666"
+text = "039681e27a22aab7"
+by = "agent"
+date = "2026-11-28"
+
+[sources-progress]
+source = "7fbb03ef8ce12a4a"
+text = "52bd1f84f6e868c4"
+by = "agent"
+date = "2026-11-28"
+
+[sources-result-in-library]
+source = "8c374853015c0dd3"
+text = "2ea04b68946dfaa8"
+by = "agent"
+date = "2026-11-28"
+
+[sources-result-in-room]
+source = "14b36a29776988f5"
+text = "5c5a5a6e3a1e2444"
+by = "agent"
+date = "2026-11-28"
+
+[sources-result-not-for-keeping]
+source = "0ea6c179b3f172fd"
+text = "facba3827d6e6edf"
+by = "agent"
+date = "2026-11-28"
+
+[sources-result-play-only]
+source = "50911588aa58f11a"
+text = "db9a4ba0e91817d0"
+by = "agent"
+date = "2026-11-28"
+
+[sources-results-count]
+source = "8923e2c70bcacfdb"
+text = "59d1dde8c195d0a7"
+by = "agent"
+date = "2026-11-28"
+
+[sources-results-heading]
+source = "325e6f89a36bc628"
+text = "9d37b903331470e6"
+by = "agent"
+date = "2026-11-28"
+
+[sources-results-none]
+source = "d601be3b047ac799"
+text = "e218e8c5f1b1e5c0"
+by = "agent"
+date = "2026-11-28"
+
+[sources-results-of]
+source = "961f95d586d21da5"
+text = "43d7e79f781dbe5d"
+by = "agent"
+date = "2026-11-28"
+
+[sources-search]
+source = "7d10f2279f087701"
+text = "11b56d6b192ed128"
+by = "agent"
+date = "2026-11-28"
+
+[sources-search-hint]
+source = "e5152a0175f0d706"
+text = "cfeae15ed7fbebdd"
+by = "agent"
+date = "2026-11-28"
+
+[sources-search-label]
+source = "f6d867cbb8948d24"
+text = "847f377259a433f9"
+by = "agent"
+date = "2026-11-28"
+
+[sources-searching]
+source = "8a3dc04afe6ff8e1"
+text = "ffd533411d854e0d"
+by = "agent"
+date = "2026-11-28"
+
+[sources-select-note]
+source = "39bd62c79e38577f"
+text = "fd66b5df7762f1ca"
+by = "agent"
+date = "2026-11-28"
+
+[sources-select-title]
+source = "d14b9ec78d3007f6"
+text = "18b3873fd1ef0f00"
+by = "agent"
+date = "2026-11-28"
+
+[sources-source-line]
+source = "fb3264de74c6d1ba"
+text = "e0d5928b10168b5e"
+by = "agent"
+date = "2026-11-28"
+
+[sources-sources-heading]
+source = "0b033003d566ac3b"
+text = "5a7c19c977e0ad78"
+by = "agent"
+date = "2026-11-28"
+
+[sources-step-checking]
+source = "ff6c9bb6155eb93e"
+text = "cc7eba29a5bec6dd"
+by = "agent"
+date = "2026-11-28"
+
+[sources-step-converting]
+source = "04452b4b63c2a628"
+text = "74b115d4e42bf12c"
+by = "agent"
+date = "2026-11-28"
+
+[sources-step-downloading]
+source = "001de5615f507608"
+text = "a37e2b42eca74819"
+by = "agent"
+date = "2026-11-28"
+
+[sources-step-reading]
+source = "9a6252f2879512b0"
+text = "5c2278ef32eaf2f8"
+by = "agent"
+date = "2026-11-28"
+
+[sources-step-resolving]
+source = "2002e59ed7727b71"
+text = "a9147455b0ca02c2"
+by = "agent"
+date = "2026-11-28"
+
+[sources-step-searching]
+source = "d7723ce14127c8fc"
+text = "703f0b9ab701a868"
+by = "agent"
+date = "2026-11-28"
+
+[sources-this-computer]
+source = "ca6e86973f7e2c78"
+text = "50d0fabb17ac55a6"
+by = "agent"
+date = "2026-11-28"
+
+[sources-title]
+source = "725038082f7d831e"
+text = "04010f9fc8addd26"
+by = "agent"
+date = "2026-11-28"
 
 [start-credits]
 source = "244225d0af7814bd"
@@ -15052,10 +16144,10 @@ by = "agent"
 date = "2026-11-07"
 
 [studio-tidy-description]
-source = "85e0cb8fa1c4c619"
+source = "3068ea49901138dc"
 text = "f3719fecfaadf637"
 by = "agent"
-date = "2026-11-07"
+date = "2026-11-28"
 
 [studio-title]
 source = "929f7d971b440a9a"
@@ -15472,10 +16564,10 @@ by = "agent"
 date = "2026-11-22"
 
 [twitch-about]
-source = "1985a91895404b4a"
-text = "c04de37571c432aa"
+source = "f01acefcf2038c94"
+text = "86e3fe65c44da5a0"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [twitch-access]
 source = "59ffcb3e03983e2f"
@@ -15490,10 +16582,10 @@ by = "agent"
 date = "2026-11-22"
 
 [twitch-confirm-body]
-source = "ae06a129dddcc76e"
+source = "17ba3a489572dd3c"
 text = "4d2ba0d9dd2418e2"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [twitch-connected]
 source = "e4935ec9a5b7d543"
@@ -15502,10 +16594,10 @@ by = "agent"
 date = "2026-11-22"
 
 [twitch-connected-description]
-source = "113428eb052886f5"
+source = "be96172920c50213"
 text = "3c2748e841e14598"
 by = "agent"
-date = "2026-11-22"
+date = "2026-11-28"
 
 [twitch-disconnect]
 source = "a37cf134c3de5546"

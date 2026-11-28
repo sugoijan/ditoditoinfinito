@@ -16,7 +16,7 @@ room-home-browse = ルームを見る · 近日公開
 room-home-join = リンクで参加
 room-sign-in-title = サインイン
 room-sign-in-for-private = プライベートルームは招待制で、Twitchのアカウントでプレイします。作るにはTwitchでサインインしてください。
-room-sign-in-for-private-host = プライベートルームは招待制で、Twitchのアカウントでプレイします。作るにはTwitchでサインインしてください。あわせて、チャンネルでバンやタイムアウトされた人をゲームが確認することの許可もTwitchで求められます。その人たちはルームに入れなくなります（ホスト設定 → Twitchのバン）。
+room-sign-in-for-private-host = プライベートルームは招待制で、Twitchのアカウントでプレイします。作るにはTwitchでサインインしてください。あわせてTwitchから、チャンネルでバンやタイムアウトされた人をゲームが確認できるように、許可を求められます。その人たちはルームに入れなくなります（ホスト設定 → Twitchのバン）。
 room-sign-in-for-account = Twitchでサインインすると、プライベートルームを作ったり招待に参加したりできます。CPU練習にアカウントは不要です。
 room-sign-in-terms = サインインすると、利用規約に同意したことになります。
 room-join-title = リンクで参加
@@ -392,14 +392,14 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [out] {" "}· ライフ切れでアウト
    *[play_on] {""}
 }{ $at_once ->
-    [one] {" "}· 同時攻撃 1
-    [two] {" "}· 同時攻撃 2
-    [no_limit] {" "}· 同時攻撃 制限なし
+    [one] {" "}· 同時攻撃1つまで
+    [two] {" "}· 同時攻撃2つまで
+    [no_limit] {" "}· 同時攻撃の制限なし
    *[three] {""}
 }{ $shocks ->
-    [two] {" "}· 攻撃ごとのショック 2
-    [six] {" "}· 攻撃ごとのショック 6
-    [eight] {" "}· 攻撃ごとのショック 8
+    [two] {" "}· 攻撃ごとにショック2つ
+    [six] {" "}· 攻撃ごとにショック6つ
+    [eight] {" "}· 攻撃ごとにショック8つ
    *[four] {""}
 }{ $stages ->
     [open] {" "}· ステージ数オープン
@@ -436,14 +436,14 @@ room-rules-words = { $ruleset }{ $difficulty ->
         [out] {" "}· ライフ切れでアウト
        *[play_on] {""}
     }{ $at_once ->
-        [one] {" "}· 同時攻撃 1
-        [two] {" "}· 同時攻撃 2
-        [no_limit] {" "}· 同時攻撃 制限なし
+        [one] {" "}· 同時攻撃1つまで
+        [two] {" "}· 同時攻撃2つまで
+        [no_limit] {" "}· 同時攻撃の制限なし
        *[three] {""}
     }{ $shocks ->
-        [two] {" "}· 攻撃ごとのショック 2
-        [six] {" "}· 攻撃ごとのショック 6
-        [eight] {" "}· 攻撃ごとのショック 8
+        [two] {" "}· 攻撃ごとにショック2つ
+        [six] {" "}· 攻撃ごとにショック6つ
+        [eight] {" "}· 攻撃ごとにショック8つ
        *[four] {""}
     }{ $stages ->
         [open] {" "}· ステージ数オープン
@@ -1071,7 +1071,7 @@ room-twitch-bans-off = Twitchで許可されなかったため、Twitchのバン
 room-twitch-chat-on = このデバイスでルームのTwitchチャットを表示します。
 room-twitch-connecting = Twitchアクセスを接続しています…
 room-twitch-connect-waiting = ブラウザでTwitchアクセスを許可してから、ここに戻ってください。
-room-host-trip-why = 新しいルームはTwitchのバンがオンで始まります。チャンネルでバンやタイムアウトされた人をゲームが確認することを許可してください。許可しない場合は、オフのままルームが作られます。
+room-host-trip-why = 新しいルームはTwitchのバンがオンで始まります。チャンネルでバンやタイムアウトされた人を、ゲームが確認できるように許可してください。許可しない場合は、オフのままルームが作られます。
 room-twitch-ended = Twitchアクセスが終了したため、Twitchのバンはオフです。
 room-twitch-bans-allow = Twitchで許可
 room-twitch-bans-allow-more = Twitchのバンを許可

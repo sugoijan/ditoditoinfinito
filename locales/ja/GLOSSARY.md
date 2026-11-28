@@ -290,3 +290,25 @@ first.
 | You (another person's choice beside one's own, the draw's entries) | 自分 (as the players' rows) |
 | Twitch access / connect, disconnect / allow (on Twitch) | Twitchアクセス / 接続、切断 / 許可 |
 | ban, timeout, block (Twitch's) / emote / chat | バン、タイムアウト、ブロック / エモート / チャット |
+
+## Terms the two wordings, Options' sections and Find songs settled on (round JA2, 2026-11-28, an agent's review)
+
+The Basic level's plain words (`docs/plans/ui-levels.md`, "Two wordings")
+and the newer areas chose these; a native review may change any of them,
+here first.
+
+| English | 日本語 |
+| --- | --- |
+| Show advanced options / advanced options | 上級オプションを表示 / 上級オプション |
+| a section of Options (as the Tab hint names it) | 分類 |
+| default (Options' values) | 既定値 (最初の設定 stays the privacy note's plainer word only) |
+| the targets (Basic's word for receptors) | 合わせる位置 (the Advanced wording keeps 判定ライン) |
+| long notes (Basic's word for holds) | 長押し |
+| stray presses (Basic's word for Boos) / Boos on | 空打ち / Booあり |
+| the delays (Basic's word for offsets) / sound, picture | 遅れ / 音、映像 |
+| the radar's plain spokes: runs / pairs / threes / repeats / chord repeats / tricky | 連続 / 2つ押し / 3つ押し / 連打 / 同時連打 / 複雑さ (連打 is plain Japanese for hitting the same thing again and again, so it names the repeats, a jack's plain word; a run of different notes is 連続) |
+| the radar's Advanced spokes: Stream / Jumps / Hands / Jacks / Chordjacks / Tech | ストリーム / ジャンプ / ハンド / 縦連 / 同時縦連 / テクニカル (縦連 is the Japanese players' word for a jack) |
+| a song source (This computer, a plugin) / Find songs | ソース (曲のソース where it stands alone) / 曲を探す |
+| This computer (the built-in source) | このコンピューター |
+| Played before / Fetched this session | 前にプレイした曲 / 今回取得した曲 |
+| Kick, explained in the privacy note and the terms of use | メンバーをルームから外す, then ゲームでは、これを「退出させる」と呼びます (as the English names the button) |

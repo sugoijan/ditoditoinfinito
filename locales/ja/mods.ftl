@@ -48,6 +48,6 @@ mods-life = ライフ { $level }
 mods-ddi-easy = イージータイミング
 mods-ddi-hard = ハードタイミング
 mods-ddi-boos = 空打ちあり
-    .advanced = Boo
+    .advanced = Booあり
 mods-ddi-practice = 練習
 mods-judge = 判定 { $level }
