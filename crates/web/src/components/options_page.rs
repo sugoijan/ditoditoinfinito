@@ -729,6 +729,7 @@ impl OptionsPlatform for Web {
             }
             Leave::Calibrate => Route::Calibrate,
             Leave::Studio => Route::Studio,
+            Leave::Experimental => Route::Experimental,
             Leave::Demo { gl } => Route::Play(PlayRoute {
                 force_gl: gl,
                 auto: true,

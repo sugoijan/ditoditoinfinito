@@ -390,6 +390,7 @@ impl Shell {
                 | "calibration"
                 | "multiplayer"
                 | "room"
+                | "experimental"
         ) {
             let (mut ui, env, look) = theme_ui_with(
                 if name == "options" { "select" } else { name },
@@ -2377,7 +2378,7 @@ pub fn theme_ui_with(
     } else {
         ui.push(sample::start_screen(&env, quit));
     }
-    if !matches!(first, "start" | "multiplayer" | "room") {
+    if !matches!(first, "start" | "multiplayer" | "room" | "experimental") {
         ui.push(select);
     }
     push_multiplayer(&mut ui, &env, first, None, None);
@@ -2386,6 +2387,7 @@ pub fn theme_ui_with(
         "options" => ui.push(sample::options_screen(&env, Some(changed))),
         "credits" => ui.push(credits_screen(&env)),
         "calibration" => ui.push(sample::calibration_screen(&env)),
+        "experimental" => ui.push(experimental_screen(&env)),
         _ => {}
     }
     (ui, env, look)
@@ -2416,6 +2418,7 @@ fn library_ui_with(
         && first != "start"
         && first != "options"
         && first != "announcer"
+        && first != "experimental"
     {
         ui.push(crate::songs::screen(&env, songs, Some(sound.clone())));
         // `--shared`: the share's song select over the library's.
@@ -2435,8 +2438,21 @@ fn library_ui_with(
         let studio = crate::studio::Studio::new(&env, sound, songs.play.clone(), None);
         ui.push(studio.screen());
         *songs.studio.borrow_mut() = Some(studio);
+    } else if first == "experimental" {
+        ui.push(experimental_screen(&env));
     }
     (ui, env, look)
+}
+
+/// `--screen experimental`: the experimental settings
+/// (`ddi_ui::screens::experimental`; `docs/plans/ui-levels.md`, stage 4)
+/// on the stored settings, over the start menu; Back closes it.
+pub fn experimental_screen(env: &ThemeEnv) -> theme_screens::page::PageScreen {
+    theme_screens::experimental::screen(
+        env,
+        theme_screens::experimental::stored(),
+        Rc::new(|cx| cx.close(true)),
+    )
 }
 
 /// `--screen multiplayer|room` (and `--join`): the multiplayer home, the
@@ -2464,13 +2480,14 @@ fn push_multiplayer(
 }
 
 /// The screens that open on the library on disk ([`opens_on_library`]).
-pub const LIBRARY_SCREENS: [&str; 6] = [
+pub const LIBRARY_SCREENS: [&str; 7] = [
     "start",
     "select",
     "options",
     "announcer",
     "multiplayer",
     "room",
+    "experimental",
 ];
 
 /// Whether `--screen` `screen` opens on the library on disk: one of
@@ -2860,7 +2877,15 @@ mod tests {
     /// but for the announcer studio.
     #[test]
     fn the_multiplayers_screens_open_on_the_library() {
-        for screen in ["start", "select", "options", "announcer", "multiplayer", "room"] {
+        for screen in [
+            "start",
+            "select",
+            "options",
+            "announcer",
+            "multiplayer",
+            "room",
+            "experimental",
+        ] {
             assert!(opens_on_library(screen, false), "{screen}");
         }
         for screen in ["results", "credits", "calibration", "widgets", "dev", ""] {

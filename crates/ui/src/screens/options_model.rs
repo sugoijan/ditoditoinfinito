@@ -27,7 +27,7 @@ use super::data::{
     OptionDef, OptionKind, OptionSection, OptionsData, Platform, lane_name, style_name, trim_number,
 };
 use super::options::CALIBRATE;
-use super::options_levels::{CHANGED, SHOW_ADVANCED};
+use super::options_levels::{CHANGED, EXPERIMENTAL, SHOW_ADVANCED};
 use crate::state::bind::Bound;
 use crate::state::settings::{
     BUILT_IN_ANNOUNCER, BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, GeneratedBackground,
@@ -233,7 +233,7 @@ impl Reset {
             Reset::Advanced(section) => (
                 m::confirm_advanced(),
                 m::confirm_advanced_body(
-                    model.changed_in(section).len(),
+                    model.changed_count_in(section),
                     model.section_name(section),
                 ),
                 m::confirm_advanced_button(),
@@ -363,6 +363,9 @@ pub enum Act {
     Calibrate,
     /// The announcer studio (its own page).
     Studio,
+    /// The experimental settings (their own screen,
+    /// `super::experimental`).
+    Experimental,
     /// Autoplay a bundled song (on WebGL2).
     Demo {
         gl: bool,
@@ -536,7 +539,11 @@ impl OptionsModel {
         }
         let mut sections = self.sections_with_defaults();
         if level == Level::Basic {
-            sections = sections.into_iter().filter_map(basic_view).collect();
+            let experimental = self.experimental_changed();
+            sections = sections
+                .into_iter()
+                .filter_map(|s| basic_view(s, experimental))
+                .collect();
         }
         OptionsData {
             sections,
@@ -641,12 +648,33 @@ impl OptionsModel {
     /// Section `id`'s Advanced rows changed from their defaults, as
     /// Advanced shows them.
     fn changed_in(&self, id: &str) -> Vec<OptionDef> {
+        let experimental = self.experimental_changed();
         self.sections_with_defaults()
             .into_iter()
             .filter(|s| s.id == id)
             .flat_map(|s| s.options)
-            .filter(|o| o.level == Level::Advanced && o.changed())
+            .filter(|o| {
+                o.level == Level::Advanced
+                    && (o.changed() || (o.id == EXPERIMENTAL && experimental > 0))
+            })
             .collect()
+    }
+
+    /// How many settings section `id` counts as changed at Advanced: a
+    /// row each, and the experimental settings' row each of its switches
+    /// that differs ([`basic_view`]).
+    fn changed_count_in(&self, id: &str) -> usize {
+        let experimental = self.experimental_changed();
+        self.changed_in(id)
+            .iter()
+            .map(|o| if o.id == EXPERIMENTAL { experimental } else { 1 })
+            .sum()
+    }
+
+    /// The experimental settings that differ from their defaults
+    /// (`crate::state::experimental::changed_count`).
+    fn experimental_changed(&self) -> usize {
+        crate::state::experimental::changed_count(&self.settings, self.world.platform)
     }
 
     /// The rows with these ids (a play's start prompt's), as Options shows
@@ -1606,6 +1634,22 @@ impl OptionsModel {
                 ),
                 demo,
         ];
+        // The experimental settings' screen, once it was opened or while
+        // anything on it is changed (`docs/plans/ui-levels.md`, stage 4).
+        if crate::state::experimental::in_options(s, self.world.platform) {
+            let changed = crate::state::experimental::changed_count(s, self.world.platform);
+            rows.push(actions(
+                EXPERIMENTAL,
+                m::experimental(),
+                [common::open()],
+                if changed > 0 {
+                    m::experimental_changed(changed).into()
+                } else {
+                    String::new()
+                },
+                m::experimental_description(),
+            ));
+        }
         // The chat's own rows under "Twitch chat in rooms" while it is on.
         if s.twitch_chat != ddi_chat::Level::Off {
             let at = rows
@@ -2684,6 +2728,7 @@ impl OptionsModel {
             (CALIBRATE, _) => Act::Calibrate,
             ("sample", _) => Act::Sample,
             ("demo", b) => Act::Demo { gl: b == 1 },
+            (EXPERIMENTAL, _) => Act::Experimental,
             ("noteskin.remove", _) => match self.settings.noteskin.clone() {
                 Some(k) => Act::Confirm(Reset::Noteskin(k)),
                 None => Act::Nothing,
@@ -3025,15 +3070,21 @@ impl OptionsModel {
             // Each changed Advanced row of the section to its default, as
             // its row would set it.
             Reset::Advanced(section) => {
+                let count = self.changed_count_in(section);
                 let rows = self.changed_in(section);
                 let transient = std::mem::replace(&mut self.transient, true);
                 for o in &rows {
-                    if let Some(d) = o.default {
+                    if o.id == EXPERIMENTAL {
+                        // Its switches, each to its default (on every
+                        // platform: they are settings).
+                        crate::state::experimental::reset_all(&mut self.settings);
+                        self.world.sharing = self.settings.sharing_on();
+                    } else if let Some(d) = o.default {
                         self.change(&o.id, d);
                     }
                 }
                 self.transient = transient;
-                self.notice = m::notice_advanced_reset(rows.len()).into();
+                self.notice = m::notice_advanced_reset(count).into();
             }
             // The access is gone from the row, and (round TB) nothing of
             // it is asked for again at the next sign-in.
@@ -3263,12 +3314,18 @@ fn skins_of(skins: &[(String, String)], pump: bool) -> Vec<(String, String)> {
 /// to the next row shown under it), then, where any of its Advanced rows
 /// differ from their defaults, a row counting them with Reset and Show;
 /// `None` where it has neither (an Advanced section: nothing of it shows).
-fn basic_view(s: OptionSection) -> Option<OptionSection> {
+fn basic_view(s: OptionSection, experimental: usize) -> Option<OptionSection> {
+    // A row each; the experimental settings' row its switches changed
+    // (`docs/plans/ui-levels.md`, stage 4: nothing set there acts unseen).
     let changed = s
         .options
         .iter()
-        .filter(|o| o.level == Level::Advanced && o.changed())
-        .count();
+        .filter(|o| o.level == Level::Advanced)
+        .map(|o| match o.id.as_str() {
+            EXPERIMENTAL => experimental,
+            _ => usize::from(o.changed()),
+        })
+        .sum::<usize>();
     let mut rows = Vec::new();
     let mut carried: Option<String> = None;
     for mut o in s.options {

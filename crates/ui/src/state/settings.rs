@@ -462,6 +462,14 @@ pub struct Settings {
     /// alone, never stored ([`give_hidden`]); read it through
     /// [`Settings::watch_link`].
     pub multiplayer_watch_link: bool,
+    /// The experimental settings screen was opened on this device
+    /// (`#/experimental`, `--screen experimental`;
+    /// `docs/plans/ui-levels.md`, stage 4): Options then lists it under
+    /// Interface's Troubleshooting at Advanced, to find the way back.
+    /// The screen's "Forget this screen" clears it. Left out of the
+    /// stored settings while it is off.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub experimental_seen: bool,
     /// The CPU roster the last practice room was left with (names,
     /// levels, personalities and policies, in order; never their seeds):
     /// what the next practice room starts with
@@ -571,13 +579,52 @@ impl Settings {
     pub fn watch_link(&self) -> bool {
         GIVEN.with(|g| g.get().1).unwrap_or(self.multiplayer_watch_link)
     }
+
+    /// [`Settings::sharing`], or what the web's `#/?share=1` (`share=0`)
+    /// gave for the page ([`give_sharing`]).
+    pub fn sharing_on(&self) -> bool {
+        GIVEN.with(|g| g.get().2).unwrap_or(self.sharing)
+    }
 }
 
 thread_local! {
-    /// The hidden multiplayer options an address gave for the page
-    /// ([`give_hidden`]): rules first, the watch-only link.
-    static GIVEN: std::cell::Cell<(Option<bool>, Option<bool>)> =
-        const { std::cell::Cell::new((None, None)) };
+    /// The hidden options an address gave for the page ([`give_hidden`],
+    /// [`give_sharing`]): rules first, the watch-only link, sharing.
+    static GIVEN: std::cell::Cell<(Option<bool>, Option<bool>, Option<bool>)> =
+        const { std::cell::Cell::new((None, None, None)) };
+}
+
+/// The hidden options an address gave for the page: rules first, the
+/// watch-only link, sharing (`None` where none was given). The
+/// experimental settings screen says so of each
+/// (`crate::state::experimental`).
+pub fn given_hidden() -> (Option<bool>, Option<bool>, Option<bool>) {
+    GIVEN.with(std::cell::Cell::get)
+}
+
+/// What an address gave for the page is let go, each where `true`: the
+/// player set that switch themselves on the experimental settings
+/// screen, which the page then follows.
+pub fn forget_given(rules_first: bool, watch_link: bool, sharing: bool) {
+    GIVEN.with(|g| {
+        let (r, w, s) = g.get();
+        g.set((
+            r.filter(|_| !rules_first),
+            w.filter(|_| !watch_link),
+            s.filter(|_| !sharing),
+        ));
+    });
+}
+
+/// The web's `#/?share=1` (`share=0`) on the start route: sharing by
+/// link on (off) for the page alone, never stored (round HY, 2026-11-25:
+/// a link must not change a stranger's settings); `None` leaves it as it
+/// was. What is stored is [`Settings::sharing`].
+pub fn give_sharing(on: Option<bool>) {
+    GIVEN.with(|g| {
+        let (r, w, s) = g.get();
+        g.set((r, w, on.or(s)));
+    });
 }
 
 /// The web's testing parameters `mprules` and `mpwatchlink`: the hidden
@@ -588,8 +635,8 @@ thread_local! {
 /// 2026-11-25; until then the address wrote them into the settings).
 pub fn give_hidden(rules_first: Option<bool>, watch_link: Option<bool>) {
     GIVEN.with(|g| {
-        let (r, w) = g.get();
-        g.set((rules_first.or(r), watch_link.or(w)));
+        let (r, w, s) = g.get();
+        g.set((rules_first.or(r), watch_link.or(w), s));
     });
 }
 
@@ -982,6 +1029,7 @@ impl Default for Settings {
             share_token: String::new(),
             multiplayer_rules_first: false,
             multiplayer_watch_link: false,
+            experimental_seen: false,
             practice_roster: None,
             usage_stats: true,
             error_reports: true,

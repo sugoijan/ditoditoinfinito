@@ -23,7 +23,7 @@ use ddi_l10n::UiText;
 use ddi_l10n::msg::options as m;
 
 use super::data::{OptionDef, OptionSection};
-use super::options_levels::SHOW_ADVANCED;
+use super::options_levels::{EXPERIMENTAL, SHOW_ADVANCED};
 
 /// What a section holds, in its order.
 #[derive(Clone, Copy, Debug)]
@@ -249,10 +249,11 @@ pub const TREE: &[Branch] = &[
             Row("graphics"),
             Row("debug"),
             Row("demo"),
+            Row(EXPERIMENTAL),
         ],
     },
-    // Sharing (behind its hidden switch) last, until the hidden settings
-    // screen (the plan's stage 4).
+    // Sharing (behind its switch on the experimental settings screen,
+    // the plan's stage 4) last, at Advanced.
     Branch {
         id: "Data",
         name: m::section_data,

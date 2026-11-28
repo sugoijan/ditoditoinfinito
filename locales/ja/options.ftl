@@ -390,6 +390,11 @@ options-demo = オートプレイのデモ
 options-demo-play = 再生
 options-demo-webgl2 = WebGL2で
 options-demo-description = 診断用：同梱の曲を自動で再生します（WebGL2では代替の描画方式を使います）。
+options-experimental = 実験的な設定
+options-experimental-changed = { $count ->
+   *[other] { $count }件変更
+}
+options-experimental-description = ゲームのテスト用のスイッチを、専用の画面で設定します。プレイに必要なものはありません。
 
 ## Arrows.
 

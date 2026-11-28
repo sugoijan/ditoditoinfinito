@@ -110,10 +110,10 @@ full-Web-ddi	Advanced	error_reports	Basic	Send error reports	Off|On	1	Some(1)	e6
 full-Web-ddi	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
 full-Web-ddi	Advanced	reset.songs	Basic	Imported songs	Remove	0	None	-	in Data
 full-Web-ddi	Advanced	reset.everything	Basic	Everything	Reset	0	None	-	in Data
-full-Web-ddi	Advanced	share.token	Basic	Upload token	Set…	0	None	-	in Data
-full-Web-ddi	Advanced	share.shares	Basic	Shares		0	None	-	in Data
-full-Web-ddi	Advanced	share.server	Basic	Server		0	None	-	in Data
-full-Web-ddi	Advanced	share.about	Basic	What a share is		0	None	-	in Data
+full-Web-ddi	Advanced	share.token	Advanced	Upload token	Set…	0	None	-	in Data
+full-Web-ddi	Advanced	share.shares	Advanced	Shares		0	None	-	in Data
+full-Web-ddi	Advanced	share.server	Advanced	Server		0	None	-	in Data
+full-Web-ddi	Advanced	share.about	Advanced	What a share is		0	None	-	in Data
 full-Web-ddi	Basic	speed
 full-Web-ddi	Basic	reverse
 full-Web-ddi	Basic	cut
@@ -175,10 +175,6 @@ full-Web-ddi	Basic	error_reports
 full-Web-ddi	Basic	reset.settings
 full-Web-ddi	Basic	reset.songs
 full-Web-ddi	Basic	reset.everything
-full-Web-ddi	Basic	share.token
-full-Web-ddi	Basic	share.shares
-full-Web-ddi	Basic	share.server
-full-Web-ddi	Basic	share.about
 full-Web-ddi	Basic	changed 2
 full-Web-itg	Advanced	speed	Basic	Speed	40 values #7a2900995841ee9c	9	Some(9)	087d06ddc77e5520	in Play
 full-Web-itg	Advanced	reverse	Basic	Reverse	Off|On	0	Some(0)	6d9e19eea5ac2176	in Play
@@ -294,10 +290,10 @@ full-Web-itg	Advanced	error_reports	Basic	Send error reports	Off|On	1	Some(1)	b8
 full-Web-itg	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
 full-Web-itg	Advanced	reset.songs	Basic	Imported songs	Remove	0	None	-	in Data
 full-Web-itg	Advanced	reset.everything	Basic	Everything	Reset	0	None	-	in Data
-full-Web-itg	Advanced	share.token	Basic	Upload token	Set…	0	None	-	in Data
-full-Web-itg	Advanced	share.shares	Basic	Shares		0	None	-	in Data
-full-Web-itg	Advanced	share.server	Basic	Server		0	None	-	in Data
-full-Web-itg	Advanced	share.about	Basic	What a share is		0	None	-	in Data
+full-Web-itg	Advanced	share.token	Advanced	Upload token	Set…	0	None	-	in Data
+full-Web-itg	Advanced	share.shares	Advanced	Shares		0	None	-	in Data
+full-Web-itg	Advanced	share.server	Advanced	Server		0	None	-	in Data
+full-Web-itg	Advanced	share.about	Advanced	What a share is		0	None	-	in Data
 full-Web-itg	Basic	speed
 full-Web-itg	Basic	reverse
 full-Web-itg	Basic	cut
@@ -355,10 +351,6 @@ full-Web-itg	Basic	error_reports
 full-Web-itg	Basic	reset.settings
 full-Web-itg	Basic	reset.songs
 full-Web-itg	Basic	reset.everything
-full-Web-itg	Basic	share.token
-full-Web-itg	Basic	share.shares
-full-Web-itg	Basic	share.server
-full-Web-itg	Basic	share.about
 full-Web-itg	Basic	changed 3
 full-Desktop-ddi	Advanced	speed	Basic	Speed	40 values #7a2900995841ee9c	9	Some(9)	278ce4771de87daf	in Play
 full-Desktop-ddi	Advanced	reverse	Basic	Reverse	Off|On	0	Some(0)	009b705cf8dd119f	in Play
@@ -471,10 +463,10 @@ full-Desktop-ddi	Advanced	usage_stats	Basic	Send usage statistics	Off|On	1	Some(
 full-Desktop-ddi	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
 full-Desktop-ddi	Advanced	reset.songs	Basic	Song folders	Forget	0	None	-	in Data
 full-Desktop-ddi	Advanced	reset.everything	Basic	Everything	Reset	0	None	-	in Data
-full-Desktop-ddi	Advanced	share.token	Basic	Upload token	Set…	0	None	-	in Data
-full-Desktop-ddi	Advanced	share.shares	Basic	Shares		0	None	-	in Data
-full-Desktop-ddi	Advanced	share.server	Basic	Server		0	None	-	in Data
-full-Desktop-ddi	Advanced	share.about	Basic	What a share is		0	None	-	in Data
+full-Desktop-ddi	Advanced	share.token	Advanced	Upload token	Set…	0	None	-	in Data
+full-Desktop-ddi	Advanced	share.shares	Advanced	Shares		0	None	-	in Data
+full-Desktop-ddi	Advanced	share.server	Advanced	Server		0	None	-	in Data
+full-Desktop-ddi	Advanced	share.about	Advanced	What a share is		0	None	-	in Data
 full-Desktop-ddi	Basic	speed
 full-Desktop-ddi	Basic	reverse
 full-Desktop-ddi	Basic	cut
@@ -536,10 +528,6 @@ full-Desktop-ddi	Basic	usage_stats
 full-Desktop-ddi	Basic	reset.settings
 full-Desktop-ddi	Basic	reset.songs
 full-Desktop-ddi	Basic	reset.everything
-full-Desktop-ddi	Basic	share.token
-full-Desktop-ddi	Basic	share.shares
-full-Desktop-ddi	Basic	share.server
-full-Desktop-ddi	Basic	share.about
 full-Desktop-ddi	Basic	changed 2
 full-Desktop-itg	Advanced	speed	Basic	Speed	40 values #7a2900995841ee9c	9	Some(9)	087d06ddc77e5520	in Play
 full-Desktop-itg	Advanced	reverse	Basic	Reverse	Off|On	0	Some(0)	6d9e19eea5ac2176	in Play
@@ -654,10 +642,10 @@ full-Desktop-itg	Advanced	usage_stats	Basic	Send usage statistics	Off|On	1	Some(
 full-Desktop-itg	Advanced	reset.settings	Basic	Settings	Reset	0	None	-	in Data
 full-Desktop-itg	Advanced	reset.songs	Basic	Song folders	Forget	0	None	-	in Data
 full-Desktop-itg	Advanced	reset.everything	Basic	Everything	Reset	0	None	-	in Data
-full-Desktop-itg	Advanced	share.token	Basic	Upload token	Set…	0	None	-	in Data
-full-Desktop-itg	Advanced	share.shares	Basic	Shares		0	None	-	in Data
-full-Desktop-itg	Advanced	share.server	Basic	Server		0	None	-	in Data
-full-Desktop-itg	Advanced	share.about	Basic	What a share is		0	None	-	in Data
+full-Desktop-itg	Advanced	share.token	Advanced	Upload token	Set…	0	None	-	in Data
+full-Desktop-itg	Advanced	share.shares	Advanced	Shares		0	None	-	in Data
+full-Desktop-itg	Advanced	share.server	Advanced	Server		0	None	-	in Data
+full-Desktop-itg	Advanced	share.about	Advanced	What a share is		0	None	-	in Data
 full-Desktop-itg	Basic	speed
 full-Desktop-itg	Basic	reverse
 full-Desktop-itg	Basic	cut
@@ -715,10 +703,6 @@ full-Desktop-itg	Basic	usage_stats
 full-Desktop-itg	Basic	reset.settings
 full-Desktop-itg	Basic	reset.songs
 full-Desktop-itg	Basic	reset.everything
-full-Desktop-itg	Basic	share.token
-full-Desktop-itg	Basic	share.shares
-full-Desktop-itg	Basic	share.server
-full-Desktop-itg	Basic	share.about
 full-Desktop-itg	Basic	changed 3
 new-Web	Advanced	speed	Basic	Speed	40 values #7a2900995841ee9c	9	Some(9)	6b7666a907eb00b2	in Play
 new-Web	Advanced	reverse	Basic	Reverse	Off|On	0	Some(0)	fc4ccc3eeff8eda2	in Play

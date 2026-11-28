@@ -143,8 +143,9 @@ fn lang_switch(hash: &str) {
 
 /// The hidden switch of sharing by link (`docs/plans/shared-songs.md`):
 /// `#/?share=1` on the start route turns sharing on for the page,
-/// `share=0` off; never a row of Options. Never stored (round HY,
-/// 2026-11-25: a link must not change a stranger's settings): what is
+/// `share=0` off; never a row of Options (the experimental settings
+/// screen's `share.uploader`, which says so of it). Never stored (round
+/// HY, 2026-11-25: a link must not change a stranger's settings): what is
 /// stored is `Settings::sharing`, kept on once a token is set in
 /// Options' Sharing section and off once it is cleared ([`sharing`]).
 fn share_switch(hash: &str) {
@@ -161,13 +162,13 @@ fn share_switch(hash: &str) {
     }) else {
         return;
     };
-    SHARING.with(|s| s.set(Some(on)));
+    ddi_ui::state::settings::give_sharing(Some(on));
 }
 
 /// Whether sharing by link is on: as an address gave it for the page
 /// ([`share_switch`]), else as stored.
 pub(crate) fn sharing(settings: &crate::settings::Settings) -> bool {
-    SHARING.with(std::cell::Cell::get).unwrap_or(settings.sharing)
+    settings.sharing_on()
 }
 
 /// `sessionStorage`: TESTING ONLY, the scripted chat's `mpfakechat`,
@@ -361,8 +362,6 @@ fn multiplayer_params(hash: &str, at_load: bool) {
 }
 
 thread_local! {
-    /// Sharing by link as an address gave it for the page ([`sharing`]).
-    static SHARING: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
     /// The last address [`multiplayer_params`] read.
     static MULTIPLAYER_READ: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
     /// The page's first address has been read ([`Route::current`]).

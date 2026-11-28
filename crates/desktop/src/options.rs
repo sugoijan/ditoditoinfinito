@@ -242,7 +242,7 @@ pub fn screen(
                 .collect()
         }),
         library_note: songs.as_ref().map(|s| s.folders_note()).unwrap_or_default(),
-        sharing: Settings::load().sharing,
+        sharing: Settings::load().sharing_on(),
         share_url: crate::share::base(),
         twitch: crate::online::twitch_row(),
         ..World::default()
@@ -580,6 +580,16 @@ impl OptionsPlatform for Desktop {
                     *songs.studio.borrow_mut() = Some(studio);
                 }
             }
+            // Over Options, changing its model (so that its next change
+            // keeps what was set there); Back comes back to it.
+            Leave::Experimental => cx.push(ddi_ui::screens::experimental::screen(
+                &self.0.env,
+                ddi_ui::screens::options_shell::experimental_store(
+                    self.0.model.clone(),
+                    self.0.feed.clone(),
+                ),
+                Rc::new(|cx| cx.close(true)),
+            )),
             // Not offered on desktop.
             Leave::Demo { .. } => {}
         }

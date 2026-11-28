@@ -636,7 +636,18 @@ Rust and the browser are implementation details, not advertised features.
   screen (`crates/ui/src/screens/editor.rs`, `docs/plans/editor.md`;
   its note record, `state/editor/record.rs`, takes a press's time stamp
   as a play judges it, `ddi_session::listen::Listener::heard_at`) and
-  the developer screen both shells run (`crates/ui/src/dev.rs`). Pure,
+  the developer screen both shells run (`crates/ui/src/dev.rs`); the
+  experimental settings (`docs/plans/ui-levels.md`, stage 4): a screen
+  of their own, as a browser's `about:config` (`screens/experimental.rs`,
+  `#/experimental`, `--screen experimental`), its switches written in
+  `state/experimental.toml` (a table at build time, `crates/ui/build.rs`;
+  their words English data, the frame messages) and bound to the hidden
+  settings they are in `state/experimental.rs` (`Settings::multiplayer_rules_first`,
+  `multiplayer_watch_link`, `sharing`; an address's value for the page
+  alone, `settings::given_hidden`, shown as such), listed in Options →
+  Interface → Troubleshooting at Advanced once opened
+  (`Settings::experimental_seen`) or while one differs, and counted at
+  Basic among Interface's changes. Pure,
   natively tested.
 - `crates/l10n/` the UI's languages (`ddi-l10n`,
   `docs/plans/localization.md`): Fluent messages in
@@ -1222,7 +1233,8 @@ Rust and the browser are implementation details, not advertised features.
   prompt and the results on the play route,
   `crates/web/src/components/game_canvas.rs`; options at `#/options`,
   `crates/web/src/components/options_page.rs`; calibration's menu at
-  `#/calibrate` and the credits at `#/credits`,
+  `#/calibrate`, the credits at `#/credits` and the experimental
+  settings at `#/experimental`,
   `crates/web/src/components/page_routes.rs`; no device notices and no
   calibration card since 2026-10-29, `docs/plans/quiet-calibration.md`:
   a device first seen plays on the default offsets, kept as its profile
@@ -1273,7 +1285,8 @@ Rust and the browser are implementation details, not advertised features.
   `SelectData::shared`: headed "SHARED SONGS", nothing added, managed
   or edited, or the page saying the link is gone; the uploader hidden
   behind `#/?share=1` (for the page alone; `Settings::sharing` stored
-  on with a token set): Options' Sharing rows, at the end of Data and privacy,
+  on with a token set, or by the experimental settings' switch):
+  Options' Sharing rows, at the end of Data and privacy at Advanced,
   with the token, Share… in song select's More on imported songs and
   packs, the upload in `share.rs`; a shared song's movies streamed,
   `web/movie_source.rs` and the decoder worker's download of the whole
@@ -2587,7 +2600,7 @@ Rust and the browser are implementation details, not advertised features.
   read through `ddi_desktop::args`; the saved switches written at once,
   `args::save_switch`):
   `--songs DIR` (a folder for this run), `--sample`, `--screen
-  start|select|results|options|calibration|credits|announcer|multiplayer|room`, `--dev`, `--widgets`,
+  start|select|results|options|calibration|credits|announcer|multiplayer|room|experimental`, `--dev`, `--widgets`,
   `--play SONG [--chart N] [--auto | --auto=pad] [--start]`,
   `--edit SONG [--chart N]` (the chart editor on it),
   `--replay PLAY_ID [--results] [--start]` (a kept play's replay, or its

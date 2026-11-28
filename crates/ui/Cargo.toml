@@ -28,6 +28,12 @@ serde.workspace = true
 serde_json.workspace = true
 unicode-segmentation.workspace = true
 
+[build-dependencies]
+# The experimental settings screen's entries (`src/state/experimental.toml`)
+# made a table at build time (`build.rs`).
+serde.workspace = true
+toml.workspace = true
+
 [dev-dependencies]
 # Unicode's NFKD for the search in tests (the shells bring their own).
 ddi-library = { workspace = true, features = ["nfkd"] }

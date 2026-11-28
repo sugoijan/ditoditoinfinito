@@ -132,6 +132,9 @@ pub const LEVELS: &[(&str, Level)] = &[
     ("graphics", Advanced),
     ("debug", Advanced),
     ("demo", Advanced),
+    // The experimental settings' screen (stage 4): listed once opened,
+    // its switches counted among Interface's changes at Basic.
+    (EXPERIMENTAL, Advanced),
     // Arrows.
     ("noteskin", Basic),
     ("skin.", Advanced),
@@ -165,15 +168,19 @@ pub const LEVELS: &[(&str, Level)] = &[
     ("reset.everything", Basic),
     // Songs (desktop).
     ("folders.", Basic),
-    // Sharing, behind its hidden switch: shown wherever the switch is on
-    // until the hidden settings screen takes it (the plan's stage 4).
-    ("share.", Basic),
+    // Sharing, behind its switch on the experimental settings screen
+    // (the plan's stage 4): its rows at Advanced, while it is on.
+    ("share.", Advanced),
     // Each section's count of what is changed at Advanced.
     (CHANGED, Basic),
 ];
 
 /// The Show advanced options row's id (Off: Basic, On: Advanced).
 pub const SHOW_ADVANCED: &str = "show_advanced";
+
+/// The Experimental settings row's id (Interface → Troubleshooting):
+/// opens their screen (`super::experimental`).
+pub const EXPERIMENTAL: &str = "experimental";
 
 /// The prefix of each section's "Advanced changes" row's id (then the
 /// section's id).
@@ -418,6 +425,81 @@ pub(crate) mod tests {
         assert_eq!(notes, ["speed", "reverse", "cut", "at_once", "no_holds"]);
         let stored: Settings = storage::load(Area::Local, crate::state::settings::KEY).unwrap();
         assert_eq!(stored.transform.turn, ddi_engine::Turn::Off);
+    }
+
+    /// The experimental settings (stage 4): Options lists their screen
+    /// under Interface's Troubleshooting at Advanced only once it was
+    /// opened or something there is changed; at Basic each switch changed
+    /// counts among Interface's changes, Show focuses the row and Reset
+    /// puts the switches back; the row opens the screen.
+    #[test]
+    fn experimental_settings_are_listed_once_seen_and_counted_at_basic() {
+        storage::install(Rc::new(MemoryStore::default()));
+        crate::state::settings::forget_given(true, true, true);
+        let listed = |m: &OptionsModel| {
+            section(&m.data_at(Advanced), "Interface")
+                .unwrap()
+                .options
+                .iter()
+                .any(|o| o.id == EXPERIMENTAL)
+        };
+        let mut m = OptionsModel::new(Settings::default(), World::default());
+        assert!(!listed(&m), "a newcomer's Options never lists it");
+        m.settings.experimental_seen = true;
+        assert!(listed(&m));
+        let interface = section(&m.data_at(Advanced), "Interface").unwrap().options.clone();
+        let row = interface.iter().find(|o| o.id == EXPERIMENTAL).unwrap();
+        assert_eq!(row.level, Advanced);
+        assert_eq!(row.heading, None, "under Troubleshooting");
+        assert_eq!(interface.last().unwrap().id, EXPERIMENTAL);
+        assert_eq!(row.note, "");
+        assert_eq!(m.action(EXPERIMENTAL, 0), Act::Experimental);
+        // Seen alone, nothing to count at Basic.
+        let basic = m.data_at(Basic);
+        let ids: Vec<&str> = section(&basic, "Interface")
+            .unwrap()
+            .options
+            .iter()
+            .map(|o| o.id.as_str())
+            .collect();
+        assert!(!ids.contains(&EXPERIMENTAL) && !ids.iter().any(|i| i.starts_with(CHANGED)));
+        // Two switches set there: counted, as two.
+        m.settings.experimental_seen = false;
+        m.settings.multiplayer_rules_first = true;
+        m.settings.sharing = true;
+        assert!(listed(&m), "listed while something there is changed");
+        let row = section(&m.data_at(Advanced), "Interface")
+            .unwrap()
+            .options
+            .iter()
+            .find(|o| o.id == EXPERIMENTAL)
+            .cloned()
+            .unwrap();
+        assert_eq!(row.note, "2 changed");
+        let count = section(&m.data_at(Basic), "Interface")
+            .unwrap()
+            .options
+            .last()
+            .cloned()
+            .unwrap();
+        assert_eq!(count.id, format!("{CHANGED}Interface"));
+        assert_eq!(count.label, "Advanced changes: 2");
+        // Show: on the row.
+        assert_eq!(m.action(&format!("{CHANGED}Interface"), 1), Act::Done);
+        assert_eq!(m.data().focus, Some(("Interface".into(), EXPERIMENTAL.into())));
+        // Reset them: asked naming two, then both back.
+        m.settings.level = Basic;
+        let Act::Confirm(reset) = m.action(&format!("{CHANGED}Interface"), 0) else {
+            panic!("asked first");
+        };
+        let (_, body, _) = reset.texts(&m);
+        assert!(body.contains('2'), "{body}");
+        m.reset(&reset);
+        assert!(!m.settings.multiplayer_rules_first && !m.settings.sharing);
+        assert_eq!(m.notice, "2 settings back to their defaults.");
+        assert!(!listed(&m), "neither seen nor changed: not listed");
+        let stored: Settings = storage::load(Area::Local, crate::state::settings::KEY).unwrap();
+        assert!(!stored.multiplayer_rules_first && !stored.sharing);
     }
 
     /// At Basic a hidden row's heading goes to the next row shown under

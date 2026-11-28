@@ -2898,6 +2898,14 @@ fn walk() -> BTreeSet<String> {
             let mut h = harness();
             h.push(sample::credits_screen(&env, &credits::sample()));
             shown(&mut h, &mut found);
+            // The experimental settings (stage 4), as stored.
+            let mut h = harness();
+            h.push(super::experimental::screen(
+                &env,
+                super::experimental::stored(),
+                Rc::new(|_| {}),
+            ));
+            shown(&mut h, &mut found);
             let mut h = harness();
             let view = super::data::ImportView::default();
             h.push(ImportDialog::new(
@@ -3163,6 +3171,8 @@ fn every_options_row_is_a_message_or_data() {
                 display_profiles,
                 // The chat's rows show while it is on.
                 twitch_chat: ddi_chat::Level::Messages,
+                // The experimental settings' row, one of them changed.
+                multiplayer_rules_first: true,
                 ..Settings::default()
             };
             let mut model = OptionsModel::new(settings, world);
@@ -3392,6 +3402,31 @@ fn moved_screens_show_no_text_written_in_code() {
     ];
     for platform in [Platform::Web, Platform::Desktop] {
         docs.push(("the credits", credits::doc(&credits::sample(), platform)));
+    }
+    // The experimental settings in each state a switch shows: at its
+    // default, changed, given by the page's address both ways, after
+    // Forget this screen.
+    {
+        use super::experimental::{Press, confirm_texts, doc};
+        let changed = Settings {
+            multiplayer_watch_link: true,
+            ..Settings::default()
+        };
+        for platform in [Platform::Web, Platform::Desktop] {
+            docs.push(("experimental", doc(&Settings::default(), platform, None)));
+            docs.push(("experimental", doc(&changed, platform, None)));
+        }
+        let notice: String = ddi_l10n::msg::pages::experimental_forgotten().into();
+        docs.push(("experimental", doc(&changed, Platform::Web, Some(&notice))));
+        crate::state::settings::give_hidden(Some(true), Some(false));
+        docs.push(("experimental", doc(&changed, Platform::Web, None)));
+        crate::state::settings::forget_given(true, true, true);
+        for p in [Press::ResetAll, Press::Forget] {
+            let (title, body, yes) = confirm_texts(&p);
+            for t in [title, body, yes] {
+                assert!(!in_code(&t), "{t}");
+            }
+        }
     }
     for (what, doc) in docs {
         let mut texts = vec![doc.title.text.clone(), doc.title.heading.clone()];

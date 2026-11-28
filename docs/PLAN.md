@@ -1097,8 +1097,10 @@ named was looked at for this list.
    rows toward Advanced; its stage 2, the plain words at Basic and
    today's at Advanced, built the same day; its stage 3, Options
    regrouped into the plan's tree of twelve sections, built 2026-11-27
-   on the plan's recommendation for the tree; the other open questions
-   still the maintainer's).
+   on the plan's recommendation for the tree; its stage 4, the
+   experimental settings screen, built 2026-11-28 on the plan's
+   recommendations for how it is reached, its entries' language and its
+   day-one list; the other open questions still the maintainer's).
 
 Below these, later:
 

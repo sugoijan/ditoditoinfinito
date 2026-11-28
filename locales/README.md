@@ -70,6 +70,13 @@ language). The check's lint fails a literal handed to a page's DOM, a
 window's title or a file dialog's kind of file, as it does one handed to
 `UiText::data`.
 
+The experimental settings screen's switches (`#/experimental`,
+`crates/ui/src/state/experimental.toml`) are the exception the plan
+chose (`docs/plans/ui-levels.md`, open question 11): their names and
+lines are English data from that file, shown so in every language, for
+the developers and testers they are for; the screen's own words (its
+title, warning, states and buttons) are messages here.
+
 What code outside the screens reports (the library, the importers, the
 session, the shells) is a value carrying its data, worded by the UI with
 these messages, never an English sentence handed on; a value keeps its

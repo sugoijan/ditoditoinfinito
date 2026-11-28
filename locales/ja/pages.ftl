@@ -719,3 +719,49 @@ pages-calibration-run-audio-hint = クリック音に合わせて、どれかの
 
 pages-calibration-run-combined-hint = 普段どおりにプレイしてください。自動で調整し、確かな値が出ると止まります。
     .advanced = 普段どおりにプレイしてください。自動で調整し、測定値が安定すると止まります。
+
+## The experimental settings screen.
+
+pages-experimental-title = 実験的な設定
+
+pages-experimental-heading = 実験的な設定
+
+pages-experimental-warning = ここにあるスイッチは、ゲームのテスト用です。プレイに必要なものはありません。不具合の原因になることがあり、予告なく変わったり、なくなったりすることがあります。
+
+pages-experimental-english = 各スイッチの名前と説明は英語のみです。
+
+pages-experimental-on-default = オン（既定値のまま）。
+
+pages-experimental-off-default = オフ（既定値のまま）。
+
+pages-experimental-on-changed = オン：既定値のオフから変更されています。
+
+pages-experimental-off-changed = オフ：既定値のオンから変更されています。
+
+pages-experimental-given-on = このページのアドレスにより、このページでのみオンです。設定に保存されている値：オフ。
+
+pages-experimental-given-off = このページのアドレスにより、このページでのみオフです。設定に保存されている値：オン。
+
+pages-experimental-flag = コマンドラインでも設定できます（保存されます）：{ $flag }
+
+pages-experimental-address = アドレスでも設定できます（そのページでのみ）：{ $param }
+
+pages-experimental-plays = これはプレイの内容、判定、記録に影響します。
+
+pages-experimental-turn-on = オンにする
+
+pages-experimental-turn-off = オフにする
+
+pages-experimental-reset-all = すべてリセット
+
+pages-experimental-forget = この画面を忘れる
+
+pages-experimental-forget-about = この画面を一度開くか、ここで何かを変更している間は、オプション → インターフェース → トラブルシューティングにこの画面が表示されます（上級オプションを表示がオンのとき）。「この画面を忘れる」を押すと、ここのすべてが既定値に戻り、オプションから表示されなくなります。もう一度開くには：{ $way }
+
+pages-experimental-forgotten = ここのすべてが既定値に戻り、オプションにこの画面は表示されなくなりました。
+
+pages-experimental-reset-all-title = すべてのスイッチをリセットしますか？
+pages-experimental-reset-all-body = この画面のすべてのスイッチが既定値に戻ります。
+
+pages-experimental-forget-title = この画面を忘れますか？
+pages-experimental-forget-body = この画面のすべてのスイッチが既定値に戻り、オプションにこの画面は表示されなくなります。

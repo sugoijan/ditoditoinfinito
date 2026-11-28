@@ -746,6 +746,21 @@ options-demo-play = Play
 options-demo-webgl2 = On WebGL2
 options-demo-description = Diagnostics: a bundled song played by itself (WebGL2 forces the fallback renderer).
 
+# Opens the experimental settings screen (switches for testing the game),
+# listed here once that screen was opened on this device or something on
+# it is changed; its button is "Open".
+options-experimental = Experimental settings
+
+# Beside the row's button, where switches on the screen differ from their
+# defaults.
+# Variables:
+#   $count (Number) - how many differ
+options-experimental-changed = { $count ->
+    [one] One changed
+   *[other] { $count } changed
+}
+options-experimental-description = Switches for testing the game, on a screen of their own. Nothing there is needed to play.
+
 ## Arrows: the noteskin (the arrows' art) and its options.
 
 options-noteskin = Arrows

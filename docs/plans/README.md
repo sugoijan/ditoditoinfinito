@@ -772,8 +772,13 @@ so.
   2026-11-27: Options regrouped into the plan's tree of twelve
   sections, from one table, every row kept with its id, values and
   effect, a place saved before finding its row; Fewer notes on the
-  start prompt), on the plan's recommendation for open question 9; the
-  other open questions waiting.
+  start prompt), on the plan's recommendation for open question 9, and
+  its stage 4 (section 13, 2026-11-28: the experimental settings screen
+  at `#/experimental` and `--screen experimental`, its three switches
+  from a data file, listed in Options' Troubleshooting once opened and
+  counted at Basic; Sharing's rows at Advanced), on the
+  recommendations for questions 10 to 12; the other open questions
+  waiting.
   An inventory of every option (126 kinds of row,
   93 stored settings) and of 52 places outside Options with the genre's
   jargon or technical detail; a rule sorting them into Basic (the

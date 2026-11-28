@@ -10,6 +10,9 @@
 //! - **Credits**: `credits/credits.json` (`xtask gen-credits`) as
 //!   `ddi_ui::screens::credits` lays it out; links open in a new tab from
 //!   the press.
+//! - **Experimental settings** at `#/experimental`
+//!   (`ddi_ui::screens::experimental`): the switches for testing the game,
+//!   kept in the settings as they change.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -28,6 +31,7 @@ pub(crate) enum Which {
     Start,
     Calibration,
     Credits,
+    Experimental,
     /// A shared link that does not exist or expired (`crate::share`):
     /// why, and the way to the start menu.
     SharedGone(ddi_library::share::ShareError),
@@ -122,6 +126,7 @@ impl PagePage {
             Which::Start => ("start", PageDoc::default()),
             Which::Calibration => ("calibration", calibration::stored_doc()),
             Which::Credits => ("credits", ddi_ui::screens::credits::waiting(None)),
+            Which::Experimental => ("experimental", PageDoc::default()),
             Which::SharedGone(why) => ("shared", shared_gone_doc(why)),
             Which::Multiplayer | Which::Invite(_) | Which::Audience(_) => {
                 ("multiplayer", PageDoc::default())
@@ -193,6 +198,12 @@ impl PagePage {
         } else if let Which::Audience(link) = &which {
             multiplayer_arrived();
             ui.push(audience_screen(&env, link));
+        } else if which == Which::Experimental {
+            ui.push(ddi_ui::screens::experimental::screen(
+                &env,
+                ddi_ui::screens::experimental::stored(),
+                Rc::new(|cx| cx.request(UiRequest::Back)),
+            ));
         } else {
             ui.push(screen);
         }

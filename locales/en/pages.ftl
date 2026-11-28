@@ -1135,3 +1135,89 @@ pages-calibration-run-audio-hint = press ANY arrow key on each click; the test a
 # The check of both together, on a chart played normally.
 pages-calibration-run-combined-hint = play normally; the test adjusts itself and stops once it is sure
     .advanced = play normally; the test adjusts itself and stops once it converges
+
+## The experimental settings screen (`#/experimental` on the web,
+## `--screen experimental` on desktop; reached from Options → Interface →
+## Troubleshooting once opened): switches for testing the game, each with
+## what it does (written in English, as data), its value, its default and
+## Reset. Paragraphs wrap in a column about 880 px wide (about 110 letters
+## a line); buttons hold about 16 letters.
+
+# The page's title beside its back icon on a phone (about 20 letters).
+pages-experimental-title = Experimental settings
+
+# The page's name in its header, in small capitals: written in capitals
+# where the language has them.
+pages-experimental-heading = EXPERIMENTAL SETTINGS
+
+# The page's first line, shown in gold: what these switches are.
+pages-experimental-warning = These switches are for testing the game. Nothing here is needed to play. They can break things, and they may change or go away without notice.
+
+# Under the warning, in languages other than English: each switch's name
+# and what it does are shown in English.
+pages-experimental-english = Each switch's name and what it does are written in English only.
+
+# A switch's state, under what it does: on, as it is by default.
+pages-experimental-on-default = On, as by default.
+
+# A switch's state: off, as it is by default.
+pages-experimental-off-default = Off, as by default.
+
+# A switch's state, in gold: on, though it is off by default.
+pages-experimental-on-changed = On: changed from its default, Off.
+
+# A switch's state, in gold: off, though it is on by default.
+pages-experimental-off-changed = Off: changed from its default, On.
+
+# A switch's state, in gold (the web): the page's address turned it on for
+# this page alone; what is kept in the settings is Off.
+pages-experimental-given-on = On for this page alone, because its address says so. Kept in the settings: Off.
+
+# The same, the address turning it off; kept in the settings: On.
+pages-experimental-given-off = Off for this page alone, because its address says so. Kept in the settings: On.
+
+# Desktop: how its command line sets the switch (kept in the settings).
+# Variables:
+#   $flag (String) - the flag as typed, "--sharing on|off"
+pages-experimental-flag = Also set from the command line, kept: { $flag }
+
+# The web: how an address sets the switch, for that page alone.
+# Variables:
+#   $param (String) - the address's parameter, "mprules=1, mprules=0"
+pages-experimental-address = Also set by an address, for its page alone: { $param }
+
+# In gold, on a switch that changes how a play is played, judged or kept.
+pages-experimental-plays = This changes how a play is played, judged or kept.
+
+# A switch's button (about 16 letters): turns it on.
+pages-experimental-turn-on = Turn on
+
+# A switch's button (about 16 letters): turns it off.
+pages-experimental-turn-off = Turn off
+
+# A button at the page's end (about 16 letters): every switch back to its
+# default.
+pages-experimental-reset-all = Reset all
+
+# A button beside Reset all (about 20 letters): every switch back to its
+# default, and the screen taken out of Options.
+pages-experimental-forget = Forget this screen
+
+# Above the two buttons: what Forget this screen does, and how to open
+# the page again.
+# Variables:
+#   $way (String) - the page's address or the command line's flag, as typed
+pages-experimental-forget-about = Options lists this screen under Interface, Troubleshooting (with Show advanced options On) once you have opened it, or while something here is changed. Forget this screen sets everything here back to its default and takes it out of Options. To open it again: { $way }
+
+# A line once Forget this screen was pressed.
+pages-experimental-forgotten = Everything here is back to its default, and Options no longer lists this screen.
+
+# The question before Reset all: its title (about 40 letters), its text
+# and its button is Reset.
+pages-experimental-reset-all-title = Reset every switch?
+pages-experimental-reset-all-body = Every switch on this screen goes back to its default.
+
+# The question before Forget this screen: its title (about 40 letters)
+# and its text; its button is Forget this screen.
+pages-experimental-forget-title = Forget this screen?
+pages-experimental-forget-body = Every switch on this screen goes back to its default, and Options no longer lists this screen.

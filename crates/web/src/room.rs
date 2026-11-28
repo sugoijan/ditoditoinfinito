@@ -86,7 +86,7 @@ enum RoomPage {
     Stage,
     /// A page that opens over a room's song select and comes back to it
     /// (Options and what it opens: Calibrate, a calibration's run, the
-    /// announcer studio and its scenes): the room is kept as it was, an
+    /// announcer studio and its scenes, the experimental settings): the room is kept as it was, an
     /// online one run meanwhile ([`run_kept`]), as desktop keeps the
     /// room's screen under them (review3 web-2, web-3).
     Over,
@@ -114,9 +114,11 @@ fn room_page() -> RoomPage {
                 Route::MpRoom { id } => RoomPage::Online(id),
                 Route::Play(p) if p.stage.is_some() => RoomPage::Stage,
                 Route::Play(p) if p.scene.is_some() => RoomPage::Over,
-                Route::Options | Route::Calibrate | Route::CalibrateRun { .. } | Route::Studio => {
-                    RoomPage::Over
-                }
+                Route::Options
+                | Route::Calibrate
+                | Route::CalibrateRun { .. }
+                | Route::Studio
+                | Route::Experimental => RoomPage::Over,
                 Route::MpWatch { link } | Route::MpWatchStage { link } => RoomPage::Audience(link),
                 _ => RoomPage::Other,
             };

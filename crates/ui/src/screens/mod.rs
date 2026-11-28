@@ -68,6 +68,7 @@ pub mod editor;
 pub mod editor_dialogs;
 pub mod editor_field;
 pub mod errors;
+pub mod experimental;
 pub mod failures;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod find_songs;

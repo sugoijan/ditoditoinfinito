@@ -1007,6 +1007,10 @@ fn the_sharing_section_shows_only_with_the_switch_and_keeps_the_token() {
     assert!(shared(&m.data()).is_empty());
     m.world.sharing = true;
     m.world.share_url = "https://w/share".into();
+    // At Advanced alone since the experimental settings took its switch
+    // (`docs/plans/ui-levels.md`, stage 4).
+    assert!(shared(&m.data_at(Level::Basic)).is_empty());
+    m.settings.level = Level::Advanced;
     let data = m.data();
     let sharing = shared(&data);
     assert_eq!(sharing[0].heading.as_deref(), Some("SHARING"));

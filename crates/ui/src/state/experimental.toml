@@ -1,0 +1,63 @@
+# The experimental settings screen's entries (`#/experimental`,
+# `--screen experimental`; docs/plans/ui-levels.md, section 5 and stage
+# 4): switches for developing and testing the game, experiments not yet
+# decided, and those kept for a few people. Nothing a player needs is only
+# here; an entry that proves itself becomes a row of Options and leaves.
+#
+# `crates/ui/build.rs` turns this file into a table at build time (the
+# game carries no TOML parser); `crate::state::experimental` binds each
+# key to its setting in code, and its tests hold the two to each other.
+#
+# Each entry, in the order the screen lists them, grouped by `group`:
+#   key       its name on the screen and in the code (`area.name`)
+#   group     the heading it is listed under, as the screen writes it
+#   name      what it is, a few words
+#   line      what it does, one or two plain sentences
+#   kind      "switch" (on or off; the only kind for now)
+#   default   its value in a fresh profile
+#   platforms where it exists: "web", "desktop"
+#   desktop   how desktop's command line sets it (stored), or ""
+#   web       how the web's address sets it (for the page alone), or ""
+#   play      true where it changes how a play is played, judged or kept
+#             (the screen then says so on its row); none may make a kept
+#             play wrong, which would leave it a flag, off this screen
+#
+# The names and lines are English, shown as data in every language: they
+# are for developers and testers (docs/plans/ui-levels.md, open question
+# 11; locales/README.md). The screen's own words are messages.
+
+[[entry]]
+key = "rooms.rules_first"
+group = "ROOMS"
+name = "Rules first"
+line = "Entering a multiplayer room opens its Rules by themselves, with Reset and OK, before its song list."
+kind = "switch"
+default = false
+platforms = ["web", "desktop"]
+desktop = "--mp-rules-first on|off"
+web = "mprules=1, mprules=0"
+play = false
+
+[[entry]]
+key = "rooms.watch_link"
+group = "ROOMS"
+name = "Copy watch-only link"
+line = "An online room's More offers Copy watch-only link: a link to the room that only lets its visitor watch. Joining by such a link works either way."
+kind = "switch"
+default = false
+platforms = ["web", "desktop"]
+desktop = "--mp-watch-link on|off"
+web = "mpwatchlink=1, mpwatchlink=0"
+play = false
+
+[[entry]]
+key = "share.uploader"
+group = "SHARING"
+name = "Share songs by link"
+line = "Song select's More offers Share… on the songs you added and their packs, and Options → Data and privacy shows Sharing with Show advanced options On, where the upload token is set. Uploading needs a token from the game's server. Setting the token turns this on; clearing it turns it off."
+kind = "switch"
+default = false
+platforms = ["web", "desktop"]
+desktop = "--sharing on|off"
+web = "#/?share=1, #/?share=0"
+play = false

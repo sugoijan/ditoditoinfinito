@@ -6,7 +6,9 @@ answers to open questions 1 and 2 the same day (the switch's words, and
 the rows leaned toward Advanced), and its stage 2, the words (section
 10, 2026-11-26), on the recommendations for questions 6 to 8, and its
 stage 3, the hierarchy (section 11, 2026-11-27), on the recommendation
-for question 9; the other open questions of section 8 still open. It covers items 3,
+for question 9, and its stage 4, the hidden settings screen (section 13,
+2026-11-28), on the recommendations for questions 10 to 12; the other
+open questions of section 8 still open. It covers items 3,
 7 and 8 of `docs/PLAN.md`'s "What comes next" together, since they
 decide the same screen: two levels of the interface, a better hierarchy
 for Options with choices shown side by side where the look matters, and
@@ -1627,3 +1629,80 @@ its items closer.
   communicate the behavior much better than the terms themselves"). Its
   description says what a jump is. The chooser's picture for it is the
   revamp's (stage 5).
+
+## 13. Stage 4 as built (2026-11-28)
+
+The hidden settings screen, on the plan's recommendations for open
+questions 10 (how it is reached), 11 (English-only entries) and 12 (the
+day-one entries); none answered yet. Every setting was confirmed in the
+code at `dev`'s tip of 2026-11-28 rather than taken from section 5's
+table. Nothing a player has changes: the settings keep their keys,
+values and effects, and the flags and addresses that set them work as
+before.
+
+**Where each part rests.**
+
+| Part | What was built | Rests on | Where to change it |
+|---|---|---|---|
+| Its name | "Experimental settings" (「実験的な設定」, a draft) | section 5 | `pages-experimental-title`, `-heading` |
+| How it is reached | `#/experimental` on the web (`Route::Experimental`), `--screen experimental` on desktop, over the start menu | open question 10 | `crates/web/src/route.rs`; desktop's `shell::LIBRARY_SCREENS`, `experimental_screen` |
+| Found again | a row "Experimental settings" (Open) at the end of Options → Interface → Troubleshooting, Advanced only, once the screen was opened on this device (`Settings::experimental_seen`) or while any switch differs; it says how many differ; "Forget this screen" (asked once) puts everything back and takes the row away | open question 10, section 5 | `state::experimental::in_options`; the row in `options_model::display`, its place in `options_tree::TREE`, its level in `options_levels::LEVELS` |
+| Nothing acts unseen | at Basic, each switch that differs counts among Interface's "Advanced changes: N" (its Show focuses the row, its Reset puts the switches back); a value an address gave the page counts too, since it acts there | the brief; section 2.4's count | `options_model::basic_view`, `changed_count_in` |
+| The entries | one data file, `crates/ui/src/state/experimental.toml`, made a table by `crates/ui/build.rs` (the game carries no TOML parser); each bound in code to its setting, and a test holds the two to each other | section 5 | the file; `state::experimental::switch` |
+| Their words | names and lines English data, shown as data in every language (a line under the warning says so outside English); the frame, the warning, the states and the buttons are messages in both languages | open question 11 | `locales/README.md`, "Writing a screen's text" |
+| The day-one list | three switches, the stored hidden settings there are today: `rooms.rules_first` (`multiplayer_rules_first`), `rooms.watch_link` (`multiplayer_watch_link`), `share.uploader` (`sharing`) | open question 12, narrowed by the brief to settings stored today | the file |
+| Sharing's rows | in Data and privacy while sharing is on, now at Advanced alone: their switch is the screen's | section 3.3 | `options_levels::LEVELS`' `share.` |
+| Search | none: three entries need none; easy to add as a `Block::Field` when the list grows | section 5's search, judged against the list's length | `screens::experimental::doc` |
+| Groups | ROOMS and SHARING, the file's `group`, written as headings | section 5 | the file |
+| Reset all | asks once (Cancel first), as the game's other resets do | the coordinator, 2026-11-28 | `screens::experimental::confirm` |
+
+**The page** (`ddi_ui::screens::experimental`, a `PageScreen` both
+shells push): the warning first, in gold ("These switches are for
+testing the game. Nothing here is needed to play. They can break
+things, and they may change or go away without notice."); then each
+switch under its group: its name, its key, its line, its state ("Off,
+as by default."; in gold "On: changed from its default, Off."; on the
+web, where the page's address gave it otherwise than kept, in gold "On
+for this page alone, because its address says so. Kept in the
+settings: Off."), how the platform's flag or address sets it, and Turn
+on or Turn off with Reset (grayed at its default); then Reset all
+(grayed when nothing differs) and Forget this screen, with a line on
+what Forget does and how to open the page again. A change is kept at
+once. The player's own change to a switch the page's address gave lets
+the address's value go for that page (round HY's rule stands: an
+address never writes a stored setting; the person on the screen does).
+On desktop the screen opened from Options changes Options' own model
+(`options_shell::experimental_store`), so that Options, under it on the
+stack, neither shows nor saves the value from before.
+
+**Left a flag, and why.**
+
+- *The testing parameters and flags that are not settings* (`perf`,
+  `load`/`--load-ms`, `msdslow`, `touchlook`/`DDI_TOUCH_LOOK`, `lang`/
+  `--lang`, `mpcpus`/`--mp-dev-cpus`, `mpdevmines`/`--mp-dev-mines`,
+  `mpfakechat`/`--mp-dev-chat`, the fake rooms, `--pacing`,
+  `--in-flight`, `DDI_VIDEO_DECODER`, `DDI_VIDEO_PLANES`): each lasts a
+  run, a page or a tab and is stored nowhere; making one a stored
+  setting is a change of its own (section 5's table proposed several).
+- *`results_panels`*: stored, but nothing reads it since the panel
+  sets' tabs went; a switch that does nothing would mislead.
+- *Desktop's "This computer" (`--sources on|off`)*: stored apart from
+  the settings (`ddi.desktop.sources.v1`) and the song sources' own
+  code, which the Plugins round is changing; it could join the file
+  later.
+
+None of the three switches changes how a play is played, judged or
+kept, so none can make a kept play wrong; the file's `play` field makes
+the screen say so on an entry that would (a test refuses one today).
+
+**Tests.** `state::experimental::tests` (every entry bound with its
+default, an address's value counted and let go, the seen mark stored
+only when set), `screens::experimental::tests` (the page's states and
+buttons, a switch turned on and reset, an address's value as the
+page's, Forget; the screen by keys, Reset all asked with Cancel first),
+`options_levels::tests::experimental_settings_are_listed_once_seen_and_counted_at_basic`,
+the `qps-ploc` walk (the screen on both shells, its pages in each
+state, the questions), `route::tests::the_experimental_settings_have_their_address`,
+desktop's `experimental_offscreen` (both sizes, both languages, the
+row in Options, Open and Back). `options_rows_before.tsv` was written
+again for Sharing's four rows, Advanced now (no other line moved).

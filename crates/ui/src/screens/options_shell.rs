@@ -31,6 +31,9 @@ pub enum Leave {
     },
     /// The announcer studio (`docs/plans/announcer-studio.md`).
     Studio,
+    /// The experimental settings (`super::experimental`;
+    /// `docs/plans/ui-levels.md`, stage 4).
+    Experimental,
 }
 
 /// What the platform does for the options.
@@ -250,7 +253,7 @@ fn call_with(
     match act {
         Act::Done => return Some(model.borrow().data()),
         Act::Nothing => {}
-        Act::Calibrate | Act::Demo { .. } | Act::Studio => {
+        Act::Calibrate | Act::Demo { .. } | Act::Studio | Act::Experimental => {
             let volume = model.borrow().settings.volume;
             platform.sample(false, volume, cx);
             if model.borrow().world.sample != Sample::None {
@@ -260,6 +263,7 @@ fn call_with(
                 match act {
                     Act::Demo { gl } => Leave::Demo { gl },
                     Act::Studio => Leave::Studio,
+                    Act::Experimental => Leave::Experimental,
                     _ => Leave::Calibrate,
                 },
                 cx,
@@ -421,4 +425,26 @@ fn call_with(
         }
     }
     None
+}
+
+/// The experimental settings screen's store over Options' `model`, for a
+/// shell that opens the screen over Options (desktop's stack): a change
+/// made there is the model's, kept, and Options' rows put in `feed`
+/// (the screen broadcasts [`OPTIONS_CHANGED`] after it), so that Options
+/// shows it on the way back and its next change does not undo it.
+pub fn experimental_store(
+    model: Rc<RefCell<OptionsModel>>,
+    feed: OptionsFeed,
+) -> super::experimental::Store {
+    Rc::new(move |edit| {
+        let mut m = model.borrow_mut();
+        let before = m.settings.clone();
+        edit(&mut m.settings);
+        m.world.sharing = m.settings.sharing_on();
+        if m.settings != before && !m.transient {
+            m.settings.save();
+        }
+        *feed.borrow_mut() = Some(m.data());
+        m.settings.clone()
+    })
 }

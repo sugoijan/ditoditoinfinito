@@ -1570,6 +1570,7 @@ dependencies = [
  "ddi-room",
  "serde",
  "serde_json",
+ "toml",
  "unicode-segmentation",
 ]
 

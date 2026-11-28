@@ -1377,7 +1377,7 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
         .with_shell(calls, songs.feed.clone())
         .with_editing()
         // Share… while the hidden switch is on (`crate::share`).
-        .with_sharing_if(Settings::load().sharing)
+        .with_sharing_if(Settings::load().sharing_on())
         // Find songs… while a song source is on (`crate::sources`).
         .with_finding(songs.finding());
     with_plays(screen, songs)

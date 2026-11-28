@@ -191,7 +191,11 @@ impl App {
             // Drawn on the new device as they are (the section, the row,
             // a dialog open): their host follows the loss itself
             // (`ui_host::device_lost`).
-            Route::Options | Route::Credits | Route::Calibrate | Route::Studio => {
+            Route::Options
+            | Route::Credits
+            | Route::Calibrate
+            | Route::Studio
+            | Route::Experimental => {
                 self.route.to_hash()
             }
             // The preview takes new parameters as they come.
@@ -469,6 +473,13 @@ impl App {
                 "main",
                 page_routes::Props {
                     which: Which::Calibration,
+                },
+            )),
+            Route::Experimental => Box::new(mount::<PagePage>(
+                root,
+                "main",
+                page_routes::Props {
+                    which: Which::Experimental,
                 },
             )),
             // Options, our theme's screen on the canvas (step 6.3).

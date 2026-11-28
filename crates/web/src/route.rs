@@ -97,6 +97,10 @@ pub(crate) enum Route {
         bias_ms: i64,
     },
     Credits,
+    /// The experimental settings (`#/experimental`,
+    /// `ddi_ui::screens::experimental`; `docs/plans/ui-levels.md`, stage
+    /// 4): reached by its address, and from Options once opened.
+    Experimental,
     /// The announcer studio (`docs/plans/announcer-studio.md`).
     Studio,
     /// Multiplayer (`docs/plans/multiplayer-prototype-progress.md`),
@@ -290,6 +294,7 @@ impl Route {
                 bias_ms: parse_bias(&params),
             },
             "credits" => Route::Credits,
+            "experimental" => Route::Experimental,
             "announcer" => Route::Studio,
             "mp" => Route::Multiplayer,
             // `room/pick` was M2's song select choosing a stage's song;
@@ -419,6 +424,7 @@ impl Route {
                 format!("#/calibrate/run?mode={mode}{auto}{}", bias_param(*bias_ms))
             }
             Route::Credits => "#/credits".into(),
+            Route::Experimental => "#/experimental".into(),
             Route::Studio => "#/announcer".into(),
             Route::Multiplayer => "#/mp".into(),
             Route::Room => "#/room".into(),
@@ -568,7 +574,8 @@ pub(crate) fn fallback_parent(current: Route) -> Route {
         Route::Play(_) | Route::Edit { .. } => Destination::Play,
         // Options opens the studio: a direct launch goes back to Start
         // as from Options.
-        Route::Options | Route::Studio => Destination::Options,
+        // So does the experimental settings', listed in Options.
+        Route::Options | Route::Studio | Route::Experimental => Destination::Options,
         Route::Credits => Destination::Credits,
         _ => Destination::Calibration,
     };
@@ -593,6 +600,7 @@ pub(crate) fn has_bars(route: &Route) -> bool {
             | Route::Options
             | Route::Calibrate
             | Route::Credits
+            | Route::Experimental
             | Route::Studio
             | Route::Multiplayer
             | Route::Room
@@ -809,6 +817,19 @@ mod tests {
             );
             assert_eq!(Route::parse(&route.to_hash_with("")), route);
         }
+    }
+
+    /// The experimental settings' address (`docs/plans/ui-levels.md`,
+    /// stage 4): its own route, with the bars; opened directly, Back goes
+    /// to the start menu, as Options' does.
+    #[test]
+    fn the_experimental_settings_have_their_address() {
+        let route = Route::parse("#/experimental");
+        assert_eq!(route, Route::Experimental);
+        assert_eq!(route.to_hash_with(""), "#/experimental");
+        assert_eq!(Route::parse("#/experimental?mprules=1"), Route::Experimental);
+        assert!(has_bars(&route));
+        assert_eq!(fallback_parent(route), Route::Home);
     }
 
     #[test]

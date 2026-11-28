@@ -6,8 +6,9 @@
 //! heading over it may differ.
 //!
 //! The record (`options_rows_before.tsv`) was written by the code before
-//! the regrouping; write it again only on purpose, for a change that adds,
-//! removes or renames a row: `DDI_WRITE_OPTIONS_ROWS=<file> cargo test -p
+//! the regrouping (and again for stage 4, Sharing's rows moved to
+//! Advanced); write it again only on purpose, for a change that adds,
+//! removes or renames a row or changes its level: `DDI_WRITE_OPTIONS_ROWS=<file> cargo test -p
 //! ddi-ui --lib options_rows_tests`.
 
 use std::collections::BTreeSet;
