@@ -527,6 +527,14 @@ pub struct Writes {
     written: Option<Saved>,
     /// When the newest state is to be written.
     due: Option<f64>,
+    /// Fullscreen is still wanted on this display (none: the window's
+    /// own) though the window is not: a restore under way or given up
+    /// ([`restore`]). What is kept says fullscreen until it is
+    /// [`Writes::released`], so a restore the system refused is tried
+    /// again at the next start rather than forgotten at the next quit.
+    wanted: Option<Option<DisplayKey>>,
+    /// The window as last seen, learned again when `wanted` goes.
+    seen: Option<Observed>,
 }
 
 impl Writes {
@@ -539,6 +547,29 @@ impl Writes {
             current: Some(made),
             written: read,
             due: None,
+            wanted: None,
+            seen: None,
+        }
+    }
+
+    /// Fullscreen on `on` is wanted until [`Writes::released`], whatever
+    /// the window says meanwhile.
+    pub fn want_fullscreen(&mut self, on: Option<DisplayKey>) {
+        self.wanted = Some(on);
+    }
+
+    /// Whether fullscreen is still kept as wanted.
+    pub fn wants_fullscreen(&self) -> bool {
+        self.wanted.is_some()
+    }
+
+    /// Fullscreen is no longer wanted for the window (it took, or the
+    /// player chose otherwise): what the window last said is kept.
+    pub fn released(&mut self, now: f64) {
+        if self.wanted.take().is_some()
+            && let Some(seen) = self.seen.clone()
+        {
+            self.observe(&seen, now);
         }
     }
 
@@ -549,7 +580,13 @@ impl Writes {
 
     /// The window was seen at `now` as `seen`: what it learns of it.
     pub fn observe(&mut self, seen: &Observed, now: f64) {
-        let next = Saved::observe(self.current.as_ref(), seen);
+        self.seen = Some(seen.clone());
+        let mut next = Saved::observe(self.current.as_ref(), seen);
+        if let (Some(on), Some(next)) = (&self.wanted, &mut next) {
+            next.fullscreen = true;
+            next.maximized = false;
+            next.fullscreen_on = on.clone();
+        }
         if next == self.current {
             return;
         }
@@ -604,6 +641,8 @@ pub fn is_fullscreen_key(code: &str, key: &str, m: ddi_ui::event::Modifiers, mac
         code == "F11" && !m.ctrl && !m.meta && !m.alt && !m.shift
     }
 }
+
+pub mod restore;
 
 #[cfg(test)]
 mod tests;

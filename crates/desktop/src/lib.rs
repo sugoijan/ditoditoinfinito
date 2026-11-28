@@ -64,6 +64,7 @@ pub mod studio;
 #[cfg(feature = "video")]
 pub mod video;
 pub mod window_state;
+pub mod window_os;
 
 /// `--video-check FILE [--reference REF.yuv] [--frames]
 /// [--decoder auto|software|videotoolbox|mediafoundation|mediafoundation-auto|both]`: the exit code.

@@ -43,7 +43,7 @@ use winit::window::{CursorIcon, Window, WindowId};
 use crate::gpu::{self, Gpu};
 use crate::pacing::{self, Next, Pacer};
 use crate::preview::{Player, SharedPlayer};
-use crate::window_state;
+use crate::{window_os, window_state};
 use std::cell::RefCell;
 
 thread_local! {
@@ -304,6 +304,14 @@ pub struct Shell {
     pub window_memory: bool,
     /// What is learned of the window and when it is written.
     window_writes: Option<window_state::Writes>,
+    /// A window left fullscreen being put back into it, and on which
+    /// display (`window_state::restore`).
+    restore: Option<window_state::restore::Restore>,
+    restore_on: Option<winit::monitor::MonitorHandle>,
+    /// The window has the keyboard's focus (winit's `Focused`).
+    has_focus: bool,
+    /// The restore's signals last logged (`DDI_WINDOW_LOG`).
+    restore_logged: Option<window_state::restore::Signals>,
 }
 
 impl Shell {
@@ -454,6 +462,10 @@ impl Shell {
             pacing_report: None,
             window_memory: false,
             window_writes: None,
+            restore: None,
+            restore_on: None,
+            has_focus: false,
+            restore_logged: None,
             sound,
             input,
             songs,
@@ -516,10 +528,51 @@ impl Shell {
                     eprintln!("{line}: the window opens on the main display");
                 }
             }
-            self.window_writes = Some(window_state::Writes::new(
-                read.and_then(Result::ok),
-                window_state::Saved::made(&placement, &displays),
-            ));
+            let made = window_state::Saved::made(&placement, &displays);
+            let mut writes =
+                window_state::Writes::new(read.clone().and_then(Result::ok), made.clone());
+            if made.fullscreen {
+                // Kept as wanted until it takes or the player chooses
+                // otherwise: a restore refused is tried again next time.
+                writes.want_fullscreen(made.fullscreen_on.clone());
+                self.restore = Some(window_state::restore::Restore::new(crate::clock::now().0));
+                self.restore_on = placement
+                    .fullscreen
+                    .flatten()
+                    .and_then(|i| monitors.get(i).cloned());
+            }
+            self.window_writes = Some(writes);
+            window_log(|| {
+                let shown: Vec<String> = displays
+                    .iter()
+                    .enumerate()
+                    .map(|(i, d)| {
+                        format!(
+                            "{i}{}: {:?} at {:?} {:?} ×{}",
+                            if Some(i) == primary { " (primary)" } else { "" },
+                            d.name.as_deref().unwrap_or("?"),
+                            d.position,
+                            d.size,
+                            d.scale
+                        )
+                    })
+                    .collect();
+                format!(
+                    "displays [{}]; saved {}; made {:?} at {:?} ({:?}), maximized {}, fullscreen {:?} ({:?})",
+                    shown.join("; "),
+                    match &read {
+                        None => "nothing".to_string(),
+                        Some(Ok(s)) => format!("{s:?}"),
+                        Some(Err(e)) => format!("unreadable ({e})"),
+                    },
+                    placement.size,
+                    placement.at,
+                    placement.reason,
+                    placement.maximized,
+                    placement.fullscreen,
+                    placement.fullscreen_reason,
+                )
+            });
         }
         let fullscreen = placement.fullscreen.map(|on| {
             winit::window::Fullscreen::Borderless(on.and_then(|i| monitors.get(i).cloned()))
@@ -546,9 +599,11 @@ impl Shell {
             // macOS goes back to the frame a window had when it went
             // fullscreen, and winit makes a window fullscreen from the start
             // at its display's frame: so there the window is made at its
-            // own frame and goes fullscreen as soon as it is up (the
-            // system's animation, as the green button's). Elsewhere winit
-            // keeps the frame it was made with for leaving fullscreen.
+            // own frame and asked for fullscreen once it has settled
+            // (`window_state::restore`: a request made during a Space
+            // switch is refused). Elsewhere winit keeps the frame it was
+            // made with for leaving fullscreen, and the restore finds it
+            // fullscreen at once.
             if !cfg!(target_os = "macos") {
                 attributes = attributes.with_fullscreen(fullscreen.clone());
             }
@@ -576,9 +631,17 @@ impl Shell {
         let window = event_loop
             .create_window(attributes)
             .map_err(|e| e.to_string())?;
-        if cfg!(target_os = "macos") && self.window_memory && fullscreen.is_some() {
-            window.set_fullscreen(fullscreen);
-        }
+        window_log(|| {
+            format!(
+                "created: inner {:?}, outer {:?}, scale {}, visible {:?}, focused {}, {}",
+                window.inner_size(),
+                window.outer_position().ok(),
+                window.scale_factor(),
+                window.is_visible(),
+                window.has_focus(),
+                window_said(&window)
+            )
+        });
         #[cfg(all(target_os = "macos", ddi_icon_dev))]
         dev_dock_icon();
         let window = Arc::new(window);
@@ -740,7 +803,10 @@ impl Shell {
         // Another size, or fullscreen entered or left: late pacing tries
         // again where it had fallen back (`crate::pacing`).
         let surface = (s.config.width, s.config.height);
-        let fullscreen = s.window.fullscreen().is_some();
+        // The window's own state (`window_os`: winit's can say
+        // fullscreen of a window a refused request left windowed).
+        let fullscreen = window_os::is_fullscreen(&s.window);
+        window_log(|| format!("resized: inner {size:?}, {}", window_said(&s.window)));
         self.pacer.set_surface(surface, fullscreen);
         self.note_window();
         let logical = size.to_logical::<f32>(self.scale);
@@ -771,9 +837,91 @@ impl Shell {
             display: w.current_monitor().as_ref().map(display_of),
             maximized: w.is_maximized(),
             minimized: w.is_minimized().unwrap_or(false),
-            fullscreen: w.fullscreen().is_some(),
+            fullscreen: window_os::is_fullscreen(&w),
         };
-        writes.observe(&seen, crate::clock::now().0);
+        let now = crate::clock::now().0;
+        let before = writes.current().map(|k| k.frame.clone());
+        writes.observe(&seen, now);
+        let after = writes.current().map(|k| k.frame.clone());
+        // The normal frame changed (the window windowed, the frame
+        // learned again): the player's, unless the restore takes it for
+        // the system's.
+        if before != after && !window_os::is_fullscreen(&w) && self.restore.is_some() {
+            let signals = self.signals_of(&w);
+            if let Some(r) = &mut self.restore {
+                let act = r.frame_changed(&signals, now);
+                window_log(|| format!("the frame changed: {act:?}"));
+                self.restore_did(act, &w);
+            }
+        }
+    }
+
+    /// What the restore reads of the window this turn.
+    fn signals_of(&self, w: &Window) -> window_state::restore::Signals {
+        window_state::restore::Signals {
+            focused: self.has_focus,
+            visible: !self.occluded && w.is_visible().unwrap_or(true),
+            on_space: window_os::on_active_space(w),
+            fullscreen: window_os::is_fullscreen(w),
+            playing: self.play.playing(),
+        }
+    }
+
+    /// The restore's turn (`window_state::restore`): a request made,
+    /// confirmed, given up; when it wants the loop again.
+    fn drive_restore(&mut self) -> Option<Instant> {
+        let w = self.window().map(|s| s.window.clone())?;
+        let signals = self.signals_of(&w);
+        let now = crate::clock::now().0;
+        let r = self.restore.as_mut()?;
+        let act = r.see(&signals, now);
+        let wake = r.wake(now);
+        if act == window_state::restore::Act::Nothing {
+            // What it waits on, each time that changes.
+            if self.restore_logged != Some(signals) {
+                self.restore_logged = Some(signals);
+                window_log(|| format!("restore waits ({signals:?}): {}", window_said(&w)));
+            }
+        } else {
+            window_log(|| format!("restore {act:?} ({signals:?})"));
+            self.restore_did(act, &w);
+        }
+        if self.restore.as_ref().is_some_and(|r| !r.active()) {
+            self.restore = None;
+        }
+        let at = wake?;
+        crate::clock::epoch().checked_add(std::time::Duration::try_from_secs_f64(at).ok()?)
+    }
+
+    /// What the restore decided, done.
+    fn restore_did(&mut self, act: window_state::restore::Act, w: &Window) {
+        use window_state::restore::{Act, Why};
+        let now = crate::clock::now().0;
+        match act {
+            Act::Nothing => {}
+            Act::Ask { tries } => {
+                let how = window_os::enter_fullscreen(w, self.restore_on.clone());
+                window_log(|| {
+                    format!(
+                        "asked for fullscreen (try {tries}, {how:?}): {}",
+                        window_said(w)
+                    )
+                });
+            }
+            Act::Took { .. } => {
+                if let Some(writes) = &mut self.window_writes {
+                    writes.released(now);
+                }
+            }
+            Act::Stopped(Why::Toggled | Why::Frame) => {
+                window_log(|| format!("restore stopped by the player ({act:?})"));
+                if let Some(writes) = &mut self.window_writes {
+                    writes.released(now);
+                }
+            }
+            // Fullscreen still what was left: kept as wanted.
+            Act::GaveUp { .. } | Act::Stopped(Why::Play) => {}
+        }
     }
 
     /// The window's state written where it is due, or, `last`, whatever
@@ -782,14 +930,17 @@ impl Shell {
         let writes = self.window_writes.as_mut()?;
         let now = crate::clock::now().0;
         let due = if last { writes.last() } else { writes.due(now) };
-        if let Some(state) = due
-            && let Err(e) = ddi_platform::storage::save(
+        if let Some(state) = &due {
+            window_log(|| format!("saved{}: {state:?}", if last { " at quit" } else { "" }));
+            if let Err(e) = ddi_platform::storage::save(
                 ddi_platform::storage::Area::Local,
                 window_state::KEY,
-                &state,
-            )
-        {
-            eprintln!("the window's state was not saved: {e}");
+                state,
+            ) {
+                eprintln!("the window's state was not saved: {e}");
+            }
+        } else if last {
+            window_log(|| format!("nothing new to save at quit: {:?}", writes.current()));
         }
         let at = writes.wake()?;
         crate::clock::epoch().checked_add(std::time::Duration::try_from_secs_f64(at).ok()?)
@@ -799,12 +950,21 @@ impl Shell {
     /// the window into or out of fullscreen (borderless, on the display it
     /// is on), as the system's own ways do.
     fn toggle_fullscreen(&mut self) {
-        if let Some(s) = self.window() {
-            let to = match s.window.fullscreen() {
-                Some(_) => None,
-                None => Some(winit::window::Fullscreen::Borderless(None)),
-            };
-            s.window.set_fullscreen(to);
+        let Some(w) = self.window().map(|s| s.window.clone()) else {
+            return;
+        };
+        // The player's choice from now: a restore under way ends.
+        if let Some(r) = &mut self.restore {
+            let act = r.toggled();
+            self.restore_did(act, &w);
+            self.restore = None;
+        }
+        if window_os::is_fullscreen(&w) {
+            w.set_fullscreen(None);
+            window_log(|| format!("the key: leave fullscreen: {}", window_said(&w)));
+        } else {
+            let how = window_os::enter_fullscreen(&w, None);
+            window_log(|| format!("the key: fullscreen ({how:?}): {}", window_said(&w)));
         }
     }
 
@@ -1816,13 +1976,21 @@ impl ApplicationHandler for Shell {
                 }
             }
             WindowEvent::Resized(_) => self.resized(),
-            WindowEvent::Moved(_) => self.note_window(),
+            WindowEvent::Moved(p) => {
+                window_log(|| format!("moved: outer {p:?}"));
+                self.note_window();
+            }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale = scale_factor;
                 self.resized();
             }
-            WindowEvent::Focused(f) => self.focused(f),
+            WindowEvent::Focused(f) => {
+                window_log(|| format!("focused {f}"));
+                self.has_focus = f;
+                self.focused(f);
+            }
             WindowEvent::Occluded(o) => {
+                window_log(|| format!("occluded {o}"));
                 // A play stops when its window stays hidden, as the web's
                 // does with its page (its frames stop); a moment hidden
                 // (a fullscreen Space's transition) does not stop it.
@@ -2099,10 +2267,12 @@ impl ApplicationHandler for Shell {
         let leaving_at = crate::online::drive_leaving()
             .then(|| Instant::now() + std::time::Duration::from_millis(100));
         let window_at = self.write_window(false);
+        let restore_at = self.drive_restore();
         if let Some(at) = wake
             .into_iter()
             .chain(watch_at)
             .chain(window_at)
+            .chain(restore_at)
             .chain(sound_at)
             .chain(rework_at)
             .chain(leaving_at)
@@ -2353,6 +2523,30 @@ fn screen_height(window: &Window) {
     if let Some(m) = window.current_monitor() {
         crate::play::skins::set_screen_height(m.size().height);
     }
+}
+
+/// `DDI_WINDOW_LOG=1`: what the window was told and what it said, on
+/// stderr with the host clock's seconds (for runs by hand: nobody sees a
+/// window in the tests). Nothing otherwise.
+fn window_log(line: impl FnOnce() -> String) {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *ON.get_or_init(|| std::env::var("DDI_WINDOW_LOG").is_ok_and(|v| v == "1")) {
+        eprintln!("[window {:9.3}] {}", crate::clock::now().0, line());
+    }
+}
+
+/// What the window says of its fullscreen, its Space and its frame.
+fn window_said(w: &Window) -> String {
+    format!(
+        "fullscreen {} (winit {:?}), on the active Space {}, maximized {}, minimized {:?}, inner {:?}, outer {:?}",
+        window_os::is_fullscreen(w),
+        w.fullscreen().is_some(),
+        window_os::on_active_space(w),
+        w.is_maximized(),
+        w.is_minimized(),
+        w.inner_size(),
+        w.outer_position().ok(),
+    )
 }
 
 /// A display as `crate::window_state` reads it.

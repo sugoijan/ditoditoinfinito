@@ -1291,7 +1291,11 @@ Rust and the browser are implementation details, not advertised features.
   `ddi.desktop.window.v1`, checked against the displays present at start,
   a new window on the primary display where it would be unusable; never
   for a `--seconds` run; fullscreen borderless on every system, ⌃⌘F on
-  macOS and F11 elsewhere in the menus; "The window as it was left");
+  macOS and F11 elsewhere in the menus; fullscreen put back once the
+  window has settled, confirmed by the window's own state and asked
+  again a few times, `window_state/restore.rs`, `window_os.rs`;
+  `DDI_WINDOW_LOG=1` says what the window was told and said; "The
+  window as it was left");
   sound through cpal with
   our own mixer (the announcer on a bus of its own after the master,
   which the fail's and a work's fades leave alone), the clock from CoreAudio's host time and latencies

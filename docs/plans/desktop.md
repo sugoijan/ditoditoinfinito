@@ -1324,17 +1324,78 @@ tested as plain data; the shell's part in `shell.rs`'s `open`,
 - **Made fullscreen.** Windows and Linux: winit's `with_fullscreen` at
   creation, which keeps the frame the window is made with for leaving it
   (Windows saves its placement; the window manager does on X11 and
-  Wayland). macOS: the window is made at its normal frame and goes
-  fullscreen as soon as it is up (macOS's own animation, as the green
-  button's): winit's fullscreen at creation makes the window at the
-  display's frame, and leaving fullscreen would then keep a window the
-  size of the display. Making it hidden first was considered and
+  Wayland). macOS: the window is made at its normal frame and asked for
+  fullscreen once it has settled (below; macOS's own animation, as the
+  green button's): winit's fullscreen at creation makes the window at
+  the display's frame, and leaving fullscreen would then keep a window
+  the size of the display. Making it hidden first was considered and
   left: winit's `set_fullscreen` unwraps the window's `screen`, which a
   window not yet shown may not have.
-- **Pacing** is unchanged: the shell's resize hands the surface's size and
-  `Window::fullscreen` to `Pacer::set_surface` as before, so a window that
-  opens fullscreen is a fullscreen surface from its first frame there,
-  and its transition's first 2 s count toward no fallback, as any.
+- **Restoring fullscreen (round WN2, 2026-11-28;
+  `window_state::restore`, pure; `window_os.rs`).** The maintainer's run:
+  launched from a terminal while every display showed another app's
+  fullscreen Space, the window appeared on a desktop Space, macOS
+  switched a display to it, and the request for fullscreen made at once
+  was refused with the system's error sound and never made again: the
+  game stayed windowed. What winit 0.30.13 does there (its macOS
+  `window_delegate.rs`): `set_fullscreen` replaces its own notion of
+  fullscreen first, then calls `toggleFullScreen:`. AppKit refuses a
+  toggle during a Space's transition ("all toggleFullscreen events will
+  be failed", winit's own note); where it says so
+  (`windowDidFailToEnterFullScreen:`) winit puts its notion back to
+  windowed, and asks again by itself (every 0.5 s, by
+  `performSelector:afterDelay:`) only for a window made fullscreen
+  (`with_fullscreen`, `initial_fullscreen`), which this one is not. Where
+  AppKit refuses without starting a transition, nothing tells winit:
+  `Window::fullscreen` then says fullscreen of a window that is not, and
+  `set_fullscreen` with the same is nothing (`fullscreen ==
+  old_fullscreen` returns). So:
+  - what the window is comes from the system (`window_os::is_fullscreen`:
+    the `NSWindow`'s style mask on macOS, winit's state elsewhere), for
+    the restore, what is kept and the pacer's surface;
+  - the request waits until the window has settled: it has the focus
+    (`Focused`), is not occluded (`Occluded`) and visible, is on the
+    active Space (`NSWindow.isOnActiveSpace`, read each turn), and none
+    of those changed for 0.3 s (`QUIET`), its signals read every 0.25 s
+    (`POLL`) while it waits, as a switch may end with no event; a window
+    that never settles is asked anyway 5 s after it was made
+    (`SETTLE_LIMIT`);
+  - it is confirmed by the window's own state; not taken, it is made
+    again once the window has settled again (never into the window's
+    own transition), 0.4, 0.8, 1.6 and 3 s after each request (`WAITS`:
+    four requests over about six seconds), then given up, quietly; made
+    again through winit where winit agrees the window is windowed, else
+    by AppKit's own `toggleFullScreen:` (`window_os::enter_fullscreen`),
+    which winit's delegate follows (`windowWillEnterFullScreen:` keeps
+    or sets its notion), so the two never stay out of step;
+  - it stops at once where the window is fullscreen (whoever did it),
+    where the player presses the fullscreen key, resizes or moves the
+    window (a change of its normal frame once it had settled and over
+    1.5 s after a request, `TRANSITION`: earlier ones are the system's),
+    and where a play starts (no request over a play);
+  - **what is kept**: fullscreen stays what was left while the restore
+    runs and after it gave up or a play stopped it
+    (`Writes::want_fullscreen`), so a refused restore is tried again at
+    the next start rather than overwritten with "windowed" at the next
+    quit (which would hide the failure for good); only the player's own
+    choice (the key, a resize or move of theirs) or fullscreen taking
+    releases it (`Writes::released`), after which the window is kept as
+    it is.
+  The same machine runs elsewhere and finds the window fullscreen at its
+  first turn (winit made it so). Tested as plain data on given times
+  (`window_state/restore/tests.rs`); the window itself by hand only.
+- **`DDI_WINDOW_LOG=1`** prints to stderr, with the host clock's seconds,
+  what the window was told and what it said: the displays, what was read
+  and how the window is made, its creation, each focus, occlusion,
+  resize and move, what the restore waits on each time that changes,
+  each request (and how: winit or AppKit's toggle) and what the window
+  said right after, its success, give-up or stop, and each state saved
+  (at quit too). Off by default, nothing printed otherwise.
+- **Pacing** is unchanged but for the window's own state: the shell's
+  resize hands the surface's size and `window_os::is_fullscreen` to
+  `Pacer::set_surface`, so a window going fullscreen is a fullscreen
+  surface once it is, and its transition's first 2 s count toward no
+  fallback, as any.
 - **Wayland** tells no window's place: the size alone is kept and given
   back, the compositor placing the window.
 

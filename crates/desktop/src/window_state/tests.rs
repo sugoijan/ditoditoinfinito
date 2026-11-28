@@ -615,3 +615,28 @@ fn timed_runs_neither_read_nor_write_it() {
         assert_eq!(super::remembers(crate::args::Args(&w)), remembers, "{line}");
     }
 }
+
+#[test]
+fn fullscreen_wanted_is_kept_until_the_player_chooses() {
+    let d = built_in();
+    let mut left = saved_on(&d, [1000.0, 600.0], [100.0, 50.0]);
+    left.fullscreen = true;
+    left.fullscreen_on = Some(d.key());
+    let displays = std::slice::from_ref(&d);
+    let p = place(Some(&left), displays, Some(0), Coordinates::Points);
+    let mut w = Writes::new(Some(left.clone()), Saved::made(&p, displays));
+    w.want_fullscreen(left.fullscreen_on.clone());
+    // The restore refused: the window stays windowed at its frame, and a
+    // quit then keeps fullscreen, to be tried again at the next start.
+    w.observe(&seen_on(&d, [1000.0, 600.0], [100.0, 50.0]), 1.0);
+    assert_eq!(w.wake(), None);
+    assert_eq!(w.last(), None);
+    assert!(w.wants_fullscreen());
+    // The player moves it themselves (or presses the key): their choice
+    // is kept from then.
+    w.observe(&seen_on(&d, [1000.0, 600.0], [300.0, 50.0]), 2.0);
+    assert!(w.current().unwrap().fullscreen);
+    w.released(2.5);
+    assert!(!w.wants_fullscreen());
+    assert_eq!(w.last(), Some(saved_on(&d, [1000.0, 600.0], [300.0, 50.0])));
+}

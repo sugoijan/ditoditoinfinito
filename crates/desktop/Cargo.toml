@@ -116,9 +116,10 @@ ddi-icon = { workspace = true, features = ["raster"] }
 objc2-core-audio = { version = "0.3.2", default-features = false, features = ["std", "AudioHardware"] }
 # Keys' own times (`src/keyboard.rs`): an `NSEvent` local monitor; the
 # pointer hidden until the mouse moves (`NSCursor`, `src/shell.rs`); ⌘Q
-# and the quit Apple Event routed to the shell's quit (`src/quit.rs`).
+# and the quit Apple Event routed to the shell's quit (`src/quit.rs`);
+# the window's own fullscreen and Space (`src/window_os.rs`).
 objc2 = "0.6.5"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSImage", "NSCursor", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSView", "block2", "objc2-quartz-core"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSImage", "NSCursor", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSView", "NSWindow", "block2", "objc2-quartz-core"] }
 block2 = "0.6.2"
 # The display's refreshes for the pacing (`src/display_link.rs`): the
 # window's view's `CADisplayLink` (macOS 14), on the main run loop.
