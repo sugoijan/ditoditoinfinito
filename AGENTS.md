@@ -2456,7 +2456,11 @@ Rust and the browser are implementation details, not advertised features.
   never builds it) prepares the pinned worker/helper
   and complete notices through `crates/desktop/build.rs`, stages an immutable bundle
   beside the app, and compiles only its content ID/digest into desktop. The SDK
-  is not linked into the app. `tools/package/package.py` copies a complete relocatable
+  is not linked into the app. Its build cache
+  (`~/.cache/ditoditoinfinito/danoni-importer`) keeps itself small: every
+  prepare prunes it to the four bundles used most recently and under
+  24 GiB in all (`build.py prune` by hand; `DDI_IMPORTER_CACHE_CAP_GB`).
+  `tools/package/package.py` copies a complete relocatable
   distribution; see `docs/plans/danoni-importer.md`. Python/Java are build-time
   prerequisites only. No helper preparation runs for wasm or Windows builds or
   with `--no-default-features`. `DDI_IMPORTER_TEST_ONLY=1` skips preparation

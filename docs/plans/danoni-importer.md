@@ -93,7 +93,19 @@ target directory and the worker's separate target directory avoid the parent app
 target lock and jobserver; the child build never selects desktop. Root release
 settings still apply to the game. The root lock participates in the build-cache
 fingerprint and the SDK's compiled runtime identity. The default cache is
-`~/.cache/ditoditoinfinito/danoni-importer`.
+`~/.cache/ditoditoinfinito/danoni-importer`. It keeps itself small
+(`build.py`'s `prune`, run by every prepare under the cache's lock, and by
+hand with `python3 tools/danoni-importer/build.py prune`): the four bundles
+whose receipts were used most recently stay, with their receipts (nearly
+every commit makes a new bundle of about 300 MB, since the fingerprint
+covers the lock and the crates the helper is built from; 181 of them were
+53 GB on 2026-11-28); a killed run's `prepare-*` folder and earlier
+builders' outputs go; above 24 GiB in all (`DDI_IMPORTER_CACHE_CAP_GB`)
+Cargo's own outputs go, `importer-target` then `worker-target`, built again
+when next needed. A receipt whose bundle is gone or no longer verifies is
+no receipt: the bundle is prepared again. Beside a build's executables the
+staged copy just made and the one before it stay. The app runs from its
+staged copy, never from the cache, so pruning costs only a later prepare.
 `DDI_IMPORTER_BUILD_CACHE`, `DDI_IMPORTER_UPSTREAM`, `DDI_IMPORTER_WORKER_SOURCES`
 and `DDI_IMPORTER_WORKER_BUNDLE` are optional **build-time** cache overrides.
 They are not consulted by a running app. Sources/bundles are verified against

@@ -23,6 +23,25 @@ REVISION = '89a7049965f3090e706265670df309a5128233ac'
 REPOSITORY = 'https://github.com/ruffle-rs/ruffle.git'
 MAX_FILE = 256 * 1024 * 1024
 MAX_TOTAL = 512 * 1024 * 1024
+# The build cache keeps itself small: every build that uses it prunes it
+# (`prune`). Nearly every commit makes a new bundle of about 300 MB (the
+# fingerprint covers the lock and the crates the helper is built from), and
+# nothing took the old ones away: 181 of them were 53 GB on 2026-11-28.
+# A bundle is kept while one of the receipts used most recently names it;
+# the app runs from the copy staged beside it, never from the cache, so a
+# pruned bundle costs only preparing it again.
+KEEP_BUNDLES = 4
+# Staged copies beside one build's executables: the one just staged and the
+# one before it (a branch switched back to).
+KEEP_STAGED = 2
+# The whole cache's cap, in GiB (`DDI_IMPORTER_CACHE_CAP_GB` to change it):
+# above it Cargo's own outputs go, in this order, and are built again when
+# next needed (the worker's is the slow one, and its packaged result is
+# kept in `workers/`).
+CACHE_CAP_GB = 24
+REBUILT = ('importer-target', 'worker-target')
+# Earlier builders' outputs, which nothing reads any more.
+LEGACY = ('sdk-target', 'helper-target')
 
 
 def run(command, env, capture=False, cwd=ROOT):
@@ -97,6 +116,82 @@ def verify(bundle):
     if not notices.get('redistributionApproved') or notices.get('packagesWithoutCollectedText'):
         raise ValueError('Runtime distribution notices are incomplete')
     return manifest, sha(raw)
+
+
+def bundle_name(name):
+    return isinstance(name, str) and len(name) == 64 and all(c in '0123456789abcdef' for c in name)
+
+
+def tree_bytes(path):
+    total = 0
+    for folder, _, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(folder, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def prune(cache, keep=None):
+    """Keeps the build cache small. Called with the cache's lock held, so no
+    other build is preparing: every `prepare-*` folder is a killed run's."""
+    for stale in cache.glob('prepare-*'):
+        shutil.rmtree(stale, ignore_errors=True)
+    for name in LEGACY:
+        shutil.rmtree(cache / name, ignore_errors=True)
+    bundles = cache / 'bundles'
+    receipts = []
+    for receipt in (cache / 'builds').glob('*/ready.json'):
+        try:
+            name = json.loads(receipt.read_bytes())['id']
+            used = receipt.stat().st_mtime
+        except (OSError, ValueError, KeyError, TypeError):
+            name = None
+        if not bundle_name(name) or not (bundles / name).is_dir():
+            shutil.rmtree(receipt.parent, ignore_errors=True)
+            continue
+        receipts.append((used, name, receipt.parent))
+    receipts.sort(key=lambda row: row[0], reverse=True)
+    kept = [keep] if bundle_name(keep) else []
+    for _, name, _ in receipts:
+        if len(kept) >= KEEP_BUNDLES:
+            break
+        if name not in kept:
+            kept.append(name)
+    for _, name, key_dir in receipts:
+        if name not in kept:
+            shutil.rmtree(key_dir, ignore_errors=True)
+    if bundles.is_dir():
+        for bundle in bundles.iterdir():
+            if bundle.name not in kept:
+                if bundle.is_dir() and not bundle.is_symlink():
+                    shutil.rmtree(bundle, ignore_errors=True)
+                else:
+                    bundle.unlink(missing_ok=True)
+    cap = float(os.environ.get('DDI_IMPORTER_CACHE_CAP_GB', CACHE_CAP_GB)) * 1024 ** 3
+    for name in REBUILT:
+        if tree_bytes(cache) <= cap:
+            break
+        shutil.rmtree(cache / name, ignore_errors=True)
+    return kept
+
+
+def prune_staged(parent, keep):
+    """The staged copies beside a build's executables: the one just staged
+    and the newest before it; a killed staging's folder goes too."""
+    for stale in parent.glob('.stage-*'):
+        shutil.rmtree(stale, ignore_errors=True)
+    others = [p for p in parent.iterdir() if p.name != keep and bundle_name(p.name) and p.is_dir() and not p.is_symlink()]
+    others.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    for stale in others[max(KEEP_STAGED - 1, 0):]:
+        shutil.rmtree(stale, ignore_errors=True)
+
+
+def cache_dir():
+    cache = external(Path(os.environ.get('DDI_IMPORTER_BUILD_CACHE', Path.home() / '.cache/ditoditoinfinito/danoni-importer')))
+    cache.mkdir(parents=True, exist_ok=True)
+    return cache
 
 
 def external(path):
@@ -220,18 +315,26 @@ def prepare(target, stage):
     host = subprocess.check_output(['rustc', '-vV'], text=True).split('host: ')[1].splitlines()[0]
     if target != host or not ('apple-darwin' in target or target == 'x86_64-unknown-linux-gnu'):
         raise ValueError('Prepare on a supported native macOS or x86_64 Linux host')
-    cache = external(Path(os.environ.get('DDI_IMPORTER_BUILD_CACHE', Path.home() / '.cache/ditoditoinfinito/danoni-importer')))
-    cache.mkdir(parents=True, exist_ok=True)
+    cache = cache_dir()
     with (cache / 'build.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         key = fingerprint(target)
         key_dir = cache / 'builds' / key
         receipt = key_dir / 'ready.json'
+        bundle = None
         if receipt.exists():
-            content = json.loads(receipt.read_bytes())
-            bundle = cache / 'bundles' / content['id']
-            manifest, digest = verify(bundle)
-        else:
+            # A receipt whose bundle was pruned, or does not verify any
+            # more, is no receipt: the bundle is prepared again.
+            try:
+                name = json.loads(receipt.read_bytes())['id']
+                if not bundle_name(name):
+                    raise ValueError('Invalid bundle identity')
+                manifest, digest = verify(cache / 'bundles' / name)
+                bundle = cache / 'bundles' / name
+                os.utime(receipt)
+            except (OSError, ValueError, KeyError, TypeError):
+                bundle = None
+        if bundle is None:
             env = cargo_env(cache)
             cli_manifest = ROOT / 'tools/danoni-dump/rust/Cargo.toml'
             helper_manifest = ROOT / 'tools/danoni-importer/Cargo.toml'
@@ -308,6 +411,9 @@ def prepare(target, stage):
         staged, staged_hash = verify(destination)
         if staged != manifest or staged_hash != digest:
             raise ValueError('Staged importer differs from the compiled binding')
+        os.utime(destination)
+        prune_staged(destination.parent, manifest['id'])
+        prune(cache, manifest['id'])
         print(manifest['id'])
         print(digest)
 
@@ -329,9 +435,18 @@ def main():
     p = sub.add_parser('package')
     p.add_argument('--app', required=True, type=Path)
     p.add_argument('--output', required=True, type=Path)
+    sub.add_parser('prune', help='keep the build cache small now, as every prepare does')
     args = parser.parse_args()
     if args.command == 'prepare':
         prepare(args.target, args.stage)
+    elif args.command == 'prune':
+        cache = cache_dir()
+        with (cache / 'build.lock').open('w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            before = tree_bytes(cache)
+            kept = prune(cache)
+            after = tree_bytes(cache)
+        print(f'{cache}: {before / 1024 ** 3:.1f} GiB before, {after / 1024 ** 3:.1f} GiB now, {len(kept)} bundles kept')
     else:
         package(args.app, args.output.resolve())
 
