@@ -63,6 +63,7 @@ pub mod store;
 pub mod studio;
 #[cfg(feature = "video")]
 pub mod video;
+pub mod window_state;
 
 /// `--video-check FILE [--reference REF.yuv] [--frames]
 /// [--decoder auto|software|videotoolbox|mediafoundation|mediafoundation-auto|both]`: the exit code.
@@ -697,6 +698,8 @@ pub fn run() {
     if a.has("--seconds") {
         shell.quit_after = a.parsed("--seconds");
     }
+    // The window as it was left, but for a timed run (`window_state`).
+    shell.window_memory = window_state::remembers(a);
     // A timed run samples the audio clock every millisecond.
     let probe = shell.quit_after.and_then(|_| {
         let probe = shell.sound.borrow().audio.probe()?;

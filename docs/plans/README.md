@@ -737,7 +737,11 @@ so.
   folder (2026-11-12): the app takes an OS file lock on its configuration
   folder and a second one does not start; the command-line utilities
   take none and write no settings; left: the dialog seen by a person,
-  Windows and Linux run.
+  Windows and Linux run. The window as it was left (2026-11-28): size,
+  place, maximized and fullscreen kept and checked against the displays
+  at start; fullscreen borderless everywhere, no exclusive choice
+  offered; left: the maintainer's run by hand, Windows and Linux run,
+  macOS's in-place fullscreen measured.
 - [Packaging and releases](packaging.md) (2026-10-21): done; the release
   workflow's first run waits for a tag, and the first release is on
   hold (the maintainer, 2026-11-25). An ad hoc signed `.app` (zip,

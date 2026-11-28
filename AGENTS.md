@@ -1281,7 +1281,13 @@ Rust and the browser are implementation details, not advertised features.
   pure, so that its tests run natively, `cargo test -p ddi-web`).
 - `crates/desktop/` the desktop shell (`ddi-desktop`, run by `app` natively;
   `docs/plans/desktop.md`): a winit window drawing the UI core with
-  `render`'s painter (cosmic-text, system fonts); sound through cpal with
+  `render`'s painter (cosmic-text, system fonts), opened as it was left
+  (`window_state.rs`, pure: its size, place, maximized and fullscreen in
+  `ddi.desktop.window.v1`, checked against the displays present at start,
+  a new window on the primary display where it would be unusable; never
+  for a `--seconds` run; fullscreen borderless on every system, ⌃⌘F on
+  macOS and F11 elsewhere in the menus; "The window as it was left");
+  sound through cpal with
   our own mixer (the announcer on a bus of its own after the master,
   which the fail's and a work's fades leave alone), the clock from CoreAudio's host time and latencies
   (`audio/`, music decoded with `decode-all` on a thread); keys stamped
@@ -2625,7 +2631,8 @@ Rust and the browser are implementation details, not advertised features.
   `qps-ploc`, `qps-wide`; TESTING, `DDI_SYSTEM_LANGUAGES=ja-JP,en-US`
   stands for the system's languages, `shell::system_languages`),
   `--volume V`, `--seconds N` (quits, printing the
-  library, the clock's latency and jitter, the devices, the plays),
+  library, the clock's latency and jitter, the devices, the plays; its
+  window neither opens as the last one was left nor is remembered),
   `--lose-device-after S`, `--video-check FILE [--reference REF.yuv]
   [--frames] [--decoder auto|software|videotoolbox|mediafoundation|mediafoundation-auto|both]`, `--pacing block|late` (a play's frame pacing),
   `--in-flight 1|2` (defaults: late with two when a display link is

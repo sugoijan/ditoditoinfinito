@@ -43,6 +43,7 @@ use winit::window::{CursorIcon, Window, WindowId};
 use crate::gpu::{self, Gpu};
 use crate::pacing::{self, Next, Pacer};
 use crate::preview::{Player, SharedPlayer};
+use crate::window_state;
 use std::cell::RefCell;
 
 thread_local! {
@@ -297,6 +298,12 @@ pub struct Shell {
     pub in_flight_flag: Option<u32>,
     /// `--pacing-report`: what a play's frames did under each pacing.
     pub pacing_report: Option<pacing::Report>,
+    /// The window opens as it was left and is remembered as it changes
+    /// (`crate::window_state`): set by the app's run where
+    /// `window_state::remembers`, never by a test or an offscreen shell.
+    pub window_memory: bool,
+    /// What is learned of the window and when it is written.
+    window_writes: Option<window_state::Writes>,
 }
 
 impl Shell {
@@ -445,6 +452,8 @@ impl Shell {
             pacing_flag: None,
             in_flight_flag: None,
             pacing_report: None,
+            window_memory: false,
+            window_writes: None,
             sound,
             input,
             songs,
@@ -474,9 +483,76 @@ impl Shell {
     }
 
     fn open(&mut self, event_loop: &ActiveEventLoop) -> Result<(), String> {
-        let attributes = Window::default_attributes()
+        // The window as it was left (`crate::window_state`), checked
+        // against the displays there now; a run that does not remember
+        // it opens as before.
+        let monitors: Vec<_> = event_loop.available_monitors().collect();
+        let displays: Vec<_> = monitors.iter().map(display_of).collect();
+        let primary = event_loop
+            .primary_monitor()
+            .and_then(|p| monitors.iter().position(|m| *m == p));
+        let read = self
+            .window_memory
+            .then(|| {
+                let text = ddi_platform::storage::get(
+                    ddi_platform::storage::Area::Local,
+                    window_state::KEY,
+                );
+                window_state::read(text.as_deref())
+            })
+            .flatten();
+        let placement = window_state::place_read(
+            read.as_ref(),
+            &displays,
+            primary,
+            window_state::Coordinates::here(),
+        );
+        if self.window_memory {
+            for reason in [Some(placement.reason), placement.fullscreen_reason]
+                .into_iter()
+                .flatten()
+            {
+                if let Some(line) = reason.line() {
+                    eprintln!("{line}: the window opens on the main display");
+                }
+            }
+            self.window_writes = Some(window_state::Writes::new(
+                read.and_then(Result::ok),
+                window_state::Saved::made(&placement, &displays),
+            ));
+        }
+        let fullscreen = placement.fullscreen.map(|on| {
+            winit::window::Fullscreen::Borderless(on.and_then(|i| monitors.get(i).cloned()))
+        });
+        let size = if self.window_memory {
+            placement.size
+        } else {
+            window_state::DEFAULT_SIZE
+        };
+        let mut attributes = Window::default_attributes()
             .with_title(ddi_l10n::msg::common::game_name().as_str())
-            .with_inner_size(LogicalSize::new(1280.0, 720.0));
+            .with_inner_size(LogicalSize::new(size[0], size[1]));
+        if self.window_memory {
+            match placement.at {
+                Some(window_state::At::Logical([x, y])) => {
+                    attributes = attributes.with_position(LogicalPosition::new(x, y));
+                }
+                Some(window_state::At::Physical([x, y])) => {
+                    attributes = attributes.with_position(winit::dpi::PhysicalPosition::new(x, y));
+                }
+                None => {}
+            }
+            attributes = attributes.with_maximized(placement.maximized);
+            // macOS goes back to the frame a window had when it went
+            // fullscreen, and winit makes a window fullscreen from the start
+            // at its display's frame: so there the window is made at its
+            // own frame and goes fullscreen as soon as it is up (the
+            // system's animation, as the green button's). Elsewhere winit
+            // keeps the frame it was made with for leaving fullscreen.
+            if !cfg!(target_os = "macos") {
+                attributes = attributes.with_fullscreen(fullscreen.clone());
+            }
+        }
         #[cfg(target_os = "windows")]
         let attributes = {
             use winit::platform::windows::WindowAttributesExtWindows;
@@ -500,6 +576,9 @@ impl Shell {
         let window = event_loop
             .create_window(attributes)
             .map_err(|e| e.to_string())?;
+        if cfg!(target_os = "macos") && self.window_memory && fullscreen.is_some() {
+            window.set_fullscreen(fullscreen);
+        }
         #[cfg(all(target_os = "macos", ddi_icon_dev))]
         dev_dock_icon();
         let window = Arc::new(window);
@@ -663,6 +742,7 @@ impl Shell {
         let surface = (s.config.width, s.config.height);
         let fullscreen = s.window.fullscreen().is_some();
         self.pacer.set_surface(surface, fullscreen);
+        self.note_window();
         let logical = size.to_logical::<f32>(self.scale);
         // The theme's design for this size (compact for a small window).
         if let Some((_, look)) = &self.theme {
@@ -673,6 +753,59 @@ impl Shell {
             size: [logical.width.max(1.0), logical.height.max(1.0)],
             ratio: self.scale as f32,
         });
+    }
+
+    /// What the window is now, learned for [`window_state`] (written once
+    /// it is left so, [`Shell::write_window`]).
+    fn note_window(&mut self) {
+        let Some(w) = self.window().map(|s| s.window.clone()) else {
+            return;
+        };
+        let Some(writes) = &mut self.window_writes else {
+            return;
+        };
+        let seen = window_state::Observed {
+            inner: w.inner_size().into(),
+            outer: w.outer_position().ok().map(Into::into),
+            scale: w.scale_factor(),
+            display: w.current_monitor().as_ref().map(display_of),
+            maximized: w.is_maximized(),
+            minimized: w.is_minimized().unwrap_or(false),
+            fullscreen: w.fullscreen().is_some(),
+        };
+        writes.observe(&seen, crate::clock::now().0);
+    }
+
+    /// The window's state written where it is due, or, `last`, whatever
+    /// is still to be written (the game quits); when it will be due.
+    fn write_window(&mut self, last: bool) -> Option<Instant> {
+        let writes = self.window_writes.as_mut()?;
+        let now = crate::clock::now().0;
+        let due = if last { writes.last() } else { writes.due(now) };
+        if let Some(state) = due
+            && let Err(e) = ddi_platform::storage::save(
+                ddi_platform::storage::Area::Local,
+                window_state::KEY,
+                &state,
+            )
+        {
+            eprintln!("the window's state was not saved: {e}");
+        }
+        let at = writes.wake()?;
+        crate::clock::epoch().checked_add(std::time::Duration::try_from_secs_f64(at).ok()?)
+    }
+
+    /// ⌃⌘F on macOS, F11 elsewhere (`window_state::is_fullscreen_key`):
+    /// the window into or out of fullscreen (borderless, on the display it
+    /// is on), as the system's own ways do.
+    fn toggle_fullscreen(&mut self) {
+        if let Some(s) = self.window() {
+            let to = match s.window.fullscreen() {
+                Some(_) => None,
+                None => Some(winit::window::Fullscreen::Borderless(None)),
+            };
+            s.window.set_fullscreen(to);
+        }
     }
 
     /// The window shows again (or was resized, which shows it): a play
@@ -791,6 +924,7 @@ impl Shell {
     /// the loop with the window still open for the system to take down
     /// (`crate::quit`). Without it, the loop ends as winit ends it.
     fn exit(&mut self, event_loop: &ActiveEventLoop) {
+        self.write_window(true);
         match self.on_exit.take() {
             Some(last) => {
                 last(self);
@@ -1682,6 +1816,7 @@ impl ApplicationHandler for Shell {
                 }
             }
             WindowEvent::Resized(_) => self.resized(),
+            WindowEvent::Moved(_) => self.note_window(),
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale = scale_factor;
                 self.resized();
@@ -1823,12 +1958,30 @@ impl ApplicationHandler for Shell {
                     }
                     return;
                 }
+                // The system's fullscreen key, in the menus (a play's
+                // keys are its own: Dancing☆Onigiri's twelve play on the
+                // F keys), but never while a control is being bound.
+                let key = crate::keys::key(&event.logical_key);
+                if down
+                    && !self.ui.notices_wait()
+                    && window_state::is_fullscreen_key(
+                        &code,
+                        &key,
+                        self.modifiers,
+                        cfg!(target_os = "macos"),
+                    )
+                {
+                    if !event.repeat {
+                        self.toggle_fullscreen();
+                    }
+                    return;
+                }
                 // Whether a field was typed into before this key: a key
                 // that opens one (`/` for search) does not type itself.
                 let was_typing = self.typing;
                 self.send(UiEvent::Key(KeyEvent {
                     code,
-                    key: crate::keys::key(&event.logical_key),
+                    key,
                     down,
                     repeat: event.repeat,
                     modifiers: self.modifiers,
@@ -1945,9 +2098,11 @@ impl ApplicationHandler for Shell {
         // (review 2026-11-22, room-client 4), looked at again soon.
         let leaving_at = crate::online::drive_leaving()
             .then(|| Instant::now() + std::time::Duration::from_millis(100));
+        let window_at = self.write_window(false);
         if let Some(at) = wake
             .into_iter()
             .chain(watch_at)
+            .chain(window_at)
             .chain(sound_at)
             .chain(rework_at)
             .chain(leaving_at)
@@ -2197,6 +2352,16 @@ fn theme_base(fold: FoldFn) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
 fn screen_height(window: &Window) {
     if let Some(m) = window.current_monitor() {
         crate::play::skins::set_screen_height(m.size().height);
+    }
+}
+
+/// A display as `crate::window_state` reads it.
+fn display_of(m: &winit::monitor::MonitorHandle) -> window_state::Display {
+    window_state::Display {
+        name: m.name(),
+        position: m.position().into(),
+        size: m.size().into(),
+        scale: m.scale_factor(),
     }
 }
 

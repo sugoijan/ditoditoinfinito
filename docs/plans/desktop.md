@@ -1265,6 +1265,118 @@ way; the play history is a file a play.
   does first, with no window).
 - Checked on macOS; Linux and Windows by compilation only.
 
+### The window as it was left (2026-11-28)
+
+The window opens as it was left: its size, its place, maximized or not,
+fullscreen or not (round WN; `crates/desktop/src/window_state.rs`, pure,
+tested as plain data; the shell's part in `shell.rs`'s `open`,
+`note_window`, `write_window`).
+
+- **What is kept, and where.** A desktop-only value,
+  `ddi.desktop.window.v1` in `storage.json` (never the settings the web
+  shares): the normal frame (the inner size in logical units, the outer
+  frame's top-left from the top-left of the display it is on, that
+  display's name, place, size and scale, and the window's scale), whether
+  it is maximized, whether it is fullscreen and on which display. Logical
+  units, so a display whose resolution or scale changed keeps the window
+  the size it looks (its text the same size); the place relative to its
+  display, found again by its name (two of one name told apart by their
+  place, then their size), so displays arranged otherwise keep it on the
+  same display. The normal frame is learned only while the window is
+  neither maximized nor fullscreen, so leaving either goes back to it; a
+  minimized window (Windows says −32000 and no size) teaches nothing.
+- **When it is written.** As the window changes (`Resized`, `Moved`, a
+  scale changed), a second after it was last changed (a drag writes once,
+  at its end; `window_state::WRITE_AFTER`, the loop woken for it), and
+  whatever is still to be written as the game quits (`Shell::exit`, before
+  the store's flush). Times are the caller's numbers: the tests give them.
+- **Checked against the displays present at start** (`window_state::place`,
+  over winit's `available_monitors` and `primary_monitor`, before the
+  window is made, so it is made at its place and size, no flash of
+  another size): a value that does not read as a window (not its shape,
+  or numbers no window has), a display that is gone, a window under
+  320 × 240 logical (`MIN_SIZE`: the screens' compact design is a phone's
+  360 × 640), one larger than its display, or one whose title bar would
+  not be on its display (its top edge on it, at most 16 points over its
+  edges, `OVERHANG`, for Windows' invisible borders; 120 points of it
+  across, `GRAB`) gives a new window instead: 1280 × 720, smaller with its
+  shape kept where that fills more than 90 % of the display
+  (`sensible`), centered on the primary display, a line on stderr saying
+  why. A saved fullscreen on a display that is gone is fullscreen on the
+  primary one; maximized stays maximized. Nothing saved (a first start, a
+  fresh `DDI_HOME`) opens as before, where the system puts a new window.
+  What was read and not given back is replaced by what the window became.
+- **Which runs.** Every run that opens the window, but a timed one
+  (`--seconds`, the runs scripts and watchdogs make), which neither reads
+  nor writes it (`window_state::remembers`). No flag sets a window's size
+  or fullscreen. Offscreen runs and the tests open no window and never
+  reach it (`Shell::window_memory` is off unless the app's run sets it).
+- **Fullscreen by the system's own ways** is remembered as any other:
+  macOS's green button (winit names it fullscreen on the window's display
+  as the transition starts), and the key the app now has for it, which it
+  had none of before: ⌃⌘F on macOS (Apple's), F11 on Windows and Linux
+  (as browsers and file managers there), with no other modifier, in the
+  menus only (a play's keys are its own: Dancing☆Onigiri's twelve keys
+  play on the F keys) and never while a control is being bound
+  (`window_state::is_fullscreen_key`). The app has no menu item for it
+  (winit makes only the app menu; AppKit would name an item with
+  `toggleFullScreen:` in the system's language, not the game's).
+- **Made fullscreen.** Windows and Linux: winit's `with_fullscreen` at
+  creation, which keeps the frame the window is made with for leaving it
+  (Windows saves its placement; the window manager does on X11 and
+  Wayland). macOS: the window is made at its normal frame and goes
+  fullscreen as soon as it is up (macOS's own animation, as the green
+  button's): winit's fullscreen at creation makes the window at the
+  display's frame, and leaving fullscreen would then keep a window the
+  size of the display. Making it hidden first was considered and
+  left: winit's `set_fullscreen` unwraps the window's `screen`, which a
+  window not yet shown may not have.
+- **Pacing** is unchanged: the shell's resize hands the surface's size and
+  `Window::fullscreen` to `Pacer::set_surface` as before, so a window that
+  opens fullscreen is a fullscreen surface from its first frame there,
+  and its transition's first 2 s count toward no fallback, as any.
+- **Wayland** tells no window's place: the size alone is kept and given
+  back, the compositor placing the window.
+
+**Borderless or exclusive fullscreen: borderless everywhere, no choice
+offered.** What winit 0.30.13 offers and what it would change for this
+game, system by system (read in its sources and wgpu-hal 30's):
+
+- **macOS.** `Fullscreen::Borderless` is macOS's own fullscreen Space
+  (`toggleFullScreen:`, what the green button does). `Exclusive` is the
+  same Space plus capturing the display and changing its mode
+  (`CGDisplayCapture`, `CGDisplaySetDisplayMode`, both behind `assert!`s
+  that would end the game where they fail), over a shielding window that
+  hides notifications and the ⌘⇥ switcher. The Space already presents the
+  game's frames to the display directly (the 2026-10-22 runs above:
+  fullscreen's later deadline is that), so capturing gains nothing
+  measured; not offered. The choice that is real on macOS is another one:
+  the Space against "simple" fullscreen in place (winit's
+  `set_simple_fullscreen`: no Space, no animation, the menu bar and Dock
+  hidden). Whether a window in place stays composited, and so keeps late
+  pacing's windowed latency (4.6 ms frame start to shown against the
+  Space's fallback to block·2 at about 21 ms), is unmeasured; it is a
+  question for the maintainer (`--pacing-report` in both), not built.
+- **Windows.** `Borderless` is a popup window covering the monitor;
+  `Exclusive` changes the display's mode (`ChangeDisplaySettingsExW`,
+  `assert!`ed) under that same window. wgpu never asks DXGI for exclusive
+  fullscreen (no `SetFullscreenState`; its DX12 swap chain is
+  `FLIP_DISCARD`), and a flip-model swap chain filling the monitor is
+  presented by independent flip, so the mode change gives no latency
+  either; it only changes the resolution and rate, which the pacer then
+  meets as a new refresh rate. Not offered; untested here (compiled for
+  `x86_64-pc-windows-msvc` only).
+- **Linux.** Wayland has no exclusive fullscreen (winit ignores it with a
+  warning); on X11 `Exclusive` is an XRandR mode change, and most
+  compositors unredirect a fullscreen window anyway. Not offered; untested here
+  (compiled through the same code as Windows: nothing in it is
+  Linux's alone).
+
+So the option row was not built: on no system is there a difference that
+is both real for the game and tried. Should the macOS in-place
+fullscreen measure better, it would be a desktop-only, macOS-only row in
+Options → Screen at the Advanced level.
+
 ## 6. Testing
 
 - **Natively, in CI (Linux):**
