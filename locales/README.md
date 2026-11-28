@@ -53,7 +53,9 @@ one, follows the same rules; `crates/ui/src/screens/l10n_tests.rs` walks
 the screens in `qps-ploc` and fails on text written in code (a new
 screen or dialog joins its walk). The areas are the files here: `common`
 (shared words, styles, lanes), `start`, `select`, `prompt`, `results`,
-`mods` (the mods line), `options`, `pages` (calibration, credits, the
+`mods` (the mods line), `options`, `skins` (the bundled noteskins' own
+options, each found by an id the game makes from the skin's key and the
+option's name: `ddi_ui::skin_text`), `pages` (calibration, credits, the
 folders offer), `notices`, `editor`, `studio`, and what the screens show
 from elsewhere: `import` (an import's report), `danoni` (desktop's URL
 importer), `errors` (failures: the system's kinds, loading, video,

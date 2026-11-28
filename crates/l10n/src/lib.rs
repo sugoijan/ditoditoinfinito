@@ -641,5 +641,18 @@ pub fn format(id: &str, args: &[(&str, Arg)]) -> UiText {
     UiText(id.into())
 }
 
+/// Message `id`, one without variables, in the current language at the
+/// thread's level, where English has a message by that id; `None` where
+/// it has none. For text whose message is named at run time, which the
+/// build cannot make a function of: a bundled skin's own options
+/// (`ddi_ui::skin_text`), each looked for by an id made from the skin's
+/// key and the option's name.
+pub fn message(id: &str) -> Option<UiText> {
+    MESSAGES
+        .iter()
+        .any(|(m, vars)| *m == id && vars.is_empty())
+        .then(|| format(id, &[]))
+}
+
 #[cfg(test)]
 mod tests;

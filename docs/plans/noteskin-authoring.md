@@ -19,6 +19,15 @@ than four lanes, including center/onigiri, so authoring can inspect long-note
 artwork alongside the arrows. The four-lane demonstration keeps its original
 phrase.
 
+## Your skin's words (2026-11-28)
+
+The labels, descriptions and choice labels a skin declares for its
+parameters (`docs/plans/skin-parameters.md`) are yours: Options shows
+them as your `metrics.ini` writes them, in every language. The game
+translates only the skins it ships, by messages of its own
+(`locales/<tag>/skins.ftl`, "The bundled skins' words"); a skin you make,
+even one falling back on a bundled skin, keeps your text.
+
 ## SVG images (2026-10-24)
 
 Both shells draw a skin's SVGs with resvg (`docs/plans/noteskin-svg.md`),

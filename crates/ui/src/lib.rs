@@ -39,6 +39,7 @@ pub mod navigation;
 pub mod request;
 pub mod screen;
 pub mod screens;
+pub mod skin_text;
 pub mod stars;
 pub mod state;
 pub mod testing;

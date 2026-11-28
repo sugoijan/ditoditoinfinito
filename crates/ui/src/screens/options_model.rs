@@ -1339,7 +1339,7 @@ impl OptionsModel {
             rows.push(r);
         }
         for p in &offered.parameters {
-            let (labels, _, at) = param_values(p, stored.get(&p.name));
+            let (labels, _, at) = param_values(p, stored.get(&p.name), None);
             let mut r = row(
                 &format!("{ANNOUNCER_PARAM}{}", p.name),
                 UiText::data(&p.label),
@@ -1350,7 +1350,7 @@ impl OptionsModel {
                 at,
                 UiText::data(&p.description),
             );
-            r.default = Some(param_values(p, None).2);
+            r.default = Some(param_values(p, None, None).2);
             rows.push(r);
         }
         rows
@@ -1762,30 +1762,30 @@ impl OptionsModel {
     }
 
     /// Skin `key`'s parameters as rows, their ids `prefix` and the name:
-    /// their labels, descriptions and choices as the skin's metrics write
-    /// them (data).
+    /// their labels, descriptions and choices a bundled skin's messages,
+    /// else as the skin's metrics write them (data; `crate::skin_text`).
     fn param_rows(&self, prefix: &str, key: &str) -> Vec<OptionDef> {
         let stored = self.settings.skin_params(key);
         self.declared(key)
             .iter()
             .map(|p| {
-                let (labels, _, at) = param_values(p, stored.get(&p.name));
+                let (labels, _, at) = param_values(p, stored.get(&p.name), Some(key));
                 let mut r = row(
                     &format!("{prefix}{}", p.name),
-                    UiText::data(&p.label),
+                    crate::skin_text::label(key, p),
                     match p.kind {
                         ParamKind::Number { .. } => OptionKind::Stepper(labels.into()),
                         _ => OptionKind::Choices(labels),
                     },
                     at,
-                    UiText::data(&p.description),
+                    crate::skin_text::description(key, p),
                 );
                 // The skin's word for its level (a pump skin's are
                 // Advanced, as its row is), and its own default.
                 if prefix == SKIN_ROW && p.basic {
                     r.level = Level::Basic;
                 }
-                r.default = Some(param_values(p, None).2);
+                r.default = Some(param_values(p, None, Some(key)).2);
                 r
             })
             .collect()
@@ -1797,7 +1797,7 @@ impl OptionsModel {
             return;
         };
         let stored = self.settings.skin_params(key);
-        let (_, values, _) = param_values(&p, stored.get(name));
+        let (_, values, _) = param_values(&p, stored.get(name), Some(key));
         if let Some(v) = values.get(i) {
             self.settings
                 .set_skin_param(key, name, Some(v.clone()), Some(&p.default));
@@ -2513,7 +2513,7 @@ impl OptionsModel {
                     })
                 {
                     let stored = self.settings.announcer_params(&key);
-                    let (_, values, _) = param_values(&p, stored.get(&p.name));
+                    let (_, values, _) = param_values(&p, stored.get(&p.name), None);
                     if let Some(v) = values.get(i) {
                         self.settings.set_announcer_param(
                             &key,
@@ -3142,10 +3142,12 @@ const PUMP_SKIN_ROW: &str = "pump_skin.";
 /// A parameter's row: its values' labels, the values, and which is
 /// `stored`'s (as its declaration takes it, else the default's). A color
 /// off the palette is offered after it. The labels are the skin's own
-/// (data), but for a switch's Off and On.
+/// (data), but for a switch's Off and On and a bundled `skin`'s choices
+/// (`crate::skin_text`; an announcer's parameters have no `skin`).
 fn param_values(
     p: &Parameter,
     stored: Option<&ParamValue>,
+    skin: Option<&str>,
 ) -> (Vec<String>, Vec<ParamValue>, usize) {
     let current = stored
         .and_then(|v| p.accept(v))
@@ -3154,7 +3156,13 @@ fn param_values(
     let (labels, values): (Vec<String>, Vec<ParamValue>) = match &p.kind {
         ParamKind::Choice(choices) => choices
             .iter()
-            .map(|c| (data(&c.label), ParamValue::Text(c.id.clone())))
+            .map(|c| {
+                let label = match skin {
+                    Some(key) => crate::skin_text::choice(key, p, c).into(),
+                    None => data(&c.label),
+                };
+                (label, ParamValue::Text(c.id.clone()))
+            })
             .unzip(),
         ParamKind::Toggle => (
             on_off().map(String::from).to_vec(),
@@ -4443,6 +4451,44 @@ mod tests {
             .flat_map(|s| &s.options)
             .find(|o| o.id == id)
             .unwrap_or_else(|| panic!("no {id}"))
+    }
+
+    /// A bundled skin's rows speak the game's messages: in English at
+    /// Advanced what its metrics say, at Basic the plain wording of a row
+    /// shown there, in Japanese Japanese; the values stay the skin's ids.
+    #[test]
+    fn a_bundled_skin_s_rows_speak_the_game_s_messages() {
+        let colors = ddi_noteskin::bundled::infinito_parameters()
+            .get("Colors")
+            .unwrap()
+            .clone();
+        let m = model();
+        ddi_l10n::set_language("en");
+        let advanced = m.data_at(Level::Advanced);
+        let row = find(&advanced, "skin.Colors");
+        assert_eq!(row.label, colors.label);
+        assert_eq!(row.description, colors.description);
+        assert_eq!(row.values(), ["Vivid", "Rainbow", "Flat"]);
+        let basic = m.data_at(Level::Basic);
+        let row = find(&basic, "skin.Colors");
+        assert_eq!(row.label, colors.label);
+        assert_ne!(row.description, colors.description);
+        assert!(row.description.starts_with("Vivid: "), "{}", row.description);
+        ddi_l10n::set_language("ja");
+        let row = find(&m.data_at(Level::Basic), "skin.Colors").clone();
+        assert_eq!(row.label, "ノーツの色");
+        assert_eq!(row.values(), ["ビビッド", "レインボー", "フラット"]);
+        assert_eq!(
+            find(&m.data_at(Level::Advanced), "skin.Explosions").label,
+            "爆発エフェクト"
+        );
+        ddi_l10n::set_language("en");
+        let mut m = m;
+        m.change("skin.Colors", 2);
+        assert_eq!(
+            m.settings.skin_params(INFINITO).get("Colors"),
+            Some(&ParamValue::Text("Flat".into()))
+        );
     }
 
     /// DDI, first in the list and the default, shows its own rows and

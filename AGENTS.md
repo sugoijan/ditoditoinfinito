@@ -792,7 +792,12 @@ Rust and the browser are implementation details, not advertised features.
   `docs/plans/skin-parameters.md`; Infinito's Vivid (default), Rainbow and Flat colors, onigiri, mine shape,
   per-note charge timing (on by default), receptor fill and hit effects are its parameters; Peters-DDR combines
   the former Note/Vivid choices with Colors and Explosions, retaining
-  their names as hidden compatibility variants);
+  their names as hidden compatibility variants; a bundled skin's
+  parameters' words are the game's messages, `locales/<tag>/skins.ftl`,
+  found by ids made from its key and the parameter's name,
+  `ddi_ui::skin_text` over `ddi_l10n::message`, whose tests fail a
+  bundled parameter without them or whose English at Advanced is not
+  its `metrics.ini`'s; any other skin's are its own, as data);
   the skin keys settings store (`crates/noteskin/src/bundled.rs`); the same
   Lua host runs a song's scripted backgrounds over its folder
   (`Skin::song`, `LuaSkin::actor_file`, `lua/song.lua`;

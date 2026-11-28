@@ -106,6 +106,24 @@ fn options_at_both_levels() {
                     common::shot(&name, &pixels, size);
                     let rows = env.state.borrow().option_rows.clone();
                     shown.push((level, section.clone(), rows.len(), rows.last().cloned()));
+                    // Infinito's Note colors, at both levels, its words the
+                    // game's messages (`ddi_ui::skin_text`): focused, so its
+                    // description shows.
+                    if section == "Arrows" {
+                        let at = rows.iter().position(|r| r == "skin.Colors");
+                        let at = at.unwrap_or_else(|| panic!("{rows:?}"));
+                        let from = rows.iter().position(|r| *r == env.state.borrow().option_id);
+                        for _ in from.unwrap_or(0)..at {
+                            key(&mut ui, &mut gpu, "ArrowDown");
+                        }
+                        assert_eq!(env.state.borrow().option_id, "skin.Colors");
+                        for _ in 0..30 {
+                            tick(&mut ui, &mut gpu);
+                        }
+                        let pixels = tick(&mut ui, &mut gpu);
+                        let name = name.replace(".png", "-note-colors.png");
+                        common::shot(&name, &pixels, size);
+                    }
                 }
                 // The switch first in Interface.
                 if let Some(at) = sections.iter().position(|s| s == "Interface") {

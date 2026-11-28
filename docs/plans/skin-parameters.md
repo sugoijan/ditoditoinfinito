@@ -172,6 +172,32 @@ them to the model (`OptionsModel::set_skin_parameters`). Removing a skin
 forgets its values; removing the imported songs and skins forgets theirs;
 resetting the settings forgets all.
 
+## The bundled skins' words (2026-11-28)
+
+A skin's `Label`, `Description` and `ChoiceLabels` are its author's
+English, shown as data. For the skins the game ships, keyed
+`bundled:<game>/<name>`, the rows say the game's messages instead
+(`ddi_ui::skin_text`, `locales/<tag>/skins.ftl`), in the UI's language
+and at the level's wording: the Options row and the start prompt's (it
+takes Options' rows by id) read the same text; the field preview, which
+shows no parameter's words, draws the values as before.
+Each message is looked for by an id made from the key and the
+parameter's name (`skins-<game>-<skin>-<parameter>` the label,
+`…-description`, `…-choice-<id>`; a capital after a small letter starts
+a hyphenated word: `NoteTimedCharge` is `note-timed-charge`) through
+`ddi_l10n::message`; where none exists the skin's own text shows, and a
+skin the game does not ship always shows its own. Nothing a skin's Lua or
+the settings see changes: the names and the choices' ids stay as
+declared. At Advanced each English message says exactly what the skin's
+`metrics.ini` says; a parameter shown at Basic (Infinito's Note colors)
+may have a plain wording as its message's value, the file's words its
+`.advanced`. `ddi_ui::skin_text`'s tests read every bundled skin's
+metrics (its color schemes, chosen through their base, aside) and fail
+where a declared parameter or choice has no message, or where the
+English at Advanced differs from the file's, so the two cannot drift: a
+change to a bundled skin's text is made in its `metrics.ini` and its
+messages together.
+
 ## Dito on it
 
 Dito declares `Colors` (Vivid, Rainbow, By subdivision, Flat, Single

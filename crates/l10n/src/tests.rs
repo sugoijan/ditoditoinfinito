@@ -318,3 +318,30 @@ fn a_run_takes_the_language_s_face_only_where_it_has_every_wide_character() {
         "Iosevka Term, system-ui, sans-serif"
     );
 }
+
+/// A message named at run time: the one English has, in the current
+/// language at the thread's level; none for an id English lacks or a
+/// message that takes variables.
+#[test]
+fn a_message_named_at_run_time_is_found_only_where_english_has_it() {
+    set_language("en");
+    let id = "options-reverse-description";
+    assert_eq!(message(id), Some(format(id, &[])));
+    assert_eq!(
+        at_level(false, || message(id)),
+        Some(at_level(false, || format(id, &[])))
+    );
+    assert_eq!(message("options-no-such-message"), None);
+    assert_eq!(message(""), None);
+    let with_variables = MESSAGES
+        .iter()
+        .find(|(_, vars)| !vars.is_empty())
+        .map(|(m, _)| *m)
+        .unwrap();
+    assert_eq!(message(with_variables), None);
+    set_language("ja");
+    assert_eq!(message(id), Some(format(id, &[])));
+    let english = in_language(&LANGUAGES[0], || format(id, &[]));
+    assert_ne!(message(id), Some(english), "in Japanese");
+    set_language("en");
+}
