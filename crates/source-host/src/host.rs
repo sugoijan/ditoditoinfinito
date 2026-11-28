@@ -70,6 +70,9 @@ pub struct HostConfig {
     pub strikes: u32,
     /// Simfiles and zip names not in UTF-8 (desktop's `encoding_rs`).
     pub legacy: fn(ddi_library::legacy::Legacy, &[u8]) -> Option<String>,
+    /// The songs an item holds beyond its simfiles, read as the shell's
+    /// library reads a folder's (desktop's works and FFR levels).
+    pub more: crate::store::MoreSongs,
 }
 
 impl HostConfig {
@@ -82,6 +85,7 @@ impl HostConfig {
             timeouts: Timeouts::default(),
             strikes: 3,
             legacy: ddi_library::legacy::none,
+            more: crate::store::no_more,
         }
     }
 }

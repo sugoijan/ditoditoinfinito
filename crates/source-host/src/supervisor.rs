@@ -763,7 +763,7 @@ impl Session<'_> {
         let key = ItemKey::of(&plugin, &fetch.item, fetch.revision.as_deref());
         let files = ItemFiles(Arc::new(assembled.files.clone()));
         let pack = self.sup.plugin.manifest.name.get("en").to_string();
-        match read_songs(&files, key, &pack, &legacy) {
+        match read_songs(&files, key, &pack, &legacy, self.sup.config.more) {
             Ok((songs, skipped)) => {
                 if let Ok(mut s) = self.sup.store.lock() {
                     s.insert(

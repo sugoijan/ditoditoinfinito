@@ -5,11 +5,13 @@
 //! songs and changing nothing of it, and easy to take out (this module,
 //! its switch and its registration in [`super::Sources`]).
 //!
-//! What it reads: song folders (a folder with a simfile, `.ssc`, `.sm`
-//! or `.dwi`) and zips (`.zip`, `.smzip`) of them, read by the library's
-//! own scanner as Add songs' folders are. Not in this stage:
-//! Dancing☆Onigiri works and FFR levels, which the library reads by its
-//! own way and plays through its records of them.
+//! What it reads: what the library reads in a folder it lists, by the
+//! library's own readers: song folders (a folder with a simfile, `.ssc`,
+//! `.sm` or `.dwi`) and zips (`.zip`, `.smzip`) of them by its scanner,
+//! and Dancing☆Onigiri works and FFR levels, in a folder or a zip, by its
+//! readers of those (`crate::library::works_and_levels`). A work is an
+//! item (its page or a dump's manifest, with every song it holds); a
+//! level is one (its file, with its music beside it).
 //!
 //! Bounded: a folder is walked at most [`Bounds::depth`] folders deep,
 //! [`Bounds::entries`] entries and [`Bounds::songs`] songs, for at most
@@ -26,13 +28,20 @@
 //! Imported, it is added to the library where it is (the maintainer,
 //! 2026-11-27: "folder in place" instead of copying): its zip, else its
 //! pack's folder (the folder it is in, where that is inside the folder
-//! named), else its own folder, as Add songs adds one; nothing where a
-//! song folder of the library holds it already ([`ThisComputer::in_place`]).
+//! named), else its own folder, as Add songs adds one; a work's folder
+//! (the one holding all its files) and a level's (its pack's); nothing
+//! where a song folder of the library holds it already
+//! ([`ThisComputer::in_place`]). Fetched, a work's or a level's files are
+//! named as the library names them once that folder is added, so its
+//! songs, packs and entries are the ones the library then lists.
 //!
-//! An item's id is a hash of where it is (a song folder's path, or a
-//! zip's and the song's folder in it): the same each run while it stays
+//! An item's id is a hash of where it is (a song folder's path, a zip's
+//! and the song's folder in it, a work's page or manifest, a level's
+//! file, each with the zip it is in): the same each run while it stays
 //! there, so a play's origin finds it again; moved, it is another item,
-//! and the old one is gone.
+//! and the old one is gone. Its revision is its chart's file's size and
+//! time (a song folder's simfile, a work's page and its dos, a level's
+//! file), or its zip's.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -111,6 +120,10 @@ fn in_place_of(place: &Place, named: &[PathBuf], listed: &[PathBuf]) -> InPlace 
     let covered = |p: &Path| listed.iter().find(|f| p.starts_with(f)).cloned();
     let path = match place {
         Place::Zip { zip, .. } => zip.clone(),
+        Place::Files {
+            root, zip: true, ..
+        } => root.clone(),
+        Place::Files { root, base, .. } => base.to_path(root).unwrap_or_else(|| root.clone()),
         Place::Folder { dir, .. } => {
             dir.parent()
                 .filter(|parent| named.iter().any(|n| parent != n && parent.starts_with(n)))
@@ -131,6 +144,17 @@ enum Place {
     Folder { dir: PathBuf, pack: String },
     /// A song in a zip, its folder inside it.
     Zip { zip: PathBuf, dir: RelPathBuf },
+    /// A work's or a level's files in a folder named or a zip (`root`),
+    /// by their paths there: delivered named as the library names them
+    /// where `base` (the work's or the level's folder; a zip's root) is
+    /// what it lists, under `name` (its name, a zip's stem).
+    Files {
+        root: PathBuf,
+        zip: bool,
+        base: RelPathBuf,
+        name: String,
+        files: Vec<RelPathBuf>,
+    },
 }
 
 /// A song found, as searched and described.
@@ -465,6 +489,46 @@ impl Builtin for ThisComputer {
                     pack: found.meta.pack.clone().unwrap_or_default(),
                 })
             }
+            Place::Files {
+                root,
+                zip,
+                base,
+                name,
+                files,
+            } => {
+                let named = |f: &RelPath| RelPath::new(name).join(f.relative_to(base));
+                let mut out = BTreeMap::new();
+                if *zip {
+                    let reader = ZipReader::open(root, &crate::library::legacy_text)
+                        .map_err(|e| Failed::with(FailCode::Gone, e))?;
+                    let mut bytes = 0u64;
+                    for f in files {
+                        cx.check()?;
+                        bytes += reader.size(f).unwrap_or(0);
+                        if bytes > ddi_source_host::StoreLimits::default().item_memory {
+                            return Err(Failed::new(FailCode::TooLarge));
+                        }
+                        let data = reader
+                            .read(f)
+                            .map_err(|e| Failed::with(FailCode::UnreadableContent, e))?;
+                        out.insert(named(f), Stored::Memory(data.into()));
+                    }
+                } else {
+                    for f in files {
+                        cx.check()?;
+                        // A plain file still, never a link.
+                        let path = f
+                            .to_path(root)
+                            .filter(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file()))
+                            .ok_or_else(|| Failed::new(FailCode::Gone))?;
+                        out.insert(named(f), Stored::Disk(path));
+                    }
+                }
+                Ok(Delivered {
+                    files: out,
+                    pack: name.clone(),
+                })
+            }
         }
     }
 }
@@ -529,8 +593,8 @@ impl Clock {
     }
 }
 
-/// `folder` read: its song folders and zips found and read as songs,
-/// within `bounds`.
+/// `folder` read: its song folders and zips found and read as songs, then
+/// its works and levels, within `bounds`.
 fn read_folder(cx: &Context, folder: &Path, bounds: &Bounds) -> Answer<Index> {
     if !folder.is_dir() {
         return Err(Failed::new(FailCode::NotFound));
@@ -539,13 +603,27 @@ fn read_folder(cx: &Context, folder: &Path, bounds: &Bounds) -> Answer<Index> {
     let mut index = Index::default();
     let mut song_dirs: Vec<PathBuf> = Vec::new();
     let mut zips: Vec<PathBuf> = Vec::new();
+    // The folder's files outside song folders, as the library names a
+    // folder's (under its name): where works and levels are looked for.
+    let prefix = folder
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| pack::LOOSE_PACK.to_string());
+    let mut listed: Vec<RelPathBuf> = Vec::new();
     let mut entries = 0usize;
     let mut stack = vec![(folder.to_path_buf(), 0usize)];
     'walk: while let Some((dir, depth)) = stack.pop() {
         let Ok(read) = std::fs::read_dir(&dir) else {
             continue;
         };
+        let under = dir
+            .strip_prefix(folder)
+            .ok()
+            .and_then(|r| r.to_str())
+            .map(|r| RelPath::new(&prefix).join(r.replace(std::path::MAIN_SEPARATOR, "/")));
         let mut subdirs = Vec::new();
+        let mut files = Vec::new();
         let mut song = false;
         for e in read.flatten() {
             entries += 1;
@@ -575,6 +653,9 @@ fn read_folder(cx: &Context, folder: &Path, bounds: &Bounds) -> Answer<Index> {
                 } else if ddi_library::zip::archive_stem(&name).is_some() {
                     zips.push(e.path());
                 }
+                if let Some(under) = &under {
+                    files.push(under.join(&name));
+                }
             }
         }
         if song {
@@ -582,6 +663,7 @@ fn read_folder(cx: &Context, folder: &Path, bounds: &Bounds) -> Answer<Index> {
             song_dirs.push(dir);
             continue;
         }
+        listed.extend(files);
         if depth < bounds.depth {
             subdirs.sort();
             stack.extend(subdirs.into_iter().rev().map(|d| (d, depth + 1)));
@@ -609,13 +691,66 @@ fn read_folder(cx: &Context, folder: &Path, bounds: &Bounds) -> Answer<Index> {
             index.songs.push(found);
         }
     }
+    // Works and levels, by the library's readers; between each, the
+    // bounds (a cancel ends the search).
+    let cancelled = std::cell::Cell::new(None);
+    let clock = std::cell::RefCell::new(clock);
+    let count = std::cell::Cell::new(index.songs.len());
+    // Something left unread: past the songs or the time.
+    let short = std::cell::Cell::new(false);
+    let stop = || {
+        if count.get() >= bounds.songs {
+            short.set(true);
+            return true;
+        }
+        match clock.borrow_mut().step(cx) {
+            Ok(up) => {
+                short.set(short.get() || up);
+                up
+            }
+            Err(f) => {
+                cancelled.set(Some(f));
+                true
+            }
+        }
+    };
+    let stopped = || cancelled.take().map_or(Ok(()), Err);
+    if !listed.is_empty() && !stop() {
+        listed.sort();
+        let reader = crate::library::files::DirReader {
+            root: folder.to_path_buf(),
+        };
+        let files = crate::library::files::Prefixed {
+            inner: &reader,
+            prefix: format!("{prefix}/"),
+        };
+        let (songs, _) = crate::library::works_and_levels(
+            folder,
+            &files,
+            &listed,
+            &prefix,
+            pack::LOOSE_PACK,
+            &stop,
+        );
+        let more = works_and_levels_found(folder, false, &prefix, songs);
+        count.set(count.get() + more.len());
+        index.songs.extend(more);
+    }
+    stopped()?;
     for zip in &zips {
-        if index.songs.len() >= bounds.songs || clock.step(cx)? {
-            index.cut = true;
+        if stop() {
+            stopped()?;
             break;
         }
-        index.songs.extend(read_zip(zip));
+        let songs = read_zip(zip, &stop);
+        stopped()?;
+        count.set(count.get() + songs.len());
+        index.songs.extend(songs);
     }
+    if short.get() || index.songs.len() > bounds.songs {
+        index.cut = true;
+    }
+    index.songs.truncate(bounds.songs);
     index.songs.sort_by_cached_key(|f| {
         (
             f.meta.pack.clone().unwrap_or_default().to_lowercase(),
@@ -724,8 +859,9 @@ fn read_song_folder(cx: &Context, dir: &Path, pack: &str, bounds: &Bounds) -> Op
     ))
 }
 
-/// A zip's songs, as the scanner reads them in it.
-fn read_zip(zip: &Path) -> Vec<Found> {
+/// A zip's songs, as the scanner reads them in it, then its works and
+/// levels as the library reads them in a zip it lists (until `stop`).
+fn read_zip(zip: &Path, stop: &dyn Fn() -> bool) -> Vec<Found> {
     let Ok(reader) = ZipReader::open(zip, &crate::library::legacy_text) else {
         return Vec::new();
     };
@@ -743,7 +879,8 @@ fn read_zip(zip: &Path) -> Vec<Found> {
         &[],
         &crate::library::legacy_text,
     );
-    scan.songs
+    let mut out: Vec<Found> = scan
+        .songs
         .into_iter()
         .map(|s| {
             let prefix = format!("{}/", s.dir);
@@ -766,7 +903,173 @@ fn read_zip(zip: &Path) -> Vec<Found> {
                 },
             )
         })
-        .collect()
+        .collect();
+    // As the library names a zip listed alone: under its stem.
+    let names: Vec<RelPathBuf> = reader
+        .names
+        .iter()
+        .map(|n| RelPath::new(&stem).join(n))
+        .collect();
+    let files = crate::library::files::Prefixed {
+        inner: &reader,
+        prefix: format!("{stem}/"),
+    };
+    let (songs, _) = crate::library::works_and_levels(zip, &files, &names, &stem, &stem, stop);
+    out.extend(works_and_levels_found(zip, true, &stem, songs));
+    out
+}
+
+/// The items of the works and levels `songs` read in `root` (a folder
+/// named, or a zip), as the library lists them read under `prefix`
+/// (`crate::library::works_and_levels`): a work an item with all its
+/// songs (its page or manifest the key), a level one (its file).
+fn works_and_levels_found(
+    root: &Path,
+    zip: bool,
+    prefix: &str,
+    songs: Vec<crate::library::LibSong>,
+) -> Vec<Found> {
+    let reader = if zip {
+        ZipReader::open(root, &crate::library::legacy_text).ok()
+    } else {
+        None
+    };
+    let zip_stamp = zip
+        .then(|| std::fs::metadata(root).ok().map(|m| stamp(&m)))
+        .flatten();
+    // A file's size and stamp where it is.
+    let size = |f: &RelPath| -> u64 {
+        match &reader {
+            Some(r) => r.size(f).unwrap_or(0),
+            None => f
+                .to_path(root)
+                .and_then(|p| std::fs::metadata(p).ok())
+                .map_or(0, |m| m.len()),
+        }
+    };
+    let stamps = |files: &[&RelPath]| -> Option<String> {
+        if zip {
+            return zip_stamp.clone();
+        }
+        let each: Option<Vec<String>> = files
+            .iter()
+            .map(|f| {
+                f.to_path(root)
+                    .and_then(|p| std::fs::metadata(p).ok())
+                    .map(|m| stamp(&m))
+            })
+            .collect();
+        each.map(|e| e.join("+"))
+    };
+    // A work's songs together, by its page or manifest; a level alone.
+    let mut groups: Vec<(RelPathBuf, Vec<crate::library::LibSong>)> = Vec::new();
+    for s in songs {
+        let key = match &s.work {
+            Some(w) => w.source.clone(),
+            None => s.rooted(s.entry.chart.as_str()),
+        };
+        match groups.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, g)) => g.push(s),
+            None => groups.push((key, vec![s])),
+        }
+    }
+    let mut out = Vec::new();
+    for (key, songs) in groups {
+        let first = &songs[0];
+        let (files, base, chart_files): (Vec<RelPathBuf>, RelPathBuf, Vec<RelPathBuf>) =
+            match &first.work {
+                Some(w) => {
+                    let mut files: Vec<RelPathBuf> = songs
+                        .iter()
+                        .filter_map(|s| s.work.as_ref())
+                        .flat_map(|w| w.files().cloned())
+                        .collect();
+                    files.sort();
+                    files.dedup();
+                    // The folder holding all its files.
+                    let mut base = w.source.parent().to_rel_path_buf();
+                    while !files.iter().all(|f| f.starts_with(&base)) {
+                        base = base.parent().to_rel_path_buf();
+                    }
+                    let charts = std::iter::once(w.source.clone())
+                        .chain(w.dos.as_ref().map(|(d, _)| d.clone()))
+                        .collect();
+                    (files, base, charts)
+                }
+                None => {
+                    let chart = first.rooted(first.entry.chart.as_str());
+                    let mut files = vec![chart.clone()];
+                    let music = first.rooted(first.entry.music.as_str());
+                    if music != chart && !first.entry.music.is_empty() {
+                        files.push(music);
+                    }
+                    (files, first.dir.clone(), vec![chart])
+                }
+            };
+        let base = if zip { RelPathBuf::new() } else { base };
+        let name = match base.file_name() {
+            "" => prefix.to_string(),
+            n => n.to_string(),
+        };
+        let kind = match first.work {
+            Some(_) => "work",
+            None => "level",
+        };
+        let id = item_id(&format!("{kind}:{}!{key}", root.display()));
+        let total: u64 = files.iter().map(|f| size(f)).sum();
+        let refs: Vec<&RelPath> = chart_files.iter().map(|f| f.as_rel_path()).collect();
+        let place = Place::Files {
+            root: root.to_path_buf(),
+            zip,
+            base,
+            name: name.clone(),
+            files,
+        };
+        let mut f = found(id, &first.entry, &name, total, stamps(&refs), place);
+        if songs.len() > 1 {
+            // A work of several songs: one item, named by its folder,
+            // found by any of its songs.
+            let entries: Vec<&ManifestEntry> = songs.iter().map(|s| &s.entry).collect();
+            let all: Vec<Found> = entries
+                .iter()
+                .map(|e| {
+                    found(
+                        String::new(),
+                        e,
+                        &name,
+                        0,
+                        None,
+                        Place::Folder {
+                            dir: PathBuf::new(),
+                            pack: String::new(),
+                        },
+                    )
+                })
+                .collect();
+            f.meta.kind = Some(ItemKind::Pack);
+            f.meta.title = name.clone();
+            f.meta.artist = None;
+            f.meta.title_translit = None;
+            f.meta.artist_translit = None;
+            f.meta.length = None;
+            f.meta.bpm = None;
+            f.meta.charts = all
+                .iter()
+                .flat_map(|a| a.meta.charts.iter().cloned())
+                .take(ddi_source_host::protocol::limits::MAX_CHARTS)
+                .collect();
+            f.charts = all.iter().flat_map(|a| a.charts.iter().cloned()).collect();
+            f.haystack = all
+                .iter()
+                .map(|a| a.haystack.as_str())
+                .collect::<Vec<_>>()
+                .join("\u{1f}");
+            // The room list's key is a song's: none for several.
+            f.meta.song_key = None;
+        }
+        out.push(f);
+    }
+    out
 }
 
 /// A file's size and time, as a revision.

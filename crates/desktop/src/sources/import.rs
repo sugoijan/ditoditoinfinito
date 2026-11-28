@@ -220,6 +220,7 @@ mod tests {
             dir: RelPathBuf::from("song"),
             song_key: None,
             warnings: Vec::new(),
+            work: None,
         };
         let mut songs = Vec::new();
         for (n, reach) in [Reach::Play, Reach::Rooms, Reach::Keep]

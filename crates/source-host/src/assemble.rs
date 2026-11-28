@@ -18,7 +18,8 @@ use ddi_source_protocol::limits::{MAX_FILES, MAX_PATH_DEPTH, MAX_SONGS};
 use ddi_source_protocol::{Deliver, Delivery};
 
 use crate::store::{
-    Assembled, FetchedSong, ItemFiles, ItemKey, SharedStore, Stored, reserve_memory,
+    Assembled, FetchedSong, ItemFiles, ItemKey, MoreSong, MoreSongs, SharedStore, Stored,
+    reserve_memory,
 };
 
 /// The song folders of a fetched item that did not read, with why.
@@ -603,7 +604,8 @@ pub fn walk(root: &Path) -> Result<Vec<(RelPathBuf, PathBuf, u64)>, Reject> {
 }
 
 /// The songs in an item's files, read by the library's scanner as a
-/// folder's are; their ids the item's own (`src:<key>:<n>`), at most
+/// folder's are, then those `more` reads (the shell's: works, levels);
+/// their ids the item's own (`src:<key>:<n>`, in that order), at most
 /// [`MAX_SONGS`]. `Err` where none could be read, with why for each
 /// folder that failed.
 pub fn read_songs(
@@ -611,14 +613,22 @@ pub fn read_songs(
     key: ItemKey,
     fallback_pack: &str,
     legacy: ddi_library::legacy::Decoder,
+    more: MoreSongs,
 ) -> Result<(Vec<FetchedSong>, Skipped), Skipped> {
     let paths = files.paths();
     let scan = ddi_library::scan::scan_root(files, &paths, fallback_pack, &[], legacy);
-    if scan.songs.is_empty() {
+    let read = scan.songs.into_iter().map(|s| MoreSong {
+        entry: s.entry,
+        pack: s.pack,
+        dir: s.dir,
+        warnings: s.warnings,
+        work: None,
+    });
+    let read: Vec<MoreSong> = read.chain(more(files, &paths, fallback_pack)).collect();
+    if read.is_empty() {
         return Err(scan.failed);
     }
-    let songs = scan
-        .songs
+    let songs = read
         .into_iter()
         .take(MAX_SONGS)
         .enumerate()
@@ -644,6 +654,7 @@ pub fn read_songs(
                 dir: s.dir,
                 song_key,
                 warnings: s.warnings,
+                work: s.work,
             }
         })
         .collect();
@@ -699,7 +710,14 @@ mod tests {
         assert_eq!(assembled.memory, SSC.len() as u64 + 8);
         let key = ItemKey::of("p", "i", None);
         let files = ItemFiles(std::sync::Arc::new(assembled.files));
-        let (songs, failed) = read_songs(&files, key, "Fetched", &ddi_library::legacy::none).unwrap();
+        let (songs, failed) = read_songs(
+            &files,
+            key,
+            "Fetched",
+            &ddi_library::legacy::none,
+            crate::store::no_more,
+        )
+        .unwrap();
         assert!(failed.is_empty());
         assert_eq!(songs.len(), 1);
         assert_eq!(songs[0].id, key.song_id(0));

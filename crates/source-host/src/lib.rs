@@ -36,4 +36,4 @@ pub use ddi_source_protocol as protocol;
 pub use builtin::Builtin;
 pub use host::{Event, Failure, Host, HostConfig, HostFailure, Request, Stop, Timeouts};
 pub use installed::{Installed, discover};
-pub use store::{FetchedSong, Hold, ItemKey, SharedStore, Store, StoreLimits};
+pub use store::{FetchedSong, Hold, ItemKey, MoreSong, MoreSongs, SharedStore, Store, StoreLimits};

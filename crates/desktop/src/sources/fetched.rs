@@ -71,7 +71,7 @@ fn lib_song(s: ddi_source_host::FetchedSong) -> LibSong {
         entry: s.entry,
         warnings: s.warnings,
         notes: Vec::new(),
-        work: None,
+        work: s.work,
         fetched: Some(s.key.0),
     }
 }

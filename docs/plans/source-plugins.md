@@ -1198,9 +1198,9 @@ nothing runs: the window's start reads the switches and makes no host.
   during a play not counted); a cut is said on the page. Symbolic links
   are never followed, so nothing outside a folder named is read. What
   it found is kept in memory until the page opens again; nothing is
-  written to disk. Not in this stage: Dancing☆Onigiri works and FFR
-  levels, which the library reads its own way (`LibSong::work`, levels'
-  SWF) and the store's scanner does not.
+  written to disk. (Dancing☆Onigiri works and FFR levels, left out of
+  this stage, are read since round SF: "This computer reads what the
+  library reads", below.)
 - **Find songs** (`ddi_ui::screens::find_songs`, its model
   `crates/desktop/src/sources/find.rs`): song select's More offers
   "Find songs…" while a source is on. A page built from the page blocks:
@@ -1518,7 +1518,11 @@ for the run. Nothing is deleted.
   path, or its zip's and its folder in it) and its revision the chart
   file's size and time: the folder's path is in effect its item id, kept
   hashed; a moved folder is an item gone, an edited chart file a new
-  revision.
+  revision. A work's id is its page's (or dump manifest's) path hashed
+  with `work:` before it, its revision its page's and its dos's sizes and
+  times; a level's its file's path with `level:`, its revision its file's;
+  either in a zip, the zip's path and the file in it, the zip's size and
+  time its revision (round SF).
 
 **How plays join**:
 
@@ -1622,6 +1626,65 @@ plugin switched off, a judge older than today's with the chart absent then
 present, an import in place counted once, a revision with the chart
 unchanged and one with its notes changed. `find_songs.rs` and
 `find_songs_plugins.rs` keep the play now, and import in place.
+
+### This computer reads what the library reads (round SF, 2026-11-28)
+
+The maintainer: "Let's do a quick round fixing the small things". This
+computer found song folders and zips of them, but not the two other kinds
+of song the library reads on desktop: Dancing☆Onigiri works and FFR
+levels. It finds, plays, adds to a room and imports them now, as it does
+the others, through the library's own readers:
+
+- **Found**: the folder's files outside song folders (as it walks them,
+  within the same bounds) and each zip's names are read by the library's
+  readers of works and levels (`crate::library::works_and_levels`: the
+  same `scan_works` and `scan_levels` a library folder's scan runs, named
+  as the library names a folder's or a zip's files), stopping at the
+  bounds between one work or level and the next. A work is one item (its
+  page or dump manifest; a work of several songs one item of the kind
+  Pack, named by its folder, found by any of its songs), a level one (its
+  file). Ids and revisions: above, under "The origin".
+- **Fetched**: a work's files (its page, its dos, each song's music and
+  layers' images) or a level's (its file, its music beside a text level)
+  read where they are (a zip's into memory), named as the library names
+  them once the work's folder (the one holding all its files), the
+  level's (its pack's) or the zip is added. The host reads an item's
+  songs beyond its simfiles by a reader the shell gives it
+  (`HostConfig::more`, desktop's `library::item_songs`: the same readers
+  again), so the songs, their packs and entries are those the library
+  then lists; a work's song carries where its work is
+  (`FetchedSong::work`, `ddi_library::works::WorkRef`, moved there from
+  desktop's library), which a play reads it by, as a library work's. A
+  plugin's items are read the same way.
+- **Played, kept, added to a room** as any found song: its `src:` id,
+  its origin, "Played before"; the room's upload is the library's (a
+  work's as a library work's).
+- **Imported in place**: the work's folder, the level's folder, or the
+  zip, as a song's pack folder or zip is; nothing copied.
+- **Not done: a movie in a zip found.** A zip's song is still delivered
+  without its movies (a song folder's play where they are). Wiring it
+  needs (1) a stored file the store reads from a zip entry where it is
+  (`ddi_source_host::store::Stored`, a variant naming the zip, the entry
+  and its size, read through the library's sans-IO zip and counted as
+  disk, not memory), delivered by This computer's zip fetch in place of
+  leaving movies out, so the item's scan lists the movie; and (2)
+  `play::load::Files::movie_unless`'s `Memory` arm opening such an entry
+  as its `Zip` arm opens a library zip's movie (a stored entry read in
+  place by its range, a compressed one extracted once into the cache's
+  `movies/`). Neither is large, but (1) changes the store every source
+  shares and its accounting, so it waits for a round of its own.
+
+**Tests**: This computer's
+`it_finds_works_and_levels_and_reads_them_as_the_library_does` (a work
+and a level in a folder and in a zip: found, the same ids read again,
+fetched through the host into the songs the library lists once their
+folder or zip is added, entries equal but for the id, imported in place
+or covered), and desktop's `tests/found_works.rs` (offscreen through the
+play host, two runs over a scratch home: the work and the level found,
+played to their results without importing them and kept with their
+origin; the store emptied, both under "Played before" and fetched again by
+the same ids; imported in place, the library listing them where they are,
+nothing copied, the work's play counted for the library's chart).
 
 **Not done**: a play history screen of its own; the "Played before"
 list's filters or its search (the source's own search finds the rest);

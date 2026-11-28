@@ -26,6 +26,37 @@ use crate::report::Finding;
 /// (`docs/plans/overlays.md`; the largest work at hand shows 99).
 pub const MAX_LAYER_IMAGES: usize = 128;
 
+/// Where a work's song is, every path relative to the root the shell
+/// read the work from: read again for a play, as the web reads its stored
+/// work (desktop's library song's, and a song fetched from a source and
+/// not imported).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct WorkRef {
+    /// The page, or the dump's manifest.
+    pub source: crate::path::RelPathBuf,
+    pub dump: bool,
+    /// A page's external dos and its charset; a dump's effective dos.
+    pub dos: Option<(crate::path::RelPathBuf, Option<String>)>,
+    /// Its music number in the work.
+    pub music_no: usize,
+    pub music: crate::path::RelPathBuf,
+    /// The music is a script holding it as base64.
+    pub encoded: bool,
+    /// Its back and mask images: `(name as the data writes it, path)`.
+    pub layers: Vec<(String, crate::path::RelPathBuf)>,
+}
+
+impl WorkRef {
+    /// Every file the work's song is read from: its page or manifest, its
+    /// dos, its music and its layers' images.
+    pub fn files(&self) -> impl Iterator<Item = &crate::path::RelPathBuf> {
+        std::iter::once(&self.source)
+            .chain(self.dos.as_ref().map(|(d, _)| d))
+            .chain(std::iter::once(&self.music))
+            .chain(self.layers.iter().map(|(_, p)| p))
+    }
+}
+
 /// Where a work's music comes from.
 #[derive(Clone, Debug, PartialEq)]
 pub enum WorkMusic {

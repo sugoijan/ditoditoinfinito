@@ -122,6 +122,34 @@ pub struct FetchedSong {
     pub song_key: Option<String>,
     /// What the scan found worth saying (`ddi_library::scan::Scanned`).
     pub warnings: Vec<Finding>,
+    /// A Dancing☆Onigiri work's song: where the work's files are in the
+    /// item ([`MoreSong::work`]).
+    pub work: Option<ddi_library::works::WorkRef>,
+}
+
+/// A song an item holds beyond its simfiles', as a shell's own readers
+/// find it ([`MoreSongs`]): its entry, files relative to `dir`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MoreSong {
+    pub entry: ManifestEntry,
+    pub pack: String,
+    pub dir: RelPathBuf,
+    pub warnings: Vec<Finding>,
+    /// A Dancing☆Onigiri work's song: where the work's files are, by
+    /// their paths in the item.
+    pub work: Option<ddi_library::works::WorkRef>,
+}
+
+/// What a shell reads in an item beyond its simfiles, by the readers its
+/// library reads a folder with: desktop's Dancing☆Onigiri works and FFR
+/// levels (`ddi_desktop::library::item_songs`). Given the item's files,
+/// their paths and the pack the item's loose songs fall in.
+pub type MoreSongs = fn(&ItemFiles, &[RelPathBuf], &str) -> Vec<MoreSong>;
+
+/// No songs but the simfiles' ([`MoreSongs`]): a shell that reads nothing
+/// more, and the tests'.
+pub fn no_more(_: &ItemFiles, _: &[RelPathBuf], _: &str) -> Vec<MoreSong> {
+    Vec::new()
 }
 
 /// An item's files, cheap to clone, read as a folder is
@@ -726,6 +754,7 @@ mod tests {
             dir: RelPathBuf::from("song"),
             song_key: None,
             warnings: Vec::new(),
+            work: None,
         };
         store.lock().unwrap().insert(
             key,

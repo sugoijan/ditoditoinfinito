@@ -203,6 +203,7 @@ pub fn host_config() -> Option<HostConfig> {
     config.app_version = env!("CARGO_PKG_VERSION").into();
     config.language = ddi_l10n::current().tag.to_string();
     config.legacy = crate::library::legacy_text;
+    config.more = crate::library::item_songs;
     Some(config)
 }
 

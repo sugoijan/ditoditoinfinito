@@ -1361,11 +1361,17 @@ Rust and the browser are implementation details, not advertised features.
   "This computer" (`sources/this_computer.rs`, TENTATIVE, its own switch
   `--sources on|off` in the desktop's setting `ddi.desktop.sources.v1`
   with its folders, off by default, apart from Add songs: song folders
-  and zips searched in place without adding them to the library, bounded
+  and zips searched in place without adding them to the library, and
+  since round SF Dancing☆Onigiri works and FFR levels in either, by the
+  library's own readers (`library::works_and_levels`; a fetched item's
+  read again by them through the host's `HostConfig::more`,
+  `library::item_songs`, a work's song carrying its
+  `ddi_library::works::WorkRef`, `FetchedSong::work`), bounded
   in depth, entries, songs and time, links never followed, found songs
   kept in memory until the page opens again; its songs imported in
   place, round PH: their pack's folder, their own or their zip added to
-  the song folders, `this_computer::InPlace`, nothing copied), Find songs
+  the song folders (a work's folder, a level's), `this_computer::InPlace`,
+  nothing copied; a zip's movies still left out), Find songs
   (`sources/find.rs`, the model of `ddi_ui::screens::find_songs`, from
   song select's More while a source is on; "Played before" from the
   plays' origins, at most `PLAYED_MAX` a source, Play asking the source
@@ -1577,7 +1583,9 @@ Rust and the browser are implementation details, not advertised features.
   fetched songs in memory, 64 MiB an item, 256 MiB in all, else in the
   cache folder's `sources/`, 2 GiB a run, movies always there, held
   items (`store::hold`) moved there rather than dropped (`store`), read
-  by the library's own scanner and zip reader into songs with ids
+  by the library's own scanner and zip reader, then by the shell's
+  readers of what else its library reads (`HostConfig::more`,
+  `MoreSong`: desktop's works and FFR levels), into songs with ids
   `src:<16 hex>:<n>` and their `song_key` (`assemble`); sources built
   into the app asked the same way, in process on a thread an operation
   (`builtin`, `Host::add_builtin`: desktop's "This computer"); nothing

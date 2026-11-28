@@ -55,6 +55,41 @@ pub fn song_at(dir: &Path, title: &str, artist: &str, meter: u32, double: bool) 
     std::fs::write(dir.join("song.wav"), silence()).unwrap();
 }
 
+/// A Dancing☆Onigiri work's page: `title`'s one song, its music
+/// `music` (where danoniplus looks for it: `../music/` from the page),
+/// eight notes from its frame 200.
+pub fn work_page(title: &str, music: &str) -> String {
+    let left: Vec<String> = (230..470).step_by(60).map(|f| f.to_string()).collect();
+    let down: Vec<String> = (260..500).step_by(60).map(|f| f.to_string()).collect();
+    format!(
+        "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title>{title}</title></head><body>\n\
+         <input type=\"hidden\" name=\"dos\" id=\"dos\" value='\n\
+         |musicTitle={title},Generated,,,120|\n|difData=5,Easy,3.5|\n|musicUrl={music}|\n\
+         |blankFrame=200|\n|left_data={}|\n|down_data={}|\n'>\n</body></html>\n",
+        left.join(","),
+        down.join(",")
+    )
+}
+
+/// A work written in pack folder `pack`: its page in `danoni/`, its
+/// music in `music/` beside it.
+pub fn work_at(pack: &Path, title: &str) {
+    std::fs::create_dir_all(pack.join("danoni")).unwrap();
+    std::fs::create_dir_all(pack.join("music")).unwrap();
+    std::fs::write(pack.join("music/work.wav"), silence()).unwrap();
+    std::fs::write(pack.join("danoni/work.html"), work_page(title, "work.wav")).unwrap();
+}
+
+/// An FFR level of `notes` notes (from frame 30, a sixth of a second
+/// apart), its music the platform's MP3 fixture.
+pub fn level(notes: usize) -> Vec<u8> {
+    let mp3 = include_bytes!("../../../../platform/tests/fixtures/sine-441-bare.mp3").repeat(8);
+    let notes: Vec<(f64, &str, &str)> = (0..notes)
+        .map(|i| (30.0 + 5.0 * i as f64, ["L", "D", "U", "R"][i % 4], "blue"))
+        .collect();
+    ddi_library::swf::write_level(&notes, &mp3, true)
+}
+
 fn scratch(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/scratch/this-computer")
@@ -94,7 +129,9 @@ fn folder(root: &Path) -> PathBuf {
 
 fn host(root: &Path, source: Arc<ThisComputer>) -> Host {
     let store = Store::open(root.join("cache/sources"), StoreLimits::default()).shared();
-    let config = HostConfig::new(root.join("cache/plugins"), root.join("data/plugin-data"));
+    let mut config = HostConfig::new(root.join("cache/plugins"), root.join("data/plugin-data"));
+    // As the game's: works and levels read as its library reads them.
+    config.more = crate::library::item_songs;
     let mut host = Host::new(config, Vec::new(), &BTreeSet::new(), store, None);
     host.add_builtin(source);
     host
@@ -374,4 +411,135 @@ fn an_import_adds_the_pack_or_the_song_or_the_zip_in_place_once() {
         in_place_of(&one, named, &alone),
         covered("/songs/Pack A/Song One")
     );
+}
+
+/// Works and FFR levels, in a folder and in a zip, found, fetched and
+/// imported in place as the library reads them: a work an item (its page,
+/// its music beside), a level one; fetched, each read again by the
+/// library's own readers into the songs it lists once its folder (or the
+/// zip) is added.
+#[test]
+fn it_finds_works_and_levels_and_reads_them_as_the_library_does() {
+    let root = scratch("works");
+    let songs = root.join("songs");
+    work_at(&songs.join("WorkPack"), "Work Test");
+    std::fs::create_dir_all(songs.join("FFR Levels")).unwrap();
+    std::fs::write(songs.join("FFR Levels/level_1.swf"), level(8)).unwrap();
+    // A zip of a work and a level.
+    let page = work_page("Zip Work", "zip.wav");
+    let swf = level(4);
+    let wav = silence();
+    let entries: Vec<(&str, &[u8])> = vec![
+        ("Inside/danoni/work.html", page.as_bytes()),
+        ("Inside/music/zip.wav", &wav),
+        ("Inside/Levels/level_2.swf", &swf),
+    ];
+    std::fs::write(
+        songs.join("Bundle.zip"),
+        ddi_library::zip::write_stored(&entries).unwrap(),
+    )
+    .unwrap();
+    let source = Arc::new(ThisComputer::new(vec![songs.clone()]));
+    let mut host = host(&root, source.clone());
+    let all = search(&mut host, "", BTreeMap::new());
+    assert_eq!(titles(&all), ["level_2", "Zip Work", "level_1", "Work Test"]);
+    assert!(!source.cut());
+    let packs: Vec<Option<&str>> = all.iter().map(|i| i.pack.as_deref()).collect();
+    assert_eq!(
+        packs,
+        [Some("Bundle"), Some("Bundle"), Some("FFR Levels"), Some("WorkPack")]
+    );
+    for item in &all {
+        assert!(item.revision.is_some() && item.size.is_some_and(|s| s > 0), "{item:?}");
+        assert!(!item.charts.is_empty(), "{item:?}");
+        assert!(item.song_key.is_some(), "{item:?}");
+    }
+    assert_eq!(titles(&search(&mut host, "work test", BTreeMap::new())), ["Work Test"]);
+
+    let fetch = |host: &mut Host, item: &ItemMeta| {
+        let op = host.request(
+            ID,
+            Request::Fetch {
+                item: item.id.clone(),
+                revision: item.revision.clone(),
+                size: item.size,
+                reach: None,
+            },
+        );
+        match answer(host, op).pop() {
+            Some(Event::Fetched { songs, .. }) => songs,
+            other => panic!("{other:?}"),
+        }
+    };
+    // Each fetched is what the library lists once its folder is added:
+    // the same entry but for its id, the same pack.
+    let listed = |folder: &Path| {
+        let (songs, report) = crate::library::scan_folders(&[folder.to_path_buf()]);
+        assert!(report.failed.is_empty(), "{:?}", report.failed);
+        songs
+    };
+    let same = |fetched: &ddi_source_host::FetchedSong, lib: &crate::library::LibSong| {
+        let mut entry = fetched.entry.clone();
+        entry.id = lib.entry.id.clone();
+        assert_eq!(entry, lib.entry);
+        assert_eq!(fetched.pack, lib.pack);
+        assert!(fetched.song_key.is_some());
+    };
+    let added = |item: &ItemMeta| match source.in_place(&item.id, &[]) {
+        Some(InPlace::Add(p)) => p,
+        other => panic!("{other:?}"),
+    };
+    // The work: read where it is, its page and music; played as a work.
+    let work = fetch(&mut host, &all[3]);
+    assert_eq!(work.len(), 1);
+    let w = work[0].work.clone().expect("a work's song");
+    assert_eq!(w.source.as_str(), "WorkPack/danoni/work.html");
+    assert_eq!(w.music.as_str(), "WorkPack/music/work.wav");
+    let (_, files) = host.store().lock().unwrap().song(&work[0].id).unwrap();
+    assert!(matches!(files.get(&w.music), Some(Stored::Disk(p)) if p.starts_with(&songs)));
+    assert_eq!(added(&all[3]), songs.join("WorkPack"));
+    let lib = listed(&songs.join("WorkPack"));
+    assert_eq!(lib.len(), 1);
+    same(&work[0], &lib[0]);
+    // Its files where the library has them, under the folder added.
+    let lib_work = lib[0].work.as_ref().expect("the library's work");
+    assert_eq!(RelPath::new("WorkPack").join(&lib_work.source), w.source);
+    assert_eq!(RelPath::new("WorkPack").join(&lib_work.music), w.music);
+    assert_eq!(work[0].song_key, all[3].song_key);
+    // The level: its file, its music in it.
+    let level = fetch(&mut host, &all[2]);
+    assert_eq!(level.len(), 1);
+    assert!(level[0].work.is_none());
+    assert!(ddi_library::ffr::is_level_chart(&level[0].entry.chart));
+    assert_eq!(added(&all[2]), songs.join("FFR Levels"));
+    let lib = listed(&songs.join("FFR Levels"));
+    assert_eq!(lib.len(), 1);
+    same(&level[0], &lib[0]);
+    // A zip's: into memory, as the library reads the zip once it is added.
+    let zipped = listed(&songs.join("Bundle.zip"));
+    assert_eq!(zipped.len(), 2);
+    for item in &all[..2] {
+        let got = fetch(&mut host, item);
+        assert_eq!(got.len(), 1);
+        let lib = zipped
+            .iter()
+            .find(|s| s.entry.title == item.title)
+            .expect("listed");
+        same(&got[0], lib);
+        let (song, files) = host.store().lock().unwrap().song(&got[0].id).unwrap();
+        let chart = song.dir.join(song.entry.chart.as_str());
+        assert!(matches!(files.get(&chart), Some(Stored::Memory(_))), "{chart}");
+        assert_eq!(added(item), songs.join("Bundle.zip"));
+    }
+    // The same ids, read again (the page opened again).
+    let ids: Vec<String> = all.iter().map(|i| i.id.clone()).collect();
+    source.refresh();
+    let again = search(&mut host, "", BTreeMap::new());
+    assert_eq!(again.iter().map(|i| i.id.clone()).collect::<Vec<_>>(), ids);
+    // Covered once a song folder of the library holds it.
+    assert_eq!(
+        source.in_place(&all[3].id, std::slice::from_ref(&songs)),
+        Some(InPlace::Covered(songs.clone()))
+    );
+    let _ = std::fs::remove_dir_all(root);
 }

@@ -238,23 +238,8 @@ pub struct LibSong {
     pub fetched: Option<u64>,
 }
 
-/// Where a work's song is, every path relative to the root: read again
-/// for a play (`play::load`), as the web reads its stored work.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct WorkRef {
-    /// The page, or the dump's manifest.
-    pub source: RelPathBuf,
-    pub dump: bool,
-    /// A page's external dos and its charset; a dump's effective dos.
-    pub dos: Option<(RelPathBuf, Option<String>)>,
-    /// Its music number in the work.
-    pub music_no: usize,
-    pub music: RelPathBuf,
-    /// The music is a script holding it as base64.
-    pub encoded: bool,
-    /// Its back and mask images: `(name as the data writes it, path)`.
-    pub layers: Vec<(String, RelPathBuf)>,
-}
+/// Where a work's song is (`ddi_library::works::WorkRef`).
+pub use ddi_library::works::WorkRef;
 
 impl LibSong {
     /// One of its files (relative to its folder) relative to the root.
@@ -712,11 +697,11 @@ fn scan_songs(
     if stale() {
         return Err(Superseded);
     }
-    scan_works(root, files, paths, listing, cached, out, report);
+    scan_works(root, files, paths, listing, cached, out, report, stale);
     if stale() {
         return Err(Superseded);
     }
-    scan_levels(root, files, paths, &songs, listing, cached, out, report);
+    scan_levels(root, files, paths, &songs, listing, cached, out, report, stale);
     // Refresh even reused songs: a cover can change without a song changing.
     let mut covers = HashMap::new();
     for cached in &mut out.songs {
@@ -747,7 +732,9 @@ fn scan_songs(
 
 /// The works among a root's `paths` (as the scan names them) into `out`,
 /// found as the web's import finds them (`ddi_library::works`): the
-/// same songs, ids and entries, their files named in place.
+/// same songs, ids and entries, their files named in place. Ends early
+/// once `stop` says so (checked before each work).
+#[allow(clippy::too_many_arguments)]
 fn scan_works(
     root: &Root,
     files: &dyn Reader,
@@ -756,9 +743,13 @@ fn scan_works(
     cached: Option<(&CachedRoot, &Force)>,
     out: &mut CachedRoot,
     report: &mut Report,
+    stop: &dyn Fn() -> bool,
 ) {
     let mut seen: HashMap<String, String> = HashMap::new();
     for ws in ddi_library::danoni::work_sources(paths) {
+        if stop() {
+            return;
+        }
         let label = match &ws {
             ddi_library::danoni::WorkSource::Page(p) | ddi_library::danoni::WorkSource::Dump(p) => {
                 p.clone()
@@ -856,7 +847,8 @@ fn scan_works(
 /// `out`, a song each, found as the web's import finds them (the same ids
 /// and packs), read in place: a SWF's music is taken out of it when it
 /// plays. Each reused from the cache while its file (and its music's)
-/// is the same.
+/// is the same. Ends early once `stop` says so (checked before each
+/// level).
 #[allow(clippy::too_many_arguments)]
 fn scan_levels(
     root: &Root,
@@ -867,6 +859,7 @@ fn scan_levels(
     cached: Option<(&CachedRoot, &Force)>,
     out: &mut CachedRoot,
     report: &mut Report,
+    stop: &dyn Fn() -> bool,
 ) {
     use ddi_library::ffr;
     // The cache's songs by folder and chart, its failures by file: each
@@ -885,6 +878,9 @@ fn scan_levels(
         }
     }
     for c in ffr::find_levels(paths, songs, &root.fallback) {
+        if stop() {
+            return;
+        }
         let label = c.path.to_string();
         // The level's file and its music's, unchanged.
         let hash = listing.map_or(0, |l| {
@@ -951,6 +947,70 @@ fn scan_levels(
             },
         });
     }
+}
+
+/// The Dancing☆Onigiri works and FFR levels among `paths` (each named
+/// under `prefix`, as a root's are), read from `files` by the library's
+/// own readers as a scan of a folder at `path` reads them: each a song as
+/// the library lists it (its paths relative to `path`, its pack from
+/// `fallback` where the paths name none), and what did not read, `(where
+/// as named, why)`. Ends early once `stop` says so. For songs found
+/// outside the library: "This computer"'s search (`crate::sources`) and
+/// a fetched item's songs ([`item_songs`]).
+pub fn works_and_levels(
+    path: &Path,
+    files: &dyn Reader,
+    paths: &[RelPathBuf],
+    prefix: &str,
+    fallback: &str,
+    stop: &dyn Fn() -> bool,
+) -> (Vec<LibSong>, Vec<(String, Finding)>) {
+    let root = Root {
+        path: path.to_path_buf(),
+        zip: false,
+        prefix: prefix.to_string(),
+        fallback: fallback.to_string(),
+        shared: Vec::new(),
+    };
+    let mut out = CachedRoot {
+        path: root.path.clone(),
+        zip: false,
+        prefix: root.prefix.clone(),
+        stamp: String::new(),
+        songs: Vec::new(),
+        failed: Vec::new(),
+    };
+    let mut report = Report::default();
+    scan_works(&root, files, paths, None, None, &mut out, &mut report, stop);
+    let songs = pack::find_songs(paths, fallback);
+    scan_levels(
+        &root, files, paths, &songs, None, None, &mut out, &mut report, stop,
+    );
+    (
+        out.songs.into_iter().map(|c| c.song).collect(),
+        out.failed.into_iter().map(|(at, why, _)| (at, why)).collect(),
+    )
+}
+
+/// The works and FFR levels a fetched item holds ([`works_and_levels`]
+/// over its files as named in it), as the source host reads an item's
+/// songs beyond its simfiles' (`ddi_source_host::HostConfig::more`).
+pub fn item_songs(
+    files: &ddi_source_host::store::ItemFiles,
+    paths: &[RelPathBuf],
+    pack: &str,
+) -> Vec<ddi_source_host::MoreSong> {
+    let (songs, _) = works_and_levels(Path::new(""), files, paths, "", pack, &|| false);
+    songs
+        .into_iter()
+        .map(|s| ddi_source_host::MoreSong {
+            entry: s.entry,
+            pack: s.pack,
+            dir: s.dir,
+            warnings: s.warnings,
+            work: s.work,
+        })
+        .collect()
 }
 
 /// The largest page read as a possible work, bytes.

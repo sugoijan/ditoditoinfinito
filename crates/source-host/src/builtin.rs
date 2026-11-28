@@ -483,7 +483,7 @@ fn fetched(
     } else {
         delivered.pack
     };
-    match crate::assemble::read_songs(&files, key, &pack, &legacy) {
+    match crate::assemble::read_songs(&files, key, &pack, &legacy, spawn.config.more) {
         Ok((songs, skipped)) => {
             if let Ok(mut s) = spawn.store.lock() {
                 s.insert(
